@@ -466,18 +466,19 @@
   }
 
   // tabs.content reads in the page agent's world, within the page-read
-  // budget (A.budget, page-agent.js), so a page's text or HTML crosses to
-  // the session cut at the URL's share instead of whole.
+  // budget (A.budget, page-agent.js): the body's text or the document's
+  // HTML is built under the budget (the getter runs only when its string
+  // fits, else node by node), so a page's text or HTML crosses to the
+  // session cut at the URL's share, and no DOM-wide string is made first.
   const CONTENT_READ_SIZE = 2000000;
   function readContent(opts) {
     const B = globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize });
-    let text;
+    let content;
     if (opts.html) {
-      const doctype = document.doctype ? new XMLSerializer().serializeToString(document.doctype) : "";
-      text = doctype + (document.documentElement ? document.documentElement.outerHTML : "");
-    } else text = document.body ? document.body.innerText : "";
-    const content = B.fit(text);
-    return { content, truncated: B.truncated || null };
+      const doctype = document.doctype ? B.fit(new XMLSerializer().serializeToString(document.doctype)) : "";
+      content = doctype + (document.documentElement ? B.outerHTML(document.documentElement) : "");
+    } else content = document.body ? B.innerText(document.body) : "";
+    return { content, truncated: B.truncated || null, report: B.report() };
   }
   function readTitle(opts) {
     return globalThis[Symbol.for("cmux.browserRepl.agent")].budget({ maxSize: opts.maxSize }).fit(document.title);
@@ -699,6 +700,7 @@
             const response = await page.goto(url, { timeout, waitUntil: opts.waitUntil || "load" });
             let content;
             let cut = false;
+            let reason = null;
             if (format === "snapshot") {
               const snap = await ns.snapshot.takeSnapshot(page, undefined, { maxChars: Infinity, _maxSize: share });
               content = String(snap.tree);
@@ -710,10 +712,11 @@
               const r = await page._mainFrame._call("agent", core.functionSource(readContent), [{ html: format === "html", maxSize: share }]);
               content = r.content;
               cut = !!r.truncated;
+              if (cut) reason = r.report;
             }
             const title = await page._mainFrame._call("agent", core.functionSource(readTitle), [{ maxSize: 1000 }]);
             const row = { url: page.url(), title, status: response ? response.status() : null, content };
-            if (cut) row.truncated = cutNote(share);
+            if (cut) row.truncated = reason ? core.readCutNote("tabs.content", reason) : cutNote(share);
             return row;
           } catch (e) {
             return { url, title: null, status: null, content: null, error: String((e && e.message) || e) };
