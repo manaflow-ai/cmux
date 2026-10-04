@@ -1,8 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
-import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OutboxFailure, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
-import { drainOutbox } from "./projection.ts"
+import { drainOutbox, isTransientError } from "./projection.ts"
 import { SnapshotBatcher } from "./snapshot-batcher.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
@@ -32,6 +32,17 @@ export type ReadResult = { readonly ok: true; readonly value: unknown; readonly 
 const MAX_BACKOFF_MS = 5 * 60_000
 /** How long hidden events coalesce before the filtered resync snapshot. */
 const RESYNC_BATCH_MS = 250
+/** Dead outbox items are replayed this long after they died (automatic replay tool). */
+const DEAD_REPLAY_MS = 24 * 3600_000
+
+/** Transient (backoff forever) or poison (counts toward dead letter) for a failed outbox delivery. */
+const outboxFailure = (e: unknown): OutboxFailure => {
+  const flags = e as { retryable?: unknown; overloaded?: unknown } | null
+  if (flags?.retryable === true || flags?.overloaded === true) return "transient"
+  if (e instanceof Error && /no binding for/.test(e.message)) return "transient"
+  return isTransientError(e) ? "transient" : "poison"
+}
+
 const PRUNE_SLACK_MS = 60 * 60_000
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
@@ -222,7 +233,10 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const prune = oldest === null ? null : oldest + LEDGER_RETENTION_MS + PRUNE_SLACK_MS
     const events = this.engine.nextEventPruneAt()
     const eventPrune = events === null ? null : events + PRUNE_SLACK_MS
-    const times = [wake, prune, eventPrune].filter((t): t is number => t !== null)
+    // Dead outbox items come back once a day by themselves (a fix deployed since then drains them).
+    const dead = this.engine.outbox.oldestDeadAt()
+    const replay = dead === null ? null : dead + DEAD_REPLAY_MS
+    const times = [wake, prune, eventPrune, replay].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 
@@ -327,6 +341,14 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return r.ok ? { ...r, revision: String(engine.currentSeq) } : r
   }
 
+  /** Operator replay tool (admin-outbox.ts): dead outbox items go back to the queue. */
+  async replayDeadLetters(entity: string, ids?: ReadonlyArray<number>): Promise<{ replayed: number; dead: number }> {
+    const engine = this.bind(entity)
+    const replayed = engine.outbox.replayDead(Date.now(), ids ? { ids } : {})
+    this.afterCommit()
+    return { replayed, dead: engine.outbox.deadCount() }
+  }
+
   async debug(entity: string) {
     return this.bind(entity).debugDump()
   }
@@ -416,12 +438,18 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
     // its own, so a dead target cannot stop projections or healthy targets.
     for (const channel of outbox.dueChannels(Date.now())) {
-      const rows = outbox.pending(channel, 100)
+      // After a failure a target channel sends its head alone, so a poison item is found by itself.
+      const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
       if (rows.length === 0) continue
       try {
         if (channel === "") {
-          await drainOutbox(this.env, this.engine.stream, rows)
-          outbox.markSent(rows.map((r) => r.id), Date.now())
+          const res = await drainOutbox(this.env, this.engine.stream, rows)
+          outbox.markSent(res.sent, Date.now())
+          // Only the bad row leaves the queue; the rest of the batch committed (home-scale review P1).
+          for (const d of res.dead) {
+            outbox.deadLetter(d.id, Date.now())
+            console.error(JSON.stringify({ msg: "outbox row dead-lettered", stream: this.engine.stream, channel: "planetscale", dead_letter: d.id, error: d.error }))
+          }
         } else {
           const batch = groupTargets(rows)[0]!
           outbox.markSent(batch.superseded, Date.now())
@@ -434,10 +462,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         }
         outbox.succeeded(channel)
       } catch (e) {
-        const dead = outbox.failed(channel, Date.now())
+        const dead = outbox.failed(channel, Date.now(), outboxFailure(e))
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: this.engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
     }
+    const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })
+    if (replayed > 0) console.warn(JSON.stringify({ msg: "outbox dead letters replayed", stream: this.engine.stream, count: replayed }))
     this.engine.pruneEvents(Date.now() - EVENT_RETENTION_MS)
     // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
     this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)
