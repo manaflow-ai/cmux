@@ -63,7 +63,7 @@ final class AppPageNativeProvider: PageProvider {
         guard let forward else { throw PageError.unknownOp(op) }
         let labels = (args.objectValue ?? [:]).compactMapValues(\.stringValue)
         guard await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor()) else { return ["confirmed": false] }
-        let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true))
+        let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true, opid: context.opid))
         return ["confirmed": true, "value": value]
     }
 
@@ -104,7 +104,7 @@ final class DaemonPageRelay: PageProvider {
             throw PageError.closed
         }
         var members = params.objectValue ?? [:]
-        let key = members.removeValue(forKey: "idempotency_key")?.stringValue
+        let key = Self.idempotencyKey(members.removeValue(forKey: "idempotency_key")?.stringValue, context: context)
         do {
             // The page relay connection: origin `page`, or the user with a native-sheet token.
             let result = try await PageRelayChannel.shared(for: services.machines.local).send(
@@ -114,6 +114,12 @@ final class DaemonPageRelay: PageProvider {
         } catch let error as DaemonError {
             throw Self.pageError(error)
         }
+    }
+
+    /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend
+    /// after a reconnect replays the daemon's first answer instead of applying twice.
+    static func idempotencyKey(_ explicit: String?, context: PageCallContext) -> String? {
+        explicit ?? context.opid
     }
 
     static func daemonParams(_ members: [String: CmuxNextSettings.JSONValue]) throws -> [String: CmuxNextDaemon.JSONValue] {
