@@ -7,6 +7,8 @@ import Foundation
 /// section for the local daemon, loose workspaces first, then groups.
 public struct SidebarMapping {
     public static let shared = Self()
+    /// The workspace kind of the home workspace (`workspace-kind-v1`).
+    public static let homeKind = "home"
     /// `statusLine` maps a workspace id to the status hooks reported
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility).
@@ -16,7 +18,10 @@ public struct SidebarMapping {
                                 statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
-            let rows = section.workspaces.map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread) }
+            // The home workspace (`kind` "home") is what the Home item in the
+            // top section shows; it is not also a workspace row (nxdog28).
+            let rows = section.workspaces.filter { $0.kind != Self.homeKind }
+                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
