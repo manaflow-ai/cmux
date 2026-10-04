@@ -60,8 +60,12 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
         return Ok(());
     }
     transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS closed_v1_copied (closed_id TEXT PRIMARY KEY NOT NULL);",
+        "CREATE TABLE IF NOT EXISTS closed_v1_copied (
+           closed_id TEXT PRIMARY KEY NOT NULL,
+           closed_at_ms INTEGER NOT NULL
+         );",
     )?;
+    reconcile_v1(transaction)?;
     let rows = {
         let mut statement = transaction.prepare(
             "SELECT closed_id, kind, record_json, closed_at_ms FROM closed_history
@@ -93,7 +97,41 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
              VALUES(?1, ?2, NULL, ?3, ?4)",
             params![closed_id, kind, closed_at_ms, serde_json::to_string(&group)?],
         )?;
-        transaction.execute("INSERT INTO closed_v1_copied(closed_id) VALUES(?1)", [&closed_id])?;
+        transaction.execute(
+            "INSERT INTO closed_v1_copied(closed_id, closed_at_ms) VALUES(?1, ?2)",
+            params![closed_id, closed_at_ms],
+        )?;
+    }
+    Ok(())
+}
+
+/// Copied v1 rows that a downgraded v1 daemon removed since the copy. A
+/// v1 daemon removes a row when it reopens it, or when it evicts its oldest
+/// rows past 50. A removed row at least as new as the oldest remaining v1
+/// row was reopened, so its group goes too (never reopened twice); an
+/// empty v1 table means every removed row was reopened (eviction keeps 50).
+/// A row older than every remaining row may only have been evicted, so its
+/// group stays (history is kept). The ledger forgets every removed row.
+fn reconcile_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let removed = {
+        let mut statement = transaction.prepare(
+            "SELECT closed_id, closed_at_ms FROM closed_v1_copied
+             WHERE closed_id NOT IN (SELECT closed_id FROM closed_history)",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    if removed.is_empty() {
+        return Ok(());
+    }
+    let oldest: Option<i64> =
+        transaction.query_row("SELECT MIN(closed_at_ms) FROM closed_history", [], |row| row.get(0))?;
+    for (closed_id, closed_at_ms) in removed {
+        if oldest.is_none_or(|oldest| closed_at_ms >= oldest) {
+            transaction.execute("DELETE FROM closed_groups WHERE closed_id = ?1", [&closed_id])?;
+        }
+        transaction.execute("DELETE FROM closed_v1_copied WHERE closed_id = ?1", [&closed_id])?;
     }
     Ok(())
 }
