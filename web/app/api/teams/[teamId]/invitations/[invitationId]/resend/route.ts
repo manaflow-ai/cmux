@@ -1,6 +1,6 @@
 import { teamErrorResponse } from "../../../../../../../services/teams/errors";
 import { resendTeamInvitation } from "../../../../../../../services/teams/invitations";
-import { teamInviteAcceptUrl } from "../../../../../../../services/teams/origin";
+import { teamInviteLinkUrl } from "../../../../../../../services/teams/origin";
 import { teamJson, withTeamAccessRoute } from "../../../../../../../services/teams/route";
 import { uuidParam } from "../../../../../../../services/teams/schemas";
 
@@ -15,7 +15,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     { admin: true, permission: "inviteMembers", rateLimited: true },
     async (access) => {
       if (!uuidParam.safeParse(invitationId).success) return teamErrorResponse("invitation_not_found", 404);
-      const invitation = await resendTeamInvitation(access, invitationId, teamInviteAcceptUrl(request));
+      const invitation = await resendTeamInvitation(access, invitationId, (token) => teamInviteLinkUrl(request, token));
       return teamJson({ invitation });
     },
   );

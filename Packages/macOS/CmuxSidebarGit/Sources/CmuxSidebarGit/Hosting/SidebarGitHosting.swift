@@ -98,6 +98,13 @@ public protocol SidebarGitHosting: AnyObject {
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool
     /// How long until the mobile host has been quiet for `interval` seconds.
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval
+
+    /// Whether terminal input was received within `interval` seconds. Local
+    /// metadata probes defer during this short window so their apply hop does
+    /// not compete with the terminal's input/render turn.
+    func terminalTypingIsActive(within interval: TimeInterval) -> Bool
+    /// The remaining quiet delay before local metadata work may resume.
+    func terminalTypingQuietDelay(for interval: TimeInterval) -> TimeInterval
 }
 
 extension SidebarGitHosting {

@@ -37,6 +37,8 @@ final class LocalTerminalSharingController: TerminalSharingSurfaceControlling {
         owner?.localSizingNoteSelfActivity(surfaceID: surfaceID)
     }
 
-    /// A local Mac pane is never detached from its own host.
-    func sharingReattach(asViewer: Bool) -> Bool { false }
+    /// Reattaches the Mac pane's view after a phone or viewing Mac detached it.
+    func sharingReattach(asViewer: Bool) -> Bool {
+        owner?.localSizingReattachMac(surfaceID: surfaceID, asViewer: asViewer) ?? false
+    }
 }

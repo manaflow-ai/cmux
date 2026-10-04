@@ -1,7 +1,7 @@
 import CmuxSettings
 import Foundation
 
-/// Settings-file section parsers for file editor, file explorer, markdown, mobile, and sidebar workspace-todo options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
+/// Settings-file section parsers for file editor, file explorer, agent messages, markdown, mobile, and sidebar workspace-todo options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
 extension CmuxSettingsFileStore {
     func parseFileEditorSection(
         _ section: [String: Any],
@@ -83,13 +83,38 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    /// `agentMessages.enabled`, the app-wide switch for agent messages.
+    func parseAgentMessagesSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["enabled"]) {
+            snapshot.managedUserDefaults[AgentMessagesCatalogSection().enabled.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("enabled") {
+            logInvalid("agentMessages.enabled", sourcePath: sourcePath)
+        }
+    }
+
     func parseSidebarWorkspaceTodosBeta(
         _ beta: [String: Any],
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let betaKeys = BetaFeaturesCatalogSection()
+        if let rawConversations = beta["conversations"], let conversations = rawConversations as? [String: Any] {
+            if let enabled = jsonBool(conversations["enabled"]) {
+                snapshot.managedUserDefaults[
+                    betaKeys.conversationSidebar.userDefaultsKey
+                ] = .bool(enabled)
+            } else if conversations.keys.contains("enabled") {
+                logInvalid("sidebar.beta.conversations.enabled", sourcePath: sourcePath)
+            }
+        } else if beta.keys.contains("conversations") {
+            logInvalid("sidebar.beta.conversations", sourcePath: sourcePath)
+        }
+
         if let rawTodos = beta["workspaceTodos"], let todos = rawTodos as? [String: Any] {
-            let betaKeys = BetaFeaturesCatalogSection()
             if let controls = todos["controls"] as? [String: Any] {
                 if let enabled = jsonBool(controls["enabled"]) {
                     snapshot.managedUserDefaults[

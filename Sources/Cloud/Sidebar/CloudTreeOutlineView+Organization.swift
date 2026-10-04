@@ -8,9 +8,9 @@ extension CloudTreeOutlineView.Coordinator {
         guard node.canOrganize,
               let parent = CloudSidebarOrganizationTree(nodes: organizationNodes).parent(of: node.id) else { return [] }
         let state = organization.state
-        let pinned = state.isPinned(node.id, parent: parent.id)
-        let peers = state.ordered(parent.children.filter(\.canOrganize).map(\.id), parent: parent.id)
-            .filter { state.isPinned($0, parent: parent.id) == pinned }
+        let pinned = state.isPinned(node.id, parent: parent.organizationGroupID)
+        let peers = state.ordered(parent.children.filter(\.canOrganize).map(\.id), parent: parent.organizationGroupID)
+            .filter { state.isPinned($0, parent: parent.organizationGroupID) == pinned }
         let index = peers.firstIndex(of: node.id)
         func item(_ title: String, _ action: CloudSidebarOrganizationAction, enabled: Bool = true) -> NSMenuItem {
             let item = CloudTreeMenuItem(title: title) { [weak self] in
@@ -43,30 +43,59 @@ extension CloudTreeOutlineView.Coordinator {
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
         // The tree is a navigation/source surface. Pane destinations own the
         // ownership warning and announcement; the tree draws no drag hints.
-        guard ownershipRejection(info: info, item: item) == nil else {
-            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+        // A lifted drag only reorders, whatever row the pointer is over.
+        guard isMachineLiftActive(outlineView, info: info) || ownershipRejection(info: info, item: item) == nil else {
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
             return []
         }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else {
-            (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber)
+            if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+                cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
             return []
         }
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
-        (outlineView as? CloudTreeNSOutlineView)?.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
+        if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
+            cloudOutline.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
+            // A lifted drag shows its destination by the rows parting, never a line.
+            if case .organization = drop.operation, !isMachineLiftActive(outlineView, info: info) {
+                cloudOutline.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
+            } else {
+                cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
+            }
+        }
         return .move
     }
 
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
         defer { (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber) }
-        guard ownershipRejection(info: info, item: item) == nil else { return false }
+        guard isMachineLiftActive(outlineView, info: info) || ownershipRejection(info: info, item: item) == nil else {
+            return false
+        }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         switch drop.operation {
         case .organization(let action):
-            return organize(action, nodeID: drop.sourceID)
+            guard isMachineLiftActive(outlineView, info: info) else {
+                return organize(action, nodeID: drop.sourceID)
+            }
+            return finishMachineLift { [weak self] in
+                self?.organize(action, nodeID: drop.sourceID) ?? false
+            }
         case .machine(let id, let move):
             guard let actions = machineOrdering(for: info, nodeID: drop.sourceID) else { return false }
-            return moveMachine(id, move: move, using: actions)
+            guard isMachineLiftActive(outlineView, info: info) else {
+                return moveMachine(id, move: move, using: actions)
+            }
+            // The rows already stand in the new order; the commit reloads
+            // under them and the lift lands each one from where it is.
+            return finishMachineLift { [weak self] in
+                self?.moveMachine(id, move: move, using: actions) ?? false
+            }
         }
     }
 
@@ -82,7 +111,8 @@ extension CloudTreeOutlineView.Coordinator {
         case .surfaceResources(let group):
             return SurfaceCatalog.shared.ownershipRejection(for: group.resources, policy: policy)
         case .surface:
-            return policy.rejection(for: AppDelegate.shared?.machineOwningBonsplitTab(transfer.tabId))
+            guard let app = AppDelegate.shared else { return policy.rejection(for: nil) }
+            return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: policy)
         case .vaultSession, .filePreview, .rightSidebarTool:
             return policy.rejection(for: .local)
         }
@@ -103,7 +133,8 @@ extension CloudTreeOutlineView.Coordinator {
         guard let drop = CloudSidebarOrganizationDrop(
             sourceID: id, nodes: nodes, state: organization.state,
             proposedItem: item as? CloudTreeNode, proposedChildIndex: index,
-            dropAfterItem: row >= 0 && point.y >= outlineView.rect(ofRow: row).midY
+            dropAfterItem: row >= 0 && point.y >= outlineView.rect(ofRow: row).midY,
+            liftSlot: machineLiftSlot(outlineView, info: info)
         ) else { return nil }
         if case .machine(let machineID, let move) = drop.operation {
             guard machineOrdering(for: info, nodeID: id)?.canMove(machineID, move) == true else { return nil }

@@ -15,6 +15,14 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.feed.enabled"
     )
 
+    /// Conversations: opt-in unified coding-agent session navigation in the
+    /// left sidebar. Disabling it hides the provider while preserving sessions.
+    public let conversationSidebar = DefaultsKey<Bool>(
+        id: "sidebar.beta.conversations.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.conversations.enabled"
+    )
+
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
     /// (puzzle button, sidebar-toggle provider menu, installed-extension
     /// host, and the extensions browser). Defaults off; while off, every
@@ -56,22 +64,17 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
     )
 
-    /// Cloud Machines: the Cloud tab in the right sidebar plus every other
-    /// Cloud VM surface (Settings section, palette commands), and the gate
-    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Dev
-    /// builds default on for dogfood; release builds stay opt-in. An explicit
-    /// setting still wins on either build.
+    /// Cloud Machines' persisted first-use activation marker. The row moved out
+    /// of Beta Features when Cloud graduated; this storage key remains stable
+    /// so installed users keep their activation and existing configuration
+    /// domains migrate without a destructive reset.
     public let cloudMachines = DefaultsKey<Bool>(
         id: "cloud.beta.machines.enabled",
         defaultValue: Self.cloudMachinesDefault,
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
-    #if DEBUG
-    private static let cloudMachinesDefault = true
-    #else
     private static let cloudMachinesDefault = false
-    #endif
 
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
@@ -84,19 +87,6 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "remoteTmux.beta.enabled",
         defaultValue: false,
         userDefaultsKey: "remoteTmux.beta.enabled"
-    )
-
-    /// Predictive local echo: draw typed characters over a remote terminal
-    /// before the remote echoes them, and withdraw them if the remote
-    /// disagrees. Only engages at a shell prompt on a link slow enough to
-    /// notice, never in a full-screen application, and never until the remote
-    /// has been seen echoing -- so a password prompt displays nothing.
-    /// Defaults off; while off the terminal input and output paths are
-    /// unchanged.
-    public let predictedEcho = DefaultsKey<Bool>(
-        id: "terminal.beta.predictedEcho.enabled",
-        defaultValue: false,
-        userDefaultsKey: "terminal.beta.predictedEcho.enabled"
     )
 
     public init() {}

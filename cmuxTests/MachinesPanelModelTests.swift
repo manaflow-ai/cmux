@@ -579,11 +579,14 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
-        // Only terminals and displays leave the tree by drag; workspaces,
-        // browsers, ports, machines, and headers do not.
+        // Remote workspace rows export their placement group alongside terminal
+        // and display leaves. Local workspace groups remain reorder-only because
+        // they point at live panes in the source workspace.
         for node in flattened {
             switch node.kind {
             case .terminal, .display:
+                XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
+            case .workspace where !node.machine.isLocal:
                 XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
             default:
                 XCTAssertFalse(node.isDragSource, "\(node.id) should not drag")
@@ -996,6 +999,26 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
         var declared = summary
         declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
         XCTAssertFalse(declared.capabilities.snapshot)
+    }
+
+    func testSocketCloudVMSummaryPreservesAttachTransports() {
+        let summary = VMSummary(
+            id: "transport-limited",
+            provider: "freestyle",
+            status: "running",
+            image: "cmux-devbox",
+            createdAt: 0,
+            capabilities: VMCapabilities(
+                snapshot: true,
+                restore: true,
+                fork: true,
+                attachTransports: ["ssh"]
+            )
+        )
+
+        let payload = TerminalController.socketWorkerVMSummaryPayload(summary)
+        let capabilities = payload["capabilities"] as? [String: Any]
+        XCTAssertEqual(capabilities?["attach_transports"] as? [String], ["ssh"])
     }
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell", cwd: String? = "/root") -> SurfaceResource {

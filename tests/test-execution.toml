@@ -11,6 +11,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_cli_new_window_name.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_omp_auto_naming.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
@@ -77,6 +82,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_browser_input_files_cli.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_browser_repl_cli_io.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -184,6 +194,10 @@ requirements = ["cmux-cli"]
 [[test]]
 path = "tests/test_claude_teams_test_utils.py"
 lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_fake_socket_env.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cli_codex_teams_informational.py"
@@ -421,6 +435,10 @@ path = "tests/test_check_package_resolved_policy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_capture_skill.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
@@ -557,6 +575,10 @@ path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_simple_pool_picker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ui_fuzzer_engine.py"
 lane = "linux-guard"
 
@@ -614,6 +636,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_sidebar_lazy_layout_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cli_contract_verb_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_socket_capability_guard.py"
 lane = "linux-guard"
 
 [[test]]
@@ -713,6 +743,14 @@ path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_feature_flag_review_lead_time.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feature_flag_review_drift_issue.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_errno_in_test_assertions.py"
 lane = "linux-guard"
 
@@ -745,6 +783,10 @@ path = "tests/test_localize_changes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_localization_defaults.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_package_resolved_policy_remote_inputs.py"
 lane = "linux-guard"
 
@@ -774,6 +816,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_run_e2e.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_e2e_backend_scripts.py"
 lane = "linux-guard"
 
 [[test]]
@@ -886,6 +932,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_process_tree_reaping.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1398,14 +1448,6 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_catch_up_pr.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_auto_catch_up_select.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_run_guards.py"
 lane = "linux-guard"
 
@@ -1455,6 +1497,11 @@ lane = "macos-cli-product"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_hooks_setup_arguments.py"
+lane = "macos-cli-product"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_ci_machine_failure.py"
 lane = "linux-guard"
 
@@ -1492,4 +1539,45 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_iroh_drift_issue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cli_vm_mutation_arguments.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_submodule_forward_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_dispatch_guard_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_dispatch_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fast_guard_status.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_homebrew_untrusted_input.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_production_secrets_protected_env.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_frame_pacing_summary.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_presign.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"

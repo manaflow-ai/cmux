@@ -981,7 +981,7 @@ class E2E(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("pull", api.calls)
         # The build never finished, so every job re-runs and the sibling wait looks again.
-        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is checked and ends on Blacksmith
         self.assertIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
 
@@ -995,9 +995,52 @@ class E2E(unittest.TestCase):
         api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-1], "rerun")  # attempt 2 is on Blacksmith: not watched
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is checked and ends on Blacksmith
         self.assertIn("refused", summary)
         self.assertIn("so its sibling wait runs again", summary)
+
+    def test_a_full_e2e_rerun_on_the_fleet_is_followed_by_its_marker(self):
+        # Attempt 2 of a full re-run takes the runner job's new pick, which may
+        # be an owned Mac. The watch follows it by attempt 2's own marker, and a
+        # second refusal moves the run on to attempt 3 (always Blacksmith).
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 60:
+                found.append(refused_job("build"))
+            return found
+
+        def rerun_jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 60:
+                found.append(refused_job("build"))
+            elif seconds >= 30:
+                found.append(job("build", labels=[MINI], created=30))
+            return found
+        clock = Clock()
+        markers = []
+        api = FakeAPI(clock, jobs, marker=lambda name: markers.append(name) or True,
+                      finished=lambda s: s >= 60, rerun_jobs=rerun_jobs)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("rerun"), 2, summary)
+        self.assertEqual(api.attempt, 3)
+        self.assertIn(f"{rescue.MARKER_PREFIX}-{RUN_ID}-2-", markers)
+        self.assertIn("attempt 3 takes retry_runner on Blacksmith", summary)
+
+    def test_a_full_e2e_rerun_on_blacksmith_ends_the_watch(self):
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 60:
+                found.append(refused_job("build"))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=lambda name: name.endswith("-1-"),
+                      finished=lambda s: s >= 60,
+                      rerun_jobs=lambda s: [e2e_runner()(s), job("build", labels=[BLACKSMITH])])
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("rerun"), 1)
+        self.assertIn("ephemeral pool", summary)
 
     def test_an_e2e_run_whose_build_passed_keeps_it(self):
         # Only the test job failed: re-running every job would compile again.
@@ -1080,6 +1123,16 @@ class SideLanes(unittest.TestCase):
                              "not a side lane": side_event(path=".github/workflows/plain-paste-worker.yml")}.items():
             self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
 
+    def test_a_marked_cmux_next_run_is_adopted_as_a_side_lane(self):
+        # cmux-next.yml lives on feat-cmux-next only and uploads the watch marker itself.
+        run = dict(side_event(path=".github/workflows/cmux-next.yml", head_branch="feat-cmux-next-x",
+                              status="queued")["workflow_run"])
+        target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
+        self.assertTrue(target.side)
+        self.assertEqual((target.pr_number, target.watch_limit), (42, rescue.SIDE_WATCH_LIMIT_SECONDS))
+        fork = dict(run, head_repository={"full_name": "someone/cmux"})
+        self.assertIsInstance(rescue.sweep_target(fork, "manaflow-ai/cmux", late=False), str)
+
     def test_trusted_non_pull_request_side_runs_are_watched_without_a_head(self):
         # A push, schedule or dispatch runs this repository's own branch: owned-eligible, and no
         # pull request head can move under it.
@@ -1129,6 +1182,51 @@ class SideLanes(unittest.TestCase):
         # Attempt 2 takes the lane's Blacksmith default, so the watch ends.
         self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
         self.assertNotIn("jobs:2", api.calls)
+
+    def test_a_stuck_side_job_never_cancels_a_sibling_running_on_a_mini(self):
+        # #16463: cmux-next's swift test ran on a mini while release-compile waited
+        # for one; the rescue cancelled both and moved them to Blacksmith.
+        def cmux_next(done_at):
+            def jobs(seconds):
+                test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
+                test["started_at"] = stamp(5)
+                if done_at is not None and seconds >= done_at:
+                    test.update(status="completed", conclusion="success")
+                return [test, job("cmux-next Release compile (Xcode 26)", labels=[SIDE], created=0)]
+            return jobs
+
+        payload = side_event(path=".github/workflows/cmux-next.yml")
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=None))
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("watch limit reached", summary)
+
+        # Once the mini's job ends, cancelling the run touches only the stuck job.
+        clock = Clock()
+        api = FakeAPI(clock, cmux_next(done_at=600))
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertGreaterEqual(clock.seconds, 600)
+
+    def test_a_sibling_on_a_mini_does_not_hide_a_refusal_or_a_held_job(self):
+        running = job("macos / shard 1", status="in_progress", labels=[MINI], runner="mini-2")
+        running["started_at"] = stamp(5)
+        stuck = job("macos / shard 2", labels=[MINI], created=0)
+        late = START + dt.timedelta(seconds=44 + rescue.SETUP_WAIT_SECONDS)
+        look = rescue.assess([running, stuck], now=late, budget_seconds=90)
+        self.assertEqual((look.action, look.waiting), ("watch", True))
+        self.assertIn("running on a persistent runner", look.reason)
+        look = rescue.assess([running, stuck, refused_job("macos / shard 3")], now=late, budget_seconds=90)
+        self.assertEqual(look.action, "refused")
+        closing = late + dt.timedelta(seconds=rescue.END_MARGIN_SECONDS - 1)
+        look = rescue.assess([running, stuck, setup_job()], now=late, budget_seconds=90, deadline=closing)
+        self.assertEqual(look.action, "rescue")
+        self.assertIn("runner setup", look.reason)
 
     def test_a_side_lane_retry_takes_blacksmith(self):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
@@ -1568,15 +1666,16 @@ def listed(run_id, **overrides):
 
 
 class Sweeper(unittest.TestCase):
-    def sweep(self, api, *, follow=None, ticks=3):
+    def sweep(self, api, *, follow=None, ticks=3, light_retry=False):
         clock, watched = Clock(), []
 
         def fake_follow(client, target, **kwargs):
-            watched.append((target.run_id, target.attempt, target.late))
+            watched.append((target.run_id, target.attempt, target.full_rerun) if light_retry
+                           else (target.run_id, target.attempt, target.late))
             return follow(kwargs["sleep"]) if follow else "stopped: the run finished"
 
         with unittest.mock.patch.object(rescue, "follow", fake_follow):
-            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0",
+            outcomes = rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", light_retry=light_retry,
                                     now=clock.now, log=lambda text: None, sweep_seconds=ticks * 60,
                                     tick_seconds=60, wait=clock.sleep)
         return sorted(watched), outcomes
@@ -1613,6 +1712,25 @@ class Sweeper(unittest.TestCase):
                        picker=[1, 2])
         # The bot's attempt 3 and later take Blacksmith: nothing to watch.
         self.assertEqual(self.sweep(api)[0], [(1, 2, False)])
+
+    def test_an_e2e_full_rerun_is_resumed_as_one_without_light_retry(self):
+        # The picker ran again on attempt 2, so its marker, not its jobs, decides.
+        e2e = dict(path=".github/workflows/test-e2e.yml", event="workflow_dispatch", pull_requests=[],
+                   run_attempt=2)
+        picker = {"name": "runner", "run_attempt": 2}
+        api = SweepAPI([listed(1, **e2e), listed(2, **e2e)], picker=[1, 2],
+                       attempt_jobs={1: [picker], 2: [{"name": "runner", "run_attempt": 1}]})
+        self.assertEqual(self.sweep(api, light_retry=True)[0], [(1, 2, True), (2, 2, False)])
+        clock, targets = Clock(), []
+
+        def fake_follow(client, target, **kwargs):
+            targets.append(target.full_rerun)
+            return "stopped: the run finished"
+        with unittest.mock.patch.object(rescue, "follow", fake_follow):
+            rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", light_retry=False,
+                         now=clock.now, log=lambda text: None, sweep_seconds=120, tick_seconds=60,
+                         wait=clock.sleep)
+        self.assertEqual(sorted(targets), [False, True])
 
     def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):
         recent, old = stamp(-10 * 60), stamp(-rescue.SWEEP_FINISHED_SECONDS - 60)
@@ -1784,19 +1902,25 @@ class Workflow(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
-    def test_runs_when_dispatched_or_for_a_screenshots_or_side_lane_run(self):
+    def test_runs_when_dispatched_or_for_a_screenshots_or_nightly_run(self):
         triggers = self.doc[True]
         self.assertEqual(sorted(triggers), ["schedule", "workflow_dispatch", "workflow_run"])
         self.assertIs(triggers["workflow_dispatch"]["inputs"]["run_id"]["required"], False)
         # release.yml calls ios-screenshots.yml with contents: read only, so
-        # it cannot upload through a job asking for more; the side lanes have
-        # no picker and are all on the fleet. Both keep the event trigger.
+        # it cannot upload through a job asking for more. Side lanes are swept
+        # periodically and must not create one rescue run per workflow_run.
         self.assertEqual(triggers["workflow_run"]["types"], ["requested"])
-        self.assertEqual(triggers["workflow_run"]["workflows"][0], "iOS App Store screenshots")
+        self.assertEqual(
+            triggers["workflow_run"]["workflows"],
+            ["iOS App Store screenshots", "Nightly macOS build"],
+        )
         self.assertNotIn("CI", triggers["workflow_run"]["workflows"])
         paths = self.doc["env"]["SOURCE_WORKFLOW_PATHS"].split()
-        self.assertEqual(set(paths), {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, *rescue.SIDE_WORKFLOW_PATHS,
-                                      rescue.NIGHTLY_WORKFLOW_PATH})
+        self.assertEqual(
+            set(paths),
+            {rescue.IOS_SCREENSHOTS_WORKFLOW_PATH, rescue.NIGHTLY_WORKFLOW_PATH},
+        )
+        self.assertTrue(set(paths).isdisjoint(rescue.SIDE_WORKFLOW_PATHS))
         # workflow_run matches by display name: each source's `name:` is listed, and nothing else.
         names = {yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))["name"] for path in paths}
         self.assertEqual(set(triggers["workflow_run"]["workflows"]), names)

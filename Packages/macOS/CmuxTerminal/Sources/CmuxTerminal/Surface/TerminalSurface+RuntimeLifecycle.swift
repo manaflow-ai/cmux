@@ -309,6 +309,9 @@ extension TerminalSurface {
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        // A close during the agent-hibernation signal/wait window leaves the
+        // reservation unconsumed; give the bounded slot back (#15652).
+        cancelAgentHibernationRuntimeTeardownReservation()
         retireSurfaceRegistryRegistrationIfNeeded()
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()

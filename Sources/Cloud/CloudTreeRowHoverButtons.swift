@@ -3,39 +3,17 @@ import SwiftUI
 
 struct CloudTreeRowHoverButtons: View {
     let kind: CloudTreeNode.Kind
+    /// The row's node id, for the "⋯" button's context menu. A machine still
+    /// finishing its create keeps its pending id, so it can't be rebuilt from
+    /// the machine alone.
+    var nodeID = ""
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
 
     var body: some View {
         switch kind {
         case .devicesSection(let section):
-            Menu {
-                DevicesSidebarControls(
-                    discoveryEnabled: section.discoveryEnabled,
-                    incomingAccessEnabled: section.incomingAccessEnabled,
-                    discoveryManaged: section.discoveryManaged,
-                    incomingAccessManaged: section.incomingAccessManaged,
-                    unavailable: !section.available,
-                    setDiscovery: { nodeActions.setDeviceDiscovery($0) },
-                    setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
-                )
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 22, height: 20)
-                    .contentShape(Rectangle())
-            }
-            // A plain button menu keeps the label's 22×20 frame as the control,
-            // matching the Cloud Machines "+" in size and hit area; the
-            // borderless style shrinks it to the symbol.
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
-            .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
-            .accessibilityIdentifier("DevicesOptionsMenu")
+            CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
         case .cloudMachinesSection(let canCreateMachine, _):
             if canCreateMachine {
                 plus(String(localized: "machines.new", defaultValue: "New Machine")) {
@@ -44,12 +22,26 @@ struct CloudTreeRowHoverButtons: View {
                 .accessibilityIdentifier("CloudMachinesNewMachineButton")
             }
         case .machine(let machine, _):
-            MachinesChromeIconButton(
-                symbolName: "trash",
-                accessibilityLabel: String(localized: "machines.row.delete", defaultValue: "Delete Machine"),
-                isBusy: false
-            ) {
-                machineActions.confirmDelete(machine.id)
+            // Always visible: New Workspace, and the machine's full context
+            // menu (Delete lives there). An expired machine's + offers the
+            // upgrade, matching its menu.
+            HStack(spacing: 2) {
+                plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
+                    if machine.freeAccess == .expired {
+                        machineActions.promptUpgrade()
+                    } else {
+                        nodeActions.newWorkspace(.cloud(machine.id))
+                    }
+                }
+                .accessibilityIdentifier("CloudMachineNewWorkspaceButton")
+                MachinesChromeIconButton(
+                    symbolName: "ellipsis",
+                    accessibilityLabel: String(localized: "cloudTree.machine.moreActions", defaultValue: "More Actions"),
+                    isBusy: false
+                ) {
+                    nodeActions.showRowMenu(nodeID)
+                }
+                .accessibilityIdentifier("CloudMachineMoreActionsButton")
             }
         case .pendingMachine(let operation):
             // A running create can be cancelled from the row; a failed create
@@ -89,7 +81,11 @@ struct CloudTreeRowHoverButtons: View {
             }
         case .displaysPool(let machine, _, let canCreate):
             plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
-                nodeActions.newDisplay(machine)
+                Self.performDisplayCreationIfAvailable(canCreate, unavailable: {
+                    nodeActions.showHint(CloudGuestDisplaySnapshot.unavailableMessage)
+                }) {
+                    nodeActions.newDisplay(machine)
+                }
             }
             // Keep the host hit-testable while guest discovery is pending.
             // Disabling the SwiftUI button makes AppKit hand the click to the
@@ -141,11 +137,77 @@ struct CloudTreeRowHoverButtons: View {
         }
     }
 
+    /// True when the row's buttons stay visible without hover. Machine rows
+    /// keep + and ⋯ on screen so their actions are discoverable at rest.
+    static func showsAtRest(for kind: CloudTreeNode.Kind) -> Bool {
+        if case .machine = kind { return true }
+        return false
+    }
+
+    /// The Displays affordance remains visible while guest discovery is pending
+    /// so its unavailable state can explain itself on hover. Keep that visual
+    /// affordance from dispatching a create operation until the snapshot says
+    /// the machine can accept one.
+    static func performDisplayCreationIfAvailable(
+        _ canCreate: Bool,
+        unavailable: () -> Void = {},
+        action: () -> Void
+    ) {
+        guard canCreate else {
+            unavailable()
+            return
+        }
+        action()
+    }
+
     private func plus(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "plus", accessibilityLabel: label, isBusy: false, action: action)
     }
 
     private func xmark(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "xmark", accessibilityLabel: label, isBusy: false, action: action)
+    }
+}
+
+/// The My Devices header's "..." menu. Same size, tint and hover fill as the
+/// Cloud Machines "+" (`MachinesChromeIconButton`), so both headers hover alike.
+private struct CloudTreeDevicesMenuButton: View {
+    let section: CloudTreeDevicesSection
+    let nodeActions: CloudTreeNodeActions
+    @State private var isHovered = false
+
+    var body: some View {
+        Menu {
+            DevicesSidebarControls(
+                discoveryEnabled: section.discoveryEnabled,
+                incomingAccessEnabled: section.incomingAccessEnabled,
+                discoveryManaged: section.discoveryManaged,
+                incomingAccessManaged: section.incomingAccessManaged,
+                unavailable: !section.available,
+                setDiscovery: { nodeActions.setDeviceDiscovery($0) },
+                setIncomingAccess: { nodeActions.setDeviceIncomingAccess($0) }
+            )
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .frame(width: 22, height: 20)
+                .background(
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
+                        .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        // A plain button menu keeps the label's 22×20 frame as the control,
+        // matching the Cloud Machines "+" in size and hit area; the
+        // borderless style shrinks it to the symbol.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { isHovered = $0 }
+        .help(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityLabel(String(localized: "devices.manage", defaultValue: "Manage My Devices"))
+        .accessibilityIdentifier("DevicesOptionsMenu")
     }
 }

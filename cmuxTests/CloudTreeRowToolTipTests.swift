@@ -129,13 +129,13 @@ struct CloudTreeRowToolTipTests {
         #expect(toolTip.contains(":1"))
     }
 
-    @Test("A port row explains its in-app action without suggesting a directly reachable private URL")
+    @Test("A titled port row uses its process name for hover text")
     func portRowHasToolTip() throws {
         let node = Self.portNode()
         let cell = Self.cell(presence: [])
         cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
         let toolTip = try #require(cell.toolTip)
-        #expect(toolTip == "Open in cmux. No VPN setup needed.")
+        #expect(toolTip == "vite")
         #expect(cell.accessibilityLabel()?.contains("Port 3000") == true)
     }
 
@@ -145,6 +145,27 @@ struct CloudTreeRowToolTipTests {
         let cell = Self.cell(presence: [])
         cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
         #expect(cell.accessibilityLabel()?.isEmpty == false)
+    }
+
+    /// A renamed browser tab keeps its name in `remoteView.name`; `resource.title`
+    /// goes on following the page and changes under it on the next navigation.
+    /// The row draws the rename, so the hover text and the VoiceOver label have
+    /// to draw it too, or the pointer and the screen reader report a title the
+    /// sidebar is not showing.
+    @Test("A renamed browser row reports the rename, not the page title")
+    func renamedBrowserRowUsesChosenName() throws {
+        let workspace = SurfaceRemoteWorkspace(id: "ws-1", name: "Work", index: 0, focused: true)
+        let node = Self.browserNode(
+            title: "Example Domain | docs",
+            remoteView: SurfaceRemoteView(tabID: "tab-1", workspace: workspace, name: "Release notes")
+        )
+        let cell = Self.cell(presence: [])
+        cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
+        let toolTip = try #require(cell.toolTip)
+        #expect(toolTip.contains("Release notes"))
+        #expect(toolTip.contains("Example Domain") == false)
+        #expect(cell.accessibilityLabel()?.contains("Release notes") == true)
+        #expect(cell.accessibilityLabel()?.contains("Example Domain") == false)
     }
 
     @Test("Section headers keep their bare label", arguments: ["workspaces", "terminals", "ports"])
@@ -250,9 +271,9 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.toolTip == nil)
     }
 
-    /// The untitled case is the one `node.searchableTitle` cannot speak for: it
-    /// is the empty resource title, while the row and the tooltip both draw the
-    /// word "browser". The comparison has to be against what is drawn.
+    /// The untitled case has no name anywhere: no rename, no page title. The row
+    /// and the tooltip both fall back to the word "browser", so the tooltip has
+    /// nothing past the row and must stay silent.
     @Test("An untitled browser row with no address does not pop its own placeholder back")
     func bareUntitledBrowserRowHasNoToolTip() {
         let cell = Self.cell(presence: [])
@@ -266,7 +287,7 @@ struct CloudTreeRowToolTipTests {
         #expect(cell.accessibilityLabel()?.isEmpty == false)
     }
 
-    @Test("A port without a process name still explains that no VPN setup is needed")
+    @Test("A port without a process name has no hover text and keeps its port label")
     func barePortRowExplainsOpenAction() {
         let cell = Self.cell(presence: [])
         cell.configure(
@@ -274,8 +295,8 @@ struct CloudTreeRowToolTipTests {
             machineActions: Self.machineActions(),
             nodeActions: Self.nodeActions()
         )
-        #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")
-        #expect(cell.accessibilityLabel() == "Port 3000, Open in cmux")
+        #expect(cell.toolTip == nil)
+        #expect(cell.accessibilityLabel() == "Port 3000")
     }
 
     // MARK: - Fixtures
@@ -393,7 +414,13 @@ struct CloudTreeRowToolTipTests {
 
     /// `url` is a parameter because a browser that has not navigated yet has
     /// none, and that is the row whose hover text has nothing to add.
-    private static func browserNode(title: String, url: String? = "https://example.com/docs") -> CloudTreeNode {
+    /// `remoteView` is a parameter because a renamed tab carries its name there
+    /// and nowhere else: `resource.title` keeps following the page.
+    private static func browserNode(
+        title: String,
+        url: String? = "https://example.com/docs",
+        remoteView: SurfaceRemoteView? = nil
+    ) -> CloudTreeNode {
         let resource = SurfaceResource(
             id: SurfaceResourceID(machine: .cloud("tooltip-test"), kind: .browser, key: "browser-1"),
             title: title,
@@ -407,7 +434,14 @@ struct CloudTreeRowToolTipTests {
         )
         return CloudTreeNode(
             id: "browser/tooltip-test/browser-1",
-            kind: .browser(CloudTreeBrowserRow(resource: resource, isOpen: false, workspaceTitle: nil))
+            kind: .browser(
+                CloudTreeBrowserRow(
+                    resource: resource,
+                    isOpen: false,
+                    workspaceTitle: nil,
+                    remoteView: remoteView
+                )
+            )
         )
     }
 

@@ -18,11 +18,19 @@ public struct CloudTuiManualIOCommand: Sendable {
     }
     /// The capability understood by protocol-v9+ servers that returns a
     /// connection-owned lease for each byte attachment.
-    public let viewAttachmentLeaseCapability = "view-attachment-lease-v1"
+    public static let viewAttachmentLeaseCapability = "view-attachment-lease-v1"
+    public var viewAttachmentLeaseCapability: String { Self.viewAttachmentLeaseCapability }
 
     /// The capability understood by protocol-v9+ servers that allows a
     /// client to retire one attachment without dropping the whole socket.
-    public let viewAttachmentDetachCapability = "view-attachment-detach-v1"
+    public static let viewAttachmentDetachCapability = "view-attachment-detach-v1"
+    public var viewAttachmentDetachCapability: String { Self.viewAttachmentDetachCapability }
+
+    /// The daemon capability that keeps an incomplete VT escape sequence
+    /// separate from a replay, so a reconnect cannot feed a partial sequence
+    /// into the next terminal state.
+    public static let terminalPendingSequenceCapability = "terminal-pending-sequence-v1"
+    public var terminalPendingSequenceCapability: String { Self.terminalPendingSequenceCapability }
 
     /// Begins the protocol handshake so optional attach fields are sent only
     /// when the daemon advertises the matching capability.
@@ -66,13 +74,14 @@ public struct CloudTuiManualIOCommand: Sendable {
             "name": name,
             "kind": kind,
             "capabilities": [
-                viewAttachmentLeaseCapability,
-                viewAttachmentDetachCapability,
+                Self.viewAttachmentLeaseCapability,
+                Self.viewAttachmentDetachCapability,
                 "terminal-color-overrides-v1",
-                sharedSizingCapability,
+                Self.sharedSizingCapability,
+                Self.sizingViewDetachCapability,
                 // The pane writes its color sidecar after a replay, so the
                 // daemon's incomplete sequence must arrive separately.
-                "terminal-pending-sequence-v1",
+                Self.terminalPendingSequenceCapability,
             ],
         ]
         if let identity {
@@ -83,7 +92,25 @@ public struct CloudTuiManualIOCommand: Sendable {
 
     /// The daemon capability for shared terminal sizing
     /// (`docs/shared-terminal-sizing.md`).
-    public let sharedSizingCapability = "shared-sizing-v1"
+    public static let sharedSizingCapability = "shared-sizing-v1"
+    public var sharedSizingCapability: String { Self.sharedSizingCapability }
+
+    /// The capability that lets another participant detach only this Mac's
+    /// own view while its connection and relayed phones stay.
+    public static let sizingViewDetachCapability = "sizing-view-detach-v1"
+    public var sizingViewDetachCapability: String { Self.sizingViewDetachCapability }
+
+    /// Restores this Mac's own view after a view-only detach.
+    ///
+    /// - Parameters:
+    ///   - surfaceID: the numeric cmux-tui surface.
+    ///   - asViewer: reattach with `counts:false`.
+    ///   - requestID: correlation id.
+    public func reattachView(surfaceID: UInt64, asViewer: Bool, requestID: UInt64 = 1) -> [String: Any] {
+        var command: [String: Any] = ["id": requestID, "cmd": "reattach-view", "surface": surfaceID]
+        if asViewer { command["counts"] = false }
+        return command
+    }
 
     /// Creates or updates a relay sub-view (a phone viewing this Mac's mirror).
     ///
@@ -182,12 +209,19 @@ public struct CloudTuiManualIOCommand: Sendable {
         ]
     }
 
-    /// Disconnects one participant (by host participant id) on behalf of `by`.
-    public func detachClient(participantID: String, by actor: TerminalDetachActor, requestID: UInt64 = 1) -> [String: Any] {
+    /// Disconnects one participant of a terminal (by host participant id) on
+    /// behalf of `by`. Participant ids are per terminal, so the command names it.
+    public func detachClient(
+        participantID: String,
+        surfaceID: UInt64,
+        by actor: TerminalDetachActor,
+        requestID: UInt64 = 1
+    ) -> [String: Any] {
         [
             "id": requestID,
             "cmd": "detach-client",
             "client": participantID,
+            "surface": surfaceID,
             "by": jsonObject(actor) ?? [:],
         ]
     }
@@ -198,6 +232,7 @@ public struct CloudTuiManualIOCommand: Sendable {
             "display_name": identity.displayName as Any? ?? NSNull(),
             "device_kind": identity.deviceKind.rawValue,
             "device_name": identity.deviceName as Any? ?? NSNull(),
+            "device_id": identity.deviceID as Any? ?? NSNull(),
         ]
     }
 

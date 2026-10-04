@@ -138,6 +138,16 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowProgress"
     )
 
+    /// Whether sidebar workspace rows append coding-agent usage (model,
+    /// context-window percentage, estimated API cost) to the agent status
+    /// entry (`sidebar.showAgentUsage`). Defaults to off: sampling reads the
+    /// agent transcript off the main actor after hook events.
+    public let showAgentUsage = DefaultsKey<Bool>(
+        id: "sidebar.showAgentUsage",
+        defaultValue: false,
+        userDefaultsKey: "sidebarShowAgentUsage"
+    )
+
     /// Whether sidebar workspace rows show the loading spinner for running
     /// coding agents and manual `cmux workspace loading` loaders
     /// (`sidebar.showAgentActivity`). Defaults to on.

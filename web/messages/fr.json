@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go prend en charge 2 vCPU, 4 Gio de RAM et 16 Gio de disque.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Ressources Cloud VM insuffisantes",
+      "memoryMessage": "Vos VMs utilisent déjà {used} Go de RAM sur {pool}. Cette VM a besoin de {requested} Go.",
+      "vcpuMessage": "Vos VMs utilisent déjà {used} vCPU sur {pool}. Cette VM a besoin de {requested} vCPU.",
+      "upgradeAction": "Mettez en pause ou supprimez une VM, ou passez à Max.",
+      "action": "Mettez en pause ou supprimez une VM."
     }
   },
   "billingRecovery": {
@@ -353,26 +360,26 @@
   },
   "dashboard": {
     "nav": {
-      "coderouterGroup": "coderouter",
-      "coderouterOverview": "aperçu",
-      "team": "équipe",
+      "coderouterGroup": "Coderouter",
+      "coderouterOverview": "Aperçu",
+      "team": "Équipe",
       "mobileDevices": "Appareils mobiles",
-      "settings": "réglages",
-      "teams": "équipes"
+      "settings": "Réglages",
+      "teams": "Équipes"
     },
     "home": {
-      "coderouterName": "coderouter",
+      "coderouterName": "Coderouter",
       "coderouterDescription": "Acheminez les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
-      "coderouterLink": "ouvrir coderouter",
-      "iosAppName": "application iOS",
+      "coderouterLink": "Ouvrir coderouter",
+      "iosAppName": "Application iOS",
       "iosAppDescription": "Installez l'application iOS cmux via TestFlight (accès bêta).",
       "iosLink": "Ouvrir l'application iOS"
     },
     "coderouter": {
-      "metaTitle": "coderouter — cmux",
+      "metaTitle": "Coderouter — cmux",
       "metaDescription": "Gérez les comptes d’IA partagés et acheminez les requêtes avec coderouter.",
-      "title": "coderouter",
-      "description": "coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
+      "title": "Coderouter",
+      "description": "Coderouter achemine les requêtes LLM entre les comptes fournisseurs avec basculement et planification selon l’utilisation.",
       "machines": {
         "title": "Machines",
         "description": "Utilisation de coderouter par machine pour {team} sur les {days} derniers jours.",
@@ -403,11 +410,13 @@
       "label": "Menu du compte",
       "settings": "Réglages",
       "billing": "Facturation",
+      "switchAccount": "Changer de compte",
       "signOut": "Se déconnecter",
       "signingOut": "Déconnexion…",
       "signOutError": "Impossible de se déconnecter. Réessayez.",
       "organizationSwitchError": "Impossible de changer d’organisation. Réessayez.",
-      "signIn": "Se connecter"
+      "signIn": "Se connecter",
+      "upgrade": "Passer à un forfait supérieur"
     },
     "billing": {
       "plan": {
@@ -425,7 +434,7 @@
         "memberReadOnly": "Seuls les admins de l’équipe peuvent modifier ce forfait.",
         "grantedBody": "L’accès Team a été accordé à {team} par l’équipe cmux. Il n’y a aucun abonnement à gérer.",
         "seatsUsed": "{members} sur {seats} utilisés",
-        "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Il est toujours possible de rejoindre l’équipe ; ajoutez des sièges pour couvrir tout le monde.",
+        "overSeat": "{team} compte {members} membres pour {seats} sièges payés. Les sièges suivent le nombre de membres ; l’abonnement se met à jour tout seul.",
         "addSeats": "Ajouter des sièges"
       },
       "teamList": {
@@ -447,6 +456,105 @@
       },
       "team": {
         "createCta": "Créer une équipe"
+      },
+      "title": "Forfait et facturation",
+      "picker": {
+        "current": "Forfait actuel",
+        "upgradeTo": "Passer à {plan}",
+        "switchTo": "Basculer vers {plan}",
+        "cancelPlan": "Résilier le forfait",
+        "resume": "Reprendre {plan}",
+        "renewsOn": "Renouvellement le {date}",
+        "endsOn": "Se termine le {date}",
+        "perMonth": "par mois",
+        "perSeatMonth": "par siège et par mois",
+        "paymentMethod": "Gérer le moyen de paiement",
+        "invoices": "Factures",
+        "heading": "Forfaits",
+        "actionError": "Impossible de modifier le forfait. Réessayez.",
+        "unavailable": {
+          "cancelScheduled": "Reprenez votre forfait pour le modifier.",
+          "granted": "Accordé par cmux. Il n'y a rien à modifier.",
+          "adminOnly": "Seuls les administrateurs de l'équipe peuvent modifier le forfait."
+        },
+        "names": {
+          "free": "Free",
+          "go": "Go",
+          "pro": "Pro",
+          "max": "Max",
+          "team": "Team"
+        },
+        "features": {
+          "free": [
+            "Le terminal cmux complet pour macOS",
+            "N'importe quel agent CLI avec vos propres clés",
+            "Historique des sessions en local"
+          ],
+          "go": [
+            "1 Cloud VM active",
+            "40 heures de VM par mois",
+            "2 VM enregistrées"
+          ],
+          "pro": [
+            "Agents cloud sur des Cloud VMs",
+            "Jusqu'à 5 Cloud VMs qui partagent 20 vCPU et 40 Go de RAM",
+            "L'app cmux pour iOS"
+          ],
+          "max": [
+            "Jusqu'à 5 Cloud VMs qui partagent 80 vCPU et 160 Go de RAM",
+            "Des machines plus grandes",
+            "Tout ce qu'inclut Pro"
+          ],
+          "team": [
+            "Tout ce qu'inclut Pro pour chaque membre",
+            "Jusqu'à 5 Cloud VMs par siège payant, qui partagent 20 vCPU et 40 Go de RAM par siège payant dans toute l'équipe",
+            "Une seule facture pour toute l'équipe",
+            "Support prioritaire"
+          ]
+        },
+        "billedAnnually": "facturé annuellement"
+      },
+      "change": {
+        "title": "Basculer vers {plan} ?",
+        "upgradeBody": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par mois.",
+        "downgradeBody": "{plan} démarre maintenant. La partie non utilisée de votre forfait actuel, {credit}, est créditée sur vos prochaines factures. Votre prochaine facture, le {date}, est de {amount}.",
+        "confirm": "Basculer vers {plan}",
+        "keep": "Garder le forfait actuel",
+        "switching": "Changement…",
+        "previewError": "Impossible de calculer le prix. Réessayez.",
+        "paymentFailed": "Votre carte a été refusée. Mettez à jour votre moyen de paiement, puis réessayez.",
+        "error": "Impossible de changer de forfait. Réessayez."
+      },
+      "cancelDialog": {
+        "title": "Résilier {plan} ?",
+        "body": "Vous gardez {plan} jusqu'au {date}. Ensuite, vous perdez :",
+        "bodyNoDate": "Vous gardez {plan} jusqu'à la fin de cette période de facturation. Ensuite, vous perdez :",
+        "reasonLabel": "Pourquoi résiliez-vous ? (facultatif)",
+        "otherPlaceholder": "Dites-nous-en plus (facultatif)",
+        "confirm": "Résilier le forfait",
+        "keep": "Garder {plan}",
+        "error": "Impossible de résilier le forfait. Réessayez.",
+        "resumeError": "Impossible de reprendre le forfait. Réessayez.",
+        "reasons": {
+          "too_expensive": "Trop cher",
+          "missing_feature": "Il manque une fonctionnalité",
+          "not_using": "Je ne l'utilise pas assez",
+          "other": "Autre"
+        }
+      },
+      "welcome": {
+        "title": "Bienvenue dans {plan}",
+        "body": "Votre forfait est actif. À essayer en premier :",
+        "ios": "Installer l'app iOS",
+        "cloud": "Ouvrir Cloud",
+        "team": "Créer une équipe",
+        "banner": "Vous êtes maintenant sur {plan}.",
+        "bannerLink": "Forfait et facturation"
+      },
+      "appStore": {
+        "title": "Facturé via l’App Store",
+        "body": "Votre forfait a été acheté dans l’app cmux pour iPhone et est facturé par Apple. Modifiez-le ou résiliez-le dans vos abonnements App Store.",
+        "manage": "Gérer dans l’App Store"
       }
     },
     "mobileDevices": {
@@ -467,7 +575,7 @@
       "relaySettings": "Paramètres du relais",
       "relaySettingsDescription": "Choisissez les serveurs relais utilisés par cette équipe. Saisissez une URL par ligne.",
       "saveRelaySettings": "Enregistrer les paramètres du relais",
-      "eyebrow": "cloud / appareils",
+      "eyebrow": "Cloud / appareils",
       "scopeActive": "Affichage de cette équipe",
       "emptyTitle": "Aucun appareil connecté pour le moment",
       "emptyDescription": "Lorsqu’un appareil cmux est associé à cette équipe, il apparaît ici avec sa plateforme, sa version et ses contrôles d’accès.",
@@ -488,7 +596,10 @@
         "account": "Compte",
         "billing": "Facturation",
         "teamsGroup": "Équipes",
-        "createTeam": "Créer une équipe"
+        "createTeam": "Créer une équipe",
+        "accountGroup": "Compte",
+        "billingGroup": "Facturation",
+        "planBilling": "Forfait et facturation"
       },
       "ui": {
         "save": "Enregistrer",
@@ -845,7 +956,7 @@
         "featurePrioritySupport": "Assistance prioritaire",
         "chooseFree": "Continuer avec le forfait gratuit",
         "chooseTeam": "Passer à Team ({price} $/siège/mois)",
-        "upgradeLater": "Les sièges sont flexibles : vous pouvez inviter plus de personnes que vous n’en payez et ajouter des sièges plus tard.",
+        "upgradeLater": "Les sièges suivent le nombre de membres : chaque membre est facturé et le total change lorsque quelqu’un rejoint ou quitte l’équipe.",
         "inviteTitle": "Inviter des personnes dans {team}",
         "inviteDescription": "Facultatif. Vous pouvez aussi inviter des personnes plus tard depuis la page Membres de l’équipe.",
         "inviteByEmail": "Inviter par e-mail",
@@ -1015,8 +1126,8 @@
       "apiKeySecretBody": "Ce secret ne sera plus affiché.",
       "apiKeyCopy": "Copier la clé API",
       "apiKeyCopied": "Copié",
-      "apiKeyCreatedAt": "créée {at}",
-      "apiKeyLastUsed": "dernier usage {at}",
+      "apiKeyCreatedAt": "Créée {at}",
+      "apiKeyLastUsed": "Dernier usage {at}",
       "apiKeyRevoked": "Révoquée",
       "apiKeyLabelPlaceholder": "Par exemple, CI ou production",
       "createApiKeyAction": "Créer une clé API",
@@ -1028,9 +1139,85 @@
       "revokeApiKeyConfirmTitle": "Révoquer cette clé API ?",
       "apiKeyUsageDetail": "30 derniers jours : {completions} complétions · {tokens} tokens ({input} entrée / {output} sortie) · équivalent API {value}",
       "apiKeyUsageUnavailable": "Utilisation indisponible",
+      "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement."
+    },
+    "cloud": {
+      "title": "Machines Cloud et accès Mac",
+      "description": "Définissez le réseau sortant de chaque machine et consultez les Mac disposant d’un accès WireGuard à votre réseau privé de VM Cloud. Les associations iPhone et Iroh sont gérées séparément.",
+      "macAccessTitle": "Accès Mac",
+      "machines": {
+        "title": "Machines",
+        "empty": "Vous n’avez aucune machine Cloud.",
+        "personal": "personnel",
+        "team": "équipe",
+        "status": {
+          "provisioning": "démarrage",
+          "running": "en cours d’exécution",
+          "failed": "échec",
+          "paused": "en pause",
+          "destroyed": "supprimée"
+        }
+      },
+      "network": {
+        "open": "Réseau",
+        "title": "Réseau sortant de {name}",
+        "description": "Choisissez ce que cette machine peut joindre. Les modifications s’appliquent immédiatement, sans redémarrage.",
+        "loading": "Chargement de la politique réseau…",
+        "loadError": "Impossible de charger la politique réseau de cette machine.",
+        "saveError": "Impossible d’appliquer cette politique réseau.",
+        "unsupported": "Cette machine ne prend pas en charge le contrôle du réseau sortant.",
+        "retry": "Réessayer",
+        "appliedLabel": "État :",
+        "applied": {
+          "applied": "appliquée",
+          "pending": "application en cours",
+          "failed": "échec de l’application"
+        },
+        "unsaved": "modifications non enregistrées",
+        "refresh": "Actualiser",
+        "modeLabel": "Accès sortant",
+        "mode": {
+          "full": {
+            "label": "Internet complet",
+            "description": "Toute adresse publique."
+          },
+          "allowlist": {
+            "label": "Liste d’autorisation",
+            "description": "Uniquement les préréglages, domaines et plages IP que vous indiquez."
+          },
+          "none": {
+            "label": "Pas d’internet",
+            "description": "Uniquement les hôtes cmux listés ci-dessous."
+          }
+        },
+        "presetsTitle": "Préréglages",
+        "presetsNote": "Chaque préréglage ajoute des noms d’hôte exacts. Un service qui utilise d’autres sous-domaines peut nécessiter des domaines supplémentaires.",
+        "domainsTitle": "Domaines",
+        "domainsNote": "Noms d’hôte exacts uniquement, HTTPS sur le port 443 uniquement. Les caractères génériques ne sont pas encore pris en charge.",
+        "domainInput": "Domaine",
+        "rangesTitle": "Plages IP",
+        "rangesNote": "Le pare-feu du fournisseur les applique en dehors de la machine. Laissez le port vide pour autoriser tous les ports. Un port nécessite un protocole.",
+        "cidrInput": "Plage IP (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protocole",
+        "anyProtocol": "tous",
+        "noteInput": "Note (facultative)",
+        "allPorts": "tous les ports",
+        "dnsLabel": "Autoriser le DNS",
+        "dnsNote": "Permet aux outils de résoudre les noms vers lesquels pointent vos plages IP. Les domaines n’ont pas besoin du DNS. Un DNS ouvert est un canal sortant : un processus peut envoyer des données dans les noms qu’il interroge.",
+        "requiredTitle": "Toujours autorisés",
+        "requiredNote": "cmux a besoin de ces hôtes dans tous les modes pour installer et mettre à jour la CLI sur la machine.",
+        "add": "Ajouter",
+        "remove": "Supprimer",
+        "discard": "Annuler les modifications",
+        "close": "Fermer",
+        "apply": "Appliquer"
+      },
       "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement.",
       "apiKeysEmptyTitle": "Aucune clé API pour l’instant",
-      "apiKeysEmptyHint": "Créez-en une pour authentifier un client CodeRouter."
+      "apiKeysEmptyHint": "Créez-en une pour authentifier un client CodeRouter.",
+      "unavailableTitle": "Les comptes partagés sont indisponibles",
+      "unavailableBody": "cmux ne parvient pas à joindre le service des comptes partagés pour le moment. Les comptes ajoutés avec cr add et les comptes Anthropic et Bedrock fonctionnent toujours."
     },
     "notFound": {
       "title": "Page introuvable",
@@ -1050,6 +1237,14 @@
       },
       "retry": "Réessayer",
       "retrying": "Nouvelle tentative…"
+    },
+    "upgrade": {
+      "title": "Nécessite Pro",
+      "cloud": "Les Cloud VMs et les agents cloud font partie de Pro.",
+      "testflight": "L'app cmux pour iOS fait partie de Pro.",
+      "mobileDevices": "La connexion de votre téléphone et de votre tablette fait partie de Pro.",
+      "action": "Passer à Pro",
+      "comparePlans": "Comparer les forfaits"
     }
   },
   "community": {
@@ -1926,7 +2121,9 @@
           "ampIntegration": "Active ou désactive les hooks cmux pour Amp. Une fois désactivés, le plugin fourni reste installé mais inactif.",
           "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed.",
           "workspaceAutoNaming": "Nommage automatique optionnel des espaces de travail et des onglets par IA à partir du contenu des conversations de l'agent. Lorsqu'il est activé, cmux résume les sessions d'agents pris en charge en titres courts à l'aide du binaire propre à chaque agent ; les renommages manuels priment toujours.",
-          "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais."
+          "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais.",
+          "agentAutoResume": "Envoie `continue`, avec un délai progressif, à un agent lancé par cmux dont le tour s’est terminé sur une erreur amont réessayable (modèle saturé, surchargé ou connexion perdue). Les tours en attente d’une personne ne sont jamais relancés.",
+          "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
@@ -1977,7 +2174,13 @@
           "compactAgentStatus": "Afficher chaque espace de travail sur une seule ligne : une icône colorée avant le titre indique l’état de l’agent, des éléments non lus et de la pull request, et remplace les lignes de statut des agents (par exemple En cours ou Saisie requise), la ligne de branche et de dossier et les lignes de pull request, dont les détails passent dans l’infobulle de l’icône. Les autres entrées de statut gardent leurs lignes.",
           "compactStatusIcons": "Noms de SF Symbols qui remplacent le glyphe compactAgentStatus pour chaque état, par exemple {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}. Les états non définis gardent le symbole intégré, et un nom qui ne s’affiche pas revient à celui-ci.",
           "notificationMessageLineLimit": "Nombre maximal de lignes affichées pour la notification la plus récente sous le titre de chaque espace de travail.",
-          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
+          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique.",
+          "showAgentUsage": "Ajoute l’utilisation de l’agent de code à l’entrée d’état Claude Code ou Codex : le modèle et la fenêtre de contexte consommée, et pour Claude Code un coût d’API estimé (thread principal et sous-agents) aux tarifs publics d’Anthropic. Ce coût est une estimation, pas votre facture d’abonnement ; les niveaux batch et priority, les tarifs partenaires, le mode rapide et les frais d’outils serveur ne sont pas pris en compte.",
+          "beta": {
+            "conversations": {
+              "enabled": "Afficher la vue unifiée des conversations dans le sélecteur de la barre latérale."
+            }
+          }
         },
         "fileExplorer": {
           "description": "Paramètres de l’explorateur de fichiers (arborescence) dans la barre latérale droite.",
@@ -2042,9 +2245,17 @@
       "customActionsDesc": "Une entrée <actions>actions</actions> est l’élément réutilisable exécuté par cmux. Utilisez les actions quand le même comportement doit être disponible depuis Command Palette, la barre d’onglets de surface, les raccourcis ou le menu du bouton plus. Gardez <commands>commands</commands> pour les commandes shell réutilisables et les dispositions d’espace de travail. Définissez <palette>palette</palette> sur false quand une action ne doit pas apparaître dans Command Palette.",
       "actionTypes": "Types d’action",
       "actionTypeBuiltin": "Crée un alias vers une action cmux intégrée comme cmux.newTerminal, cmux.newBrowser, cmux.splitRight ou cmux.splitDown.",
+      "actionTypeBuiltinCopy": "Actions intégrées de copie : cmux.copyWorkingDirectory copie le répertoire de travail du terminal, cmux.copyProjectRoot copie la racine de son dépôt git (ou le répertoire de travail hors d'un dépôt) et cmux.copyScreen copie l'écran visible.",
+      "actionTypeBuiltinCopyRemote": "Dans un espace de travail SSH, cloud ou tmux distant, cmux.copyProjectRoot copie le répertoire de travail distant, car cmux ne peut pas consulter le dépôt git sur l'autre hôte.",
       "actionTypeCommand": "Exécute du texte shell dans un terminal. Utilisez target pour choisir le terminal courant ou un nouvel onglet dans le panneau courant.",
       "actionTypeAgent": "Lance un agent de codage pris en charge. Aujourd’hui, codex et claude sont pris en charge, avec des arguments optionnels.",
       "actionTypeWorkspaceCommand": "Exécute une définition d’espace de travail nommée depuis commands. Utilisez-le pour les dispositions multi-panneaux, les dossiers de travail personnalisés et les commandes de démarrage.",
+      "actionTypeSetting": "Modifie un réglage dans votre cmux.json global, par exemple pour basculer un réglage true/false ou parcourir une liste de valeurs. Voir Actions de réglage ci-dessous.",
+      "actionTypeSettingPreset": "Applique en une seule fois un groupe nommé de réglages défini dans settingPresets.",
+      "settingActions": "Actions de réglage",
+      "settingActionsDesc": "Une action de réglage indique le <path>path</path> d’un réglage et exactement un des champs suivants : <set>set</set> (écrire une valeur), <toggle>toggle: true</toggle> (inverser un réglage true/false), <cycle>cycle</cycle> (passer à la valeur suivante d’une liste, en revenant à la première après la dernière) ou <unset>unset: true</unset> (supprimer la clé de cmux.json pour que la valeur de la fenêtre Réglages ou la valeur par défaut s’applique). toggle et cycle partent de la valeur utilisée par cmux, y compris celle que vous avez définie dans la fenêtre Réglages. Une action settingPreset applique une entrée de <presets>settingPresets</presets>, un cmux.json partiel dont les objets imbriqués sont fusionnés clé par clé. cmux vérifie chaque modification par rapport au schéma avant de l’enregistrer, conserve vos commentaires et les autres clés, et l’applique immédiatement. Les actions de réglage et les presets ne s’exécutent que depuis votre cmux.json global et les packs qu’il référence ; les configurations de projet ne peuvent pas les déclarer.",
+      "settingActionsCli": "Les mêmes modifications fonctionnent depuis un terminal : <set>cmux config set terminal.scrollSpeed 1.4</set>, <toggle>cmux config toggle fileEditor.wordWrap</toggle> et <preset>cmux config preset sidebar.quiet</preset>.",
+      "settingActionsLimits": "Avec <confirm>confirm: true</confirm>, cmux demande confirmation avant d’enregistrer et affiche la commande cmux config équivalente. Les chemins sont découpés à chaque \".\", donc une clé qui contient elle-même \".\" (comme une entrée <byCwd>workspaceGroups.byCwd</byCwd> pour ~/src/app.web) ne peut pas être modifiée ainsi. Modifiez-la directement dans cmux.json.",
       "actionFields": "Champs d’action",
       "actionFieldTitle": "Titre de ligne dans Command Palette, libellé du bouton, titre de l’élément de menu et titre de l’invite de confiance, sauf si une entrée le remplace.",
       "actionFieldSubtitle": "Texte secondaire dans Command Palette. description est accepté comme alias de subtitle.",
@@ -2177,7 +2388,8 @@
         "wn-reload": "Recharger la configuration",
         "wn-quit": "Quitter"
       },
-      "metaTitle": "Raccourcis clavier"
+      "metaTitle": "Raccourcis clavier",
+      "fileEditorWordWrap": "Activer ou désactiver le retour à la ligne de l’éditeur de fichiers (Option+Z)."
     },
     "api": {
       "title": "Référence CLI",
@@ -2617,7 +2829,8 @@
       "maxLinesSetting": "TextBox Max Lines limite la hauteur de TextBox avant que son contenu ne défile.",
       "configTitle": "cmux.json",
       "configDesc": "Définissez les mêmes valeurs par défaut dans ~/.config/cmux/cmux.json sous terminal :",
-      "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal."
+      "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal.",
+      "betaCallout": "TextBox est une fonctionnalité bêta. Ses valeurs par défaut et son comportement peuvent changer pendant les tests."
     },
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode : OpenCode multi-agent dans cmux",
@@ -2717,14 +2930,21 @@
       "planMax": "Max",
       "sizesDefault": "Les nouvelles machines utilisent 8 GB de mémoire si vous ne choisissez pas de taille. Exécutez cmux vm ls --json pour voir les tailles autorisées par votre forfait.",
       "limitsTitle": "Limites de forfait",
-      "limitsDesc": "Les limites de forfait comptent les machines, pas un pool partagé de CPU ou de mémoire. Chaque machine reçoit les ressources de sa taille.",
+      "limitsDesc": "Vos machines actives partagent un même pool de vCPU et de mémoire. Lancez une grande machine ou plusieurs petites. Les machines en pause n'utilisent pas le pool. Le disque est défini par machine et ne fait pas partie du pool.",
       "limitsFree": "Les comptes gratuits ne peuvent pas créer de machines.",
-      "limitsPaid": "Les comptes Pro et Max peuvent avoir jusqu'à 50 machines actives. Une machine est active tant qu'elle est en cours d'exécution ou de démarrage.",
-      "limitsTeam": "Les comptes Team peuvent avoir jusqu'à 50 machines actives par siège payant.",
-      "limitsMax": "Les machines de plus de 24 GB nécessitent cmux Max.",
+      "limitsPaid": "Les comptes Pro et Founder's Edition peuvent avoir jusqu'à 5 machines actives qui partagent 20 vCPU et 40 GB de mémoire. Une machine est active tant qu'elle est en cours d'exécution ou de démarrage.",
+      "limitsTeam": "Les comptes Team peuvent avoir jusqu'à 5 machines actives par siège payant. Chaque siège payant ajoute 20 vCPU et 40 GB de mémoire au pool de l'équipe.",
+      "limitsMax": "Les comptes Max peuvent avoir jusqu'à 5 machines actives qui partagent 80 vCPU et 160 GB de mémoire. Une machine peut aller jusqu'à 32 GB et 16 vCPU avec Pro et Team, ou jusqu'à 64 GB et 32 vCPU avec Max.",
+      "limitsPoolFull": "Si une machine créée, reprise, agrandie ou dupliquée dépasse le pool, cmux refuse la demande et indique la part du pool déjà utilisée. Mettez en pause ou supprimez une machine pour libérer des ressources, ou passez à Max.",
       "limitsPricing": "Consultez la page des tarifs pour les prix actuels. Il n'y a ni facturation à l'usage ni frais de dépassement.",
+      "agentUpdatesTitle": "Garder les agents de code à jour",
+      "agentUpdatesDesc": "Avec ce réglage activé, la machine met à jour Claude Code, Codex, OpenCode, pi et agent-browser. Elle vérifie après la création de la machine et à chaque connexion, au plus une fois toutes les 24 heures. La mise à jour s'exécute en arrière-plan de façon détachée, elle ne bloque donc jamais la connexion.",
+      "agentUpdatesSource": "Chaque outil provient de sa version GitHub officielle et est vérifié avec l'empreinte sha256 de l'asset de la version. npm n'est pas utilisé. Une version ne s'installe qu'après 3 jours de publication, et une mise à jour n'installe jamais une version plus ancienne. Un agent en cours d'exécution garde les fichiers avec lesquels il a démarré, et une mise à jour échouée laisse la version actuelle en place.",
+      "agentUpdatesStatus": "Le résultat de la dernière vérification se trouve dans /etc/cmux/agent-updates.state, et le journal de la mise à jour dans /var/log/cmux-agent-updates.log. Une vérification échouée est relancée à la connexion suivante.",
+      "agentUpdatesToggle": "La feuille Nouvelle machine active ce réglage par défaut. Pour le changer sur une machine existante, faites un clic droit sur la machine et choisissez Garder les agents à jour, ou exécutez cmux vm agent-updates. cmux vm new garde les versions de l'image sauf si vous passez --agent-updates latest. Désactiver les mises à jour conserve les versions déjà installées.",
+      "agentUpdatesNetwork": "Les mises à jour n'utilisent que github.com, api.github.com, objects.githubusercontent.com et release-assets.githubusercontent.com. cmux autorise ces hôtes dans tous les modes réseau, y compris Liste autorisée et Pas d'internet, donc une politique réseau ne bloque jamais les mises à jour.",
       "resizeTitle": "Redimensionner",
-      "resizeDesc": "Vous pouvez agrandir une machine sans perte de données. Faites un clic droit sur la machine et choisissez Resize machine, ou utilisez cmux vm resize. Le redimensionnement ne peut qu'agrandir une machine. Le disque augmente par paliers de 4 GB jusqu'à 256 GB, la mémoire jusqu'à 64 GB et le CPU jusqu'à 32 vCPU. Votre forfait fixe le maximum réel.",
+      "resizeDesc": "Vous pouvez agrandir une machine sans perte de données. Faites un clic droit sur la machine et choisissez Resize machine, ou utilisez cmux vm resize. Le redimensionnement ne peut qu'agrandir une machine. Le disque augmente par paliers de 4 GB jusqu'à 256 GB. La mémoire va jusqu'à 32 GB et le CPU jusqu'à 16 vCPU avec Pro et Team, ou jusqu'à 64 GB et 32 vCPU avec Max. Une machine plus grande utilise davantage votre pool. Votre forfait fixe le maximum réel.",
       "pauseTitle": "Mettre en pause et reprendre",
       "pauseDesc": "cmux vm pause arrête le calcul de la machine. Le disque, les espaces de travail et l'historique des terminaux sont conservés. Les processus en cours s'arrêtent. cmux vm resume redémarre la machine. Ouvrir une machine en pause ou y exécuter une commande la redémarre aussi.",
       "pauseIdle": "Les machines ne se mettent pas en pause d'elles-mêmes lorsqu'elles sont inactives. Une machine continue de tourner jusqu'à ce que vous la mettiez en pause ou la supprimiez.",
@@ -2875,9 +3095,11 @@
       "errPlan": "Les VM Cloud nécessitent un forfait payant",
       "fixPlan": "Les comptes gratuits ne peuvent pas créer de machines. Passez à un forfait payant sur la page des tarifs.",
       "errSize": "Une taille nécessite un forfait supérieur",
-      "fixSize": "Les machines de plus de 24 GB nécessitent cmux Max. Choisissez une taille plus petite ou passez à un forfait supérieur.",
+      "fixSize": "Les machines de plus de 32 GB nécessitent cmux Max. Choisissez une taille plus petite ou passez à un forfait supérieur.",
       "errLimit": "Limite de machines actives atteinte",
       "fixLimit": "Mettez en pause ou supprimez une machine, puis réessayez.",
+      "errPool": "Ressources Cloud VM insuffisantes",
+      "fixPool": "Vos machines actives utilisent déjà les vCPU ou la mémoire partagés. Mettez en pause ou supprimez une machine, choisissez une taille plus petite ou passez à Max.",
       "errLocked": "La machine est verrouillée",
       "fixLocked": "Votre forfait payant a pris fin et la machine a plus de 7 jours. Reprenez un forfait payant pour vous reconnecter. Vos fichiers sont conservés.",
       "errAgentMissing": "claude ou codex : command not found",
@@ -4980,7 +5202,8 @@
   "pricing": {
     "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
     "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
-    "signedOutSignIn": "Se connecter"
+    "signedOutSignIn": "Se connecter",
+    "manageInAppStore": "Gérer dans l’App Store"
   },
   "platforms": {
     "macos": "macOS",
@@ -5146,6 +5369,60 @@
     "signedOutTitle": "Connectez-vous pour autoriser coderouter",
     "signedOutBody": "Une application en ligne de commande attend votre connexion. Connectez-vous avec votre compte cmux pour terminer la connexion de ce terminal. Si vous n'êtes pas à l'origine de cette demande, fermez cette page.",
     "signInButton": "Se connecter"
+  },
+  "cmuxSignIn": {
+    "signInTitle": "Se connecter à cmux",
+    "signInSubtitle": "Un seul compte pour l'app, cloud et le tableau de bord.",
+    "signUpTitle": "Créer votre compte cmux",
+    "signUpSubtitle": "Un seul compte pour l'app, cloud et le tableau de bord.",
+    "continueWithProvider": "Continuer avec {provider}",
+    "signInWithPasskey": "Se connecter avec une clé d'accès",
+    "orContinueWith": "Ou continuer avec",
+    "emailLabel": "Adresse e-mail",
+    "emailPlaceholder": "vous@entreprise.com",
+    "continueWithEmail": "Continuer avec l'e-mail",
+    "emailCodeTab": "E-mail",
+    "emailPasswordTab": "E-mail et mot de passe",
+    "passwordLabel": "Mot de passe",
+    "repeatPasswordLabel": "Confirmer le mot de passe",
+    "signInButton": "Se connecter",
+    "createAccountButton": "Créer le compte",
+    "forgotPassword": "Mot de passe oublié ?",
+    "noAccount": "Pas encore de compte ?",
+    "signUpLink": "S'inscrire",
+    "haveAccount": "Déjà un compte ?",
+    "signInLink": "Se connecter",
+    "checkEmailTitle": "Vérifiez vos e-mails",
+    "checkEmailBody": "Saisissez le code à 6 caractères envoyé à {email}.",
+    "codeLabel": "Code",
+    "back": "Retour",
+    "resendCode": "Renvoyer le code",
+    "chooseAccountTitle": "Choisir un compte",
+    "chooseAccountSubtitle": "pour continuer vers cmux",
+    "useAnotherAccount": "Utiliser un autre compte",
+    "forgetAccount": "Retirer {account} de cette liste",
+    "signedOut": "Déconnecté",
+    "signingInAs": "Connexion en tant que {account}…",
+    "sessionEnded": "Ce compte a été déconnecté. Reconnectez-vous pour continuer.",
+    "redirecting": "Connexion en cours…",
+    "lastUsed": "dernière utilisation",
+    "legal": "En continuant, vous acceptez les {terms} et la {privacy}.",
+    "termsOfService": "Conditions d'utilisation",
+    "privacyPolicy": "Politique de confidentialité",
+    "signUpDisabled": "Impossible de créer de nouveaux comptes pour le moment.",
+    "noMethods": "La connexion n'est pas disponible pour le moment. Réessayez plus tard.",
+    "embeddedDisabled": "Les boutons de connexion sont désactivés dans les pages intégrées. Ouvrez cette page dans son propre onglet.",
+    "errorInvalidEmail": "Saisissez une adresse e-mail valide.",
+    "errorPasswordRequired": "Saisissez votre mot de passe.",
+    "errorPasswordTooShort": "Utilisez au moins {min} caractères.",
+    "errorPasswordTooLong": "Utilisez au maximum {max} caractères.",
+    "errorPasswordsDontMatch": "Les mots de passe ne correspondent pas.",
+    "errorWrongPassword": "L'e-mail ou le mot de passe est incorrect.",
+    "errorInvalidCode": "Ce code n'est pas valide. Vérifiez vos e-mails et réessayez.",
+    "errorInvalidTotp": "Ce code à deux facteurs n'est pas valide.",
+    "errorSignUpNotAllowed": "Impossible de créer de nouveaux comptes pour le moment.",
+    "errorPasskey": "La connexion par clé d'accès n'a pas abouti. Réessayez ou utilisez une autre méthode.",
+    "errorGeneric": "Une erreur s'est produite. Réessayez."
   },
   "MobileRelease106": {
     "title": "Nouveautés de la version 1.0.6",

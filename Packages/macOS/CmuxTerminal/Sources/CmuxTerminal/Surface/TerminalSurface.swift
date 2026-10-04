@@ -222,10 +222,14 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// owns their local PTY, so protocol callbacks need this origin bit too.
     public let isRemoteTerminal: Bool
     /// Whether OSC 52 may publish into the local clipboard without a gesture.
-    /// Manual mirrors and remote exec PTYs are both untrusted terminal input.
+    /// Manual mirrors and remote exec PTYs are untrusted unless the Cloud
+    /// provider grants its write-only clipboard path.
     public var allowsAutomaticClipboardWrite: Bool {
-        !ioMode.usesManualIO && !isRemoteTerminal
+        (!ioMode.usesManualIO && !isRemoteTerminal) || allowsRemoteClipboardWrites
     }
+    /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
+    /// remain denied by the runtime policy regardless of this flag.
+    public let allowsRemoteClipboardWrites: Bool
     /// Ordered input from the manual transport (literal bytes or named keys).
     let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
     /// Resolves physical keys that the manual transport should encode itself.
@@ -261,6 +265,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
+    /// Set while another participant disconnected this pane's view of a
+    /// shared terminal (docs/shared-terminal-sizing.md). The pane drops
+    /// keyboard and text input until the user reattaches.
+    @MainActor public var sharingViewDetached = false
     /// Notifies the owner when explicit input cancels a deferred auto-resume.
     @MainActor public var onStartupRestoreAdmissionCancelled: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.
@@ -582,6 +590,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         ioMode: TerminalSurfaceIOMode = .exec,
         isRemoteTerminal: Bool = false,
+        allowsRemoteClipboardWrites: Bool = false,
         manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil,
         manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
@@ -620,6 +629,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.focusPlacement = focusPlacement
         self.ioMode = ioMode
         self.isRemoteTerminal = isRemoteTerminal
+        self.allowsRemoteClipboardWrites = allowsRemoteClipboardWrites
         self.manualInputHandler = manualInputHandler
         self.manualInputKeyNameResolver = manualInputKeyNameResolver
         self.registry = dependencies.registry
@@ -722,6 +732,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         agentCommandShimCompletionTask?.cancel()
         retireSurfaceRegistryRegistrationIfNeeded()
         markPortalLifecycleClosed(reason: "deinit")
+        // Mirror teardownSurface: release an unconsumed agent-hibernation
+        // reservation so the bounded slot is not stranded (#15652). The
+        // admission state is main-actor isolated and deinit is not.
+        if let hibernationReservation = agentHibernationRuntimeTeardownReservation {
+            agentHibernationRuntimeTeardownReservation = nil
+            let coordinator = runtimeTeardown
+            Task { @MainActor in
+                coordinator.cancelIsolatedHibernationTeardown(hibernationReservation)
+            }
+        }
         // Mirror closeHeadlessStartupWindowIfNeeded: deinit is nonisolated, so
         // the NSWindow teardown hops to the main actor through the same kind of
         // @unchecked Sendable transport the runtime teardown request uses. The

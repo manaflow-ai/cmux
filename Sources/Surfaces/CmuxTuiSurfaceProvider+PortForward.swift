@@ -32,7 +32,9 @@ extension CmuxTuiSurfaceProvider {
         try Task.checkCancellation()
         try catalog.validateOwnership(of: [resource.id], at: destination)
         guard isRegisteredInCatalog() else { throw CancellationError() }
-        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
+        let pane = try existingPane
+            ?? CloudDisplayPaneReservation.current?.pane(for: resource)
+            ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }
@@ -180,7 +182,7 @@ extension CmuxTuiSurfaceProvider {
                     // desktop is checked through the existing browser carrier below.
                     if !self.isAwake {
                         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                        _ = try await client.openPort(id: self.machineID, port: target.port)
+                        _ = try await client.openPort(id: self.machineID, port: target.port, teamID: self.ownerTeamID)
                     }
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                 },
@@ -220,7 +222,7 @@ extension CmuxTuiSurfaceProvider {
 #if DEBUG
                         cmuxDebugLog("cloud.desktop.proxy.heal.begin machine=\(self.machineID) port=\(port)")
 #endif
-                        _ = try await client.openPort(id: self.machineID, port: port)
+                        _ = try await client.openPort(id: self.machineID, port: port, teamID: self.ownerTeamID)
 #if DEBUG
                         cmuxDebugLog("cloud.desktop.proxy.heal.complete machine=\(self.machineID) port=\(port) elapsedMs=\(Int(Date().timeIntervalSince(desktopStartedAt) * 1000))")
 #endif
@@ -235,9 +237,12 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
-    func reprojectRestoredBrowserPanes(generation: UInt64) {
-        for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
-            for projection in catalog.projections(of: resource.id) where !materializedPanels.contains(projection.panelID) {
+    /// Rebinds browser panes for the supplied resources, or all restored browser panes.
+    func reprojectRestoredBrowserPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
+        let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
+        for resource in catalog.snapshot.resources(on: machine) where
+            resource.kind != .terminal && (resourceIDs == nil || resourceIDs!.contains(resource.id)) {
+            for projection in (resourceIDs == nil ? catalog.projections(of: resource.id) : projectionsByResource?[resource.id] ?? []) where !materializedPanels.contains(projection.panelID) {
                 guard let browser = SurfacePaneFactory.browserPanel(panelID: projection.panelID, in: projection.workspaceID),
                       isCurrentLifecycleGeneration(generation), catalog.canRestoreProjection(projection) else { continue }
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
@@ -282,7 +287,7 @@ extension CmuxTuiSurfaceProvider {
     /// Explicit provider preview API retained for diagnostic callers only.
     func controlPlanePreviewURL(port: Int) async throws -> URL {
         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-        let endpoint = try await client.openPort(id: machineID, port: port)
+        let endpoint = try await client.openPort(id: machineID, port: port, teamID: ownerTeamID)
         guard let url = URL(string: endpoint.openUrl), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw ProviderError.invalidPreviewURL }
         return url
     }

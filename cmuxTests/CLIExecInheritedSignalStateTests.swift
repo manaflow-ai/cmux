@@ -81,7 +81,7 @@ struct CLIExecInheritedSignalStateTests {
     /// `CLI/` must run inside `cliExecFailureErrno`, and every `posix_spawn`
     /// must set `POSIX_SPAWN_SETSIGMASK`.
     @Test func everyCLIExecAndSpawnSiteStartsChildrenFromDefaultSignalState() throws {
-        let cliDirectory = URL(fileURLWithPath: #filePath)
+        let cliDirectory = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("CLI", isDirectory: true)

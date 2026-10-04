@@ -47,6 +47,7 @@ export const TEAM_ERROR_CODES = [
   "payload_too_large",
   "rate_limited",
   "rate_limit_unavailable",
+  "seat_limit",
   "last_admin",
   "member_not_found",
   "invitation_not_found",

@@ -37,6 +37,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Owns the optimistic create projection so a later create cannot clear
     /// it when the earlier coordinator request has already finished.
     var pendingTeamCreateRequestID: UUID?
+    /// Invitations addressed to the signed-in user, refreshed on sign-in, by
+    /// the poll and after every invitation action. Empty while signed out.
+    var receivedInvitations: [CloudReceivedInvitation] = []
+    @ObservationIgnored var receivedInvitationsPoll: Task<Void, Never>?
+    @ObservationIgnored var receivedInvitationsLoaded = false
     var isCreatingTeam: Bool { coordinator.isCreatingTeam }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
@@ -159,8 +164,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     /// Completes an external hosted Stack callback through the shared attempt.
-    func handleCallbackURL(_ url: URL) async -> Bool {
-        await browserSignIn.handleCallbackURL(url)
+    func handleCallbackURL(_ url: URL, delivery: AuthCallbackDelivery) async -> Bool {
+        await browserSignIn.handleCallbackURL(url, delivery: delivery)
     }
 
     func openSignInInDefaultBrowser() {
@@ -183,6 +188,43 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         await browserSignIn.signOut()
         isProActive = false
         canManageBilling = false
+    }
+
+    /// Set for the whole switch so sign-in gates show its progress instead of
+    /// an idle Sign In button that would start a second attempt.
+    private(set) var isSwitchingAccount = false
+    @ObservationIgnored private var switchAttempt: Task<Bool, Never>?
+
+    /// Signs out, then signs in again asking the hosted page to confirm the
+    /// account. The browser may still hold a cmux session; the page's chooser
+    /// offers "continue as" that account or a different one.
+    func switchAccount() async {
+        // Clicking again while a switch's window is open (it may be behind
+        // other windows) replaces that attempt with a fresh window; the
+        // sign-out already happened, so it is not repeated. A click while the
+        // sign-out is still running is dropped: there is no window yet, and
+        // starting one would race the sign-out.
+        if isSwitchingAccount {
+            if switchAttempt != nil {
+                switchAttempt = browserSignIn.beginSignIn(selectAccount: true)
+            }
+            return
+        }
+        isSwitchingAccount = true
+        defer {
+            isSwitchingAccount = false
+            switchAttempt = nil
+        }
+        await signOut()
+        var attempt = browserSignIn.beginSignIn(selectAccount: true)
+        switchAttempt = attempt
+        // Stay switching until the newest attempt settles: a replaced one
+        // ends early, cancelled, while its replacement is still open.
+        while true {
+            _ = await attempt.value
+            guard let latest = switchAttempt, latest != attempt else { break }
+            attempt = latest
+        }
     }
 
     /// Socket variant of sign-out. The underlying sign-out continues if the

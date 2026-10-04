@@ -107,16 +107,16 @@ beforeEach(() => {
 describe("dashboard router", () => {
   test.each([
     ["/dashboard", "/shell/dashboard"],
-    ["/dashboard/billing", "/shell/dashboard/billing"],
+    ["/dashboard/billing", "/shell/hub/dashboard/billing"],
     ["/dashboard/testflight", "/shell/dashboard/testflight"],
     ["/dashboard/coderouter", "/shell/dashboard/coderouter"],
     ["/dashboard/cloud", "/shell/dashboard/cloud"],
     ["/dashboard/mobile-devices", "/shell/dashboard/mobile-devices"],
-    ["/dashboard/settings", "/shell/dashboard/settings/"],
-    ["/dashboard/settings/api-keys", "/shell/dashboard/settings/api-keys"],
-    ["/dashboard/teams", "/shell/dashboard/teams"],
-    ["/dashboard/teams/new", "/shell/dashboard/teams/new"],
-    ["/dashboard/teams/abc/members", "/shell/dashboard/teams/$teamId/members"],
+    ["/dashboard/settings", "/shell/hub/dashboard/settings/"],
+    ["/dashboard/settings/api-keys", "/shell/hub/dashboard/settings/api-keys"],
+    ["/dashboard/teams", "/shell/hub/dashboard/teams"],
+    ["/dashboard/teams/new", "/shell/hub/dashboard/teams/new"],
+    ["/dashboard/teams/abc/members", "/shell/hub/dashboard/teams/$teamId/members"],
     ["/dashboard/team/accept", "/shell/dashboard/team/accept"],
     ["/dashboard/vault", "/shell/dashboard/vault"],
     ["/dashboard/vault/sessions", "/shell/dashboard/vault/sessions"],
@@ -131,7 +131,7 @@ describe("dashboard router", () => {
     const { router } = await loadRouter("/ja/dashboard/settings", "ja");
     expect(router.options.basepath).toBe("/ja");
     expect(router.state.location.pathname).toBe("/dashboard/settings");
-    expect(leafRouteId(router)).toBe("/shell/dashboard/settings/");
+    expect(leafRouteId(router)).toBe("/shell/hub/dashboard/settings/");
     expect(router.buildLocation({ to: "/dashboard/billing" }).href).toBe("/ja/dashboard/billing");
   });
 
@@ -152,8 +152,8 @@ describe("dashboard router", () => {
   });
 
   test.each([
-    ["/dashboard/coderouter?team=t1", "en", "coderouter — cmux"],
-    ["/ja/dashboard/coderouter", "ja", "coderouter — cmux"],
+    ["/dashboard/coderouter?team=t1", "en", "Coderouter — cmux"],
+    ["/ja/dashboard/coderouter", "ja", "Coderouter — cmux"],
   ])("%s renders its route title", async (url, locale, title) => {
     const { html } = await render(url, locale);
     // The overview fetch fails in this stub; the title comes from the route, not the data.
@@ -178,6 +178,17 @@ describe("dashboard router", () => {
     expect(main).toContain('href="/dashboard/testflight"');
   });
 
+  test.each(["/dashboard/teams/new", "/dashboard/settings/account"])(
+    "%s renders inside the settings hub with its subnav",
+    async (url) => {
+      const { html } = await render(url);
+      expect(html).toContain('data-testid="settings-hub"');
+      const hub = html.slice(html.indexOf('data-testid="settings-hub"'));
+      expect(hub).toContain('href="/dashboard/billing"');
+      expect(hub).toContain('href="/dashboard/teams/new"');
+    },
+  );
+
   test("a 401 session renders the sign-in redirect with the exact destination", async () => {
     sessionReply = { status: 401 };
     const { html } = await render("/dashboard/coderouter?team=t1");
@@ -197,7 +208,7 @@ describe("dashboard router", () => {
     const { html } = await render("/dashboard/cloud");
     expect(html).toContain('data-testid="dashboard-shell"');
     expect(html).toContain('data-testid="section-error"');
-    expect(html).toContain("Cloud Mac access");
+    expect(html).toContain("Cloud machines and Mac access");
     expect(html).toContain("Try again");
     expect(html).not.toContain('data-testid="dashboard-auth-recovery"');
   });
