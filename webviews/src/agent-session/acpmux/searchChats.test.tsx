@@ -21,7 +21,7 @@ afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { SearchChats, searchChats } = await import("./SearchChats");
+const { SearchChats, searchChats, nextSearchState } = await import("./SearchChats");
 
 const sessions: AcpmuxSessionEntry[] = [
   { sessionId: "a", displayTitle: "Fix the checkout page", cwd: "/src/web", updatedAt: 10 },
@@ -94,4 +94,55 @@ test("typing filters, arrows move, Enter opens, Escape closes", async () => {
   await key({ key: "Escape" });
   expect(closed).toBe(1);
   await act(async () => root.unmount());
+});
+
+test("a closing sheet lets clicks through and reports the end of its own exit animation once", async () => {
+  let exited = 0;
+  const root = createRoot(document.getElementById("root")!);
+  const render = (closing: boolean) =>
+    act(async () =>
+      root.render(
+        createElement(SearchChats, {
+          sessions,
+          closing,
+          onSelect: () => {},
+          onNewChat: () => {},
+          onClose: () => {},
+          onExited: () => exited++,
+        }),
+      ),
+    );
+  await render(false);
+  const layer = document.querySelector<HTMLElement>(".acpmux-search-layer")!;
+  const sheet = document.querySelector<HTMLElement>(".acpmux-search")!;
+  const end = (target: Element) =>
+    act(async () => void target.dispatchEvent(new dom.window.Event("animationend", { bubbles: true })));
+  // The open animation ending is not an exit.
+  await end(sheet);
+  expect(exited).toBe(0);
+  expect(layer.classList.contains("is-closing")).toBe(false);
+  await render(true);
+  expect(layer.classList.contains("is-closing")).toBe(true);
+  expect(layer.getAttribute("aria-hidden")).toBe("true");
+  // A row's own animation bubbling up does not end the sheet's exit.
+  await end(document.querySelector(".acpmux-search-row")!);
+  expect(exited).toBe(0);
+  await end(sheet);
+  expect(exited).toBe(1);
+  await act(async () => root.unmount());
+});
+
+test("open and close move through the exit state only while motion is on", () => {
+  // Cmd-K toggles; a close during the exit reopens at once from what is on screen.
+  expect(nextSearchState("closed", "toggle", true)).toBe("open");
+  expect(nextSearchState("open", "toggle", true)).toBe("closing");
+  expect(nextSearchState("closing", "toggle", true)).toBe("open");
+  expect(nextSearchState("open", "close", true)).toBe("closing");
+  expect(nextSearchState("closing", "close", true)).toBe("closing");
+  expect(nextSearchState("closed", "close", true)).toBe("closed");
+  expect(nextSearchState("closing", "exited", true)).toBe("closed");
+  expect(nextSearchState("open", "exited", true)).toBe("open");
+  // Reduce Motion (no exit animation runs, so no animationend arrives): close at once.
+  expect(nextSearchState("open", "toggle", false)).toBe("closed");
+  expect(nextSearchState("open", "close", false)).toBe("closed");
 });
