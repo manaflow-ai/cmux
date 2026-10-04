@@ -142,12 +142,73 @@ import Testing
         let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)),
                                   options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
         host.panel.ignoresMouseEvents = false
-        host.panel.sendEvent(Self.mouseDown(at: NSPoint(x: 600, y: 300), in: host.panel))
-        #expect(target.clicks == 1, "the click went on to the window")
+        // The window server sends the drag and the up of a click to the window that got the down: the panel.
+        host.panel.sendEvent(Self.mouse(.leftMouseDown, at: NSPoint(x: 600, y: 300), in: host.panel))
+        host.panel.sendEvent(Self.mouse(.leftMouseDragged, at: NSPoint(x: 610, y: 300), in: host.panel))
+        host.panel.sendEvent(Self.mouse(.leftMouseUp, at: NSPoint(x: 610, y: 300), in: host.panel))
+        #expect(target.events == [.leftMouseDown, .leftMouseDragged, .leftMouseUp], "the whole click went on to the window")
         #expect(host.panel.ignoresMouseEvents, "the panel let go of the mouse")
         #expect(!host.wantsKey(forClickIn: host.panel, at: NSPoint(x: 600, y: 300)))
         #expect(host.wantsKey(forClickIn: host.panel, at: NSPoint(x: 100, y: 300)))
         dialog.dismiss()
+    }
+
+    /// A forwarded click on the sidebar (an occluder) goes to the window,
+    /// not to the page window whose frame runs under the sidebar.
+    @Test func aForwardedClickOnTheSidebarReachesTheWindowNotThePage() {
+        let main = makeMain()
+        let page = makePage()
+        defer { close(main, page) }
+        let window = ClickRecorder(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        main.contentView = window
+        let pageView = ClickRecorder(frame: NSRect(x: 0, y: 0, width: 400, height: 500))
+        page.contentView = pageView
+        page.setFrame(main.frame, display: false)
+        main.addChildWindow(page, ordered: .above)
+        let host = WindowOverlayHost.host(for: main)
+        host.setOccluder(id: "sidebar", rect: NSRect(x: 0, y: 0, width: 240, height: 600))
+        let tab = NSRect(x: 400, y: 0, width: 400, height: 600)
+        let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)),
+                                  options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
+        host.panel.ignoresMouseEvents = false
+        host.panel.sendEvent(Self.mouse(.leftMouseDown, at: NSPoint(x: 100, y: 300), in: host.panel))
+        host.panel.sendEvent(Self.mouse(.leftMouseUp, at: NSPoint(x: 100, y: 300), in: host.panel))
+        #expect(window.events == [.leftMouseDown, .leftMouseUp])
+        #expect(pageView.events.isEmpty)
+        dialog.dismiss()
+        host.setOccluder(id: "sidebar", rect: nil)
+    }
+
+    /// A popover that grows after it was presented takes the mouse over its
+    /// new area at once (no stale region).
+    @Test func aGrowingOverlayTakesTheMouseOverItsNewArea() {
+        let main = makeMain()
+        defer { close(main) }
+        let host = WindowOverlayHost.host(for: main)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        let popover = host.present(content, options: OverlayOptions(kind: .popover, anchor: NSRect(x: 100, y: 400, width: 20, height: 20)))
+        let far = NSPoint(x: content.frame.minX + 250, y: content.frame.midY)
+        #expect(!host.acceptsMouse(at: far))
+        content.setFrameSize(NSSize(width: 300, height: 40))
+        #expect(host.acceptsMouse(at: far), "the region follows the content's new size")
+        popover.dismiss()
+    }
+
+    /// The keyboard comes back to the saved first responder when nothing
+    /// else took it while the modal showed.
+    @Test func dismissingAModalRestoresTheFocusItTook() {
+        let main = makeMain()
+        defer { close(main) }
+        let before = NSTextField(frame: NSRect(x: 400, y: 10, width: 100, height: 22))
+        let other = NSTextField(frame: NSRect(x: 400, y: 60, width: 100, height: 22))
+        main.contentView?.addSubview(before)
+        main.contentView?.addSubview(other)
+        main.makeFirstResponder(before)
+        let host = WindowOverlayHost.host(for: main)
+        let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)), options: .dialog())
+        main.makeFirstResponder(other)
+        dialog.dismiss()
+        #expect(Self.owner(of: main.firstResponder) === before, "the focus the modal took comes back")
     }
 
     /// Dismissing a tab dialog after the person moved on to another view
@@ -164,7 +225,9 @@ import Testing
         let tab = NSRect(x: 0, y: 0, width: 300, height: 600)
         let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)),
                                   options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
+        // The person clicks into the window and types there: another window takes the keyboard.
         main.makeFirstResponder(later)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: main)
         dialog.dismiss()
         #expect(Self.owner(of: main.firstResponder) === later)
     }
@@ -221,9 +284,10 @@ import Testing
         #expect(!host.panel.isVisible)
     }
 
-    private static func mouseDown(at point: NSPoint, in window: NSWindow) -> NSEvent {
-        NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+    private static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow) -> NSEvent {
+        NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                           pressure: type == .leftMouseUp ? 0 : 1)!
     }
 
     /// A key down as the keyboard sends it to `panel`.
@@ -245,7 +309,9 @@ private final class UnlistedPresenterPanel: NSPanel {}
 
 /// Counts the clicks that reach it.
 private final class ClickRecorder: NSView {
-    var clicks = 0
+    var events: [NSEvent.EventType] = []
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { clicks += 1 }
+    override func mouseDown(with event: NSEvent) { events.append(.leftMouseDown) }
+    override func mouseDragged(with event: NSEvent) { events.append(.leftMouseDragged) }
+    override func mouseUp(with event: NSEvent) { events.append(.leftMouseUp) }
 }
