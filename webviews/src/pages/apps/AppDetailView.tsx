@@ -68,7 +68,7 @@ export function AppDetailView({
             )}
           </div>
         </header>
-        <p className="apps-detail-description">{detail.description}</p>
+        <p className="apps-detail-description selectable">{detail.description}</p>
         {detail.screenshots.length > 0 && (
           <section className="apps-section">
             <h2>{t("store.detail.screenshots")}</h2>
@@ -94,7 +94,7 @@ export function AppDetailView({
                   <code>{scope.scope}</code>
                   {scope.risk !== "standard" && <Badge text={t(RiskLabel[scope.risk])} />}
                   {scope.optional && <Badge text={t("store.detail.optional")} />}
-                  <span className="apps-muted">{scope.reason}</span>
+                  <span className="apps-muted selectable">{scope.reason}</span>
                 </li>
               ))}
             </ul>

@@ -25,7 +25,9 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                     {app.name} <span className="apps-version">{app.version}</span>
                     {app.source === "local" && <Badge text={t("store.badge.local")} />}
                   </span>
-                  <span className={app.failure ? "apps-failure" : "apps-muted"}>{app.failure ?? app.id}</span>
+                  <span className={app.failure ? "apps-failure selectable" : "apps-muted"}>
+                    {app.failure ?? app.id}
+                  </span>
                 </div>
                 <div className="apps-installed-actions">
                   <Switch
@@ -71,7 +73,7 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
               </div>
               {snap.grantsShown === app.id && grants && <GrantsPanel grants={grants} store={store} strings={strings} />}
               {snap.logsShown === app.id && (
-                <pre className="apps-logs">
+                <pre className="apps-logs selectable">
                   {logs.length === 0
                     ? t("store.detail.noLogs")
                     : logs.map((line, index) => (
