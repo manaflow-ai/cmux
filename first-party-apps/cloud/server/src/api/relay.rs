@@ -129,17 +129,28 @@ pub struct HostRelay<R, W> {
     writer: W,
     next_id: u64,
     queued: VecDeque<Value>,
+    /// Lines in `queued` that get a result line (not host frames).
+    waiting_ops: usize,
+    /// `host.result` and `host.error` frames in `queued`.
+    host_answers: usize,
 }
 
 impl<R: BufRead, W: Write> HostRelay<R, W> {
     pub fn new(reader: R, writer: W) -> Self {
-        Self { input: Input::Direct(reader), writer, next_id: 0, queued: VecDeque::new() }
+        Self {
+            input: Input::Direct(reader),
+            writer,
+            next_id: 0,
+            queued: VecDeque::new(),
+            waiting_ops: 0,
+            host_answers: 0,
+        }
     }
 
     /// The next host message that is not a relay answer: queued ones first.
     /// `None` at end of input. Wakes are skipped (only the serve loop takes them).
     pub fn next_message(&mut self) -> std::io::Result<Option<Value>> {
-        if let Some(m) = self.queued.pop_front() {
+        if let Some(m) = self.pop_queued() {
             return Ok(Some(m));
         }
         self.read_line()
@@ -148,7 +159,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     /// The serve loop's next step: a queued or new host message, or a wake.
     /// `None` at end of input.
     pub(crate) fn next_step(&mut self) -> std::io::Result<Option<Next>> {
-        if let Some(m) = self.queued.pop_front() {
+        if let Some(m) = self.pop_queued() {
             return Ok(Some(Next::Message(m)));
         }
         match &mut self.input {
@@ -160,6 +171,18 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 Err(_) => Ok(None),
             },
         }
+    }
+
+    /// The oldest kept line, with the counts kept in step.
+    fn pop_queued(&mut self) -> Option<Value> {
+        let m = self.queued.pop_front()?;
+        match m["t"].as_str() {
+            Some("host.result" | "host.error") => self.host_answers -= 1,
+            Some("host.event") => {}
+            _ if super::host::is_host_frame(&m) => {}
+            _ => self.waiting_ops -= 1,
+        }
+        Some(m)
     }
 
     /// Writes one JSON line to the host.
@@ -225,22 +248,38 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
 impl<R: BufRead, W: Write> HostRelay<R, W> {
     /// Keeps a line that came during a relay call for after it. Host frames
     /// are answers and events, never op lines: a `host.event` replaces the
-    /// waiting one of the same op (only the newest counts), and host answers
-    /// are bounded by the requests this server sent (one per op). Every
-    /// other line gets a result line from the loop, so at most
-    /// [`RELAY_QUEUE_LINES`] of them wait; one more is answered now with the
-    /// retryable `cmux.cloud.relay_busy`.
+    /// waiting one of the same op in place (only the newest counts), at most
+    /// [`RELAY_QUEUE_LINES`] host answers are kept (the server has far fewer
+    /// waiting), and other host frames are dropped. Every other line gets a
+    /// result line from the loop, so at most [`RELAY_QUEUE_LINES`] of them
+    /// wait; one more is answered now with the retryable
+    /// `cmux.cloud.relay_busy`. When that write fails the channel is dead,
+    /// and the call that waits fails as `relay_unavailable`.
     fn hold(&mut self, message: Value) -> std::io::Result<()> {
         if super::host::is_host_frame(&message) {
-            if message["t"] == "host.event" {
-                let op = message["op"].clone();
-                self.queued.retain(|m| !(m["t"] == "host.event" && m["op"] == op));
+            match message["t"].as_str() {
+                Some("host.event") => {
+                    let op = message["op"].clone();
+                    let same = |m: &Value| m["t"] == "host.event" && m["op"] == op;
+                    // In place: the newest event keeps the older one's turn.
+                    match self.queued.iter_mut().find(|m| same(m)) {
+                        Some(waiting) => *waiting = message,
+                        None => self.queued.push_back(message),
+                    }
+                }
+                Some("host.result" | "host.error") if self.host_answers < RELAY_QUEUE_LINES => {
+                    self.host_answers += 1;
+                    self.queued.push_back(message);
+                }
+                // More host answers than the server ever has waiting, or a
+                // frame type the server does not know: the loop would drop
+                // it anyway.
+                _ => eprintln!("cmux-cloud: dropped a host frame that came during a relay call"),
             }
-            self.queued.push_back(message);
             return Ok(());
         }
-        let waiting = self.queued.iter().filter(|m| !super::host::is_host_frame(m)).count();
-        if waiting < RELAY_QUEUE_LINES {
+        if self.waiting_ops < RELAY_QUEUE_LINES {
+            self.waiting_ops += 1;
             self.queued.push_back(message);
             return Ok(());
         }

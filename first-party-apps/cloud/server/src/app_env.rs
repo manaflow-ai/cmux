@@ -185,6 +185,12 @@ pub(crate) fn write_private_with(
     let renamed = written.and_then(|()| rename(&staging, path));
     if renamed.is_err() {
         let _ = std::fs::remove_file(&staging);
+        return renamed;
     }
-    renamed
+    // The new name is durable only once the folder is synced.
+    #[cfg(unix)]
+    if let Some(dir) = path.parent() {
+        std::fs::File::open(dir)?.sync_all()?;
+    }
+    Ok(())
 }
