@@ -73,21 +73,57 @@ impl Family {
 /// acpmux reports (a declared one, else derived from the harness kind and
 /// command). A daemon from before that field: derived here the same way,
 /// from `kind` and the command's words, never from the harness's name.
-pub fn harness_family(_answer: &Value, harness: &str) -> Result<Family, String> {
-    // Red stub: the old name prefix.
-    Ok(if harness.starts_with("claude") {
-        Family::Claude
-    } else if harness.starts_with("codex") {
-        Family::Codex
-    } else {
-        Family::Other
-    })
+pub fn harness_family(answer: &Value, harness: &str) -> Result<Family, String> {
+    let Some(profile) = answer.get("harnesses").and_then(|h| h.get(harness)) else {
+        return Err(format!("acpmux has no harness named {harness}"));
+    };
+    if let Some(family) = profile.get("family").and_then(Value::as_str) {
+        return Ok(Family::from_name(family));
+    }
+    if profile.get("kind").and_then(Value::as_str) == Some("claude-stdio") {
+        return Ok(Family::Claude);
+    }
+    let words: Vec<String> = profile
+        .get("argv")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|w| {
+            std::path::Path::new(w)
+                .file_name()
+                .map(|f| f.to_string_lossy().to_lowercase())
+                .unwrap_or_default()
+        })
+        .collect();
+    // acpmux's own order (config.rs derive_family): codex before claude.
+    for (needle, family) in [("codex", Family::Codex), ("claude", Family::Claude)] {
+        if words.iter().any(|w| w.contains(needle)) {
+            return Ok(family);
+        }
+    }
+    Ok(Family::Other)
 }
 
 /// `_acpmux/harnesses` from the daemon at `socket` (started when it does not
 /// answer, as the link starts it), on a connection of its own.
-pub fn query_harnesses(_socket: &std::path::Path, _log: &dyn Fn(&str)) -> Result<Value, String> {
-    Err("not implemented (red)".into())
+pub fn query_harnesses(socket: &std::path::Path, log: &dyn Fn(&str)) -> Result<Value, String> {
+    crate::acpmux_daemon::ensure(socket, log)?;
+    let client = RpcClient::connect(socket, |_| {})
+        .map_err(|e| format!("connect {}: {e}", socket.display()))?;
+    let result = client
+        .request(
+            "initialize",
+            json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
+        )
+        .map_err(|e| format!("initialize: {e}"))
+        .and_then(|_| {
+            client
+                .request("_acpmux/harnesses", json!({}))
+                .map_err(|e| format!("harnesses: {e}"))
+        });
+    client.close();
+    result
 }
 
 /// What a running turn hears about its session.

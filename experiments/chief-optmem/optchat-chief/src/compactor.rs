@@ -683,6 +683,28 @@ pub fn project_dir_name(cwd: &Path) -> String {
 /// offers a skill (codex-acp's `available_commands_update`).
 pub fn check_isolation(events: &[AcpmuxEvent]) -> Result<(), String> {
     for event in events {
+        // Codex lists every skill it loaded as a `$name` command (a user
+        // skill, a plugin's, a bundled one); a chat line that names one
+        // would pull its text into the node.
+        if event.kind == "available_commands_update" {
+            let skills: Vec<&str> = event
+                .msg
+                .get("params")
+                .and_then(|p| p.pointer("/update/availableCommands"))
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|c| c.get("name").and_then(Value::as_str))
+                .filter(|name| name.starts_with('$'))
+                .collect();
+            if !skills.is_empty() {
+                return Err(format!(
+                    "the compactor session is not isolated: it offers skills [{}]",
+                    skills.join(", ")
+                ));
+            }
+            continue;
+        }
         if event.kind != "session_info_update" {
             continue;
         }
@@ -798,6 +820,29 @@ pub fn compactor_presets(
     family: Family,
 ) -> Vec<Preset> {
     let base = format!("optchat-compact-{}", home_id(home));
+    if family == Family::Codex {
+        // Codex: the slot's own CODEX_HOME and the Chief's compactor cache key.
+        return (0..optchat_core::JOBS)
+            .map(|k| Preset {
+                name: slot_preset(&base, k),
+                harness: harness.to_owned(),
+                env: BTreeMap::from([
+                    (
+                        "CODEX_HOME".to_owned(),
+                        codex_slot_home(&paths.compactor_codex, k)
+                            .display()
+                            .to_string(),
+                    ),
+                    (
+                        CODEX_CACHE_KEY_ENV.to_owned(),
+                        codex_cache_key(home, "compact"),
+                    ),
+                ]),
+                args: Vec::new(),
+                system_prompt: None,
+            })
+            .collect();
+    }
     let mut env = BTreeMap::new();
     env.insert(
         "CLAUDE_CONFIG_DIR".to_owned(),
@@ -901,8 +946,41 @@ pub const CODEX_KEPT_KEYS: [&str; 8] = [
 /// skills (none loaded, none listed in the prompt), no apps, plugins,
 /// memories, hooks or subagents, no history file.
 pub fn codex_compactor_config(user: Option<&str>) -> Result<String, String> {
-    // Red stub: the user's config as it is.
-    Ok(user.unwrap_or_default().to_owned())
+    let mut out = toml::Table::new();
+    if let Some(text) = user {
+        let table: toml::Table = text
+            .parse()
+            .map_err(|e| format!("reading the user's codex config.toml: {e}"))?;
+        for key in CODEX_KEPT_KEYS {
+            if let Some(value) = table.get(key) {
+                out.insert(key.to_owned(), value.clone());
+            }
+        }
+    }
+    let isolation: toml::Table = r#"
+project_doc_max_bytes = 0
+
+[history]
+persistence = "none"
+
+[features]
+apps = false
+plugins = false
+memories = false
+hooks = false
+multi_agent = false
+skip_host_skill_discovery = true
+
+[skills]
+include_instructions = false
+
+[skills.bundled]
+enabled = false
+"#
+    .parse()
+    .expect("the isolation table parses");
+    out.extend(isolation);
+    toml::to_string(&out).map_err(|e| format!("writing the compactor's codex config: {e}"))
 }
 
 /// Creates every compactor slot's `CODEX_HOME` (0700) under
@@ -936,7 +1014,25 @@ pub const CODEX_KEPT_FILES: [&str; 3] = ["config.toml", "models_cache.json", "ve
 /// Removes everything in a compactor `CODEX_HOME` but `CODEX_KEPT_FILES`:
 /// the node's rollout (`sessions/`), thread and log databases, history,
 /// shell snapshots, the bundled skills codex unpacks.
-pub fn wipe_codex_home(_dir: &Path) -> io::Result<()> {
+pub fn wipe_codex_home(dir: &Path) -> io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        if CODEX_KEPT_FILES.iter().any(|k| name == *k) {
+            continue;
+        }
+        let path = entry.path();
+        if entry.file_type()?.is_dir() {
+            std::fs::remove_dir_all(&path)?;
+        } else {
+            std::fs::remove_file(&path)?;
+        }
+    }
     Ok(())
 }
 

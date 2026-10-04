@@ -88,8 +88,13 @@ pub fn turn_preset(
     } else {
         BTreeMap::new()
     };
-    let _ = (CODEX_CACHE_KEY_ENV, codex_cache_key(home, "turn"));
-    (isolate || family == Family::Claude).then(|| Preset {
+    if family == Family::Codex {
+        env.insert(
+            CODEX_CACHE_KEY_ENV.to_owned(),
+            codex_cache_key(home, "turn"),
+        );
+    }
+    (isolate || family != Family::Other).then(|| Preset {
         name: format!("optchat-chief-{}", crate::paths::home_id(home)),
         harness: harness.to_owned(),
         env,
