@@ -36,3 +36,9 @@ struct MarkdownPageKeyTests {
         #expect(PageDescriptor.markdown.commands.contains("save"))
     }
 }
+
+extension MarkdownPageKeyTests {
+    @Test func theMarkdownIdMatchesTheDescriptor() {
+        #expect(KeyRouter.markdownPageID == PageDescriptor.markdown.id)
+    }
+}

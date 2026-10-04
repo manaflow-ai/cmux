@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextPages
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
 // section 4): built from that window's focus, never from the process-wide
@@ -18,7 +19,14 @@ extension KeyRouter {
         /// The focused page cannot take typing yet: its document has not
         /// focused its primary input, or keys typed before still wait.
         var pageInputPending = false
+        /// The focused React page's id (`cmux.markdown`): context key
+        /// `pageId`; the markdown page also sets `markdownFocused`.
+        var pageID: String?
     }
+
+    /// The markdown page's id (`PageDescriptor.markdown`), for the
+    /// `markdownFocused` bit.
+    nonisolated static let markdownPageID = "cmux.markdown"
 
     /// The context keys for a key in a window with `focus`.
     func keyContext(for focus: FocusState, facts: Facts) -> KeyContext {
@@ -35,7 +43,9 @@ extension KeyRouter {
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
+        if facts.pageID == Self.markdownPageID { bits.insert(.markdownFocused) }
         var context = KeyContext(bits: bits)
+        if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
         let resolved = focus.resolved
         if let kind = surfaceKind(resolved) { context[KeyContext.surfaceKind] = .string(kind) }
@@ -89,7 +99,14 @@ extension KeyRouter {
     /// The facts of `window` (the key window) and its cmux window.
     func facts(in window: NSWindow, controller: WindowController) -> Facts {
         Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-              terminalCopyMode: terminalCopyMode(in: controller))
+              terminalCopyMode: terminalCopyMode(in: controller), pageID: focusedPage(in: controller)?.descriptor.id)
+    }
+
+    /// The React page the focused pane's selected tab shows, if any.
+    func focusedPage(in controller: WindowController) -> PageWebView? {
+        guard case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
+        return view.content as? PageWebView
     }
 
     private func terminalCopyMode(in controller: WindowController) -> Bool {
