@@ -50,7 +50,12 @@ public final class WindowOverlayHost {
         isAppHost = window == nil
         panel = OverlayHostPanel()
         panel.onCancel = { [weak self] in self?.escape() }
-        if isAppHost { panel.level = .modalPanel }
+        if isAppHost {
+            // Above the app's own windows while cmux is active; hidden while
+            // another app is active, so it never covers other apps.
+            panel.level = .modalPanel
+            panel.hidesOnDeactivate = true
+        }
     }
 
     /// The host of `window`, made on first use; it goes away with the window.

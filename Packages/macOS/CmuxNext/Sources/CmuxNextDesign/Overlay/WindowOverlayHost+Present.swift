@@ -145,10 +145,12 @@ extension WindowOverlayHost {
             restoreResponder = (NSApp.keyWindow ?? window)?.firstResponder
         }
         panel.acceptsKey = true
-        panel.autorecalculatesKeyViewLoop = true
-        panel.recalculateKeyViewLoop()
+        // Tab and Shift-Tab cycle through this overlay's controls only.
+        panel.autorecalculatesKeyViewLoop = false
+        let keyViews = Self.keyViews(in: handle.content)
+        for (index, view) in keyViews.enumerated() { view.nextKeyView = keyViews[(index + 1) % keyViews.count] }
         if panel.isVisible { panel.makeKey() }
-        let first = Self.firstKeyView(in: handle.content) ?? handle.content
+        let first = keyViews.first ?? handle.content
         panel.initialFirstResponder = first
         panel.makeFirstResponder(first)
     }
@@ -178,6 +180,13 @@ extension WindowOverlayHost {
     /// Escape: the newest overlay that dismisses on Escape goes.
     func escape() {
         handles.last(where: { $0.options.dismissOnEscape })?.dismiss()
+    }
+
+    /// Controls that take the keyboard, in view order.
+    static func keyViews(in view: NSView) -> [NSView] {
+        var found: [NSView] = view.acceptsFirstResponder && view is NSControl ? [view] : []
+        for child in view.subviews where !child.isHidden { found += keyViews(in: child) }
+        return found
     }
 
     static func firstKeyView(in view: NSView) -> NSView? {
