@@ -1,0 +1,12 @@
+{
+  "$comment": "Shape of a 404 for a missing guest file. The code vm_file_not_found is planned by the backend lead for web/app/api/vm/[id]/fs/[operation]/route.ts and does not exist yet; production main has no fs routes today, so a bare 404 must stay an error.",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/vm/vm-alpha01/fs/remove?path=/home/cmux/old.txt"
+  },
+  "status": 404,
+  "body": {
+    "error": "vm_file_not_found",
+    "message": "Not found."
+  }
+}
