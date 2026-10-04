@@ -71,6 +71,8 @@ public nonisolated struct KeyContext: Hashable, Sendable {
     public static let browserFocusMode = "browserFocusMode"
     /// The focused terminal is in copy mode.
     public static let terminalCopyMode = "terminal.copyMode"
+    /// The focused React page's id (`cmux.markdown`, `cmux.keybindings`).
+    public static let pageID = "pageId"
     /// The kind of window the key goes to (``WindowKindValue``).
     public static let windowKind = "windowKind"
 
