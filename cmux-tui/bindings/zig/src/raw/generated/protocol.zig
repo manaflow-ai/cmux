@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
+pub const ir_sha256 = "960d70aaaa1596d94a1d4f039911a526cdfb854afa4c04609c806cb2a94948d3";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2901,6 +2901,25 @@ pub fn browserWheelGuarded(client: anytype, request: BrowserWheelGuardedRequest)
             .authority = "frontend",
             .since = 10,
             .capability = "browser-pointer-frame-guard-v1",
+        },
+        request,
+    );
+}
+
+pub const CancelRequestRequest = struct {
+    target: wire.Nullable(JsonValue),
+};
+
+pub const CancelRequestResult = EmptyResult;
+
+pub fn cancelRequest(client: anytype, request: CancelRequestRequest) !wire.Decoded(CancelRequestResult) {
+    return client.callTyped(
+        CancelRequestResult,
+        .{
+            .name = "cancel-request",
+            .authority = "control",
+            .since = 12,
+            .capability = "cancel-request-v1",
         },
         request,
     );
@@ -8418,7 +8437,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 213;
+pub const command_count: usize = 214;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -8438,6 +8457,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
+    .{ .name = "cancel-request", .authority = "control", .since = 12, .capability = "cancel-request-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "client-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },

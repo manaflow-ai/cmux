@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
+inline constexpr std::string_view kProtocolIrSha256 = "960d70aaaa1596d94a1d4f039911a526cdfb854afa4c04609c806cb2a94948d3";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -200,6 +200,7 @@ struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
+struct CancelRequestRequest;
 struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
 struct ClientFocusRequest;
@@ -840,6 +841,16 @@ struct BrowserWheelRequest {
     friend bool operator==(const BrowserWheelRequest&, const BrowserWheelRequest&) = default;
 };
 
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct CancelRequestRequest {
+    std::optional<JsonValue> target{};
+    friend bool operator==(const CancelRequestRequest&, const CancelRequestRequest&) = default;
+};
+
 struct CellPixelFailure {
     std::string error{};
     Id surface{};
@@ -1313,11 +1324,6 @@ struct ConversationChange {
     std::optional<std::uint64_t> seq{};
     Json::Object additional_properties{};
     friend bool operator==(const ConversationChange&, const ConversationChange&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct ConversationChangedEvent {
@@ -5383,6 +5389,12 @@ template <>
 struct Codec<BrowserWheelGuardedRequest> {
     static Result<Json> encode(const BrowserWheelGuardedRequest& value);
     static Result<BrowserWheelGuardedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelRequestRequest> {
+    static Result<Json> encode(const CancelRequestRequest& value);
+    static Result<CancelRequestRequest> decode(const Json& value);
 };
 
 template <>

@@ -384,6 +384,35 @@ Example:
 {"id":2,"ok":true,"data":{"accepted":true,"pid":12345,"generation":"boot-uuid"}}
 ```
 
+### cancel-request
+
+| Field | Value |
+| --- | --- |
+| name | `cancel-request` |
+| status | implemented |
+| since | protocol 12, capability `cancel-request-v1` |
+
+Cancels a pending request this connection sent earlier. `target` is that
+request's `id`, compared as JSON. The reply is `{}` at once, whatever the
+target. A pending cancellable target then answers exactly once with
+`error_code` `cmux.op.cancelled` (`retryable` false); that answer may arrive
+before the `{}` reply. An unknown, finished or already cancelled target, or one
+that is not cancellable, changes nothing.
+
+In v1 only `apps-run` is cancellable. Closing the connection cancels its pending
+`apps-run` requests the same way. An app server op ends when its last caller
+cancels: callers with one idempotency key share one op, and a same-key retry
+after the cancel runs again.
+
+Example:
+
+```json
+{"id":"apps-run-1","cmd":"apps-run","app":"cmux/cloud","op":"machine.list"}
+{"id":"cancel-request-1","cmd":"cancel-request","target":"apps-run-1"}
+{"id":"apps-run-1","ok":false,"error":"the caller cancelled the op","error_code":"cmux.op.cancelled","retryable":false}
+{"id":"cancel-request-1","ok":true,"data":{}}
+```
+
 ### ping
 
 | Field | Value |

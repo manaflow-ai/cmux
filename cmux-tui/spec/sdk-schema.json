@@ -7148,6 +7148,34 @@
    "stream": null,
    "constraints": []
   },
+  "cancel-request": {
+   "authority": "control",
+   "since": 12,
+   "capability": "cancel-request-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "target": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "target is the id of an earlier request on this same connection. The reply is {} at once, whatever the target. A pending cancellable target then answers exactly once with error_code cmux.op.cancelled (retryable false); its answer may arrive before this reply. An unknown, finished or already cancelled target, or one that is not cancellable, changes nothing.",
+    "In v1 only apps-run requests are cancellable. Closing the connection cancels its pending apps-run requests the same way."
+   ]
+  },
   "ping": {
    "authority": "control",
    "since": 6,

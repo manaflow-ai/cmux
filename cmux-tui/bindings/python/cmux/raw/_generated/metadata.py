@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5'
+IR_SHA256 = '960d70aaaa1596d94a1d4f039911a526cdfb854afa4c04609c806cb2a94948d3'
 
 
 @dataclass(frozen=True)
@@ -284,6 +284,17 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
             'x_px': CommandFieldMetadata(None, None),
             'y_px': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cancel-request': CommandMetadata(
+        'cancel-request',
+        'control',
+        12,
+        'cancel-request-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'target': CommandFieldMetadata(None, None),
         },
     ),
     'clear-history': CommandMetadata(

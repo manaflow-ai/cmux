@@ -113,6 +113,20 @@ impl AppsSlot {
             .clone()
     }
 
+    /// `cancel-request` (decision CANCEL-REQUEST): `client` cancels its own
+    /// pending request `target`, which answers once with
+    /// `cmux.op.cancelled`. Only `apps-run` requests are cancellable in v1;
+    /// any other, unknown or answered target is a no-op. The target's answer
+    /// may arrive before the frame's own `{}` reply.
+    pub(crate) fn cancel_request(&self, client: u64, target: &serde_json::Value) {
+        #[cfg(unix)]
+        if let Some(supervisor) = self.supervisor.get() {
+            supervisor.cancel_request(client, target);
+        }
+        #[cfg(not(unix))]
+        let _ = (client, target, &self.supervisor);
+    }
+
     pub(crate) fn disconnect(&self, client: u64) {
         #[cfg(unix)]
         if let Some(supervisor) = self.supervisor.get() {
@@ -122,6 +136,9 @@ impl AppsSlot {
         let _ = (client, &self.supervisor);
     }
 }
+
+/// The generic `cancel-request` frame (every build answers it).
+pub(crate) const CANCEL_REQUEST_CAPABILITY: &str = "cancel-request-v1";
 
 /// The capability to advertise, if this build can run apps here.
 pub(crate) fn advertised() -> Option<&'static str> {

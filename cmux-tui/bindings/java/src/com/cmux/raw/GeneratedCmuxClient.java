@@ -103,6 +103,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult cancelRequest(CancelRequestRequest request) throws CmuxException {
+        Object result = execute(Commands.CANCEL_REQUEST, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final EmptyResult clearHistory(ClearHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CLEAR_HISTORY, request.toWire());
         return EmptyResult.fromWire(result);

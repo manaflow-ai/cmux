@@ -208,6 +208,7 @@
       "add-screens-to-screen-group",
       "add-tabs-to-tab-group",
       "apply-layout",
+      "cancel-request",
       "clear-history",
       "clear-window-title",
       "client-focus",

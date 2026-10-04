@@ -1815,6 +1815,12 @@ class BrowserWheelGuardedRequest:
 
 
 @dataclass(frozen=True)
+class CancelRequestRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-request/request'
+    target: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
 class ClearHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/clear-history/request'
     surface: Id
@@ -4419,6 +4425,7 @@ __all__ = [
     'BrowserReloadRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
+    'CancelRequestRequest',
     'ClearHistoryRequest',
     'ClearWindowTitleRequest',
     'ClientFocusRequest',

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
+/* cmux-tui mux protocol 12, IR 960d70aaaa1596d94a1d4f039911a526cdfb854afa4c04609c806cb2a94948d3. */
 
 
 import type * as T from "./types.js";
@@ -197,6 +197,13 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface CancelRequestRequest extends CmuxRequestBase {
+  cmd: "cancel-request";
+  "target": (T.JsonValue) | null;
+}
+export type CancelRequestResult = T.EmptyResult;
 
 /** Protocol v9; authority: control. */
 export interface ClearHistoryRequest extends CmuxRequestBase {
@@ -2053,6 +2060,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | CancelRequestRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClientFocusRequest
@@ -2393,6 +2401,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "cancel-request": {
+    request: CancelRequestRequest;
+    result: CancelRequestResult;
+    authority: "control";
+    since: 12;
+    capability: "cancel-request-v1";
     stream: null;
   };
   "clear-history": {

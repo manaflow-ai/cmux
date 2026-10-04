@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
+/* cmux-tui mux protocol 12, IR 960d70aaaa1596d94a1d4f039911a526cdfb854afa4c04609c806cb2a94948d3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5" as const;
+export const SDK_IR_SHA256 = "960d70aaaa1596d94a1d4f039911a526cdfb854afa4c04609c806cb2a94948d3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -302,6 +302,17 @@ export const COMMAND_METADATA = {
       "Browser surfaces only; values are CSS pixels.",
       "The frame sequence must be the exact presented token for this connection.",
       "Requires browser-pointer-frame-guard-v1."
+    ]
+  },
+  "cancel-request": {
+    "authority": "control",
+    "since": 12,
+    "capability": "cancel-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "target is the id of an earlier request on this same connection. The reply is {} at once, whatever the target. A pending cancellable target then answers exactly once with error_code cmux.op.cancelled (retryable false); its answer may arrive before this reply. An unknown, finished or already cancelled target, or one that is not cancellable, changes nothing.",
+      "In v1 only apps-run requests are cancellable. Closing the connection cancels its pending apps-run requests the same way."
     ]
   },
   "clear-history": {
@@ -11007,6 +11018,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "float64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "cancel-request": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "target": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
           }
         }
       },

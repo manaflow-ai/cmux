@@ -515,6 +515,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
     capabilities.extend(crate::apps::advertised());
+    capabilities.push(crate::apps::CANCEL_REQUEST_CAPABILITY);
     capabilities
 }
 
@@ -1099,6 +1100,11 @@ fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> T
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Cancels this connection's own pending request `target` (its request
+    /// id); see `apps::AppsSlot::cancel_request`.
+    CancelRequest {
+        target: Value,
+    },
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
         terminal_ids: Vec<String>,
@@ -12791,6 +12797,10 @@ fn handle_command_with_cancellation(
         return remote;
     }
     match cmd {
+        Command::CancelRequest { target } => {
+            mux.control_clients.apps.cancel_request(client, &target);
+            Ok(json!({}))
+        }
         Command::UrlOpenSubscribe { terminal_ids } => {
             mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
             Ok(json!({"url_open_ready": true}))
