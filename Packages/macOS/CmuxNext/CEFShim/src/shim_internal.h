@@ -1,6 +1,7 @@
 // Internal state shared by the shim translation units.
 #pragma once
 
+#include <functional>
 #include <map>
 #include <vector>
 #include <string>
@@ -104,6 +105,27 @@ void Emit(int kind,
 std::map<int, CefRefPtr<CefBrowser>>& browsers();
 CefRefPtr<CefBrowser> BrowserById(int browser_id);
 
+// DevTools protocol traffic of the host (shim_devtools_protocol.mm, UI
+// thread). The next id for a shim-internal call of browser_id (1 ..
+// 2^30 - 1), or 0 when the browser used them all up.
+int NextInternalDevToolsId(int browser_id);
+// OnDevToolsMessage: forwards raw-send replies and watched events as
+// CMUX_SHIM_DEVTOOLS_EVENT. True when the message is consumed (a raw-send
+// reply), so it never reaches OnDevToolsMethodResult.
+bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_size);
+// The browser closed: drop its watch, raw-send mark and id counter.
+void ForgetDevToolsProtocol(int browser_id);
+
+// Profile preference watches (shim_prefs.mm, UI thread).
+void ForgetPreferenceWatches(const std::string& key);
+void ReleasePreferenceWatches();
+
+// cmux-page:// (shim_page_scheme.mm). Registers every page added so far on
+// `context` (each profile keeps its own scheme handler factories).
+void RegisterPageSchemes(CefRefPtr<CefRequestContext> context);
+// Registers them on the global context once CEF is initialized.
+void InstallPageSchemes();
+
 // Browsers the host asked to close (so DoClose can tell window.close apart).
 void MarkHostClose(int browser_id);
 bool TakeHostClose(int browser_id);
@@ -128,6 +150,8 @@ bool IsOffTheRecordKey(const std::string& key);
 // Drops the shim's reference to the context of key (and its proxy entry).
 void ReleaseRequestContext(const std::string& key);
 void ForgetContextProxy(const std::string& key);
+// Every request context the shim holds (UI thread).
+void ForEachRequestContext(const std::function<void(CefRefPtr<CefRequestContext>)>& body);
 // The initialized context of cache_path this launch, or null.
 CefRefPtr<CefRequestContext> ExistingRequestContext(const std::string& cache_path);
 

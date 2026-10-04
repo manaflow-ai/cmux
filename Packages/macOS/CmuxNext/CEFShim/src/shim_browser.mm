@@ -170,7 +170,9 @@ int cmux_shim_devtools_call(int browser_id, const char* method, const char* para
     }
     params = value->GetDictionary();
   }
-  return host->ExecuteDevToolsMethod(0, method, params);
+  // An explicit id below 2^30 (the raw-send range starts there).
+  int id = NextInternalDevToolsId(browser_id);
+  return id ? host->ExecuteDevToolsMethod(id, method, params) : 0;
 }
 
 char* cmux_shim_ext_actions(int browser_id, int icon_px) {
