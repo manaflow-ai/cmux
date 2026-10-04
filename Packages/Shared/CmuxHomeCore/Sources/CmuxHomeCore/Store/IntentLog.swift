@@ -10,8 +10,11 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
         /// The owner committed it at `rev` of the op's stream. It leaves the
         /// log when the mirror reaches that revision (or echoes the message).
         case acknowledged(rev: Revision)
-        /// The owner refused it. Sends stay visible as "Not Delivered" until
-        /// the user retries (a new key) or discards.
+        /// The owner refused it, or it got no answer after every resend
+        /// (`indeterminate`, `ownerUnreachable`). Sends stay visible as "Not
+        /// Delivered" until the user retries or discards. A retry of an
+        /// unanswered send keeps its key (the owner may have committed it);
+        /// a retry of a refused send with attachments takes a new key.
         case failed(HomeRejection)
     }
 

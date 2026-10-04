@@ -239,19 +239,25 @@ public final class HomeStore {
         return try await submit(intent)
     }
 
-    /// Retries a "Not Delivered" send as a new intent and drops the failed one.
-    /// A send whose attachment upload failed never reached the owner: it
-    /// keeps its key (and its row) and uploads only the missing attachments.
-    /// A send with attachments that the owner refused keeps its row
-    /// position under a new key (the owner's ledger keeps the refused one)
-    /// and uploads every attachment again first: an upload the owner still
-    /// holds answers `exists` without sending the bytes.
+    /// Retries a "Not Delivered" send. A send that went to the owner and
+    /// got no answer (`indeterminate`, `ownerUnreachable`) goes again under
+    /// the same key: the owner may have committed it, and its ledger
+    /// replays that commit. A send whose attachment upload failed never
+    /// reached the owner: it keeps its key (and its row) and uploads only
+    /// the missing attachments. A send with attachments that the owner
+    /// refused keeps its row position under a new key (the owner's ledger
+    /// keeps the refused one) and uploads every attachment again first: an
+    /// upload the owner still holds answers `exists` without sending the
+    /// bytes. A same-key retry that gets `unknown_attachment` uploads again
+    /// by itself, once, and throws `HomeSendState.pendingResend`. Another
+    /// refused op is sent again as a new intent.
     public func retry(_ key: IdempotencyKey) async throws {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
         guard let entry = log.entries.first(where: { $0.intent.key == key }),
               case .failed(let rejection) = entry.state else { return }
         backoffAttempts[key] = nil
         uploads[key]?.resumedImmediately = false
+        uploads[key]?.uploadedAfterSweep = false
         // Sent, but never answered: the owner may have committed it, so it
         // goes again under the same key (the owner's ledger replays it).
         if rejection == .indeterminate || rejection == .ownerUnreachable, uploads[key]?.reachedOwner ?? true {
@@ -534,7 +540,8 @@ public final class HomeStore {
     /// send arrived) uploads everything again and resends once under a new
     /// key; a second one leaves the row "Not Delivered". Throws
     /// `CancellationError` when `cancelSend` stopped it or its conversation
-    /// left the inbox.
+    /// left the inbox, and `HomeSendState.unanswered` when its upload
+    /// resends ran out.
     /// A pass nobody awaits (`background`: a resume on reconnect or after
     /// a backoff) reports a refusal through `onRefusal`.
     private func uploadAndSubmit(_ first: IdempotencyKey, background: Bool = false) async throws {
@@ -550,7 +557,7 @@ public final class HomeStore {
     }
 
     private func uploadAndSubmitPasses(_ key: inout IdempotencyKey) async throws {
-        var uploadedAgain = false
+        var uploadedAgain = uploads[key]?.uploadedAfterSweep ?? false
         while true {
             // One pass at a time per send (a reconnect may race a retry).
             guard var job = uploads[key], job.task == nil else { return }
@@ -609,7 +616,7 @@ public final class HomeStore {
             await waitForTurn(key, in: uploads[key]?.conversation ?? job.conversation)
             guard log.entries.contains(where: { $0.intent.key == key }), !stopped else { throw CancellationError() }
             uploads[key]?.reachedOwner = true
-            let swept = HomeRejection.invalid("unknown_attachment")
+            let swept = Self.swept
             do {
                 _ = try await submit(HomeIntent(key: key, op: op, issuedAt: entry.intent.issuedAt),
                                      passing: uploadedAgain ? nil : swept)
@@ -620,6 +627,7 @@ public final class HomeStore {
                 uploadedAgain = true
                 let next = IdempotencyKey.make()
                 restartUploads(from: key, as: next)
+                uploads[next]?.uploadedAfterSweep = true
                 replaceInSendQueue(key, with: next)
                 afterLogChange(op)
                 key = next
@@ -695,7 +703,8 @@ public final class HomeStore {
         backoffTasks[key]?.cancel()
         backoffTasks[key] = Task { [weak self] in
             do { try await clock.sleep(for: delay) } catch { return }
-            guard let self, !self.stopped else { return }
+            // A newer backoff replaced this one while it woke: leave its handle.
+            guard !Task.isCancelled, let self, !self.stopped else { return }
             self.backoffTasks[key] = nil
             guard self.isOnline else { return }
             switch action {
@@ -736,6 +745,27 @@ public final class HomeStore {
     private func cancelBackoffs() {
         for task in backoffTasks.values { task.cancel() }
         backoffTasks.removeAll()
+    }
+
+    /// The owner swept an upload before the send that names it arrived.
+    private static let swept = HomeRejection.invalid("unknown_attachment")
+
+    /// A resend or a same-key retry got `unknown_attachment`: moves the send
+    /// to a new key in the same place in the log and its conversation's
+    /// queue, ready to upload everything again, once per send (and once per
+    /// retry). Nil when it already did, or the send has no attachments.
+    private func uploadAgainAfterSweep(_ key: IdempotencyKey) -> IdempotencyKey? {
+        guard let job = uploads[key], job.reachedOwner, !job.uploadedAfterSweep else { return nil }
+        cancelBackoff(key)
+        let next = IdempotencyKey.make()
+        restartUploads(from: key, as: next)
+        uploads[next]?.uploadedAfterSweep = true
+        if sendQueue[job.conversation]?.contains(key) == true {
+            replaceInSendQueue(key, with: next)
+        } else {
+            enqueueSend(next, in: job.conversation)
+        }
+        return next
     }
 
     /// Moves a refused send's upload job to `newKey` with nothing uploaded,
@@ -950,6 +980,13 @@ public final class HomeStore {
                 throw HomeSendState.pendingResend
             default:
                 if rejection == passing { throw rejection }
+                // A resend or retry the owner cannot match to its uploads
+                // (swept while the answer was lost): upload again, once.
+                if rejection == Self.swept, case .sendMessage = intent.op, let next = uploadAgainAfterSweep(intent.key) {
+                    afterLogChange(intent.op)
+                    resumeUpload(next)
+                    throw HomeSendState.pendingResend
+                }
                 cancelBackoff(intent.key)
                 leaveSendQueue(intent.key)
                 if case .sendMessage = intent.op {
@@ -1109,6 +1146,8 @@ public final class HomeStore {
         var waitingForReconnect = false
         /// The pass after an interruption already ran without a reconnect.
         var resumedImmediately = false
+        /// It already uploaded everything again after an `unknown_attachment`.
+        var uploadedAfterSweep = false
     }
 
     private func rebuildRows() {
