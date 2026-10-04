@@ -80,7 +80,8 @@ impl<C: ControlPlane + Send> TerminalConnector for CloudConnector<'_, C> {
 
     /// At most one channel per target and one live handle per channel: a
     /// second call while a handle holds the channel is `invalid`
-    /// ([`ALREADY_CONNECTED`]). A kind not in `kinds` fails with `denied`.
+    /// ([`ALREADY_CONNECTED`]), and one while a close waits for the drain is
+    /// `unavailable` (retryable). A kind not in `kinds` fails with `denied`.
     fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError> {
         let attach = self.server.attach();
         allow_kind(&attach.connector_kinds, &request.kind)?;
@@ -100,9 +101,7 @@ impl<C: ControlPlane + Send> TerminalConnector for CloudConnector<'_, C> {
         })?;
         let handles = &mut self.server.attach_mut().link_handles;
         let handle = handles.entry(carrier.id.clone()).or_default();
-        if !link::claim(handle) {
-            return Err(BackendError::invalid(ALREADY_CONNECTED));
-        }
+        link::claim(handle)?;
         Ok(Box::new(CloudHostLink::new(carrier, handle.clone())))
     }
 
