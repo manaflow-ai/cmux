@@ -65,6 +65,8 @@ const sameShape = (name: string, got: { status: number; body: any }) => {
     expect(sortedKeys(got.body.value)).toEqual(sortedKeys(v.body.value as object))
   }
   if ("error" in v.body) expect(got.body.error.code).toBe((v.body.error as { code: string }).code)
+  // The app reads details keys (details.plan drives "See plans"): the same keys as the vector.
+  if ("error" in v.body) expect(sortedKeys(got.body.error.details ?? {}), name).toEqual(sortedKeys((v.body.error as { details?: object }).details ?? {}))
   if ("_tag" in v.body) expect([got.body._tag, got.body.code]).toEqual([v.body._tag, v.body.code])
   if ("stream" in v.body) expect(got.body.stream).toMatch(/^cloud:team_[a-z0-9]{20}$/)
 }
@@ -106,11 +108,11 @@ describe("cloud ops through the Worker", { timeout: 60_000 }, () => {
 
   it("keeps answering owner.unreachable for the cloud ops that are not live yet", async () => {
     const { t } = await signedIn("cloud-route-2")
-    for (const name of ["cloud.machine.start", "cloud.machine.pause", "cloud.snapshot.create", "cloud.billing.checkout", "cloud.machine.link_token"]) {
+    for (const name of ["cloud.machine.start", "cloud.machine.pause", "cloud.snapshot.create", "cloud.billing.checkout"]) {
       const r = await op(t, name, {})
       expect([name, r.status, r.body.code]).toEqual([name, 503, "owner.unreachable"])
     }
-    for (const name of ["cloud.snapshot.list", "cloud.machine.connect_info", "cloud.migration.status"]) {
+    for (const name of ["cloud.snapshot.list", "cloud.migration.status"]) {
       const r = await read(t, name, {})
       expect([name, r.status, r.body.code]).toEqual([name, 503, "owner.unreachable"])
     }

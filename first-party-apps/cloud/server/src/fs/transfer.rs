@@ -10,7 +10,7 @@
 //! [`DaemonTransfer`], tests use a fake.
 
 use super::cancel::Cancel;
-use super::link_files::{DaemonFiles, DialTarget};
+use super::link_files::{DaemonFiles, DialTarget, write_reconciled};
 use super::path::{guest_arg, local_arg};
 use super::running::{CancelAnswer, Running, TRANSFER_BUSY};
 use super::{FILE_TOO_LARGE, MAX_WRITE_BYTES};
@@ -143,7 +143,7 @@ impl Transfer for DaemonTransfer {
                 }
                 let params = json!({ "path": job.guest, "bytes_base64": STANDARD.encode(&bytes),
                     "mode": "create" });
-                self.files.call(&job.target, "fs.write", params, cancel)?;
+                write_reconciled(&*self.files, &job.target, params, bytes.len() as u64, cancel)?;
                 Ok(bytes.len() as u64)
             }
             Direction::Pull => {

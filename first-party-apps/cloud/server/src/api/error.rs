@@ -33,6 +33,9 @@ pub mod codes {
     /// `mutation.indeterminate`: the backend cannot tell whether the call
     /// acted. Retry with the SAME key; never make a new one.
     pub const INDETERMINATE: &str = "cmux.cloud.indeterminate";
+    /// `cloud.no_snapshot_configured`: no machine image is configured for
+    /// this deployment yet, so create and restore cannot run.
+    pub const NO_SNAPSHOT_CONFIGURED: &str = "cmux.cloud.no_snapshot_configured";
     /// `cloud.rate_limited`: the team's create or delete budget is spent.
     pub const RATE_LIMITED: &str = "cmux.cloud.rate_limited";
     pub const UNSUPPORTED: &str = "cmux.cloud.unsupported";
@@ -79,6 +82,7 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.machine.not_classic", codes::NOT_CLASSIC),
     ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
     ("cloud.rate_limited", codes::RATE_LIMITED),
+    ("cloud.no_snapshot_configured", codes::NO_SNAPSHOT_CONFIGURED),
 ];
 
 /// A typed op failure.

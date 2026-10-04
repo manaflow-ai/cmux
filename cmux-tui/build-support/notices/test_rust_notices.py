@@ -279,7 +279,11 @@ class RustNoticesTest(unittest.TestCase):
             self.assertIn(election["concluded"], rust_notices.or_alternatives(election["declared"]), key)
         for key, text in reviewed.texts.items():
             self.assertTrue(text.get("reason"), key)
-            self.assertTrue((reviewed.base / text["file"]).is_file(), key)
+            self.assertTrue(text["files"], key)
+            for entry in text["files"]:
+                data = (reviewed.base / entry["file"]).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), entry["sha256"], key)
+                self.assertRegex(entry["source"], r"^https://raw\.githubusercontent\.com/[^/]+/[^/]+/[0-9a-f]{40}/", key)
 
     def test_reviewed_rejects_unknown_keys(self) -> None:
         self.fx.reviewed_data["overrides"] = {}
@@ -310,12 +314,17 @@ class RustNoticesTest(unittest.TestCase):
         (self.fx.root / "texts").mkdir()
         (self.fx.root / "texts" / "opt-NOTICE.txt").write_text("reviewed opt text\n")
         self.fx.reviewed_data["extra_license_files"] = {"lib": ["AUTHORS"]}
-        self.fx.reviewed_data["license_texts"] = {"opt 1.0.0": {"reason": "fixture", "file": "texts/opt-NOTICE.txt"}}
+        entry = {"file": "texts/opt-NOTICE.txt", "source": "https://example.invalid/opt@abc/NOTICE", "sha256": sha("reviewed opt text\n")}
+        self.fx.reviewed_data["license_texts"] = {"opt 1.0.0": {"reason": "fixture", "files": [entry]}}
         code, err, _, files = self.generate("reviewed")
         self.assertEqual(code, 0, err)
         written = tree(files)
         self.assertEqual(written["lib-1.0.0/AUTHORS"], b"lib authors\n")
         self.assertEqual(written["opt-1.0.0/reviewed-opt-NOTICE.txt"], b"reviewed opt text\n")
+        entry["sha256"] = "0" * 64
+        code, err, _, _ = self.generate("reviewed-bad-sum")
+        self.assertEqual(code, 1)
+        self.assertIn("does not match its sha256", err)
 
     def test_non_utf8_text_fails_instead_of_being_rewritten(self) -> None:
         (self.fx.vendor / "lib-1.0.0" / "LICENSE-MIT").write_bytes(b"caf\xe9\n")

@@ -2248,9 +2248,7 @@ fn run_server(
     // `claude` resolves to a shim that adds the session's agent hooks, even
     // under launchers with their own settings and config directory.
     #[cfg(unix)]
-    if let Some(path) = claude_wrapper::pane_path() {
-        surface_options.extra_env.push(("PATH".into(), path));
-    }
+    claude_wrapper::configure_pane_path(&mut surface_options);
 
     let state_root = if args.ephemeral {
         None

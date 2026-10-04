@@ -5,24 +5,19 @@
 #include "include/cef_app.h"
 #include "include/cef_sandbox_mac.h"
 #include "include/wrapper/cef_library_loader.h"
-#include "opaque_origin_webauthn_guard.h"
 #include "page_scheme_registration.h"
 
 namespace {
 
-// The custom schemes, which every process must register the same way as
-// the browser process (page_scheme_registration.h), and in renderers the
-// interim opaque-origin WebAuthn guard (opaque_origin_webauthn_guard.h).
+// Its only job: the custom schemes, which every process must register the
+// same way as the browser process (page_scheme_registration.h).
 class HelperApp : public CefApp {
  public:
   void OnRegisterCustomSchemes(CefRawPtr<CefSchemeRegistrar> registrar) override {
     cmux_shim::RegisterCustomSchemes(registrar);
   }
 
-  CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override { return guard_; }
-
  private:
-  CefRefPtr<cmux_shim::OpaqueOriginWebAuthnGuard> guard_ = new cmux_shim::OpaqueOriginWebAuthnGuard();
   IMPLEMENT_REFCOUNTING(HelperApp);
 };
 

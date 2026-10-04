@@ -36,7 +36,7 @@
       "name": "cmux-api-development",
       // The Postgres/MySQL projection compare during the dual write (projection-compare-cron.ts).
       "triggers": { "crons": ["*/15 * * * *"] },
-      "vars": { "ENVIRONMENT": "development", "CLOUD_ALLOWED_TEAMS": "team_f77575bdfd932388f2e3", "CLOUD_NAME_PREFIX": "cmuxnp-dev-cld-", "WORKER_NAME": "cmux-api-development", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "vars": { "ENVIRONMENT": "development", "CLOUD_API_ORIGIN": "https://cmux-api-development.debussy.workers.dev", "CLOUD_ALLOWED_TEAMS": "team_f77575bdfd932388f2e3", "CLOUD_NAME_PREFIX": "cmuxnp-dev-cld-", "WORKER_NAME": "cmux-api-development", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
@@ -69,7 +69,7 @@
       // 23 * * * *: feed text sweep; */15: the Postgres/MySQL projection compare during the dual write.
       "triggers": { "crons": ["23 * * * *", "*/15 * * * *"] },
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "staging", "CLOUD_ALLOWED_TEAMS": "team_f77575bdfd932388f2e3", "CLOUD_NAME_PREFIX": "cmuxnp-stg-cld-", "WORKER_NAME": "cmux-api-staging", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-stg-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "vars": { "ENVIRONMENT": "staging", "CLOUD_API_ORIGIN": "https://cloud-api-staging.cmux.dev", "CLOUD_ALLOWED_TEAMS": "team_f77575bdfd932388f2e3", "CLOUD_NAME_PREFIX": "cmuxnp-stg-cld-", "WORKER_NAME": "cmux-api-staging", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-stg-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
@@ -101,7 +101,7 @@
       "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": true, "persist": true, "destinations": ["axiom-cmux-api-production"] } },
       "triggers": { "crons": ["23 */6 * * *"] },
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "production", "CLOUD_NAME_PREFIX": "cmuxnp-prod-cld-", "WORKER_NAME": "cmux-api", "TEAM_VM_SLUG_PREFIX": "cmux-tvm-", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
+      "vars": { "ENVIRONMENT": "production", "CLOUD_API_ORIGIN": "https://cloud-api.cmux.dev", "CLOUD_NAME_PREFIX": "cmuxnp-prod-cld-", "WORKER_NAME": "cmux-api", "TEAM_VM_SLUG_PREFIX": "cmux-tvm-", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },

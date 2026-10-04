@@ -16,7 +16,7 @@ pub(super) fn test_mux() -> Arc<Mux> {
     let mux = Mux::new_for_test("fs-wire", crate::SurfaceOptions::default());
     // The remote relay serves only an install with a good control-plane
     // check (server-remote-conversations.md section 10).
-    mux.record_remote_check("inst_1");
+    mux.record_remote_check("inst_1").unwrap();
     mux
 }
 
@@ -338,4 +338,47 @@ fn the_link_entry_of_a_non_cloud_host_refuses_fs_and_denies_the_rest() {
         assert_eq!(answer["error_code"], expected, "{line}");
         assert_eq!(answer["id"], 1);
     }
+}
+
+fn fs_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
+    let outbound = Arc::new(BoundedOutbound::default());
+    (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
+}
+
+/// One `fs.stat` line through `try_handle` (the remote frame path's fs hook);
+/// the answer's error code.
+fn fs_stat_code(mux: &Arc<Mux>, client: u64) -> Value {
+    let (writer, outbound) = fs_writer();
+    let line = r#"{"id":1,"cmd":"fs.stat","path":"/home/cmux"}"#;
+    assert_eq!(try_handle(mux, client, line, &writer), Some(true));
+    let answer: Value = serde_json::from_str(&outbound.try_pop().expect("an answer")).unwrap();
+    answer["error_code"].clone()
+}
+
+/// Lane 10 finding A: the fs hook checks the principal on every frame. A
+/// revoked install is refused before its stream closes, and a remote client
+/// without a bound peer is refused. (Tests install no fs owner, so an
+/// admitted frame answers `fs.unavailable`.)
+#[test]
+fn the_fs_hook_refuses_a_revoked_install_and_a_remote_client_without_a_peer() {
+    let mux = test_mux();
+    let client = mux.control_clients.register(ClientTransport::Remote, fs_writer().0);
+    assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied", "no peer bound yet");
+    mux.bind_remote_peer(client, &peer()).unwrap();
+    assert_eq!(fs_stat_code(&mux, client), "fs.unavailable");
+    mux.remote_relay().revocation.lock().unwrap().record_revoked("inst_1");
+    assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied", "revoked, stream still open");
+}
+
+/// Lane 10 finding B: a poisoned client registry refuses fs (fail closed).
+#[test]
+fn the_fs_hook_refuses_on_a_poisoned_registry_lock() {
+    let mux = test_mux();
+    let client = mux.control_clients.register(ClientTransport::Unix, fs_writer().0);
+    assert_eq!(fs_stat_code(&mux, client), "fs.unavailable");
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _held = mux.control_clients.state.lock().unwrap();
+        panic!("poisons the registry lock for a fail-closed test");
+    }));
+    assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied");
 }

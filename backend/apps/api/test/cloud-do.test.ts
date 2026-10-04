@@ -311,7 +311,8 @@ describe("cloud driver prefix guard", () => {
       find: async (name) => (calls.push(`find:${name}`), null),
       create: async (name) => (calls.push(`create:${name}`), { id: "fs-1", tag: null }),
       delete: async (id) => void calls.push(`delete:${id}`),
-      list: async () => ({ vms: [], total: 0 })
+      list: async () => ({ vms: [], total: 0 }),
+      writeFile: async () => {}
     }
     return { calls, raw }
   }
@@ -362,7 +363,8 @@ describe("cloud driver prefix guard", () => {
       delete: async () => {
         throw new Error("must not delete")
       },
-      list: async () => ({ vms: [], total: 0 })
+      list: async () => ({ vms: [], total: 0 }),
+      writeFile: async () => {}
     }
     const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
