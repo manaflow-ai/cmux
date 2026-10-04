@@ -73,7 +73,7 @@ extension ControlRouter {
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
                 try await self.writeSetting(nil, at: path, store: store, call: call)
                 return ["path": .array(path.map(JSONValue.string)), "file": .string(store.fileLocation)]
-            }
+            }.withDeadline(.fixed(.seconds(120))) // `confirm: true` waits for the person, as settings.set
         } + [
             .snapshot("snapshot.get") { call in
                 let snapshot = call.snapshot

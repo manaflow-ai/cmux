@@ -120,8 +120,8 @@ pub use mux::{
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use remote_relay_state::{
-    CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
-    RevocationClock,
+    BindRefused, CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
+    RelayLock, RelayStateError, RevocationClock,
 };
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};

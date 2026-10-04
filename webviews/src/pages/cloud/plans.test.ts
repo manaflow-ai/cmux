@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pageError } from "../shared/pageClient";
 import { MockCloudProvider } from "./mockProvider";
-import { CloudErrors, planRefusal } from "./ops";
+import { CloudErrors, CloudOps, planRefusal } from "./ops";
 import { CloudStore } from "./store";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -131,5 +131,37 @@ describe("no machine image configured", () => {
     expect(store.getSnapshot().pending).toEqual([]);
     store.dismissError();
     expect(store.getSnapshot().blocked).toBeUndefined();
+  });
+
+  test("one page alert at a time: a later error or plan refusal replaces the no-image banner", async () => {
+    const provider = new MockCloudProvider();
+    provider.noSnapshotConfigured = true;
+    const { store } = await started(provider);
+    await store.restoreSnapshot(provider.snapshots[0]!);
+    expect(store.getSnapshot().blocked).toBe("no_snapshot_configured");
+    const running = store.getSnapshot().machines.find((m) => m.status === "running")!;
+    provider.failNext = CloudOps.machinePause;
+    await store.pause(running.id);
+    expect(store.getSnapshot().error).toBeDefined();
+    expect(store.getSnapshot().blocked).toBeUndefined();
+    store.dismissError();
+    await store.restoreSnapshot(provider.snapshots[0]!);
+    expect(store.getSnapshot().blocked).toBe("no_snapshot_configured");
+    const paused = store.getSnapshot().machines.find((m) => m.status === "paused")!;
+    provider.account.plan.max_active = 1;
+    await store.resume(paused.id);
+    expect(store.getSnapshot().refusal?.kind).toBe("quota_exceeded");
+    expect(store.getSnapshot().blocked).toBeUndefined();
+  });
+
+  test("the mock answers the plan checks before the image check, like the backend", async () => {
+    const provider = new MockCloudProvider();
+    provider.noSnapshotConfigured = true;
+    provider.planRequired = true;
+    const { store } = await started(provider);
+    store.openCreate();
+    await store.submitCreate();
+    expect(store.getSnapshot().create?.refusal?.kind).toBe("plan_required");
+    expect(store.getSnapshot().create?.blocked).toBeUndefined();
   });
 });

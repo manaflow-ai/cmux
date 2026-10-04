@@ -15,6 +15,12 @@ const githubApp = await generateKeyPair("RS256", { extractable: true })
 const pubsub = await generateKeyPair("RS256", { extractable: true })
 const pubsubPublic = { ...(await exportJWK(pubsub.publicKey)), kid: "google-test", alg: "RS256" }
 const pubsubPrivate = { ...(await exportJWK(pubsub.privateKey)), kid: "google-test" }
+// Test-only link-token signing keys (two kids, the second active); never a real key.
+const linkKeys: Record<string, unknown> = {}
+for (const kid of ["test-link-1", "test-link-2"]) {
+  const pair = await generateKeyPair("EdDSA", { crv: "Ed25519", extractable: true })
+  linkKeys[kid] = { ...(await exportJWK(pair.privateKey)), kid }
+}
 const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
 
 export default defineConfig({
@@ -64,6 +70,8 @@ export default defineConfig({
           TEAM_VM_DRIVER: "fake",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
+          CLOUD_API_ORIGIN: "https://api.test",
+          CLOUD_LINK_SIGNING_KEYS: JSON.stringify({ active: "test-link-2", keys: linkKeys }),
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",
           // userIdFor(STACK_PROJECT_ID, "ops_person_1"): the only person the abandoned-clear route accepts in tests.
           CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
