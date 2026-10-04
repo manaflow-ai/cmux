@@ -626,6 +626,12 @@ impl ChildAgent {
             .is_ok_and(|r| r.is_ok())
     }
 
+    /// Wait until the entries through `h` are in the session log, giving up
+    /// when no entry is logged for `stall`.
+    pub async fn wait_replayed(&self, h: u64, stall: std::time::Duration) -> bool {
+        self.wait_logged(h, stall).await
+    }
+
     /// The Claude translator's state, wherever the translator runs.
     pub async fn claude_state(&self) -> Option<ClaudeState> {
         if let Some(tr) = &self.translator {

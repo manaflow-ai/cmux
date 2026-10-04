@@ -8,8 +8,9 @@ use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
 
-/// How long adoption waits for one host's replayed entries to be logged.
-const REPLAY_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long adoption waits for the next replayed entry of one host to be
+/// logged before it recovers from the log as it is.
+const REPLAY_STALL: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
@@ -239,7 +240,7 @@ impl Hub {
         }
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
-        if !child.wait_logged(adopted.last_h, REPLAY_BUDGET).await {
+        if !child.wait_replayed(adopted.last_h, REPLAY_STALL).await {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
         self.append(
