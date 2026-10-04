@@ -19,8 +19,9 @@ public enum AgentCursorGeometry {
     /// origin, clamped into the content rect so the cursor never lands on a
     /// neighboring pane.
     public static func overlayPoint(
-        of event: AutomationInputEvent, content: CGRect, magnification: Double
+        of event: AutomationInputEvent, content: CGRect, clip: CGRect, zoom: Double, magnification: Double
     ) -> CGPoint? {
+        _ = (clip, zoom)
         guard let page = pagePoint(of: event) else { return nil }
         let scale = (event.zoom ?? 1) * magnification
         let x = content.minX + page.x * scale

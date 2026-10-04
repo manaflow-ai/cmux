@@ -20,8 +20,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var screenBar: ScreenBarController!
     /// Agent cursors drawn in this content's overlay plane
     /// (plans/cmux-next/agent-cursor.md). Drivers publish through
-    /// `agentCursor.publisher`; the visibility adapter goes in
-    /// `agentCursor.resolver.inner`. Until both exist it draws nothing.
+    /// `agentCursor.publisher`; placement comes from the visibility source.
+    /// With no input events it draws nothing.
     private(set) var agentCursor: AgentCursorStack?
     /// The workspace theme: only this content area, under the window's
     /// room theme.
@@ -67,9 +67,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
         if let planeLayer = layoutView.overlayPlane.layer {
-            agentCursor = AgentCursorStack(hostLayer: planeLayer)
+            agentCursor = AgentCursorStack(hostLayer: planeLayer, resolver: services.agentCursorVisibility.resolver(for: self))
         }
-        agentCursor?.resolver.inner = services.agentCursorVisibility.resolver(for: self)
         observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)

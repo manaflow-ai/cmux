@@ -35,8 +35,10 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
         var cursor = cursors[session] ?? Cursor()
         guard !cursor.paused else { return }
         switch resolver.placement(forTarget: event.targetID) {
-        case let .visible(content, magnification):
-            guard let target = AgentCursorGeometry.overlayPoint(of: event, content: content, magnification: magnification) else {
+        case let .visible(content, clip, zoom, magnification):
+            guard let target = AgentCursorGeometry.overlayPoint(
+                of: event, content: content, clip: clip, zoom: zoom, magnification: magnification
+            ) else {
                 return
             }
             if let from = cursor.point {
@@ -60,6 +62,17 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
             cursor.point = nil
         }
         cursors[session] = cursor
+    }
+
+    /// Called with a target the cursor no longer follows (its session's lease
+    /// ended), so the visibility source stops tracking it.
+    public var onUntrack: ((String) -> Void)?
+
+    /// A tracked target's visibility changed between input events (a column
+    /// scrolled, a window minimized, a tab or workspace switched): sessions
+    /// whose last input went to `target` move their cursor to the new place.
+    public func placementsDidChange(target: String) {
+        _ = target
     }
 
     /// A lease frame for `session`: `nil` means the lease ended.
