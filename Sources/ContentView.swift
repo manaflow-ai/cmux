@@ -16847,7 +16847,7 @@ struct TabItemView: View, Equatable {
     @ViewBuilder
     private var importanceIndicator: some View {
         if workspaceSnapshot.importance != .none {
-            let tint: NSColor = workspaceSnapshot.importance == .priority ? .systemYellow : .systemBlue
+            let tint = Color(nsColor: workspaceSnapshot.importance == .priority ? .systemYellow : .systemBlue)
             CmuxSystemSymbolImage(magnified: "star.fill", pointSize: scaledFontSize(10), weight: .semibold, tint: tint)
                 .safeHelp(workspaceSnapshot.importance.menuTitle)
         }
