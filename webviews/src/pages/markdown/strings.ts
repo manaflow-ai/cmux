@@ -38,4 +38,5 @@ export const L = {
   footnote: "link.footnote",
   back: "nav.back",
   forward: "nav.forward",
+  toolbarLabel: "toolbar.label",
 } as const;

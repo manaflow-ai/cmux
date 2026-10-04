@@ -7,6 +7,7 @@ import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/
 import { $prose } from "@milkdown/kit/utils";
 import { findHeading, headingTargets, parseLink, pastedURL, relativeLinkPaths, type ResolvedLink } from "./links";
 import { RAW_NODE, type ReferenceInfo } from "./sourceMap";
+import type { LinkCardInfo, LinkOverlays } from "./overlays";
 
 export type LinkLabel =
   | "followHint"
@@ -29,12 +30,6 @@ export interface LinkHost {
   /** Completion for the popover: workspace paths relative to the file, starting with `prefix`. */
   listFiles?(prefix: string): Promise<string[]>;
   linkLabel(key: LinkLabel): string;
-}
-
-/** The window's size (jsdom and other hosts without a window size get the document's). */
-function viewport(): { width: number; height: number } {
-  const root = document.documentElement;
-  return { width: globalThis.innerWidth ?? root.clientWidth, height: globalThis.innerHeight ?? root.clientHeight };
 }
 
 const linkKey = new PluginKey<DecorationSet>("cmuxMarkdownLinks");
@@ -117,76 +112,83 @@ export function linkCard(
  * The hover card and the follow cursor. Hovering a link shows its card; holding Cmd over the
  * editor turns links into pointers (`md-follow`), since Cmd-click follows and a plain click edits.
  */
-export function hoverCardPlugin(host: LinkHost, readOnly: () => boolean) {
+export function hoverCardPlugin(host: LinkHost, readOnly: () => boolean, overlays: LinkOverlays) {
   return $prose(
     () =>
       new Plugin({
         view(view) {
-          const card = document.createElement("div");
-          card.className = "md-link-card";
-          card.setAttribute("role", "tooltip");
-          card.hidden = true;
-          const target = document.createElement("div");
-          target.className = "md-link-card-target";
-          const detail = document.createElement("div");
-          detail.className = "md-link-card-detail";
-          card.append(target, detail);
-          document.body.append(card);
           let timer: ReturnType<typeof setTimeout> | null = null;
           let current: Element | null = null;
+          // What showed the card: the pointer over a link, or the caret inside one.
+          let by: "pointer" | "caret" | null = null;
+          const render = (anchor: Element | null, info: LinkCardInfo | null) =>
+            overlays.setCard(anchor && info ? { anchor, info } : null);
           const hide = () => {
             if (timer) clearTimeout(timer);
             timer = null;
             current = null;
-            card.hidden = true;
+            by = null;
+            render(null, null);
           };
           const show = (element: Element) => {
             const href = element.getAttribute("href") ?? "";
-            const info = element.matches("sup[data-type]")
+            const info: LinkCardInfo = element.matches("sup[data-type]")
               ? {
                   target: `[^${element.getAttribute("data-label") ?? ""}]`,
                   detail: host.linkLabel("footnote"),
-                  state: "ok" as LinkState,
+                  state: "ok",
                 }
               : linkCard(view.state.doc, href, host, readOnly());
-            target.textContent = info.target;
-            detail.textContent = info.detail;
-            card.dataset.state = info.state;
-            card.hidden = false;
-            const rect = element.getBoundingClientRect();
-            const width = Math.min(card.offsetWidth, viewport().width - 16);
-            card.style.left = `${Math.max(8, Math.min(rect.left, viewport().width - width - 8))}px`;
-            card.style.top = `${rect.bottom + 6 + card.offsetHeight > viewport().height ? rect.top - card.offsetHeight - 6 : rect.bottom + 6}px`;
+            render(element, info);
+          };
+          const schedule = (element: Element, source: "pointer" | "caret") => {
+            if (element === current) return;
+            hide();
+            current = element;
+            by = source;
+            timer = setTimeout(() => show(element), 250);
           };
           const follow = (on: boolean) => view.dom.classList.toggle("md-follow", on);
           const over = (event: MouseEvent) => {
             follow(event.metaKey);
             const element = (event.target as Element | null)?.closest?.('a[href], sup[data-type="footnote_reference"]');
             if (element === current) return;
-            hide();
-            if (!element || !view.dom.contains(element)) return;
-            current = element;
-            timer = setTimeout(() => show(element), 250);
+            if (!element || !view.dom.contains(element)) {
+              if (by === "pointer") hide();
+              return;
+            }
+            schedule(element, "pointer");
           };
-          // Cmd shows the follow cursor; any other key (typing, the link popover) hides the card.
+          // The link around the caret, so keyboard users get the same card.
+          const caretLink = (): Element | null => {
+            const { selection } = view.state;
+            if (!selection.empty || !view.hasFocus()) return null;
+            const range = linkRangeAt(view.state, selection.from);
+            if (!range || range.from === range.to) return null;
+            const { node } = view.domAtPos(range.from + 1);
+            const element = node instanceof Element ? node : node.parentElement;
+            return element?.closest("a[href]") ?? null;
+          };
+          // ui-allow: the editor's follow cursor tracks the Meta key; any other key hides the card.
           const modifier = (event: KeyboardEvent) => {
             follow(event.metaKey);
-            if (event.key !== "Meta") hide();
+            if (event.key !== "Meta" && by === "pointer") hide();
           };
           view.dom.addEventListener("mousemove", over);
-          view.dom.addEventListener("mouseleave", hide);
-          addEventListener("keydown", modifier, true);
-          addEventListener("keyup", modifier, true);
+          view.dom.addEventListener("mouseleave", () => by === "pointer" && hide());
+          addEventListener("keydown", modifier, true); // ui-allow: follow cursor (see above)
+          addEventListener("keyup", modifier, true); // ui-allow: follow cursor (see above)
           addEventListener("scroll", hide, true);
           return {
             update: () => {
               if (current && !view.dom.contains(current)) hide();
+              const link = caretLink();
+              if (link) schedule(link, "caret");
+              else if (by === "caret") hide();
             },
             destroy: () => {
               hide();
-              card.remove();
               view.dom.removeEventListener("mousemove", over);
-              view.dom.removeEventListener("mouseleave", hide);
               removeEventListener("keydown", modifier, true);
               removeEventListener("keyup", modifier, true);
               removeEventListener("scroll", hide, true);
@@ -322,23 +324,24 @@ export function updateReference(state: EditorState, reference: ReferenceInfo, hr
 
 /**
  * The link popover (the `link` page command, Cmd-K): a URL field over the selection with
- * completion of `#headings` and workspace paths. Enter applies, Escape cancels.
+ * completion of `#headings` and workspace paths (ui Popover + Combobox, linkOverlays.tsx). Enter
+ * applies, Escape cancels, focus leaving the field closes it; focus returns to the editor.
  */
 export class LinkPopover {
-  private element: HTMLElement | null = null;
+  private opened = 0;
 
   constructor(
     private readonly view: EditorView,
     private readonly host: LinkHost,
+    private readonly overlays: LinkOverlays,
   ) {}
 
   get open(): boolean {
-    return this.element !== null;
+    return this.overlays.getState().popover !== null;
   }
 
   show(): void {
     this.close();
-    document.querySelectorAll<HTMLElement>(".md-link-card").forEach((card) => (card.hidden = true));
     const { state } = this.view;
     const { from, to } = state.selection;
     const around = linkRangeAt(state, from);
@@ -346,98 +349,41 @@ export class LinkPopover {
       around && (state.selection.empty || (from >= around.from && to <= around.to))
         ? around
         : { from, to, mark: undefined };
-    const popover = document.createElement("div");
-    popover.className = "md-link-popover";
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "md-link-input";
-    input.spellcheck = false;
-    input.placeholder = this.host.linkLabel("linkPlaceholder");
-    input.setAttribute("aria-label", this.host.linkLabel("linkPlaceholder"));
-    input.value = String(range.mark?.attrs.href ?? "");
-    const list = document.createElement("ul");
-    list.className = "md-link-suggestions";
-    list.setAttribute("role", "listbox");
-    popover.append(input, list);
-    document.body.append(popover);
-    this.element = popover;
     const coords = this.view.coordsAtPos(range.from);
-    popover.style.left = `${Math.max(8, Math.min(coords.left, viewport().width - popover.offsetWidth - 8))}px`;
-    popover.style.top = `${coords.bottom + 6}px`;
-
-    let items: string[] = [];
-    let active = -1;
-    let query = 0;
-    const render = () => {
-      list.replaceChildren(
-        ...items.map((item, index) => {
-          const li = document.createElement("li");
-          li.textContent = item;
-          li.setAttribute("role", "option");
-          li.setAttribute("aria-selected", String(index === active));
-          li.addEventListener("mousedown", (event) => {
-            event.preventDefault();
-            input.value = item;
-            apply();
-          });
-          return li;
-        }),
-      );
-      list.hidden = items.length === 0;
-    };
-    const suggest = async () => {
-      const value = input.value;
-      const ticket = ++query;
-      let next: string[];
-      if (value.startsWith("#")) {
-        const wanted = value.slice(1).toLowerCase();
-        next = headingTargets(this.view.state.doc)
-          .filter((heading) => heading.slug.includes(wanted) || heading.text.toLowerCase().includes(wanted))
-          .map((heading) => `#${heading.slug}`);
-      } else if (!/^[a-z][a-z0-9+.-]*:/i.test(value) && this.host.listFiles) {
-        next = await this.host.listFiles(value).catch(() => []);
-      } else next = [];
-      if (ticket !== query || !this.element) return;
-      items = next.slice(0, 12);
-      active = -1;
-      render();
-    };
-    const apply = () => {
-      const href = input.value.trim();
+    let done = false;
+    const finish = (href: string | null) => {
+      if (done) return;
+      done = true;
       this.close();
-      applyLink(this.view, range.from, range.to, href, range.mark);
+      if (href !== null) applyLink(this.view, range.from, range.to, href, range.mark);
       this.view.focus();
     };
-    input.addEventListener("input", () => void suggest());
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        this.close();
-        this.view.focus();
-      } else if (event.key === "Enter") {
-        event.preventDefault();
-        if (active >= 0 && items[active]) input.value = items[active];
-        apply();
-      } else if ((event.key === "ArrowDown" || event.key === "ArrowUp") && items.length) {
-        event.preventDefault();
-        active = (active + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-        render();
-      } else if (event.key === "Tab" && items.length) {
-        event.preventDefault();
-        input.value = items[active >= 0 ? active : 0];
-        void suggest();
-      }
+    this.overlays.setCard(null);
+    this.overlays.setPopover({
+      id: ++this.opened,
+      anchor: { left: coords.left, top: coords.top, right: coords.left, bottom: coords.bottom },
+      initial: String(range.mark?.attrs.href ?? ""),
+      label: this.host.linkLabel("linkPlaceholder"),
+      placeholder: this.host.linkLabel("linkPlaceholder"),
+      suggest: (value) => this.suggest(value),
+      onApply: (href) => finish(href),
+      onCancel: () => finish(null),
     });
-    input.addEventListener("blur", () => setTimeout(() => this.close(), 0));
-    input.focus();
-    input.select();
-    render();
-    void suggest();
+  }
+
+  private async suggest(value: string): Promise<string[]> {
+    if (value.startsWith("#")) {
+      const wanted = value.slice(1).toLowerCase();
+      return headingTargets(this.view.state.doc)
+        .filter((heading) => heading.slug.includes(wanted) || heading.text.toLowerCase().includes(wanted))
+        .map((heading) => `#${heading.slug}`);
+    }
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(value) && this.host.listFiles) return this.host.listFiles(value).catch(() => []);
+    return [];
   }
 
   close(): void {
-    this.element?.remove();
-    this.element = null;
+    this.overlays.setPopover(null);
   }
 }
 
