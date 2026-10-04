@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 11 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 12 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -113,7 +113,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 11)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 12)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -144,8 +144,8 @@ crashed, slow or unsure, the tool does not run.
      resolved path is in a deny area or outside the read root.
    - Static deny rules in the inline settings use absolute `//` patterns (relative patterns have
      no base there).
-   - Grep and Glob over a folder that contains a deny path ask approval; inside the read root
-     there is none by construction.
+   - A Bash search (`grep`, `find`) over a folder that contains a deny path asks approval like any
+     Bash call; inside the read root there is no deny path by construction.
 3. **Own fresh process (acpmux design 3; P1-K, D-I decided).** A remote
    chain runs in its own Claude process and **never forks or resumes a local session** (acpmux
    `fork()` copies the harness, argv, permission policy, modes, config options and models, and
@@ -172,14 +172,14 @@ crashed, slow or unsure, the tool does not run.
    daemon's servers. **Every tool goes through the daemon (P1-M, D-K decided):** the daemon auto-answers reads inside
    the read root with no human round trip, denies the deny paths, and asks the human (with a
    presence proof) only for side effects. In
-   `default` mode Claude Code runs Read, Glob and Grep inside the working folder, Task, Skill and
-   TodoWrite with no permission step, so the inline settings also carry:
-   - `permissions.deny` for every rule 2 deny path (as `Read(...)`, `Edit(...)`, `Write(...)`,
-     `Glob(...)`, `Grep(...)` rules) and for `Skill` and `SlashCommand`: these hold even when the
-     hook fails;
-   - `permissions.ask` for `Read`, `Glob`, `Grep`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch` and
-     every other tool that does not ask by default, so each call reaches the permission step and the
-     daemon, which allows reads inside the read root at once.
+   `default` mode Claude Code runs some tools (for example Read inside the working folder) with no
+   permission step, so the inline settings also carry:
+   - `permissions.deny` for every rule 2 deny path (as `Read(...)`, `Edit(...)`, `Write(...)`
+     rules) and for `Skill` and `SlashCommand`;
+   - `permissions.ask: ["*"]` over the closed `--tools` list (Claude Code 2.1.289: `Read`, `Edit`,
+     `Write`, `Bash`, `WebFetch`, `WebSearch`, `Agent`, `AskUserQuestion`, `ExitPlanMode` and the
+     daemon's MCP tools; no `Task`, `Glob`, `Grep` or `TodoWrite` exist there), so each call reaches
+     the permission step and the daemon, which allows reads inside the read root at once.
    - **No secrets on argv (P2-O):** the inline JSON is visible in `ps`, so it carries no token or
      key. The daemon's hook and MCP servers authenticate the session by peer credentials, or read a
      secret from the environment, or the config goes through `--mcp-config /dev/fd/N`.
@@ -195,8 +195,7 @@ crashed, slow or unsure, the tool does not run.
      approval path, 12a) and `ExitPlanMode` (asks) are in the tool table.
    - **Narrow working folder (P1-M):** the remote-chain process starts in a folder that holds only
      the memory and conversation files (the read root), not all of `$MUX_HOME`. The probe lists
-     which built-in tools skip the permission step and checks that Read deny rules also apply to
-     Grep and Glob.
+     which built-in tools skip the permission step.
    - **No env in the JSON (P3-L):** the mux host's `writeSessionDir` puts an `env` block
      (`MUX_HOME`, socket paths, `ACPMUX_*`, `CMUX_MCP_COMMAND`) into settings; for a remote chain
      the inline settings and MCP JSON carry no env values, tokens or keys. Those values go only in
@@ -206,8 +205,8 @@ crashed, slow or unsure, the tool does not run.
      system prompt) do not load. The agent host passes the Chief's prompt with
      `--append-system-prompt`, puts the remote-log hooks in the inline settings, and sets the
      subrouter base URL (the model route that `claude-sr` gave) in the process environment.
-   - **Task** is a child spawn under rule 1: each Task call asks the daemon; only the built-in
-     general subagent type is allowed, and it runs under the same settings and deny rules. User and repository `permissions.allow` rules, hooks and `.mcp.json` never
+   - **Agent** (the subagent tool) is a child spawn under rule 1: each call asks the daemon; only the
+     built-in general subagent type is allowed, and it runs under the same settings and deny rules. User and repository `permissions.allow` rules, hooks and `.mcp.json` never
    load. The Claude Code version is pinned and checked at spawn; profile wrappers (for example
    `claude-sr`) and extra argv are refused. Writes to the gate's inputs (acpmux and daemon
    configuration, the hook binary, the pinned Claude install) are never approvable in a remote
@@ -220,8 +219,8 @@ crashed, slow or unsure, the tool does not run.
      agent definitions with `permissionMode: bypassPermissions`, plugins (hooks, MCP), and managed
      settings, `managed-mcp.json` and managed hooks do **not** let a tool run without the daemon,
      and no plugin hook runs.
-   - `ask` overrides the default auto-allow inside the working folder for Read, Glob and Grep, and
-     the `permissions.deny` rules hold with the hook missing.
+   - `ask` overrides the default auto-allow inside the working folder for Read, and the
+     `permissions.deny` rules hold.
    - the built-in general subagent cannot call `Skill`, cannot read the deny paths, and sends its
      permission requests to the daemon; `--setting-sources ""` hides user and project agent types.
    - no user or project `CLAUDE.md` loads (its `@` imports would pull files with no tool call).
@@ -237,8 +236,10 @@ crashed, slow or unsure, the tool does not run.
      refuses the chain if any tool is not in its classified table (P2-R: this catches version drift and tools such as
      `ListMcpResources` and `ReadMcpResource`). Every MCP call (cmux screen reads, terminal and
      workspace state included) asks the human, except a reviewed list of read tools.
-   - the Claude ACP adapter is pinned with Claude; its handling of embedded resources, slash
-     commands and `@` is probed (rule 10).
+   - acpmux's `claude_stdio` (Claude stream-json) is the adapter, pinned with Claude; its handling of
+     document blocks, slash commands and `@` is probed (rule 10). `fs/read_text_file` from an ACP
+     adapter would bypass `handle_permission`; this is acceptable with `claude_stdio`, and the tests
+     must cover it if an ACP adapter is added.
    - **D-J (decided): both.** in remote chains the `Skill` and `SlashCommand` tools
      and custom subagent types are denied by the daemon (only built-in tools and the built-in
      general subagent with no `permissionMode`), **and** the probe runs; at spawn, managed settings
@@ -249,7 +250,7 @@ crashed, slow or unsure, the tool does not run.
    `session/request_permission` to the daemon and **ignores** the session policy and rules
    (`MUX_POLICY`, which defaults to approve-all in the mux host, `--policy`, `acpmux session
    rules`, `/policy`, `/mode`). `--policy` is ignored on spawns in a remote chain, and policy or
-   rules changes are refused while a remote chain runs.
+   rules changes are refused for a tainted session for its whole life (12b).
 7. **Allow once only (acpmux design 4).** In remote turns acpmux offers only `allow_once`. No daemon
    answer, a broken socket, or 10 minutes without an approval: deny, and the chain is cancelled.
    After a daemon or acpmux restart, pending remote approvals are denied and the chain is
@@ -322,8 +323,30 @@ crashed, slow or unsure, the tool does not run.
     **remote-tainted for its whole life**, and the taint is stored durably (acpmux session metadata
     and the daemon store) and survives restarts; an agent-host adopt keeps it: every prompt into it, or into any fork, handoff, transfer or adopt of it, is
     remote, whatever its origin field says. Derivatives include **child sessions** that a remote
-    chain spawns (P2-2). The taint is set at `session/new` on the daemon socket; a remote prompt into
-    an untainted session is refused. acpmux refuses a fork or handoff of a tainted session
+    chain spawns (P2-2): the Agent tool's subagents in-process, and sessions that the remote chain
+    creates through acpmux `session/new` (the child-spawn path); acpmux refuses an untainted
+    `session/new` that names a tainted parent. The taint is set at `session/new` on the daemon
+    socket; a remote prompt into an untainted session is refused. **Export and import (P2-b):** the
+    taint is part of `SessionMeta`, so `MUX_EXPORT`/`MUX_IMPORT` (`hub/transfer.rs`,
+    `native::restore`) keep it in the new session; until that ships, `MUX_EXPORT` of a tainted
+    session is refused.
+12d. **Respawn, failover, warm and rehydrate (P1, P2-a; rev 12).** Code facts: `hub/lifecycle.rs`
+    `child_for` builds each respawn from the current global harness profile and the
+    `MUX_DEFAULTS`/`MUX_PRESETS` environment (any client can change these) and `replay_config`
+    re-applies the saved mode; `hub/turns.rs` `run_prompt` fails over on a limit error or "agent
+    process closed" by switching `meta.harness` to `fallback_profile` (`claude-sr`); `MUX_WARM`
+    (`hub/warm.rs`) calls `child_for` for recent sessions; a failed exact resume sets `rehydrate`,
+    and `turns.rs` puts the log transcript in front of the next prompt as plain text. For a tainted
+    session:
+    - the **clean spawn spec** (rule 4) is stored durably with the taint; `child_for` uses only that
+      spec and re-runs the spawn checks (pinned version, `system/init` tool table, managed
+      settings); `MUX_DEFAULTS`, `MUX_PRESETS` and `MUX_RELOAD_CONFIG` do not apply;
+      `replay_config` forces mode `default`;
+    - **no failover**: a limit error ends the turn with an error; a model route change goes only in
+      the process environment of the next spawn;
+    - `MUX_WARM` skips tainted sessions;
+    - **no rehydrate**: a failed resume cancels the chain, and the next chain starts fresh from the
+      remote projection. acpmux refuses a fork or handoff of a tainted session
     into a local one (the copy of policy, argv, modes and transcript in `hub/turns.rs` `fork()`
     would make a local approve-all session with a remote transcript). "Absent `_meta.origin` means
     remote" applies to tainted sessions and their descendants; local sessions keep their own
@@ -367,6 +390,13 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - `allow_always` is not offered on a tainted session; `ExitPlanMode` `updatedPermissions` is never
   forwarded; the approval hash equals sha256 of the forwarded `rawInput` bytes.
 - a remote Read of `LOG.txt` (or a file under `TREE/`) asks the human.
+- kill the Claude process of a tainted session: the respawn uses the stored inline settings only
+  and Bash still asks; a limit error does not fail over; `MUX_WARM` does not spawn a tainted
+  session; `MUX_DEFAULTS`/`MUX_PRESETS` values do not reach the respawn; `replay_config` keeps
+  mode `default`.
+- a failed resume of a tainted session cancels the chain and never rehydrates the transcript.
+- `MUX_EXPORT` of a tainted session is refused, or the imported session keeps the taint.
+- an untainted `session/new` with a tainted parent is refused.
 - the remote projection arrives as the first stdin prompt (not on argv), and an earlier remote
   message with a fake delimiter in it stays inside its block.
 - remote text in a `document` block with `</resource>`, a fake `[mux-event]` line, `@/etc/hosts`
@@ -376,16 +406,15 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - the subrouter route comes from the process environment (`--setting-sources ""` drops the
   settings env).
 - path tricks are denied: a symlink in the read root to `state/x`, `.ENV` in upper case,
-  `/private/var/...` against `/var/...`, `a/../state/x`; a Grep at the read root returns no
-  `state/` content.
+  `/private/var/...` against `/var/...`, `a/../state/x`; a Bash `grep -r` at the read root asks and
+  returns no `state/` content.
 - a `system/init` tool list with a tool that is not classified refuses the chain; an MCP call off
   the reviewed list asks the human.
 - an approval card for `cat $(echo ... | base64 -d)` shows the substitution and decoding mark.
 - `session/set_mode` (`acceptEdits`) and `set_config_option` for a remote-chain session are
   refused from every client, and an Edit still asks the daemon.
 - the inline settings and MCP JSON carry no env block, token, key or socket path value.
-- the remote-chain process starts in the narrow working folder; Read deny rules also stop Grep
-  and Glob on the deny paths.
+- the remote-chain process starts in the narrow working folder.
 - bypass refused from `--settings` (gate, rule 5); `--dangerously-skip-permissions` refused.
 - a user `Bash(*)` allow rule does not skip the daemon; `MUX_POLICY=approve-all`, `--policy`,
   `acpmux session rules`, `/policy` and `/mode` do not change a remote decision; rules changes
