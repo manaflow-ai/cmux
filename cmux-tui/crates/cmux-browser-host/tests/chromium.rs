@@ -347,3 +347,26 @@ fn host_sessions_reach_the_page_agent_after_goto() {
     let _ = stop.args(["close", "--socket"]).arg(&socket).output();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A headless session starts with no tabs: the start tab Chromium opens is
+/// not the session's and not listed (scenario 13 counts tabs from zero).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_headless_session_lists_no_start_tab() {
+    use cmux_browser_host::host::Engines;
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    // SAFETY: set before the engine starts; nothing else reads it concurrently here.
+    unsafe { std::env::set_var("CMUX_BROWSER_HOST_CHROMIUM", &binary) };
+    let engines =
+        cmux_browser_host::engines::HostEngines::new(cmux_browser_host::host::agent_bundle());
+    let driver = engines.driver("headless", Arc::new(|_| {})).expect("headless driver");
+    let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");
+    assert_eq!(tabs, json!([]), "the start tab is listed");
+    let opened = driver.call("tabs.open", &json!({"url": "about:blank"})).expect("tabs.open");
+    let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");
+    assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+    assert_eq!(tabs[0]["targetId"], opened["targetId"]);
+}
