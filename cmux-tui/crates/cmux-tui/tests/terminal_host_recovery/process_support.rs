@@ -109,3 +109,21 @@ fn host_records_left_after_close(root: &Path) -> Option<LeftoverHostRecords> {
         load_terminal_host_exit_records(root).unwrap(),
     ))
 }
+
+/// [`wait_for_screen`] that names what the terminal showed and its state when
+/// `marker` never appears (FLAKE-TEMPLATE-ADOPT, second mode: typed input after
+/// adoption did not show, and the old assert dropped the screen).
+pub(crate) fn assert_screen_shows(socket: &Path, surface: u64, marker: &str, terminal_id: &str) {
+    let screen = wait_for_screen(socket, surface, marker);
+    if screen.contains(marker) {
+        return;
+    }
+    let resolved = request_response(
+        socket,
+        serde_json::json!({"id": 62, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+    );
+    // crash-allow: test-only helper; a missing marker must fail with its evidence.
+    panic!(
+        "{marker:?} never showed on surface {surface}; resolved={resolved}; last screen:\n{screen}"
+    );
+}
