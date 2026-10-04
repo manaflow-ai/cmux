@@ -52,13 +52,13 @@ fn write_fake_server(dir: &Path) {
     );
 }
 
-/// A server that sends one `host.request` for the op in `$2` and appends
-/// every line it receives to the file in `$1`.
+/// A server that sends one `host.request` for the op in `$2` (params `$3`,
+/// default `{}`) and appends every line it receives to the file in `$1`.
 fn write_host_probe(dir: &Path) {
     write_script(
         dir,
         "host-probe",
-        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"%s\",\"params\":{}}\\n' \"$2\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
+        "#!/bin/sh\nparams=\"$3\"\n[ -n \"$params\" ] || params='{}'\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"%s\",\"params\":%s}\\n' \"$2\" \"$params\"\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\n",
     );
 }
 
@@ -305,16 +305,14 @@ fn frames(path: &Path, count: usize) -> Vec<Value> {
 #[test]
 fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     let root = temp_dir();
-    let (linked, unscoped, relay) =
-        (root.0.join("linked.out"), root.0.join("unscoped.out"), root.0.join("relay.out"));
+    let (linked, unscoped) = (root.0.join("linked.out"), root.0.join("unscoped.out"));
     write_host_probe(&root.0.join("servers"));
     let bundled = root.0.join("bundled");
     write_server_app(&bundled, "linked", probe_server(&linked, "cmux.host.link.get", true));
     write_server_app(&bundled, "unscoped", probe_server(&unscoped, "cmux.host.link.get", false));
-    write_server_app(&bundled, "relay", probe_server(&relay, "cmux.credential.relay", true));
     let state = root.0.join("state");
     let f = fixture_with(&[], Duration::from_secs(60), root);
-    for app in ["cmux/linked", "cmux/unscoped", "cmux/relay"] {
+    for app in ["cmux/linked", "cmux/unscoped"] {
         f.install(app);
     }
     let reply = &frames(&linked, 1)[0];
@@ -326,16 +324,11 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     assert_eq!(value["state_dir"], json!(state.join("apps-data/cmux.linked/link")));
     assert_eq!(value["socket_dir"], json!(state.join("apps-tmp/cmux.linked")));
     assert!(value["device_name"].as_str().is_some_and(|n| !n.is_empty()));
-    // A server without the scope gets host.error; the relay is not wired yet.
+    // A server without the scope gets host.error.
     let refused = &frames(&unscoped, 1)[0];
     assert_eq!(
         (refused["t"].clone(), refused["id"].clone(), refused["code"].clone()),
         (json!("host.error"), json!(7), json!("apps.scope_missing"))
-    );
-    let relayed = &frames(&relay, 1)[0];
-    assert_eq!(
-        (relayed["t"].clone(), relayed["code"].clone(), relayed["retryable"].clone()),
-        (json!("host.error"), json!("unavailable"), json!(true))
     );
     // A link change reaches only servers that may read the link.
     f.supervisor.host_link_changed();
@@ -509,5 +502,129 @@ fn server_errors_keep_details_and_events_use_full_names() {
     assert_eq!(
         (event["app"].clone(), event["name"].clone(), event["data"].clone()),
         (json!("cmux/detail"), json!("cmux.detail.notify.changed"), json!({ "n": 1 }))
+    );
+}
+
+const RELAY_PROVIDER: u64 = 11;
+
+/// A first-party server that sends one cmux.credential.relay request with
+/// `params`; `scoped` declares the server scope op:cmux.credential.relay.
+fn relay_server(out: &Path, params: Value, scoped: bool) -> Value {
+    let mut server = json!({
+        "kind": "native",
+        "binaries": { "darwin-arm64": "host-probe", "darwin-x64": "host-probe", "linux-arm64": "host-probe", "linux-x64": "host-probe" },
+        "args": [out.to_string_lossy(), "cmux.credential.relay", params.to_string()],
+        "instances": "machine", "hosts": ["local"], "lifecycle": { "start": "always" }
+    });
+    if scoped {
+        server["scopes"] = json!({ "op:cmux.credential.relay": "Send each Cloud request to cmux, which adds your sign-in." });
+    }
+    server
+}
+
+/// Registers the Mac app as the provider of the credential family and
+/// returns its event stream.
+fn credential_provider(f: &Fixture) -> Receiver<Value> {
+    let (tx, rx) = channel();
+    let tx = Mutex::new(tx);
+    f.supervisor.register_client(
+        RELAY_PROVIDER,
+        Arc::new(move |v: &Value| tx.lock().unwrap().send(v.clone()).is_ok()),
+    );
+    let app = super::super::provider::ProviderClaim { agent: false, app_kind: true };
+    f.supervisor.register_provider(RELAY_PROVIDER, app, vec!["credential".into()]).unwrap();
+    rx
+}
+
+fn provider_event(rx: &Receiver<Value>, name: &str) -> Value {
+    loop {
+        let event = rx.recv_timeout(Duration::from_secs(10)).expect("provider event");
+        if event["event"] == name {
+            return event;
+        }
+    }
+}
+
+#[test]
+fn the_credential_relay_goes_to_the_mac_app_and_back() {
+    let root = temp_dir();
+    let out = root.0.join("relay.out");
+    write_host_probe(&root.0.join("servers"));
+    let request = json!({ "method": "GET", "path": "/api/vm", "team": "t1" });
+    write_server_app(&root.0.join("bundled"), "relay", relay_server(&out, request.clone(), true));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let rx = credential_provider(&f);
+    f.install("cmux/relay");
+    let asked = provider_event(&rx, "apps-provider-request");
+    assert_eq!(
+        (asked["op"].clone(), asked["params"].clone(), asked["app"].clone()),
+        (json!("cmux.credential.relay"), request, json!("cmux/relay"))
+    );
+    let id = asked["request_id"].as_u64().unwrap();
+    let answer = json!({ "status": 200, "headers": { "content-type": "application/json" }, "body": { "machines": [] } });
+    f.supervisor.provider_result(RELAY_PROVIDER, id, true, answer.clone()).unwrap();
+    let reply = &frames(&out, 1)[0];
+    assert_eq!(reply, &json!({ "t": "host.result", "id": 7, "value": answer }));
+}
+
+#[test]
+fn without_a_provider_the_relay_fails_at_once() {
+    let root = temp_dir();
+    let out = root.0.join("none.out");
+    write_host_probe(&root.0.join("servers"));
+    let request = json!({ "method": "GET", "path": "/api/vm" });
+    write_server_app(&root.0.join("bundled"), "relay", relay_server(&out, request, true));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/relay");
+    let reply = &frames(&out, 1)[0];
+    assert_eq!(
+        (
+            reply["t"].clone(),
+            reply["id"].clone(),
+            reply["code"].clone(),
+            reply["retryable"].clone()
+        ),
+        (json!("host.error"), json!(7), json!("provider.unavailable"), json!(true))
+    );
+}
+
+#[test]
+fn a_relay_the_mac_app_does_not_answer_times_out() {
+    let root = temp_dir();
+    let out = root.0.join("slow.out");
+    write_host_probe(&root.0.join("servers"));
+    let request = json!({ "method": "POST", "path": "/api/vm", "body": { "name": "x" } });
+    write_server_app(&root.0.join("bundled"), "relay", relay_server(&out, request, true));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let rx = credential_provider(&f);
+    f.install("cmux/relay");
+    let asked = provider_event(&rx, "apps-provider-request");
+    // The fixture's provider deadline is 400 ms.
+    let reply = &frames(&out, 1)[0];
+    assert_eq!(
+        (reply["t"].clone(), reply["code"].clone(), reply["retryable"].clone()),
+        (json!("host.error"), json!("provider.timeout"), json!(true))
+    );
+    let cancel = provider_event(&rx, "apps-provider-cancel");
+    assert_eq!(
+        (cancel["request_id"].clone(), cancel["reason"].clone()),
+        (asked["request_id"].clone(), json!("timeout"))
+    );
+}
+
+#[test]
+fn a_server_without_the_relay_scope_is_refused() {
+    let root = temp_dir();
+    let out = root.0.join("unscoped.out");
+    write_host_probe(&root.0.join("servers"));
+    let request = json!({ "method": "GET", "path": "/api/vm" });
+    write_server_app(&root.0.join("bundled"), "relay", relay_server(&out, request, false));
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let _rx = credential_provider(&f);
+    f.install("cmux/relay");
+    let reply = &frames(&out, 1)[0];
+    assert_eq!(
+        (reply["t"].clone(), reply["code"].clone()),
+        (json!("host.error"), json!("apps.scope_missing"))
     );
 }
