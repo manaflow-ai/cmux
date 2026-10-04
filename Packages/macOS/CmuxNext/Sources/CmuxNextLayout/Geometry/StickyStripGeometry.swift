@@ -28,6 +28,11 @@ public nonisolated enum StickyStripGeometry {
     /// The same for the height of top and bottom docks (F3).
     public static let maxBandShare: CGFloat = 0.5
     public static let maxBandShareBoth: CGFloat = 1.0 / 3.0
+    /// The narrowest scrolling strip docked side docks leave, in points (at
+    /// most half the viewport): docked side docks shrink to keep it, so a
+    /// dock on each side never squeezes the strip's tab titles away
+    /// (dogfood 2026-10-03: 170 pt with two 40% docks).
+    public static let minimumStripWidth: CGFloat = 400
 
     /// The docks of a screen and its scrolling columns.
     public struct Parts: Sendable {
@@ -140,11 +145,23 @@ public nonisolated enum StickyStripGeometry {
             let widest = max(1, length * share)
             return SplitGeometry.roundToPixel(min(max(raw, dock.minimumExtent), widest), scale: scale)
         }
-        let leftWidth = left.map { extent($0, along: viewport.width, share: sideShare) }
-        let rightWidth = right.map { extent($0, along: viewport.width, share: sideShare) }
+        var leftWidth = left.map { extent($0, along: viewport.width, share: sideShare) }
+        var rightWidth = right.map { extent($0, along: viewport.width, share: sideShare) }
         let topHeight = top.map { extent($0, along: viewport.height, share: bandShare) }
         let bottomHeight = bottom.map { extent($0, along: viewport.height, share: bandShare) }
         func docked(_ dock: Dock?) -> Bool { dock?.column.sticky?.mode == .docked }
+        // Docked side docks shrink in proportion so the strip keeps
+        // `minimumStripWidth` (at most half the viewport).
+        let dockedLeft = docked(left) ? leftWidth : nil
+        let dockedRight = docked(right) ? rightWidth : nil
+        let used = (dockedLeft ?? 0) + (dockedRight ?? 0)
+        let gaps = gap * CGFloat([dockedLeft, dockedRight].compactMap { $0 }.count)
+        let room = viewport.width - min(minimumStripWidth, viewport.width / 2) - gaps
+        if used > 0, used > room, room > 0 {
+            let factor = room / used
+            if dockedLeft != nil { leftWidth = leftWidth.map { SplitGeometry.roundToPixel($0 * factor, scale: scale) } }
+            if dockedRight != nil { rightWidth = rightWidth.map { SplitGeometry.roundToPixel($0 * factor, scale: scale) } }
+        }
 
         // The strip: docked docks take space, overlay docks inset (S4, F2).
         var placement = Placement(stripMinX: 0, stripWidth: viewport.width, leadingInset: 0, trailingInset: 0, sticky: [],

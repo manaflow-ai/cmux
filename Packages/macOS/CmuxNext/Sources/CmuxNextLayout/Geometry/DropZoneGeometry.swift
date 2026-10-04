@@ -79,12 +79,16 @@ public nonisolated enum DropZoneGeometry {
     /// coordinates). Nil elsewhere. Top and bottom bands are `dockDropBand`
     /// deep; the side bands are half that, so the outer panes keep their
     /// left and right split zones. Top and bottom win in the corners.
-    public static func dockTarget(atView point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle) -> DropTarget? {
+    /// `topInset` is the tab bar height at the top edge: the tab bar takes
+    /// drops into the strip, so the top band starts below it (dogfood
+    /// 2026-10-03: a band inside the tab bar was never reached).
+    public static func dockTarget(atView point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, style: LayoutStyle,
+                                  topInset: CGFloat = 0) -> DropTarget? {
         let size = geometry.viewport
         let band = min(style.dockDropBand, size.height / 4)
         let side = min(style.dockDropBand / 2, size.width / 8)
         let free = { (edge: StickyEdge) in !geometry.sticky.contains { $0.sticky.edge == edge } }
-        if point.y <= band, free(.top) { return .newDock(screen: screen, edge: .top) }
+        if point.y >= topInset, point.y <= topInset + band, free(.top) { return .newDock(screen: screen, edge: .top) }
         if point.y >= size.height - band, free(.bottom) { return .newDock(screen: screen, edge: .bottom) }
         if point.x <= side, free(.left) { return .newDock(screen: screen, edge: .left) }
         if point.x >= size.width - side, free(.right) { return .newDock(screen: screen, edge: .right) }
