@@ -67,41 +67,16 @@ enum BrowserReplSecretGuard {
         info.browserReplOrigin
     }
 
-    private static let focusProbe = """
-    const el = document.activeElement;
-    return document.hasFocus() && !!el && el.tagName !== "IFRAME" && el.tagName !== "FRAME";
-    """
-
-    /// The frame whose document holds the focused element, which is where
-    /// inserted text goes, or nil when no frame answers.
-    static func focusedFrame(in webView: WKWebView, frames: [BrowserReplFrame]) async -> BrowserReplFrame? {
-        var focused: BrowserReplFrame?
-        for frame in frames {
-            guard let info = frame.info else { continue }
-            let answer = try? await webView.callAsyncJavaScript(
-                focusProbe, arguments: [:], in: info, contentWorld: BrowserReplDriverWorld.world
-            )
-            if answer as? Bool == true { focused = frame }
-        }
-        return focused
-    }
-
     /// Throws unless the focused frame's own origin matches one of a secret's
-    /// domains (`secretDomains` as the session sends them).
+    /// domains (`secretDomains` as the session sends them); see
+    /// ``BrowserReplSecretTarget``.
     static func checkSecretTarget(
         name: String,
-        domains rawDomains: [[String: Any]],
+        domains: [[String: Any]],
         webView: WKWebView,
         frames: [BrowserReplFrame]
     ) async throws {
-        let domains = rawDomains.compactMap(BrowserReplDomainPattern.from(json:))
-        guard let frame = await focusedFrame(in: webView, frames: frames), let info = frame.info,
-              let origin = origin(of: info) else {
-            throw BrowserReplDriverError(code: "invalid", message: "secret \"\(name)\" was not typed: no focused field in the page")
-        }
-        guard domains.contains(where: { $0.matches(origin: origin, secure: true) }) else {
-            let list = domains.map(\.raw).joined(separator: ", ")
-            throw BrowserReplDriverError(code: "invalid", message: "secret \"\(name)\" may not be typed into \(origin); its domains are \(list)")
-        }
+        try await BrowserReplSecretTarget(name: name, domains: domains, world: BrowserReplDriverWorld.world)
+            .check(in: webView, frames: frames)
     }
 }
