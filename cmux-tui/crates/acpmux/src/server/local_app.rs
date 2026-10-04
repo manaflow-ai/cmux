@@ -121,6 +121,41 @@ pub fn strip_token(frame: &str) -> String {
     if removed { v.to_string() } else { frame.to_owned() }
 }
 
+/// Request fields that would shape a preset's harness command. The local
+/// app names a preset by id only (`session/new {preset}`); with a preset,
+/// any of these is refused, like a Web client's preset that shapes one.
+const SHAPING_FIELDS: &[&str] = &[
+    "args",
+    "systemPrompt",
+    "system_prompt",
+    "env",
+    "argv",
+    "command",
+    "harness",
+    "harnessCommand",
+];
+
+pub(super) fn preset_by_id_only(
+    params: &serde_json::Value,
+    meta: Option<&serde_json::Value>,
+) -> Result<(), crate::rpc::RpcError> {
+    let preset = meta
+        .and_then(|m| m.get("preset"))
+        .or_else(|| params.get("preset"))
+        .is_some_and(|p| !p.is_null());
+    if !preset {
+        return Ok(());
+    }
+    for field in SHAPING_FIELDS {
+        if params.get(*field).is_some() || meta.is_some_and(|m| m.get(*field).is_some()) {
+            return Err(crate::rpc::RpcError::invalid_params(format!(
+                "the local app starts a preset by its id only; {field} is refused"
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
