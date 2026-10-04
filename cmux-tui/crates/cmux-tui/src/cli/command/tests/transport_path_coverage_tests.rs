@@ -39,6 +39,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     }
     for (args, expected) in [
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
+        // closed.delete takes either a group (with members) or all.
+        (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (
             vec![
