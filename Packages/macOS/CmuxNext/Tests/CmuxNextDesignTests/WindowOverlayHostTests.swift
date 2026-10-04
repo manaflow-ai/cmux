@@ -104,6 +104,29 @@ import Testing
         #expect(!host.hasPresentations)
     }
 
+    /// A tab dialog (modal with a modalRegion) blocks only its tab: the rest
+    /// of the window keeps working. A tab resize moves the blocked region
+    /// with the dialog.
+    @Test func aTabModalBlocksOnlyItsRegionAndFollowsIt() {
+        let main = makeMain()
+        defer { close(main) }
+        let host = WindowOverlayHost.host(for: main)
+        let tab = NSRect(x: 0, y: 0, width: 300, height: 600)
+        let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)),
+                                  options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
+        #expect(host.acceptsMouse(at: NSPoint(x: 20, y: 20)), "inside the tab")
+        #expect(!host.acceptsMouse(at: NSPoint(x: 600, y: 300)), "the rest of the window stays usable")
+        #expect(host.wantsKey(forClickIn: host.panel), "a click inside the tab gives the dialog the keyboard")
+        #expect(!host.wantsKey(forClickIn: main), "a click outside gives it back to the window")
+
+        let resized = NSRect(x: 400, y: 0, width: 300, height: 600)
+        dialog.update(anchor: resized, modalRegion: resized)
+        #expect(host.acceptsMouse(at: NSPoint(x: 500, y: 300)), "the region moved with the tab")
+        #expect(!host.acceptsMouse(at: NSPoint(x: 20, y: 20)), "the old region is free")
+        #expect(dialog.content.frame.midX == resized.midX, "the dialog moved too")
+        dialog.dismiss()
+    }
+
     // MARK: Modal
 
     /// A modal overlay traps focus: its first field takes the keyboard, Tab
