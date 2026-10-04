@@ -79,3 +79,37 @@ fn a_push_answers_before_the_copy_ends_and_its_end_is_an_event() {
     assert_eq!(changed["bytes"], 42);
     assert_eq!(transfer.log().jobs.len(), 1);
 }
+
+#[test]
+fn a_push_on_a_connecting_link_waits_off_the_loop_and_then_starts() {
+    use attach_common::Script;
+    use std::time::Duration;
+    let transfer = FakeTransfer::default();
+    let mut host = host(&transfer);
+    let (spawned, held) = channel();
+    host.spawner.log().script.push_back(Script::Hold(spawned));
+    host.send(&json!({ "type": "op", "id": "1", "op": "cloud.file.push", "origin": "user",
+        "idempotency_key": "p-1",
+        "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
+    let mut started = false;
+    for _ in 0..100 {
+        if held.try_recv().is_ok() {
+            started = true;
+            break;
+        }
+        if let Some(line) = host.next_within(Duration::from_millis(50)) {
+            assert_ne!(line["id"], "1", "the push answered before its link: {line}");
+        }
+    }
+    assert!(started, "the link process started");
+    host.send(&json!({ "type": "op", "id": "2", "op": "cloud.port.list", "args": {} }));
+    let read = result_of(&mut host, "2");
+    assert_eq!(read.map(|r| r["ok"].clone()), Some(json!(true)), "the loop serves ops meanwhile");
+    host.spawner.ready("vm-alpha01");
+    let pushed = result_of(&mut host, "1");
+    assert_eq!(
+        pushed.as_ref().map(|r| r["result"]["state"].clone()),
+        Some(json!("running")),
+        "the push starts once the link is up: {pushed:?}"
+    );
+}

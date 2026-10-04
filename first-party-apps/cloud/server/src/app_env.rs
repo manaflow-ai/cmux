@@ -62,9 +62,9 @@ impl AppEnv {
             match key.as_ref() {
                 "CMUX_APP_ID" => env.app_id = Some(text),
                 "CMUX_APP_DATA_DIR" => {
-                    env.data_dir = Some(PathBuf::from(text)).filter(|p| p.is_absolute());
+                    env.data_dir = Some(PathBuf::from(text)).filter(|p| usable_path(p));
                 }
-                "TMPDIR" => env.tmpdir = Some(text).filter(|t| Path::new(t).is_absolute()),
+                "TMPDIR" => env.tmpdir = Some(text).filter(|t| usable_path(Path::new(t))),
                 "LANG" => env.lang = Some(text).filter(|l| !l.chars().any(char::is_control)),
                 _ => {}
             }
@@ -120,6 +120,14 @@ impl AppEnv {
     }
 }
 
+/// An absolute path that OpenSSH option values can carry: `"` would end
+/// the quoting and `$` starts `${VAR}` expansion (OpenSSH 8.4+), so both
+/// are refused, as are control characters.
+fn usable_path(path: &Path) -> bool {
+    let text = path.to_string_lossy();
+    path.is_absolute() && !text.contains(['"', '$']) && !text.chars().any(char::is_control)
+}
+
 /// Creates `path` (and its parents) and makes the folder owner-only.
 pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
@@ -145,9 +153,13 @@ pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&staging)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    std::fs::rename(&staging, path)
+    let written = options.open(&staging).and_then(|mut file| {
+        file.write_all(bytes)?;
+        file.sync_all()
+    });
+    let renamed = written.and_then(|()| std::fs::rename(&staging, path));
+    if renamed.is_err() {
+        let _ = std::fs::remove_file(&staging);
+    }
+    renamed
 }

@@ -43,82 +43,6 @@ pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<V
         .collect()
 }
 
-/// Connects the serve loop holds open at most; more answer
-/// `link_unavailable` (retryable) instead of queueing.
-const MAX_PENDING_CONNECTS: usize = 64;
-
-/// A `cloud.machine.connect` whose link still connects: its result line
-/// goes out when the link is up or ended.
-pub(crate) struct PendingConnect {
-    id: Value,
-    machine: String,
-    generation: u64,
-}
-
-impl<C: ControlPlane> Server<C> {
-    /// The serve loop's form of [`Server::handle`]: a connect never waits
-    /// for its link here. `None` means the answer comes later from
-    /// [`Server::take_settled`] (keyed by `id`); every other op answers at
-    /// once.
-    pub(crate) fn handle_from_loop(
-        &mut self,
-        request: &Request,
-        id: &Value,
-    ) -> Option<Result<Value, CloudError>> {
-        if crate::ops::canonical_name(&request.op) != Some(CONNECT) {
-            return Some(self.handle(request));
-        }
-        let begun = crate::ops::admit(request).and_then(|admitted| {
-            let key = admitted.key.as_deref().unwrap_or_default();
-            let upstream = crate::api::upstream_key(admitted.name, &admitted.args, key);
-            let machine = args::id(args::object(&admitted.args, &["machine"])?, "machine")?;
-            let machine = machine.to_owned();
-            let begun =
-                begin_connect(self, &machine, request.origin, Some(format!("{upstream}/start")))?;
-            Ok((machine, begun))
-        });
-        match begun {
-            Err(error) => Some(Err(error)),
-            Ok((_, Begun::Up(carrier))) => Some(Ok(carrier_json(&carrier))),
-            Ok((machine, Begun::Connecting(generation))) => {
-                let pending = &mut self.attach_mut().pending_connects;
-                if pending.len() >= MAX_PENDING_CONNECTS {
-                    return Some(Err(CloudError {
-                        retryable: true,
-                        ..CloudError::new(
-                            LINK_UNAVAILABLE,
-                            "too many connects wait for their links",
-                        )
-                    }));
-                }
-                pending.push(PendingConnect { id: id.clone(), machine, generation });
-                None
-            }
-        }
-    }
-
-    /// Results of waiting connects whose link is now up or ended, in the
-    /// order the connects came. Applies the link process events first (the
-    /// one drain), so each result goes out before the link lines it caused.
-    pub(crate) fn take_settled(&mut self) -> Vec<(Value, Result<Value, CloudError>)> {
-        let attach = self.attach_mut();
-        attach.drain_link_events();
-        let mut settled = Vec::new();
-        let supervisor = &attach.supervisor;
-        attach.pending_connects.retain(|pending| {
-            match supervisor.outcome(&pending.machine, pending.generation) {
-                None => true,
-                Some(outcome) => {
-                    let result = outcome.map(|c| carrier_json(&c)).map_err(link_failure);
-                    settled.push((pending.id.clone(), result));
-                    false
-                }
-            }
-        });
-        settled
-    }
-}
-
 /// Ops whose answer is live link state and must never be replayed.
 pub(crate) fn live_state_op(name: &str) -> bool {
     matches!(name, CONNECT | DISCONNECT)
@@ -186,8 +110,8 @@ pub(crate) fn backend_error(error: BackendError) -> CloudError {
 
 /// Opens (or returns) the one carrier of `machine` and waits for it. A
 /// paused machine is started first through `cloud.machine.start` (with
-/// `start_key`). The serve loop uses [`begin_connect`] instead, which
-/// never waits for the link.
+/// `start_key`). In the serve loop (`park_link_waits`) it never waits: the
+/// op that called it is parked until the link is up or ended.
 pub(crate) fn connect<C: ControlPlane>(
     server: &mut Server<C>,
     machine: &str,
@@ -198,7 +122,18 @@ pub(crate) fn connect<C: ControlPlane>(
         Begun::Up(carrier) => return Ok(carrier),
         Begun::Connecting(generation) => generation,
     };
-    server.attach_mut().supervisor.wait_connect(machine, generation).map_err(link_failure)
+    let attach = server.attach_mut();
+    attach.supervisor.pump();
+    if let Some(outcome) = attach.supervisor.outcome(machine, generation) {
+        return outcome.map_err(link_failure);
+    }
+    if attach.park_link_waits {
+        // The serve loop never waits for a link: the op is parked and runs
+        // again when this generation is up or ended (super::park).
+        attach.parked = Some((machine.to_owned(), generation));
+        return Err(CloudError::new(super::park::LINK_WAIT, "the link is connecting"));
+    }
+    attach.supervisor.wait_connect(machine, generation).map_err(link_failure)
 }
 
 /// How a connect started.

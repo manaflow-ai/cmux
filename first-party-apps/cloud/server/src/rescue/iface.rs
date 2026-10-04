@@ -213,7 +213,9 @@ pub struct OpenToken(pub String);
 
 impl OpenToken {
     /// The host's token is present: not empty and not only spaces. The
-    /// server checks presence only; the host checks expiry and reuse.
+    /// server checks presence only. LIMIT: the server cannot check expiry
+    /// or reuse; this is safe only while the host stamps `open_token`
+    /// itself and drops any `open_token` a client sends.
     pub fn check(&self) -> Result<(), BackendError> {
         if self.0.trim().is_empty() {
             return Err(BackendError::Invalid {

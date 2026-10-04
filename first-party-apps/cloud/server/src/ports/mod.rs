@@ -127,13 +127,17 @@ impl Edge {
         {
             return Ok(());
         }
-        self.pinned.insert(machine.to_owned(), host_key.to_owned());
-        let text: String = self
-            .pinned
+        // The map changes only after the file did, so a failed write is
+        // retried by the next transfer instead of trusting a stale file.
+        let mut pinned = self.pinned.clone();
+        pinned.insert(machine.to_owned(), host_key.to_owned());
+        let text: String = pinned
             .iter()
             .map(|(m, key)| format!("{} {key}\n", crate::fs::transfer::host_alias(m)))
             .collect();
-        crate::app_env::write_private(&ssh.known_hosts, text.as_bytes())
+        crate::app_env::write_private(&ssh.known_hosts, text.as_bytes())?;
+        self.pinned = pinned;
+        Ok(())
     }
 
     fn listeners(&self) -> usize {
