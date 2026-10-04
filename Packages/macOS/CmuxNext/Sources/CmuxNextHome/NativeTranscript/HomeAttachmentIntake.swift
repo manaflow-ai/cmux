@@ -21,34 +21,33 @@ extension NSPasteboard: HomePasteboardContents {
 }
 
 /// What a pasteboard (drop or paste) offers as attachments: file URLs
-/// first; else image bytes, but only when there is no text (rich text
-/// often carries a picture of itself).
+/// first; else picture bytes the data side takes (it converts TIFF and HEIF
+/// itself), but only when there is no text (rich text often carries a
+/// picture of itself). Types follow `HomeComposerCheck`, the data side's rule.
 enum HomeAttachmentIntake {
-    static let dragTypes: [NSPasteboard.PasteboardType] = [.fileURL, .png, .tiff, NSPasteboard.PasteboardType("public.jpeg")]
-    private static let imageTypes: [(NSPasteboard.PasteboardType, String)] = [
-        (.png, "public.png"), (NSPasteboard.PasteboardType("public.jpeg"), "public.jpeg"), (.tiff, "public.tiff"),
+    static let dragTypes: [NSPasteboard.PasteboardType] = [.fileURL] + pictureTypes
+    /// Picture types a paste or drop may carry, in preference order.
+    private static let pictureTypes: [NSPasteboard.PasteboardType] = [
+        .png, NSPasteboard.PasteboardType("public.jpeg"), NSPasteboard.PasteboardType("public.heic"), .tiff,
     ]
 
-    /// Whether the pasteboard may hold attachments (types only, no bytes read).
+    /// Whether the pasteboard holds something the data side takes (types
+    /// and file names only, no bytes read), so a drag shows "copy" only for
+    /// what the drop will accept.
     static func offers(_ board: any HomePasteboardContents) -> Bool {
-        if board.hasType([.fileURL]) { return true }
-        return !board.hasType([.string]) && board.hasType(imageTypes.map(\.0))
+        if board.hasType([.fileURL]) { return board.fileURLs.contains(where: HomeComposerCheck.accepts) }
+        return !board.hasType([.string]) && acceptedPictureType(board) != nil
     }
 
     static func inputs(from board: any HomePasteboardContents) -> [HomeDraftInput] {
         let urls = board.fileURLs
         if !urls.isEmpty { return urls.map { .file($0) } }
-        guard !board.hasType([.string]) else { return [] }
-        for (type, identifier) in imageTypes {
-            guard let data = board.data(forType: type) else { continue }
-            // TIFF is not on the allow list: a TIFF-only picture is sent as PNG.
-            if identifier == "public.tiff" {
-                guard let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) else { return [] }
-                return [.data(png, typeIdentifier: "public.png")]
-            }
-            return [.data(data, typeIdentifier: identifier)]
-        }
-        return []
+        guard !board.hasType([.string]), let type = acceptedPictureType(board), let data = board.data(forType: type) else { return [] }
+        return [.data(data, typeIdentifier: type.rawValue)]
+    }
+
+    private static func acceptedPictureType(_ board: any HomePasteboardContents) -> NSPasteboard.PasteboardType? {
+        pictureTypes.first { board.hasType([$0]) && HomeAttachmentPolicy.accepts(typeIdentifier: $0.rawValue) }
     }
 }
 

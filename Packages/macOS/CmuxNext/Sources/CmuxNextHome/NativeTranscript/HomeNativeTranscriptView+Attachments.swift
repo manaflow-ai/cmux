@@ -36,7 +36,7 @@ extension HomeNativeTranscriptView {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.prompt = HomeStrings.attachPrompt
-        panel.allowedContentTypes = HomeAttachmentPolicy.allowedTypes.keys.sorted().compactMap { UTType(mimeType: $0) }
+        panel.allowedContentTypes = HomeComposerCheck.pickerTypes
         // task-owner: the sheet belongs to the window; the task ends when it closes
         Task { [weak self] in
             guard await panel.beginSheetModal(for: window) == .OK else { return }
