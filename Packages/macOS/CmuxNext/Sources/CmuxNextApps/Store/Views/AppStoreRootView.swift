@@ -24,6 +24,7 @@ public struct AppStoreRootView: View {
             case .installed: AppInstalledView(model: model)
             }
         }
+        .background(colors.background)
         .onAppear { if model.listings.isEmpty { model.refresh() } }
     }
 

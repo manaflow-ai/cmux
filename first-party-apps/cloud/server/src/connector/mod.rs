@@ -68,9 +68,10 @@ impl<C: ControlPlane> TerminalConnector for CloudConnector<'_, C> {
 
     fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError> {
         allow_kind(self.kinds(), &request.kind)?;
-        // GAP: `request.open_token` is issued by the host after the user's
-        // gesture; no host op checks it for native servers yet, so it is
-        // passed on to nothing. `Debug` hides it, so it never reaches a log.
+        // The host issues the token after the user's gesture; this server
+        // only checks that it is there (the host checks expiry and reuse)
+        // and keeps it out of logs (`Debug` hides it).
+        request.open_token.check()?;
         // A daemon connect is not a person's gesture: origin `remote`
         // (it never changes focus; start needs no person).
         let carrier = connect(self.server, &request.target, Origin::Remote, None).map_err(|e| {
@@ -99,30 +100,29 @@ impl<C: ControlPlane> TerminalConnector for CloudConnector<'_, C> {
     }
 
     fn take_events(&mut self) -> Vec<ConnectorEvent> {
-        let supervisor = self.server.attach_mut().supervisor_mut();
-        supervisor.pump();
-        supervisor
-            .take_events()
-            .into_iter()
-            .filter_map(|event| match event {
-                // A connect answers the channel; `up` is not an event here.
-                CarrierEvent::Up { .. } => None,
-                // Only a channel a connect answered gets its one `end`.
-                CarrierEvent::Down { opened: false, .. } => None,
-                CarrierEvent::Down { target, generation, retryable, reason, opened: true } => {
-                    Some(ConnectorEvent::End {
-                        channel: channel_id(CONNECTOR_KIND, &target, generation),
-                        lost: Lost { reason, retryable },
-                    })
-                }
-                CarrierEvent::Revoked { target, reason, generation: Some(generation) } => {
-                    Some(ConnectorEvent::End {
-                        channel: channel_id(CONNECTOR_KIND, &target, generation),
-                        lost: Lost { reason, retryable: false },
-                    })
-                }
-                CarrierEvent::Revoked { generation: None, .. } => None,
+        // The connector reads its own side of the one drain: the host lines
+        // keep every event this takes (crate::link::Attach::drain_link_events).
+        self.server.attach_mut().take_connector_events()
+    }
+}
+
+/// The connector's `end` for a carrier event: only a channel a connect
+/// answered gets its one `end` (`up` is the connect's answer, not an event).
+pub(crate) fn end_event(event: &CarrierEvent) -> Option<ConnectorEvent> {
+    match event {
+        CarrierEvent::Up { .. } | CarrierEvent::Down { opened: false, .. } => None,
+        CarrierEvent::Down { target, generation, retryable, reason, opened: true } => {
+            Some(ConnectorEvent::End {
+                channel: channel_id(CONNECTOR_KIND, target, *generation),
+                lost: Lost { reason: reason.clone(), retryable: *retryable },
             })
-            .collect()
+        }
+        CarrierEvent::Revoked { target, reason, generation: Some(generation) } => {
+            Some(ConnectorEvent::End {
+                channel: channel_id(CONNECTOR_KIND, target, *generation),
+                lost: Lost { reason: reason.clone(), retryable: false },
+            })
+        }
+        CarrierEvent::Revoked { generation: None, .. } => None,
     }
 }

@@ -124,7 +124,8 @@ public enum AgentBrandStyle: Hashable, Sendable {
     case mono
 }
 
-public enum AgentBrandCatalog {
+public struct AgentBrandCatalog {
+    public init() {}
     /// The mark for a brand.
     public static func spec(for brand: AgentBrandID) -> AgentBrandSpec? { specs[brand] }
 

@@ -5,10 +5,10 @@ import Testing
 /// Keyboard resize of a top or bottom dock (layout-model.md): up and down
 /// move its inner edge, left and right do nothing without a split.
 @Suite struct PaneResizeBandTests {
-    private func layout(_ edge: StickyEdge) -> ScreenLayout {
+    private func layout(_ edge: DockEdge) -> ScreenLayout {
         .columns([
             LayoutColumn(id: "a", width: 0.5, root: .leaf("pa")),
-            LayoutColumn(id: "d", width: 0.3, root: .leaf("pd"), sticky: StickyColumn(edge: edge, mode: .docked)),
+            LayoutColumn(id: "d", width: 0.3, root: .leaf("pd"), dock: DockColumn(edge: edge, mode: .docked)),
         ])
     }
 

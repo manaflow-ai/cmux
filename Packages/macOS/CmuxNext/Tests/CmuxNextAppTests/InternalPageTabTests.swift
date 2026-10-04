@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTabs
@@ -63,7 +64,6 @@ struct InternalPageTabTests {
         #expect(pane.orderedIDs.map(\.rawValue).contains(key))
         await BrowserTabTests.settle { pane.stripModel.selectedID?.rawValue == key }
         #expect(pane.stripModel.selectedID?.rawValue == key, "a user run selects the Settings tab")
-        #expect(services.settingsWindow.model != nil)
         #expect(services.settingsWindow.window === window.window, "Settings lives in the main window")
         #expect(NSApp.windows.count == windowsBefore, "no Settings window was made")
         #expect(pane.focusPane.tabs.first { $0.id == key }?.kind == .page)
@@ -117,5 +117,45 @@ struct InternalPageTabTests {
         #expect(view.page == .settings)
         #expect(view.focusTarget.isDescendant(of: view))
         #expect(services.pages.stripItem(key).title == SettingsWindowModel.paneTitle)
+    }
+
+    /// R82: the tab shows the React Settings page (cmux-page://cmux.settings/), not the Swift view.
+    @Test func theSettingsTabIsTheReactPage() async throws {
+        let (services, _, pane) = try await world()
+        services.registry.perform("openSettings", invocation: ActionInvocation())
+        let key = try #require(services.pages.keys(of: .settings).first)
+        guard case .page(let view)? = pane.content(for: key) else {
+            Issue.record("a Settings tab shows a page view")
+            return
+        }
+        let page = try #require(view.content as? PageWebView, "the Settings tab hosts the React page")
+        #expect(page.pageID == "cmux.settings")
+        #expect(services.settingsWindow.model == nil, "no Swift Settings model is made for the tab")
+    }
+
+    /// A deep link to a schema setting opens the React page on that row
+    /// (`#/settings/<section>?focus=<key>`).
+    @Test func aSettingDeepLinkFocusesTheRowInThePage() async throws {
+        let (services, _, pane) = try await world()
+        let arguments: [String: ActionValue] = ["setting": .string("appearance.density")]
+        services.registry.perform("openSettings", invocation: ActionInvocation(arguments: arguments))
+        let key = try #require(services.pages.keys(of: .settings).first)
+        guard case .page(let view)? = pane.content(for: key), let page = view.content as? PageWebView else {
+            Issue.record("a Settings tab shows the React page")
+            return
+        }
+        #expect(page.route == "#/settings/appearance?focus=appearance.density")
+    }
+
+    /// Keyboard opens the React Keyboard Shortcuts page; the sections the React page does not
+    /// draw yet (accounts, rooms, machines) still open the Swift Settings window (interim, R82 B).
+    @Test func sectionsTheSettingsPageDoesNotDrawGoToTheirOwners() async throws {
+        let (services, _, _) = try await world()
+        services.registry.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("keyboard")]))
+        #expect(services.pages.keys(of: .keybindings).count == 1, "Keyboard opens the Keyboard Shortcuts page")
+        #expect(services.pages.keys(of: .settings).isEmpty)
+        services.registry.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("accounts")]))
+        #expect(services.settingsWindow.model?.selection == .accounts, "Accounts still opens the Swift section")
+        #expect(services.pages.keys(of: .settings).isEmpty, "no React tab for a section it does not draw")
     }
 }

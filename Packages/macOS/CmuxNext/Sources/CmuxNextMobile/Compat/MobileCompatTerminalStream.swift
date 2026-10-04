@@ -98,6 +98,9 @@ actor MobileCompatTerminalStream {
             await emit(surfaceID, seq, bytes)
         case .colorsChanged, .scrollChanged:
             break
+        case .snapshot:
+            // The phone compat attach never asks for snapshots (no snapshotVersion).
+            break
         case .closed:
             finish()
         }

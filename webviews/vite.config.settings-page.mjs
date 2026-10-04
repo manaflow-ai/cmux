@@ -5,7 +5,7 @@ import path from "node:path";
 
 // Dev server for the Settings page (src/pages/settings) with hot reload. Outside the app the page
 // runs on the in-memory fake transport (src/pages/settings/fakeTransport.ts). Serve only: the
-// shipped page is built by scripts/cmux-next/build-settings-web.sh into one self-contained
+// shipped page is built by scripts/cmux-next/build-pages-web.sh (PAGES) into one self-contained
 // index.html.
 const webviewsRoot = path.resolve(fileURLToPath(new URL(".", import.meta.url)));
 const repoRoot = path.resolve(webviewsRoot, "..");

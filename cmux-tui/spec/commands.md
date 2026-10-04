@@ -1533,8 +1533,9 @@ On the wire the tab's canonical kind is `conversation`: raw tree tabs carry
 API tab snapshots carry `content_kind:"conversation"` and
 `extra.conversation`. A connection that did not declare
 `conversation-tabs-v1` (raw `set-client-info` or `client.metadata.update
-{capabilities}`) reads `browser` in both places. Every browser command and
-browser operation refuses the tab.
+{capabilities}`) reads `browser` in both places, in responses and in
+`session.events` and `session.journal.subscribe` stream items alike. Every
+browser command and browser operation refuses the tab.
 
 Params: `conversation`, `owner` (required); `pane` or `workspace`, `origin`, `mutation_id`,
 `cols`, `rows` (optional).

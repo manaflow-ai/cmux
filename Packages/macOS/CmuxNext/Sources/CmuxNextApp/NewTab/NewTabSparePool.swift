@@ -25,19 +25,23 @@ nonisolated struct NewTabSpareSlot<Spare> {
     mutating func drop() -> Spare? { take() }
 }
 
-/// Instant new tab (plans/cmux-next/new-tab.md section 2): one prewarmed new
-/// tab page per window, loaded, rendered and connected to acpmux, parked in
-/// the window out of sight. Opening the new tab page adopts it in the same
-/// main-actor turn (no load, no React mount on the open path); the next
-/// spare starts once input has been quiet for ``idleInput``, so making a web
-/// view never lands in the user's typing. Memory pressure drops every spare.
-/// Spares exist only while the new tab page is likely: Cmd-T opens it
+/// Instant new tab (plans/cmux-next/new-tab.md section 2): ONE prewarmed new
+/// tab page per app (Lawrence: "a pool of 1"), loaded, rendered and connected
+/// to acpmux, parked out of sight in the key main window. When another main
+/// window becomes key the parked page moves there (a reparent, no reload).
+/// Opening the new tab page in any window adopts it in the same main-actor
+/// turn (no load, no React mount on the open path); the next spare starts
+/// once input has been quiet for ``idleInput``, so making a web view never
+/// lands in the user's typing. Memory pressure drops the spare. A spare
+/// exists only while the new tab page is likely: Cmd-T opens it
 /// (`tabs.newTabKind` page) or it was opened in this session.
 @MainActor
 final class NewTabSparePool {
     /// One adoption, for `debug.new_tab` (timing test, section 2.3).
     struct Opening {
         var spare: Bool
+        /// The spare was parked in another window than the one it opened in.
+        var crossWindow: Bool
         /// Main-thread time from the open action to the page in its pane.
         var milliseconds: Double
     }
@@ -46,45 +50,40 @@ final class NewTabSparePool {
     static let maximumOpenings = 64
 
     private unowned let services: AppServices
-    private var entries: [ObjectIdentifier: Entry] = [:]
+    private var slot = NewTabSpareSlot<AgentPaneView>()
+    private let parking = NewTabSpareParking()
+    /// The main window the spare parks in (the key one, or the last key one).
+    private(set) weak var target: NSWindow?
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
     private var inputMonitor: Any?
     private var memoryPressure: (any DispatchSourceMemoryPressure)?
     private var usedThisSession = false
     private var windowObservers: [any NSObjectProtocol] = []
     private(set) var openings: [Opening] = []
-
-    private final class Entry {
-        weak var window: NSWindow?
-        var slot = NewTabSpareSlot<AgentPaneView>()
-        let parking = NewTabSpareParking()
-        init(window: NSWindow) { self.window = window }
-    }
+    /// Main-thread time of the last move of the parked spare to another window.
+    private(set) var lastRetargetMilliseconds: Double?
 
     init(services: AppServices) {
         self.services = services
     }
 
-    /// The new tab page is likely soon: spares are worth their memory.
+    /// The new tab page is likely soon: a spare is worth its memory.
     var isLikely: Bool { usedThisSession || services.settings?.snapshot.newTabKind == .page }
 
-    /// At launch: every main window that becomes key gets a spare while the
-    /// page is likely.
+    /// At launch: follow the key main window; park in the first visible one.
     func start() {
         observeWindows()
-        for window in services.windows.controllers.compactMap(\.window) where window.isVisible { attach(window) }
+        if let window = NSApp.keyWindow.flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
+            retarget(window)
+        }
     }
 
-    /// A main window: park a spare in it at the next quiet moment.
-    func attach(_ window: NSWindow) {
-        guard entries[ObjectIdentifier(window)] == nil else { return }
-        entries[ObjectIdentifier(window)] = Entry(window: window)
-        scheduleWarm()
+    private func mainWindow(_ window: NSWindow) -> NSWindow? {
+        services.windows.controllers.contains { $0.window === window } ? window : nil
     }
 
-    /// Once the page was used, every main window that becomes key gets a
-    /// spare, and a closing window drops its own (window notifications, no
-    /// scan).
+    /// The parked spare follows the key main window; a closing target hands
+    /// it to another main window (window notifications, no scan).
     private func observeWindows() {
         guard windowObservers.isEmpty else { return }
         let center = NotificationCenter.default
@@ -92,39 +91,50 @@ final class NewTabSparePool {
             [weak self] note in
             let window = note.object as? NSWindow
             MainActor.assumeIsolated {
-                guard let self, let window,
-                      self.services.windows.controllers.contains(where: { $0.window === window }) else { return }
-                self.attach(window)
+                guard let self, let window = window.flatMap(self.mainWindow) else { return }
+                self.retarget(window)
             }
         })
         windowObservers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) {
             [weak self] note in
             let window = note.object as? NSWindow
             MainActor.assumeIsolated {
-                if let window { self?.detach(window) }
+                guard let self, let window, window === self.target else { return }
+                let next = self.services.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
+                if let next { self.retarget(next) } else { self.dropAll() }
             }
         })
     }
 
-    /// A window closed: its spare goes with it.
-    func detach(_ window: NSWindow) {
-        guard let entry = entries.removeValue(forKey: ObjectIdentifier(window)) else { return }
-        discard(entry.slot.drop())
-        entry.parking.removeFromSuperview()
+    /// Parks the spare in `window`: moves the parked page there (no reload),
+    /// or starts one at the next quiet moment when there is none.
+    func retarget(_ window: NSWindow) {
+        guard window !== target else { return }
+        target = window
+        guard let content = window.contentView else { return }
+        let start = ContinuousClock.now
+        park(in: content)
+        if !slot.shouldWarm { lastRetargetMilliseconds = Self.milliseconds(since: start) }
+        scheduleWarm()
     }
 
-    /// The spare of `window` for a new tab page, or nil (the page loads cold).
-    /// The caller adopts it at once; a new spare follows when input is quiet.
-    func take(for window: NSWindow?) -> AgentPaneView? {
+    private func park(in content: NSView) {
+        guard parking.superview !== content else { return }
+        parking.frame = content.bounds
+        parking.autoresizingMask = [.width, .height]
+        content.addSubview(parking, positioned: .below, relativeTo: nil)
+    }
+
+    /// The spare for a new tab page in `window`, or nil (the page loads cold).
+    /// A spare parked in another window is adopted all the same (a reparent).
+    /// The caller adopts it at once; the next spare follows when input is quiet.
+    func take(for window: NSWindow?) -> (view: AgentPaneView, crossWindow: Bool)? {
         usedThisSession = true
         observeWindows()
-        guard let window else { return nil }
-        guard let entry = entries[ObjectIdentifier(window)] else {
-            attach(window)
-            return nil
-        }
+        if target == nil, let window { retarget(window) }
         defer { scheduleWarm() }
-        return entry.slot.take()
+        guard let view = slot.take() else { return nil }
+        return (view, window !== target)
     }
 
     func record(_ opening: Opening) {
@@ -132,30 +142,29 @@ final class NewTabSparePool {
         if openings.count > Self.maximumOpenings { openings.removeFirst(openings.count - Self.maximumOpenings) }
     }
 
-    /// Every spare, for `debug.new_tab`: the window number and its page's view.
-    var spares: [(window: Int, view: AgentPaneView)] {
-        entries.values.compactMap { entry in
-            guard let window = entry.window, let view = entry.parking.subviews.first as? AgentPaneView else { return nil }
-            return (window.windowNumber, view)
-        }
+    /// The parked spare, for `debug.new_tab`: its window number and page view.
+    var spare: (window: Int, view: AgentPaneView)? {
+        guard let view = parking.subviews.first as? AgentPaneView, let window = target else { return nil }
+        return (window.windowNumber, view)
     }
 
-    /// Drops every spare (memory pressure, a new page source).
+    /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
-        for entry in entries.values { discard(entry.slot.drop()) }
-    }
-
-    private func discard(_ view: AgentPaneView?) {
-        guard let view else { return }
+        guard let view = slot.drop() else { return }
         view.removeFromSuperview()
         view.close()
+    }
+
+    static func milliseconds(since start: ContinuousClock.Instant) -> Double {
+        let (seconds, attoseconds) = (ContinuousClock.now - start).components
+        return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
     // MARK: Warming
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard isLikely, services.agentTabs.canHostChat, entries.values.contains(where: { $0.slot.shouldWarm }) else { return }
+        guard isLikely, services.agentTabs.canHostChat, slot.shouldWarm, target != nil else { return }
         watchMemoryPressure()
         if inputMonitor == nil {
             inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) {
@@ -174,21 +183,13 @@ final class NewTabSparePool {
     private func warmNow() {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
-        guard isLikely else { return }
-        let page = NewTabPage.sparePage(services)
-        for entry in entries.values where entry.slot.shouldWarm {
-            guard let window = entry.window, let content = window.contentView,
-                  let view = services.agentTabs.makeSpare(page) else { continue }
-            if entry.parking.superview !== content {
-                entry.parking.frame = content.bounds
-                entry.parking.autoresizingMask = [.width, .height]
-                content.addSubview(entry.parking, positioned: .below, relativeTo: nil)
-            }
-            view.frame = entry.parking.bounds
-            view.autoresizingMask = [.width, .height]
-            entry.parking.addSubview(view)
-            entry.slot.parked(view)
-        }
+        guard isLikely, slot.shouldWarm, let content = target?.contentView,
+              let view = services.agentTabs.makeSpare(NewTabPage.sparePage(services)) else { return }
+        park(in: content)
+        view.frame = parking.bounds
+        view.autoresizingMask = [.width, .height]
+        parking.addSubview(view)
+        slot.parked(view)
     }
 
     private func watchMemoryPressure() {
@@ -202,7 +203,7 @@ final class NewTabSparePool {
     }
 }
 
-/// Where a window's spare waits: in the window (WebKit renders only views in
+/// Where the spare waits: in the target window (WebKit renders only views in
 /// a window and not hidden), fully transparent, never hit by the mouse, and
 /// out of the accessibility tree. Adopting the spare reparents it into a pane.
 final class NewTabSpareParking: NSView {

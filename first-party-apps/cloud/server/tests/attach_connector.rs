@@ -148,3 +148,17 @@ fn a_target_that_is_not_a_machine_id_is_refused_before_any_call() {
     assert!(s.control_plane().calls.is_empty());
     assert_eq!(spawner.spawns(), 0);
 }
+
+#[test]
+fn a_missing_or_empty_open_token_is_refused_before_any_call_or_spawn() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    for token in ["", "   "] {
+        let mut req = request("cloud-vm", "vm-alpha01");
+        req.open_token = OpenToken(token.into());
+        let answer = s.connector().connect(req).map(|link| link.channel().to_owned());
+        assert!(matches!(answer, Err(BackendError::Invalid { .. })), "{token:?}: {answer:?}");
+    }
+    assert_eq!(spawner.spawns(), 0, "no link process");
+    assert!(s.control_plane().calls.is_empty(), "nothing reached the Cloud API");
+}

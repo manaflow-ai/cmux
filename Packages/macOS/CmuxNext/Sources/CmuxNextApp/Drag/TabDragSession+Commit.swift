@@ -80,8 +80,8 @@ extension TabDragSession {
             TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: column, services: services, transaction: transaction, completion: settle)
         case .newDock(let screenID, let edge):
             guard let anchor = screenAnchor(screenID: screenID, in: dropWindow),
-                  let edge = CmuxNextLayout.StickyEdge(rawValue: edge) else { return settle(false) }
-            TabMoves.toNewStickyColumn(tab, anchor: anchor, edge: edge, services: services, transaction: transaction, completion: settle)
+                  let edge = CmuxNextLayout.DockEdge(rawValue: edge) else { return settle(false) }
+            TabMoves.toNewDockColumn(tab, anchor: anchor, edge: edge, services: services, transaction: transaction, completion: settle)
         case .newWorkspace:
             // Made unplaced, then put at the gap by the sidebar's own path
             // (personal order, or move-workspace-to-group at the slot).

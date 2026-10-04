@@ -15,3 +15,27 @@
 - 2026-10-04 (this push) CmuxNextPages: the one host for React pages (PageWebView, `cmux-page://<id>/` scheme handler, engine-neutral PageHostBridge matching PaneHostBridge, PageRouter with descriptor admission, origin stamped `user`, page-sent origin refused, per-page denylist and action allowlist, fragment routes). `PageSurface` marks the view for the key dispatcher (`surfaceKind == page`); the view handles no keys. Pages ship as one self-contained index.html each (`scripts/cmux-next/build-pages-web.sh`). App: `DaemonPageRelay` (`cmux.<ns>.<verb>` -> daemon v2 `<ns>.<verb>`, `idempotency_key` to the envelope, codes under `cmux.`), `AppPageNativeProvider` (`cmux.app.action.run` with the page's action allowlist, `cmux.app.clipboard.write`), `ResourceRelayClient` in CmuxNextDaemon, `debug.page` (state, snapshot, command), action `history.open {id, new_tab}` (CLI `history open`), Debug Settings `history.surface = native|web`. Settings: use CmuxNextPages and add only its descriptor and provider (React UIs lead)
 - 2026-10-04 d8431616164 cmux-tui: cmux-history crate (H2): HistoryEntry wire model, HistoryQuery (icu_normalizer NFKD fold: case, marks, width), agent and command journal folds, HiddenHistory merge (reads the Swift `history.hidden` document), per-profile SQLite VisitStore; shared fixtures in `cmux-tui/crates/cmux-history/tests/fixtures/`; 63 tests on a Testbox (React UIs lead)
 - 2026-10-04 (this commit) webviews: History page H1 on a mock provider (`/history/?mock` in the webviews dev server), `pageClient.ts`, page string generator `webviews/scripts/pages/gen-strings.mjs` (+`--check`), new key `page.disconnected` in CmuxNextHistory xcstrings. Not in the shipped bundle yet (H1b adds the host) (React UIs lead)
+
+## R82 (2026-10-04): React Settings is the Settings UI
+
+- Landed e642c639cf3 (commit 1): every Settings entrypoint opens cmux-page://cmux.settings/ as a tab
+  (openSettings from Cmd-, menu, palette, sidebar, jumps; accounts.show; Feed GitHub jump; new
+  control method settings.open {section?, setting?, focus?}). Keyboard opens the Keyboard Shortcuts
+  page. INTERIM: accounts, rooms, machines (and no main window) still open the Swift window.
+  INTERIM owner: SettingsPageProvider over SettingsController until the daemon config actor
+  serves settings.*. One kept page view (no reload on reopen) until the R94 PageHostPool lands.
+- Measured on cmux-lawrence-2 (scripts/cmux-next/bench-settings.py, 3 interleaved runs, median):
+  open 339 -> 213 ms (main-thread stall 298 -> 102 ms); reopen 353 -> 28 ms (stall 278 -> 7 ms);
+  search keystroke worst stall 2,159 -> 5 ms. NOT THE SAME METHOD: the React number is 8 real
+  keystrokes through the app key path (debug.key into the WKWebView). The Swift number sets the
+  query through the model binding (`debug.settings {action: query}`), because the SwiftUI field
+  took no synthesized keys in a window that is never key. Compare the two only as stall sizes.
+- Open items: live preview (`cmux.settings.preview`) is a no-op; tracked in commit 5 (theme levels).
+  The first-open stall (~100 ms) goes with the R94 PageHostPool prewarm; no second prewarm here.
+- Next: commits 2-5 (accounts, rooms, machines, theme levels, backdrop, browser profiles, keymap
+  import/export as native ops), then commit 6 deletes CmuxNextSettingsWindow UI (the settingsPage.
+  strings catalog moves first; Debug Settings moves to a React tunables page).
+- Migration list after Settings: Debug Settings, Tasks, Bookmark manager, Feed/Inbox tab,
+  Notifications panel, App Store (apps-v1), Server panel (Rust server role), Appearance Studio,
+  Onboarding, Page Info. Onboarding gets the step "Ctrl-1...9 select: Tabs (default) / Spaces",
+  which writes the keys lead's ShortcutDigitScheme override into cmux.json like the keymap preset.

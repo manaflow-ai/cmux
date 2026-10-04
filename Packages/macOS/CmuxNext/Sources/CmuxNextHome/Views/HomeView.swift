@@ -121,7 +121,7 @@ public final class HomeView: NSView {
 
     private func applyTheme() {
         performWithTheme {
-            layer?.backgroundColor = Palette.windowBackground.cgColor
+            layer?.backgroundColor = Palette.paneFill.cgColor
             separator.backgroundColor = Palette.separator.cgColor
             emptyLabel.font = Typography.body
             emptyLabel.textColor = Palette.textTertiary

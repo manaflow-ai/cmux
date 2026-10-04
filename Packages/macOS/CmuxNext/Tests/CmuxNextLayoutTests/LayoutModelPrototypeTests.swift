@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextLayout
 
 /// The DEV layout model prototypes (plans/cmux-next/layout-model.md,
-/// "Prototypes"): off keeps the real layout, the frame draws the right sticky
+/// "Prototypes"): off keeps the real layout, the frame draws the right docked
 /// column as a top or bottom dock between the side docks (F1), the grid lines
 /// panes up in rows shared across columns and leaves holes.
 @Suite struct LayoutModelPrototypeTests {
@@ -16,13 +16,13 @@ import Testing
         return style
     }
 
-    /// Left sticky c0, strip c1 and c2 (c2 split down into p2 and p3), right sticky c3 (0.3).
+    /// Left docked c0, strip c1 and c2 (c2 split down into p2 and p3), right docked c3 (0.3).
     private var layout: ScreenLayout {
         .columns([
-            LayoutColumn(id: "c0", width: 0.25, root: .leaf("p0"), sticky: StickyColumn(edge: .left, mode: .docked)),
+            LayoutColumn(id: "c0", width: 0.25, root: .leaf("p0"), dock: DockColumn(edge: .left, mode: .docked)),
             LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
             LayoutColumn(id: "c2", width: 0.5, root: .split("s2", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3"))),
-            LayoutColumn(id: "c3", width: 0.3, root: .leaf("p4"), sticky: StickyColumn(edge: .right, mode: .docked)),
+            LayoutColumn(id: "c3", width: 0.3, root: .leaf("p4"), dock: DockColumn(edge: .right, mode: .docked)),
         ])
     }
 
@@ -69,7 +69,7 @@ import Testing
         }
     }
 
-    @Test func frameWithoutStickyColumnsDocksThePlainColumns() {
+    @Test func frameWithoutDockColumnsDocksThePlainColumns() {
         let plain: ScreenLayout = .columns(["a", "b", "c"].map { LayoutColumn(id: ColumnID($0), width: 0.3, root: .leaf(PaneID("p\($0)"))) })
         let g = ScreenGeometry.compute(plain, viewport: viewport, style: style(.frameDocks))
         // The last column becomes the bottom band, the first the full-height left dock.

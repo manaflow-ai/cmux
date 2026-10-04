@@ -85,8 +85,14 @@ use crate::{
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+#[cfg(unix)]
+mod apps;
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[path = "server/window_title.rs"]
+mod window_title;
+use window_title::sanitize_window_title;
+pub use window_title::window_title_osc;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
 pub use loopback_forward::{
@@ -478,6 +484,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
+    capabilities.extend(crate::apps::advertised());
     capabilities
 }
 
@@ -5281,6 +5288,7 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
+    apps: crate::apps::AppsSlot,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5295,6 +5303,7 @@ impl ClientRegistry {
             url_opens: url_open::URLRequests::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             snapshot_viewers: Default::default(),
+            apps: crate::apps::AppsSlot::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -6345,6 +6354,7 @@ impl ClientRegistry {
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
         self.loopback.disconnect(client);
+        self.apps.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
@@ -6811,21 +6821,6 @@ pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
     serve_websocket_with_access,
 };
-
-pub fn window_title_osc(title: &str) -> Vec<u8> {
-    let title = sanitize_window_title(title);
-    format!("\x1b]0;{title}\x07\x1b]2;{title}\x07").into_bytes()
-}
-
-fn sanitize_window_title(title: &str) -> String {
-    title
-        .chars()
-        .map(|ch| match ch {
-            '\u{00}'..='\u{1f}' | '\u{7f}' => ' ',
-            _ => ch,
-        })
-        .collect()
-}
 
 #[cfg(test)]
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
@@ -10529,7 +10524,7 @@ fn send_resource_stream_item(
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
                 "cursor":cursor,
-                "item":item,
+                "item":writer.project_conversation_tab_item(item),
             }),
             outbound,
         )
@@ -10645,6 +10640,10 @@ fn handle_connection_message(
         return handle_resource_connection_message(mux, client, message, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     let request = match serde_json::from_str::<Request>(message) {
@@ -27603,12 +27602,6 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::WindowTitleRequested(title)) if title.is_empty()
         ));
-    }
-
-    #[test]
-    fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
-        assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
-        assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
     }
 
     #[test]

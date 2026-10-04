@@ -16,7 +16,8 @@ public extension PageDescriptor {
 
 /// The `cmux.agent.*` ops: one per method of the old `agentSession` bridge, with the same params.
 /// The op name is the method name, except the two renamed for the namespace.
-public nonisolated enum AgentPageOps {
+public nonisolated struct AgentPageOps {
+    public nonisolated init() {}
     public static let namespace = "cmux.agent."
 
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.

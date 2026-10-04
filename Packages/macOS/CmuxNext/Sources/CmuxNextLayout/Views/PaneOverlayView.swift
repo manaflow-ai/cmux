@@ -150,7 +150,7 @@ final class PaneOverlayView: NSView {
 
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
-    /// Hides the overlay inside `rects` (its own coordinates): a sticky
+    /// Hides the overlay inside `rects` (its own coordinates): a docked
     /// column covering this strip pane. Empty removes the mask.
     func setExcluded(_ rects: [CGRect]) {
         let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
@@ -227,7 +227,10 @@ final class PaneOverlayView: NSView {
             let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? Palette.attention
             attention.borderColor = attentionColor.cgColor
             border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
-            dimLayer.backgroundColor = Palette.contentBackground.withAlphaComponent(1).cgColor
+            // In glass windows the root backdrop owns the ground. An opaque
+            // inactive-pane veil would hide the painting and reintroduce the
+            // History/terminal mismatch; paneFill is clear in that mode.
+            dimLayer.backgroundColor = Palette.paneFill.cgColor
         }
     }
 }

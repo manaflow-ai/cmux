@@ -15,7 +15,9 @@ import WebKit
 /// on the focused pane of the first window, then each character as a
 /// key-down through `debug.key`'s dispatch, so no key can arrive before the
 /// page; returns the opening), `field` (the focused pane's new tab field:
-/// its text and whether it has focus).
+/// its text and whether it has focus), `retarget` (park the spare in window
+/// `window`, as a key-window change does). `window` (an index into the main
+/// windows, default 0) picks the window for `open_and_type` and `field`.
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -24,9 +26,14 @@ enum DebugNewTab {
         case "state":
             return state(services)
         case "open_and_type":
-            return openAndType(params["text"]?.stringValue ?? "", services: services)
+            return openAndType(params, services: services)
         case "field":
-            return await field(services)
+            return await field(params, services)
+        case "retarget":
+            // What a key-window change does, for no-activate runs whose windows never become key.
+            guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }
+            services.newTabSpares.retarget(window)
+            return state(services)
         default:
             return .object(["error": .string("unknown action; use state, open_and_type or field")])
         }
@@ -34,41 +41,56 @@ enum DebugNewTab {
 
     private static func state(_ services: AppServices) -> JSONValue {
         let pool = services.newTabSpares
-        let spares: [JSONValue] = pool.spares.map { spare in
+        var spares: [JSONValue] = []
+        if let spare = pool.spare {
             // Ready: the page asked for its handshake, so it is loaded and rendered.
             var entry: [String: JSONValue] = ["window": .number(Double(spare.window)), "ready": .bool(spare.view.model.hasHandshake)]
             if let pid = webProcess(spare.view.webView) {
                 entry["pid"] = .number(Double(pid))
                 entry["footprint_mb"] = footprint(pid).map { .number($0) } ?? .null
             }
-            return .object(entry)
+            spares.append(.object(entry))
         }
-        let openings: [JSONValue] = pool.openings.map {
-            .object(["spare": .bool($0.spare), "ms": .number($0.milliseconds)])
-        }
-        return .object(["likely": .bool(pool.isLikely), "spares": .array(spares), "openings": .array(openings)])
+        return .object([
+            "likely": .bool(pool.isLikely), "spares": .array(spares), "openings": .array(pool.openings.map(opening)),
+            "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
+            "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
+        ])
     }
 
-    private static func openAndType(_ text: String, services: AppServices) -> JSONValue {
-        guard let pane = services.windows.controllers.first?.content?.focusedPane else {
+    private static func opening(_ opening: NewTabSparePool.Opening) -> JSONValue {
+        .object(["spare": .bool(opening.spare), "cross_window": .bool(opening.crossWindow), "ms": .number(opening.milliseconds)])
+    }
+
+    /// The window `index` (`window` param, an index into the main windows), else the first.
+    private static func controller(_ params: [String: JSONValue], _ services: AppServices) -> WindowController? {
+        let controllers = services.windows.controllers
+        let index = params["window"]?.intValue ?? 0
+        return controllers.indices.contains(index) ? controllers[index] : nil
+    }
+
+    private static func openAndType(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        let text = params["text"]?.stringValue ?? ""
+        let target = controller(params, services)
+        guard let pane = target?.content?.focusedPane else {
             return .object(["error": .string("no focused pane")])
         }
         pane.newTabPage()
         // Where the first key goes: the adopted page's web view, or a stale responder.
         let responder = pane.view.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
         for character in text {
-            _ = DebugKey.send(["key": .string(String(character))], services: services)
+            var key: [String: JSONValue] = ["key": .string(String(character))]
+            if let id = target?.state.id { key["window"] = .string(id) }
+            _ = DebugKey.send(key, services: services)
         }
         return .object([
-            "opening": pool(services).last.map { .object(["spare": .bool($0.spare), "ms": .number($0.milliseconds)]) } ?? .null,
+            "opening": services.newTabSpares.openings.last.map(opening) ?? .null,
             "first_responder": .string(responder),
         ])
     }
 
-    private static func pool(_ services: AppServices) -> [NewTabSparePool.Opening] { services.newTabSpares.openings }
-
-    private static func field(_ services: AppServices) async -> JSONValue {
-        guard let pane = services.windows.controllers.first?.content?.focusedPane, let key = pane.currentTabKey,
+    private static func field(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
+        guard let pane = controller(params, services)?.content?.focusedPane, let key = pane.currentTabKey,
               let view = services.agentTabs.existingView(key) else {
             return .object(["error": .string("the focused pane shows no agent page")])
         }

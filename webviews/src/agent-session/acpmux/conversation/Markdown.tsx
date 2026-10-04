@@ -4,12 +4,14 @@
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$` / `$$…$$` math
 // for simple arithmetic (see Math.tsx).
-import { Fragment, type ReactNode } from "react";
+import { Fragment, memo, useMemo, useRef, type ReactNode } from "react";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
+import { CodeHandoff, PlainCode } from "./StreamingCode";
 import { ArxivMark, Check, FileDoc, GitHubMark, Globe } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
+import { IncrementalMarkdown } from "./incrementalMarkdown";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -241,19 +243,35 @@ export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[
 
 /* ---------------- Blocks ---------------- */
 
-function Block({ block, opts, depth }: { block: MdBlock; opts: InlineOptions; depth: number }): ReactNode {
+function Block({
+  block,
+  opts,
+  depth,
+  enter = false,
+  code = "final",
+}: {
+  block: MdBlock;
+  opts: InlineOptions;
+  depth: number;
+  /** The block appeared while the reply streams: it enters with the shared motion (`.cv-enter`). */
+  enter?: boolean;
+  /** A code block's stage: still open (plain lines), closed while streaming (highlighted once,
+   * faded in), or drawn finished (highlighted). */
+  code?: "open" | "handoff" | "final";
+}): ReactNode {
+  const motion = enter ? " cv-enter" : "";
   switch (block.type) {
     case "heading": {
       const H = `h${block.level}` as "h1";
-      return <H className={`cv-h cv-h${block.level}`}>{renderInline(block.text, opts)}</H>;
+      return <H className={`cv-h cv-h${block.level}${motion}`}>{renderInline(block.text, opts)}</H>;
     }
     case "paragraph":
-      return <p className="cv-p">{renderInline(block.text, opts)}</p>;
+      return <p className={`cv-p${motion}`}>{renderInline(block.text, opts)}</p>;
     case "hr":
-      return <hr className="cv-hr" />;
+      return <hr className={`cv-hr${motion}`} />;
     case "blockquote":
       return (
-        <blockquote className="cv-quote">
+        <blockquote className={`cv-quote${motion}`}>
           <Blocks blocks={block.children} opts={opts} depth={depth} />
         </blockquote>
       );
@@ -262,7 +280,7 @@ function Block({ block, opts, depth }: { block: MdBlock; opts: InlineOptions; de
       const tasks = block.items.every((it) => it.task);
       return (
         <L
-          className={`cv-list ${block.ordered ? "cv-ol" : "cv-ul"}${tasks ? " cv-tasks" : ""}`}
+          className={`cv-list ${block.ordered ? "cv-ol" : "cv-ul"}${tasks ? " cv-tasks" : ""}${motion}`}
           data-depth={depth}
           start={block.ordered && block.start !== 1 ? block.start : undefined}
         >
@@ -287,7 +305,7 @@ function Block({ block, opts, depth }: { block: MdBlock; opts: InlineOptions; de
       const plain = (t: string) => t.replace(/[`*_~]|\[|\]\([^)]*\)/g, "");
       const wide = block.header.map((_, i) => block.rows.some((r) => plain(r[i] ?? "").length > 40));
       return (
-        <div className="cv-table-wrap">
+        <div className={`cv-table-wrap${motion}`}>
           <table className="cv-table">
             <thead>
               <tr>
@@ -314,6 +332,8 @@ function Block({ block, opts, depth }: { block: MdBlock; opts: InlineOptions; de
       );
     }
     case "code":
+      if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
+      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
       return <CodeBlock code={block.code} lang={block.lang} />;
     case "math":
       return <MathDisplay tex={block.tex} />;
@@ -332,18 +352,48 @@ function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOption
   );
 }
 
+/// A top-level block that renders again only when its parsed block changes: a streaming reply's
+/// finished blocks keep their objects (IncrementalMarkdown), so each delta renders only the tail.
+const BlockView = memo(Block);
+
 export type MarkdownProps = InlineOptions & {
   /** Markdown source. */
   children: string;
   className?: string;
+  /** The reply is streaming: blocks that appear from now on enter with the shared motion. */
+  streaming?: boolean;
 };
 
-/** Assistant-message Markdown. */
-export function Markdown({ children, className = "", linkIcon }: MarkdownProps) {
-  const blocks = parseMarkdown(children);
+/** Assistant-message Markdown. A growing source (a streaming reply) is parsed incrementally. */
+export function Markdown({ children, className = "", linkIcon, streaming = false }: MarkdownProps) {
+  const parser = useRef<IncrementalMarkdown | null>(null);
+  parser.current ??= new IncrementalMarkdown();
+  const blocks = parser.current.update(children, { streaming });
+  // Blocks there at the first render (history, a row scrolled into view) never animate.
+  const atMount = useRef<Set<string> | null>(null);
+  atMount.current ??= new Set(blocks.map((entry) => entry.key));
+  const opts = useMemo(() => ({ linkIcon }), [linkIcon]);
+  // Fences this reply drew open: they hand over to the highlighted card once, when they close.
+  const streamedFences = useRef(new Set<string>());
+  // An odd number of fence lines: the last block is a fence still arriving.
+  const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
   return (
     <div className={`cv-md ${className}`}>
-      <Blocks blocks={blocks} opts={{ linkIcon }} depth={0} />
+      {blocks.map((entry, index) => {
+        const live = !atMount.current!.has(entry.key);
+        const open = openFence && index === blocks.length - 1;
+        if (open) streamedFences.current.add(entry.key);
+        return (
+          <BlockView
+            key={entry.key}
+            block={entry.block}
+            opts={opts}
+            depth={0}
+            enter={streaming && live}
+            code={open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
+          />
+        );
+      })}
     </div>
   );
 }

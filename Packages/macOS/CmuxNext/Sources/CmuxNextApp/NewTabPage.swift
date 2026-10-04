@@ -196,14 +196,14 @@ extension PaneController {
         }
         let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
         let spare = services.newTabSpares.take(for: view.window)
-        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler), spare: spare))
+        showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler), spare: spare?.view))
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
         if spare != nil, services.presentation.showNow(self) {
             services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
         }
-        let (seconds, attoseconds) = (ContinuousClock.now - start).components
-        services.newTabSpares.record(.init(spare: spare != nil, milliseconds: Double(seconds) * 1_000 + Double(attoseconds) / 1e15))
+        services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
+                                           milliseconds: NewTabSparePool.milliseconds(since: start)))
     }
 
     /// Focus Location Bar: a browser tab's address bar; the field of a new tab

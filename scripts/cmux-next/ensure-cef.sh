@@ -65,7 +65,7 @@ fail() {
     echo "warning: CEF unavailable: $*; building without the Chromium engine" >&2
     exit 0
   fi
-  echo "error: $*" >&2
+  echo "error: $*; see cmuxterm-hq REPAIR.md (ensure-cef store parser)" >&2
   exit 1
 }
 
@@ -82,7 +82,28 @@ if [[ -n "${CMUX_CEF_PATH:-}" ]]; then
   exit 0
 fi
 
-field() { /usr/bin/plutil -extract "$1" raw -o - "$MANIFEST" 2>/dev/null || true; }
+field() {
+  local key="$1" value
+  if [[ -x /usr/bin/plutil ]] && value=$(/usr/bin/plutil -extract "$key" raw -o - "$MANIFEST" 2>/dev/null); then
+    printf "%s\n" "$value"
+    return 0
+  fi
+  # CI also exercises this script on Linux, where macOS plutil is absent.
+  # Keep the manifest reader JSON-only and portable without changing the
+  # signed artifact or checksum path.
+  python3 - "$key" "$MANIFEST" <<'PYJSON'
+import json
+import sys
+try:
+    value = json.load(open(sys.argv[2], encoding="utf-8"))
+    for part in sys.argv[1].split("."):
+        value = value[part]
+    if value is not None:
+        print(value)
+except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+    pass
+PYJSON
+}
 version="$(field version)"; tag="$(field tag)"; repo="$(field repo)"
 r2_bucket="$(field r2_bucket)"
 if [[ "$arch" == "arm64" ]]; then
@@ -146,13 +167,26 @@ verified() { # <file>; the manifest sha256 decides every source
 fetch_store() {
   [[ "${CMUX_CEF_NO_STORE:-0}" == "1" ]] && return 1
   [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || return 1
+  # The signed URL is a read capability: never trace it (a debugging `bash -x` run
+  # would print it into a job log). Tracing resumes after the download.
+  local traced=0 status=1
+  if [[ $- == *x* ]]; then traced=1; set +x; fi
+  store_download && status=0
+  if (( traced )); then set -x; fi
+  return "$status"
+}
+
+# Untraced (fetch_store): ask the controller for a signed GET of the digest and download it.
+store_download() {
   local controller="${CMUX_CEF_STORE_URL:-http://100.89.225.106:18765}" signed
   # The artifact edge refuses some default user agents; send ours.
-  signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30       -A cmux-ensure-cef "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |
+  signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30 \
+      -A cmux-ensure-cef "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |
     /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("url", ""))' 2>/dev/null || true)"
   [[ "$signed" == https://* || "$signed" == http://* ]] || return 1
   echo "==> downloading $asset ($version) from the controller artifact store" >&2
-  if curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --connect-timeout 15       --max-time 1800 -A cmux-ensure-cef -o "$archive" "$signed" >&2; then
+  if curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --connect-timeout 15 \
+      --max-time 1800 -A cmux-ensure-cef -o "$archive" "$signed" 2>&1 | sed -E 's/\?X-Amz-[^ ]*//g' >&2; then
     verified "$archive" "the controller artifact store" && return 0
   else
     echo "warning: artifact store download failed; trying R2" >&2

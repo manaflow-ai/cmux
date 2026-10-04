@@ -26,6 +26,8 @@ final class KeyboardAuditUITests: XCTestCase {
         let keyboard = KeyboardUITest.keyboard(app)
         XCTAssertTrue(keyboard.waitForExistence(timeout: 5), "keyboard did not show")
         KeyboardUITest.wait(2) { abs(composer.frame.maxY - keyboard.frame.minY) < 40 }
+        // Hold so the recording holds the whole keyboard animation (frame-split check).
+        KeyboardUITest.wait(1.5) { false }
         let newest = KeyboardUITest.newestVisibleMessage(app)?.frame ?? .null
         KeyboardUITest.record("open", ["composer": composer.frame.short, "keyboard": keyboard.frame.short,
                                        "newest": newest.short])

@@ -14,23 +14,18 @@ import Testing
         #expect(t.contentBackground == input.background)
     }
 
-    /// The tab strips along the top are a shade darker than the window in
-    /// every theme, light ones included (Leo: the top is always a darker
-    /// tone), and text on them stays readable.
+    /// Tab strips share the window ground; hierarchy comes from fills.
     @Test(arguments: ThemeFixtures.all.map(\.0))
-    func theStripIsDarkerThanTheWindow(_ name: String) {
+    func theStripMatchesTheWindow(_ name: String) {
         let t = ThemeTokens.derive(from: theme(name))
-        #expect(t.stripBackground.relativeLuminance < t.windowBackground.relativeLuminance, "\(name)")
+        #expect(t.stripBackground == t.windowBackground, "\(name)")
         #expect(t.textPrimary.contrast(with: t.stripBackground.withAlpha(1)) >= 4.5, "\(name)")
         // Inactive tab titles use the muted text styles.
         #expect(t.textSecondary.contrast(with: t.stripBackground.withAlpha(1)) >= 4.5, "\(name) secondary")
         #expect(t.textTertiary.contrast(with: t.stripBackground.withAlpha(1)) >= 3.0, "\(name) tertiary")
     }
 
-    /// The sidebar and strip steps are translucent layers over the
-    /// window's one backdrop. Over the opaque background the strip step
-    /// gives exactly the strip color, and the sidebar step gives the
-    /// background lifted 4% toward the foreground (the agent pane's step).
+    /// Only the sidebar retains a tonal step; strips add none.
     @Test(arguments: ThemeFixtures.all.map(\.0))
     func theStepsCompositeToTheChromeSurfaces(_ name: String) {
         let input = theme(name)
@@ -39,8 +34,7 @@ import Testing
         func close(_ a: ThemeRGB, _ b: ThemeRGB) -> Bool {
             abs(a.red - b.red) < 0.002 && abs(a.green - b.green) < 0.002 && abs(a.blue - b.blue) < 0.002
         }
-        #expect(t.stripStep.alpha < 1 && t.sidebarStep.alpha < 1, "\(name)")
-        #expect(close(t.stripStep.composited(over: bg), t.stripBackground.withAlpha(1)), "\(name) strip")
+        #expect(t.stripStep.alpha == 0 && t.sidebarStep.alpha < 1, "\(name)")
         #expect(close(t.sidebarStep.composited(over: bg), bg.mixed(toward: input.foreground, 0.04)), "\(name) sidebar")
     }
 

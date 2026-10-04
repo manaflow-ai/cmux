@@ -10600,6 +10600,29 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action browser-allow-agent-with-extensions",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.allowAgentWithExtensions",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Allow Agents in This Tab…",
+      "title_key" : "action.browser.allowAgentWithExtensions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "browser page-info",
       "context_menu" : "offered",
       "context_menus" : [
@@ -16796,14 +16819,14 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "tab move-to-new-sticky-column",
+      "cli_name" : "tab move-to-new-dock-column",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "tab.moveToNewStickyColumn",
+      "id" : "tab.moveToNewDockColumn",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -16813,8 +16836,8 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Move Tab to New Sticky Column",
-      "title_key" : "action.tab.moveToNewStickyColumn",
+      "title" : "Move Tab to New Dock Column",
+      "title_key" : "action.tab.moveToNewDockColumn",
       "title_table" : "LayoutActions"
     },
     {

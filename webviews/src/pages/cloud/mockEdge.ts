@@ -3,12 +3,30 @@
 // does not list are refused like the server does. Nothing here touches a real machine or port.
 import { pageError } from "../shared/pageClient";
 import { sampleFiles, type SampleFile } from "./mockData";
-import { CloudOps, type BrowserRoute, type FsEntry, type PortForward } from "./ops";
+import {
+  CloudOps,
+  TRANSFER_BUSY,
+  type BrowserRoute,
+  type FsEntry,
+  type PortForward,
+  type TransferChanged,
+} from "./ops";
 
 type Params = Record<string, unknown>;
 
 /** `cloud.fs.read` refuses files over 16 MiB before their bytes move. */
 const READ_LIMIT = 16 * 1024 * 1024;
+
+/** The server runs at most 4 transfers at once; more answer `cmux.cloud.transfer_busy` (retryable). */
+export const MAX_TRANSFERS = 4;
+
+/** A 404 with the Cloud API's own code (`x-cmux-vm-error`), as the server's error carries it. */
+export function notFound(message: string, upstreamCode?: string) {
+  return pageError("cmux.cloud.not_found", message, false, {
+    status: 404,
+    ...(upstreamCode ? { upstream_code: upstreamCode } : {}),
+  });
+}
 
 const FS_OPS = new Set<string>([
   CloudOps.fsList,
@@ -45,6 +63,18 @@ function decode(base64: string): string {
 
 export class MockFiles {
   private readonly machines = new Map<string, Map<string, SampleFile>>();
+  /** Transfers that answered `running` and have not ended: each makes its end event. */
+  private readonly running: Array<() => TransferChanged> = [];
+  private nextTransfer = 1;
+
+  /** Ends every running transfer (the copy finished) and answers their events, in start order. */
+  finishTransfers(): TransferChanged[] {
+    return this.running.splice(0).map((finish) => finish());
+  }
+
+  get runningTransfers(): number {
+    return this.running.length;
+  }
 
   static serves(op: string): boolean {
     return FS_OPS.has(op);
@@ -92,13 +122,26 @@ export class MockFiles {
         return { ok: true, path };
       case CloudOps.filePush:
         only(p, ["machine", "localPath", "path"]);
-        tree.set(path, { kind: "file", text: "uploaded\n" });
-        return { ok: true, machine, path, localPath: p.localPath, bytes: 9 };
+        // The file lands when the copy ends, not when the op answers.
+        return this.transfer(machine, "push", path, String(p.localPath), () => {
+          tree.set(path, { kind: "file", text: "uploaded\n" });
+          return 9;
+        });
       default: {
         only(p, ["machine", "localPath", "path"]);
-        return { ok: true, machine, path, localPath: p.localPath, bytes: this.size(this.get(tree, path)) };
+        const size = this.size(this.get(tree, path));
+        return this.transfer(machine, "pull", path, String(p.localPath), () => size);
       }
     }
+  }
+
+  /** Answers `running` at once; the end event comes from `finishTransfers` (the server's worker). */
+  private transfer(machine: string, direction: "push" | "pull", path: string, localPath: string, copy: () => number) {
+    if (this.running.length >= MAX_TRANSFERS)
+      throw pageError(TRANSFER_BUSY, "Too many file transfers are running.", true);
+    const transfer = `tr-${this.nextTransfer++}`;
+    this.running.push(() => ({ transfer, machine, direction, path, localPath, state: "done", bytes: copy() }));
+    return { ok: true, transfer, state: "running", machine, path, localPath };
   }
 
   private tree(machine: string): Map<string, SampleFile> {
@@ -109,7 +152,7 @@ export class MockFiles {
 
   private get(tree: Map<string, SampleFile>, path: string): SampleFile {
     const file = tree.get(path);
-    if (!file) throw pageError("cmux.cloud.not_found", `no such path ${path}`);
+    if (!file) throw notFound(`no such path ${path}`, "vm_file_not_found");
     return file;
   }
 

@@ -17,6 +17,15 @@
 #             several of these at once before its serial test pass.
 #   ghostty-sha  print the GhosttyKit revision a download would use (empty
 #             when a ghostty submodule checkout provides it).
+#   suite PACKAGE_DIR FILTER
+#             one focused gate: select Xcode (CMUX_CI_XCODE_APP), fetch
+#             GhosttyKit when the package names it, build PACKAGE_DIR (a
+#             Packages/ path) with its tests, and run `swift test --filter
+#             FILTER` under the hang watchdog. A filter that runs no test fails.
+#             Lanes: cmux-ci run --class light --script
+#             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
+#             --arg=Packages/macOS/CmuxNext --arg=SuiteName
+#             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
 # repository root; every helper path is relative to it.
@@ -26,6 +35,21 @@ phase=run
 case "${1:-}" in
   run|select|packages|ghostty-sha) phase="$1"; shift ;;
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
+  suite)
+    phase="$1"; suite_package="${2:-}"; suite_filter="${3:-}"
+    if [ "$#" -ne 3 ]; then
+      echo "usage: package-test-lane.sh suite PACKAGE_DIR FILTER" >&2; exit 2
+    fi
+    shift 3
+    # A Packages/ path inside the checkout, and a filter that is not an option.
+    if ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || [[ "$suite_package" == *..* ]] \
+      || [ ! -f "$suite_package/Package.swift" ]; then
+      echo "package-test-lane.sh: suite needs a package directory under Packages/ (got '$suite_package')" >&2; exit 2
+    fi
+    if ! [[ "$suite_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:-]*$ ]]; then
+      echo "package-test-lane.sh: suite needs a test filter such as SuiteName (got '$suite_filter')" >&2; exit 2
+    fi
+    ;;
 esac
 event="${EVENT_NAME:-}"
 full_suite="${FULL_SUITE:-false}"
@@ -374,7 +398,29 @@ run_package_tests() {
   fi
 }
 
+run_suite() {
+  select_xcode
+  echo "Xcode: $DEVELOPER_DIR"
+  if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
+    ensure_ghosttykit
+  fi
+  echo "::group::swift build --build-tests $suite_package"
+  swift build --build-tests --package-path "$suite_package" < /dev/null
+  echo "::endgroup::"
+  local log
+  log="$(mktemp -t swift-suite-test.XXXXXX)"
+  python3 scripts/ci/hung_test_watchdog.py \
+    --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
+    --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
+    --sample-seconds 5 --label "$suite_filter" --log "$log" \
+    -- swift test --package-path "$suite_package" --skip-build --filter "$suite_filter" < /dev/null
+  python3 scripts/ci/require_swift_test_execution.py --log "$log"
+}
+
 case "$phase" in
+  suite)
+    run_suite
+    ;;
   prebuild-one)
     prebuild_one "$prebuild_package" "$prebuild_log"
     ;;

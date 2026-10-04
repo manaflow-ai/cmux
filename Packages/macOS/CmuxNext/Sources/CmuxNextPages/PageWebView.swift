@@ -160,6 +160,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
+        self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 
@@ -173,9 +174,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.frame = bounds
     }
 
+    /// The fragment the host last asked the page to show (``open(route:)``); the page may move on
+    /// by itself (its own links and history).
+    public private(set) var route: String?
+
     /// Shows `route` (the URL fragment) in the page.
     public func open(route: String) {
         let fragment = route.hasPrefix("#") ? route : "#" + route
+        self.route = fragment
         guard loaded else {
             webView.load(URLRequest(url: descriptor.url(route: fragment)))
             return
@@ -254,7 +260,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
         WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                 surface: themeSurface, backgrounds: backgrounds)
+                 surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
     }
 
     // MARK: WKNavigationDelegate

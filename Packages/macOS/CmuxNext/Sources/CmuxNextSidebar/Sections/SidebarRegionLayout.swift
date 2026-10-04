@@ -52,7 +52,7 @@ public nonisolated struct SidebarRegionRow: Hashable, Sendable {
     public var frame: CGRect
 }
 
-/// Frames of a sticky region's sections: rows, headers, icon tiles, card
+/// Frames of a pinned region's sections: rows, headers, icon tiles, card
 /// backgrounds, section lines and each section's full frame. Pure, so
 /// every look is tested without views.
 public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
@@ -66,7 +66,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
     public var sectionFrames: [CGRect]
     public var height: CGFloat
     /// Height of the first `maxRows` rows of each section (the content a
-    /// sticky region shows before it scrolls), summed.
+    /// pinned region shows before it scrolls), summed.
     public var cappedHeight: CGFloat
 
     public static let empty = SidebarRegionLayout(rows: [], cards: [], separators: [], sectionFrames: [], height: 0, cappedHeight: 0)
@@ -148,10 +148,10 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         look.showsHeaders ? section.headerTitle : nil
     }
 
-    /// The height a sticky region takes: its content, capped by the
+    /// The height a pinned region takes: its content, capped by the
     /// sections' `maxRows` and by `share` of the sidebar's `available`
     /// height. Beyond that the region scrolls inside.
-    public func stickyHeight(available: CGFloat, share: CGFloat) -> CGFloat {
+    public func pinnedHeight(available: CGFloat, share: CGFloat) -> CGFloat {
         min(cappedHeight, max(0, available * share))
     }
 }

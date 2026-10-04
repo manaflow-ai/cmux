@@ -13,10 +13,14 @@ public enum TerminalChannelCloseReason: Sendable, Hashable {
 }
 
 /// Ordered stream for one attached terminal view:
-/// `replay -> (output | resized | colorsChanged | scrollChanged)* -> closed`.
+/// `(replay | snapshot) -> (output | resized | snapshot | colorsChanged | scrollChanged)* -> closed`.
 public enum TerminalChannelEvent: Sendable, Hashable {
     /// Initial snapshot. Feed into a fresh surface before any output.
     case replay(TerminalReplay)
+    /// GHOSTSNP snapshot of a snapshot attach: a `ready` frame replaces the
+    /// terminal state in place (it is also the grid change: a snapshot
+    /// attach gets no `resized`); `history` frames add its scrollback.
+    case snapshot(TerminalSnapshotFrame)
     /// Live PTY bytes in order. Apply `colors` with this chunk when present.
     case output(Data, colors: TerminalColors?)
     /// Canonical size changed: discard the mirror and rebuild from this replay

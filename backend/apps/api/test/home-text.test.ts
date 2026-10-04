@@ -1,10 +1,11 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject as runIn } from "cloudflare:test"
+import { runInDurableObject as runIn } from "cloudflare:test"
 import { conversation as homeConversation, invites } from "@cmux/home-core"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
 import { handleSendblueHook } from "../src/home-text.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /** Stage C part 2: invite texts send the contact card first, the text after SendBlue reports it. */
 const runInDurableObject = runIn as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
@@ -48,8 +49,8 @@ describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
     })
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user, address)))
     for (let i = 0; i < 10 && sends.length === 0; i++) {
-      await runDurableObjectAlarm(conv)
-      await runDurableObjectAlarm(addr)
+      await fireAlarm(conv)
+      await fireAlarm(addr)
     }
     // Step 1: only the contact card, with the status callback.
     expect(sends).toHaveLength(1)
@@ -90,8 +91,8 @@ describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
     })
     const pump = async (conv: unknown, want: number) => {
       for (let i = 0; i < 10 && sends.length < want; i++) {
-        await runDurableObjectAlarm(conv as never)
-        await runDurableObjectAlarm(addr)
+        await fireAlarm(conv as never)
+        await fireAlarm(addr)
       }
     }
     const states = () => runInDurableObject(addr, async (i) => (i.boundEngine.currentState.deliveries as Array<{ state: string }>).map((d) => d.state))
@@ -106,10 +107,10 @@ describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
     expect((await op(token2, "dm.open", { peer: { phone } })).ok).toBe(true)
     const conv2 = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user2, address)))
     for (let i = 0; i < 10 && (await states()).length < 2; i++) {
-      await runDurableObjectAlarm(conv2)
-      await runDurableObjectAlarm(addr)
+      await fireAlarm(conv2)
+      await fireAlarm(addr)
     }
-    await runDurableObjectAlarm(addr)
+    await fireAlarm(addr)
     expect(await states()).toEqual(["sending", "sending"])
     expect(sends).toHaveLength(1)
     // The recipient answers STOP before the card status comes: SENT releases no text.
@@ -137,8 +138,8 @@ describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
     expect((await op(token, "dm.open", { peer: { phone } })).ok).toBe(true)
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user, address)))
     for (let i = 0; i < 10 && sent === 0; i++) {
-      await runDurableObjectAlarm(conv)
-      await runDurableObjectAlarm(addr)
+      await fireAlarm(conv)
+      await fireAlarm(addr)
     }
     expect(sent).toBe(1)
     // Past the 10 minute attempt deadline the next wake is still the card deadline (one day), never a past time.
@@ -169,14 +170,14 @@ describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
     expect((await op(token, "dm.open", { peer: { phone } })).ok).toBe(true)
     const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user, address)))
     for (let i = 0; i < 10 && sent === 0; i++) {
-      await runDurableObjectAlarm(conv)
-      await runDurableObjectAlarm(addr)
+      await fireAlarm(conv)
+      await fireAlarm(addr)
     }
     expect(sent).toBe(1)
     // The adapter reports a handle-less accept as indeterminate; nothing waits on it and no text follows.
     expect(await runInDurableObject(addr, async (i) => String(i.boundEngine.currentState.deliveries[0].state))).toBe("indeterminate")
     expect(await runInDurableObject(addr, async (_i, state) => state.storage.sql.exec("SELECT COUNT(*) AS n FROM address_card_steps").one().n)).toBe(0)
-    await runDurableObjectAlarm(addr)
+    await fireAlarm(addr)
     expect(sent).toBe(1)
   })
 

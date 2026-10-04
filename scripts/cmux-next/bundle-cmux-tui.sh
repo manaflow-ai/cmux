@@ -29,6 +29,14 @@
 # Every non-Release bundle then runs scripts/cmux-next/check-daemon-capabilities.sh
 # on the bundled binary: a capability the app relies on that it does not serve
 # fails the build.
+#
+# The app host (cmux-app-host, apps-v1) goes next to it as bin/cmux-app-host,
+# from the same build: CMUX_NEXT_APP_HOST_BIN, else a cmux-app-host beside
+# CMUX_NEXT_TUI_BIN or CMUX_TUI_CLIENT_LOCAL, else the one pin-cmux-tui.sh
+# fetch put beside the tree or pinned binary (checked against its sha256).
+# Without one, any bundled app host is removed, so a daemon never runs an app
+# host from another build; the daemon then does not serve apps-v1 and the app
+# reports that it needs a newer cmux-tui.
 set -euo pipefail
 
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
@@ -160,6 +168,39 @@ if [[ -n "$expected_commit" && ( -z "$commit" || "$expected_commit" != "$commit"
   echo "error: $source_kind cmux-tui reports '$version_line', not commit $expected_commit" >&2
   exit 1
 fi
+# The app host of the same build, if there is one (see the header).
+app_host_src=""
+if [[ -n "${CMUX_NEXT_APP_HOST_BIN:-}" ]]; then
+  app_host_src="$CMUX_NEXT_APP_HOST_BIN"
+elif [[ "$source_kind" == override || "$source_kind" == client-local || "$source_kind" == tree-local-build ]]; then
+  [[ -f "$(dirname "$src")/cmux-app-host" ]] && app_host_src="$(dirname "$src")/cmux-app-host"
+elif [[ "$source_kind" == tree-hosted ]]; then
+  state="$tree_dir/cmux-app-host.sha256"
+  if [[ ! -f "$state" ]]; then
+    echo "warning: the app host of tree $key is not fetched; run scripts/cmux-next/pin-cmux-tui.sh fetch. Bundling none."
+  elif [[ "$(cat "$state")" != none ]]; then
+    app_host_src="$tree_dir/cmux-app-host"
+    app_host_want="$(cat "$state")"
+  fi
+elif [[ "$source_kind" == pinned-hosted ]]; then
+  pin_app_host_sha256="$(awk -F= '$1=="app_host_sha256"{print $2}' "$pin_file")"
+  if [[ -n "$pin_app_host_sha256" ]]; then
+    app_host_src="$(dirname "$src")/cmux-app-host"
+    app_host_want="$pin_app_host_sha256"
+  fi
+fi
+if [[ -n "$app_host_src" && ! -f "$app_host_src" ]]; then
+  echo "error: cmux-app-host $app_host_src does not exist; run scripts/cmux-next/pin-cmux-tui.sh fetch" >&2
+  exit 1
+fi
+if [[ -n "${app_host_want:-}" ]]; then
+  actual="$(sha256_of "$app_host_src")"
+  if [[ "$actual" != "$app_host_want" ]]; then
+    echo "error: $app_host_src has sha256 $actual, not the published $app_host_want" >&2
+    exit 1
+  fi
+fi
+
 version_file="$dest_dir/cmux-tui.version"
 version_text="mode=$mode
 key=$key
@@ -169,6 +210,7 @@ sha256=$sha256
 run=$run_id
 url=$url
 version=$version_line
+app_host_sha256=${app_host_src:+$(sha256_of "$app_host_src")}
 "
 
 mkdir -p "$dest_dir"
@@ -181,6 +223,19 @@ if ! { [[ -x "$dest" && ! -L "$dest" ]] && cmp -s "$src" "$dest"; }; then
   echo "bundled cmux-tui ${commit:-unknown} ($source_kind${key:+, tree $key}) as bin/cmux from $src"
 fi
 link_aliases
+app_host_dest="$dest_dir/cmux-app-host"
+if [[ -z "$app_host_src" ]]; then
+  if [[ -e "$app_host_dest" ]]; then
+    rm -f "$app_host_dest"
+    echo "removed bundled cmux-app-host: this cmux-tui build has none"
+  fi
+elif ! { [[ -x "$app_host_dest" ]] && cmp -s "$app_host_src" "$app_host_dest"; }; then
+  # Remove first, like cmux-tui: an in-place overwrite breaks the signature.
+  rm -f "$app_host_dest"
+  cp "$app_host_src" "$app_host_dest"
+  chmod 755 "$app_host_dest"
+  echo "bundled cmux-app-host from $app_host_src"
+fi
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi
