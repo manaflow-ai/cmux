@@ -15752,6 +15752,29 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "settings whats-new",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "updates.whatsNew",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "What's New in cmux",
+      "title_key" : "action.updates.whatsNew",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "settings install-available-update",
       "context_menu" : "noObject",
       "context_menus" : [
