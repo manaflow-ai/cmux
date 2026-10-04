@@ -332,7 +332,7 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///     it is terminated.
     ///   - maxPendingTimers: The most timers scheduled, or fired with their
     ///     callback not yet run, at once (tests lower it).
-    public init(
+    public convenience init(
         id: String,
         cwd: String?,
         bundle: BrowserReplRuntimeBundle,
@@ -342,6 +342,35 @@ public final class BrowserReplSession: @unchecked Sendable {
         homeDirectory: String? = nil,
         callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit,
         maxPendingTimers: Int = BrowserReplSession.maxPendingTimers
+    ) {
+        self.init(
+            id: id,
+            cwd: cwd,
+            bundle: bundle,
+            driver: driver,
+            sleeper: sleeper,
+            temporaryDirectory: temporaryDirectory,
+            homeDirectory: homeDirectory,
+            callbackTimeLimit: callbackTimeLimit,
+            maxPendingTimers: maxPendingTimers,
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+    }
+
+    /// - Parameter executionTimeLimitSupported: Whether this JavaScriptCore
+    ///   can stop a running script (tests pass false); without it the
+    ///   session refuses every cell.
+    init(
+        id: String,
+        cwd: String?,
+        bundle: BrowserReplRuntimeBundle,
+        driver: any BrowserReplDriver,
+        sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock()),
+        temporaryDirectory: String? = nil,
+        homeDirectory: String? = nil,
+        callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit,
+        maxPendingTimers: Int = BrowserReplSession.maxPendingTimers,
+        executionTimeLimitSupported: Bool
     ) {
         let temporaryRoot = BrowserReplFileSandbox.canonicalize(
             BrowserReplFileSandbox.lexicallyNormalized(temporaryDirectory ?? NSTemporaryDirectory())
@@ -364,7 +393,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.boundary = BrowserReplBoundary(typedSecrets: { driver.typedSecretRedaction() })
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
-        let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit)
+        let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit, supported: executionTimeLimitSupported)
         self.watchdog = watchdog
         self.fetcher = BrowserReplFetcher(driver: driver)
         self.fileSystem = BrowserReplFileSystem(
@@ -1044,7 +1073,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         context.exceptionHandler = { context, exception in
             context?.exception = exception
         }
-        watchdog.install(on: context)
+        // Without the watchdog nothing could stop a looping script: the
+        // cell's timeout, reset and close() would all wait behind it.
+        guard watchdog.install(on: context) else {
+            loadError = "Error: the browser REPL does not run cells here: this macOS's JavaScriptCore cannot stop a running script (JSContextGroupSetExecutionTimeLimit is missing), so a looping cell would hold the session for good"
+            return nil
+        }
         installNativeHost(in: context)
         if bundle.replScripts.isEmpty {
             loadError = "Error: browser REPL runtime is not installed (no scripts in browser-repl)"

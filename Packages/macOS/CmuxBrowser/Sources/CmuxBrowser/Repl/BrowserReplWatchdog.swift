@@ -73,8 +73,14 @@ final class BrowserReplWatchdog: @unchecked Sendable {
     /// The share of wall time callbacks outside a cell may use over time.
     static let callbackShare = 0.1
 
-    init(callbackTimeLimit: Duration) {
+    /// Whether ``install(on:)`` can install the check.
+    private let supported: Bool
+
+    /// - Parameter supported: Whether this JavaScriptCore can stop a script
+    ///   (``isSupported``; tests pass false).
+    init(callbackTimeLimit: Duration, supported: Bool = BrowserReplWatchdog.isSupported) {
         self.callbackTimeLimit = callbackTimeLimit
+        self.supported = supported
         self.runLimit = callbackTimeLimit
         self.credit = callbackTimeLimit
     }
@@ -111,10 +117,11 @@ final class BrowserReplWatchdog: @unchecked Sendable {
 
     /// Installs the check on `context`'s group. The context retains the
     /// watchdog, so the callback's pointer stays valid as long as the context
-    /// can run scripts. Returns whether JavaScriptCore supports termination.
-    @discardableResult
+    /// can run scripts. Returns whether it is installed: false when
+    /// JavaScriptCore cannot terminate a script, and then no script on
+    /// `context` may run.
     func install(on context: JSContext) -> Bool {
-        guard let setLimit = Self.setLimit else { return false }
+        guard supported, let setLimit = Self.setLimit else { return false }
         objc_setAssociatedObject(context, &Self.associationKey, self, .OBJC_ASSOCIATION_RETAIN)
         let group = JSContextGetGroup(context.jsGlobalContextRef)
         setLimit(group, Self.checkInterval, Self.callback, Unmanaged.passUnretained(self).toOpaque())
