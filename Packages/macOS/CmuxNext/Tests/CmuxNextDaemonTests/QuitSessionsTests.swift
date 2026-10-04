@@ -74,6 +74,53 @@ struct QuitSessionsTests {
                 "an ended terminal came back")
     }
 
+    /// End Everything with the store's home workspace (`workspace-kind-v1`),
+    /// which every close path refuses (`home_not_closable`), as the app
+    /// always has it: every other workspace closes, every terminal ends, the
+    /// daemon stops, and Home stays without counting as a failure. The live
+    /// run on cmux-lawrence-2 (plans/cmux-next/quit-persistence.md 2) stopped
+    /// at Home and quit with every terminal still running.
+    @Test func endEverythingWithHomeEndsTheRestAndKeepsHome() async throws {
+        let h = try await BranchDaemonHarness.start()
+        defer { try? FileManager.default.removeItem(at: h.root) }
+        guard h.identity.supports(DaemonCapabilities.shared.workspaceKind) else { return await h.stop() }
+        let hosts: Set<Int32>
+        do {
+            _ = try await HomeWorkspaceClient(h.connection).ensureHome()
+            _ = try await h.workspaceWithTerminal("end")
+            _ = try await h.workspaceWithTerminal("second")
+            hosts = TerminalHosts.of(daemon: h.identity.pid)
+            #expect(hosts.count == 2)
+        } catch {
+            await h.stop()
+            throw error
+        }
+        var ended: EndedSessions?
+        do {
+            ended = try await h.connection.endSessionsAndStop(deletingWorkspaces: true)
+        } catch {
+            Issue.record("End Everything failed: \(error)")
+        }
+        let leakedHosts = await TerminalHosts.awaitExit(hosts)
+        let leakedDaemon = await TerminalHosts.awaitExit([h.identity.pid])
+        if !leakedHosts.isEmpty || !leakedDaemon.isEmpty { await h.stop() }
+        #expect(ended?.endedTerminals == 2)
+        #expect(leakedHosts.isEmpty, "terminal hosts outlived End Everything: \(leakedHosts)")
+        #expect(leakedDaemon.isEmpty, "the daemon outlived End Everything")
+
+        let binary = try #require(RealBinary.url)
+        let base = ProcessInfo.processInfo.environment
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: h.session, stateDirectory: h.root.appendingPathComponent("state")),
+            environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: base, overrides: [:]) })
+        _ = try await launcher.ensure()
+        let next = DaemonConnection(endpointProvider: launcher.endpointProvider)
+        _ = try await next.start()
+        let workspaces = try await next.listWorkspaces().workspaces
+        await BranchDaemonHarness.shutDown(next)
+        #expect(workspaces.map(\.kind) == ["home"], "\(workspaces.map(\.name))")
+    }
+
     /// End Sessions, Keep Layout on a daemon with
     /// `end-terminals-keep-layout-v1`: every terminal ends, the next owner
     /// keeps both panes and the split ratio with dead tabs, and
