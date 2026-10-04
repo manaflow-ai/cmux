@@ -106,7 +106,7 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
         // Recorded before the call: a crash after this line never sends twice.
         this.sqlStore.exec(`INSERT INTO address_attempts (invite, at) VALUES (?, ?) ON CONFLICT (invite) DO NOTHING`, d.invite, now)
         if (head.channel === "email") {
-          const o = await this.step(head, d, "email")
+          const o = await this.step(this.boundEngine!.currentState, d, "email")
           this.record(d.invite, o.state, o.provider_id)
           continue
         }

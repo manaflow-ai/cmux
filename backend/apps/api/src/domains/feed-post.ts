@@ -269,7 +269,7 @@ export const reduceAdopt = (state: FeedState, params: unknown, ctx: ReduceContex
     poster: { ...incoming.poster, kind: posterKind(p, incoming.poster.agent, incoming.poster.kind) },
     // The user's cloud push preferences decide, never the daemon's value: the delay counts from the
     // item's creation, and an item already pushed, closed, read, seen or snoozed does not push.
-    push_due_at: pushEligible(clamped) && clamped.pushed_at === null ? nullOrAtLeast(pushDueAt(state.prefs, clamped.priority, clamped.created_at), ctx.now) : null,
+    push_due_at: pushEligible(clamped) && clamped.pushed_at === null && clamped.expires_at > ctx.now ? nullOrAtLeast(pushDueAt(state.prefs, clamped.priority, clamped.created_at), ctx.now) : null,
     order: state.next_order,
     revision: incoming.revision + 1,
     updated_at: ctx.now
@@ -297,10 +297,10 @@ export const reduceAdoptCancel = (state: FeedState, params: unknown, ctx: Reduce
   }
   const prior = state.adopt_cancelled?.[id]
   if (prior) return prior.install === p.install ? { ok: true, state, value: { cancelled: true }, changed: false } : reject("validation.invalid", "the id belongs to another install")
-  const kept = Object.entries(state.adopt_cancelled ?? {})
-    .filter(([, t]) => t.at + ADOPT_TOMBSTONE_MS > ctx.now)
-    .sort((a, b) => b[1].at - a[1].at)
-    .slice(0, MAX_ADOPT_TOMBSTONES - 1)
+  // A tombstone is never evicted early: that would re-open a delayed adopt after the daemon unfroze
+  // its item (two owners). A full list refuses new cancels; the daemon keeps handing off and retries.
+  const kept = Object.entries(state.adopt_cancelled ?? {}).filter(([, t]) => t.at + ADOPT_TOMBSTONE_MS > ctx.now)
+  if (kept.length >= MAX_ADOPT_TOMBSTONES) return { ...reject("feed.full", "too many withdrawn handoffs; retry later"), retryable: true }
   const adopt_cancelled = Object.fromEntries([...kept, [id, { install: p.install, at: ctx.now }]])
   return { ok: true, state: { ...state, adopt_cancelled }, value: { cancelled: true } }
 }

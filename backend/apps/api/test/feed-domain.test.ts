@@ -377,6 +377,14 @@ describe("review fixes: authority, bounds and adopt", () => {
     expect(g.try(mac, "feed.adopt.cancel", { key: `adopt:${moved.id}` })).toMatchObject({ ok: false })
     expect(g.try(agentA, "feed.adopt.cancel", { key: `adopt:${late.id}` })).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(g.try(daemon, "feed.adopt.cancel", { key: `post:${late.id}` })).toMatchObject({ ok: false, code: "validation.invalid" })
+    // A full tombstone list refuses new cancels (retryable) and never evicts a live tombstone.
+    const id = (n: number) => `fi_${String(n).padStart(20, "0")}`
+    for (let n = 0; n < 999; n++) g.do(daemon, "feed.adopt.cancel", { key: `adopt:${id(n)}` })
+    expect(g.try(daemon, "feed.adopt.cancel", { key: `adopt:${id(5000)}` })).toMatchObject({ ok: false, code: "feed.full", retryable: true })
+    expect(g.try(daemon, "feed.adopt", { item: late })).toMatchObject({ ok: false, code: "feed.adopt_cancelled" })
+    // After 30 days the tombstones go and cancels work again.
+    g.advance(31 * 24 * 3600_000)
+    expect(g.do(daemon, "feed.adopt.cancel", { key: `adopt:${id(5000)}` })).toMatchObject({ cancelled: true })
   })
 
   it("adopt clamps a daemon clock that runs ahead and takes push timing from the cloud prefs", () => {
