@@ -70,10 +70,13 @@ struct BrowserReplFocusContainmentTests {
     // view cannot leave it, whoever asks.
     @Test func focusTheWebViewDoesNotHoldNeverMoves() {
         let setup = makeWindow()
-        #expect(setup.window.makeFirstResponder(setup.before))
-        setup.webView.browserTakeFocus(forward: true)
+        // The user's focus is in the view after the web view; Shift+Tab out
+        // of the page would select the view before it.
+        #expect(setup.window.makeFirstResponder(setup.after))
         setup.webView.browserTakeFocus(forward: false)
-        #expect(isFirstResponder(setup.before, in: setup.window))
+        #expect(isFirstResponder(setup.after, in: setup.window))
+        setup.webView.browserTakeFocus(forward: true)
+        #expect(isFirstResponder(setup.after, in: setup.window))
     }
 
     @Test func aRenderWindowNeverHandsFocusOn() {
