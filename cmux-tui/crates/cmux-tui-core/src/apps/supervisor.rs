@@ -173,7 +173,7 @@ pub(super) struct Inner {
     /// One server process per app with a manifest `server` (`servers.rs`).
     pub servers: HashMap<String, super::servers::Server>,
     /// Open tokens minted for user runs of server ops (`servers.rs`).
-    pub open_tokens: HashMap<String, super::servers::OpenToken>,
+    pub open_tokens: HashMap<String, super::open_tokens::OpenToken>,
     pub server_crashes: HashMap<String, super::servers::Crashes>,
 }
 
