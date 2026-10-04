@@ -15,7 +15,7 @@ import {
   type ParticipantPolicy,
   type Principal
 } from "../src/conversation/index.ts"
-import { TABLE_UNREAD } from "../src/conversation/domain.ts"
+import { TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "../src/conversation/domain.ts"
 import type { UnreadCounts } from "../src/conversation/fanout.ts"
 import { DomainHost, human, text } from "./support/harness.ts"
 import { ADDRESS, ALICE, BOB, INV, inviteOp } from "./support/cloud.ts"
@@ -139,6 +139,104 @@ describe("conversation.sweep: retention", () => {
     // Alice wrote both messages, so only Bob's counts drop; the newest message stays the preview.
     expect(bumps).toHaveLength(1)
     expect(bumps[0]).toMatchObject({ user: BOB, unread: 1, mentions: 0, rev: host.state!.rev, preview: "Alice: new" })
+  })
+
+  const bumpsOf = (host: DomainHost<ConversationState, ConversationParams>) =>
+    host.outbox.filter((item) => item.kind === "inbox.bump").map((item) => item.payload as InboxBump)
+  const stored = (host: DomainHost<ConversationState, ConversationParams>, user: string) => host.rows.get<UnreadCounts>(TABLE_UNREAD, user)?.row
+  const mention = (host: DomainHost<ConversationState, ConversationParams>, key: string, who: string) =>
+    expect(host.run(session(ALICE, "Alice"), "message.send", { client_msg_id: key, parts: [{ type: "text", text: "hey you", runs: [{ start: 4, length: 3, mention: who }] }] }, key)).toMatchObject({ ok: true })
+  const seqOf = (host: DomainHost<ConversationState, ConversationParams>, key: string) => messages(host).find((m) => m.client_msg_id === key)!.seq
+
+  it("lowers mentions for expired unseen mentions; the person's own and retracted messages do not count twice", () => {
+    const host = group(30)
+    mention(host, "m1", BOB)
+    send(host, "m2", ALICE)
+    send(host, "m3", BOB)
+    send(host, "m4", ALICE)
+    const m4 = messages(host).find((m) => m.client_msg_id === "m4")!
+    // The retract already took m4 out of Bob's counts.
+    expect(host.run(session(ALICE, "Alice"), "message.retract", { message_id: m4.id }, "retract-m4")).toMatchObject({ ok: true })
+    host.now += 31 * DAY
+    send(host, "m5", ALICE)
+    expect(stored(host, BOB)).toEqual({ unread: 3, mentions: 1 })
+    expect(stored(host, ALICE)).toEqual({ unread: 1, mentions: 0 })
+    host.outbox.length = 0
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { through_seq: 4, deleted: 4 } } })
+    // Bob loses m1 (a mention) and m2; his own m3 and the retracted m4 were never in his counts.
+    expect(stored(host, BOB)).toEqual({ unread: 1, mentions: 0 })
+    // Alice loses only Bob's m3 (her own messages never counted for her).
+    expect(stored(host, ALICE)).toEqual({ unread: 0, mentions: 0 })
+    const bumps = bumpsOf(host)
+    expect(bumps.map((b) => [b.user, b.unread, b.mentions]).sort()).toEqual([[ALICE, 0, 0], [BOB, 1, 0]].sort())
+  })
+
+  it("messages the person had read do not lower their counts", () => {
+    const host = group(30)
+    mention(host, "m1", BOB)
+    send(host, "m2", ALICE)
+    expect(host.run(session(BOB, "Bob"), "read_cursor.set", { seq: seqOf(host, "m2") }, "read-m2")).toMatchObject({ ok: true })
+    send(host, "m3", ALICE)
+    host.now += 31 * DAY
+    send(host, "m4", ALICE)
+    expect(stored(host, BOB)).toEqual({ unread: 2, mentions: 0 })
+    host.outbox.length = 0
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { through_seq: 3, deleted: 3 } } })
+    // Only m3 was unseen: m1 and m2 (and m1's mention) were read before they expired.
+    expect(stored(host, BOB)).toEqual({ unread: 1, mentions: 0 })
+    expect(bumpsOf(host).map((b) => [b.user, b.unread, b.mentions])).toEqual([[BOB, 1, 0]])
+  })
+
+  it("at the recount limit, the lowered count is never below what the remaining messages hold", () => {
+    const host = group(30)
+    // 600 messages that will expire, then 700 that will not.
+    for (let i = 0; i < 600; i++) send(host, `old${i}`)
+    host.now += 20 * DAY
+    for (let i = 0; i < 700; i++) send(host, `new${i}`)
+    // A conversation older than the stored counts: the next commit recounts at most UNREAD_RECOUNT_LIMIT messages.
+    host.rows.apply([{ table: TABLE_UNREAD, op: "delete", key: BOB }])
+    send(host, "last")
+    expect(stored(host, BOB)).toEqual({ unread: UNREAD_RECOUNT_LIMIT + 1, mentions: 0 })
+    host.now += 11 * DAY
+    host.outbox.length = 0
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { deleted: RETENTION_BATCH } } })
+    // 801 unseen messages remain (100 old, 700 new, "last"); the stored count was a lower bound, not exact.
+    expect(stored(host, BOB)).toEqual({ unread: 801, mentions: 0 })
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { deleted: 100 } } })
+    expect(stored(host, BOB)).toEqual({ unread: 701, mentions: 0 })
+    expect(bumpsOf(host).filter((b) => b.user === BOB).map((b) => b.unread)).toEqual([801, 701])
+  })
+
+  it("an exact stored count above the recount limit is lowered exactly", () => {
+    const host = group(30)
+    for (let i = 0; i < 200; i++) send(host, `old${i}`)
+    host.now += 20 * DAY
+    for (let i = 0; i < UNREAD_RECOUNT_LIMIT + 100; i++) send(host, `new${i}`)
+    expect(stored(host, BOB)).toEqual({ unread: UNREAD_RECOUNT_LIMIT + 300, mentions: 0 })
+    host.now += 11 * DAY
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { deleted: 200 } } })
+    expect(stored(host, BOB)).toEqual({ unread: UNREAD_RECOUNT_LIMIT + 100, mentions: 0 })
+  })
+
+  it("drops the stored counts of a person who left, so a rejoin recounts from the remaining messages", () => {
+    const host = group(30)
+    send(host, "m1", ALICE)
+    expect(host.run(session(BOB, "Bob"), "participants.remove", { participant: BOB }, "bob-leaves")).toMatchObject({ ok: true })
+    host.now += 31 * DAY
+    send(host, "m2", ALICE)
+    send(host, "m3", ALICE)
+    // Bob's row stopped at his leave: it still counts m1 and misses m2 and m3.
+    expect(stored(host, BOB)).toEqual({ unread: 1, mentions: 0 })
+    host.outbox.length = 0
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { through_seq: 1, deleted: 1 } } })
+    // No inbox bump for someone who left; the row they no longer maintain is gone.
+    expect(bumpsOf(host).map((b) => b.user)).not.toContain(BOB)
+    expect(stored(host, BOB)).toBeUndefined()
+    host.outbox.length = 0
+    expect(host.run(session(ALICE, "Alice"), "participants.add", { participant: human(BOB, "Bob") }, "bob-back")).toMatchObject({ ok: true })
+    // Back, Bob's counts come from the remaining messages (m2, m3), not from the stale row with the expired m1.
+    const back = bumpsOf(host).find((b) => b.user === BOB)!
+    expect([back.unread, back.mentions]).toEqual([2, 0])
   })
 
   it("only the owner itself runs it: a participant is refused", () => {

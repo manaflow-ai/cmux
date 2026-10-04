@@ -14,7 +14,7 @@ import type { Env } from "../src/env.ts"
  */
 const testEnv = env as unknown as Env & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; HOME_ADDRESS_KEY: string }
 const worker = (exports as unknown as { default: Fetcher }).default
-type Stub = DurableObjectStub & { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string; code?: string }> }>; readOp(e: string, p: Principal, op: string, params: unknown): Promise<any> }
+type Stub = DurableObjectStub & { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string; code?: string }> }>; readOp(e: string, p: Principal, op: string, params: unknown): Promise<any>; readInbox(e: string, p: Principal, op: string, params: unknown): Promise<unknown> }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const stub = (ns: any, name: string): Stub => ns.get(ns.idFromName(name))
 const DAY = 24 * 3600_000
@@ -178,6 +178,47 @@ describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { 
       const writes = (JSON.parse(sweep[0]!.effects) as { writes: Array<{ table: string; op: string }> }).writes
       expect(writes.filter((w) => w.table === "msg" && w.op === "delete")).toHaveLength(2)
     })
+  })
+
+  it("lowered counts reach the person's inbox: the sweep's bump replaces the stored entry's unread and mentions", async () => {
+    const tag = "lowered"
+    const alice = await signIn(`home-hy-${tag}-alice`, `hy-alice-${tag}@example.com`, "Alice Example")
+    const bob = await signIn(`home-hy-${tag}-bob`, `hy-bob-${tag}@example.com`, "Bob Example")
+    const created = await op(alice.token, "conversation.create", { title: "Kept 30 days", retention_days: 30, participants: [{ id: alice.user, kind: "human", display_name: "Alice Example" }] })
+    const id = created.value.conversation.id as string
+    expect((await op(alice.token, "invite.create", { conversation: id, address: { email: `hy-bob-${tag}@example.com` }, display_name: "Bob" })).ok).toBe(true)
+    const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizeEmail(`hy-bob-${tag}@example.com`) as invites.Address)
+    const secret = await runInDurableObject(stub(testEnv.ADDRESS_DO, address), async (_i, state) => String(state.storage.sql.exec("SELECT secret FROM address_secrets").toArray()[0]!.secret))
+    expect((await op(bob.token, "invite.accept", { code: invites.linkCode(id), secret })).ok).toBe(true)
+    const mention = { type: "text", text: "hey Bob", runs: [{ start: 4, length: 3, mention: bob.user }] }
+    expect((await op(alice.token, "message.send", { conversation: id, client_msg_id: "old-1", parts: [mention] }, "old-1")).ok).toBe(true)
+    expect((await op(alice.token, "message.send", { conversation: id, client_msg_id: "new-1", parts: [{ type: "text", text: "still here" }] }, "new-1")).ok).toBe(true)
+    const conv = stub(testEnv.CONVERSATION_DO, id)
+    const inboxEntry = async () => {
+      const list = (await stub(testEnv.USER_DO, bob.user).readInbox(bob.user, session(bob.user), "inbox.list", { limit: 10 })) as { ok: boolean; value: { entries: Array<{ conversation: string; unread: number; mentions: number; preview?: string }> } }
+      expect(list.ok).toBe(true)
+      return list.value.entries.find((e) => e.conversation === id)
+    }
+    // The runtime may also fire the alarm on its own: drain until the entry shows the counts (bounded).
+    const drainUntil = async (match: (e: { unread: number; mentions: number } | undefined) => boolean) => {
+      for (let i = 0; i < 50; i++) {
+        await runDurableObjectAlarm(conv)
+        const entry = await inboxEntry()
+        if (match(entry)) return entry
+        await new Promise((r) => setTimeout(r, 20))
+      }
+      return inboxEntry()
+    }
+    expect(await drainUntil((e) => e?.unread === 2)).toMatchObject({ unread: 2, mentions: 1 })
+    // Age the mention past the window; the alarm sweeps it and drains the bump to Bob's UserDO.
+    const aged = new Date(Date.now() - 40 * DAY).toISOString()
+    await runInDurableObject(conv, async (_i, state) => {
+      for (const row of state.storage.sql.exec<{ k: string; json: string }>("SELECT k, json FROM own_rows WHERE tbl = 'msg'").toArray()) {
+        const message = JSON.parse(row.json) as homeConversation.Message
+        if (message.client_msg_id === "old-1") state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...message, created_at: aged }), row.k)
+      }
+    })
+    expect(await drainUntil((e) => e?.unread !== 2)).toMatchObject({ unread: 1, mentions: 0, preview: expect.stringContaining("still here") })
   })
 
   it("schedules the alarm for the earliest due work: an open invite's expiry", async () => {
