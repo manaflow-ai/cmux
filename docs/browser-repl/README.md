@@ -325,7 +325,10 @@ rest. Measurements: [performance.md](performance.md).
   no hidden, script or style content, a line break around blocks). A
   locator read past it returns the cut value (ending with `…`) and prints
   `# locator.textContent: the page is too large to read whole: it stopped
-  after …`. Markdown ends with
+  after …`. `page.searchText` scans at most the budget's text (matches
+  after it are not counted), returns at most 1,000 characters of context
+  on each side and 1,000 of each match, and stops returning matches when
+  they reach the budget's characters. Markdown ends with
   `<!-- the page is too large to read whole: Markdown stopped after
   2,000,000 characters; … -->` (or `nodes`, `8 s`, and `100 frames`:
   it reads at most 100 iframes, one after another, each with what the
