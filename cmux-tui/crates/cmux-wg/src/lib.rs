@@ -28,6 +28,8 @@
 mod config;
 mod device;
 mod error;
+mod mesh;
+mod mesh_driver;
 mod multipath;
 mod net;
 mod pacing;
@@ -47,6 +49,7 @@ mod wire;
 pub use cmux_transport::{PathId, PathKind};
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};
 pub use ip_network::IpNetwork;
+pub use mesh::{WgMesh, WgMeshConfig, WgMeshListener, WgPeer};
 pub use multipath::{Multipath, MultipathControl, PathEvent, PathStats};
 pub use net::{Datagram, DatagramDrops, WgDatagramSocket, WgError, WgListener, WgNet};
 pub use pacing::Priority;
