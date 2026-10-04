@@ -142,15 +142,23 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
   };
 }
 
-// Fills credential fields the way the app does after the user presses Fill:
-// sites/auth-fill.js in the frame that holds them (the dev driver's agent
-// world is the page world), with the origin the sheet named as __origin.
-// `origin` stands in for a frame that navigated elsewhere while the sheet
-// was open.
-export function fillLike(values, { origin } = {}) {
+// Fills credential fields the way the app does: sites/auth-fill.js in the
+// frame that holds them (the dev driver's agent world is the page world),
+// once when the sheet is requested (phase "bind": it takes the marked
+// elements and their document), then after the user presses Fill (phase
+// "fill"), with the origin the sheet named as __origin. `origin` stands in
+// for a frame that navigated elsewhere while the sheet was open;
+// `meanwhile({ params, call })` runs while the sheet is up (another
+// session or the page changing the page).
+export function fillLike(values, { origin, meanwhile } = {}) {
   return async (params, { call }) => {
-    const source = `async (__fields, __values, __origin) => { ${authFillSource()} }`;
-    const raw = await call("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source, args: [params.fields.map((f) => ({ id: f.id, type: f.type, marker: f.marker })), values, origin ?? params.origin], awaitPromise: true });
-    return raw;
+    const source = `async (__phase, __binding, __fields, __values, __origin) => { ${authFillSource()} }`;
+    const fields = params.fields.map((f) => ({ id: f.id, type: f.type, marker: f.marker }));
+    const binding = `binding-${Math.random().toString(36).slice(2)}`;
+    const run = (phase, vals, from) => call("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source, args: [phase, binding, fields, vals, from], awaitPromise: true });
+    const bound = await run("bind", {}, params.origin);
+    if (bound && bound.status && bound.status !== "bound" && bound.status !== "filled") return bound;
+    if (meanwhile) await meanwhile({ params, call });
+    return run("fill", values, origin ?? params.origin);
   };
 }

@@ -123,6 +123,54 @@ test("browserAuth.request: a frame whose origin changed while the sheet was open
   assert.equal(await s.value(`page.locator('input[name="email"]').inputValue()`), "");
 });
 
+test("browserAuth.request: the fill goes only to the elements and document marked when the sheet was requested", async () => {
+  const field = `{ id: "email", label: "Email", type: "email", selector: 'input[name="email"]' }`;
+  const pageEval = (call, params, source) => call("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source, args: [], awaitPromise: true });
+  // Another session (or the page) moves the marker to a decoy in the same
+  // document while the sheet is up.
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" }, {
+    meanwhile: ({ params, call }) => pageEval(call, params, `() => {
+      const original = document.querySelector("[data-cmux-auth]");
+      const decoy = document.createElement("input");
+      decoy.type = "email";
+      decoy.id = "decoy";
+      decoy.setAttribute("data-cmux-auth", original.getAttribute("data-cmux-auth"));
+      original.removeAttribute("data-cmux-auth");
+      document.body.append(decoy);
+      return true;
+    }`),
+  });
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}] })`), { status: "page_changed" });
+  assert.deepEqual(await s.value(`page.evaluate(() => [document.getElementById("decoy").value, document.querySelector('input[name="email"]').value])`), ["", ""]);
+  // A duplicate marker: the original keeps it and a decoy gets a copy.
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" }, {
+    meanwhile: ({ params, call }) => pageEval(call, params, `() => {
+      const decoy = document.createElement("input");
+      decoy.type = "email";
+      decoy.id = "decoy";
+      decoy.setAttribute("data-cmux-auth", document.querySelector("[data-cmux-auth]").getAttribute("data-cmux-auth"));
+      document.body.prepend(decoy);
+      return true;
+    }`),
+  });
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}] })`), { status: "page_changed" });
+  assert.deepEqual(await s.value(`page.evaluate(() => [document.getElementById("decoy").value, document.querySelector('input[name="email"]').value])`), ["", ""]);
+  // Another same-origin document replaces the one marked, and its field
+  // gets the marker.
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" }, {
+    meanwhile: async ({ params, call }) => {
+      const marker = await pageEval(call, params, `() => document.querySelector("[data-cmux-auth]").getAttribute("data-cmux-auth")`);
+      await call("tab.navigate", { targetId: params.targetId, url: "https://login.example/?again" });
+      await pageEval(call, params, `() => { document.querySelector('input[name="email"]').setAttribute("data-cmux-auth", ${JSON.stringify(marker)}); return true; }`);
+    },
+  });
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}] })`), { status: "page_changed" });
+  assert.equal(await s.value(`page.evaluate(() => document.querySelector('input[name="email"]').value)`), "");
+});
+
 test("browserAuth.request: cancel, wrong origin, bad selectors, and no native sheet", async () => {
   await s.run('await page.goto("https://login.example/")');
   globalThis.__authAnswer = null;
