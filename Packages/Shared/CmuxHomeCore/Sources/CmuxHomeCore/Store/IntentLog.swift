@@ -117,6 +117,22 @@ public struct IntentLog: Hashable, Sendable {
         return entries[index].intent
     }
 
+    /// Takes one unconfirmed intent for a resend after a backoff delay.
+    public mutating func takeResend(_ key: IdempotencyKey) -> HomeIntent? {
+        guard let index = entries.firstIndex(where: { $0.intent.key == key }), entries[index].state == .unconfirmed else { return nil }
+        entries[index].state = .sending
+        return entries[index].intent
+    }
+
+    /// A failed intent the owner never decided goes out again with the
+    /// same key (`.sending`, immediate resend allowed again).
+    public mutating func revive(_ key: IdempotencyKey) {
+        update(key) {
+            $0.state = .sending
+            $0.resentImmediately = false
+        }
+    }
+
     /// Drops intents whose conversation left the inbox. Returns their keys.
     @discardableResult
     public mutating func dropIntents(outside conversations: Set<ConversationID>) -> [IdempotencyKey] {

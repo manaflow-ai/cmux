@@ -46,6 +46,16 @@ public final class HomeStore {
     /// waits for the photo, and the owner commits them in that order.
     @ObservationIgnored private var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
     @ObservationIgnored private var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
+    /// Delayed resends (and upload passes) of sends that got no answer
+    /// while the connection stayed up, and how many each has had.
+    @ObservationIgnored private var backoffTasks: [IdempotencyKey: Task<Void, Never>] = [:]
+    @ObservationIgnored private var backoffAttempts: [IdempotencyKey: Int] = [:]
+    /// The periodic prune loop, and the pass running now. `prepare` waits
+    /// for a running pass, and a pass skips while a prepare runs, so a
+    /// prune never deletes a blob a prepare is reusing.
+    @ObservationIgnored private var pruneLoop: Task<Void, Never>?
+    @ObservationIgnored private var pruning: Task<Void, Never>?
+    @ObservationIgnored private var preparing = 0
 
     /// Paces resends and cache pruning (tests pass a manual clock).
     @ObservationIgnored private let clock: any Clock<Duration>
@@ -58,9 +68,11 @@ public final class HomeStore {
     /// When this store was created: temp files older than this are crash leftovers.
     @ObservationIgnored private let createdAt = Date()
 
-    /// Blobs unused this long are deleted at start unless a pending send
-    /// uses them. A week covers scrolling back through recent conversations
-    /// from the local copy; older rows fetch from the source, which caches.
+    /// Blobs unused this long are deleted unless a pending send or this
+    /// session's prepared attachments use them. The store reads only the
+    /// copies this session prepared (`localFiles` lives in memory), so
+    /// after a relaunch an old copy only saves a copy when the same file
+    /// is attached again; the age bounds that.
     public static let blobCacheMaxAge: TimeInterval = 7 * 86_400
     /// Then the least recently used blobs go until the cache fits this cap.
     /// 1 GB holds ten maximum-size videos; macOS never purges Caches, so the
@@ -69,6 +81,12 @@ public final class HomeStore {
     public static let blobCacheMaxBytes = 1_000_000_000
     /// The cache is pruned at `start` and then this often while the store runs.
     public static let blobCachePruneInterval: Duration = .seconds(6 * 3_600)
+
+    /// Delays between resends of a send that got no answer while the
+    /// connection stayed up (after the one immediate resend). When they
+    /// run out the send fails "Not Delivered" (`retry` resends it under
+    /// the same key) and the sends queued behind it go.
+    public static let resendBackoff: [Duration] = [.seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
 
     /// Attachment uploads in flight at once, per send.
     public static let uploadConcurrency = 3
@@ -94,7 +112,15 @@ public final class HomeStore {
     /// Starts consuming owner events. Idempotent.
     public func start() {
         guard eventTask == nil, !stopped else { return }
-        Task { await self.pruneBlobCache() }
+        let clock = self.clock
+        let interval = Self.blobCachePruneInterval
+        pruneLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard self != nil else { return }
+                await self?.pruneBlobCache()
+                do { try await clock.sleep(for: interval) } catch { return }
+            }
+        }
         let source = self.source
         eventTask = Task { [weak self] in
             let stream = await source.events()
@@ -112,6 +138,10 @@ public final class HomeStore {
         eventTask = nil
         resendTask?.cancel()
         resendTask = nil
+        pruneLoop?.cancel()
+        pruneLoop = nil
+        cancelBackoffs()
+        for job in uploads.values { job.task?.cancel() }
         connection = .offline(since: Date())
         let waiters = turnWaiters.values
         turnWaiters.removeAll()
@@ -212,7 +242,22 @@ public final class HomeStore {
     public func retry(_ key: IdempotencyKey) async throws {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
         guard let entry = log.entries.first(where: { $0.intent.key == key }),
-              case .failed = entry.state else { return }
+              case .failed(let rejection) = entry.state else { return }
+        backoffAttempts[key] = nil
+        uploads[key]?.resumedImmediately = false
+        // Sent, but never answered: the owner may have committed it, so it
+        // goes again under the same key (the owner's ledger replays it).
+        if rejection == .indeterminate || rejection == .ownerUnreachable, uploads[key]?.reachedOwner ?? true {
+            log.revive(key)
+            if case .sendMessage(let conversation, _) = entry.intent.op {
+                enqueueSend(key, in: conversation)
+                afterLogChange(entry.intent.op)
+                await waitForTurn(key, in: conversation)
+                guard log.entries.contains(where: { $0.intent.key == key }), !stopped else { throw CancellationError() }
+            }
+            _ = try await submit(entry.intent)
+            return
+        }
         if let job = uploads[key] {
             var target = key
             if job.reachedOwner {
@@ -231,20 +276,23 @@ public final class HomeStore {
         try await perform(entry.intent.op)
     }
 
-    /// Cancels a send that has not reached the owner: stops its uploads
-    /// (the source's upload task is cancelled), drops the row and makes the
-    /// pending `send` throw `CancellationError`. Works for an upload in
-    /// flight, one waiting for a reconnect, and a "Not Delivered" send.
-    /// Returns false when there is nothing to cancel: an unknown key, or a
-    /// send already submitted to the owner (it commits or fails on its own).
+    /// Cancels a send the owner has not decided: stops its uploads (the
+    /// source's upload task is cancelled), drops the row and makes the
+    /// pending `send` or `perform` throw `CancellationError`. Works for an
+    /// upload in flight or waiting for a reconnect, a send queued behind
+    /// an earlier one, and a "Not Delivered" send. Returns false when there
+    /// is nothing to cancel: an unknown key, or a send in flight to the
+    /// owner or unanswered (it commits, or fails after its resends).
     @discardableResult
     public func cancelSend(_ key: IdempotencyKey) -> Bool {
         guard let entry = log.entries.first(where: { $0.intent.key == key }),
               case .sendMessage = entry.intent.op else { return false }
         let failed = if case .failed = entry.state { true } else { false }
-        guard entry.isUploading || failed else { return false }
+        guard entry.isUploading || entry.isQueued || failed else { return false }
         uploads[key]?.task?.cancel()
         uploads[key] = nil
+        cancelBackoff(key)
+        pendingResends.removeAll { $0.key == key }
         log.discard(key)
         afterLogChange(entry.intent.op)
         return true
@@ -290,6 +338,8 @@ public final class HomeStore {
     /// `home.attachments.keepLocation` (default off: strip), owned by the
     /// Home UI lane.
     public func prepareAttachment(fileURL: URL, keepLocation: Bool = false) async throws -> LocalAttachment {
+        await beginPrepare()
+        defer { preparing -= 1 }
         let root = blobCacheDirectory
         let prepared = try await AttachmentMedia.prepare(fileURL: fileURL, root: root, keepLocation: keepLocation)
         localFiles[prepared.ref.hash] = prepared.files
@@ -300,11 +350,20 @@ public final class HomeStore {
     /// identifier, with the same `keepLocation`
     /// (`home.attachments.keepLocation`).
     public func prepareAttachment(data: Data, typeIdentifier: String, keepLocation: Bool = false) async throws -> LocalAttachment {
+        await beginPrepare()
+        defer { preparing -= 1 }
         let root = blobCacheDirectory
         let prepared = try await AttachmentMedia.prepare(data: data, typeIdentifier: typeIdentifier, root: root,
                                                          keepLocation: keepLocation)
         localFiles[prepared.ref.hash] = prepared.files
         return prepared
+    }
+
+    /// Waits for a running prune pass, then counts this prepare until its
+    /// files are registered in `localFiles` (the prune's keep set).
+    private func beginPrepare() async {
+        while let running = pruning { await running.value }
+        preparing += 1
     }
 
     /// Sends text with attachments as one message: one pending intent with
@@ -367,9 +426,30 @@ public final class HomeStore {
                                 in conversation: ConversationID) async throws -> URL {
         if let local = try await localAttachment(ref, variant: variant) { return local }
         guard let location = location(of: ref.hash, in: conversation) else {
+            if let standIn = try await localStandIn(ref, variant: variant) { return standIn }
             throw HomeRejection.invalid("attachment_not_loaded")
         }
         return try await source.fetch(ref, at: location, variant: variant)
+    }
+
+    /// For a pending row (the source cannot name it yet) whose part took
+    /// another device's poster or preview (adoption changed its hash):
+    /// this client's own poster frame or preview of the same bytes, or a
+    /// local thumbnail at the preview size. Nil when there is none.
+    private func localStandIn(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL? {
+        guard let files = localFiles[ref.hash], FileManager.default.fileExists(atPath: files.fileURL.path) else { return nil }
+        let exists = { (url: URL?) -> URL? in url.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil } }
+        switch variant {
+        case .poster:
+            return ref.poster == nil ? nil : exists(files.posterURL)
+        case .preview:
+            guard ref.preview != nil else { return nil }
+            if let preview = exists(files.previewURL) { return preview }
+            guard ref.mimeType.hasPrefix("image/") else { return nil }
+            return try await Self.localThumbnail(files, ref: ref, maxPixel: HomeAttachmentPolicy.previewMaxPixel)
+        case .original, .thumbnail:
+            return nil
+        }
     }
 
     /// The same when the caller knows where the attachment appears (a row's
@@ -448,8 +528,21 @@ public final class HomeStore {
     /// key; a second one leaves the row "Not Delivered". Throws
     /// `CancellationError` when `cancelSend` stopped it or its conversation
     /// left the inbox.
-    private func uploadAndSubmit(_ first: IdempotencyKey) async throws {
+    /// A pass nobody awaits (`background`: a resume on reconnect or after
+    /// a backoff) reports a refusal through `onRefusal`.
+    private func uploadAndSubmit(_ first: IdempotencyKey, background: Bool = false) async throws {
         var key = first
+        do {
+            try await uploadAndSubmitPasses(&key)
+        } catch let rejection as HomeRejection {
+            if background, let entry = log.entries.first(where: { $0.intent.key == key }), case .failed = entry.state {
+                onRefusal?(entry.intent, rejection)
+            }
+            throw rejection
+        }
+    }
+
+    private func uploadAndSubmitPasses(_ key: inout IdempotencyKey) async throws {
         var uploadedAgain = false
         while true {
             // One pass at a time per send (a reconnect may race a retry).
@@ -462,8 +555,9 @@ public final class HomeStore {
                 ($0.ref.hash, uploaded.contains($0.ref.hash) ? 1.0 : 0.0)
             })
             let attempt = job.attempt
+            let passKey = key
             let task = Task { [weak self] () -> HomeRejection? in
-                await self?.uploadMissing(of: key, attempt: attempt)
+                await self?.uploadMissing(of: passKey, attempt: attempt)
             }
             job.task = task
             uploads[key] = job
@@ -484,6 +578,10 @@ public final class HomeStore {
                         continue
                     }
                     uploads[key]?.waitingForReconnect = true
+                    if isOnline, !scheduleBackoff(key, .upload) {
+                        giveUp(key, failure)
+                        throw failure
+                    }
                     afterLogChange(entry.intent.op)
                     throw HomeSendState.pendingResend
                 }
@@ -504,14 +602,18 @@ public final class HomeStore {
             await waitForTurn(key, in: uploads[key]?.conversation ?? job.conversation)
             guard log.entries.contains(where: { $0.intent.key == key }), !stopped else { throw CancellationError() }
             uploads[key]?.reachedOwner = true
+            let swept = HomeRejection.invalid("unknown_attachment")
             do {
-                _ = try await submit(HomeIntent(key: key, op: op, issuedAt: entry.intent.issuedAt))
+                _ = try await submit(HomeIntent(key: key, op: op, issuedAt: entry.intent.issuedAt),
+                                     passing: uploadedAgain ? nil : swept)
                 return
-            } catch let rejection as HomeRejection where rejection == .invalid("unknown_attachment") && !uploadedAgain {
+            } catch let rejection as HomeRejection where rejection == swept && !uploadedAgain {
+                // Uploads again and resends under a new key in the same
+                // place in the log and the conversation's queue.
                 uploadedAgain = true
                 let next = IdempotencyKey.make()
                 restartUploads(from: key, as: next)
-                enqueueSend(next, in: job.conversation)
+                replaceInSendQueue(key, with: next)
                 afterLogChange(op)
                 key = next
             }
@@ -540,6 +642,13 @@ public final class HomeStore {
         }
     }
 
+    private func replaceInSendQueue(_ key: IdempotencyKey, with next: IdempotencyKey) {
+        for (conversation, keys) in sendQueue {
+            guard let index = keys.firstIndex(of: key) else { continue }
+            sendQueue[conversation]?[index] = next
+        }
+    }
+
     private func removeFromSendQueue(_ conversation: ConversationID, where gone: (IdempotencyKey) -> Bool) {
         guard var keys = sendQueue[conversation] else { return }
         keys.removeAll(where: gone)
@@ -553,10 +662,71 @@ public final class HomeStore {
         for entry in log.entries {
             let key = entry.intent.key
             guard uploads[key]?.waitingForReconnect == true else { continue }
-            uploads[key]?.waitingForReconnect = false
             uploads[key]?.resumedImmediately = false
-            Task { try? await self.uploadAndSubmit(key) }
+            resumeUpload(key)
         }
+    }
+
+    private func resumeUpload(_ key: IdempotencyKey) {
+        uploads[key]?.waitingForReconnect = false
+        Task { try? await self.uploadAndSubmit(key, background: true) }
+    }
+
+    // MARK: Backoff
+
+    private enum BackoffAction { case resend, upload }
+
+    /// Runs `action` for `key` after its next `resendBackoff` delay on the
+    /// store's clock, if still online then (a reconnect resends it
+    /// anyway). False when the delays ran out.
+    private func scheduleBackoff(_ key: IdempotencyKey, _ action: BackoffAction) -> Bool {
+        let attempt = backoffAttempts[key, default: 0]
+        guard attempt < Self.resendBackoff.count else { return false }
+        backoffAttempts[key] = attempt + 1
+        let delay = Self.resendBackoff[attempt]
+        let clock = self.clock
+        backoffTasks[key]?.cancel()
+        backoffTasks[key] = Task { [weak self] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard let self, !self.stopped else { return }
+            self.backoffTasks[key] = nil
+            guard self.isOnline else { return }
+            switch action {
+            case .resend:
+                if let intent = self.log.takeResend(key) { self.enqueueResends([intent]) }
+            case .upload:
+                if self.uploads[key]?.waitingForReconnect == true { self.resumeUpload(key) }
+            }
+        }
+        return true
+    }
+
+    /// The resends ran out: a send fails "Not Delivered" with the last
+    /// answer (`retry` sends it again under the same key) and leaves the
+    /// queue; another op is dropped.
+    private func giveUp(_ key: IdempotencyKey, _ rejection: HomeRejection) {
+        cancelBackoff(key)
+        guard let entry = log.entries.first(where: { $0.intent.key == key }) else { return }
+        if case .sendMessage = entry.intent.op {
+            log.setUploading(key, false)
+            log.fail(key, rejection)
+        } else {
+            log.discard(key)
+        }
+        uploads[key]?.waitingForReconnect = false
+        leaveSendQueue(key)
+        afterLogChange(entry.intent.op)
+    }
+
+    private func cancelBackoff(_ key: IdempotencyKey) {
+        backoffTasks.removeValue(forKey: key)?.cancel()
+        backoffAttempts[key] = nil
+    }
+
+    /// Pending delays stop (a disconnect: the reconnect resends; `stop`).
+    private func cancelBackoffs() {
+        for task in backoffTasks.values { task.cancel() }
+        backoffTasks.removeAll()
     }
 
     /// Moves a refused send's upload job to `newKey` with nothing uploaded,
@@ -662,11 +832,19 @@ public final class HomeStore {
 
     // MARK: Blob cache
 
-    /// Prunes the blob cache (runs at `start`): temp files left by a crash,
+    /// Prunes the blob cache (at `start`, then every
+    /// `blobCachePruneInterval`): temp files left by a crash,
     /// blobs older than `blobCacheMaxAge`, then the least recently used
     /// blobs over `blobCacheMaxBytes`. Never deletes a blob that a pending
     /// send or this session's prepared attachments use.
     public func pruneBlobCache(now: Date = Date()) async {
+        if let running = pruning {
+            await running.value
+            return
+        }
+        // A prepare may be reusing a blob it has not registered yet: the
+        // next pass prunes.
+        guard preparing == 0 else { return }
         var keep = Set<String>()
         func add(_ ref: AttachmentRef) {
             keep.insert(ref.hash)
@@ -683,8 +861,19 @@ public final class HomeStore {
             if let poster = files.posterHash { keep.insert(poster) }
             if let preview = files.previewHash { keep.insert(preview) }
         }
-        await Self.pruneBlobCache(at: blobCacheDirectory, keeping: keep, now: now, maxAge: Self.blobCacheMaxAge,
-                                  maxBytes: Self.blobCacheMaxBytes, tempsBefore: createdAt, willDelete: pruneWillDelete)
+        let root = blobCacheDirectory
+        let tempsBefore = createdAt
+        let willDelete = pruneWillDelete
+        // The pass clears `pruning` itself, on the main actor, the moment
+        // it ends: a waiting prepare never sees a finished pass (awaiting
+        // a finished task does not suspend, so it would spin).
+        let pass = Task { [weak self] in
+            await Self.pruneBlobCache(at: root, keeping: keep, now: now, maxAge: Self.blobCacheMaxAge,
+                                      maxBytes: Self.blobCacheMaxBytes, tempsBefore: tempsBefore, willDelete: willDelete)
+            self?.pruning = nil
+        }
+        pruning = pass
+        await pass.value
     }
 
     /// One pass over `<root>/<hash>/`: deletes `.incoming-*` files older
@@ -721,9 +910,12 @@ public final class HomeStore {
 
     // MARK: Internals
 
-    private func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
+    /// `passing`: a refusal the caller handles itself (the log and the
+    /// send queue stay as they are).
+    private func submit(_ intent: HomeIntent, passing: HomeRejection? = nil) async throws -> HomeOpResult {
         do {
             let result = try await source.submit(intent)
+            cancelBackoff(intent.key)
             log.acknowledge(intent.key, rev: result.rev)
             uploads[intent.key] = nil
             leaveSendQueue(intent.key)
@@ -734,11 +926,22 @@ public final class HomeStore {
             switch rejection {
             case .ownerUnreachable, .indeterminate:
                 // Possibly committed: keep it and resend with the same key.
+                // Online: once at once, then after each backoff delay,
+                // then "Not Delivered" so later sends are not held forever.
                 log.markUnconfirmed(intent.key)
-                if isOnline, let again = log.takeImmediateResend(intent.key) { enqueueResends([again]) }
+                if isOnline {
+                    if let again = log.takeImmediateResend(intent.key) {
+                        enqueueResends([again])
+                    } else if !scheduleBackoff(intent.key, .resend) {
+                        giveUp(intent.key, rejection)
+                        throw rejection
+                    }
+                }
                 afterLogChange(intent.op)
                 throw HomeSendState.pendingResend
             default:
+                if rejection == passing { throw rejection }
+                cancelBackoff(intent.key)
                 leaveSendQueue(intent.key)
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
@@ -758,7 +961,14 @@ public final class HomeStore {
         resendTask = Task { [weak self] in
             while let self, !self.pendingResends.isEmpty, !self.stopped {
                 let next = self.pendingResends.removeFirst()
-                _ = try? await self.submit(next)
+                // Cancelled or dropped since it was queued.
+                guard self.log.entries.contains(where: { $0.intent.key == next.key }) else { continue }
+                do {
+                    _ = try await self.submit(next)
+                } catch let rejection as HomeRejection {
+                    // Nobody awaits a resend: the host hears of the refusal.
+                    self.onRefusal?(next, rejection)
+                } catch {}
             }
             self?.resendTask = nil
         }
@@ -772,8 +982,10 @@ public final class HomeStore {
             if state != .online {
                 log.markDisconnected()
                 pendingResends.removeAll()
+                cancelBackoffs()
             }
             if state == .online, !wasOnline {
+                backoffAttempts.removeAll()
                 enqueueResends(log.takeResends())
                 resumeInterruptedUploads()
                 for stream in mirror.stale { scheduleRefetch(stream) }
