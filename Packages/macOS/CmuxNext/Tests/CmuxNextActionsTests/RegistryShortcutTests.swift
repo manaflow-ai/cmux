@@ -65,6 +65,8 @@ import Testing
         for id in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown"] {
             registry.bind(id) {}
         }
+        registry.bind("focusHistoryBack") {}
+        registry.bind("focusHistoryForward") {}
 
         let expected: [(Shortcut, ActionID)] = [
             (Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command]), "resizePaneLeft"),
@@ -83,6 +85,9 @@ import Testing
         for key in ["h", "j", "k", "l"] {
             #expect(registry.resolve(Shortcut(key, modifiers: [.control, .shift])) == nil)
         }
+
+        #expect(registry.resolve(Shortcut("-", modifiers: [.control]))?.id == "focusHistoryBack")
+        #expect(registry.resolve(Shortcut("-", modifiers: [.control, .shift]))?.id == "focusHistoryForward")
     }
 
     @Test func overridesDriveResolutionAndDisplay() {
