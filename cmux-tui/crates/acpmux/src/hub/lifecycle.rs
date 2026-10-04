@@ -754,9 +754,21 @@ impl Hub {
                 )
                 .await
                 {
-                    Ok(Ok(n)) => tracing::info!(agent = %name, models = n, "model probe done"),
-                    Ok(Err(e)) => tracing::warn!(agent = %name, error = %e, "model probe failed"),
-                    Err(_) => tracing::warn!(agent = %name, "model probe timed out"),
+                    Ok(Ok(n)) => {
+                        tracing::info!(agent = %name, models = n, "model probe done");
+                        hub.probe_errors.lock().unwrap().remove(&name);
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(agent = %name, error = %e, "model probe failed");
+                        hub.probe_errors.lock().unwrap().insert(name, format!("{e:#}"));
+                    }
+                    Err(_) => {
+                        tracing::warn!(agent = %name, "model probe timed out");
+                        hub.probe_errors
+                            .lock()
+                            .unwrap()
+                            .insert(name, "the model probe timed out after 60 s".into());
+                    }
                 }
             }));
         }
@@ -834,7 +846,11 @@ impl Hub {
                 name,
                 &self.refused_models.lock().unwrap(),
             );
-            out.push(json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models}));
+            let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
+            if let Some(reason) = self.probe_errors.lock().unwrap().get(name) {
+                entry["probeError"] = json!(reason);
+            }
+            out.push(entry);
         }
         json!({"harnesses": out})
     }

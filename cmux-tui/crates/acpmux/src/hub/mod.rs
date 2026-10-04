@@ -256,6 +256,9 @@ pub struct Hub {
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
     /// `npx -y PACKAGE` launches resolved to their bin: (npx, package) to path.
     pub(super) launchers: StdMutex<HashMap<(String, String), String>>,
+    /// Harnesses whose last model probe failed, with the reason; reported in
+    /// `_acpmux/models` and `_acpmux/harnesses` (`probeError`).
+    pub probe_errors: StdMutex<HashMap<String, String>>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -318,6 +321,7 @@ impl Hub {
             keep_on_shutdown: StdMutex::new(Default::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
+            probe_errors: StdMutex::new(HashMap::new()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
