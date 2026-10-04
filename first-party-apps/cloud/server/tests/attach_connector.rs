@@ -1,5 +1,4 @@
-//! `cmux.terminal.connector/1` (mirror of the landed interface,
-//! cmux-tui/crates/cmux-app-host/interfaces/cmux.terminal.connector/1.json)
+//! `cmux.terminal.connector/1` (the shared `cmux-terminal-iface` crate)
 //! for kind `cloud-vm`: `connect {kind, target, open_token} -> {channel,
 //! window_bytes}`, `close {channel}`, `end {channel, lost}` and the shared
 //! errors and local ids of `cmux.terminal.backend/1`.
@@ -9,10 +8,11 @@ mod common;
 
 use attach_common::{FakeSpawner, FakeTransport, attach};
 use cmux_cloud::Server;
-use cmux_cloud::connector::iface::{
-    BackendError, ConnectRequest, ConnectorEvent, LocalId, Lost, TerminalConnector,
+use cmux_cloud::connector::ConnectorEvent;
+use cmux_terminal_iface::{
+    BackendError, ConnectRequest, Direction, End, FrameBody, HostLink, LocalId, Lost, OpenToken,
+    TerminalConnector,
 };
-use cmux_cloud::rescue::iface::OpenToken;
 use common::FakeControlPlane;
 
 fn server(spawner: &FakeSpawner) -> Server<FakeControlPlane> {
@@ -68,7 +68,7 @@ fn local_ids_follow_the_landed_pattern() {
 fn connect_answers_a_channel_and_a_window() {
     let spawner = FakeSpawner::default();
     let mut s = server(&spawner);
-    let link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    let link = s.connector().open_link(request("cloud-vm", "vm-alpha01")).expect("connect");
     assert_eq!(link.channel(), CHANNEL, "the channel is the connector link");
     assert_eq!(link.window_bytes(), 256 * 1024, "the default window");
     assert_eq!(link.carrier().id, CHANNEL);
@@ -78,8 +78,8 @@ fn connect_answers_a_channel_and_a_window() {
 fn connect_gives_at_most_one_channel_per_target() {
     let spawner = FakeSpawner::default();
     let mut s = server(&spawner);
-    let first = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
-    let second = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("again");
+    let first = s.connector().open_link(request("cloud-vm", "vm-alpha01")).expect("connect");
+    let second = s.connector().open_link(request("cloud-vm", "vm-alpha01")).expect("again");
     assert_eq!(first.channel(), second.channel());
     assert_eq!(first.carrier(), second.carrier());
     assert_eq!(spawner.spawns(), 1);
@@ -156,9 +156,67 @@ fn a_missing_or_empty_open_token_is_refused_before_any_call_or_spawn() {
     for token in ["", "   "] {
         let mut req = request("cloud-vm", "vm-alpha01");
         req.open_token = OpenToken(token.into());
-        let answer = s.connector().connect(req).map(|link| link.channel().to_owned());
+        let answer = s.connector().open_link(req).map(|link| link.channel().to_owned());
         assert!(matches!(answer, Err(BackendError::Invalid { .. })), "{token:?}: {answer:?}");
     }
     assert_eq!(spawner.spawns(), 0, "no link process");
     assert!(s.control_plane().no_calls(), "nothing reached the Cloud API");
+}
+
+#[test]
+fn the_shared_trait_connect_answers_the_default_window() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    assert_eq!(link.window_bytes(), 256 * 1024);
+    assert_eq!(spawner.spawns(), 1);
+}
+
+#[test]
+fn closing_the_link_handle_ends_the_link_once_with_an_end_frame() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    link.close().expect("close");
+    assert!(matches!(link.close(), Err(BackendError::Invalid { .. })), "one close");
+    // The server applies the close at its next drain of link events.
+    let events = s.connector().take_events();
+    assert!(
+        matches!(&events[..], [ConnectorEvent::End { channel, .. }] if channel == CHANNEL),
+        "{events:?}"
+    );
+    assert_eq!(spawner.log().terminated.len(), 1, "the link process ended");
+    let frames = link.take_frames();
+    assert!(matches!(&frames[..], [FrameBody::End(End::Lost(_))]), "one end: {frames:?}");
+    assert!(link.take_frames().is_empty(), "nothing after the end");
+    let late = link.push(FrameBody::Credit { direction: Direction::Out, bytes: 1 });
+    assert!(matches!(late, Err(BackendError::Invalid { .. })), "{late:?}");
+}
+
+#[test]
+fn a_link_exit_reaches_the_link_handle_as_its_end_frame() {
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    spawner.exit("vm-alpha01", 1);
+    assert_eq!(s.connector().take_events().len(), 1);
+    let frames = link.take_frames();
+    assert!(
+        matches!(&frames[..], [FrameBody::End(End::Lost(Lost { retryable: true, .. }))]),
+        "{frames:?}"
+    );
+}
+
+#[test]
+fn data_on_a_link_is_unsupported_until_the_frame_stream_exists() {
+    // GAP(data plane): the bytes move on the carrier socket for now.
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    let data = link.push(FrameBody::Data { offset: 1, bytes: b"x".to_vec() });
+    assert!(matches!(data, Err(BackendError::Unsupported)), "{data:?}");
+    let credit = link.push(FrameBody::Credit { direction: Direction::Out, bytes: 1 });
+    assert!(matches!(credit, Err(BackendError::Unsupported)), "{credit:?}");
+    assert!(link.take_frames().is_empty());
+    assert!(s.connector().take_events().is_empty(), "the link stays up");
 }

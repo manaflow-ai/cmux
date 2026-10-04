@@ -152,7 +152,7 @@ fn a_dead_tunnel_closes_the_connection_and_queues_nothing() {
 
 #[test]
 fn a_replaced_link_socket_is_not_the_same_link() {
-    use cmux_cloud::connector::iface::Carrier;
+    use cmux_cloud::link::Carrier;
     use cmux_cloud::ports::LinkIdentity;
     let dir = std::env::temp_dir().join(format!("cmux-cloud-ident-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
