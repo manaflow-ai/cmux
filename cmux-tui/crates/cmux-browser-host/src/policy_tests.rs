@@ -129,38 +129,19 @@ fn a_trailing_dot_does_not_escape_prohibited_domains() {
     assert!(policy.navigation_refusal("https://sub.evil.com./").is_none(), "no wildcard");
 }
 
-/// The same rule as the app's AgentURLPolicy (CmuxNextBrowser/Core): one
-/// list of refused pages for every agent path.
+/// The same rule as the app's AgentURLPolicy (CmuxNextBrowser/Core): both
+/// read one list of cases, so the two copies cannot drift.
 #[test]
-fn browser_pages_follow_the_app_agent_url_policy() {
-    for refused in [
-        "chrome://password-manager/passwords",
-        "CHROME://settings",
-        " \t\u{1}chrome://settings",
-        "chr\tome://settings",
-        "chrome-extension://abc/options.html",
-        "chrome-untrusted://print/",
-        "chrome-search://local-ntp/",
-        "devtools://devtools/bundled/inspector.html",
-        "chrome-devtools://devtools/x",
-        "view-source:https://a.test/",
-        "about:settings",
-        "about:passwords?x",
-        "blob:chrome://settings/abc",
-        "filesystem:chrome-extension://abc/temporary/x",
-    ] {
-        assert!(is_browser_page(refused), "{refused:?} must be refused");
-    }
-    for allowed in [
-        "https://a.test/",
-        "about:blank",
-        "about:blank#top",
-        "ABOUT:srcdoc",
-        "blob:https://a.test/abc",
-        "data:text/html,x",
-        "",
-        "not a url",
-    ] {
-        assert!(!is_browser_page(allowed), "{allowed:?} must be allowed");
+fn browser_pages_follow_the_shared_agent_url_vectors() {
+    let doc: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../schemas/agent-url-policy/vectors.json"
+    ))
+    .unwrap();
+    let cases = doc["cases"].as_array().unwrap();
+    assert!(cases.len() >= 20);
+    for case in cases {
+        let url = case["url"].as_str().unwrap();
+        let refused = case["refused"].as_bool().unwrap();
+        assert_eq!(is_browser_page(url), refused, "{url:?}");
     }
 }
