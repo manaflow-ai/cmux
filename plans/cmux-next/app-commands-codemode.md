@@ -121,6 +121,8 @@ One function decides agent exposure for every surface (CLI app commands for agen
 | S6 | Daemon ops `cmux.code.exec/wait/cancel/cells.list/audit.list`, caller-principal dispatch, approvals, audit | `cmux-tui-core::code` | script cannot call an excluded op; approval decline fails the call; one audit record per nested call | cmux-tui window; IR entries (hq-48) |
 | S7 | Surfaces: `cmux code run`, `cmux mcp serve --profile code` (default for agents cmux starts, `mcp.profile` setting, behind `code.agentSurface` until D5), `cmux_docs {ops}` d.ts; move the Bun MCP server's tools into the Rust `cmux mcp serve`; update `skills/cmux-code-mode` | CLI, scripts, skills | end-to-end: the four measurement tasks in code-mode-measurements.md | cmux-tui window |
 
+S1 status: prepared on local branch `nx-app-commands-s1` (red tests, then the rules, `cli-reserved.json`, first-party fragments migrated to app-relative paths and given `cli.name` where the name is not reserved: `agents`, `coderouter` and `search` keep only the full form); waits for the crate slot and a Testbox run.
+
 All Rust builds and tests run on a Blacksmith Testbox (approved). Slots: S1 gets a crate slot after the current freeze or hold; S2 gets the main window later.
 
 ## 7. Coordination

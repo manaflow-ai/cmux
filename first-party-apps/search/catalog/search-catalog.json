@@ -56,7 +56,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/search search",
+        "path": "search",
         "visible": true
       },
       "mcp": {
@@ -85,7 +85,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/search clear-recent",
+        "path": "clear-recent",
         "visible": true
       },
       "mcp": {
@@ -114,7 +114,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/search cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

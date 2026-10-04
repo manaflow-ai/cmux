@@ -198,3 +198,44 @@ fn a_gesture_only_op_offered_to_agents_warns() {
         vec![("/catalog/operations/0/mcp/expose", "mcp.gestureRequired", Severity::Warning)]
     );
 }
+
+#[test]
+fn installed_apps_that_claim_the_same_names_conflict() {
+    use cmux_app_manifest::{Conflict, ConflictKind, conflicts, mcp_tool_name};
+    assert_eq!(mcp_tool_name("acme.diff-view.open"), "acme_diff_view_open");
+    let a = json!({ "id": "alice/notes", "cli": { "name": "notes" } });
+    let b = json!({ "id": "bob/notes", "cli": { "name": "notes" } });
+    let c = json!({ "id": "carol/jot", "cli": { "name": "jot" } });
+    let tools = json!({ "family": "notes", "operations": [
+        { "name": "notes.capture", "mcp": { "expose": "default" } },
+        { "name": "notes.list", "mcp": { "expose": "never" } },
+    ] });
+    let same_tool = json!({ "family": "notes", "operations": [
+        { "name": "notes.capture", "mcp": { "expose": "opt_in" } },
+        { "name": "notes.list", "mcp": { "expose": "never" } },
+    ] });
+    assert_eq!(
+        conflicts(&[(&b, Some(&tools)), (&a, Some(&same_tool)), (&c, None)]),
+        vec![
+            Conflict {
+                kind: ConflictKind::CliName,
+                name: "notes".into(),
+                apps: vec!["alice/notes".into(), "bob/notes".into()],
+            },
+            Conflict {
+                kind: ConflictKind::McpTool,
+                name: "notes_capture".into(),
+                apps: vec!["alice/notes".into(), "bob/notes".into()],
+            },
+        ]
+    );
+}
+
+#[test]
+fn the_reserved_list_covers_the_built_in_scopes() {
+    use cmux_app_manifest::is_reserved_cli_name;
+    for word in ["workspace", "workspaces", "app", "apps", "code", "coderouter", "x"] {
+        assert!(is_reserved_cli_name(word), "{word}");
+    }
+    assert!(!is_reserved_cli_name("notes"));
+}

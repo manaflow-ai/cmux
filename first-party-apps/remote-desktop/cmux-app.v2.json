@@ -16,6 +16,7 @@
   "keywords": ["remote desktop", "screen", "display", "vm", "control"],
   "engines": { "cmux": "^2.0" },
   "catalog": "catalog/rd-catalog.json",
+  "cli": { "name": "rd" },
   "server": {
     "kind": "native",
     "binaries": { "linux-arm64": "cmux-rd", "linux-x64": "cmux-rd" },

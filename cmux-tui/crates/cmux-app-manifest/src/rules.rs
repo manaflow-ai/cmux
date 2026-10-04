@@ -9,7 +9,7 @@ use serde_json::Value;
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
 pub(crate) fn check(m: &Value) -> Vec<Issue> {
-    let mut out = Vec::new();
+    let mut out = crate::cli::check_manifest(m);
     let id = m["id"].as_str().unwrap_or_default();
     let publisher = id.split('/').next().unwrap_or_default();
     let first_party = FIRST_PARTY.contains(&publisher);
