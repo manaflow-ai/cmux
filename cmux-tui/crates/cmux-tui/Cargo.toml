@@ -67,6 +67,10 @@ reqwest.workspace = true
 rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
+# The cloud conversations proxy (`cloud-conversations-v1`): cmux.wire/1
+# sockets to the cmux Cloud API. Both are already in the graph via acpmux.
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true

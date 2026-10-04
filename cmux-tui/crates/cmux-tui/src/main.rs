@@ -20,6 +20,8 @@ mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
+mod cloud_conversations_backend;
+#[cfg(unix)]
 mod coderouter_usage;
 mod config;
 mod headless;
@@ -1343,6 +1345,23 @@ fn provider_connector_with_unix_token(
 }
 
 #[cfg(unix)]
+/// Installs the cloud transport behind `cloud-conversations-v1`. A failure
+/// leaves the daemon without the capability; nothing else depends on it.
+#[cfg(unix)]
+fn install_cloud_conversations(mux: &Arc<Mux>) {
+    match cloud_conversations_backend::RemoteCloudBackend::new() {
+        Ok(backend) => {
+            let service =
+                cmux_tui_core::cloud_conversations::CloudConversations::new(Arc::new(backend));
+            mux.install_cloud_conversations(service);
+        }
+        Err(error) => crate::client_log::stderr_log!(
+            "startup",
+            "cmux-tui: cloud conversations unavailable: {error}"
+        ),
+    }
+}
+
 fn parse_provider_token(value: OsString) -> anyhow::Result<BearerToken> {
     let mut bytes = value.into_encoded_bytes();
     let value = std::str::from_utf8(&bytes)
@@ -2498,6 +2517,10 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // The cloud conversations proxy (`cloud-conversations-v1`): idle until a
+    // trusted local client leases a cloud session to it.
+    #[cfg(unix)]
+    install_cloud_conversations(&mux);
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
     // has always left the terminal running unplaced, and clients built
