@@ -612,22 +612,6 @@ function markdownHost(): Plugin {
       if (outcome.ok) return { status: 200, body: { hash: outcome.hash } };
       return pageError(409, outcome.code, outcome.code, "details" in outcome ? outcome.details : undefined);
     }
-    if (op === "cmux.markdown.load") {
-      const target = files.file(typeof params.path === "string" ? params.path : "");
-      const content = target ? readMarkdown(target) : undefined;
-      if (!target || !content) return pageError(404, "cmux.markdown.not_found", String(params.path));
-      watch(server, target);
-      return {
-        status: 200,
-        body: {
-          path: target,
-          text: content.text,
-          hash: content.hash,
-          readOnly: !files.writable(target) || !content.utf8,
-          assetBase: `/__cmux-markdown/asset/${encodeURIComponent(target)}/`,
-        },
-      };
-    }
     if (op === "cmux.markdown.resolveLinks") {
       const paths = Array.isArray(params.paths)
         ? params.paths.filter((entry): entry is string => typeof entry === "string")
@@ -645,7 +629,7 @@ function markdownHost(): Plugin {
     }
     if (op === "cmux.markdown.openLink") {
       // The dev stand-in for the app: the browser opens http(s) and mailto: links. Markdown files
-      // open in the page itself (cmux.markdown.load); other files have no viewer in dev.
+      // open in the page itself (cmux.markdown.open); other files have no viewer in dev.
       const href = typeof params.href === "string" ? params.href : "";
       if (params.kind === "external" || params.kind === "mail") return { status: 200, body: { url: href } };
       return { status: 200, body: {} };

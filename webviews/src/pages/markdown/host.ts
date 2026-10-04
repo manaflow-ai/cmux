@@ -10,9 +10,9 @@
 //     (including the page's own saves, which the page recognizes by hash);
 //   - the stream `cmux.markdown.look` sends `MarkdownLook` when the `markdown` settings, the user's
 //     markdown/theme.css or the terminal appearance change (settings.ts has the keys);
-//   - `cmux.markdown.load {path}` answers `MarkdownFile` for another markdown file the user
-//     followed a link to; the page shows it in place (its own back/forward history) and from then
-//     on saves, watches (`changes` for that path) and resolves links for it;
+//   - `cmux.markdown.open {path}` (viewer-empty/ops.ts, the empty state's op) also opens another
+//     markdown file the user followed a link to; the page shows it in place (its own back/forward
+//     history) and from then on saves, watches (`changes` for that path) and resolves links for it;
 //   - `cmux.markdown.openLink {path, href, kind, target?}` opens what the page does not show
 //     itself: `kind` "external" (http(s): a cmux browser tab), "file" (another file, `target` its
 //     resolved path: the file viewer) or "mail" (mailto:/tel:: the system handler);
@@ -32,7 +32,6 @@ import type { DiffViewerAppearance } from "../../appearance";
 export const MARKDOWN_CONFIG_OP = "cmux.markdown.config";
 export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
-export const MARKDOWN_LOAD_OP = "cmux.markdown.load";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
 export const MARKDOWN_CHANGES = "cmux.markdown.changes";
@@ -91,7 +90,7 @@ export interface MarkdownConflict {
   deleted?: boolean;
 }
 
-/** What `cmux.markdown.load` answers: the file part of the config. */
+/** The file part of what `cmux.markdown.open` answers (a `MarkdownConfig`). */
 export interface MarkdownFile {
   path: string;
   text: string;

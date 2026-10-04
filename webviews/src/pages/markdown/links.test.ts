@@ -98,7 +98,7 @@ class FakeHost implements PageClient {
     const p = params as Record<string, unknown>;
     const file = (path: string) => ({ path, text: this.files.get(path)!, hash: `h:${this.files.get(path) ?? ""}` });
     if (op === "cmux.markdown.config") return file("/w/a.md") as R;
-    if (op === "cmux.markdown.load") {
+    if (op === "cmux.markdown.open") {
       this.loads.push(String(p.path));
       if (!this.files.has(String(p.path))) throw pageError("cmux.markdown.not_found", "x");
       return file(String(p.path)) as R;
