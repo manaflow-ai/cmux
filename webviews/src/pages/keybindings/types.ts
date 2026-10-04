@@ -78,6 +78,10 @@ export const KeybindingOps = {
   recordStop: "cmux.keybindings.record.stop",
   recorded: "cmux.keybindings.recorded",
   changed: "cmux.keybindings.changed",
+  /** Shows a save panel and writes the `shortcuts` object to the chosen file. */
+  keymapExport: "cmux.keybindings.keymap.export",
+  /** Shows an open panel and imports the chosen keymap file into cmux-next.json. */
+  keymapImport: "cmux.keybindings.keymap.import",
 } as const;
 
 /** The error code of a write the app cannot do yet (no keybindings.json writer). */
