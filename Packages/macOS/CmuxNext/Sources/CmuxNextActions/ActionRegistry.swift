@@ -45,8 +45,8 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
-    /// App and keybindings.json entries, after the defaults and cmux.json.
-    public var keyBindingLayers = KeyBindingLayers() { didSet { shortcutIndex = nil } }
+    /// App and keybindings.json entries, after the defaults and cmux.json (`setKeyBindingLayers`).
+    public internal(set) var keyBindingLayers = KeyBindingLayers() { didSet { shortcutIndex = nil } }
 
     /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
