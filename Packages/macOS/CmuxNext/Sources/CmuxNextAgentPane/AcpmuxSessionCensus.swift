@@ -98,12 +98,18 @@ public nonisolated enum AcpmuxQuit {
         case ended
         /// It did not answer or did not exit in time; the reason says why.
         case failed(String)
+        /// A shutdown already started (no usable socket, daemon.lock held).
+        case shutdownInProgress(pid: Int32?)
+        /// No daemon, but these agent hosts (not the Chief's) are alive.
+        case agentsStillRunning([String])
     }
 
     /// Quit Everything: ends every agent except the Home Chief's
     /// (`_acpmux/shutdown endAgents keepSessions`) and waits for the daemon
     /// to exit (kernel exit event, bounded).
-    @concurrent public static func endAgents(_ environment: AcpmuxEnvironment?, within: Duration = .seconds(10)) async -> EndResult {
+    /// RED STUB (R96 late endAgents): `waitForShutdown` is ignored; the old behavior stays.
+    @concurrent public static func endAgents(_ environment: AcpmuxEnvironment?, waitForShutdown: Bool = false,
+                                             within: Duration = .seconds(10)) async -> EndResult {
         guard let socket = environment?.socketPath, FileManager.default.fileExists(atPath: socket) else { return .noDaemon }
         let status: AcpmuxStatus
         let chief: [String]

@@ -75,6 +75,19 @@ enum QuitStrings {
         String(localized: "quit.failed.shutdown", defaultValue: "The terminals did not end: \(message)", table: "Quit", bundle: .module)
     }
 
+    /// acpmux is already shutting down; it may not have ended its agents.
+    static var agentsShutdownInProgress: String {
+        String(localized: "quit.failed.agentsShutdownInProgress",
+               defaultValue: "acpmux is already shutting down, so agents may still be running. Retry waits for the shutdown to finish.",
+               table: "Quit", bundle: .module)
+    }
+
+    /// Agent hosts that are still alive after acpmux stopped.
+    static func agentsStillRunning(_ count: Int) -> String {
+        String(format: String(localized: "quit.failed.agentsStillRunning", defaultValue: "Agents still running: %lld.",
+                              table: "Quit", bundle: .module), count)
+    }
+
     static func failedEndAgents(_ message: String) -> String {
         String(localized: "quit.failed.endAgents", defaultValue: "The agents did not end: \(message)", table: "Quit", bundle: .module)
     }

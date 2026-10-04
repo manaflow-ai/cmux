@@ -24,9 +24,12 @@ enum QuitAgents {
                               chiefInTurn: census.chiefInTurn)
     }
 
+    /// RED STUB (R96 late endAgents).
+    static func failures(for result: AcpmuxQuit.EndResult) -> [EndSessionsFailure] { [] }
+
     /// Ends the local agents. A failure is returned, so the quit shows it
     /// with Retry and Quit Anyway; agents that did not end keep running.
-    static func end(_ environment: AcpmuxEnvironment?) async -> [EndSessionsFailure] {
+    static func end(_ environment: AcpmuxEnvironment?, waitForShutdown: Bool = false) async -> [EndSessionsFailure] {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
         switch await AcpmuxQuit.endAgents(environment) {
         case .noDaemon:
@@ -38,6 +41,8 @@ enum QuitAgents {
         case .failed(let reason):
             logger.error("end agents failed: \(reason, privacy: .public)")
             return [EndSessionsFailure(step: .endAgents, message: reason)]
+        case .shutdownInProgress, .agentsStillRunning:
+            return []
         }
     }
 }
