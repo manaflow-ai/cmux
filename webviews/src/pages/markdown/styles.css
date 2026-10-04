@@ -683,3 +683,9 @@ body {
 .md-history-button[data-disabled] {
   color: var(--cmux-md-faint-color);
 }
+
+/* A followed link is loading: the toolbar already names the new file (zero-latency rule a). */
+.md-page[data-navigating] .md-doc {
+  opacity: 0.55;
+  transition: opacity 120ms ease-out 80ms;
+}

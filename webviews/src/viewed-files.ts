@@ -1,4 +1,5 @@
 import { callDiffComments, diffCommentsBridgeAvailable } from "./comments/bridge";
+import { diffWrites } from "./diff-writes";
 import type { DiffSource } from "./diff/generated/protocol";
 import { fileName } from "./diff-stream";
 
@@ -262,11 +263,15 @@ export function persistViewedChange(scope: ViewedScope | null, change: ViewedCha
   if (scope == null || change == null || !diffCommentsBridgeAvailable()) {
     return;
   }
-  const request =
-    change.kind === "set"
-      ? callDiffComments<unknown>("viewedFiles.set", { scope, file: change.entry })
-      : callDiffComments<unknown>("viewedFiles.clear", { scope, path: change.path });
-  request.catch((error) => console.warn("cmux diff viewed state save failed", error));
+  // One write in flight per file, in order; a newer mark replaces a queued one (diff-writes.ts).
+  const path = change.kind === "set" ? change.entry.path : change.path;
+  diffWrites().dispatch("viewed", {
+    resource: `viewed:${viewedScopeKey(scope)}:${path}`,
+    write:
+      change.kind === "set"
+        ? { method: "viewedFiles.set", params: { scope, file: change.entry } }
+        : { method: "viewedFiles.clear", params: { scope, path: change.path } },
+  });
 }
 
 function isViewedFileEntry(value: unknown): value is ViewedFileEntry {

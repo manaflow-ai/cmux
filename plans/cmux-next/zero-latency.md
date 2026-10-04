@@ -15,8 +15,10 @@ work still take as long as they take; they become named state on a resource (pen
 with a reason), never an absence of response.
 
 Measured as input-to-paint: the input event's `timeStamp` to the first `requestAnimationFrame`
-after the DOM shows the response, plus every long task (over 50 ms) that overlaps that window.
-The budget is one frame of the display: 16.7 ms at 60 Hz, 8.3 ms at 120 Hz.
+after the DOM shows the response, plus every long task (over 50 ms) and the longest frame
+interval in that window. The frame is 16.7 ms at 60 Hz (8.3 ms at 120 Hz). An action passes when
+its response paints in the input's frame or the next one (paint within 2 frames), no frame is
+dropped on the way (no frame interval over 1.5 frames) and no long task sits on the input path.
 
 ## First principles
 
@@ -94,10 +96,49 @@ input frame stays under budget. The input frame does only the state change that 
   reconcile from events by `opid`, rollback on `err`, supersede and cancel, a trace ring buffer.
 - `react.ts`: `useIntentState(store, select)` (a `useSyncExternalStore` subscription) and
   `useIntent(store, name)` (a dispatcher). Both are plain hooks the React Compiler memoizes.
-- The latency harness (`webviews/scripts/latency/`, `bun run latency`): per page, a named list of
-  actions, each measured in headless Chromium and WebKit; it fails when an action's response takes
-  more than one 60 Hz frame or has a long task on the input path. It starts as a non-required
-  scoreboard job and becomes required after 3 days without a flake.
+- The latency harness (`bun run latency`): `webviews/scripts/latency/run.ts` builds the harness
+  pages (`webviews/test/latency/*.html`) with the shipped production settings
+  (`vite.config.latency.ts`), serves them, and measures each page's named actions
+  (`test/latency/actions.ts`) in headless Chromium and WebKit with the in-page probe
+  (`test/latency/probe.ts`) and the test helper `measureAction` (`test/latency/measure.ts`). The pages
+  run the real page modules on in-page mock hosts that answer after 40 ms, so an await on an input
+  path fails. `--ci` writes JSON and a GitHub step summary and never fails; `--dev` measures the dev
+  server; `--cpu-throttle N` slows Chromium to find the heavy actions. The CI job
+  (`latency-scoreboard` in `.github/workflows/cmux-next-web-bundles.yml`) is a non-blocking
+  scoreboard; it becomes required after 3 days without a flake. `test/latency-harness.test.ts`
+  checks the probe itself (a synchronous response passes, an awaited one fails, a busy handler is a
+  long task).
+- Verdicts: the gate is the 60 Hz verdict. Headless Chromium ticks near 120 Hz, so its 120 Hz verdict
+  is measured; WebKit ticks at 60 Hz, so its 120 Hz verdict adds "input-to-response work within
+  8.3 ms" to the 60 Hz rules (an estimate).
+
+## Adoption (first pass)
+
+- Diff viewer: viewed marks and viewer preferences go through an intent outbox (`src/diff-writes.ts`):
+  one write in flight per file or preference keys, in input order, a newer value replacing a queued
+  one, an opid on each page-host write. Before, every change was a fire-and-forget call, so quick
+  toggles raced. The files filter defers the diff column (`useDeferredValue`): the field and the
+  files tree answer the keystroke in its frame. Page data attributes on `<html>` and `<body>` are
+  written only when they change (each write invalidated the whole page's style after every state
+  change).
+- Markdown editor: a followed link (and back/forward) names its file in the toolbar and dims the
+  document in the click's frame (`navigating`); a file that does not open says so in the status
+  (`navigationFailed`). The link target is not prefetched: `cmux.markdown.open` records recents and
+  moves the watcher, so it is not a read. A side-effect-free `cmux.markdown.read` host op would allow it.
+- Picker (`PathPicker`): listings are prefetched (the parent and the highlighted folder) into a
+  bounded `PrefetchCache`; entering a folder and going up show the next level in the input's frame,
+  and an uncached level moves the location at once while its rows load.
+- Empty states and the other diff toolbar actions were already local-first; the harness confirms
+  them.
+
+## Known limits
+
+- WebKit, diff viewer: the sidebar toggle and jump to file sit at the 2-frame limit on a loaded
+  machine. The sidebar toggle reflows the diff column in the toggle frame by design
+  (`files-panel-motion.ts`, step 1); jump to file waits for CodeView's next-frame render of the
+  target (laying it out in the input frame instead dropped a frame in WebKit, so it stays). Moving
+  the reflow to the end of the panel motion would take it off the input path, at the cost of the
+  panel sliding over (or away from) a diff that resizes only when the motion ends.
 
 ## Decision 31 (wire)
 
