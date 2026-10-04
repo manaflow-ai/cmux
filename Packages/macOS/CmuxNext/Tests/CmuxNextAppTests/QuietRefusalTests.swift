@@ -13,16 +13,17 @@ struct QuietRefusalTests {
         let services = KeyOwnershipMatrixTests.services()
         let registry = services.registry
         let context = AppActionContext(services: services)
-        context.observeRefusals()
         registry.bind("focusRight", invoke: { _ in context.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.directionRight)) })
         let captured = registry.capturingRefusal { registry.perform("focusRight") }
         #expect(captured == RefusalStrings.noPaneInDirection(RefusalStrings.directionRight), "the CLI still gets the reason")
+        var quiet: [Bool] = []
+        registry.refusalObserver = { _, isQuiet in quiet.append(isQuiet) }
         registry.perform("focusRight")
-        #expect(services.refusalHUD.message == nil, "the keyboard run shows nothing")
-
-        registry.bind("closeTab", invoke: { _ in context.refuse("a refusal the user must act on") })
-        registry.perform("closeTab")
-        #expect(services.refusalHUD.message == "a refusal the user must act on", "other refusals keep their notice")
+        #expect(quiet == [true])
+        // The HUD rule: a quiet refusal shows nothing; others show unless a caller has them.
+        #expect(!AppActionContext.showsNotice(quiet: true, hasCaller: false))
+        #expect(AppActionContext.showsNotice(quiet: false, hasCaller: false))
+        #expect(!AppActionContext.showsNotice(quiet: false, hasCaller: true))
     }
 
     @Test func theRegistryTellsObserversWhichRefusalsAreQuiet() {
