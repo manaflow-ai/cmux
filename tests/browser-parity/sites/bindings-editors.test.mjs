@@ -42,3 +42,30 @@ test("a confirmed editor draft re-checks sharing right before the write; sharing
     doc.shareText = null;
   }
 });
+
+test("googleDocs.insertAfter: the draft states the anchor's single match and position; a second match or another change since the preview edits nothing", async () => {
+  const doc = files.get(DOC_ID);
+  doc.shared = true;
+  const original = doc.blocks.map((b) => ({ ...b }));
+  try {
+    await s.run(`var insD = await sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "Closing line.", " Bye.")`);
+    // A collaborator adds a second anchor after the preview.
+    doc.blocks.push({ type: "paragraph", text: "Closing line." });
+    const before = JSON.stringify(doc.blocks);
+    assert.match(await s.error("sites.googleDocs.insertAfter(insD.id, { confirm: true })"), /document_changed|occurs 2 times/);
+    assert.equal(JSON.stringify(doc.blocks), before, "Replace all broadened the edit to the new match");
+    const p = await s.value("insD.preview");
+    assert.equal(p.matches, 1);
+    assert.equal(typeof p.at, "number");
+    // Another change (the anchor still occurs once) also fails the confirmation.
+    doc.blocks.pop();
+    await s.run(`var insD2 = await sites.googleDocs.insertAfter(${JSON.stringify(DOC)}, "Closing line.", " Bye.")`);
+    doc.blocks[1] = { type: "paragraph", text: "Intro paragraph, revised." };
+    const before2 = JSON.stringify(doc.blocks);
+    assert.match(await s.error("sites.googleDocs.insertAfter(insD2.id, { confirm: true })"), /document_changed/);
+    assert.equal(JSON.stringify(doc.blocks), before2);
+  } finally {
+    doc.blocks = original;
+    doc.shared = false;
+  }
+});
