@@ -61,7 +61,11 @@ final class TerminalLinkWatch {
         let nowDead = store.tab(surface: surface)?.dead ?? dead
         if nowDead, !dead {
             io.processExited()
-        } else if (nowConnected && !connected) || (dead && !nowDead) {
+        } else if dead, !nowDead {
+            // The daemon reported the terminal dead and now running (R41): a
+            // dead report can be transient, so the view must leave "exited".
+            io.processRevived()
+        } else if nowConnected, !connected {
             io.reconnect()
         }
         connected = nowConnected

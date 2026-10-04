@@ -2976,7 +2976,10 @@ impl Mux {
                 let record = registry.terminal_record(terminal_id)?.ok_or_else(|| {
                     terminal_close_state_error(format!("terminal close omitted host {terminal_id}"))
                 })?;
-                if record.lifecycle != TerminalLifecycle::Exited {
+                // A pending terminal (R41) also has views and no runtime.
+                if record.lifecycle != TerminalLifecycle::Exited
+                    && !self.pending_terminal_closable(terminal_id)
+                {
                     return Err(terminal_close_state_error(format!(
                         "live terminal resource {public_id} has views but no runtime owner"
                     )));
@@ -3109,11 +3112,13 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal.revision);
         }
         let effects = plan.install(&mut state, resource.revision, None);
+        let pending = effects.terminal_runtime.is_none() && self.terminal_is_pending(terminal_id);
         drop(state);
         drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
         self.finish_resource_close(CommittedResourceClose { commit: resource, effects });
+        self.after_terminal_close(&public_id, terminal_id, &terminal.result, pending);
         Ok(Some(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
@@ -3491,7 +3496,9 @@ impl Mux {
                 // (a host loss, or a keep-layout tab); a live one may not.
                 if runtime.is_none() {
                     anyhow::ensure!(
-                        placements.is_empty() || terminal.lifecycle == TerminalLifecycle::Exited,
+                        placements.is_empty()
+                            || terminal.lifecycle == TerminalLifecycle::Exited
+                            || self.pending_terminal_closable(&host_id),
                         "live terminal resource {public_id} has views but no runtime owner"
                     );
                 }

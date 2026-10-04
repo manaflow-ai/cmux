@@ -297,39 +297,29 @@ pub trait HostLink: Send {
 
 ### 3.5 Handle operations that use secrets (security first)
 
-A backend never receives a secret, and no host op signs or decrypts bytes
-the app chose freely. A generic `sign(bytes)` on a credential handle is a
-signing oracle: the app could get the user's key to sign any challenge, for
-any server, as any user. So there is no generic `sign`. Each use gets its own
-narrow op that the host checks before it uses the key:
+A backend never receives a secret and no host op signs or decrypts bytes
+that the app chose. A generic `sign(bytes)` on a credential handle would be
+a signing oracle, and even a narrow SSH user-auth signature op leaves a
+login-elsewhere risk (the host cannot prove that the session id belongs to
+a key exchange with the handle's host while the app runs the transport).
+Decision 8 (coordinator, 2026-10-04): the host owns the SSH transport.
 
-`credential.ssh_userauth_signature {credential, connection, open_token, payload}`.
-The host parses `payload` as an SSH public key user-auth request (RFC 4252
-section 7) and signs only when every check passes:
+For a `connection` handle of kind `ssh`, the backend calls the host op
+`connection.channel.open {connection, open_token, pty: {term, cols, rows},
+command?}`. The host resolves the handle, dials, checks the host key that
+the user pinned for that handle (an unknown or changed key fails with the
+typed `hostKey {decision, fingerprint}` error, before any byte reaches the
+shell), authenticates with the user's credential, opens a session channel
+with a PTY and returns a byte channel (data, window change, signal, exit
+status; `connection.channel.resize|signal|close`). The backend maps its own
+`open`, `write`, `resize`, `signal` and `close` onto that channel. The host
+issues `open_token` per open or resume after the user's gesture; host ops
+refuse a missing, expired or reused token. There is no signing op in the
+interface.
 
-1. Layout exactly: `string session_id || byte 50 (SSH_MSG_USERAUTH_REQUEST)
-   || string user || string service || string "publickey" || bool TRUE ||
-   string algorithm || string public_key_blob`, with no trailing bytes.
-2. `session_id` is 20 to 64 bytes (an exchange hash length).
-3. `user` equals the user that the `connection` handle resolves to.
-4. `service` is `ssh-connection`.
-5. `public_key_blob` equals the public key of `credential`, and `algorithm`
-   matches that key (`ssh-ed25519`, `ecdsa-sha2-*`, or `rsa-sha2-256` /
-   `rsa-sha2-512` for RSA; never `ssh-rsa` SHA-1).
-6. `open_token` is the one-time token the host issued to this backend for
-   this `open` or `resume` of this terminal; it allows at most 3 signatures
-   in 30 s, then it expires.
-7. The `connection` handle's host key was answered `Trusted` for this
-   `open` (the backend reported the key through the host key op first).
-
-Residual risk, stated plainly: the host cannot verify that `session_id`
-belongs to a key exchange with the handle's host, because the app runs the
-SSH transport. A malicious app with this grant can authenticate as that user
-to another server that accepts the same key, during the 30 s window. The
-grant needs `terminal:backend` (restricted, Verified review) and a user
-gesture per open. Removing the residual risk needs the host to own the SSH
-transport (the host dials, the app gets a channel); that is a decision for
-the coordinator (section 6, item 8).
+What an SSH app still adds: picking and grouping hosts, jump-host and
+provisioning flows, per-host defaults; never transport or keys. The cmux
+Cloud SSH sample moves to this channel model.
 
 ## 4. Mac switch plan
 
@@ -391,9 +381,8 @@ the coordinator (section 6, item 8).
    `cmux.terminal.connector/1`, both with `options.kinds` and default deny.
 7. No window-opening tests on the laptop. S2 Mac dogfood runs on
    cmux-lawrence-2.
-8. Open: should the host own the SSH transport for `ssh` connection handles
-   (no signing op at all, section 3.5), or is the narrow user-auth signature
-   op with its residual risk enough for v1?
+8. The host owns the SSH transport for `ssh` connection handles; the
+   backend gets a channel; the interface has no signing op (section 3.5).
 
 Shortcuts taken in this proposal: no build ran; the Mac API gap is a token
 scan, not a link; group counts reuse the 2026-10-02 inventory; D5/D7

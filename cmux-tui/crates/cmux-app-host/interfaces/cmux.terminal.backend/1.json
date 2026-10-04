@@ -1,17 +1,17 @@
 {
   "name": "cmux.terminal.backend/1",
   "version": 1,
-  "docs": "Bytes mode (ghostty-next-switch.md, cloud-app.md): the backend carries raw terminal bytes; the local session host parses them and owns snapshots and the journal. An app backend runs as the app's server (implements with server: true) and needs the restricted scope terminal:backend. Rust trait TerminalBackend.",
+  "docs": "Bytes mode (ghostty-next-switch.md section 3, cloud-app.md): the backend carries raw terminal bytes; the local session host parses them, answers terminal queries unless capabilities.answers_queries, and owns snapshots and the journal. An app backend runs as the app's server (implements with server: true) and needs the restricted scope terminal:backend. No method or host op gives the backend a secret or a signature: for connection handles of kind ssh the host owns the SSH transport (it dials, checks the pinned host key and authenticates with the user's key) and the backend gets a channel (hostOps). Rust trait TerminalBackend (cmux-tui-core terminal_backend, slice S3).",
   "props": {
     "kind": "string (one of options.kinds)",
-    "target": "string (a backend-defined id, for example a cloud machine id)"
+    "target": "string (an opaque connection handle conn_..., or a backend-defined id such as a cloud machine id; never a host name typed by a user or an agent)"
   },
   "methods": {
-    "open": "({kind, target, cols, rows, cwd?, command?}) -> {terminal}",
-    "resume": "({terminal}) -> {terminal}",
-    "write": "({terminal, bytes}) -> void",
-    "resize": "({terminal, cols, rows}) -> void",
-    "signal": "({terminal, signal}) -> void",
+    "open": "({kind, target, open_token, cols, rows, cell_width_px?, cell_height_px?, cwd?, command?, env?}) -> {terminal, capabilities, resume_token?}",
+    "resume": "({resume_token, open_token}) -> {terminal, capabilities, offset} (output continues from offset; an offset the backend cannot serve is lost)",
+    "write": "({terminal, seq, bytes}) -> void (seq orders chunks; a used seq is refused; a full input buffer answers unavailable {retryable: true} and changes nothing)",
+    "resize": "({terminal, cols, rows, cell_width_px?, cell_height_px?}) -> void (capabilities.resize)",
+    "signal": "({terminal, signal}) -> void (capabilities.signals; signal is a name without SIG: INT, TERM, HUP, KILL, ...)",
     "close": "({terminal}) -> void"
   },
   "events": [
@@ -39,5 +39,33 @@
       }
     }
   },
-  "status": "draft: shapes chosen by the ghostty-next lead (2026-10-04); refined with the cmux Cloud and third-party sample backends before the interface is public"
+  "status": "draft: shapes chosen by the ghostty-next lead (2026-10-04, revised with the SSH sample's gaps: offsets, typed host key refusal, exit signal, answers_queries, host-owned SSH transport with no signing op); refined with the cmux Cloud and third-party sample backends before the interface is public",
+  "eventShapes": {
+    "output": "{terminal, offset, bytes}: offset is the running byte total after this chunk since open; resume continues it. The session host treats a gap or an overlap as lost, never splices.",
+    "exit": "{terminal, code?, signal?, core_dumped, message?}: code when the far end sent an exit status; signal is the name without SIG (SSH exit-signal or POSIX); message is far-end text, at most 4 KiB, shown and never parsed.",
+    "lost": "{terminal, reason, retryable}"
+  },
+  "capabilities": {
+    "resize": "bool",
+    "signals": "bool",
+    "exit_status": "bool",
+    "resume": "bool",
+    "cwd_reports": "bool",
+    "max_write_bytes": "u32",
+    "answers_queries": "bool: true only when the far end answers DA, DSR and OSC color queries itself; then the session host parses but never replies. A shell over a PTY or SSH is false."
+  },
+  "errors": {
+    "unsupported": "{}",
+    "unavailable": "{reason, retryable}",
+    "hostKey": "{decision: unknown|changed, fingerprint: \"SHA256:...\"}: typed host key refusal; the host shows its accept sheet from these fields. Nothing reached the far shell.",
+    "denied": "{reason}: a handle was revoked or a host check failed",
+    "invalid": "{reason}"
+  },
+  "hostOps": {
+    "connection.channel.open": "({connection, open_token, pty: {term, cols, rows}, command?}) -> {channel} for a connection handle of kind ssh. The host resolves the handle, dials, checks the host key the user pinned for it (else the call fails with hostKey), authenticates with the user's credential, opens a session channel with a PTY and returns a byte channel (data in and out, window change, signal, exit status). The backend never sees the host name, the key or a signature.",
+    "connection.channel.resize": "({channel, cols, rows}) -> void",
+    "connection.channel.signal": "({channel, signal}) -> void",
+    "connection.channel.close": "({channel}) -> void",
+    "open_token": "issued by the host for one open or resume of one terminal after the user's gesture; host ops refuse a missing, expired or reused token"
+  }
 }

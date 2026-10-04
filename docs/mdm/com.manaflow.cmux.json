@@ -639,6 +639,17 @@
       "title" : "MinimumVersion",
       "type" : "string"
     },
+    "navigation.historyScope" : {
+      "default" : "workspace",
+      "description" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
+      "enum" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "title" : "Back and Forward",
+      "type" : "string"
+    },
     "newTerminal.opensWorkspace" : {
       "default" : false,
       "description" : "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click.",
