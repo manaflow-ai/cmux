@@ -941,8 +941,31 @@ final class BrowserReplTabAttachment {
         ) else {
             return nil
         }
+        guard created.webView === webView else {
+            // The panel did not take WebKit's web view, so it loads the URL
+            // itself, and it started before the session's content rules and
+            // page clipboard guard are on it. Close it on this main-actor
+            // turn, before WebKit decides that navigation, and let the
+            // caller open the popup blank first (`handlePopup`).
+            if handsPopupsOverFirst(announce: announce, forInputSession: forInputSession) {
+                created.webView.stopLoading()
+                _ = workspace.closePanel(created.id, force: true)
+                return nil
+            }
+            if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
+            return .opened(nil)
+        }
+        // WebKit loads the popup's request into the adopted web view only
+        // after `createWebViewWith` returns, so the hand-over below puts the
+        // session's content rules and clipboard guard on it first.
         if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
-        return .opened(created.webView === webView ? webView : nil)
+        return .opened(webView)
+    }
+
+    /// Whether a popup becomes the creating session's tab, under its content
+    /// rules and page clipboard guard, which must be on it before it loads.
+    private func handsPopupsOverFirst(announce: Bool, forInputSession: String?) -> Bool {
+        announce && forInputSession == nil && ownership.isSessionOwned && ownership.creatorSessionID != nil
     }
 
     private func announcePopup(_ created: BrowserPanel, url: URL, forInputSession: String? = nil) {
@@ -980,18 +1003,27 @@ final class BrowserReplTabAttachment {
         // The new tab stays in the opener's profile and data store, as a
         // user's Cmd-click does (`BrowserPanel` new-tab requests): a session
         // tab on a private `session.configure({ proxy })` store keeps it.
-        guard let created = workspace.newBrowserSurface(
-            inPane: pane,
-            url: url,
-            focus: false,
-            preferredProfileID: panel.profileID,
-            creationPolicy: .automationPreload,
-            websiteDataStore: panel.explicitEphemeralWebsiteDataStoreForSibling
-        ) else {
-            return false
-        }
-        if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
-        return true
+        // A session's popup opens blank and loads only once the session's
+        // content rules and clipboard guard are on it (BrowserReplPopupOpening).
+        let store = panel.explicitEphemeralWebsiteDataStoreForSibling
+        let profileID = panel.profileID
+        let opening = BrowserReplPopupOpening<BrowserPanel>(
+            create: { initialURL in
+                workspace.newBrowserSurface(
+                    inPane: pane,
+                    url: initialURL,
+                    focus: false,
+                    preferredProfileID: profileID,
+                    creationPolicy: .automationPreload,
+                    websiteDataStore: store
+                )
+            },
+            handOver: { [self] created in
+                if announce { announcePopup(created, url: url, forInputSession: forInputSession) }
+            },
+            load: { created, url in created.navigate(to: url) }
+        )
+        return opening.open(url, handOverFirst: handsPopupsOverFirst(announce: announce, forInputSession: forInputSession)) != nil
     }
 
     // MARK: - Downloads

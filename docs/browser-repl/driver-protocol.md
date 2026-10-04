@@ -323,7 +323,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   schemes, and the page controls its URL. So it goes to the sessions
   (`tab.created`) only when it is an `http`, `https`, `about:blank` or
   `blob:` (of such an origin) page that the browser's URL allowlist and
-  the creating session's domain policy allow; otherwise it opens nothing. When WebKit refuses to compile the policy's
+  the creating session's domain policy allow; otherwise it opens nothing.
+  Such a tab carries the session's content rules and page clipboard guard
+  before it loads anything: the web view WebKit asks for loads the popup's
+  request only after the session attached and put them on it, and a popup
+  tab cmux loads itself is created blank, handed to the session, and only
+  then navigated (`BrowserReplPopupOpening`). When WebKit refuses to compile the policy's
   content rules, every driver call of the session fails with `invalid`
   (`the domain policy could not be applied: ...`) until the session sets a
   policy that compiles (a locked one needs a reset); the tabs keep the last
