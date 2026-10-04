@@ -70,19 +70,30 @@
         if (!labelIndex) return read.call(this);
         // A hidden input has no labels (null), as the native getter says.
         if (name === "HTMLInputElement" && (this.type || "").toLowerCase() === "hidden") return null;
-        return labelIndex(this);
+        const found = labelIndex(this);
+        return found === null ? read.call(this) : found;
       },
     });
   }
+  // Building it reads every <label> of the tree, which the page sets the
+  // number of, so each one is charged to the read's budget (the snapshot's,
+  // else a page-read budget of its own). An index the budget cut short
+  // answers null, and that control's labels come from the native getter.
+  let labelBudget = null;
   function createLabelIndex() {
     const byRoot = new Map();
     return (el) => {
       const root = el.getRootNode();
       let map = byRoot.get(root);
-      if (!map) {
+      if (map === undefined) {
         map = new Map();
+        const b = labelBudget || (labelBudget = readBudget());
         const labels = root.querySelectorAll ? root.querySelectorAll("label") : [];
         for (const label of labels) {
+          if (!spend(b, 1)) {
+            map = null;
+            break;
+          }
           const control = label.control;
           if (!control) continue;
           if (!map.has(control)) map.set(control, []);
@@ -90,7 +101,7 @@
         }
         byRoot.set(root, map);
       }
-      return map.get(el) || [];
+      return map === null ? null : map.get(el) || [];
     };
   }
   // Runs `fn` with the label index, Playwright's aria caches and a computed
@@ -99,6 +110,7 @@
   function withReadCaches(fn) {
     if (labelIndex) return fn();
     labelIndex = createLabelIndex();
+    labelBudget = null;
     styleCache = new Map();
     if (ariaCaches) ariaCaches.begin();
     try {
@@ -106,6 +118,7 @@
     } finally {
       if (ariaCaches) ariaCaches.end();
       labelIndex = null;
+      labelBudget = null;
       styleCache = null;
     }
   }
@@ -527,7 +540,9 @@
   // Whether the element or something inside it has a non-empty box that is
   // not clipped away (screen-reader-only text uses `clip` or `clip-path`).
   const clippedAway = (style) => !!style && ((style.clip && style.clip !== "auto") || (style.clipPath && style.clipPath !== "none"));
-  function hasVisibleBox(el) {
+  // Each node it looks at inside is charged to the snapshot's budget; past
+  // it the element counts as showing nothing (the snapshot stops there).
+  function hasVisibleBox(el, ctx) {
     const r = el.getBoundingClientRect();
     if (r.width >= 1 && r.height >= 1) return true;
     // A zero-size box that clips its overflow shows none of its content.
@@ -536,6 +551,7 @@
     const range = document.createRange();
     const inside = (node) => {
       for (let n = node.firstChild; n; n = n.nextSibling) {
+        if (!spend(ctx, 1)) return false;
         if (n.nodeType === 3) {
           if (!n.nodeValue.trim()) continue;
           range.selectNodeContents(n);
@@ -748,10 +764,15 @@
         for (let child = el.shadowRoot.firstChild; child && !ctx.truncated; child = child.nextSibling) visitNode(child, out, ctx, visible, ariaHidden, skipText);
       }
     }
-    for (const id of (el.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean)) {
-      if (ctx.truncated) break;
-      const owned = el.ownerDocument.getElementById(id);
-      if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
+    // Each id in aria-owns is charged, also one that names a node already
+    // read: the page sets how many there are.
+    const owns = el.getAttribute("aria-owns");
+    if (owns) {
+      const ids = /\S+/g;
+      for (let m = ids.exec(owns); m && spend(ctx, 1); m = ids.exec(owns)) {
+        const owned = el.ownerDocument.getElementById(m[0]);
+        if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
+      }
     }
     if (visible && !skipText && !ctx.truncated) out.push(fit(ctx, pseudoText(el, "::after")));
   }
@@ -876,7 +897,7 @@
     }
     // A link or button with an empty box shows nothing unless some content
     // inside it has a box (Wikipedia's zero-width "Jump up" backlinks).
-    if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el)) return;
+    if ((role === "link" || role === "button") && visible && !ctx.showHidden && !hasVisibleBox(el, ctx)) return;
     const node = { role };
     chargeSize(ctx, NODE_SIZE);
     if (name) node.name = fit(ctx, name);
@@ -1005,6 +1026,8 @@
       offscreenMore: false,
     });
     ctx.countLeft = ctx.nodes;
+    // The label index charges this snapshot's budget.
+    labelBudget = ctx;
     const out = [];
     if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     const nodes = normalizeChildren(out);
