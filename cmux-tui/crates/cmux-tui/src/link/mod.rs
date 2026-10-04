@@ -2,8 +2,13 @@
 //! endpoint (plans/cmux-next/transport.md 3 and 12a). Slice 1: direct paths
 //! to paired peers only, no relay.
 
+mod cloud;
 mod control;
 mod dial;
+// Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
+// map and a token format); tested now.
+#[cfg_attr(not(test), allow(dead_code))]
+mod host_inbound;
 mod inbound;
 #[cfg(target_os = "macos")]
 mod launchd;
@@ -257,6 +262,9 @@ async fn serve(state: LinkState, session_socket: Option<PathBuf>) -> anyhow::Res
         socket,
     )?;
     let overlay = Arc::new(MeshOverlay::new(mesh));
+    // Cloud host ids resolve through the host credential relay, which is
+    // not served yet: Cloud dials report `unreachable` until it ships.
+    let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
@@ -272,7 +280,7 @@ async fn serve(state: LinkState, session_socket: Option<PathBuf>) -> anyhow::Res
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
     }));
     let result = tokio::select! {
-        served = serve_local(local, overlay.clone(), peers.clone()) => served.map_err(anyhow::Error::from),
+        served = serve_local(local, overlay.clone(), peers.clone(), resolver) => served.map_err(anyhow::Error::from),
         () = serve_overlay(listener, peers.clone(), session_socket) => Ok(()),
         signal = shutdown_signal() => signal,
     };

@@ -15,11 +15,16 @@
 //!   file written by `cmux link peer add`).
 //! - [`registration`]: `link.json` in the daemon state dir, which names
 //!   the running link's socket.
+//! - [`connect_info`]: Cloud host ids resolved through
+//!   `cloud.machine.connect_info`, cached without their tokens.
+//! - [`token`]: the host side's link token check (deny by default).
 //! - [`caller`]: who may connect to the link's socket and to the daemon's
 //!   remote entry (same user, and on macOS the cmux code signature).
 
 pub mod caller;
+pub mod connect_info;
 pub mod dial;
+pub mod token;
 pub mod entry_path;
 pub mod overlay_addr;
 pub mod pairing;
