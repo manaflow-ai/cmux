@@ -147,6 +147,10 @@ def validate(repo: str, number: int, github: GitHub) -> str:
             raise Refused(f"{name}: compile job must succeed on the PR's own head")
         audit.append(f"- {build}: succeeded ([job]({checks[name]['details_url']})).")
 
+    web_validation = checks.get("web-validation", {})
+    if not completed_success(web_validation):
+        raise Refused("web-validation must complete successfully on the exact head")
+
     swift = jobs[SWIFT]
     failed_steps = [step for step in swift["steps"] if step.get("conclusion") != "success"
                     and step.get("conclusion") != "skipped"]

@@ -10,10 +10,7 @@ import os
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("merge_green", ROOT / "scripts/ci/main_fix_evidence.py")
 module = importlib.util.module_from_spec(spec)
-if Path(spec.origin).exists():
-    spec.loader.exec_module(module)
-else:
-    module = None
+spec.loader.exec_module(module)
 HEAD = "a" * 40
 BASE = "b" * 40
 NAMES = ("cmux-next Release compile (Xcode 26)", "cmux app scheme compile (Debug)", "cmux-next swift test")
@@ -39,6 +36,7 @@ class FakeGitHub:
             self.head_checks.append(check)
             self.jobs[i] = {"id": i, "head_sha": HEAD, "run_id": 10, "status": "completed", "conclusion": "success", "name": name, "steps": [{"name": step, "status": "completed", "conclusion": "success"}]}
         self.head_checks.append({"id": 4, "name": "ci-status", "status": "completed", "conclusion": "success", "app": {"slug": "github-actions"}})
+        self.head_checks.append({"id": 5, "name": "web-validation", "status": "completed", "conclusion": "success", "app": {"slug": "github-actions"}})
         self.files = []
 
     def json(self, route, *, paginate=False):
@@ -70,7 +68,6 @@ class FakeGitHub:
         self.logs[30] = test_log() if same_base else test_log(ISSUE.replace("Timeout waiting for load", "Unexpected result"))
 
 
-@unittest.skipIf(module is None, "evidence validator not implemented yet")
 class MainFixEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.gh = FakeGitHub()
@@ -87,6 +84,16 @@ class MainFixEvidenceTests(unittest.TestCase):
     def test_missing_debug_compile_is_not_green(self):
         self.gh.head_checks.pop(1)
         with self.assertRaisesRegex(module.Refused, "Debug"):
+            self.validate()
+
+    def test_missing_or_pending_web_validation_is_not_green(self):
+        self.gh.head_checks.pop()
+        with self.assertRaisesRegex(module.Refused, "web-validation"):
+            self.validate()
+        self.gh = FakeGitHub()
+        self.gh.head_checks[-1]["status"] = "in_progress"
+        self.gh.head_checks[-1]["conclusion"] = None
+        with self.assertRaisesRegex(module.Refused, "web-validation"):
             self.validate()
 
     def test_skipped_or_queued_compile_cannot_be_waived(self):
