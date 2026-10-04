@@ -21,6 +21,8 @@ export interface UserState extends PushTargetsState, ChiefsState {
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
    */
   readonly ssh_revoke_pending?: Readonly<Record<string, { readonly user: string; readonly teams: ReadonlyArray<string>; readonly at: number }>>
+  /** Every team this user belongs to, written only by that team's TeamDO (user.team_index; DM reach reads it). */
+  readonly team_index?: Readonly<Record<string, { readonly role: string; readonly kind: string }>>
 }
 
 const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20)
@@ -202,6 +204,20 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         if (!cur) return reject("selector.not_found", "install not found")
         if (cur.bound_team !== v.team) return reject("auth.forbidden", "install is not bound to this team")
         return revokeInstall(state, cur, ctx.now)
+      }
+      case "user.team_index": {
+        // Only the team's own TeamDO (its outbox delivers as system:team:<id>) indexes that team.
+        const v = params as { team?: unknown; role?: unknown; kind?: unknown }
+        if (typeof v.team !== "string" || p.kind !== "system" || p.identity !== `system:team:${v.team}`) return reject("auth.forbidden", "internal op of the team's TeamDO")
+        const cur = state.team_index?.[v.team]
+        if (v.role === null) {
+          if (!cur) return { ok: true, state, value: null, changed: false }
+          const { [v.team]: _gone, ...rest } = state.team_index ?? {}
+          return { ok: true, state: { ...state, team_index: rest }, value: null }
+        }
+        if (typeof v.role !== "string" || typeof v.kind !== "string") return reject("validation.invalid", "role and kind are required")
+        if (cur && cur.role === v.role && cur.kind === v.kind) return { ok: true, state, value: cur, changed: false }
+        return { ok: true, state: { ...state, team_index: { ...(state.team_index ?? {}), [v.team]: { role: v.role, kind: v.kind } } }, value: { role: v.role, kind: v.kind } }
       }
       case "install.ssh_revoke_done": {
         // UserDO's own alarm, after every team in the notice confirmed the KRL entries.

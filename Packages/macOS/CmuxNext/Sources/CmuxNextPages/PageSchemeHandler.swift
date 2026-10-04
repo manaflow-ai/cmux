@@ -71,7 +71,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     nonisolated static func fileURL(for url: URL, page: PageDescriptor, root: URL) -> URL? {
         guard page.owns(url) else { return nil }
         var components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        if components.isEmpty { components = ["index.html"] }
+        if components.isEmpty { components = [page.entry] }
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let file = components.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
@@ -80,6 +80,15 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     nonisolated static func mimeType(forExtension pathExtension: String) -> String {
-        UTType(filenameExtension: pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        // Module scripts need a JavaScript type, and UTType does not know every extension (.mjs).
+        switch pathExtension.lowercased() {
+        case "js", "mjs": return "text/javascript"
+        case "css": return "text/css"
+        case "html": return "text/html"
+        case "json": return "application/json"
+        case "wasm": return "application/wasm"
+        default: break
+        }
+        return UTType(filenameExtension: pathExtension)?.preferredMIMEType ?? "application/octet-stream"
     }
 }

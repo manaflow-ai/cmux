@@ -2386,7 +2386,7 @@ export interface CloudOps {
     }
     readonly result: DeviceStatus
   }
-  /** Read a team's directory: members and enrolled hosts (U2). */
+  /** Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list. */
   readonly "team.directory": {
     readonly params: {
       readonly team?: TeamId
@@ -2425,6 +2425,21 @@ export interface CloudOps {
     }
     readonly result: EnrollmentToken
   }
+  /** Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor). */
+  readonly "team.hosts.list": {
+    readonly params: {
+      readonly team?: TeamId
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly hosts: ReadonlyArray<Host>
+      readonly host_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor: string | null
+      readonly revision: string
+    }
+  }
   /** Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
   readonly "team.integration.release_lock": {
     readonly params: {
@@ -2432,6 +2447,22 @@ export interface CloudOps {
     }
     readonly result: {
       readonly released: "sso" | "mdm"
+    }
+  }
+  /** Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role. */
+  readonly "team.members.list": {
+    readonly params: {
+      readonly team?: TeamId
+      readonly cursor?: string
+      readonly limit?: number
+      readonly role?: "owner" | "admin" | "member"
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly members: ReadonlyArray<TeamMember>
+      readonly member_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor: string | null
+      readonly revision: string
     }
   }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
@@ -2705,7 +2736,9 @@ export const cloudOpMeta = {
   "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.hosts.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.members.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
