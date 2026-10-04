@@ -126,6 +126,9 @@ fn read_regular(path: &Path) -> io::Result<Vec<u8>> {
     }
     let mut bytes = Vec::new();
     std::fs::File::open(path)?.take(MAX_BYTES).read_to_end(&mut bytes)?;
+    if meta.len() > MAX_BYTES {
+        eprintln!("cmux-cloud: {} is over 1 MiB; only the first MiB was read", path.display());
+    }
     Ok(bytes)
 }
 

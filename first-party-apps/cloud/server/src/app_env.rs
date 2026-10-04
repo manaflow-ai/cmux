@@ -187,10 +187,16 @@ pub(crate) fn write_private_with(
         let _ = std::fs::remove_file(&staging);
         return renamed;
     }
-    // The new name is durable only once the folder is synced.
+    // The new name is durable only once the folder is synced. Best effort:
+    // the rename already happened, so a failed sync must not report the
+    // write as failed (the caller's memory would then differ from the file).
     #[cfg(unix)]
-    if let Some(dir) = path.parent() {
-        std::fs::File::open(dir)?.sync_all()?;
+    {
+        let dir =
+            path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+        if let Err(e) = std::fs::File::open(dir).and_then(|d| d.sync_all()) {
+            eprintln!("cmux-cloud: could not sync the folder of {}: {e}", path.display());
+        }
     }
     Ok(())
 }
