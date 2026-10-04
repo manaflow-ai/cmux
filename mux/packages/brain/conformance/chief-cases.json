@@ -7440,6 +7440,232 @@
    }
   },
   {
+   "name": "default conversation: an old default switches once to the Home Chief conversation; an outstanding prompt keeps its conversation",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "m_conv_old_1": {
+      "conversation": "conv_old",
+      "text": "[conversation conv_old from Me] old",
+      "seq": 1,
+      "order": 1
+     }
+    },
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_old",
+    "muxSessionId": "s_mux"
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_chief",
+       "owner": "local",
+       "title": "conv_chief",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "m_conv_old_1": {
+          "conversation": "conv_old",
+          "text": "[conversation conv_old from Me] old",
+          "seq": 1,
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_chief",
+        "muxSessionId": "s_mux"
+       }
+      }
+     ]
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": [
+       {
+        "sessionId": "s_mux",
+        "seq": 1,
+        "dir": "mux",
+        "kind": "user_message",
+        "msg": {
+         "promptId": "m_conv_old_1"
+        }
+       },
+       {
+        "sessionId": "s_mux",
+        "seq": 2,
+        "dir": "mux",
+        "kind": "turn_started",
+        "msg": {}
+       },
+       {
+        "sessionId": "s_mux",
+        "seq": 3,
+        "dir": "agent",
+        "kind": "agent_message_chunk",
+        "msg": {
+         "params": {
+          "update": {
+           "content": {
+            "type": "text",
+            "text": "late answer"
+           }
+          }
+         }
+        }
+       },
+       {
+        "sessionId": "s_mux",
+        "seq": 4,
+        "dir": "mux",
+        "kind": "turn_end",
+        "msg": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 4,
+        "prompts": {},
+        "answered": [
+         "m_conv_old_1"
+        ],
+        "outbox": [
+         {
+          "conversation": "conv_old",
+          "idempotency_key": "turn:s_mux:2",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "turn:s_mux:2",
+           "parts": [
+            {
+             "type": "text",
+             "text": "late answer"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {},
+        "defaultConversation": "conv_chief",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "typing",
+       "conversation": "conv_old",
+       "on": true
+      },
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_old",
+       "idempotency_key": "turn:s_mux:2",
+       "op": {
+        "kind": "message.send",
+        "client_msg_id": "turn:s_mux:2",
+        "parts": [
+         {
+          "type": "text",
+          "text": "late answer"
+         }
+        ]
+       }
+      },
+      {
+       "kind": "typing",
+       "conversation": "conv_old",
+       "on": false
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 5,
+       "dir": "mux",
+       "kind": "turn_started",
+       "msg": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "typing",
+       "conversation": "conv_chief",
+       "on": true
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 4,
+    "prompts": {},
+    "answered": [
+     "m_conv_old_1"
+    ],
+    "outbox": [
+     {
+      "conversation": "conv_old",
+      "idempotency_key": "turn:s_mux:2",
+      "op": {
+       "kind": "message.send",
+       "client_msg_id": "turn:s_mux:2",
+       "parts": [
+        {
+         "type": "text",
+         "text": "late answer"
+        }
+       ]
+      }
+     }
+    ],
+    "children": {},
+    "defaultConversation": "conv_chief",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
    "name": "turns: an empty promptId is no prompt id (no acceptance, nothing answered); non-string chunk text is skipped",
    "state": {
     "acpmuxSeq": 0,

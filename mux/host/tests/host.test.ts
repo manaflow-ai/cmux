@@ -61,6 +61,26 @@ describe("daemon client vs the fake daemon", () => {
   });
 });
 
+describe("one Chief conversation", () => {
+  test("the app's Home Chief conversation (key home-chief) is the Chief's default: no second conversation", async () => {
+    const w = await setup();
+    const chief = w.daemon.createConversation(
+      "Chief",
+      [
+        { id: USER_LOCAL, kind: "human", display_name: "Test User" },
+        { id: AGENT_MUX, kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" },
+      ],
+      "home-chief",
+    );
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.conversationIds).toEqual([chief]);
+    w.daemon.send(chief, USER_LOCAL, "hi");
+    await w.daemon.until(() => muxReplies(w.daemon.messages(chief)).length === 1);
+  });
+});
+
 describe("inbox", () => {
   test("a human message prompts the mux with promptId = message id; the reply is posted by agent_mux with the turn key", async () => {
     const w = await setup();
@@ -69,10 +89,11 @@ describe("inbox", () => {
     await host.ready;
     const [conv] = w.daemon.conversationIds;
     const summary = w.daemon.conversation(conv).summary;
-    expect(summary.title).toBe("mux");
+    // The app's Home Chief conversation (HomeChiefName.createRequest).
+    expect(summary.title).toBe("Chief");
     expect(summary.participants).toEqual([
       { id: USER_LOCAL, kind: "human", display_name: "Test User" },
-      { id: AGENT_MUX, kind: "agent", display_name: "mux", agent_class: "mux", acp_session: "mux" },
+      { id: AGENT_MUX, kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" },
     ]);
     const mux = w.acpmux.byName("mux")!;
     expect(mux.summary.harness).toBe("claude-sr");

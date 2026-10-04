@@ -563,6 +563,26 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    // One Chief conversation: a host.json from before (default "conv_old", the old mux-home-default
+    // conversation) switches to the Home Chief conversation once; a prompt still outstanding in
+    // the old conversation keeps its reply there.
+    const c = new CaseBuilder("default conversation: an old default switches once to the Home Chief conversation; an outstanding prompt keeps its conversation", {
+      defaultConversation: "conv_old",
+      muxSessionId: MUX_SESSION,
+      prompts: { m_conv_old_1: { conversation: "conv_old", text: "[conversation conv_old from Me] old", seq: 1, order: 1 } },
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_chief") }, ["persist"], (e) =>
+      c.check(c.persisted(e).defaultConversation === "conv_chief", "the Home Chief conversation is the default"),
+    );
+    c.step({ kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [ev(1, "user_message", { promptId: "m_conv_old_1" }), ev(2, "turn_started"), chunk(3, "late answer"), ev(4, "turn_end")] }, ["persist", "typing", "conversation_op", "typing", "list_conversations"], (e) =>
+      c.check(c.get(e, "conversation_op").conversation === "conv_old", "the old prompt's reply goes to its own conversation"),
+    );
+    // A promptless turn (no conversation of its own) goes to the new default.
+    c.step(mux(ev(5, "turn_started")), ["typing"], (e) => c.check(c.get(e, "typing").conversation === "conv_chief", "new default"));
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("turns: an empty promptId is no prompt id (no acceptance, nothing answered); non-string chunk text is skipped");
     boot(c);
     c.step(mux(ev(1, "user_message", { promptId: "" })), []);

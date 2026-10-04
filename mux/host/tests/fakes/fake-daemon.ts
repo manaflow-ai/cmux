@@ -94,8 +94,8 @@ export class FakeDaemon {
   }
 
   /** A client (the app) creates a conversation directly. */
-  createConversation(title: string, participants: Participant[]): string {
-    return (this.handle({ id: 0, cmd: "conversation-create", idempotency_key: `t-${title}`, actor: participants[0].id, title, participants }) as { conversation: Summary }).conversation.id;
+  createConversation(title: string, participants: Participant[], key = `t-${title}`): string {
+    return (this.handle({ id: 0, cmd: "conversation-create", idempotency_key: key, actor: participants[0].id, title, participants }) as { conversation: Summary }).conversation.id;
   }
 
   /** A client (the app) sends a text message as `actor`. */
