@@ -60,7 +60,9 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         case let .hide(session):
             cursors[session]?.root.isHidden = true
         case let .setPaused(session, paused):
-            cursor(for: session).isPaused = paused
+            // Never create a cursor for a pause: lease frames reach every
+            // content, and the model refuses input while paused anyway.
+            cursors[session]?.isPaused = paused
         case let .remove(session):
             cursors.removeValue(forKey: session)?.root.removeFromSuperlayer()
         }

@@ -288,6 +288,9 @@ const imageOf = (env: Env): string | undefined => env.CLOUD_FREESTYLE_SNAPSHOT |
 /** A usable provider: this environment's exact prefix, a key (or the test fake) and this environment's snapshot. */
 const cloudRawDriverReady = (env: Env): boolean => cloudConfig(env).image !== null
 
+/** Whether this deployment has a usable provider (key or test fake, this environment's prefix, its image). */
+export const cloudProviderReady = (env: Env): boolean => cloudRawDriverReady(env)
+
 /** The guarded driver, or null when this deployment has no usable provider. */
 export const cloudDriver = (env: Env, sql: SqlStore): GuardedCloudDriver | null => {
   if (!cloudRawDriverReady(env)) return null
