@@ -218,3 +218,7 @@ impl InputEmitter {
 #[cfg(test)]
 #[path = "automation_input_tests.rs"]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "automation_input_e2e_tests.rs"]
+mod e2e_tests;
