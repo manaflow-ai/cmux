@@ -75,7 +75,7 @@ fn close_a_page_then_create(close: &str) -> (anyhow::Result<Value>, usize, usize
         parsed_request(
             "workspace.create",
             &session(),
-            json!({"initial_content":"terminal","name":"after-close","cwd":"/tmp"}),
+            json!({"initial_content":"terminal","name":"after-close"}),
             "create-after-close",
         ),
     )
