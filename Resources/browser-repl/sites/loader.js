@@ -381,9 +381,36 @@
         return tool.withOrigin(origin, (run) => run(fn, arg), options);
       },
       // Like inOrigin for several calls on one tab: body(run) where
-      // run(fn, arg) evaluates in the page.
+      // run(fn, arg) evaluates in the page. A redirect can leave the tab on
+      // another origin, whose page would then receive the call with the
+      // profile's cookies: run() fails (origin_changed) unless the tab's
+      // URL is on `origin`, and the evaluation itself first checks the
+      // document's own location.origin, so no call runs in a document of
+      // another origin, also one that replaced the page after the check.
       async withOrigin(origin, body, options = {}) {
-        return tool.withTab(origin.replace(/\/$/, "") + (options.path || "/robots.txt"), (page) => body((fn, arg) => page.evaluate(fn, arg)), options);
+        const base = String(origin).replace(/\/$/, "");
+        let want;
+        try {
+          want = new ctx.URL(base).origin;
+        } catch (e) {
+          want = null;
+        }
+        if (!want || !/^https?:\/\//.test(want)) throw new SiteError("invalid", `sites: expected an http(s) origin, got ${JSON.stringify(origin)}`);
+        const changed = (where) => new SiteError("origin_changed", `sites: ${base}${options.path || "/robots.txt"} led to ${where}, not a page on ${want} (a redirect); nothing ran there`);
+        return tool.withTab(base + (options.path || "/robots.txt"), (page) =>
+          body(async (fn, arg) => {
+            let at = null;
+            try {
+              at = new ctx.URL(page.url()).origin;
+            } catch (e) {}
+            if (at !== want) throw changed(page.url());
+            // eslint-disable-next-line no-new-func
+            const guarded = new Function("__cmux", `if (location.origin !== __cmux.origin) return { __cmuxWrongOrigin: String(location.origin) };\nreturn (${String(fn)})(__cmux.arg);`);
+            const r = await page.evaluate(guarded, { origin: want, arg });
+            if (r && typeof r === "object" && typeof r.__cmuxWrongOrigin === "string" && Object.keys(r).length === 1) throw changed(r.__cmuxWrongOrigin);
+            return r;
+          }),
+        options);
       },
       // Waits in `page` until fn(arg) returns a truthy value; returns it.
       // With { signIn: [patterns], name }, a tab that reaches a sign-in page
