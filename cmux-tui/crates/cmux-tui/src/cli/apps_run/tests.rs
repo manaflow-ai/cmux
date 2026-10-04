@@ -249,5 +249,8 @@ async fn a_cancelled_answer_before_the_cancel_reply_is_one_confirmed_cancel() {
         "one cancel-request, then the connection closed"
     );
     let (stdout, stderr, code) = report(&outcome, OutputMode::Human);
-    assert_eq!((stdout, stderr.as_deref(), code), (None, Some(messages().cancelled), EXIT_CANCELLED));
+    assert_eq!(
+        (stdout, stderr.as_deref(), code),
+        (None, Some(messages().cancelled), EXIT_CANCELLED)
+    );
 }

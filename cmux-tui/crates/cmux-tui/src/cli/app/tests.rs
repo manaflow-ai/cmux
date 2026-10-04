@@ -85,7 +85,7 @@ fn action_runs_wait_by_default_and_no_wait_opts_out() {
     assert_eq!(params, json!({ "action": "window.new", "wait": true, "origin": "script" }));
     let command = parse(&args(&["action", "run", "window.new", "--no-wait"])).unwrap().unwrap();
     let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
-    assert_eq!(*timeout, READ_TIMEOUT);
+    assert_eq!(*timeout, Some(READ_TIMEOUT));
     assert_eq!(
         call(command).1,
         json!({ "action": "window.new", "wait": false, "origin": "script" })
@@ -351,9 +351,17 @@ fn settings_writes_take_confirm_and_reset_is_a_verb() {
             "settings.set",
             json!({ "path": "window.titlebar", "value": "minimal", "confirm": true }),
         ),
-        (&["settings", "reset", "a.b", "--confirm"][..], "settings.reset", json!({ "path": "a.b", "confirm": true })),
+        (
+            &["settings", "reset", "a.b", "--confirm"][..],
+            "settings.reset",
+            json!({ "path": "a.b", "confirm": true }),
+        ),
         (&["settings", "reset", "a.b"][..], "settings.reset", json!({ "path": "a.b" })),
-        (&["settings", "unset", "a.b", "--confirm"][..], "settings.unset", json!({ "path": "a.b", "confirm": true })),
+        (
+            &["settings", "unset", "a.b", "--confirm"][..],
+            "settings.unset",
+            json!({ "path": "a.b", "confirm": true }),
+        ),
         (&["settings", "unset", "a.b"][..], "settings.unset", json!({ "path": "a.b" })),
     ];
     for (words, method, params) in cases {
@@ -395,4 +403,47 @@ fn a_user_only_key_is_refused_without_confirm_and_waits_for_the_person_with_it()
     let command = parse(&args(&["settings", "reset", key, "--confirm"])).unwrap().unwrap();
     assert_eq!(run(&global_for(&socket), command), 1);
     assert_eq!(app.join().unwrap()[0][0]["method"], "settings.reset");
+}
+
+/// `--confirm` waits with no client deadline; plain reads and writes keep
+/// the control-plane one.
+#[test]
+fn only_a_confirmed_settings_write_waits_without_a_deadline() {
+    let timeout = |words: &[&str]| match parse(&args(words)).unwrap().unwrap() {
+        AppCommand::Call { timeout, .. } => timeout,
+        AppCommand::Open { .. } | AppCommand::Events { .. } => panic!("expected a call"),
+    };
+    assert_eq!(timeout(&["settings", "set", "a.b", "1", "--confirm"]), None);
+    assert_eq!(timeout(&["settings", "reset", "a.b", "--confirm"]), None);
+    assert_eq!(timeout(&["settings", "set", "a.b", "1"]), Some(READ_TIMEOUT));
+    assert_eq!(timeout(&["settings", "get"]), Some(READ_TIMEOUT));
+}
+
+/// A refusal without --confirm keeps the app's message and adds the rerun
+/// hint; a declined sheet says "declined in cmux"; neither echoes the value.
+#[test]
+fn a_user_only_refusal_says_what_to_do() {
+    let messages = &crate::localization::catalog().app_control;
+    let refusal = |declined: bool| {
+        json!({ "code": "setting_user_only", "message": "k can be changed only by you",
+            "data": { "key": "k", "declined": declined } })
+    };
+    let secret = "s3cr3t-value";
+    let mut error = refusal(false);
+    settings::explain_refusal("settings.set", &json!({ "path": "k", "value": secret }), &mut error);
+    let text = error["message"].as_str().unwrap();
+    assert!(text.starts_with("k can be changed only by you\n"), "{text}");
+    assert!(text.ends_with(messages.settings_confirm_hint), "{text}");
+    assert!(!text.contains(secret));
+    assert_eq!(error["code"], "setting_user_only", "JSON output keeps the code");
+
+    let mut error = refusal(true);
+    let confirmed = json!({ "path": "k", "value": secret, "confirm": true });
+    settings::explain_refusal("settings.reset", &confirmed, &mut error);
+    assert_eq!(error["message"], messages.settings_declined);
+    assert_eq!(error["data"]["declined"], true);
+
+    let mut other = json!({ "code": "managed", "message": "managed by your organization" });
+    settings::explain_refusal("settings.set", &confirmed, &mut other);
+    assert_eq!(other["message"], "managed by your organization");
 }
