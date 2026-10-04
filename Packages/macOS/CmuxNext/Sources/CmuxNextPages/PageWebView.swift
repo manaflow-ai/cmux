@@ -158,6 +158,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
+        #if DEBUG
+        // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
+        // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
+        // users keep WebKit's occlusion throttling.
+        if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
+        #endif
+        PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
+            self?.paintedUptime = ProcessInfo.processInfo.systemUptime
+        }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
@@ -227,7 +236,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func close() {
         router.close()
         bridge.uninstall()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
     }
+
+    /// When the current document painted its first frame (``PagePaintProbe``), in
+    /// `ProcessInfo.systemUptime` seconds; nil until it has.
+    public private(set) var paintedUptime: TimeInterval?
+    public var hasPainted: Bool { paintedUptime != nil }
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
@@ -292,8 +307,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        // A new document: the old one's subscriptions and host calls end with it.
+        // A new document: the old one's subscriptions and host calls end with it, and it has not
+        // painted yet.
         router.reset()
+        paintedUptime = nil
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
     }

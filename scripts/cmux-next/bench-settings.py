@@ -41,7 +41,8 @@ TYPED = "fontsize"
 def settings_view(run):
     """('swift'|'react', query) once Settings shows content, else None."""
     page = run.call("debug.page", {"page": "cmux.settings"}).get("result") or {}
-    if isinstance(page, dict) and "error" not in page and page.get("controls", 0) > 0:
+    # The React page counts as shown once its first frame painted (debug.page `painted`).
+    if isinstance(page, dict) and "error" not in page and page.get("controls", 0) > 0 and page.get("painted", True):
         return "react", (page.get("active") or {}).get("value", "")
     model = run.call("debug.settings").get("result") or {}
     if isinstance(model, dict) and "error" not in model and model.get("section"):
