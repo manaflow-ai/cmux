@@ -147,6 +147,10 @@
     "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1)",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:121 (ThemeTokens.derive)"
    },
+   "textPlaceholder": {
+    "value": "alpha(dark ? #FFFFFF : #000000, dark ? 0.549 : 0.498)",
+    "source": "AppKit NSColor.placeholderTextColor resolved to sRGB (macOS 27, standard contrast); used by the Chief composer placeholder"
+   },
    "hoverFill": {
     "value": "alpha(fg, dark ? 0.06 : 0.05)",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:114 (ThemeTokens.derive)"
