@@ -122,6 +122,15 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         return (try? JSONValue.parse(Data(option.utf8))) ?? .string(option)
     }
 
+    /// A theme setting's values (R98): the Ghostty config (reset) first,
+    /// onboarding's themes, then every other theme in `names`, each with its
+    /// swatch strip from `strip`; a current value not listed (a light/dark
+    /// pair, a path) is kept after the config row.
+    static func themeOptions(current: String?, names: [String], defaultLabel: String,
+                             strip: (String) -> [ThemeRGB]) -> [SettingOption] {
+        []
+    }
+
     /// A color setting's swatches from `tokens`: the foreground, the
     /// background, then ANSI 0 to 15.
     static func themeColors(_ tokens: ThemeTokens) -> [ThemeRGB] {

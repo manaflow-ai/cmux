@@ -13,6 +13,8 @@ import Observation
 final class ThemeCatalog {
     /// Theme names, sorted case-insensitively.
     private(set) var names: [String] = []
+    /// Each theme's swatch strip (`ThemeSwatch`), read after the names.
+    private(set) var strips: [String: [ThemeRGB]] = [:]
     @ObservationIgnored private var known: Set<String> = []
     @ObservationIgnored private var loading: Task<Void, Never>?
 
@@ -39,6 +41,17 @@ final class ThemeCatalog {
             // concurrency-allow: one stat of a user-typed absolute path, on an explicit action
             known.contains(name) || (name.hasPrefix("/") && FileManager.default.fileExists(atPath: name))
         }
+    }
+
+    /// The swatch strip of the theme `name`; empty for an unknown name or
+    /// before the strips load.
+    func swatches(for name: String) -> [ThemeRGB] {
+        []
+    }
+
+    /// Every theme's swatch strip, the user's file winning on a name clash.
+    nonisolated static func strips(resources: String?, home: URL, environment: [String: String]) -> [String: [ThemeRGB]] {
+        [:]
     }
 
     nonisolated static func list(resources: String?, home: URL, environment: [String: String]) -> [String] {
