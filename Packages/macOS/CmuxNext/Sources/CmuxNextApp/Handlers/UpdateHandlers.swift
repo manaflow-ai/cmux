@@ -6,7 +6,8 @@ import CmuxNextUpdater
 /// use Sparkle, DEV builds probe the feed read-only. Install and channel
 /// switch are disabled, with the reason, where they cannot run.
 enum UpdateHandlers {
-    static func bind(into registry: ActionRegistry, updater: UpdaterService) {
+    static func bind(into registry: ActionRegistry, updater: UpdaterService, openChangelog: @escaping @MainActor () -> Bool = { false }) {
+        registry.bind("updates.whatsNew", run: { _ in _ = openChangelog() })
         // Not tracked for `action.run wait`: a feed fetch can outlast the 2 s
         // control deadline. `updates.check` / `updates.status` carry the result.
         registry.bind("palette.checkForUpdates", run: { _ in updater.checkForUpdates() })

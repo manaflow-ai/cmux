@@ -96,6 +96,12 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], cliName: "settings check-for-updates", mainMenu: .app
             ),
             ActionDescriptor(
+                id: "updates.whatsNew",
+                title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),
+                keywords: ["changelog", "release notes", "update", "new"], category: .settings, symbol: "sparkles",
+                surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .app
+            ),
+            ActionDescriptor(
                 id: "palette.applyUpdateIfAvailable",
                 title: String(localized: "action.palette.applyUpdateIfAvailable", defaultValue: "Install Available Update", bundle: .module),
                 keywords: ["update", "install"], category: .settings, symbol: "arrow.down.circle.fill",
