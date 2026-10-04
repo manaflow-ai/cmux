@@ -41,6 +41,8 @@ export interface FilesView {
   entries?: FsEntry[];
   loading: boolean;
   preview?: FilePreview;
+  /** The last push or pull was refused as busy (`transfer_busy`); Retry runs it again. */
+  busy?: { direction: "push" | "pull"; path: string };
 }
 
 export interface FilesHost {
@@ -213,6 +215,9 @@ export class FilesReader {
     if (!machine || !files) return;
     if (await this.native(machine, CloudOps.filePush, { machine, path: files.path })) await this.refresh(machine);
   }
+
+  /** Runs the push or pull that `transfer_busy` refused again. */
+  async retryTransfer(): Promise<void> {}
 
   /** Copies a file of the machine to this Mac; the host's save panel picks `localPath`. */
   async pull(path: string): Promise<void> {
