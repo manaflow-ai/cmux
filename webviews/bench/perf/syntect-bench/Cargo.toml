@@ -1,0 +1,28 @@
+[package]
+name = "syntect-bench"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Bench only (plans/cmux-next/diff-perf.md): syntect (TextMate-family, Sublime syntaxes) and
+# tree-sitter-highlight throughput on the fixture patches' changed lines, one thread and all cores.
+[dependencies]
+syntect = { version = "5", default-features = false, features = [
+  "default-syntaxes",
+  "default-themes",
+  "regex-onig",
+  "parsing",
+  "html",
+] }
+rayon = "1"
+tree-sitter = "0.25"
+tree-sitter-highlight = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-python = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-javascript = "0.23"
+
+[workspace]
+
+[profile.release]
+debug = false

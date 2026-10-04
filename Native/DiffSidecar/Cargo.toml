@@ -8,6 +8,8 @@ publish = false
 [features]
 default = []
 benchmark = []
+# Prototype: summary-first sessions with per-file hunks on demand (plans/cmux-next/diff-perf.md).
+lazy-hunks = []
 http-server = [
     "dep:axum",
     "dep:futures-util",

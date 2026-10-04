@@ -89,6 +89,10 @@ impl ResourceScheme {
     }
 }
 
+#[cfg(feature = "lazy-hunks")]
+#[path = "lazy.rs"]
+mod lazy;
+
 #[derive(Clone)]
 struct AppState {
     config: Arc<ServerConfig>,
@@ -273,6 +277,28 @@ pub async fn run_rpc(config: ServerConfig) -> Result<(), String> {
 
 async fn run_rpc_request(config: ServerConfig) -> Result<(), String> {
     let response = match read_rpc_request(tokio::io::stdin(), RPC_STDIN_READ_TIMEOUT).await? {
+        #[cfg(feature = "lazy-hunks")]
+        RpcRequestRead::Lazy(request) => {
+            #[cfg(feature = "http-server")]
+            let state = app_state(config, 0)?;
+            #[cfg(not(feature = "http-server"))]
+            let state = app_state(config, 0);
+            let reply = lazy::handle(&state, request).await;
+            let bytes = serde_json::to_vec(&reply).map_err(|error| error.to_string())?;
+            if bytes.len() > MAX_RPC_RESPONSE_BYTES {
+                return Err("response exceeds 32 MiB".to_owned());
+            }
+            let mut stdout = tokio::io::stdout();
+            stdout
+                .write_all(&bytes)
+                .await
+                .map_err(|error| error.to_string())?;
+            stdout
+                .write_all(b"\n")
+                .await
+                .map_err(|error| error.to_string())?;
+            return stdout.flush().await.map_err(|error| error.to_string());
+        }
         RpcRequestRead::Request(request) => {
             #[cfg(feature = "http-server")]
             let state = app_state(config, 0)?;
@@ -286,6 +312,8 @@ async fn run_rpc_request(config: ServerConfig) -> Result<(), String> {
 }
 
 enum RpcRequestRead {
+    #[cfg(feature = "lazy-hunks")]
+    Lazy(serde_json::Value),
     Request(DiffRequest),
     Rejected(DiffResponse),
 }
@@ -314,6 +342,12 @@ where
             "requestTooLarge",
             "RPC request exceeds 1 MiB",
         )));
+    }
+    #[cfg(feature = "lazy-hunks")]
+    if let Ok(request) = serde_json::from_slice::<serde_json::Value>(&input)
+        && lazy::is_lazy_method(&request)
+    {
+        return Ok(RpcRequestRead::Lazy(request));
     }
     match serde_json::from_slice(&input) {
         Ok(request) => Ok(RpcRequestRead::Request(request)),
