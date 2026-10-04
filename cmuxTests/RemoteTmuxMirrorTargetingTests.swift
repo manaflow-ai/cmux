@@ -469,6 +469,20 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(try harness.surfaceTitles() == ["cmuxs-Mac-mini.local", "run: build", "run: publish"])
     }
 
+    @Test func octalEscapedPaneTitleMetadataUsesPaneTitlesOnMirrorSurfaces() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows([
+            "@2 abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} abcd,120x40,0,0{60x40,0,0,4,59x40,61,0,5} [] editor",
+        ])
+        try harness.drainThroughPaneRects([2: [
+            "%4 0 0 60 40 1 off :0 \\\"host\\\"\\037editor\\037host\\037host",
+            "%5 61 0 59 40 0 off :1 \\\"host\\\"\\037logs\\037host\\037host",
+        ]])
+
+        #expect(try harness.surfaceTitles() == ["editor", "logs"])
+    }
+
     @Test func cmuxPaneRenameTargetsItsTmuxPaneAndRemoteRenameReturnsToCmux() throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }

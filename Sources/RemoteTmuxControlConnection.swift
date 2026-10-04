@@ -165,6 +165,11 @@ final class RemoteTmuxControlConnection {
     /// attempts); cancelled on `stop()` / genuine end so a dead connection stops
     /// retrying.
     private var reconnectTask: Task<Void, Never>?
+    /// Fallback reconciliation for tmux builds that intermittently omit a
+    /// `%subscription-changed` notification for `pane_title`. `requestWindows`
+    /// coalesces these refreshes, and pane rect publication updates titles only
+    /// when the authoritative value changed.
+    private var paneTitleReconciliationTask: Task<Void, Never>?
     /// Number of reconnect attempts since the last successful connect, driving the
     /// capped exponential backoff. Reset to 0 on a successful connect.
     private var reconnectAttemptCount = 0
@@ -449,6 +454,14 @@ final class RemoteTmuxControlConnection {
             sessionName: sessionName,
             createIfMissing: createIfMissing
         )
+        // SSH forwards TERM when allocating the remote PTY. The GUI process can
+        // inherit an unsuitable value (for example from a launcher shell), which
+        // makes tmux reject the control client before it emits %enter. The mirror
+        // protocol needs a broadly available terminal definition rather than the
+        // launcher's terminal type.
+        var environment = ProcessInfo.processInfo.environment
+        environment["TERM"] = "xterm-256color"
+        proc.environment = environment
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         proc.standardInput = inPipe
         proc.standardOutput = outPipe
@@ -570,6 +583,8 @@ final class RemoteTmuxControlConnection {
         failPendingCommandTransactions()
         reconnectTask?.cancel()
         reconnectTask = nil
+        paneTitleReconciliationTask?.cancel()
+        paneTitleReconciliationTask = nil
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
@@ -1022,6 +1037,7 @@ final class RemoteTmuxControlConnection {
             if !attachBlockDrained {
                 attachBlockDrained = true
                 requestWindows()
+                startPaneTitleReconciliation()
             } else {
                 handleCommandResult(lines: lines, isError: isError)
             }
@@ -1055,6 +1071,30 @@ final class RemoteTmuxControlConnection {
     ///   must; a rename (`%session-renamed`) keeps the same windows, so it skips
     ///   the extra round trip. An invalid name always re-fetches as a recovery
     ///   resync regardless.
+    /// Starts the low-frequency authoritative title refresh once the command
+    /// FIFO is aligned. This is a compatibility fallback for a tmux server that
+    /// has accepted a `refresh-client -B` title watcher but later omits its
+    /// changed notification; normal servers still update immediately through
+    /// the subscription.
+    private func startPaneTitleReconciliation() {
+        paneTitleReconciliationTask?.cancel()
+        paneTitleReconciliationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await ContinuousClock().sleep(for: .seconds(3))
+                } catch {
+                    return
+                }
+                guard let self, self.connectionState == .connected, self.attachBlockDrained else {
+                    return
+                }
+                for paneId in Set(self.windowsByID.values.flatMap(\.paneIDsInOrder)) {
+                    self.requestPaneTitleReconciliation(paneId: paneId)
+                }
+            }
+        }
+    }
+
     private func applySessionNameChange(sessionId newSessionId: Int?, name: String, event: String, refetchWindows: Bool) {
         guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
             let idSuffix = newSessionId.map { " $\($0)" } ?? ""

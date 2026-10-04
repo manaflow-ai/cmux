@@ -330,6 +330,10 @@ extension RemoteTmuxControlConnection {
             // One-shot reflow classification result (see requestPaneReflow). Empty
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
+        case let .paneTitleReconciliation(paneId):
+            if updatePaneTitleMetadata(paneId: paneId, wireValue: lines.first ?? "") {
+                observers.emitPaneTitleChanged(paneId)
+            }
         case let .activityQuery(token):
             guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]
