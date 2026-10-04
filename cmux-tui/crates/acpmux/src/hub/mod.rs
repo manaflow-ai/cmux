@@ -238,6 +238,8 @@ pub struct Hub {
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
     pub(super) handoffs: handoff::Handoffs,
+    /// New agents run under agent hosts (`enable_agent_hosts`).
+    pub(super) agent_hosts: AtomicBool,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -295,6 +297,7 @@ impl Hub {
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
+            agent_hosts: AtomicBool::new(false),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {

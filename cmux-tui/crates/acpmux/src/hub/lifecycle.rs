@@ -969,12 +969,17 @@ impl Hub {
     }
 
     /// New agents run under an `__agent-host` process, so they outlive this
-    /// daemon (durable sessions). Off by default until the hub recovers every
-    /// turn state after an adopt; `ACPMUX_AGENT_HOSTS=1` turns it on. Memory
+    /// daemon (durable sessions). The daemon turns this on at start
+    /// (`daemon run`; `ACPMUX_AGENT_HOSTS=0` is the one-release opt-out);
+    /// an in-process hub (tests, embedding) keeps direct children. Memory
     /// stores keep no log to resume from, so they never use hosts.
-    pub(super) fn agent_hosts_enabled(&self) -> bool {
-        self.store.session_dir("probe").is_some()
-            && std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "1")
+    pub(crate) fn agent_hosts_enabled(&self) -> bool {
+        self.store.session_dir("probe").is_some() && self.agent_hosts.load(Ordering::SeqCst)
+    }
+
+    /// Run new agents under agent hosts (see `agent_hosts_enabled`).
+    pub fn enable_agent_hosts(&self) {
+        self.agent_hosts.store(true, Ordering::SeqCst);
     }
 
     async fn spawn_hosted_child(

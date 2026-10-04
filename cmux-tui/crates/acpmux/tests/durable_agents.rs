@@ -42,7 +42,7 @@ impl Daemon {
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
-            .env("ACPMUX_AGENT_HOSTS", "1")
+            .env_remove("ACPMUX_AGENT_HOSTS")
             .env_remove("ACPMUX_LOGIN_ENV")
             .env_remove("XPC_SERVICE_NAME")
             .stdin(Stdio::null())

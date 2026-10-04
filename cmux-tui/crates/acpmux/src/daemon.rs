@@ -148,6 +148,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    // Agents outlive this daemon unless the user opts out for this release.
+    if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
+        hub.enable_agent_hosts();
+    }
     hub.begin_startup(login_env);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
