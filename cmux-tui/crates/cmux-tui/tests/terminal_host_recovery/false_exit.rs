@@ -234,3 +234,95 @@ fn unadoptable_host_that_exits_ends_its_terminal_with_the_real_status() {
     );
     assert!(!record_path.exists(), "the ended host's record must be removed");
 }
+
+/// A live host that refuses every protocol this build offers (a newer
+/// build's host after a rollback, whose record this build still reads) must
+/// not read "adopting" forever. After repeated refusals while the host is
+/// live, the terminal reads unadoptable, the host keeps running, and close
+/// ends the host with proof (plans/cmux-next/durable-sessions.md section 7).
+#[test]
+fn live_host_that_refuses_every_protocol_is_unadoptable_not_adopting() {
+    let mut harness = RecoveryHarness::start("false-exit-no-common-protocol");
+    let created = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "cols": 80,
+            "rows": 24,
+        }),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let tab_id = tab_resource_id_of(&harness.socket, surface, 50);
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid as libc::pid_t;
+    struct KillOnDrop(libc::pid_t);
+    impl Drop for KillOnDrop {
+        fn drop(&mut self) {
+            // SAFETY: the PID is this test's terminal host (a session leader).
+            unsafe { libc::killpg(self.0, libc::SIGKILL) };
+        }
+    }
+    let _host_guard = KillOnDrop(host_pid);
+    let endpoint = PathBuf::from(&record.endpoint);
+    let held_endpoint = endpoint.with_extension("held-for-protocol-test");
+
+    harness.sigkill();
+    // The real host keeps running and holds its live marker. Its socket is
+    // replaced by one that reads each ClientHello and closes without a
+    // HostHello: what a host with no protocol in common does.
+    fs::rename(&endpoint, &held_endpoint).unwrap();
+    let refusing = std::os::unix::net::UnixListener::bind(&endpoint).unwrap();
+    std::thread::spawn(move || {
+        for stream in refusing.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let _ = read_frame(&mut stream, MAX_FRAME_PAYLOAD);
+        }
+    });
+    harness.restart();
+    let mut events = subscribe(&harness.socket);
+    let (pushed, pushes) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        while events.read_line(&mut line).is_ok_and(|read| read > 0) {
+            if line.contains("\"event\":\"tree-changed\"") && pushed.send(()).is_err() {
+                return;
+            }
+            line.clear();
+        }
+    });
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    let tab = loop {
+        let tab = tab_with_resource_id(&harness.socket, &tab_id, 3);
+        if tab["terminal_state"] == "unadoptable" {
+            break tab;
+        }
+        assert_eq!(tab["terminal_state"], "adopting", "{tab}");
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        // Each push is a candidate transition; the tab is re-read after it.
+        if pushes.recv_timeout(remaining).is_err() {
+            break tab_with_resource_id(&harness.socket, &tab_id, 4);
+        }
+    };
+    assert_eq!(
+        tab["terminal_state"], "unadoptable",
+        "a host that refuses every protocol stayed adopting: {tab}"
+    );
+    assert_eq!(tab["dead"], false, "{tab}");
+    assert!(process_exists(host_pid), "the refusing host must keep running");
+
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "close-terminal",
+            "terminal_id": terminal_id,
+            "terminal_incarnation": incarnation,
+        }),
+    );
+    wait_for_process_and_group_absent(host_pid);
+}
