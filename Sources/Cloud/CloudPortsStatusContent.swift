@@ -30,6 +30,7 @@ final class CloudPortsStatusContent: NSView {
         messageLabel.lineBreakMode = .byWordWrapping
         messageLabel.textColor = .secondaryLabelColor
         actionButton.bezelStyle = .inline
+        actionButton.controlSize = .small
         actionButton.target = self
         actionButton.action = #selector(performAction)
         actionButton.setAccessibilityRole(.button)
@@ -53,12 +54,22 @@ final class CloudPortsStatusContent: NSView {
         actionHandler = action
         titleLabel.stringValue = presentation.title
         messageLabel.stringValue = presentation.message
+        let actionTitle = presentation.actionTitle
+        let usesRefreshIcon = presentation.action == .refresh && actionTitle != nil
+        actionButton.title = usesRefreshIcon ? "" : actionTitle ?? ""
+        actionButton.image = usesRefreshIcon
+            ? NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: actionTitle)
+            : nil
+        actionButton.imagePosition = usesRefreshIcon ? .imageOnly : .noImage
+        actionButton.isBordered = !usesRefreshIcon
+        actionButton.contentTintColor = usesRefreshIcon ? .secondaryLabelColor : nil
+        actionButton.toolTip = actionTitle
+        actionButton.isHidden = presentation.action == .none || actionTitle == nil
+        actionButton.setAccessibilityLabel(actionTitle ?? presentation.title)
         messageLabel.isHidden = presentation.message.isEmpty
-        actionButton.title = presentation.actionTitle ?? ""
-        actionButton.isHidden = presentation.action == .none || presentation.actionTitle == nil
-        actionButton.setAccessibilityLabel(presentation.actionTitle ?? presentation.title)
         let fontSize = GlobalFontMagnification.scaledSize(max(10, style.detailSize))
         titleLabel.font = .systemFont(ofSize: fontSize, weight: .semibold)
+        actionButton.font = .systemFont(ofSize: fontSize)
         messageLabel.font = style.monospacedText
             ? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
             : .systemFont(ofSize: fontSize)
@@ -78,6 +89,14 @@ final class CloudPortsStatusContent: NSView {
         messageLabel.frame = messageLabel.isHidden ? .zero : NSRect(x: inset, y: messageY, width: width - inset * 2, height: messageHeight)
         if actionButton.isHidden {
             actionButton.frame = .zero
+        } else if presentation?.action == .refresh {
+            let buttonSize: CGFloat = 22
+            actionButton.frame = NSRect(
+                x: max(inset, width - inset - buttonSize),
+                y: messageLabel.frame.maxY + 4,
+                width: buttonSize,
+                height: buttonSize
+            )
         } else {
             // The inline bezel hugs its title; give it room on both sides.
             let padding = GlobalFontMagnification.scaledSize(Self.actionHorizontalPadding) * 2
