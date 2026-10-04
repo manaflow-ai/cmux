@@ -22,6 +22,8 @@ parser.add_argument("--text", default="hello")
 parser.add_argument("--bench", action="store_true",
                     help="R81: Cmd-W and ! latency (main-thread ms, missed frames, span breakdown) instead of the open test")
 parser.add_argument("--budget-close-ms", type=float, default=10)
+parser.add_argument("--neighbor", choices=["terminal", "chief"], default="terminal",
+                    help="the tab the bench's new tab pages open beside (Cmd-W shows it again)")
 parser.add_argument("--trace", action="store_true",
                     help="with --bench: record a Time Profiler trace during the runs and print the main thread's heaviest frames")
 opts = parser.parse_args()
@@ -197,6 +199,9 @@ def main_thread_profile(trace):
 
 def run_bench():
     closes, bangs = [], []
+    if opts.neighbor == "terminal":
+        print(f"neighbor terminal: {rpc('action.run', {'id': 'newSurface'})}", flush=True)
+        time.sleep(1.5)  # test harness: the terminal starts
     recorder = None
     trace = os.path.join(os.environ.get("NX_ARTIFACTS", SCRATCH), "new-tab-bench.trace")
     if opts.trace:
