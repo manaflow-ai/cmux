@@ -21,11 +21,15 @@ extension AgentTabStore {
             return (source, MockAgentPaneHost())
         }
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let devOrigin = source?.devServerOrigin
-        let host = AcpmuxHost {
-            AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment)?
-                .allowingDevOrigin(devOrigin)
-        }
+        let host = AcpmuxHost { paneEnvironment(tag: tag, bundledBinDirectory: bin, environment: environment) }
         return (source, host)
+    }
+
+    /// The daemon the app starts: today a dev server page adds `--allow-dev-origin` (red: the
+    /// test below expects no dev flag).
+    nonisolated static func paneEnvironment(tag: String?, bundledBinDirectory: URL?, environment: [String: String]) -> AcpmuxEnvironment? {
+        let devOrigin = environment[AgentPaneSource.devURLVariable].flatMap(URL.init(string:)).flatMap { AgentPaneSource.devServer($0).devServerOrigin }
+        return AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bundledBinDirectory, environment: environment)?
+            .allowingDevOrigin(devOrigin)
     }
 }
