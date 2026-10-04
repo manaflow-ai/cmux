@@ -230,6 +230,11 @@ final class AppControl {
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
             }.withDeadline(.fixed(.seconds(15))),
+            // R131: hover card retarget timing across the focused strip's tabs.
+            .async("debug.hover_sweep") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugHoverSweep.run(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(15))),
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
