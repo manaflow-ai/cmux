@@ -20,7 +20,7 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             title: String(localized: "cloud.welcome.slide.spinUp.title", defaultValue: "Create machines in seconds"),
             caption: String(
                 localized: "cloud.welcome.slide.spinUp.caption",
-                defaultValue: "New Cloud Machine opens as a regular workspace, terminal ready."
+                defaultValue: "Each one opens as a regular cmux workspace with a terminal ready."
             )
         ),
         CloudWelcomeSlide(
@@ -29,7 +29,7 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             title: String(localized: "cloud.welcome.slide.keepsRunning.title", defaultValue: "Runs while you’re away"),
             caption: String(
                 localized: "cloud.welcome.slide.keepsRunning.caption",
-                defaultValue: "Close your laptop. Your agents keep working."
+                defaultValue: "Agents and terminals keep running after you close your laptop."
             )
         ),
         CloudWelcomeSlide(
@@ -38,7 +38,7 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             title: String(localized: "cloud.welcome.slide.anyMac.title", defaultValue: "Opens on any Mac"),
             caption: String(
                 localized: "cloud.welcome.slide.anyMac.caption",
-                defaultValue: "Sign in anywhere and pick up exactly where you left off."
+                defaultValue: "Sign in on another Mac and your workspaces are there as you left them."
             )
         ),
         CloudWelcomeSlide(
@@ -47,7 +47,7 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             title: String(localized: "cloud.welcome.slide.sharePort.title", defaultValue: "Share any port"),
             caption: String(
                 localized: "cloud.welcome.slide.sharePort.caption",
-                defaultValue: "Send a private link to the app running on your machine."
+                defaultValue: "Get a private link to any port on your machine."
             )
         ),
         CloudWelcomeSlide(
@@ -56,7 +56,7 @@ struct CloudWelcomeSlide: Identifiable, Equatable {
             title: String(localized: "cloud.welcome.slide.team.title", defaultValue: "Invite your team"),
             caption: String(
                 localized: "cloud.welcome.slide.team.caption",
-                defaultValue: "Invite teammates to your machines and work side by side."
+                defaultValue: "Teammates you invite can open the same machines."
             )
         ),
     ]
