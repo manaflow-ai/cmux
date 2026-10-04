@@ -154,3 +154,25 @@ fn the_link_token_is_its_own_op_that_the_app_does_not_consume() {
     let info = backend["cloud.machine.connect_info"]["output_json_schema"].to_string();
     assert!(!info.contains("link_token"), "connect_info carries no token");
 }
+
+/// KNOWN ISSUE (review P1 of step 3b; owner: the apps Rust lane, generator fix in a cmux-tui
+/// window): `gen-cmux-global` gives `cloud.machine.link_token` the app scope `cloud:execute`
+/// (`scopeFor` reads only the risk), so an app with a shell grant could mint dial tokens. Only
+/// `cmux link` may call it (decision LINK-TOKEN-OP). No route sends app `cloud.*` calls to the
+/// backend yet; the generator fix must land before the first one does. Remove the `ignore` when
+/// the generated `never` list holds the op; `cargo test -- --ignored` shows it red until then.
+#[test]
+#[ignore = "known issue: link_token not yet in the app global never list (apps Rust lane generator fix)"]
+fn link_token_is_never_reachable_from_an_app() {
+    let generated = app_dir().join("../../cmux-tui/crates/cmux-app-host/generated/scopes.json");
+    let scopes = json(&generated);
+    let never = scopes["never"].as_array().expect("never list");
+    assert!(
+        never.iter().any(|op| op == "cloud.machine.link_token"),
+        "cloud.machine.link_token must be in the app global never list"
+    );
+    assert!(
+        scopes["ops"].get("cloud.machine.link_token").is_none(),
+        "cloud.machine.link_token must have no app scope"
+    );
+}
