@@ -13,6 +13,7 @@ on:
       - App/**
       - cmux.xcodeproj/**
       - scripts/cmux-next/bundle-*.sh
+      - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -49,6 +50,7 @@ on:
       - Packages/Shared/**
       - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
+      - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -388,10 +390,14 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # macOS-only script behavior test (PlistBuddy, plutil): the "Bundle
-      # server helper" phase must not need the app's processed Info.plist.
+      # macOS-only script behavior tests (PlistBuddy, plutil): the "Bundle
+      # server helper" phase writes the server helper and agent plists without
+      # the app's processed Info.plist, and release signing signs every
+      # libexec helper and restamps the plists from the final bundle id.
       - name: Script tests (bundle-server-helper)
-        run: bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+        run: |
+          bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+          bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
 
       - name: Build package and tests
         id: build-tests

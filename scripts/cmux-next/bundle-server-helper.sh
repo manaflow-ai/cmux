@@ -1,44 +1,57 @@
 #!/usr/bin/env bash
-# The cmux server's privileged helper (plans/cmux-next/server.md 9.4).
+# The cmux server's launchd jobs (plans/cmux-next/server.md 4.3, 9.4):
 #
 #   Contents/Resources/libexec/cmux-server-helper           the helper (root, launchd)
 #   Contents/Library/LaunchDaemons/com.cmux.server.helper.plist
+#   Contents/Library/LaunchAgents/com.cmux.server.plist     the server (`cmux host run`)
 #
 # Two modes:
 #   bundle-server-helper.sh                 Xcode phase "Bundle server helper": compiles the
 #                                           helper into the built app, then stamps it.
-#   bundle-server-helper.sh --stamp <app>   writes (or removes) the LaunchDaemon plist from the
+#   bundle-server-helper.sh --stamp <app>   writes (or removes) both plists from the
 #                                           app's FINAL CFBundleIdentifier. scripts/sign-cmux-bundle.sh
 #                                           runs it before signing, because nightly and RC builds
-#                                           change the bundle id after the build (prepare_variant).
+#                                           change the bundle id after the build (prepare_variant)
+#                                           and release jobs install the cmux CLI after the build.
 #
-# The app registers the plist with SMAppService.daemon; the user approves it once
-# in System Settings > Login Items. The plist names a per-build label
-# (`<bundle id>.server-helper`) and passes `--app <bundle id>`, so each build has
-# its own helper and the helper serves only the app that carries it, signed by
-# the helper's own team. Stable builds (com.cmuxterm.app) carry no helper: the
-# server actions are DEV and NIGHTLY only. Tagged DEV builds are signed ad hoc by
-# scripts/reload.sh, so their helper refuses every client (by design); the helper
-# path is testable only in a team-signed build.
+# The app registers the helper plist with SMAppService.daemon and the server
+# plist with SMAppService.agent (ServerLaunchAgent); the user approves them once
+# in System Settings > Login Items. Each plist names a per-build label
+# (`<bundle id>.server-helper`, `<bundle id>.server`), so each build has its own
+# jobs. The helper gets `--app <bundle id>` and serves only the app that carries
+# it, signed by the helper's own team. Stable builds (com.cmuxterm.app) carry
+# neither: the server actions are DEV and NIGHTLY only. Tagged DEV builds are
+# signed ad hoc by scripts/reload.sh, so their helper refuses every client (by
+# design); the helper path is testable only in a team-signed build.
+#
+# The server agent runs the bundled cmux CLI (Contents/Resources/bin/cmux, put
+# there by "Bundle cmux-tui" or by install-cmux-tui-client.sh) as the frozen
+# unit command `cmux host run`. A bundle without that binary gets no agent
+# plist, so the app reports that the server is not in this build. The plist
+# holds no environment, no secrets and no per-user path (it is sealed in a
+# bundle every user of the Mac shares; launchd does not expand `~`), so it sets
+# no StandardOutPath: `cmux host run` writes its own log under the server
+# state folder. KeepAlive restarts the job when it exits; a CLI without
+# `host run` therefore exits and is restarted (launchd throttles it to once per
+# 10 s) until the server stack ships in the bundled binary.
 #
 # The helper is compiled with swiftc from Packages/macOS/CmuxNext/Sources/
 # CmuxNextServerHelper (no package dependencies) and CmuxNextServerHelperDaemon/
 # main.swift, one slice per arch in $ARCHS: resolving the whole CmuxNext package
 # for one small executable would fetch every remote dependency inside the phase.
-# scripts/sign-cmux-bundle.sh signs it for Developer ID with no entitlements;
-# here it gets the build's identity. Its identifier is cmux-server-helper (the
-# file name) in both places.
+# scripts/sign-cmux-bundle-helpers.sh signs it for Developer ID with no
+# entitlements; here it gets the build's identity. Its identifier is
+# cmux-server-helper (the file name) in both places. The plists are resources
+# sealed by the app signature; they carry no signature of their own.
 set -euo pipefail
 
-# Writes or removes the LaunchDaemon plist for the app at $1 from its bundle id.
+# Writes or removes both plists for the app at $1 from its bundle id.
 # $2 = "build" (the Xcode phase): a Release build is built as com.cmuxterm.app and
-# may still become NIGHTLY or RC, so it keeps the helper; only the signing stamp
-# (no $2) drops the helper from a stable bundle.
+# may still become NIGHTLY or RC, so it keeps the jobs; only the signing stamp
+# (no $2) drops them from a stable bundle.
 stamp() {
-  local app="$1" phase="${2:-sign}" contents bundle_id label helper plist
+  local app="$1" phase="${2:-sign}" contents bundle_id drop=0
   contents="$app/Contents"
-  helper="$contents/Resources/libexec/cmux-server-helper"
-  plist="$contents/Library/LaunchDaemons/com.cmux.server.helper.plist"
   # The Xcode phase uses the build's own bundle id: Xcode may write the
   # processed Info.plist after the script phases (a rebuild of an existing
   # tag found none). Signing reads the final id from the finished bundle.
@@ -47,32 +60,75 @@ stamp() {
   else
     bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$contents/Info.plist")"
   fi
-  if [[ ( "$bundle_id" == "com.cmuxterm.app" && "$phase" != "build" ) || ! -e "$helper" ]]; then
+  [[ "$bundle_id" == "com.cmuxterm.app" && "$phase" != "build" ]] && drop=1
+  if [[ "$drop" == 0 && ! "$bundle_id" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
+    echo "error: bundle-server-helper: bundle id '$bundle_id' is not a plain reverse-DNS name" >&2
+    return 1
+  fi
+  stamp_helper "$contents" "$bundle_id" "$drop"
+  stamp_agent "$contents" "$bundle_id" "$drop"
+}
+
+# Starts a plist at $1.tmp with Label $2, BundleProgram $3 (relative to the app
+# bundle, as SMAppService requires) and AssociatedBundleIdentifiers [$4].
+plist_begin() {
+  plutil -create xml1 "$1.tmp"
+  plutil -insert Label -string "$2" "$1.tmp"
+  plutil -insert BundleProgram -string "$3" "$1.tmp"
+  plutil -insert AssociatedBundleIdentifiers -array "$1.tmp"
+  plutil -insert AssociatedBundleIdentifiers -string "$4" -append "$1.tmp"
+  plutil -insert ProgramArguments -array "$1.tmp"
+}
+
+plist_commit() {
+  plutil -lint "$1.tmp" >/dev/null
+  mv -f "$1.tmp" "$1"
+}
+
+stamp_helper() {
+  local contents="$1" bundle_id="$2" drop="$3" helper plist label
+  helper="$contents/Resources/libexec/cmux-server-helper"
+  plist="$contents/Library/LaunchDaemons/com.cmux.server.helper.plist"
+  if [[ "$drop" == 1 || ! -e "$helper" ]]; then
     rm -f "$helper" "$plist"
     rmdir "$contents/Library/LaunchDaemons" 2>/dev/null || true
     echo "bundle-server-helper: no server helper in $bundle_id"
     return 0
   fi
-  if [[ ! "$bundle_id" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
-    echo "error: bundle-server-helper: bundle id '$bundle_id' is not a plain reverse-DNS name" >&2
-    return 1
-  fi
   label="$bundle_id.server-helper"
   mkdir -p "$(dirname "$plist")"
-  # BundleProgram is relative to the app bundle (SMAppService); no absolute path.
-  plutil -create xml1 "$plist.tmp"
-  plutil -insert Label -string "$label" "$plist.tmp"
-  plutil -insert BundleProgram -string "Contents/Resources/libexec/cmux-server-helper" "$plist.tmp"
-  plutil -insert ProgramArguments -array "$plist.tmp"
+  plist_begin "$plist" "$label" "Contents/Resources/libexec/cmux-server-helper" "$bundle_id"
   plutil -insert ProgramArguments -string "cmux-server-helper" -append "$plist.tmp"
   plutil -insert ProgramArguments -string "--app" -append "$plist.tmp"
   plutil -insert ProgramArguments -string "$bundle_id" -append "$plist.tmp"
   plutil -insert MachServices -dictionary "$plist.tmp"
   plutil -insert "MachServices.${label//./\\.}" -bool YES "$plist.tmp"
-  plutil -insert AssociatedBundleIdentifiers -array "$plist.tmp"
-  plutil -insert AssociatedBundleIdentifiers -string "$bundle_id" -append "$plist.tmp"
-  plutil -lint "$plist.tmp" >/dev/null
-  mv -f "$plist.tmp" "$plist"
+  plist_commit "$plist"
+  echo "bundle-server-helper: $label"
+}
+
+stamp_agent() {
+  local contents="$1" bundle_id="$2" drop="$3" program="Contents/Resources/bin/cmux" plist label
+  plist="$contents/Library/LaunchAgents/com.cmux.server.plist"
+  if [[ "$drop" == 1 || ! -f "${contents%/Contents}/$program" ]]; then
+    rm -f "$plist"
+    rmdir "$contents/Library/LaunchAgents" 2>/dev/null || true
+    echo "bundle-server-helper: no server agent in $bundle_id"
+    return 0
+  fi
+  label="$bundle_id.server"
+  mkdir -p "$(dirname "$plist")"
+  plist_begin "$plist" "$label" "$program" "$bundle_id"
+  plutil -insert ProgramArguments -string "$program" -append "$plist.tmp"
+  plutil -insert ProgramArguments -string host -append "$plist.tmp"
+  plutil -insert ProgramArguments -string run -append "$plist.tmp"
+  plutil -insert RunAtLoad -bool YES "$plist.tmp"
+  plutil -insert KeepAlive -bool YES "$plist.tmp"
+  # Standard, not Background: the job hosts the user's terminals and app
+  # servers, which must not run under background CPU and I/O limits. Same as
+  # the cmux-server-core launchd golden.
+  plutil -insert ProcessType -string Standard "$plist.tmp"
+  plist_commit "$plist"
   echo "bundle-server-helper: $label"
 }
 
