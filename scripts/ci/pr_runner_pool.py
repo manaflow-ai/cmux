@@ -334,7 +334,10 @@ RUN_CLASSES = ("std", "light")
 # `glaeda-side-...` are its side runners, the other runners: the light side-lane workflows take it
 # (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
 # this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
-OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-|gui-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+XCODE_VERSION = r"[0-9]+(?:\.[0-9]+)*"
+# Optional namespaces keep explicitly configured fleets (such as AWS) out of
+# the ordinary mini family while retaining the role labels' semantics.
+OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-)?(?:xl|std|light)-xcode-{XCODE_VERSION}")
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
@@ -500,21 +503,33 @@ def root_label(label: str) -> str:
     """The root runners' label for an owned pool label, or "" for any other label."""
     if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
         return ""
-    return ROOT_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "root")
 
 
 def side_label(label: str) -> str:
     """The side runners' label for an owned pool label, or "" for any other label."""
     if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
         return ""
-    return SIDE_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "side")
 
 
 def gui_label(label: str) -> str:
     """The gui runners' label for an owned pool label, or "" for any other label."""
     if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
         return ""
-    return GUI_PREFIX + label.removeprefix("glaeda-")
+    return _role_label(label, "gui")
+
+
+def _role_label(label: str, role: str) -> str:
+    """Insert a role after an optional namespace and before class metadata."""
+    parts = label.split("-")
+    try:
+        class_index = next(index for index, part in enumerate(parts) if part in RUN_CLASSES or part == "xl")
+    except StopIteration:
+        return ""
+    insert_at = 1 if class_index > 1 and parts[1] == "trusted" else min(2, class_index)
+    parts.insert(insert_at, role)
+    return "-".join(parts)
 
 
 def gui_runner(choice: "Choice", owned_slots: Mapping[str, int]) -> str:
@@ -572,9 +587,13 @@ def light_side_lanes(plan: "RunJobs", runners: Sequence[Mapping[str, Any]], owne
 
 def pool_label(label: str) -> str:
     """The owned pool a root, side or gui label's runners belong to; any other label unchanged."""
-    for prefix in (ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX):
-        if persistent(label) and label.startswith(prefix):
-            return "glaeda-" + label.removeprefix(prefix)
+    if not persistent(label):
+        return label
+    parts = label.split("-")
+    for role in ("root", "side", "gui"):
+        if role in parts[1:3]:
+            parts.remove(role)
+            return "-".join(parts)
     return label
 
 
