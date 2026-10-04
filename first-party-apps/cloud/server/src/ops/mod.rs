@@ -16,6 +16,7 @@ mod snapshot;
 pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
+use crate::rescue::iface::OpenToken;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -174,6 +175,10 @@ const REVISION_RESULTS: &[&str] = &[
 /// publication live): a same-key replay of an old answer would be stale, so
 /// they run every time, like the live link ops.
 const RERUN_OPS: &[&str] = &["cloud.domain.verify", "cloud.publication.verify"];
+
+/// Ops that need the host's `open_token` (stamped after the user's
+/// gesture). The op itself checks it; a ledger replay checks it too.
+const TOKEN_OPS: &[&str] = &["cloud.rescue.open"];
 
 /// Creates the Cloud API does not dedup by key. After an attempt with no
 /// answer (the relay failed), a same-key retry is refused with
@@ -380,6 +385,12 @@ impl<C: ControlPlane> Server<C> {
             ));
         }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
+            // The host's open token is never cached: a replay of an op that
+            // needs one answers only a request that carries one.
+            if TOKEN_OPS.contains(&name) {
+                let token = request.open_token.clone().unwrap_or_else(|| OpenToken(String::new()));
+                token.check().map_err(crate::link::ops::backend_error)?;
+            }
             return Ok(done);
         }
         // A delete retried after an attempt whose outcome is unknown: a 404
