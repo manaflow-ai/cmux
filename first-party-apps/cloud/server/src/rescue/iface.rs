@@ -207,7 +207,8 @@ impl fmt::Debug for ResumeToken {
 /// `open_token`: issued by the host for one open or resume of one terminal
 /// after the user's gesture. The backend passes it on and never mints it.
 /// `Debug` hides the value so it never reaches a log.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(transparent)]
 pub struct OpenToken(pub String);
 
 impl fmt::Debug for OpenToken {
