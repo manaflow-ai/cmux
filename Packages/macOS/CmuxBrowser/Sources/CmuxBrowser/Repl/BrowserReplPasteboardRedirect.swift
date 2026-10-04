@@ -94,11 +94,13 @@ public import WebKit
 /// origin's data without asking (a diversion) and otherwise shows a callout
 /// only the person answers. WebKit keeps one grant per pasteboard name, the
 /// processes granted at one change count, and extends it to a process
-/// granted at an equal count: a process granted during an earlier command
-/// or quarantine at a private pasteboard whose count equals this command's
-/// keeps that grant, and could read the tab's pasteboard without asking
-/// again within a gesture it already holds access in. So can another page
-/// in the commanded tab's own process. A paste in another web view that starts
+/// granted at an equal count, so a command never runs at a change count
+/// WebKit may still hold a grant at (``grantableCounts``): a process granted
+/// during an earlier command, a quarantine or at the system pasteboard
+/// cannot read this command's pasteboard. Another page in the commanded
+/// tab's own process shares that process's grant and can read it within a
+/// gesture it already holds access in; that process runs only tabs the same
+/// session created. A paste in another web view that starts
 /// during the command reads nothing. The same holds after a
 /// `timedOutStillRunning` until WebKit finishes, at most one more timeout.
 /// The caller test errs toward WebKit: should WebKit's pasteboard code move,
@@ -172,6 +174,14 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// install), or a test's stand-in. Guarded by `lock`.
     private var systemChangeCountReader: (@Sendable () -> Int)?
     private var standInChangeCountReader: (@Sendable () -> Int)?
+    /// Change counts of the general pasteboard's name at which WebKit may
+    /// still hold a read grant (see ``grantableCounts``), each with the
+    /// order it was noted in. Guarded by `lock`.
+    private var grantable: [Int: Int] = [:]
+    private var grantableOrder = 0
+    /// The most `clearContents` a command's pasteboard gets to move past
+    /// those counts; past that the command does not start.
+    static let maximumRaise = 256
     /// The command WebKit has not reported done, within or past its timeout.
     @MainActor private var unfinished: Command?
     /// The automated drag whose window is open.
@@ -187,7 +197,12 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         typealias Lookup = @convention(c) (AnyObject, Selector, NSString) -> NSPasteboard
         let original = unsafeBitCast(method_getImplementation(method), to: Lookup.self)
         let replacement: @convention(block) @Sendable (AnyObject, NSString) -> NSPasteboard = { cls, name in
-            self.redirectedLookup(of: name as String) ?? original(cls, selector, name)
+            if let redirected = self.redirectedLookup(of: name as String) { return redirected }
+            let found = original(cls, selector, name)
+            // WebKit grants a web content process access at the count this
+            // lookup returns; a private pasteboard must never show it.
+            if (name as String) == NSPasteboard.Name.general.rawValue { self.noteGrantable(found.changeCount) }
+            return found
         }
         // `+generalPasteboard` is not redirected for a command; a call from
         // WebKit during one only marks it (see `noteSystemPasteboardRead`).
@@ -246,9 +261,11 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         mayEndWebContent: @escaping @MainActor () -> Bool = { true },
         whenWebKitFinishes: @escaping @MainActor () -> Void = {}
     ) async -> Outcome {
+        let isPaste = command == "Paste"
+        let system = isPaste ? systemChangeCount ?? NSPasteboard.general.changeCount : nil
         guard webView.responds(to: Self.editCommandSelector),
               webView.responds(to: Self.endWebContentSelector),
-              command != "Paste" || pasteboard.changeCount < (systemChangeCount ?? NSPasteboard.general.changeCount),
+              system.map({ pasteboard.changeCount < $0 }) ?? true,
               mayEndWebContent()
         else {
             whenWebKitFinishes()
@@ -256,15 +273,19 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         }
         // A Copy or Cut may write nothing itself; the probe tells whether
         // the write it saw is the page's own (BrowserReplCopyProbe).
-        let probe = command == "Paste" ? nil : await BrowserReplCopyProbe.arm(in: webView)
-        let startCount = pasteboard.changeCount
+        let probe = isPaste ? nil : await BrowserReplCopyProbe.arm(in: webView)
+        // Taken when the command starts: `run` may first move the
+        // pasteboard's count past ones WebKit may hold a grant at.
+        var startCount = pasteboard.changeCount
         var askedToEnd = 0
         let outcome = await run(
             on: pasteboard,
             tab: tab,
             timeout: timeout,
             grace: grace,
-            maximumWrites: command == "Paste" ? 0 : 1,
+            maximumWrites: isPaste ? 0 : 1,
+            replacesGrants: isPaste,
+            countBelow: system,
             endWebContent: {
                 // At the timeout the caller decides; one timeout later the
                 // web content is ended regardless.
@@ -278,6 +299,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
             typealias Function = @convention(c) (AnyObject, Selector, NSString, NSString?, Completion) -> Void
             let function = unsafeBitCast(webView.method(for: Self.editCommandSelector), to: Function.self)
             let completion: Completion = { _ in MainActor.assumeIsolated { done() } }
+            startCount = pasteboard.changeCount
             function(webView, Self.editCommandSelector, command as NSString, "" as NSString, completion)
         }
         guard outcome == .completed, let probe else { return outcome }
@@ -314,6 +336,17 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// shortens none of these waits. `whenFinished` is called once, when
     /// `invoke`'s argument is called or the web content is ended, or at once
     /// when the command does not start.
+    ///
+    /// The command never runs at a change count WebKit may still hold a
+    /// read grant at (``grantableCounts``): before it starts, `pasteboard`
+    /// is cleared (its contents kept) until neither its count nor any of the
+    /// `maximumWrites` counts after it is one; when that takes more than
+    /// ``maximumRaise`` clears, or leaves its count not below `countBelow`,
+    /// the command does not start (`unavailable`).
+    ///
+    /// - Parameter replacesGrants: WebKit grants the commanded web content
+    ///   process access while it starts the command (a Paste), at a count
+    ///   no earlier grant holds, which replaces every earlier grant.
     @MainActor
     public func run<C: Clock>(
         on pasteboard: NSPasteboard,
@@ -321,6 +354,8 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         timeout: Duration,
         grace: Duration? = nil,
         maximumWrites: Int? = nil,
+        replacesGrants: Bool = false,
+        countBelow: Int? = nil,
         clock: C = ContinuousClock(),
         endWebContent: @escaping @MainActor () -> Bool,
         whenFinished: @escaping @MainActor () -> Void = {},
@@ -337,28 +372,55 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
                 return .busy(tab: earlier.tab)
             }
         }
-        let command = Command(pasteboard: pasteboard, tab: tab, whenFinished: whenFinished)
-        unfinished = command
+        // The earlier command has ended, so the counts it handed out are noted.
+        guard raise(pasteboard, pastGrantsWithin: maximumWrites ?? 0),
+              countBelow.map({ pasteboard.changeCount < $0 }) ?? true else {
+            whenFinished()
+            return .unavailable
+        }
         let startCount = pasteboard.changeCount
+        let command = Command(pasteboard: pasteboard, tab: tab, startCount: startCount, whenFinished: whenFinished)
+        unfinished = command
         let target = setTarget(pasteboard)
         let deadline = clock.now.advanced(by: timeout)
+        let notedBefore = grantableNoteMark()
         // WebKit's lookups while it starts the command, inside this call,
         // are the command's own (a Paste's access grant).
         setStarting(target, true)
         invoke { self.finish(command) }
         setStarting(target, false)
+        if replacesGrants, startedWithLookup(target), !isDiverted(target) {
+            // The grant WebKit made at `startCount`, which no earlier grant
+            // held, replaced them all.
+            forgetGrantable(notedUpTo: notedBefore)
+            noteGrantable(startCount)
+        }
         // The redirect ended when WebKit reported the command done, so no
         // write reaches the pasteboard after that.
         let completed: () -> Outcome = {
-            if self.isDiverted(target) { return .interfered }
-            guard let maximumWrites, pasteboard.changeCount - startCount > maximumWrites else { return .completed }
-            return .interfered
+            let outcome: Outcome
+            if self.isDiverted(target) {
+                outcome = .interfered
+            } else if let maximumWrites, pasteboard.changeCount - startCount > maximumWrites {
+                outcome = .interfered
+            } else {
+                outcome = .completed
+            }
+            // A Copy or Cut that completed undiverted granted no process
+            // anything (WebKit carries a grant over a write only for a writer
+            // that held one at the count before, which no grant held); every
+            // other command's counts may hold one.
+            if replacesGrants || outcome != .completed {
+                self.noteGrantable(startCount...max(startCount, pasteboard.changeCount))
+            }
+            return outcome
         }
         if await command.finished.wait(until: deadline, clock: clock, honoringCancellation: false) { return completed() }
         // Past the timeout. Until this turn ends nothing else runs on the
         // main thread, so WebKit handles no more of the page's pasteboard
         // messages before its process is gone.
         if command.finished.isSignaled { return completed() }
+        command.notesCountsWhenFinished = true
         if endWebContent() {
             // WebKit may already have reported the command done while it
             // ended the process; `finish` runs once either way.
@@ -420,9 +482,11 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         if let sink = target.sink {
             lock.unlock()
             sink.clearContents()
+            noteGrantable(sink.changeCount)
             return sink
         }
         if origin == .webKitOnItsOwnTurn || (onMainThread && target.starting) {
+            if onMainThread, target.starting { target.lookupsWhileStarting += 1 }
             lock.unlock()
             return target.pasteboard
         }
@@ -475,6 +539,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         lock.unlock()
         if sink !== fresh { fresh.releaseGlobally() }
         sink.clearContents()
+        noteGrantable(sink.changeCount)
         return sink
     }
 
@@ -532,6 +597,9 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     private func finish(_ command: Command) {
         guard !command.finished.isSignaled else { return }
         endRedirect(to: command.pasteboard)
+        if command.notesCountsWhenFinished {
+            noteGrantable(command.startCount...max(command.startCount, command.pasteboard.changeCount))
+        }
         if unfinished === command { unfinished = nil }
         if command.releasesPasteboardWhenFinished {
             command.pasteboard.clearContents()
@@ -583,10 +651,104 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         /// The private pasteboard every lookup gets once the redirect was
         /// diverted.
         var sink: NSPasteboard?
+        /// WebKit's lookups while it started the command.
+        var lookupsWhileStarting = 0
 
         init(pasteboard: NSPasteboard) {
             self.pasteboard = pasteboard
         }
+    }
+
+    // MARK: - Stale grants
+
+    /// The change counts at which WebKit may still hold a read grant of the
+    /// general pasteboard's name, which no command's pasteboard may show.
+    ///
+    /// WebKit (`WebPasteboardProxy`) keeps one grant per pasteboard name: a
+    /// change count and the web content processes granted at it. A grant at
+    /// another count replaces it; a grant at an equal count adds the process
+    /// to it; a read is allowed while the name's current count equals it.
+    /// Every private pasteboard starts near 0, so without this a process
+    /// granted during an earlier command, at a diverted command's or a
+    /// quarantine's private pasteboard, or at the system pasteboard's count,
+    /// would keep its grant through a later command at an equal count and
+    /// could read that tab's clipboard. Noted: every count a private
+    /// pasteboard showed WebKit's lookups (a diverted or timed-out command's,
+    /// a Paste's, each emptied private pasteboard handed out) and every count
+    /// a lookup of the system pasteboard by name returned. A Paste that
+    /// starts at a count none of these holds is granted there, which replaces
+    /// every earlier grant, so they are forgotten then.
+    var grantableCounts: Set<Int> {
+        lock.lock()
+        defer { lock.unlock() }
+        return Set(grantable.keys)
+    }
+
+    /// Forgets every noted count (tests that start from a fresh app).
+    func forgetGrantableCounts() {
+        lock.lock()
+        grantable.removeAll()
+        lock.unlock()
+    }
+
+    private func noteGrantable(_ count: Int) {
+        noteGrantable(count...count)
+    }
+
+    private func noteGrantable(_ counts: ClosedRange<Int>) {
+        lock.lock()
+        for count in counts {
+            grantableOrder += 1
+            grantable[count] = grantableOrder
+        }
+        lock.unlock()
+    }
+
+    private func grantableNoteMark() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return grantableOrder
+    }
+
+    /// Forgets the counts noted up to `mark` and not since.
+    private func forgetGrantable(notedUpTo mark: Int) {
+        lock.lock()
+        grantable = grantable.filter { $0.value > mark }
+        lock.unlock()
+    }
+
+    private func startedWithLookup(_ target: Target) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return target.lookupsWhileStarting > 0
+    }
+
+    /// Clears `pasteboard` until neither its change count nor any of the
+    /// `writes` counts after it is grantable, then puts its items back.
+    /// Returns `false` when ``maximumRaise`` clears are not enough.
+    @MainActor
+    private func raise(_ pasteboard: NSPasteboard, pastGrantsWithin writes: Int) -> Bool {
+        func collides() -> Bool {
+            let start = pasteboard.changeCount
+            lock.lock()
+            defer { lock.unlock() }
+            return (start...start + max(0, writes)).contains { grantable[$0] != nil }
+        }
+        guard collides() else { return true }
+        let items: [NSPasteboardItem] = (pasteboard.pasteboardItems ?? []).map { item in
+            let copy = NSPasteboardItem()
+            for type in item.types {
+                if let data = item.data(forType: type) { copy.setData(data, forType: type) }
+            }
+            return copy
+        }
+        var clears = 0
+        repeat {
+            pasteboard.clearContents()
+            clears += 1
+        } while collides() && clears < Self.maximumRaise
+        if !items.isEmpty { pasteboard.writeObjects(items) }
+        return !collides()
     }
 
     // MARK: - Agent gestures
@@ -716,7 +878,10 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         let system = systemChangeCount()
         while let current = sink {
             current.clearContents()
-            if current.changeCount < system { return current }
+            if current.changeCount < system {
+                noteGrantable(current.changeCount)
+                return current
+            }
             // Its count caught up with the system's: a fresh one starts at
             // 0, and holds nothing. Created outside the lock: making a
             // pasteboard looks one up by name, which comes back through the
@@ -729,6 +894,7 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
             lock.unlock()
             if replaced {
                 current.releaseGlobally()
+                noteGrantable(fresh.changeCount)
                 return fresh
             }
             fresh.releaseGlobally()
@@ -798,15 +964,21 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     private final class Command {
         let pasteboard: NSPasteboard
         let tab: String
+        /// The pasteboard's change count when the command started.
+        let startCount: Int
         let whenFinished: @MainActor () -> Void
         let finished = BrowserReplLatch()
         /// Set when the caller handed the pasteboard over at a
         /// `timedOutStillRunning`.
         var releasesPasteboardWhenFinished = false
+        /// Set at the timeout: the counts the pasteboard went through are
+        /// noted (``grantableCounts``) when the command finishes.
+        var notesCountsWhenFinished = false
 
-        init(pasteboard: NSPasteboard, tab: String, whenFinished: @escaping @MainActor () -> Void) {
+        init(pasteboard: NSPasteboard, tab: String, startCount: Int, whenFinished: @escaping @MainActor () -> Void) {
             self.pasteboard = pasteboard
             self.tab = tab
+            self.startCount = startCount
             self.whenFinished = whenFinished
         }
     }

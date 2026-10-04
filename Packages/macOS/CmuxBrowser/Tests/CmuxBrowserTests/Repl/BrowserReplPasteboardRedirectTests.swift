@@ -22,6 +22,14 @@ struct BrowserReplPasteboardRedirectTests {
     @MainActor
     @Suite("Lookups", .serialized)
     struct Lookups {
+        /// Each test starts as a fresh app does, with no change count noted
+        /// as one WebKit may hold a grant at; the redirect moves a tab
+        /// pasteboard past noted ones, which would shift the counts these
+        /// tests set up.
+        init() {
+            BrowserReplPasteboardRedirect.shared.forgetGrantableCounts()
+        }
+
         @Test func otherCodeGetsTheSystemPasteboardDuringAndAfterACommand() async throws {
             let system = NSPasteboard(name: .general)
             #expect(BrowserReplPasteboardRedirect.shared.install())
@@ -389,6 +397,14 @@ struct BrowserReplPasteboardRedirectTests {
     @MainActor
     @Suite("WebKit", .serialized)
     struct InWebKit {
+        /// Each test starts as a fresh app does, with no change count noted
+        /// as one WebKit may hold a grant at; the redirect moves a tab
+        /// pasteboard past noted ones, which would shift the counts these
+        /// tests set up.
+        init() {
+            BrowserReplPasteboardRedirect.shared.forgetGrantableCounts()
+        }
+
         private final class Loaded: NSObject, WKNavigationDelegate {
             var continuation: CheckedContinuation<Void, Never>?
             func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
