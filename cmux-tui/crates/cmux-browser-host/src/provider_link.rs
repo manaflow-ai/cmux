@@ -222,6 +222,7 @@ impl CdpWire for RelayWire {
     fn send(&self, message: &str) -> std::io::Result<()> {
         let frame = Frame::Cdp { target_id: self.target_id.clone(), message: message.to_owned() };
         write_frame(&mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner), &frame)
+            .map_err(|error| std::io::Error::other(error.to_string()))
     }
 }
 
