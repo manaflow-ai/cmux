@@ -263,3 +263,20 @@ fn the_reserved_list_covers_the_built_in_scopes() {
     }
     assert!(!is_reserved_cli_name("notes"));
 }
+
+#[test]
+fn every_first_party_mapping_names_a_reserved_word_and_a_first_party_app() {
+    use cmux_app_manifest::{first_party_cli_names, first_party_cli_owner, is_reserved_cli_name};
+    let mut count = 0;
+    for (word, app) in first_party_cli_names() {
+        assert!(is_reserved_cli_name(word), "{word} is mapped but not reserved");
+        assert!(
+            app.starts_with("cmux/") || app.starts_with("manaflow-ai/"),
+            "{word} maps to {app}, which is not a first-party app"
+        );
+        count += 1;
+    }
+    assert!(count >= 1);
+    assert_eq!(first_party_cli_owner("cloud"), Some("cmux/cloud"));
+    assert_eq!(first_party_cli_owner("workspace"), None);
+}
