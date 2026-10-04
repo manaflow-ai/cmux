@@ -19,10 +19,12 @@
 //! TypeScript host (`state/host.lock`), so the two hosts never run together,
 //! and it reads and writes the same `state/host.json`.
 //!
-//! Every hub request except a prompt has the request deadline: a request
-//! that misses it fails (the core gets the failure input) and its connection
-//! is closed, so the loop connects again. A prompt settles when its turn
-//! ends, which has no bound; a lost connection settles it.
+//! Every hub request has the request deadline: a read that misses it fails
+//! (the core gets the failure input) and its connection is closed, so the
+//! loop connects again. A prompt's request answers only when its turn ends
+//! (no bound), so its deadline is on the hub's acknowledgment
+//! (`_acpmux/prompt_accepted`) instead. All times come from one wall clock
+//! (`actor::now_ms`): the core's `now`, its timers and the deadlines.
 
 mod actor;
 mod agent;

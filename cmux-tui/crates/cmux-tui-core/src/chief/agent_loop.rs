@@ -167,6 +167,11 @@ fn forwarder(
         AgentNotice::Closed => {
             let _ = ctl.lock().unwrap().send(Ctl::Closed(id));
         }
+        AgentNotice::Notification { method, params } if method == "_acpmux/prompt_accepted" => {
+            if let Some(prompt_id) = params.get("promptId").and_then(serde_json::Value::as_str) {
+                let _ = sender.send(Msg::PromptAck { id, prompt_id: prompt_id.to_owned() });
+            }
+        }
         AgentNotice::Notification { method, params } => {
             if let Some(input) = agent::notice_input(&method, &params) {
                 let _ = sender.send(Msg::AgentInput { id, input });

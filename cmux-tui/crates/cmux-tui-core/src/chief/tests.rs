@@ -132,13 +132,17 @@ impl AgentConnection for FakeConnection {
             return reply(Err(AgentError::Closed));
         }
         if method == "session/prompt" {
-            let refuse = self.hub.reject_prompts.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
+            let refuse =
+                self.hub
+                    .reject_prompts
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
             if refuse.is_ok() {
                 return reply(Err(AgentError::Rejected { message: "no agent session".into() }));
             }
             // The real hub acknowledges a recorded prompt at once, to the prompting connection.
             if !self.hub.silent.load(Ordering::Acquire) {
-                let prompt_id = params.pointer("/_meta/acpmux/promptId").cloned().unwrap_or(Value::Null);
+                let prompt_id =
+                    params.pointer("/_meta/acpmux/promptId").cloned().unwrap_or(Value::Null);
                 (self.notices)(AgentNotice::Notification {
                     method: "_acpmux/prompt_accepted".into(),
                     params: json!({"sessionId": params["sessionId"], "promptId": prompt_id}),
@@ -384,7 +388,9 @@ fn a_prompt_the_hub_never_acknowledges_hits_the_deadline_and_is_sent_again_after
     w.hub.hold.lock().unwrap().clear();
     wait_until("the reconnect", || w.hub.connects.load(Ordering::Acquire) > connects);
     wait_until("the reply", || {
-        w.messages(&conversation).iter().any(|m| m.author == AGENT_MUX && text_of(m) == "echo: hello")
+        w.messages(&conversation)
+            .iter()
+            .any(|m| m.author == AGENT_MUX && text_of(m) == "echo: hello")
     });
     chief.stop();
 }
@@ -399,7 +405,9 @@ fn a_rejected_prompt_is_sent_again_on_the_clock_without_a_reconnect() {
     w.hub.reject_prompts.store(1, Ordering::Release);
     w.send(&conversation, "m1", "hello");
     wait_until("the retried reply", || {
-        w.messages(&conversation).iter().any(|m| m.author == AGENT_MUX && text_of(m) == "echo: hello")
+        w.messages(&conversation)
+            .iter()
+            .any(|m| m.author == AGENT_MUX && text_of(m) == "echo: hello")
     });
     assert_eq!(w.hub.calls("session/prompt"), 2, "one refusal, one retry");
     assert_eq!(w.hub.connects.load(Ordering::Acquire), connects, "no reconnect");

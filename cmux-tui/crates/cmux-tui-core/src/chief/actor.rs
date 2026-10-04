@@ -14,7 +14,7 @@ use cmux_chief::{Core, Effect, HostState, Input, Port};
 use serde_json::{Value, json};
 
 use super::ChiefConfig;
-use super::agent::{self, AgentConnection};
+use super::agent::{self, AgentConnection, AgentError};
 use super::daemon_port::DaemonLink;
 use super::lock::HostLock;
 use super::state_file::StateFile;
@@ -48,8 +48,17 @@ pub(super) enum Msg {
         request: u64,
         input: Input,
     },
-    /// An input with no deadline bookkeeping (a settled prompt).
-    Input(Input),
+    /// Hub connection `id` acknowledged prompt `prompt_id` (`_acpmux/prompt_accepted`).
+    PromptAck {
+        id: u64,
+        prompt_id: String,
+    },
+    /// Prompt `prompt_id` sent on connection `id` returned; `rejected`: the hub refused it.
+    PromptSettled {
+        id: u64,
+        prompt_id: String,
+        rejected: bool,
+    },
     /// The durable state now, after every message queued before this one
     /// (the hub loop's attach cursor).
     State(Sender<HostState>),
@@ -77,6 +86,8 @@ pub(super) struct Actor {
     /// Core timers: key -> when (ms since the epoch).
     timers: BTreeMap<String, u64>,
     pending: BTreeMap<u64, Pending>,
+    /// Prompts waiting for their acknowledgment: prompt id -> (connection, deadline).
+    prompt_acks: BTreeMap<String, (u64, Instant)>,
     next_request: u64,
     agent: Option<(u64, Arc<dyn AgentConnection>)>,
     pub(super) daemon: DaemonLink,
@@ -107,6 +118,7 @@ impl Actor {
             draining: false,
             timers: BTreeMap::new(),
             pending: BTreeMap::new(),
+            prompt_acks: BTreeMap::new(),
             next_request: 1,
             agent: None,
             daemon,
@@ -177,7 +189,11 @@ impl Actor {
                     self.feed(input);
                 }
             }
-            Msg::Input(input) => self.feed(input),
+            Msg::PromptAck { id, prompt_id } => self.acknowledged(id, &prompt_id),
+            Msg::PromptSettled { id, prompt_id, rejected } => {
+                self.acknowledged(id, &prompt_id);
+                self.feed(Input::PromptSettled { prompt_id, rejected });
+            }
             Msg::State(reply) => {
                 let _ = reply.send(self.core.state.clone());
             }
@@ -193,7 +209,8 @@ impl Actor {
         let timers =
             self.timers.values().map(|at| now + Duration::from_millis(at.saturating_sub(now_wall)));
         let deadlines = self.pending.values().map(|pending| pending.deadline);
-        timers.chain(deadlines).chain(self.daemon.retry_at()).min()
+        let acks = self.prompt_acks.values().map(|(_, deadline)| *deadline);
+        timers.chain(deadlines).chain(acks).chain(self.daemon.retry_at()).min()
     }
 
     fn fire_due(&mut self) {
@@ -218,6 +235,24 @@ impl Actor {
             self.feed(pending.failure);
             if let Some((id, connection)) = &self.agent
                 && *id == pending.connection
+            {
+                connection.close();
+            }
+        }
+        let unacknowledged: Vec<String> = self
+            .prompt_acks
+            .iter()
+            .filter(|(_, (_, deadline))| *deadline <= now)
+            .map(|(prompt_id, _)| prompt_id.clone())
+            .collect();
+        for prompt_id in unacknowledged {
+            let Some((connection_id, _)) = self.prompt_acks.remove(&prompt_id) else { continue };
+            let timeout = self.config.request_timeout.as_millis();
+            self.log(&format!(
+                "prompt {prompt_id} got no acknowledgment in {timeout} ms; reconnecting"
+            ));
+            if let Some((id, connection)) = &self.agent
+                && *id == connection_id
             {
                 connection.close();
             }
@@ -277,13 +312,20 @@ impl Actor {
         }
     }
 
-    /// A prompt: no deadline (its turn has no bound); any answer settles it,
-    /// and a failed one is resent on the next acpmux connect.
+    /// A prompt. Its request answers when the turn ends (no bound), but the
+    /// hub acknowledges a recorded prompt at once (`_acpmux/prompt_accepted`):
+    /// that acknowledgment has the request deadline, and a missing one closes
+    /// the connection (the next connect sends the prompt again). A refusal by
+    /// the hub settles it `rejected`; the core retries it on the clock.
     fn prompt(&mut self, prompt_id: String, text: String) {
-        let (Some((_, connection)), Some(session)) = (&self.agent, &self.core.state.mux_session_id)
+        let (Some((id, connection)), Some(session)) =
+            (&self.agent, &self.core.state.mux_session_id)
         else {
             return;
         };
+        let id = *id;
+        let deadline = Instant::now() + self.config.request_timeout;
+        self.prompt_acks.insert(prompt_id.clone(), (id, deadline));
         let params = json!({
             "sessionId": session,
             "prompt": [{"type": "text", "text": text}],
@@ -295,14 +337,26 @@ impl Actor {
             "session/prompt",
             params,
             Box::new(move |answer| {
+                let rejected = matches!(answer, Err(AgentError::Rejected { .. }));
                 if let Err(error) = answer {
-                    log(&format!(
-                        "prompt {prompt_id} failed: {error}; resent on the next acpmux connect"
-                    ));
+                    let next = if rejected {
+                        "the core retries it"
+                    } else {
+                        "resent on the next acpmux connect"
+                    };
+                    log(&format!("prompt {prompt_id} failed: {error}; {next}"));
                 }
-                let _ = sender.send(Msg::Input(Input::PromptSettled { prompt_id, rejected: false }));
+                let _ = sender.send(Msg::PromptSettled { id, prompt_id, rejected });
             }),
         );
+    }
+
+    /// The prompt's acknowledgment arrived (or its request returned) on
+    /// connection `id`: its deadline ends.
+    fn acknowledged(&mut self, id: u64, prompt_id: &str) {
+        if self.prompt_acks.get(prompt_id).is_some_and(|(connection, _)| *connection == id) {
+            self.prompt_acks.remove(prompt_id);
+        }
     }
 
     /// A hub read with the request deadline. `input` maps the answer (or the

@@ -2,7 +2,7 @@
 
 use cmux_conversation::{Change, Summary};
 
-use super::{MAX_AUTHORS, Core, InboxItem, Port, Task};
+use super::{Core, InboxItem, MAX_AUTHORS, Port, Task};
 use crate::rules::AGENT_MUX;
 
 impl Core {
