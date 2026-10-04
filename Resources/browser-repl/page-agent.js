@@ -423,14 +423,149 @@
   const AUTHOR_NAMED_ONLY_ROLES = new Set(["row", "cell", "gridcell", "columnheader", "rowheader", "listitem",
     "paragraph", "term", "definition", "blockquote", "status", "alert", "log", "note", "article"]);
 
-  function authorName(el) {
-    const ids = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean);
-    const labelled = ids.map((id) => (el.ownerDocument.getElementById(id) || {}).textContent || "").join(" ");
-    return capName(normalize(labelled || el.getAttribute("aria-label") || ""));
+  // A name reads page text (labels, aria-labelledby targets, the
+  // element's own content) the snapshot walk may never visit, and
+  // Playwright's name computation reads it whole and recursively. So the
+  // text a name would read is counted first (nodes, characters, depth;
+  // nodes outside the element charged to the snapshot's node budget, its
+  // own content, which the walk reads anyway, to its clock): Playwright computes the
+  // name only when it is within NAME_NODES, NAME_CHARS and NAME_DEPTH;
+  // past them the name is read directly from the same sources, at most
+  // NAME_CHARS characters and charged node by node. Attributes are cut
+  // before they are normalized.
+  const NAME_NODES = 2000;
+  const NAME_CHARS = 20000;
+  const NAME_DEPTH = 100;
+  const NAME_FROM_CONTENT = new Set(["button", "cell", "checkbox", "columnheader", "gridcell", "heading", "link", "menuitem",
+    "menuitemcheckbox", "menuitemradio", "option", "radio", "row", "rowheader", "switch", "tab", "tooltip", "treeitem"]);
+  const NAME_ATTRS = ["aria-label", "title", "alt", "placeholder", "value", "aria-description"];
+  const LABELABLE_TAGS = new Set(["input", "select", "textarea", "button", "meter", "output", "progress"]);
+  const cutAttr = (v) => (v && v.length > NAME_CHARS ? v.slice(0, NAME_CHARS) : v || "");
+  function labelledTargets(el, ctx) {
+    const value = el.getAttribute("aria-labelledby");
+    if (!value) return [];
+    const out = [];
+    const ids = /\S+/g;
+    for (let m = ids.exec(value); m && out.length < 64 && spend(ctx, 1); m = ids.exec(value)) {
+      const t = el.ownerDocument.getElementById(m[0]);
+      if (t) out.push(t);
+    }
+    return out;
+  }
+  function nameRoots(el, role, tag, ctx) {
+    const roots = labelledTargets(el, ctx);
+    if (LABELABLE_TAGS.has(tag) && el.labels) for (const l of el.labels) roots.push(l);
+    if (NAME_FROM_CONTENT.has(role) || tag === "summary") roots.push(el);
+    else {
+      const child = tag === "fieldset" ? "legend" : tag === "table" ? "caption" : tag === "figure" ? "figcaption" : null;
+      if (child) for (let c = el.firstElementChild; c; c = c.nextElementSibling) if (tagOf(c) === child) roots.push(c);
+    }
+    return roots;
+  }
+  // Whether the sources of el's name are small enough for Playwright to
+  // read whole; their nodes are charged to `ctx`.
+  function nameFits(el, roots, ctx) {
+    for (const a of NAME_ATTRS) {
+      const v = el.getAttribute(a);
+      if (v && v.length > NAME_CHARS) return false;
+    }
+    const queue = roots.slice();
+    const seen = new Set();
+    let nodes = 0;
+    let chars = 0;
+    for (let i = 0; i < queue.length; i++) {
+      const root = queue[i];
+      if (seen.has(root)) continue;
+      seen.add(root);
+      let depth = 0;
+      let over = false;
+      const own = root === el;
+      walkTree(root, (n) => {
+        if (++nodes > NAME_NODES) return (over = true), STOP;
+        if (own ? ++ctx.ticks % 256 === 0 && now() > ctx.deadline && (ctx.truncated = ctx.truncated || "time") : !spend(ctx, 1)) return (over = true), STOP;
+        if (n.nodeType === 3) chars += n.data.length;
+        else if (n.nodeType === 1) {
+          // A <select> in a label names it by its chosen options, not by
+          // all of them.
+          if (n !== root && tagOf(n) === "select") {
+            for (const o of n.selectedOptions) {
+              if (++nodes > NAME_NODES) return (over = true), STOP;
+              chars += o.text.length;
+            }
+            return false;
+          }
+          if (++depth > NAME_DEPTH) return (over = true), STOP;
+          for (const a of NAME_ATTRS) {
+            const v = n.getAttribute(a);
+            if (v) chars += v.length;
+          }
+          // Shadow content and aria-labelledby or aria-owns targets inside
+          // the content are read too.
+          if (n.shadowRoot) queue.push(n.shadowRoot);
+          if (n !== root && n.hasAttribute("aria-labelledby")) queue.push(...labelledTargets(n, ctx));
+          const owns = n.getAttribute("aria-owns");
+          if (owns) for (const id of owns.split(/\s+/).slice(0, 64)) {
+            const t = id && n.ownerDocument.getElementById(id);
+            if (t) queue.push(t);
+          }
+        }
+        if (chars > NAME_CHARS || queue.length > NAME_NODES) return (over = true), STOP;
+        return true;
+      }, (n) => {
+        if (n.nodeType === 1) depth--;
+      });
+      if (over) return false;
+    }
+    return true;
+  }
+  // Text of `root` for a name: its text nodes in order (as textContent;
+  // with `spaced`, a space at each element), at most NAME_CHARS characters
+  // from at most NAME_NODES nodes, each charged to `ctx` (to its clock
+  // only for `own` content, which the walk reads anyway).
+  function boundedNameText(root, ctx, spaced, own) {
+    let out = "";
+    let nodes = 0;
+    walkTree(root, (n) => {
+      if (out.length >= NAME_CHARS || ++nodes > NAME_NODES) return STOP;
+      if (own ? ++ctx.ticks % 256 === 0 && now() > ctx.deadline && (ctx.truncated = ctx.truncated || "time") : !spend(ctx, 1)) return STOP;
+      if (n.nodeType === 3 || n.nodeType === 4) out += n.data.slice(0, NAME_CHARS - out.length);
+      else if (n.nodeType === 1 && spaced) {
+        if (SKIP_TAGS.has(tagOf(n))) return false;
+        if (out && out[out.length - 1] !== " ") out += " ";
+        if (n !== root && tagOf(n) === "select") {
+          const chosen = n.selectedOptions;
+          for (let i = 0; i < chosen.length && i < NAME_NODES && out.length < NAME_CHARS; i++) out += chosen[i].text.slice(0, NAME_CHARS - out.length) + " ";
+          return false;
+        }
+      }
+      return true;
+    });
+    return out;
+  }
+  // The name past those bounds, from the same sources in the order the
+  // name computation takes them.
+  function boundedName(el, roots, ctx) {
+    const labelled = labelledTargets(el, ctx);
+    if (labelled.length) return capName(normalize(labelled.map((t) => boundedNameText(t, ctx, true)).join(" ")));
+    const label = cutAttr(el.getAttribute("aria-label"));
+    if (normalize(label)) return capName(normalize(label));
+    const fromRoots = roots.filter((r) => !labelled.includes(r)).map((r) => boundedNameText(r, ctx, true, r === el)).join(" ");
+    if (normalize(fromRoots)) return capName(normalize(fromRoots));
+    return capName(normalize(cutAttr(el.getAttribute("title") || el.getAttribute("alt") || el.getAttribute("placeholder"))));
   }
 
-  function nodeName(el, role, includeHidden) {
-    if (AUTHOR_NAMED_ONLY_ROLES.has(role)) return authorName(el);
+  function authorName(el, ctx) {
+    const targets = ctx ? labelledTargets(el, ctx) : [];
+    const labelled = targets.map((t) => boundedNameText(t, ctx)).join(" ");
+    return capName(normalize(labelled || cutAttr(el.getAttribute("aria-label"))));
+  }
+
+  function nodeName(el, role, includeHidden, ctx) {
+    if (AUTHOR_NAMED_ONLY_ROLES.has(role)) return authorName(el, ctx);
+    if (ctx) {
+      const roots = nameRoots(el, role, tagOf(el), ctx);
+      if (!nameFits(el, roots, ctx)) return boundedName(el, roots, ctx);
+    }
     return accessibleName(el, includeHidden);
   }
 
@@ -604,7 +739,11 @@
     return url.href.length > 300 ? url.href.slice(0, 299) + "…" : url.href;
   }
 
-  function valueOf(el, role, tag) {
+  // A value is charged to the snapshot's size budget by the caller; what
+  // it reads is bounded here: an option label or ARIA value is cut before
+  // it is normalized, and an editable element's text is read within what
+  // the snapshot's budget has left (see boundedInnerText).
+  function valueOf(el, role, tag, ctx) {
     if (tag === "input") {
       const type = (el.type || "").toLowerCase();
       if (NO_VALUE_INPUTS.has(type)) return null;
@@ -616,11 +755,19 @@
     if (tag === "select") {
       if (el.multiple || el.size > 1) return null;
       const option = el.options[el.selectedIndex];
-      return option ? normalize(option.label || option.textContent) || null : null;
+      if (!option) return null;
+      const label = option.getAttribute("label");
+      return normalize(cutAttr(label) || (ctx ? boundedNameText(option, ctx) : cutAttr(option.textContent))) || null;
     }
-    if (isContentEditableHost(el)) return normalize(el.innerText) || null;
+    if (isContentEditableHost(el)) {
+      if (!ctx) return normalize(el.innerText) || null;
+      const b = readBudget({ maxNodes: Math.max(1, ctx.left), maxSize: Math.max(1, ctx.sizeLeft) });
+      const text = boundedInnerText(el, b);
+      spend(ctx, b.nodes - b.left);
+      return normalize(text) || null;
+    }
     if (tag === "progress" || tag === "meter") return el.hasAttribute("value") ? String(el.value) : null;
-    if (VALUE_ROLES.has(role)) return el.getAttribute("aria-valuetext") || el.getAttribute("aria-valuenow") || null;
+    if (VALUE_ROLES.has(role)) return cutAttr(el.getAttribute("aria-valuetext") || el.getAttribute("aria-valuenow")) || null;
     return null;
   }
 
@@ -675,6 +822,7 @@
   // it, never raise it.
   const MAX_SIZE = 2000000;
   const NODE_SIZE = 32;
+  const MAX_DEPTH = 1000;
   // The page-read budget: every read that sends page-controlled values to
   // the host (the snapshot walk and what it reads beside it, Markdown,
   // extraction, drop-down options, composer text) reads at most MAX_NODES
@@ -696,6 +844,11 @@
       spend: (count) => spend(b, count === undefined ? 1 : count),
       charge: (count) => chargeSize(b, count),
       fit: (s) => fit(b, s),
+      // The bounded DOM reads above, charged to this budget.
+      textContent: (node) => boundedTextContent(node, b),
+      innerText: (el) => boundedInnerText(el, b),
+      outerHTML: (el) => boundedHTML(el, b, true),
+      innerHTML: (el) => boundedHTML(el, b, false),
       get truncated() {
         return b.truncated;
       },
@@ -738,6 +891,205 @@
     return s.slice(0, end) + "…";
   }
 
+  // ---------------------------------------------------------------------------
+  // Bounded DOM reads. A DOM getter (textContent, innerText, outerHTML)
+  // builds its whole string before anything can cut it, and a hostile
+  // page sets how large that is. These read within a page-read budget `b`:
+  // first a counting walk (nodes, and the lengths of the strings the getter
+  // would join, read without copying them), stopped at what `b` has left;
+  // when the getter's string fits, the getter runs and the string is
+  // charged (exact text); else the string is built node by node and stops
+  // where the budget does (`b.truncated` says why). Walks are iterative:
+  // a page can nest elements deeper than the stack.
+  const STOP = {};
+  // Visits `root` and its descendants in tree order: enter(node) before a
+  // node's children (false skips them, STOP ends the walk), leave(node)
+  // after them. `templates`: a <template>'s content counts as its children.
+  function walkTree(root, enter, leave, templates) {
+    const outs = [];
+    let n = root;
+    for (;;) {
+      const r = enter(n);
+      if (r === STOP) return;
+      let child = null;
+      if (r !== false) {
+        if (templates && n.nodeType === 1 && tagOf(n) === "template" && n.content) {
+          child = n.content.firstChild;
+          if (child) outs.push(n);
+        } else child = n.firstChild;
+      }
+      if (child) {
+        n = child;
+        continue;
+      }
+      for (;;) {
+        if (leave && leave(n) === STOP) return;
+        if (n === root) return;
+        if (n.nextSibling) {
+          n = n.nextSibling;
+          break;
+        }
+        let p = n.parentNode;
+        if (outs.length && (!p || p === outs[outs.length - 1].content)) p = outs.pop();
+        if (!p) return;
+        n = p;
+      }
+    }
+  }
+  // What a getter of `kind` ("text": textContent, "inner": innerText,
+  // "html": innerHTML/outerHTML) would read under `root`: { nodes, size,
+  // depth } within `limits` ({ nodes, size, depth, deadline }), else
+  // { over: "nodes" | "size" | "time" | "depth" }. Attributes count as
+  // nodes; the size of HTML adds tags and attributes.
+  function measureTree(root, kind, limits) {
+    let nodes = 0;
+    let size = 0;
+    let depth = 0;
+    let deepest = 0;
+    let over = null;
+    walkTree(root, (n) => {
+      if (++nodes > limits.nodes) return (over = "nodes"), STOP;
+      if ((nodes & 255) === 0 && now() > limits.deadline) return (over = "time"), STOP;
+      const t = n.nodeType;
+      if (t === 3 || t === 4) size += n.data.length;
+      else if (t === 8 || t === 7) size += kind === "html" ? n.data.length + 7 : 0;
+      else if (t === 1) {
+        if (kind === "html") {
+          const attrs = n.attributes;
+          nodes += attrs.length;
+          if (nodes > limits.nodes) return (over = "nodes"), STOP;
+          size += 2 * n.tagName.length + 5;
+          for (let i = 0; i < attrs.length; i++) size += attrs[i].name.length + attrs[i].value.length + 4;
+        } else if (kind === "inner") size += 2;
+        if (++depth > deepest) deepest = depth;
+        if (deepest > limits.depth) return (over = "depth"), STOP;
+      }
+      if (size > limits.size) return (over = "size"), STOP;
+      return kind === "html" || t === 1 || t === 9 || t === 11;
+    }, (n) => {
+      if (n.nodeType === 1) depth--;
+    }, kind === "html");
+    return over ? { over } : { nodes, size, depth: deepest };
+  }
+  // How far a getter's result may run past the counted size: escaping
+  // grows HTML, innerText adds line breaks. A result past it is still cut.
+  function readLimits(b) {
+    return { nodes: b.left, size: b.sizeLeft, depth: Infinity, deadline: b.deadline };
+  }
+  // textContent: every Text descendant's data, in order.
+  function boundedTextContent(node, b) {
+    const t = node.nodeType;
+    if (t === 3 || t === 4 || t === 7 || t === 8) return spend(b, 1) ? fit(b, node.data) : "";
+    if (t === 9 || t === 10) return null;
+    const m = measureTree(node, "text", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, node.textContent);
+    }
+    const parts = [];
+    walkTree(node, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n.nodeType === 3 || n.nodeType === 4) {
+        parts.push(fit(b, n.data));
+        if (b.truncated) return STOP;
+      }
+      return n.nodeType === 1 || n.nodeType === 11;
+    });
+    return parts.join("");
+  }
+  // innerText: past the budget, an approximation of the rendered text (no
+  // hidden, script or style content; a line break around each block and
+  // at each <br>) that stops at the budget.
+  const NO_INNER_TEXT = new Set(["script", "style", "template", "noscript", "head", "title", "meta", "link"]);
+  function boundedInnerText(el, b) {
+    const m = measureTree(el, "inner", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, el.innerText);
+    }
+    const parts = [];
+    const blocks = [];
+    walkTree(el, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n.nodeType === 3 || n.nodeType === 4) {
+        parts.push(fit(b, n.data.replace(/[ \t\r\n]+/g, " ")));
+        return b.truncated ? STOP : true;
+      }
+      if (n.nodeType !== 1) return false;
+      const tag = tagOf(n);
+      if (NO_INNER_TEXT.has(tag)) return false;
+      if (tag === "br") {
+        parts.push(fit(b, "\n"));
+        return false;
+      }
+      const style = styleOf(n);
+      if (!style || style.display === "none") return false;
+      const block = n !== el && !/^inline/.test(style.display) && style.display !== "contents";
+      if (block) parts.push(fit(b, "\n"));
+      blocks.push(block);
+      return true;
+    }, (n) => {
+      if (n.nodeType === 1 && n !== el && blocks.length && blocks.pop()) parts.push(fit(b, "\n"));
+    });
+    return parts.join("").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "");
+  }
+  // innerHTML (`outer` false) or outerHTML: past the budget, the HTML
+  // fragment serialization algorithm, node by node, stopped at the budget.
+  const VOID_TAGS = new Set(["area", "base", "basefont", "bgsound", "br", "col", "embed", "frame", "hr", "img", "input", "keygen", "link", "meta", "param", "source", "track", "wbr"]);
+  const RAW_TEXT_TAGS = new Set(["style", "script", "xmp", "iframe", "noembed", "noframes", "plaintext", "noscript"]);
+  const FOREIGN_NS = new Set([HTML_NS, "http://www.w3.org/2000/svg", "http://www.w3.org/1998/Math/MathML"]);
+  const escapeText = (s) => s.replace(/&/g, "&amp;").replace(/\u00a0/g, "&nbsp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const escapeAttr = (s) => s.replace(/&/g, "&amp;").replace(/\u00a0/g, "&nbsp;").replace(/"/g, "&quot;");
+  function attrName(a) {
+    if (!a.namespaceURI) return a.localName;
+    if (a.namespaceURI === "http://www.w3.org/XML/1998/namespace") return "xml:" + a.localName;
+    if (a.namespaceURI === "http://www.w3.org/2000/xmlns/") return a.localName === "xmlns" ? "xmlns" : "xmlns:" + a.localName;
+    if (a.namespaceURI === "http://www.w3.org/1999/xlink") return "xlink:" + a.localName;
+    return a.name;
+  }
+  function boundedHTML(el, b, outer) {
+    const m = measureTree(el, "html", readLimits(b));
+    if (!m.over) {
+      spend(b, m.nodes);
+      return fit(b, outer ? el.outerHTML : el.innerHTML);
+    }
+    const parts = [];
+    const push = (s) => {
+      parts.push(fit(b, s));
+      return b.truncated ? STOP : true;
+    };
+    const tagName = (n) => (FOREIGN_NS.has(n.namespaceURI) ? n.localName : n.tagName);
+    walkTree(el, (n) => {
+      if (!spend(b, 1)) return STOP;
+      if (n === el && !outer) return true;
+      const t = n.nodeType;
+      if (t === 3 || t === 4) {
+        const p = n.parentNode;
+        return push(p && p.nodeType === 1 && p.namespaceURI === HTML_NS && RAW_TEXT_TAGS.has(tagOf(p)) ? n.data : escapeText(n.data)) === STOP ? STOP : false;
+      }
+      if (t === 8) return push(`<!--${n.data}-->`) === STOP ? STOP : false;
+      if (t === 7) return push(`<?${n.target} ${n.data}>`) === STOP ? STOP : false;
+      if (t !== 1) return false;
+      const attrs = n.attributes;
+      if (!spend(b, attrs.length)) return STOP;
+      let head = "<" + tagName(n);
+      for (let i = 0; i < attrs.length; i++) head += ` ${attrName(attrs[i])}="${escapeAttr(attrs[i].value)}"`;
+      if (push(head + ">") === STOP) return STOP;
+      return !(n.namespaceURI === HTML_NS && VOID_TAGS.has(tagOf(n)));
+    }, (n) => {
+      if (n.nodeType !== 1 || (n === el && !outer)) return;
+      if (n.namespaceURI === HTML_NS && VOID_TAGS.has(tagOf(n))) return;
+      return push(`</${tagName(n)}>`);
+    }, true);
+    return parts.join("");
+  }
+  // A string read whole by the page (an attribute, a field's value),
+  // charged and cut.
+  function boundedString(s, b) {
+    if (typeof s !== "string") return s;
+    return spend(b, 1) ? fit(b, s) : "";
+  }
+
   function visitNode(n, out, ctx, parentVisible, parentAriaHidden, skipText) {
     if (ctx.visited.has(n) || !spend(ctx, 1)) return;
     ctx.visited.add(n);
@@ -745,7 +1097,21 @@
       if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(fit(ctx, n.nodeValue));
       return;
     }
-    if (n.nodeType === 1) visitElement(n, out, ctx, parentAriaHidden, skipText);
+    if (n.nodeType !== 1) return;
+    // The walk recurses per element, and a page can nest elements deeper
+    // than the stack (the HTML parser stops at 512, script does not): past
+    // MAX_DEPTH the subtree is not read and a node with a ref says so.
+    if (ctx.nest >= MAX_DEPTH) {
+      out.push({ role: "generic", ref: refFor(n), unread: `nested deeper than ${MAX_DEPTH} elements; snapshot this ref to read it` });
+      ctx.nestCut = true;
+      return;
+    }
+    ctx.nest++;
+    try {
+      visitElement(n, out, ctx, parentAriaHidden, skipText);
+    } finally {
+      ctx.nest--;
+    }
   }
 
   function visitChildren(el, out, ctx, visible, ariaHidden, skipText) {
@@ -883,7 +1249,7 @@
     // A hidden paragraph (showHidden) keeps its node so it can say [hidden].
     const flattens = FLATTEN_ROLES.has(role) && !(role === "paragraph" && !visible);
     const flattenable = flattens || FLATTEN_UNNAMED_ROLES.has(role);
-    const name = flattens && !interactive && !scrollable ? "" : nodeName(el, role, !visible);
+    const name = flattens && !interactive && !scrollable ? "" : nodeName(el, role, !visible, ctx);
     if (!interactive && !scrollable && (flattens || (flattenable && !name))) {
       if (role === "img" || role === "image") return;
       // Unrendered content (showHidden) has no layout; keep it apart.
@@ -917,7 +1283,7 @@
       out.push(node);
       return;
     }
-    const value = valueOf(el, role, tag);
+    const value = valueOf(el, role, tag, ctx);
     if (value !== null) node.value = fit(ctx, value);
     if (role === "link") {
       const url = displayUrl(el);
@@ -1015,6 +1381,7 @@
       focus: deepActiveElement(document),
       visited: new Set(),
       depth: 0,
+      nest: 0,
       clips: EMPTY_CLIPS,
       positioned: -1,
       transformed: -1,
@@ -1347,6 +1714,59 @@
     }
   }
 
+  // A locator's string read within one page-read budget: { value, cut }
+  // with `cut` the budget's report when it stopped the read.
+  function readBounded(id, what, arg) {
+    const el = element(id);
+    const b = readBudget();
+    let value;
+    switch (what) {
+      case "textContent":
+        value = boundedTextContent(el, b);
+        break;
+      case "innerText":
+        if (!(el instanceof global.HTMLElement)) throw agentError("invalid", "Node is not an HTMLElement");
+        value = boundedInnerText(el, b);
+        break;
+      case "innerHTML":
+        value = boundedHTML(el, b, false);
+        break;
+      case "outerHTML":
+        value = boundedHTML(el, b, true);
+        break;
+      case "getAttribute":
+        value = boundedString(el.getAttribute(arg), b);
+        break;
+      case "inputValue":
+        value = boundedString(read(id, "inputValue"), b);
+        break;
+      default:
+        throw agentError("invalid", `Unknown read ${what}`);
+    }
+    return { value, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
+  }
+  // The same read of several elements (allTextContents, allInnerTexts),
+  // all within one budget: { values, cut }; elements past it read "".
+  function readAllBounded(ids, what) {
+    const b = readBudget();
+    const values = [];
+    for (const id of ids) {
+      const el = element(id);
+      if (b.truncated) values.push("");
+      else if (what === "innerText") values.push(el instanceof global.HTMLElement ? boundedInnerText(el, b) : boundedTextContent(el, b) || "");
+      else values.push(boundedTextContent(el, b) || "");
+    }
+    return { values, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
+  }
+  // The document's HTML (doctype and outerHTML of its root) within one
+  // page-read budget, for page.content().
+  function documentHTML() {
+    const b = readBudget();
+    const doctype = document.doctype ? fit(b, new global.XMLSerializer().serializeToString(document.doctype)) : "";
+    const value = doctype + (document.documentElement ? boundedHTML(document.documentElement, b, true) : "");
+    return { value, cut: b.truncated ? { truncated: b.truncated, maxNodes: b.nodes, maxSize: b.size } : null };
+  }
+
   // All the text a composer will send: a field's value, else every text
   // node in it, hidden ones too (they are sent), with a space at each block
   // boundary and line break, read in this world (a page script cannot
@@ -1580,6 +2000,9 @@
     dispatchEvent,
     retarget: retargetHandle,
     read,
+    readBounded,
+    readAllBounded,
+    documentHTML,
     framePosition,
     iframeHandles,
     contentBox,

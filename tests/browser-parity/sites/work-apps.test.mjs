@@ -96,6 +96,20 @@ test("github: issue and pull request pages as structured Markdown, diff, issue l
   assert.match(await s.error('sites.github.issue("acme/private#999")'), /was not found, or this account cannot see it/);
 });
 
+// A path or ref names a file inside the one repository: dot segments
+// would leave it once the URL is normalized (here into acme/private).
+test("github.file: dot segments in the path or ref are refused before any request", async () => {
+  const before = env.state.requests.length;
+  for (const call of [
+    'sites.github.file("acme/public", "../../private/raw/HEAD/README.md")',
+    'sites.github.file("acme/public", "docs/./../../../private/raw/HEAD/README.md")',
+    'sites.github.file("acme/public", "a//b")',
+    'sites.github.file("acme/public", "/README.md")',
+    'sites.github.file("acme/public", "README.md", { ref: ".." })',
+  ]) assert.match(await s.error(call), /github\.file: .*(dot segment|empty segment|ref)/, call);
+  assert.ok(!env.state.requests.slice(before).some((r) => /\/raw\//.test(r.url)), "no raw file was requested");
+});
+
 test("github.assigned lists issues and pull requests assigned to the user", async () => {
   assert.deepEqual(await s.value("sites.github.assigned()"), [
     { repo: "acme/private", number: 7, kind: "issue", title: "Crash on start", url: "https://github.com/acme/private/issues/7" },

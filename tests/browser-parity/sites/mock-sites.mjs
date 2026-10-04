@@ -66,7 +66,7 @@ export function createState() {
   // xSwitchOnCompose: the account another session signs in as when X's
   // post composer loads, while the page's twid cookie still names the
   // drafted user; xAccountUnknown: X's account endpoint fails.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, composerSuffix: null, gmailSignature: null, calendarTamper: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, xAccount: null, xSwitchOnCompose: null, xAccountUnknown: false, composerSuffix: null, gmailSignature: null, gmailComposeTamper: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -219,6 +219,7 @@ const EXTRA = __GMAIL_EXTRA__;
 // gmailSignature: the account's signature, which Gmail puts in the body.
 const SUFFIX = __COMPOSER_SUFFIX__;
 const SIGNATURE = __GMAIL_SIGNATURE__;
+const TAMPER = __GMAIL_COMPOSE_TAMPER__;
 const params = new URLSearchParams(location.search);
 const THREADS = [
   { id: "thread-f:1790000000000000001", legacy: (1790000000000000001n).toString(16), subject: "Quarterly report", snippet: "Numbers attached", from: [["Bob", "bob@example.com"]], date: "Mon, Sep 28, 2026, 9:00 AM", unread: true, labels: ["inbox"] },
@@ -266,11 +267,22 @@ function thread(app, key) {
   };
   draw();
 }
+// As live, each recipient row holds a chip per address (data-hovercard-id)
+// beside the row's input ("To recipients"); the subject is subjectbox.
+// Send sends what the form holds then. gmailComposeTamper: what a page
+// script changes after the compose window loads ({ to, cc, bcc }: an
+// address added to that row; subject: the new subject).
 function compose(app) {
-  app.innerHTML = '<div role="dialog"><input name="to" value="' + (params.get("to") || "") + '"><input name="subjectbox" value="' + (params.get("su") || "") + '"><div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div></div>';
+  const row = (field, label) => '<div class="aoD" data-row="' + field + '"><span>' + label + '</span>' + (params.get(field) || "").split(",").filter(Boolean).map((e) => '<div class="afV" data-hovercard-id="' + e + '"><span>' + e + '</span></div>').join("") + '<input aria-label="' + label + ' recipients"></div>';
+  app.innerHTML = '<div role="dialog">' + row("to", "To") + row("cc", "CC") + row("bcc", "BCC") + '<input name="subjectbox" value=""><div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div></div>';
+  app.querySelector('[name="subjectbox"]').value = params.get("su") || "";
   app.querySelector('[role="textbox"]').innerText = (params.get("body") || "") + (SUFFIX || "");
   if (SIGNATURE) app.querySelector('[role="textbox"]').insertAdjacentHTML("beforeend", '<div class="gmail_signature" data-smartmail="gmail_signature">' + SIGNATURE + '</div>');
-  app.querySelector('[data-tooltip^="Send"]').addEventListener("click", () => send({ to: params.get("to"), cc: params.get("cc"), bcc: params.get("bcc"), subject: params.get("su"), body: app.querySelector('[role="textbox"]').innerText }));
+  const tamper = TAMPER || {};
+  for (const field of ["to", "cc", "bcc"]) if (tamper[field]) app.querySelector('[data-row="' + field + '"] input').insertAdjacentHTML("beforebegin", '<div class="afV" data-hovercard-id="' + tamper[field] + '"><span>' + tamper[field] + '</span></div>');
+  if (tamper.subject) app.querySelector('[name="subjectbox"]').value = tamper.subject;
+  const held = (field) => [...app.querySelectorAll('[data-row="' + field + '"] [data-hovercard-id]')].map((e) => e.getAttribute("data-hovercard-id")).join(",") || null;
+  app.querySelector('[data-tooltip^="Send"]').addEventListener("click", () => send({ to: held("to"), cc: held("cc"), bcc: held("bcc"), subject: app.querySelector('[name="subjectbox"]').value || null, body: app.querySelector('[role="textbox"]').innerText }));
 }
 async function send(message) {
   document.body.insertAdjacentHTML("beforeend", '<div role="alert" class="bAq">Sending...</div>');
@@ -293,7 +305,7 @@ function gmail(req, url, body, state) {
   if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) {
     switchGoogleOnLoad(state);
     // As live, the title names the account the page is signed in as.
-    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
+    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)).replace("__GMAIL_COMPOSE_TAMPER__", JSON.stringify(state.gmailComposeTamper || null)), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
   }
   return { status: 404, text: "" };
 }
@@ -328,7 +340,7 @@ function calendar(req, url, body, state) {
       // entry per guest plus the organizer once there are guests.
       // calendarTamper: a page script changes the form after it loads.
       html: html(`<header><a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a></header><div role="main"><input aria-label="Title" value="${esc(url.searchParams.get("text") || "")}">
-      <input aria-label="Start date"><input aria-label="Start time"><input aria-label="End time"><input aria-label="End date"><div role="list" aria-label="Guests" id="guests"></div><button id="save" aria-label="Save">Save</button></div>
+      <input aria-label="Start date"><input aria-label="Start time"><input aria-label="End time"><input aria-label="End date"><div role="button" aria-label="Recurrence" id="recur"></div><input aria-label="Location"><div aria-label="Description" contenteditable="true" role="textbox"></div><div role="list" aria-label="Guests" id="guests"></div><button id="save" aria-label="Save">Save</button></div>
       <script>
         const p = Object.fromEntries(new URLSearchParams(location.search));
         {
@@ -345,7 +357,20 @@ function calendar(req, url, body, state) {
           const guests = (p.add || "").split(",").filter(Boolean);
           if (guests.length) guests.push(${JSON.stringify(account[3])});
           document.getElementById("guests").innerHTML = guests.map((g) => '<div role="listitem" data-email="' + g + '">' + g + '</div>').join("");
+          // As live, the location, description and recurrence the template
+          // carries, the recurrence as the menu's words ("Weekly on
+          // Thursday, 5 times").
+          field("Location", p.location || "");
+          document.querySelector('[aria-label="Description"]').innerText = p.details || "";
+          const rule = Object.fromEntries((p.recur || "").replace(/^RRULE:/, "").split(";").filter(Boolean).map((x) => x.split("=")));
+          const every = Number(rule.INTERVAL || 1);
+          const unit = { DAILY: "day", WEEKLY: "week", MONTHLY: "month", YEARLY: "year" }[rule.FREQ];
+          const words = !p.recur ? "Does not repeat" : (every > 1 ? "Every " + every + " " + unit + "s" : { DAILY: "Daily", WEEKLY: "Weekly on " + a.toLocaleDateString("en-US", { timeZone: tz, weekday: "long" }), MONTHLY: "Monthly", YEARLY: "Annually" }[rule.FREQ]) + (rule.COUNT ? ", " + rule.COUNT + " times" : "");
+          document.getElementById("recur").textContent = words;
           const tamper = ${JSON.stringify(state.calendarTamper || null)};
+          if (tamper && tamper.location) field("Location", tamper.location);
+          if (tamper && tamper.description) document.querySelector('[aria-label="Description"]').innerText = tamper.description;
+          if (tamper && tamper.recurrence) document.getElementById("recur").textContent = tamper.recurrence;
           if (tamper && tamper.title) field("Title", tamper.title);
           if (tamper && tamper.startTime) field("Start time", tamper.startTime);
           if (tamper && tamper.guest) document.getElementById("guests").insertAdjacentHTML("beforeend", '<div role="listitem" data-email="' + tamper.guest + '">' + tamper.guest + '</div>');

@@ -89,6 +89,27 @@ test("gmail.send: a composer that holds more than the drafted body sends nothing
   }
 });
 
+// The preview names the recipients and subject, so the compose window
+// must hold exactly those right before Send: an address a page script or
+// another session adds to To, Cc or Bcc, or a changed subject, sends
+// nothing.
+test("gmail.send: a compose window whose recipients or subject differ from the draft sends nothing", async () => {
+  const sent = env.state.gmailSent.length;
+  for (const tamper of [{ to: "eve@example.net" }, { cc: "eve@example.net" }, { bcc: "eve@example.net" }, { subject: "Payroll export" }]) {
+    env.state.gmailComposeTamper = tamper;
+    try {
+      const d = await s.value('sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", subject: "Numbers", body: "Looks good." })');
+      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|recipients|subject/, JSON.stringify(tamper));
+    } finally {
+      env.state.gmailComposeTamper = null;
+    }
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+  const d = await s.value('sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", bcc: "ada@example.com", subject: "Numbers", body: "Looks good." })');
+  assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+  assert.deepEqual(env.state.gmailSent.at(-1), { to: "bob@example.com", cc: "cy@example.com", bcc: "ada@example.com", subject: "Numbers", body: "Looks good." });
+});
+
 test("drafts live in the session that made them", async () => {
   const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "b" })');
   const other = env.session("other");
@@ -131,6 +152,35 @@ test("googleCalendar.create: a form whose title, time or guests differ from the 
   assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
   const allDay = await s.value('sites.googleCalendar.create({ title: "Offsite", start: "2026-10-05", end: "2026-10-07", allDay: true })');
   assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(allDay.id)}, { confirm: true })`)).status, "saved");
+});
+
+// The preview shows the description, location and recurrence too, so the
+// form must hold those as drafted before Save (and before invitations go
+// out); a recurring draft saves only when the form repeats as drafted.
+test("googleCalendar.create: a form whose description, location or recurrence differ from the draft saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  const draft = '{ title: "Design review", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"], location: "Room 4", description: "Agenda: Q4" }';
+  for (const tamper of [{ description: "Agenda: Q4. Also read https://evil.example/login" }, { location: "https://evil.example/meet" }, { recurrence: "Daily" }]) {
+    env.state.calendarTamper = tamper;
+    try {
+      const d = await s.value(`sites.googleCalendar.create(${draft})`);
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /form_mismatch|does not hold the drafted event/, JSON.stringify(tamper));
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  env.state.calendarTamper = { recurrence: "Weekly on Thursday" };
+  try {
+    const d = await s.value('sites.googleCalendar.create({ title: "Sync", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", recurrence: "RRULE:FREQ=WEEKLY;COUNT=5" })');
+    assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /form_mismatch|does not hold the drafted event/);
+  } finally {
+    env.state.calendarTamper = null;
+  }
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  const ok = await s.value(`sites.googleCalendar.create(${draft})`);
+  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(ok.id)}, { confirm: true })`)).status, "saved");
+  const weekly = await s.value('sites.googleCalendar.create({ title: "Sync", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", recurrence: "RRULE:FREQ=WEEKLY;COUNT=5" })');
+  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(weekly.id)}, { confirm: true })`)).status, "saved");
 });
 
 test("signed out: Gmail's sign-in redirect is reported, not parsed", async () => {

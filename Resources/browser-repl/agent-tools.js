@@ -733,44 +733,73 @@
   }
 
   // Text matches with context, like grep over what the page renders.
+  // The visible text is read within the page-read budget (A.budget: each
+  // node charged, the text joined at most to the budget's characters, the
+  // walk iterative), so the regular expression scans at most that much;
+  // each context is at most opts.context (capped at 1,000) characters on
+  // either side, a match at most 1,000, and what the matches return is
+  // charged to a second budget. `report` says where the read stopped.
   function searchTextInFrame(opts) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
+    const B = A.budget();
+    const R = A.budget();
     const scope = opts.scope ? A.element(opts.scope) : document.body || document.documentElement;
+    const shown = new Map();
     const visible = (el) => {
       if (!el) return false;
-      if (typeof el.checkVisibility === "function") return el.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true });
-      const cs = getComputedStyle(el);
-      return cs.display !== "none" && cs.visibility !== "hidden";
-    };
-    const blockOf = (el) => {
-      for (let e = el; e; e = e.parentElement || (e.getRootNode && e.getRootNode().host)) {
-        if (!getComputedStyle(e).display.startsWith("inline")) return e;
+      let v = shown.get(el);
+      if (v === undefined) {
+        if (typeof el.checkVisibility === "function") v = el.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true });
+        else {
+          const cs = getComputedStyle(el);
+          v = cs.display !== "none" && cs.visibility !== "hidden";
+        }
+        shown.set(el, v);
       }
-      return null;
+      return v;
     };
-    const nodes = [];
-    const walk = (root) => {
-      for (const n of root.childNodes) {
-        if (n.nodeType === 3) {
-          if (n.data.trim() && visible(n.parentElement)) nodes.push(n);
-        } else if (n.nodeType === 1) {
-          const t = n.tagName.toUpperCase();
-          if (t === "SCRIPT" || t === "STYLE" || t === "NOSCRIPT" || t === "TEMPLATE") continue;
-          if (n.shadowRoot) walk(n.shadowRoot);
-          else walk(n);
+    const blocks = new Map();
+    const blockOf = (el) => {
+      if (blocks.has(el)) return blocks.get(el);
+      let found = null;
+      for (let e = el, i = 0; e && i < 64; e = e.parentElement || (e.getRootNode && e.getRootNode().host), i++) {
+        if (!getComputedStyle(e).display.startsWith("inline")) {
+          found = e;
+          break;
         }
       }
+      blocks.set(el, found);
+      return found;
     };
-    walk(scope);
-    let text = "";
+    const nodes = [];
     const starts = [];
+    let text = "";
     let lastBlock = null;
-    for (const n of nodes) {
-      const b = blockOf(n.parentElement);
-      if (text && b !== lastBlock) text += "\n";
-      lastBlock = b;
-      starts.push(text.length);
-      text += n.data.replace(/[\s ]+/g, " ");
+    // Iterative (a page can nest elements deeper than the stack), one
+    // pending sibling per level rather than every child at once. Shadow
+    // roots are read in place of the host's light children, as before.
+    const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+    const firstOf = (n) => (n.nodeType === 1 && n.shadowRoot ? n.shadowRoot.firstChild : n.firstChild);
+    const stack = [];
+    if (firstOf(scope)) stack.push(firstOf(scope));
+    while (stack.length && !B.truncated) {
+      const n = stack.pop();
+      if (n.nextSibling) stack.push(n.nextSibling);
+      if (!B.spend(1)) break;
+      if (n.nodeType === 3) {
+        if (!n.data.trim() || !visible(n.parentElement)) continue;
+        const b = blockOf(n.parentElement);
+        let piece = (text && b !== lastBlock ? "\n" : "") + n.data.replace(/[\s\u00a0]+/g, " ");
+        lastBlock = b;
+        piece = B.fit(piece);
+        if (B.truncated) piece = piece.replace(/…$/, "");
+        nodes.push(n);
+        starts.push(text.length + (piece[0] === "\n" ? 1 : 0));
+        text += piece;
+      } else if (n.nodeType === 1 && !SKIP.has(n.tagName.toUpperCase())) {
+        const child = firstOf(n);
+        if (child) stack.push(child);
+      }
     }
     let re;
     try {
@@ -778,6 +807,9 @@
     } catch (e) {
       throw new Error(`page.searchText: invalid pattern: ${e.message}`);
     }
+    const context = Math.max(0, Math.min(1000, Math.floor(Number(opts.context) || 0)));
+    const limit = Math.max(0, Math.floor(Number(opts.limit) || 0));
+    const cap = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
     const matches = [];
     let total = 0;
     let m;
@@ -787,7 +819,7 @@
         continue;
       }
       total++;
-      if (matches.length >= opts.limit) continue;
+      if (matches.length >= limit || R.truncated) continue;
       let lo = 0;
       let hi = starts.length - 1;
       while (lo < hi) {
@@ -795,12 +827,15 @@
         if (starts[mid] <= m.index) lo = mid;
         else hi = mid - 1;
       }
-      const a = Math.max(0, m.index - opts.context);
-      const b = Math.min(text.length, m.index + m[0].length + opts.context);
+      const a = Math.max(0, m.index - context);
+      const b = Math.min(text.length, m.index + Math.min(m[0].length, 1000) + context);
       const el = nodes[lo] && nodes[lo].parentElement;
-      matches.push({ match: m[0], context: (a > 0 ? "…" : "") + text.slice(a, b).replace(/\n/g, " ").trim() + (b < text.length ? "…" : ""), handle: el ? A.handleFor(el) : null });
+      const match = R.fit(cap(m[0], 1000));
+      const around = R.fit((a > 0 ? "…" : "") + text.slice(a, b).replace(/\n/g, " ").trim() + (b < text.length ? "…" : ""));
+      if (R.truncated) continue;
+      matches.push({ match, context: around, handle: el ? A.handleFor(el) : null });
     }
-    return { total, matches };
+    return { total, matches, report: B.truncated ? B.report() : R.truncated ? R.report() : null };
   }
 
   // Options are read within the page-read budget (A.budget): each option
@@ -1582,6 +1617,7 @@
       scope = r.handle;
     }
     const r = await agentCall(frame, searchTextInFrame, { pattern, regex: !!options.regex, caseSensitive: !!options.caseSensitive, context: options.context === undefined ? 60 : options.context, limit: options.limit === undefined ? 25 : options.limit, scope });
+    if (r.report) printCut(this, "page.searchText", r.report, "matches after it are not counted or returned");
     const matches = [];
     for (const m of r.matches) {
       let ref = null;

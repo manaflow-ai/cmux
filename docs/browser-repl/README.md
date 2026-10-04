@@ -290,7 +290,16 @@ rest. Measurements: [performance.md](performance.md).
   inside a frame split what it left, and one past the budget prints
   `[not read: the snapshot's node budget is used up]`, or `size budget`),
   and a frame's walk stops after 8 s. The string that passes the size
-  budget is cut with `…`. A cut snapshot ends with `# the page is too large
+  budget is cut with `…`. A name or value reads text the walk may not
+  visit (an `aria-labelledby` target, a label, an editable element's
+  text), and the name computation reads it whole and recursively, so
+  that text is counted first (text outside the element against the node
+  budget): past 2,000 nodes, 20,000 characters or 100 levels the name
+  is read directly from the same sources, at most 20,000 characters. The
+  walk descends at most 1,000 elements deep (script can nest elements
+  deeper than the stack); a deeper element prints as `generic [ref=e9]
+  [not read: nested deeper than 1000 elements; snapshot this ref to read
+  it]`. A cut snapshot ends with `# the page is too large
   to read whole: the snapshot stopped after 250,000 nodes; …` (or `after
   2,000,000 characters`); snapshot a part of the page (`snapshot(ref)`, a
   locator) to read further. Printing a
@@ -301,10 +310,25 @@ rest. Measurements: [performance.md](performance.md).
 - **Every other page read has the same budget.** What a helper reads
   from the page and returns crosses to the session before any output
   limit, so `page.markdown()`, `page.extract()`,
-  `page.dropdownOptions()`, `tabs.content()` and the composer check
-  before a site's Send or Post read at most 250,000 nodes and 2,000,000
-  characters, for 8 s, with one budget in the page agent
-  (`A.budget()`), and say where they stopped. Markdown ends with
+  `page.dropdownOptions()`, `page.searchText()`, `tabs.content()`,
+  `page.content()`, the locator reads (`textContent`, `innerText`,
+  `innerHTML`, `getAttribute`, `inputValue`, `allTextContents`,
+  `allInnerTexts`) and the composer check before a site's Send or Post
+  read at most 250,000 nodes and 2,000,000 characters, for 8 s, with one
+  budget in the page agent (`A.budget()`), and say where they stopped.
+  A DOM getter (`textContent`, `innerText`, `outerHTML`) builds its whole
+  string before anything can cut it, so the page agent first counts the
+  nodes and the lengths it would join, within what the budget has left,
+  and calls the getter only when its string fits (the getter's own
+  text); past the budget it builds the string node by node and stops
+  there (HTML serialized as the browser does, `innerText` approximated:
+  no hidden, script or style content, a line break around blocks). A
+  locator read past it returns the cut value (ending with `…`) and prints
+  `# locator.textContent: the page is too large to read whole: it stopped
+  after …`. `page.searchText` scans at most the budget's text (matches
+  after it are not counted), returns at most 1,000 characters of context
+  on each side and 1,000 of each match, and stops returning matches when
+  they reach the budget's characters. Markdown ends with
   `<!-- the page is too large to read whole: Markdown stopped after
   2,000,000 characters; … -->` (or `nodes`, `8 s`, and `100 frames`:
   it reads at most 100 iframes, one after another, each with what the

@@ -188,3 +188,133 @@ test("tabs.content: each URL and the whole call stop at the page-read budget, an
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("locator reads, allTextContents and page.content: an oversized element stops at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<div id="big"><p class="p"></p><p class="p"></p></div><textarea id="field"></textarea><div id="wide"></div><p id="small">Small <b>text</b></p>';
+          for (const p of document.querySelectorAll(".p")) p.textContent = "A".repeat(3000000);
+          document.getElementById("field").value = "B".repeat(5000000);
+          document.getElementById("big").setAttribute("data-x", "C".repeat(5000000));
+          const wide = document.getElementById("wide");
+          for (let i = 0; i < 300000; i++) wide.appendChild(document.createElement("i"));
+        });`);
+      const reads = {
+        textContent: 'page.locator("#big").textContent()',
+        innerText: 'page.locator("#big").innerText()',
+        innerHTML: 'page.locator("#big").innerHTML()',
+        getAttribute: 'page.locator("#big").getAttribute("data-x")',
+        inputValue: 'page.locator("#field").inputValue()',
+        allTextContents: 'page.locator(".p").allTextContents().then((a) => a.join(""))',
+        allInnerTexts: 'page.locator(".p").allInnerTexts().then((a) => a.join(""))',
+        content: "page.content()",
+        wideHTML: 'page.locator("#wide").innerHTML()',
+      };
+      for (const [name, expr] of Object.entries(reads)) {
+        const r = await run(`const v = await ${expr}; console.log("@@" + JSON.stringify(v.length));`);
+        assert.ok(Number(r.value) <= READ_SIZE + 10, `${name}: returned ${r.value} characters`);
+        assert.ok(largestRead(r.log) < READ_SIZE + 100000, `${name}: the page agent returned ${largestRead(r.log)} characters at once`);
+        assert.match(r.output, /# (locator|page)\.\w+: the page is too large to read whole: it stopped after (2,000,000 characters|250,000 nodes)/, `${name}: no note`);
+      }
+      // A read within the budget is the getter's own string, with no note.
+      const small = await run(`console.log("@@" + JSON.stringify([await page.locator("#small").textContent(), await page.locator("#small").innerText(), await page.locator("#small").innerHTML()]));`);
+      assert.deepEqual(JSON.parse(small.value), ["Small text", "Small text", "Small <b>text</b>"]);
+      assert.doesNotMatch(small.output, /too large/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+// The text and HTML formats read the page node by node under the budget,
+// never through a getter that walks the whole DOM first: a page of more
+// nodes than the budget (each tiny, so the string itself would fit) is cut
+// at the node budget.
+test("tabs.content: text and HTML stop at the node budget, not after serializing the whole DOM", async () => {
+  const page = "<!doctype html><title>Many</title><body>" + "<i>x</i>".repeat(270000) + "</body>";
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(page);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  try {
+    await withLoggedRepl(async (run) => {
+      for (const format of ["text", "html"]) {
+        const r = await run(`const [row] = await tabs.content(${JSON.stringify(url)}, { format: ${JSON.stringify(format)} }); console.log("@@" + JSON.stringify({ length: row.content.length, truncated: row.truncated || null }));`);
+        const row = JSON.parse(r.value);
+        assert.match(row.truncated || "", /stopped after 250,000 nodes/, `${format}: ${JSON.stringify(row)}`);
+      }
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+// A name reads text the walk may never visit (a hidden aria-labelledby
+// target, a hidden label) and the name computation reads it whole and
+// recursively: those reads count against the snapshot's node budget, and
+// nesting deeper than the stack cannot fail the snapshot.
+test("snapshot: names and values read within the budget, and deep nesting is cut with a ref instead of failing", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      const pages = {
+        labelledby: `document.body.innerHTML = '<button aria-labelledby="h">B</button><div id="h" style="display:none"></div>'; const h = document.getElementById("h"); for (let i = 0; i < 5000; i++) h.appendChild(document.createElement("span")).textContent = "w";`,
+        label: `document.body.innerHTML = '<input id="a"><label for="a" style="display:none" id="l"></label>'; const l = document.getElementById("l"); for (let i = 0; i < 5000; i++) l.appendChild(document.createElement("span")).textContent = "w";`,
+      };
+      for (const [name, setup] of Object.entries(pages)) {
+        const r = await run(`await page.evaluate(() => { ${setup} }); const s = await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(s.tree.split("\\n").slice(-1)[0]));`);
+        assert.match(JSON.parse(r.value), /^# the page is too large to read whole: the snapshot stopped after 1,000 nodes/, `${name}: the name read past the snapshot's budget without saying so`);
+      }
+      // Buttons nested 20,000 deep (each one's name is its content), and
+      // elements nested as deep read with showHidden (the walk itself).
+      for (const [tags, opts] of [[["div", "button"], {}], [["div", "span"], { showHidden: true }]]) {
+        const deep = await run(`await page.evaluate((tags) => {
+            document.body.innerHTML = '<button>First</button><div id="root"></div><button>Last</button>';
+            let e = document.getElementById("root");
+            for (let i = 0; i < 20000; i++) e = e.appendChild(document.createElement(tags[i % 2]));
+            e.textContent = "deepest";
+          }, ${JSON.stringify(tags)});
+          let out;
+          try { out = String(await snapshot({ maxChars: Infinity, ...${JSON.stringify(opts)} })); } catch (e) { out = "error: " + e.message; }
+          console.log("@@" + JSON.stringify({ error: /^error:/.test(out) ? out.slice(0, 300) : null, last: /button "Last"/.test(out), cut: /\\[ref=e\\d+\\] \\[not read: nested deeper than 1000 elements; snapshot this ref to read it\\]/.test(out) }));`);
+        const r = JSON.parse(deep.value);
+        assert.equal(r.error, null, tags.join());
+        assert.ok(r.last, `${tags}: the snapshot lost the page after the nested part`);
+        if (opts.showHidden) assert.ok(r.cut, `${tags}: no note where the nesting was cut`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
+test("page.searchText: the text it scans and the contexts it returns stop at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<p id="a"></p><p id="b"></p><p>needle at the end</p>';
+          document.getElementById("a").textContent = "A".repeat(3000000);
+          document.getElementById("b").textContent = "B".repeat(3000000);
+        });`);
+      const r = await run(`const s = await page.searchText("A", { context: 100000000, limit: 5 }); console.log("@@" + JSON.stringify({ total: s.total, longest: Math.max(...s.matches.map((m) => m.context.length)), chars: s.matches.reduce((n, m) => n + m.context.length + m.match.length, 0) }));`);
+      const v = JSON.parse(r.value);
+      assert.ok(v.longest <= 2010, `a context ran ${v.longest} characters`);
+      assert.ok(largestRead(r.log) < 100000, `the page agent returned ${largestRead(r.log)} characters`);
+      const end = await run(`const e = await page.searchText("needle"); console.log("@@" + JSON.stringify(e.total));`);
+      assert.equal(end.value, "0", "text past the budget was scanned");
+      assert.match(end.output, /# page\.searchText: the page is too large to read whole: it stopped after 2,000,000 characters/);
+      const regex = await run(`const g = await page.searchText("A+", { regex: true, limit: 2 }); console.log("@@" + JSON.stringify(Math.max(...g.matches.map((m) => m.match.length))));`);
+      assert.ok(Number(regex.value) <= 1010, `a match ran ${regex.value} characters`);
+    });
+  } finally {
+    await servers.close();
+  }
+});
