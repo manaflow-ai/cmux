@@ -202,7 +202,8 @@ import Testing
         #expect(reject("cloud_conversation_rejected", "not_reachable", retryable: false) == .invalid("not_reachable"))
         #expect(reject("cloud_conversation_rejected", "forbidden", retryable: false) == .notAuthorized)
         #expect(reject("cloud_conversation_rejected", "agent_rate", retryable: true) == .rateLimited(retryAfter: nil))
-        #expect(reject("cloud_signed_out", "missing") == .notAuthorized)
+        // No lease: nothing was sent, so it waits for one (not a final refusal).
+        #expect(reject("cloud_signed_out", "missing") == .ownerUnreachable)
         #expect(reject("cloud_unauthenticated", "unauthenticated", retryable: true) == .ownerUnreachable)
         #expect(reject("cloud_unavailable", "unavailable", retryable: true) == .indeterminate)
         #expect(reject(nil) == .invalid("m"))
@@ -608,6 +609,25 @@ import Testing
         let first = try #require(inboxes(tape.all).first)
         #expect(first.conversations.contains { $0.id.rawValue == dm }, "the reconnect's inbox dropped an open conversation")
         #expect(await second.wait { $0.contains(.subscribe(dm)) })
+    }
+
+    /// The daemon holds no lease (another trusted local client cleared
+    /// it): nothing was sent. The op waits instead of failing for good, and
+    /// the source asks the link for a lease.
+    @Test func anOpTheDaemonRefusesWithoutALeaseWaitsAndAsksForOne() async throws {
+        let (source, daemon, tape) = await configured(.init(op: { _ in
+            throw DaemonError.command(cmd: "cloud-conversation-op", message: "signed out", code: "cloud_signed_out",
+                                      details: .object(["reason": .string("missing")]), retryable: false)
+        }))
+        #expect(await signedIn(tape))
+        let asked = Mutex(0)
+        source.onLeaseMissing { asked.withLock { $0 += 1 } }
+        let invite = HomeIntent(key: IdempotencyKey("cmk_so"), op: .invite(contact: .email("z@y.com")))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(invite) }
+        #expect(asked.withLock { $0 } == 1, "no lease was asked for")
+        // Until a lease arrives nothing more goes out.
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(invite) }
+        #expect(daemon.ops.count == 1)
     }
 
     func listed(_ source: CloudHomeSource, _ id: String) -> Bool {
