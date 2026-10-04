@@ -21,6 +21,8 @@ final class CloudService {
     @ObservationIgnored private let binary: URL?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
+    /// The local side event subscription for `cloud.link.changed` (app link).
+    @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
@@ -71,13 +73,21 @@ final class CloudService {
 
     func start() {
         auth.start()
-        if configuration.linkSource == .appServer {
+        if configuration.linkSource == .appServer, linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
             let machines = machines
-            machines.local.store.sideEvents.subscribe { event in
+            linkEvents = machines.local.store.sideEvents.subscribe { event in
                 guard let change = CloudAppLinks.change(in: event) else { return }
                 machines.session(change.key.machine)?.linkChanged(change)
             }
+            // task-owner: observers; cancelled in stop()
+            observers.append(Task {
+                // A reconnected local connection is a new daemon client: subscribe it again.
+                for await state in Observations({ machines.local.store.connectionState }) {
+                    guard case .connected = state, machines.cloud.contains(where: { $0.appLink != nil }) else { continue }
+                    await CloudAppLinks.resubscribe(local: machines.local)
+                }
+            })
         }
         observers.append(Task { [weak self] in
             guard let self else { return }
@@ -131,6 +141,8 @@ final class CloudService {
     func stop() {
         for observer in observers { observer.cancel() }
         observers.removeAll()
+        if let linkEvents { machines.local.store.sideEvents.unsubscribe(linkEvents) }
+        linkEvents = nil
         for session in machines.cloud { session.disconnect() }
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }

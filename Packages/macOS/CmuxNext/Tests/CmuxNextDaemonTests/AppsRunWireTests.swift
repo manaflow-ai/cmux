@@ -22,10 +22,18 @@ import Testing
         #expect(json["origin"] == .string("user"))
     }
 
-    @Test func theAnswerIsTheOpResult() throws {
-        let line = Data(#"{"id":3,"ok":true,"data":{"machine":"vm_1","state":"up","socket":"/tmp/x/l.sock"}}"#.utf8)
+    @Test func theAnswerIsTheOpResultInsideValue() throws {
+        // The daemon wraps every op result: `{"value": result}` (apps/servers.rs, apps/hosts.rs).
+        let line = Data(#"{"id":3,"ok":true,"data":{"value":{"machine":"vm_1","state":"up","socket":"/tmp/x/l.sock"}}}"#.utf8)
         let result = try WireCoding.decodeResponse(AppsRunRequest.Response.self, from: line)
-        #expect(result["socket"] == .string("/tmp/x/l.sock"))
+        #expect(result.value["socket"] == .string("/tmp/x/l.sock"))
+        let empty = try WireCoding.decodeResponse(AppsRunRequest.Response.self, from: Data(#"{"id":4,"ok":true,"data":{}}"#.utf8))
+        #expect(empty.value == .null)
+    }
+
+    @Test func terminalLinksIsAReadOnlyAppsRequest() throws {
+        let data = try WireCoding.encodeRequest(AppsTerminalLinksRequest(), id: 5)
+        #expect(try JSONDecoder().decode(JSONValue.self, from: data) == .object(["id": .number(5), "cmd": .string("apps-terminal-links")]))
     }
 
     @Test func appServerEventsReachSideEventSubscribers() {

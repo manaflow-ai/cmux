@@ -22,6 +22,10 @@ final class CloudMachineSession {
     /// Why the app link ended (localized), until the next connect. Nil
     /// while connected or connecting, and always nil for the legacy link.
     private(set) var linkEnded: String?
+    /// The ticket of the app link's live connect; nil while none is live.
+    @ObservationIgnored private var appTicket: UInt64?
+    /// An app-link connect hop is queued or running.
+    @ObservationIgnored private var appConnecting = false
     @ObservationIgnored private var linkTransition: Task<Void, Never>?
     @ObservationIgnored private var disconnected = false
     /// Repairs an empty workspace on this machine (never on another).
@@ -46,9 +50,17 @@ final class CloudMachineSession {
 
     /// Connects (a click passes origin `user`; launch and a resumed machine
     /// connect as `script`). Serializes lifecycle hops so a late pause cannot
-    /// kill a resumed link.
+    /// kill a resumed link. An app link connects only when it is not up: a
+    /// click never drops a healthy connection, and only a click starts a
+    /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
-        guard !disconnected, machine.status.isLive else { return }
+        guard !disconnected else { return }
+        if appLink != nil {
+            guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
+            appConnecting = true
+        } else {
+            guard machine.status.isLive else { return }
+        }
         let previous = linkTransition
         // task-owner: one lifecycle hop; each later hop waits for this one
         linkTransition = Task {
@@ -64,39 +76,52 @@ final class CloudMachineSession {
         }
     }
 
-    /// One app-link connect: a fresh connection on the carrier socket.
+    /// One app-link connect: a fresh connection on the carrier socket. The
+    /// ticket ties the connection's endpoint calls and link changes to this
+    /// connect, so an older connection can never end a newer one.
     private func connectApp(_ appLink: CloudLinkSession, origin: CloudLinkOrigin) async {
+        defer { appConnecting = false }
+        appTicket = nil
         daemon.shutdownConnection()
         linkEnded = nil
+        let ticket: CloudLinkTicket
         do {
-            try await appLink.connect(origin: origin)
+            ticket = try await appLink.connect(origin: origin)
         } catch {
-            // A connect superseded by a later hop is not this session's end.
-            guard !disconnected, await appLink.isEnded else { return }
-            endAppLink(error)
+            guard !disconnected else { return }
+            showEnded(error)
             return
         }
-        guard !disconnected, machine.status.isLive else { return }
+        guard !disconnected else { return }
+        appTicket = ticket.id
         daemon.start(remote: { [weak self] in
             do {
-                return try await appLink.endpoint()
+                return try await appLink.endpoint(ticket)
             } catch {
                 // The connection asked again: it dropped. v1 waits for a click.
-                let message = await self?.endAppLink(error) ?? String(describing: error)
+                let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
                 throw DaemonError.endpointBlocked(message)
             }
         })
     }
 
-    /// The app link ended: drop its connection and show why.
+    /// The current connect's link ended: drop its connection and show why.
+    /// A stale ticket (an older connect's connection) changes nothing.
     @discardableResult
-    private func endAppLink(_ error: any Error) -> String {
+    private func endAppLink(_ error: any Error, ticket: UInt64) -> String {
         let message = CloudAppLinks.endedMessage(error)
-        guard !disconnected else { return message }
+        guard !disconnected, ticket == appTicket else { return message }
+        appTicket = nil
+        showEnded(error)
+        return message
+    }
+
+    /// "Disconnected, click to connect": no connection until the next connect.
+    private func showEnded(_ error: any Error) {
+        let message = CloudAppLinks.endedMessage(error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message
-        return message
     }
 
     /// A `cloud.link.changed` for this machine (app link only).
@@ -104,9 +129,10 @@ final class CloudMachineSession {
         guard let appLink else { return }
         // task-owner: one actor hop; a link that already ended ignores it
         Task {
-            guard await appLink.apply(change) else { return }
+            guard let ended = await appLink.apply(change) else { return }
             let reason = change.reason ?? change.state.rawValue
-            endAppLink(change.state == .revoked ? CloudLinkError.revoked(reason: reason) : CloudLinkError.disconnected(reason: reason))
+            endAppLink(change.state == .revoked ? CloudLinkError.revoked(reason: reason) : CloudLinkError.disconnected(reason: reason),
+                       ticket: ended)
         }
     }
 
@@ -126,6 +152,7 @@ final class CloudMachineSession {
     /// Drops the daemon connection while keeping the link reusable after a
     /// provider pause/resume transition.
     func suspend() {
+        appTicket = nil
         daemon.shutdownConnection()
         let previous = linkTransition
         let link = link, appLink = appLink
