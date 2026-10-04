@@ -19,6 +19,9 @@ final class CloudMachineSession {
     let daemon: DaemonService
     @ObservationIgnored let link: CloudMachineLink?
     @ObservationIgnored let appLink: CloudLinkSession?
+    /// This Mac's own daemon identity: an app link socket that leads back to
+    /// it is refused after the handshake (`CloudAppLinks.checkNotLocal`).
+    @ObservationIgnored private let localIdentity: @MainActor () -> DaemonIdentity?
     /// Why the app link ended (localized), until the next connect. Nil
     /// while connected or connecting, and always nil for the legacy link.
     private(set) var linkEnded: String?
@@ -35,18 +38,20 @@ final class CloudMachineSession {
     @ObservationIgnored private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
 
     convenience init(machine: CloudMachine, link: CloudMachineLink) {
-        self.init(machine: machine, link: link, appLink: nil)
+        self.init(machine: machine, link: link, appLink: nil, localIdentity: { nil })
     }
 
-    convenience init(machine: CloudMachine, appLink: CloudLinkSession) {
-        self.init(machine: machine, link: nil, appLink: appLink)
+    convenience init(machine: CloudMachine, appLink: CloudLinkSession, localIdentity: @escaping @MainActor () -> DaemonIdentity?) {
+        self.init(machine: machine, link: nil, appLink: appLink, localIdentity: localIdentity)
     }
 
-    private init(machine: CloudMachine, link: CloudMachineLink?, appLink: CloudLinkSession?) {
+    private init(machine: CloudMachine, link: CloudMachineLink?, appLink: CloudLinkSession?,
+                 localIdentity: @escaping @MainActor () -> DaemonIdentity?) {
         machineID = machine.id
         self.machine = machine
         self.link = link
         self.appLink = appLink
+        self.localIdentity = localIdentity
         daemon = DaemonService(machineID: machine.id)
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
     }
@@ -98,6 +103,7 @@ final class CloudMachineSession {
         }
         guard !disconnected, suspends == suspendsBefore else { return }
         appTicket = ticket.id
+        let localIdentity = localIdentity
         daemon.start(remote: { [weak self] in
             do {
                 return try await appLink.endpoint(ticket)
@@ -105,6 +111,13 @@ final class CloudMachineSession {
                 // The connection asked again: it dropped. v1 waits for a click.
                 let message = await self?.endAppLink(error, ticket: ticket.id) ?? String(describing: error)
                 throw DaemonError.endpointBlocked(message)
+            }
+        }, admit: { [weak self] identity in
+            do {
+                try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
+            } catch {
+                self?.endAppLink(error, ticket: ticket.id)
+                throw error
             }
         })
     }
