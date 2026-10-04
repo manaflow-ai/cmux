@@ -52,6 +52,9 @@ pub struct OpExposure {
     pub gesture_required: bool,
     /// The op's result holds a secret (IR `x-cmux-secret` on an output field).
     pub secret_output: bool,
+    /// The op's scope is server-only (`process:spawn:*`, `op:*`): only an
+    /// app server may hold it.
+    pub server_only: bool,
     /// The op belongs to an app (`app:<id>` owner) that is not installed and
     /// enabled on this machine.
     pub app_disabled: bool,
@@ -66,11 +69,8 @@ impl OpExposure {
     /// Missing or unknown fields fail closed: no `mcp` block or an unknown
     /// `expose` is [`McpExpose::Never`]; a mutation without a declared `risk`
     /// is [`Risk::Destructive`], so it needs approval.
-    pub fn from_ir(
-        op: &serde_json::Value,
-        scope_class: impl Fn(&str) -> ScopeClass,
-        app_enabled: impl Fn(&str) -> bool,
-    ) -> Option<Self> {
+    pub fn from_ir(op: &serde_json::Value, app_enabled: impl Fn(&str) -> bool) -> Option<Self> {
+        let scope_class = |_: &str| ScopeClass::Standard;
         let name = op["name"].as_str()?;
         let scope = op["scope"].as_str()?;
         let mcp = match op.pointer("/mcp/expose").and_then(serde_json::Value::as_str) {
@@ -101,6 +101,7 @@ impl OpExposure {
             mcp,
             gesture_required: op["gesture"] == "required",
             secret_output: op["secret_output"] == true,
+            server_only: false,
             app_disabled,
         })
     }
@@ -128,6 +129,8 @@ pub enum Exclusion {
     Secret,
     /// Only the user may run it: installs, grants, policy.
     UserOnly,
+    /// The op's scope is server-only; only app servers may hold it.
+    ServerOnly,
     /// The op needs a live user gesture.
     GestureRequired,
     /// The op's app is not installed and enabled.

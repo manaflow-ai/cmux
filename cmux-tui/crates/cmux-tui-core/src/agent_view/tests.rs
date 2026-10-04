@@ -9,6 +9,7 @@ fn op(name: &str, scope: &str) -> OpExposure {
         mcp: McpExpose::Default,
         gesture_required: false,
         secret_output: false,
+        server_only: false,
         app_disabled: false,
     }
 }
@@ -153,10 +154,6 @@ fn exclusions_come_before_approval() {
     assert_eq!(agent_view(&closed, &everything()), Exposure::Excluded(Exclusion::NotOffered));
 }
 
-fn standard(_: &str) -> ScopeClass {
-    ScopeClass::Standard
-}
-
 fn enabled(_: &str) -> bool {
     true
 }
@@ -164,12 +161,10 @@ fn enabled(_: &str) -> bool {
 #[test]
 fn an_ir_op_gives_its_exposure_fields() {
     let ir = serde_json::json!({ "name": "cmux.git.status", "kind": "read", "scope": "git:read",
-        "owner": "first-party", "mcp": { "expose": "default", "group": "git" }, "secret_output": false });
-    let restricted = |scope: &str| {
-        if scope == "git:read" { ScopeClass::Restricted } else { ScopeClass::Standard }
-    };
+        "owner": "first-party", "mcp": { "expose": "default", "group": "git" }, "secret_output": false,
+        "risk": "read", "gesture": false, "scope_class": "restricted" });
     assert_eq!(
-        OpExposure::from_ir(&ir, restricted, enabled),
+        OpExposure::from_ir(&ir, enabled),
         Some(OpExposure {
             name: "cmux.git.status".to_owned(),
             scope: "git:read".to_owned(),
@@ -178,42 +173,55 @@ fn an_ir_op_gives_its_exposure_fields() {
             mcp: McpExpose::Default,
             gesture_required: false,
             secret_output: false,
+            server_only: false,
             app_disabled: false,
         })
+    );
+    let declared = serde_json::json!({ "name": "cmux.x.set", "kind": "mutation", "scope": "x:write",
+        "owner": "first-party", "mcp": { "expose": "opt_in" }, "risk": "mutate-own", "gesture": true,
+        "scope_class": "sensitive", "server_only": true, "secret_output": false });
+    let op = OpExposure::from_ir(&declared, enabled).expect("op");
+    assert_eq!(
+        (op.mcp, op.risk, op.gesture_required, op.scope_class, op.server_only),
+        (McpExpose::OptIn, Risk::MutateOwn, true, ScopeClass::Sensitive, true)
     );
 }
 
 #[test]
-fn ir_exposure_fails_closed() {
-    // No mcp block: never offered.
-    let silent = serde_json::json!({ "name": "cmux.x.y", "kind": "read", "scope": "x:read", "owner": "first-party" });
-    let op = OpExposure::from_ir(&silent, standard, enabled).expect("op");
-    assert_eq!(op.mcp, McpExpose::Never);
-    // A mutation without a declared risk needs approval.
-    let mutation = serde_json::json!({ "name": "cmux.x.set", "kind": "mutation", "scope": "x:write",
-        "owner": "first-party", "mcp": { "expose": "opt_in" } });
-    let op = OpExposure::from_ir(&mutation, standard, enabled).expect("op");
-    assert_eq!((op.mcp, op.risk), (McpExpose::OptIn, Risk::Destructive));
-    let declared = serde_json::json!({ "name": "cmux.x.set", "kind": "mutation", "scope": "x:write",
-        "owner": "first-party", "risk": "mutate-own", "gesture": "required" });
-    let op = OpExposure::from_ir(&declared, standard, enabled).expect("op");
-    assert_eq!((op.risk, op.gesture_required), (Risk::MutateOwn, true));
-    // An unknown expose value is never offered; a missing scope is no op.
-    let odd = serde_json::json!({ "name": "cmux.x.z", "kind": "read", "scope": "x:read", "mcp": { "expose": "always" } });
-    assert_eq!(OpExposure::from_ir(&odd, standard, enabled).expect("op").mcp, McpExpose::Never);
+fn missing_or_unknown_ir_fields_fail_closed() {
+    // Only name and scope: never offered, destructive, gesture-only,
+    // restricted. A missing server_only is false (emit-ir omits false).
+    let bare = serde_json::json!({ "name": "cmux.x.y", "kind": "read", "scope": "x:read" });
+    let op = OpExposure::from_ir(&bare, enabled).expect("op");
+    assert_eq!(
+        (op.mcp, op.risk, op.gesture_required, op.scope_class, op.server_only),
+        (McpExpose::Never, Risk::Destructive, true, ScopeClass::Restricted, false)
+    );
+    let odd = serde_json::json!({ "name": "cmux.x.z", "kind": "read", "scope": "x:read",
+        "mcp": { "expose": "always" }, "risk": "chaos", "gesture": "no", "scope_class": "public" });
+    let op = OpExposure::from_ir(&odd, enabled).expect("op");
+    assert_eq!(
+        (op.mcp, op.risk, op.gesture_required, op.scope_class),
+        (McpExpose::Never, Risk::Destructive, true, ScopeClass::Restricted)
+    );
     let no_scope = serde_json::json!({ "name": "cmux.x.z", "kind": "read" });
-    assert_eq!(OpExposure::from_ir(&no_scope, standard, enabled), None);
+    assert_eq!(OpExposure::from_ir(&no_scope, enabled), None);
+}
+
+#[test]
+fn a_server_only_scope_is_never_offered_to_agents() {
+    let spawn = OpExposure { server_only: true, ..op("acme.tool.spawn", "process:spawn:git") };
+    assert_eq!(agent_view(&spawn, &everything()), Exposure::Excluded(Exclusion::ServerOnly));
 }
 
 #[test]
 fn an_app_op_is_disabled_when_its_app_is() {
     let ir = serde_json::json!({ "name": "com.example.hello.greet", "kind": "read", "scope": "hello:read",
-        "owner": "app:com.example.hello", "mcp": { "expose": "default" } });
-    let only_notes = |app: &str| app == "cmux/notes";
-    let op = OpExposure::from_ir(&ir, standard, only_notes).expect("op");
+        "owner": "app:com.example.hello", "mcp": { "expose": "default" }, "risk": "read",
+        "gesture": false, "scope_class": "standard" });
+    let op = OpExposure::from_ir(&ir, |app: &str| app == "cmux/notes").expect("op");
     assert!(op.app_disabled);
-    let op =
-        OpExposure::from_ir(&ir, standard, |app: &str| app == "com.example.hello").expect("op");
+    let op = OpExposure::from_ir(&ir, |app: &str| app == "com.example.hello").expect("op");
     assert!(!op.app_disabled);
 }
 
@@ -225,8 +233,16 @@ fn every_op_in_the_committed_ir_has_an_agent_answer() {
     let ops = ir["ops"].as_array().expect("ops");
     assert!(!ops.is_empty());
     for raw in ops {
-        let op =
-            OpExposure::from_ir(raw, standard, enabled).expect("every IR op has a name and scope");
+        let op = OpExposure::from_ir(raw, enabled).expect("every IR op has a name and scope");
+        // The committed IR declares every field, so nothing falls back.
+        assert!(raw.get("risk").is_some() && raw.get("gesture").is_some(), "{}", op.name);
+        assert_eq!(op.gesture_required, raw["gesture"] == true, "{}", op.name);
+        assert_eq!(
+            format!("{:?}", op.scope_class).to_lowercase(),
+            raw["scope_class"].as_str().expect("scope_class"),
+            "{}",
+            op.name
+        );
         let answer = agent_view(&op, &everything());
         if raw["secret_output"] == true {
             assert_eq!(answer, Exposure::Excluded(Exclusion::Secret), "{}", op.name);
