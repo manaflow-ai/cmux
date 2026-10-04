@@ -271,7 +271,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             resolvedCwd = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot)
             ownedWorkingDirectory = resolvedCwd
         }
-        privateTemporaryDirectory = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot, suffix: "-tmp", mode: 0o700)
+        privateTemporaryDirectory = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot, suffix: "-tmp")
         self.id = id
         self.workingDirectory = resolvedCwd
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
@@ -294,19 +294,34 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random><suffix>`, a
     /// new directory of the session's own: its working directory when it
-    /// was started without a cwd, and its private temporary directory.
-    private static func makeSessionDirectory(id: String, temporaryRoot: String, suffix: String = "", mode: mode_t = 0o755) -> String {
+    /// was started without a cwd, and its private temporary directory. Both
+    /// and their parent are mode 0700: the agent's files never reach another
+    /// local user.
+    private static func makeSessionDirectory(id: String, temporaryRoot: String, suffix: String = "") -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let safeID = String(String.UnicodeScalarView(id.unicodeScalars.prefix(64).map { allowed.contains($0) ? $0 : "_" }))
         let parent = (temporaryRoot == "/" ? "" : temporaryRoot) + "/cmux-browser-repl"
-        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        if mkdir(parent, 0o700) == 0 {
+            // Created private.
+        } else if errno == ENOENT {
+            try? FileManager.default.createDirectory(atPath: (parent as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            _ = mkdir(parent, 0o700)
+        } else {
+            // An existing parent (an earlier version made it 0755) is
+            // narrowed when it is this user's own directory, never followed
+            // through a symbolic link.
+            var info = stat()
+            if lstat(parent, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR, info.st_uid == getuid() {
+                chmod(parent, 0o700)
+            }
+        }
         var path = ""
         // mkdir(2) creates the directory itself, never one that already
         // exists, so no other session's directory is ever reused.
         for _ in 0..<8 {
             path = parent + "/\(safeID)-\(UUID().uuidString.prefix(8))\(suffix)"
-            // The umask can only narrow `mode`.
-            if mkdir(path, mode) == 0 { break }
+            // The umask can only narrow the mode.
+            if mkdir(path, 0o700) == 0 { break }
         }
         // A failure surfaces as ENOENT on the first fs write.
         return path
