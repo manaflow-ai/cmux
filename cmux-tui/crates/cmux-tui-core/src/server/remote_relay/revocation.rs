@@ -21,12 +21,18 @@ impl Mux {
     /// Revoke `install` in one step: mark it revoked, delete its pairing
     /// record and close every stream it has open.
     pub fn revoke_remote_install(self: &Arc<Self>, install: &str) {
-        self.remote_relay().revocation.lock().unwrap().record_revoked(install);
+        // Mark revoked and collect the streams under the revocation lock
+        // (then peers), so no new stream of the install can slip between.
+        let clients = {
+            let mut revocation = self.remote_relay().revocation.lock().unwrap();
+            revocation.record_revoked(install);
+            self.remote_relay().clients_of(install)
+        };
         let pairing = self.remote_relay().pairing.lock().unwrap().clone();
         if let Some(records) = pairing {
             records.delete(install);
         }
-        self.close_remote_streams(install);
+        self.close_remote_clients(clients);
     }
 
     /// Apply the offline limits now: close the streams of every install whose
@@ -34,21 +40,24 @@ impl Mux {
     /// the installs it closed. An unreachable cloud records nothing, so it
     /// closes nothing before the limit.
     pub fn enforce_remote_limits(self: &Arc<Self>) -> Vec<String> {
-        let mut installs: Vec<String> = {
+        let (closing, clients) = {
+            let revocation = self.remote_relay().revocation.lock().unwrap();
             let peers = self.remote_relay().peers.lock().unwrap();
-            peers.values().map(|peer| peer.install.clone()).collect()
+            let mut closing: Vec<String> = peers
+                .values()
+                .filter(|peer| revocation.policy(&peer.install) == StreamPolicy::Close)
+                .map(|peer| peer.install.clone())
+                .collect();
+            closing.sort();
+            closing.dedup();
+            let clients: Vec<u64> = peers
+                .iter()
+                .filter(|(_, peer)| closing.contains(&peer.install))
+                .map(|(client, _)| *client)
+                .collect();
+            (closing, clients)
         };
-        installs.sort();
-        installs.dedup();
-        let revocation = self.remote_relay().revocation.lock().unwrap();
-        let closing: Vec<String> = installs
-            .into_iter()
-            .filter(|install| revocation.policy(install) == StreamPolicy::Close)
-            .collect();
-        drop(revocation);
-        for install in &closing {
-            self.close_remote_streams(install);
-        }
+        self.close_remote_clients(clients);
         closing
     }
 
@@ -57,8 +66,8 @@ impl Mux {
         self.remote_relay().revocation.lock().unwrap().set_clock(clock);
     }
 
-    fn close_remote_streams(self: &Arc<Self>, install: &str) {
-        for client in self.remote_relay().clients_of(install) {
+    fn close_remote_clients(self: &Arc<Self>, clients: Vec<u64>) {
+        for client in clients {
             disconnect_client(self, client, false);
         }
     }

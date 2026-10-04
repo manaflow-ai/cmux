@@ -7,7 +7,10 @@ use super::Mux;
 
 pub(super) trait LineAdmission {
     /// Called once, right after the connection's client is registered.
-    fn registered(&self, _mux: &std::sync::Arc<Mux>, _client: u64) {}
+    /// False closes the connection before its first frame.
+    fn registered(&self, _mux: &std::sync::Arc<Mux>, _client: u64) -> bool {
+        true
+    }
 
     /// `None` dispatches `line`; `Some(response)` answers it instead, and
     /// nothing parses or dispatches the line.

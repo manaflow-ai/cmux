@@ -17,14 +17,35 @@ pub(crate) struct RemoteParticipant {
     pub display_name: String,
 }
 
+/// A styled range of a text part (UTF-16 code units). `link` is shown as
+/// text and opened only by a user click on the peer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct RemoteTextRun {
+    pub start: u32,
+    pub length: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mention: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum RemotePart {
     Text {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        runs: Option<Vec<cmux_conversation::TextRun>>,
+        runs: Option<Vec<RemoteTextRun>>,
     },
+}
+
+fn text_run(run: &cmux_conversation::TextRun) -> RemoteTextRun {
+    RemoteTextRun {
+        start: run.start,
+        length: run.length,
+        mention: run.mention.clone(),
+        link: run.link.clone(),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -85,9 +106,10 @@ fn participant(participant: &Participant) -> RemoteParticipant {
 
 fn part(part: &Part) -> Option<RemotePart> {
     match part {
-        Part::Text { text, runs } => {
-            Some(RemotePart::Text { text: text.clone(), runs: runs.clone() })
-        }
+        Part::Text { text, runs } => Some(RemotePart::Text {
+            text: text.clone(),
+            runs: runs.as_ref().map(|runs| runs.iter().map(text_run).collect()),
+        }),
         Part::Work { .. } => None,
     }
 }

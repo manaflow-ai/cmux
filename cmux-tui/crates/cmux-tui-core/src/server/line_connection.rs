@@ -59,7 +59,13 @@ pub(super) fn serve_line_connection(
         return;
     };
     let client = mux.control_clients.register(transport, writer.clone());
-    admission.registered(&mux, client);
+    if !admission.registered(&mux, client) {
+        // Refused before its first frame (the remote entry's revocation
+        // limits): nothing is read or dispatched.
+        disconnect_client(&mux, client, false);
+        let _ = writer_thread.join();
+        return;
+    }
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),

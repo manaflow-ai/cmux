@@ -70,16 +70,16 @@ fn remote(fixture: &Fixture, install: &str, user: &str) -> u64 {
     client
 }
 
-/// One frame through the remote pipeline: the gate, then dispatch and the
-/// response writer. Returns the response JSON.
+/// One frame through the remote frame path (`handle_frame`, the path the
+/// connection handler takes for every remote frame): the gate, then
+/// dispatch and the response writer. Returns the response JSON.
 fn send(mux: &Arc<Mux>, client: u64, frame: Value) -> Value {
-    let frame = frame.to_string();
-    if check_frame(&frame).is_err() {
-        return remote_entry::denied(&frame);
-    }
+    send_raw(mux, client, &frame.to_string())
+}
+
+fn send_raw(mux: &Arc<Mux>, client: u64, frame: &str) -> Value {
     let (writer, outbound) = writer();
-    let request: Request = serde_json::from_str(&frame).unwrap();
-    handle_request(mux, client, request, &writer);
+    super::handle_frame(mux, client, frame, &writer);
     let message = outbound.try_pop().expect("a response");
     serde_json::from_str(&message).unwrap()
 }
@@ -166,12 +166,28 @@ fn url_open_loopback_scheduler_resource_and_binary_frames_are_refused_before_any
 
 /// Every daemon command (the spec list plus commands outside it) is refused
 /// unless it is on the section 4 list, so a new command is denied by default.
+/// Every serde name of the daemon's `Command` enum, from serde's own list
+/// of expected variants, so a new command is in the table test at once.
+fn daemon_command_names() -> Vec<String> {
+    let error = serde_json::from_value::<Command>(json!({"cmd": "__no_such_command__"}))
+        .err()
+        .expect("an unknown command is refused")
+        .to_string();
+    let list = error.split("expected one of ").nth(1).expect("serde lists the variants");
+    list.split(", ").map(|name| name.trim().trim_matches('`').to_string()).collect()
+}
+
 #[test]
 fn only_the_section_4_commands_pass_the_gate() {
     let schema: Value =
         serde_json::from_str(include_str!("../../../../../spec/sdk-schema.json")).unwrap();
     let mut names: Vec<String> = schema["commands"].as_object().unwrap().keys().cloned().collect();
     assert!(names.len() > 100, "the spec command list looks truncated");
+    let variants = daemon_command_names();
+    assert!(variants.len() > 150, "the Command enum list looks truncated: {}", variants.len());
+    names.extend(variants);
+    names.sort();
+    names.dedup();
     for extra in ["conversation-tabs", "new-conversation-tab", "loopback-open", "scheduler.run"] {
         names.push(extra.to_string());
     }
@@ -643,4 +659,123 @@ fn a_remote_connection_never_falls_back_to_the_local_user() {
     assert_ne!(fixture.mux.conversation_principal(client), "user_local");
     let websocket = fixture.mux.control_clients.register(ClientTransport::WebSocket, writer().0);
     assert_ne!(fixture.mux.conversation_principal(websocket), "user_local");
+}
+
+// Security review round 1 (P2-1, P2-2, P3-1, P3-2, P3-6).
+
+/// P2-1: a device reaction to a local message does not make that message
+/// remote; only the device's own message is.
+#[test]
+fn a_device_reaction_keeps_the_local_message_origin() {
+    let fixture = fixture();
+    let client = remote(&fixture, "inst_1", OWNER);
+    let conversation = create(&fixture, "c1", json!([human("user_local", "Me")]), &["inst_1"]);
+    let mine = local(
+        &fixture.mux,
+        fixture.local,
+        json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"l1",
+               "op":text_send("l1","local")}),
+    );
+    let local_id = mine["change"]["message"]["id"].as_str().unwrap().to_string();
+    for (key, kind) in [("r1", "reaction.add"), ("r2", "reaction.remove")] {
+        let reaction = json!({"kind": kind,"message_id":local_id,"part_index":0,
+                              "reaction":{"tapback":"like"}});
+        let reply = send(&fixture.mux, client, op(&conversation, key, reaction));
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+    }
+    let snapshot = local(
+        &fixture.mux,
+        fixture.local,
+        json!({"cmd":"conversation-snapshot","conversation":conversation,"tail":5}),
+    );
+    assert!(snapshot["messages"][0].get("origin").is_none(), "{snapshot}");
+}
+
+/// P2-2: every frame rechecks the revocation policy, so a revoked install
+/// is refused even while its stream is still open; a refused bind records
+/// nothing and tells the connection loop to close.
+#[test]
+fn a_revoked_install_is_refused_on_its_next_frame() {
+    let fixture = fixture();
+    let client = remote(&fixture, "inst_1", OWNER);
+    let list = json!({"id":1,"cmd":"conversation-list"});
+    assert_eq!(send(&fixture.mux, client, list.clone())["ok"], json!(true));
+    fixture.mux.remote_relay().revocation.lock().unwrap().record_revoked("inst_1");
+    assert_code(&send(&fixture.mux, client, list), "remote_denied");
+    let late = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+    assert!(!fixture.mux.bind_remote_peer(late, &peer("inst_1", OWNER)));
+    assert!(fixture.mux.remote_relay().peer(late).is_none());
+}
+
+/// P2-2: a revoke and a bind of the same install never leave a served
+/// stream behind, whichever runs first.
+#[test]
+fn a_revoke_racing_a_bind_leaves_no_served_stream() {
+    for _ in 0..200 {
+        let fixture = fixture();
+        fixture.mux.record_remote_check("inst_1");
+        let client = fixture.mux.control_clients.register(ClientTransport::Remote, writer().0);
+        let binder = {
+            let mux = fixture.mux.clone();
+            std::thread::spawn(move || mux.bind_remote_peer(client, &peer("inst_1", OWNER)))
+        };
+        fixture.mux.revoke_remote_install("inst_1");
+        let bound = binder.join().unwrap();
+        let served = fixture.mux.remote_relay().peer(client).is_some()
+            && fixture.mux.control_clients.is_remote(client);
+        assert!(!served, "bound={bound}: a revoked install kept a served stream");
+    }
+}
+
+/// P3-1: a peer record makes a client remote even when its transport says
+/// otherwise.
+#[test]
+fn a_peer_record_makes_a_client_remote() {
+    let fixture = fixture();
+    let client = fixture.mux.control_clients.register(ClientTransport::Unix, writer().0);
+    fixture.mux.remote_relay().peers.lock().unwrap().insert(client, peer("inst_1", OWNER));
+    let identify = send(&fixture.mux, client, json!({"id":1,"cmd":"identify"}));
+    assert!(identify["data"].get("pid").is_none(), "{identify}");
+    let command: Command = serde_json::from_value(json!({"cmd":"ping"})).unwrap();
+    assert!(handle_command(&fixture.mux, client, command, &writer().0).is_err());
+}
+
+/// P3-2: no local error path answers a remote frame with text.
+#[test]
+fn remote_refusals_are_codes_only_on_every_path() {
+    let fixture = fixture();
+    let client = remote(&fixture, "inst_1", OWNER);
+    let bad_type = r#"{"id":4,"cmd":"conversation-snapshot","conversation":"conv_01ARZ3NDEKTSV4RRFFQ69G5FAV","tail":"x"}"#;
+    for (frame, code) in [
+        (r#"{"id":1,"cmd":"url-open","terminal_id":"t","url":"https://x"}"#, "remote_denied"),
+        (r#"{"id":2,"cmd":"vt-state","surface":1}"#, "remote_denied"),
+        (r#"{"id":3,"cmd":"shutdown-daemon"}"#, "remote_denied"),
+        (bad_type, "remote_error"),
+        ("not json", "remote_denied"),
+    ] {
+        let reply = send_raw(&fixture.mux, client, frame);
+        assert_code(&reply, code);
+        assert_eq!(keys(&reply).len(), if reply.get("id").is_some() { 4 } else { 3 }, "{reply}");
+    }
+}
+
+/// P3-6: pairing joins every conversation or none.
+#[test]
+fn a_pairing_that_cannot_join_every_conversation_joins_none() {
+    let fixture = fixture();
+    let mut full = vec![human("user_local", "Me")];
+    for index in 1..cmux_conversation::MAX_PARTICIPANTS {
+        full.push(json!({"id": format!("agent_{index}"), "kind":"agent","display_name":"a"}));
+    }
+    let crowded = create(&fixture, "c1", Value::Array(full), &[]);
+    let open = create(&fixture, "c2", json!([human("user_local", "Me")]), &[]);
+    assert!(fixture.mux.pair_remote_install("inst_1", "Me (MacBook)").is_err());
+    for conversation in [&crowded, &open] {
+        let snapshot = local(
+            &fixture.mux,
+            fixture.local,
+            json!({"cmd":"conversation-snapshot","conversation":conversation,"tail":1}),
+        );
+        assert!(!snapshot.to_string().contains("remote_inst_1"), "{snapshot}");
+    }
 }
