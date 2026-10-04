@@ -152,6 +152,22 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     return this.submitSystem("team_vm.bind_install", { install, epoch }, `bind_install:${epoch}:${install}`)
   }
 
+  /**
+   * The slug of the pending create for `epoch`: the one the first attempt used, else a new one from
+   * `prefix`, stored before the provider call (the DO output gate holds the request until the row
+   * is durable). A retry after a lost answer therefore asks for the same slug even if a deploy
+   * changed TEAM_VM_SLUG_PREFIX in between, so it finds the VM the first attempt made instead of
+   * creating a second one and orphaning the first. Rows go when the create commits.
+   */
+  private createSlug(team: string, epoch: number, prefix: string): string {
+    this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS team_vm_create_attempt (epoch INTEGER PRIMARY KEY, slug TEXT NOT NULL)`)
+    const tried = this.sqlStore.exec<{ slug: string }>(`SELECT slug FROM team_vm_create_attempt WHERE epoch = ?`, epoch)[0]
+    if (tried) return tried.slug
+    const slug = teamVmSlug(prefix, team, epoch)
+    this.sqlStore.exec(`INSERT INTO team_vm_create_attempt (epoch, slug) VALUES (?, ?)`, epoch, slug)
+    return slug
+  }
+
   /** Runs pending provider calls one at a time; concurrent callers share the running pass. */
   private reconcile(): Promise<void> {
     if (!this.inflight) this.inflight = this.runPending().finally(() => (this.inflight = null))
@@ -180,9 +196,10 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
           // The prefix names NEW VMs only: an existing VM is always reached by its stored id (state.vm), so a
           // prefix change (FREESTYLE-NAMES) never renames, adopts or loses the VM a team already has.
           const prefix = (driver instanceof FakeDriver ? driver.slugPrefix() : null) ?? this.env.TEAM_VM_SLUG_PREFIX ?? ""
-          const slug = teamVmSlug(prefix, state.team, state.epoch + 1)
+          const slug = this.createSlug(state.team, state.epoch + 1, prefix)
           const vm = await driver.ensureVm(slug, state.team, state.epoch + 1)
           this.submitSystem("team_vm.driver_result", { action: "create", epoch: state.epoch, ok: true, vm: vm.id, slug, observed: vm.state }, key)
+          this.sqlStore.exec(`DELETE FROM team_vm_create_attempt WHERE epoch <= ?`, state.epoch + 1)
         } else {
           if (!state.vm) return
           const r = await driver.ensureRunning(state.vm)
