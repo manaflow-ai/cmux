@@ -140,12 +140,7 @@ impl<C: ControlPlane> Server<C> {
     }
 
     pub fn with_attach(control_plane: C, attach: crate::link::Attach) -> Self {
-        Self {
-            control_plane,
-            projection: Projection::default(),
-            ledger: Ledger::default(),
-            attach,
-        }
+        Self { control_plane, projection: Projection::default(), ledger: Ledger::default(), attach }
     }
 
     /// One Cloud API call context for an attach op.

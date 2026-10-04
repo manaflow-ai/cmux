@@ -94,7 +94,52 @@ impl LinkSupervisor {
         machine: &str,
         command: &LinkCommand,
     ) -> Result<Carrier, LinkFailure> {
-        todo!("C2 red commit: not implemented yet")
+        if let Some(LinkState::Revoked { reason }) = self.state(machine) {
+            return Err(LinkFailure::Revoked(reason.clone()));
+        }
+        if let Some(carrier) = self.carrier(machine) {
+            return Ok(carrier.clone());
+        }
+        self.stop_process(machine);
+        self.next_generation += 1;
+        let tag = LinkTag { machine: machine.to_owned(), generation: self.next_generation };
+        let process = self
+            .spawner
+            .spawn(tag.clone(), command, self.sender.clone())
+            .map_err(|e| LinkFailure::Spawn(e.to_string()))?;
+        self.spawns += 1;
+        self.links.insert(
+            machine.to_owned(),
+            Link {
+                generation: tag.generation,
+                state: LinkState::Connecting,
+                process: Some(process),
+            },
+        );
+        loop {
+            match self.links.get(machine) {
+                Some(link) if link.generation == tag.generation => match &link.state {
+                    LinkState::Connecting => {}
+                    LinkState::Up(carrier) => return Ok(carrier.clone()),
+                    LinkState::Down { retryable, reason } => {
+                        return Err(LinkFailure::Down {
+                            retryable: *retryable,
+                            reason: reason.clone(),
+                        });
+                    }
+                    LinkState::Revoked { reason } => {
+                        return Err(LinkFailure::Revoked(reason.clone()));
+                    }
+                },
+                _ => return Err(LinkFailure::Down { retryable: true, reason: "replaced".into() }),
+            }
+            // The supervisor holds a sender, so this never disconnects; the
+            // spawner always ends with an `Exited` event.
+            let Ok(event) = self.receiver.recv() else {
+                return Err(LinkFailure::Down { retryable: true, reason: "no events".into() });
+            };
+            self.apply(event);
+        }
     }
 
     fn apply(&mut self, event: LinkProcessEvent) {
@@ -149,18 +194,47 @@ impl LinkSupervisor {
     /// Ends the link on request and forgets it (also a revocation).
     /// Returns whether a link existed.
     pub fn disconnect(&mut self, machine: &str) -> bool {
-        todo!("C2 red commit: not implemented yet")
+        self.stop_process(machine);
+        let Some(link) = self.links.remove(machine) else { return false };
+        if matches!(link.state, LinkState::Connecting | LinkState::Up(_)) {
+            self.events.push(CarrierEvent::Down {
+                target: machine.to_owned(),
+                generation: link.generation,
+                retryable: true,
+                reason: "disconnected".into(),
+            });
+        }
+        true
     }
 
     /// Access to the machine ended. The link stays refused (no new process)
     /// until `disconnect` forgets it.
     pub fn revoke(&mut self, machine: &str, reason: &str) {
-        todo!("C2 red commit: not implemented yet")
+        self.stop_process(machine);
+        let generation = self.links.get(machine).map_or(0, |l| l.generation);
+        let already = matches!(self.state(machine), Some(LinkState::Revoked { .. }));
+        self.links.insert(
+            machine.to_owned(),
+            Link {
+                generation,
+                state: LinkState::Revoked { reason: reason.to_owned() },
+                process: None,
+            },
+        );
+        if !already {
+            self.events.push(CarrierEvent::Revoked {
+                target: machine.to_owned(),
+                reason: reason.to_owned(),
+            });
+        }
     }
 
     /// Ends every link (sign-out, the app's interface permission revoked).
     pub fn revoke_all(&mut self, reason: &str) {
-        todo!("C2 red commit: not implemented yet")
+        let machines: Vec<String> = self.links.keys().cloned().collect();
+        for machine in machines {
+            self.revoke(&machine, reason);
+        }
     }
 }
 
