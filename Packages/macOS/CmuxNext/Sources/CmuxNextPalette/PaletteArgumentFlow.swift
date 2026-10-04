@@ -13,6 +13,8 @@ struct PaletteArgumentFlow {
     var captured: [ActionTargetRef] = []
     /// Previews the highlighted option of an enumeration page.
     var preview: PaletteArgumentPreview?
+    /// Colors for a suggested value's row (theme swatch strips, R98).
+    var swatches: PaletteArgumentSwatches?
 
     func effect(collected: ActionInvocation) -> PaletteEffect {
         let registry = registry
@@ -64,7 +66,10 @@ struct PaletteArgumentFlow {
         guard let suggestions = argument.suggestions else { return listPage(for: argument, options: [], collected: collected) }
         let pinned = Set(suggestions.pinned.map(\.value))
         let known = (registry.argumentSuggestions?(suggestions.source) ?? []).filter { !pinned.contains($0.value) }
-        let options = (suggestions.pinned + known).map { PaletteTargetOption(id: $0.value, title: $0.title, symbol: descriptor.symbol) }
+        let options = (suggestions.pinned + known).map { suggestion in
+            PaletteTargetOption(id: suggestion.value, title: suggestion.title, symbol: descriptor.symbol,
+                                swatches: swatches?(suggestions.source, suggestion.value) ?? [])
+        }
         var extra: [PaletteItem] = []
         if let otherTitle = suggestions.otherTitle {
             var spec = textSpec(for: argument, collected: collected)
@@ -125,7 +130,7 @@ struct PaletteArgumentFlow {
         let section = PaletteSection(id: "argument", title: argument.title, order: 0)
         var items = options.map { option in
             let next = adding(argument, option.id, to: collected)
-            return PaletteItem(
+            var item = PaletteItem(
                 id: "option:\(option.id)",
                 title: option.title,
                 subtitle: option.subtitle,
@@ -140,6 +145,8 @@ struct PaletteArgumentFlow {
                 ),
                 frecencyKey: "argument:\(descriptor.id.rawValue):\(argument.name):\(option.id)"
             )
+            item.swatches = option.swatches
+            return item
         }
         items.insert(contentsOf: extra, at: min(pinnedCount ?? items.count, items.count))
         return PalettePageSpec(

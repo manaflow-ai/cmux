@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
@@ -16,10 +17,13 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private let settings: SettingsController
     /// The theme colors of the window the palette serves (its theme scope).
     private let themeColors: @MainActor () -> [ThemeRGB]
+    /// Every Ghostty theme and its swatch strip, for theme settings (R98).
+    private let themes: ThemeCatalog?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
 
-    init(settings: SettingsController, themeColors: @escaping @MainActor () -> [ThemeRGB]) {
+    init(settings: SettingsController, themes: ThemeCatalog? = nil, themeColors: @escaping @MainActor () -> [ThemeRGB]) {
         self.settings = settings
+        self.themes = themes
         self.themeColors = themeColors
     }
 
@@ -71,7 +75,12 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     }
 
     private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
-        let options = descriptor.paletteOptions(current: current, themeColors: colors)
+        let options = if descriptor.kind == .theme, let themes {
+            Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
+                              strip: themes.swatches(for:))
+        } else {
+            descriptor.paletteOptions(current: current, themeColors: colors)
+        }
         let currentOption = options.first(where: \.isCurrent)
         let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
         let kind: PaletteSettingRow.Kind
@@ -128,7 +137,14 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     /// pair, a path) is kept after the config row.
     static func themeOptions(current: String?, names: [String], defaultLabel: String,
                              strip: (String) -> [ThemeRGB]) -> [SettingOption] {
-        []
+        let curated = ActionArgument.curatedThemes.filter(names.contains)
+        let listed = curated + names.filter { !curated.contains($0) }
+        var options = [SettingOption(value: nil, title: defaultLabel, isCurrent: current == nil)]
+        if let current, !listed.contains(current) {
+            options.append(SettingOption(value: .string(current), title: current, swatches: strip(current), isCurrent: true))
+        }
+        options += listed.map { SettingOption(value: .string($0), title: $0, swatches: strip($0), isCurrent: current == $0) }
+        return options
     }
 
     /// A color setting's swatches from `tokens`: the foreground, the
