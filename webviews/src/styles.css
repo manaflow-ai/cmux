@@ -1,6 +1,8 @@
 @import "tailwindcss";
 /* The pane protocol is not UI: its tests and generated code must not mint utility classes. */
 @source not "./protocol";
+/* The icon picker's emoji keywords ("uppercase", "italic") are data, not class names. */
+@source not "./icon-picker/generated";
 
 :root {
   color-scheme: light dark;
