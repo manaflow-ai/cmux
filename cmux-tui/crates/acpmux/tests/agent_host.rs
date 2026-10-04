@@ -349,10 +349,14 @@ async fn a_failed_start_leaves_no_live_file() {
     spec.program = "/nonexistent/harness".into();
     assert!(link::spawn(&launcher(), &spec).await.is_err(), "a missing harness started");
     let left: Vec<_> = std::fs::read_dir(dir.join("hosts"))
-        .map(|d| d.filter_map(|e| e.ok().map(|e| e.file_name())).collect())
-        .unwrap_or_default();
+        .expect("the host created its hosts dir")
+        .filter_map(|e| e.ok().map(|e| e.file_name()))
+        .collect();
     assert!(
-        !left.iter().any(|n| n.to_string_lossy().ends_with(".live") || n.to_string_lossy().ends_with(".sock")),
+        !left
+            .iter()
+            .any(|n| n.to_string_lossy().ends_with(".live")
+                || n.to_string_lossy().ends_with(".sock")),
         "a failed start left {left:?}"
     );
     let _ = std::fs::remove_dir_all(&dir);
