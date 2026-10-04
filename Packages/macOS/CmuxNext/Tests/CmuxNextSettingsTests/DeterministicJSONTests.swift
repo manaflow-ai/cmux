@@ -63,8 +63,8 @@ import Testing
     }
 
     @Test func compactOutputIsPinned() throws {
-        let object: [String: Any] = ["b": [0.1, 0.2], "a": ["k": 1.0 / 3], "c": "\u{1}"]
-        #expect(try DeterministicJSON.string(object, pretty: false) == #"{"a":{"k":0.3333333333333333},"b":[0.1,0.2],"c":"\u0001"}"#)
+        let object: [String: Any] = ["b": [0.1, 0.2], "a": ["k": 1.0 / 3], "c": "\u{1}", "B": 1]
+        #expect(try DeterministicJSON.string(object, pretty: false) == #"{"a":{"k":0.3333333333333333},"B":1,"b":[0.1,0.2],"c":"\u0001"}"#)
     }
 
     /// The output is valid JSON that Foundation reads back to the same values.

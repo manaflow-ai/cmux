@@ -381,9 +381,9 @@
     },
     {
       "accepts" : [
-        0.10000000000000001,
+        0.1,
         1,
-        0.55000000000000004
+        0.55
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -409,13 +409,13 @@
       ],
       "range" : {
         "max" : 1,
-        "min" : 0.10000000000000001,
-        "placeholder" : 0.10000000000000001,
-        "step" : 0.050000000000000003,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.90000000000000002,
+        -0.9,
         2,
         "1"
       ],
@@ -2376,7 +2376,7 @@
         "max" : 1,
         "min" : 0,
         "placeholder" : 1,
-        "step" : 0.050000000000000003,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -2504,7 +2504,7 @@
         "max" : 1,
         "min" : 0,
         "placeholder" : 0,
-        "step" : 0.050000000000000003,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -2553,7 +2553,7 @@
         "max" : 1,
         "min" : 0,
         "placeholder" : 0.5,
-        "step" : 0.050000000000000003,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -2603,7 +2603,7 @@
         "max" : 2,
         "min" : 0,
         "placeholder" : 1,
-        "step" : 0.050000000000000003,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -3619,7 +3619,7 @@
         "max" : 1.5,
         "min" : 0.5,
         "placeholder" : 0.5,
-        "step" : 0.050000000000000003,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
@@ -4028,13 +4028,13 @@
     },
     {
       "accepts" : [
-        0.10000000000000001,
-        0.90000000000000002,
+        0.1,
+        0.9,
         0.5
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
-      "default" : 0.33333333333333331,
+      "default" : 0.3333333333333333,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -4059,15 +4059,15 @@
         "topBandMaxShare"
       ],
       "range" : {
-        "max" : 0.90000000000000002,
-        "min" : 0.10000000000000001,
-        "placeholder" : 0.10000000000000001,
-        "step" : 0.050000000000000003,
+        "max" : 0.9,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.90000000000000002,
-        1.8999999999999999,
+        -0.9,
+        1.9,
         "1"
       ],
       "section" : "appearance",
@@ -4079,8 +4079,8 @@
     },
     {
       "accepts" : [
-        0.10000000000000001,
-        0.90000000000000002,
+        0.1,
+        0.9,
         0.5
       ],
       "agent_refusal" : null,
@@ -4110,15 +4110,15 @@
         "bottomBandMaxShare"
       ],
       "range" : {
-        "max" : 0.90000000000000002,
-        "min" : 0.10000000000000001,
-        "placeholder" : 0.10000000000000001,
-        "step" : 0.050000000000000003,
+        "max" : 0.9,
+        "min" : 0.1,
+        "placeholder" : 0.1,
+        "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -0.90000000000000002,
-        1.8999999999999999,
+        -0.9,
+        1.9,
         "1"
       ],
       "section" : "appearance",
@@ -4167,6 +4167,47 @@
       "title" : {
         "key" : "settings.sidebar.stickyBandsScroll",
         "text" : "Scroll Tall Sections"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showWorkspaceTabs.help",
+        "text" : "Lists tabs beneath each workspace in the sidebar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showWorkspaceTabs",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "tabs"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "sidebar",
+        "showWorkspaceTabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.showWorkspaceTabs",
+        "text" : "Show Workspace Tabs"
       },
       "validation" : "portable"
     },
@@ -5542,7 +5583,7 @@
     },
     {
       "accepts" : [
-        0.29999999999999999,
+        0.3,
         30,
         15.15
       ],
@@ -5568,14 +5609,14 @@
       ],
       "range" : {
         "max" : 30,
-        "min" : 0.29999999999999999,
-        "placeholder" : 0.29999999999999999,
+        "min" : 0.3,
+        "placeholder" : 0.3,
         "step" : 0.5,
         "unit" : "seconds"
       },
       "refuses" : [
-        -29.399999999999999,
-        59.700000000000003,
+        -29.4,
+        59.7,
         "1"
       ],
       "section" : "notifications",
@@ -5837,7 +5878,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "8d709c8552542129a519a38e4ea95ddbb8b9ba490ba7f72f344d79db6d44fbcd",
+  "schema_hash" : "a4361c12286577c0810a7120ca322a7271cbeaa63345dd39ab2a55c4057e7e9b",
   "sections" : [
     {
       "id" : "general",

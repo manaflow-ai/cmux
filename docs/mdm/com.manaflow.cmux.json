@@ -394,7 +394,7 @@
       "default" : 0.5,
       "description" : "A share of the window width, for Fixed Width new columns.",
       "maximum" : 1,
-      "minimum" : 0.10000000000000001,
+      "minimum" : 0.1,
       "title" : "Fixed Column Width",
       "type" : "number"
     },
@@ -548,7 +548,7 @@
       "default" : 3,
       "description" : "notifications.attention.duration",
       "maximum" : 30,
-      "minimum" : 0.29999999999999999,
+      "minimum" : 0.3,
       "title" : "Pulse Duration",
       "type" : "number"
     },
@@ -841,8 +841,8 @@
     "sidebar.bottomBandMaxShare" : {
       "default" : 0.25,
       "description" : "The share of the sidebar the bottom sections fill before they scroll.",
-      "maximum" : 0.90000000000000002,
-      "minimum" : 0.10000000000000001,
+      "maximum" : 0.9,
+      "minimum" : 0.1,
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
@@ -859,6 +859,12 @@
       "title" : "Section Look",
       "type" : "string"
     },
+    "sidebar.showWorkspaceTabs" : {
+      "default" : false,
+      "description" : "Lists tabs beneath each workspace in the sidebar.",
+      "title" : "Show Workspace Tabs",
+      "type" : "boolean"
+    },
     "sidebar.stickyBandsScroll" : {
       "default" : true,
       "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
@@ -866,10 +872,10 @@
       "type" : "boolean"
     },
     "sidebar.topBandMaxShare" : {
-      "default" : 0.33333333333333331,
+      "default" : 0.3333333333333333,
       "description" : "The share of the sidebar the top sections fill before they scroll.",
-      "maximum" : 0.90000000000000002,
-      "minimum" : 0.10000000000000001,
+      "maximum" : 0.9,
+      "minimum" : 0.1,
       "title" : "Top Sections Height",
       "type" : "number"
     },

@@ -30,7 +30,8 @@ public struct SettingsSchemaExport {
         return Set(strings.keys)
     }
 
-    /// The export document as pretty, key-sorted JSON with a trailing newline.
+    /// The export document as pretty, key-sorted JSON with a trailing newline,
+    /// written by `DeterministicJSON` so it is the same on every toolchain.
     /// Throws `MissingKeys` when a text names a key `catalog` lacks.
     public nonisolated func json(catalog: Set<String>) throws -> String {
         var missing: Set<String> = []
@@ -42,7 +43,7 @@ public struct SettingsSchemaExport {
             ["id": section.rawValue, "title": text(section.title, section.titleKey), "symbol": section.symbol]
         }
         let rows: [[String: Any]] = SettingsSchema.all.map { row(for: $0, text: text) }
-        let rowsData = try JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])
+        let rowsData = Data(try DeterministicJSON.string(rows, pretty: false).utf8)
         let document: [String: Any] = [
             "version": version,
             "schema_hash": SettingsSchemaHash.hex(rowsData),
@@ -50,8 +51,7 @@ public struct SettingsSchemaExport {
             "rows": rows,
         ]
         guard missing.isEmpty else { throw MissingKeys(keys: missing.sorted()) }
-        let data = try JSONSerialization.data(withJSONObject: document, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        return String(decoding: data, as: UTF8.self) + "\n"
+        return try DeterministicJSON.string(document, pretty: true) + "\n"
     }
 
     nonisolated func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
