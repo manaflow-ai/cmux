@@ -12,14 +12,17 @@ mod catalog;
 mod interfaces;
 mod issue;
 mod package;
+mod presentation;
 mod rules;
 mod scopes;
+mod toolbar;
 
 pub use catalog::{CATALOG_SCHEMA, validate_catalog};
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES};
 pub use issue::{Issue, Severity};
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo, scope_info};
+pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};
 
 use serde_json::Value;
 use std::sync::OnceLock;

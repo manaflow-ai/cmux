@@ -3,9 +3,10 @@ import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
+import { teamRead } from "./team-reads.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
-import { currentPolicy, enforcedOn, integrationSlice, POLICY_HISTORY_LIMIT, policyAt, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
+import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
+import { currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
@@ -13,7 +14,6 @@ import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, ty
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, type ServerEnrollRefused } from "./domains/team-servers.ts"
-import { sshCaView } from "./domains/team-ssh.ts"
 import { revokeInstallCerts, sshExternal } from "./team-ssh-ca.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 
@@ -40,67 +40,52 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult {
-    const member = principal.user ? state.members[principal.user] : undefined
-    if (!member) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
-    const p = (params ?? {}) as { version?: unknown; limit?: unknown }
-    switch (op) {
-      case "team.directory":
-        return { ok: true, value: { team: state.team?.id, members: Object.values(state.members), hosts: Object.values(state.hosts) }, revision: "" }
-      case "team.policy.get": {
-        if (p.version !== undefined && (typeof p.version !== "number" || !Number.isInteger(p.version))) return { ok: false, code: "validation.invalid", message: "version must be an integer" }
-        const policy = policyAt(state, p.version as number | undefined)
-        if (!policy) return { ok: false, code: "selector.not_found", message: `policy version ${String(p.version)} is not retained` }
-        // integration_managed_by: ConnectionDO holds an SSO or MDM lock that overrides TeamPolicy's integration keys (E2).
-        return { ok: true, value: { team: state.team?.id, policy, integration_managed_by: state.integration_managed_by ?? null }, revision: "" }
-      }
-      case "team.policy.history": {
-        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read policy history" }
-        const limit = typeof p.limit === "number" && Number.isInteger(p.limit) ? Math.min(Math.max(p.limit, 1), POLICY_HISTORY_LIMIT) : 20
-        return { ok: true, value: { team: state.team?.id, versions: (state.policy_history ?? []).slice(0, limit) }, revision: "" }
-      }
-      case "team.enrollment_token.list": {
-        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list enrollment tokens" }
-        return {
-          ok: true,
-          value: { team: state.team?.id, tokens: Object.values(state.enrollment_tokens ?? {}).map(publicToken), devices: Object.values(state.managed_devices ?? {}) },
-          revision: ""
-        }
-      }
-      case "sso.connection.list": {
-        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list SSO connections" }
-        return { ok: true, value: { team: state.team?.id, connections: Object.values(state.sso_connections ?? {}) }, revision: "" }
-      }
-      case "domain.list": {
-        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list domains" }
-        return { ok: true, value: { team: state.team?.id, domains: Object.values(state.domains ?? {}) }, revision: "" }
-      }
-      case "team.device.compliance": {
-        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read device compliance" }
-        return { ok: true, value: { team: state.team?.id, ...complianceFor(state) }, revision: "" }
-      }
-      case "team.device.policy": {
-        const d = devicePolicyFor(state, principal.install)
-        return { ok: true, value: { team: state.team?.id, team_name: state.team?.display_name ?? "", ...d }, revision: "" }
-      }
-      case "team_vm.ssh_ca":
-        // Public material only: CA public keys and the revocation list, for the team VM's sshd.
-        return { ok: true, value: sshCaView(state.team?.id ?? "", state, Date.now()), revision: String(state.ssh_krl?.version ?? 0) }
-      default:
-        return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
-    }
+    return teamRead(state, op, params, principal)
   }
 
   /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
   private syncRetryAt: number | null = null
   private syncAttempts = 0
 
-  /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6). */
+  /** Backoff after a failed run-policy push to SchedulerDO (in memory). */
+  private runSyncRetryAt: number | null = null
+  private runSyncAttempts = 0
+
+  /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
     if (!state.team) return null
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
-    const recheck = nextRecheckAt(state)
-    const sync = integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null
-    return sync === null ? recheck : recheck === null ? sync : Math.min(sync, recheck)
+    const times = [
+      nextRecheckAt(state),
+      integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null,
+      runSyncPending(state) ? Math.max(now, this.runSyncRetryAt ?? now) : null
+    ].filter((t): t is number => t !== null)
+    return times.length === 0 ? null : Math.min(...times)
+  }
+
+  /**
+   * Pushes the run class of agents.allowedClasses to SchedulerDO (team-run-sync.ts), then records
+   * the acknowledgement. Idempotent on both sides (keys carry the version and the bit). A failure
+   * backs off and never blocks the integration push.
+   */
+  private async syncRunPolicy(now: number): Promise<void> {
+    const state = this.boundEngine?.currentState
+    if (!state?.team || !runSyncPending(state)) return
+    if (this.runSyncRetryAt !== null && now < this.runSyncRetryAt) return
+    const team = state.team.id
+    const push = runSyncPush(state)
+    try {
+      const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(team)) as unknown as { applyRunPolicy(e: string, p: typeof push): Promise<{ ok: boolean; message?: string }> }
+      const r = await stub.applyRunPolicy(team, push)
+      if (!r.ok) throw new Error(r.message ?? "refused")
+      this.requireCommitted(this.submitSystem("team.policy.runs_synced", push, `runs-synced:${push.version}:${push.runs_allowed ? 1 : 0}`))
+      this.runSyncAttempts = 0
+      this.runSyncRetryAt = null
+    } catch (e) {
+      this.runSyncAttempts += 1
+      this.runSyncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.runSyncAttempts)
+      console.error(JSON.stringify({ msg: "run policy push to SchedulerDO failed", team, error: String(e) }))
+    }
   }
 
   /**
@@ -112,6 +97,20 @@ export class TeamDO extends OwnerDO<TeamState> {
   protected override async onWake(now: number): Promise<void> {
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
+    try {
+      await this.syncIntegration(now)
+    } finally {
+      // After the integration push, so a slow SchedulerDO never delays it (review P3).
+      await this.syncRunPolicy(now)
+    }
+  }
+
+  /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */
+  async runPolicy(entity: string): Promise<{ version: number; runs_allowed: boolean }> {
+    return runSyncPush(this.bind(entity).currentState)
+  }
+
+  private async syncIntegration(now: number): Promise<void> {
     const engine = this.boundEngine
     let state = engine?.currentState
     if (!state?.team || (!integrationSyncPending(state) && !releasePending(state))) return

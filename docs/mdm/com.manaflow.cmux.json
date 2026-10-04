@@ -846,6 +846,18 @@
       "title" : "Bottom Sections Height",
       "type" : "number"
     },
+    "sidebar.minimalMode" : {
+      "default" : "off",
+      "description" : "Hides the chosen sections until the pointer is over the sidebar.",
+      "enum" : [
+        "off",
+        "bottom",
+        "top",
+        "both"
+      ],
+      "title" : "Minimal Mode",
+      "type" : "string"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",

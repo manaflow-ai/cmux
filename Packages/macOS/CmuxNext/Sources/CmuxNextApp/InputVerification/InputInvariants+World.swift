@@ -80,7 +80,7 @@ extension InputInvariants {
         case .browserPage(let pane, _): childPage == nil ? .content(pane: pane) : .windowOrNone
         case .addressBar(let pane, _): .addressBar(pane: pane)
         case .findBar(let pane, _): .findBar(pane: pane)
-        case .agentPage(let pane, _), .page(let pane, _): .content(pane: pane)
+        case .agentPage(let pane, _), .page(let pane, _), .conversation(let pane, _): .content(pane: pane)
         // A docked DevTools has the keys in its own child window, like a page.
         case .devTools: .windowOrNone
         case .sidebar: .sidebar

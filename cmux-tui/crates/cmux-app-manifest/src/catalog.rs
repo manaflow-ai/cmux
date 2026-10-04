@@ -34,6 +34,7 @@ pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
     let owner = format!("app:{}", manifest["id"].as_str().unwrap_or_default());
     let family = catalog["family"].as_str().unwrap_or_default();
     let has_main = manifest.pointer("/runtime/main").is_some();
+    crate::toolbar::check_ops(manifest, catalog, &mut out);
     if catalog.get("owner").and_then(Value::as_str).is_some_and(|o| o != owner) {
         out.push(Issue::error("/catalog/owner", "catalog.owner", format!("owner must be {owner}")));
     }

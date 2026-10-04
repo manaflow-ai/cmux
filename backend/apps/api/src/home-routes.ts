@@ -31,6 +31,7 @@ export interface ConversationStub {
   acceptInvite(entity: string, principal: Principal, proof: string, idempotencyKey: string): Promise<SubmitResult>
   card(entity: string): Promise<{ first_name: string; avatar_url: null } | null>
   invitePreview(entity: string, secret: string): Promise<unknown>
+  mayInvite(entity: string, principal: Principal): Promise<boolean>
 }
 
 interface AddressStub {
@@ -150,6 +151,9 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
     }
     case "invite.create": {
       const { conversation, ...rest } = params as { conversation: string } & Parameters<typeof createInvite>[3]
+      if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return reject(key, "validation.invalid", "invite.create needs a conversation id")
+      // Before any AddressDO is touched: only a participant of an existing conversation invites.
+      if (!(await conversationStub(env, conversation).mayInvite(conversation, principal))) return reject(key, "forbidden", "not a participant of this conversation")
       return createInvite(env, principal, conversation, rest, frame)
     }
     case "conversation.import": {
@@ -177,7 +181,7 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
     }
     default: {
       const { conversation, ...rest } = params as { conversation?: unknown }
-      if (typeof conversation !== "string") return reject(key, "validation.invalid", `${frame.op} needs a conversation`)
+      if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return reject(key, "validation.invalid", `${frame.op} needs a conversation id`)
       const who = frame.op === "participants.add" ? await withOwnedAgents(env, principal) : principal
       return conversationStub(env, conversation).submit(conversation, who, { ...frame, params: rest })
     }
@@ -187,7 +191,7 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
 /** A Home ConversationDO read: routed by `conversation`, which is stripped. */
 export const conversationRead = async (env: Env, principal: Principal, op: string, params: unknown) => {
   const { conversation, ...rest } = (params ?? {}) as { conversation?: unknown }
-  if (typeof conversation !== "string") return { ok: false as const, code: "validation.invalid", message: `${op} needs a conversation` }
+  if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return { ok: false as const, code: "validation.invalid", message: `${op} needs a conversation id` }
   return conversationStub(env, conversation).readOp(conversation, principal, op, rest)
 }
 

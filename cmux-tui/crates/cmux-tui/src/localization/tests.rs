@@ -1,3 +1,5 @@
+use cmux_tui_machine_protocol::provider_action_id;
+
 use super::*;
 
 #[test]

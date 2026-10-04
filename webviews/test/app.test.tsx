@@ -256,9 +256,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
     repoRoot: "/tmp/other-repo",
   });
 
-  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
-  sourceSelect.value = "unstaged";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("unstaged");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
   await waitFor(() => fetched.length === 3);
   expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source).toEqual({
@@ -275,8 +273,7 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
     repoRoot: "/tmp/repo",
   });
 
-  sourceSelect.value = "last-turn";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("last-turn");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
   await waitFor(() => fetched.length === 5);
   expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source).toEqual({
@@ -467,12 +464,9 @@ test("typed source switching preserves the last resolved branch base", async () 
   await waitFor(
     () => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("chosen-base") === true,
   );
-  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
-  sourceSelect.value = "unstaged";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("unstaged");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
-  sourceSelect.value = "branch";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("branch");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
   expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source).toEqual({
     kind: "branch",
@@ -606,9 +600,7 @@ test("Last Turn reveals repo selection after switching to a typed git source", a
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
   expect(dom.window.document.getElementById("repo-select")).toBeNull();
 
-  const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
-  sourceSelect.value = "unstaged";
-  sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await chooseSource("unstaged");
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
   const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
   expect(repoSelect).toBeTruthy();
@@ -859,8 +851,10 @@ test("viewer preferences sync from the native bridge and persist option changes"
   });
 
   // Collapse state stays session-local.
-  menuButton("Collapse all diffs")?.click();
-  await waitFor(() => Boolean(menuButton("Expand all diffs")));
+  dom.window.document.getElementById("expand-toggle")?.click();
+  await waitFor(
+    () => dom?.window.document.getElementById("expand-toggle")?.getAttribute("aria-label") === "Expand all diffs",
+  );
   expect(prefsRequests.filter((request) => request.method === "viewerPrefs.set")).toHaveLength(1);
 });
 
@@ -925,12 +919,10 @@ test("refresh re-streams the typed session in place and keeps viewer options", a
   expect(requests.filter((request) => request.method === "sessionOpen")).toHaveLength(1);
   dom.window.document.getElementById("layout-toggle")?.click();
   await waitFor(() => dom?.window.document.documentElement.dataset.layout === "split");
-  dom.window.document.getElementById("options-button")?.click();
-  await waitFor(() => Boolean(menuButton("Enable word wrap")));
-  menuButton("Enable word wrap")?.click();
+  dom.window.document.getElementById("wrap-toggle")?.click();
   await waitFor(() => dom?.window.document.documentElement.dataset.wordWrap === "true");
 
-  menuButton("Refresh")?.click();
+  dom.window.document.getElementById("refresh-button")?.click();
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
   await waitFor(() => fetched.length === 2);
   expect(requests.filter((request) => request.method === "sessionClose").length).toBeGreaterThan(0);
@@ -1160,6 +1152,18 @@ function renderApp(element: React.ReactNode): void {
   flushSync(() => {
     root?.render(element);
   });
+}
+
+// Opens the source menu and picks the row for `value` (last-turn, unstaged, branch, ...).
+async function chooseSource(value: string): Promise<void> {
+  const button = () => dom?.window.document.getElementById("source-menu-button");
+  await waitFor(() => Boolean(button()));
+  if (button()?.getAttribute("aria-expanded") !== "true") {
+    button()?.click();
+  }
+  const row = () => dom?.window.document.querySelector<HTMLButtonElement>(`[data-source-id="${value}"]`);
+  await waitFor(() => Boolean(row()));
+  row()?.click();
 }
 
 function menuButton(text: string): HTMLButtonElement | undefined {

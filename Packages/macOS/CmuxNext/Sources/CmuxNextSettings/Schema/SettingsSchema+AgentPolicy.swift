@@ -17,6 +17,7 @@ extension SettingsSchema {
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
         "window.titlebar",
+        "sidebar.minimalMode",
         "tabs.newTabKind",
         "newTerminal.opensWorkspace",
         "palette.scopes.tabs.prefix",

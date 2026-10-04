@@ -22,6 +22,9 @@ public final class SidebarView: NSView {
     /// toolbar buttons sit in this row, trailing). Nil follows
     /// `Metrics.titlebarHeight`, read at layout time.
     public var titlebarHeightOverride: CGFloat? { didSet { needsLayout = true } }
+    /// Where the titlebar row's accessory may start: after the window's
+    /// toolbar band (R68).
+    public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { needsLayout = true } } }
     private var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
 
     let list: SidebarListView
@@ -47,7 +50,9 @@ public final class SidebarView: NSView {
     let belowLine = CALayer()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
-    private(set) var isChromeRevealed = false
+    var isChromeRevealed = false
+    /// Bands minimal mode hides right now (the fade's target, R54).
+    var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     private let footer = NSView()
     private var observation: Task<Void, Never>?
@@ -239,7 +244,7 @@ public final class SidebarView: NSView {
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
-            let x = Metrics.trafficLightInset
+            let x = max(Metrics.trafficLightInset, titlebarLeadingReserve)
             let width = max(0, min(size.width, newButton.frame.minX - Metrics.space2 - x))
             accessory.frame = NSRect(x: x, y: (titlebarHeight - size.height) / 2, width: width, height: size.height)
             accessory.isHidden = width < size.height
@@ -286,17 +291,6 @@ public final class SidebarView: NSView {
 
     override public func mouseEntered(with event: NSEvent) { setChromeRevealed(true) }
     override public func mouseExited(with event: NSEvent) { setChromeRevealed(false) }
-
-    /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
-    /// reach the same actions through the palette and the registry menus.
-    func setChromeRevealed(_ revealed: Bool) {
-        guard revealed != isChromeRevealed else { return }
-        isChromeRevealed = revealed
-        let alpha: CGFloat = revealed ? 1 : 0
-        Motion.animate(.hover) {
-            newButton.animator().alphaValue = alpha
-        }
-    }
 
     private func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)]) {
         let f = footer.bounds
@@ -381,6 +375,8 @@ public final class SidebarView: NSView {
             || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
         let previous = lastState?.sections
         model.showWorkspaceTabs = state.preferences.showWorkspaceTabs
+        // Minimal mode changed: show or hide the chosen bands now.
+        if lastState?.preferences.minimalMode != state.preferences.minimalMode { setChromeRevealed(isChromeRevealed) }
         if listChanged {
             if profileChanged, let previousProfile = lastState?.activeProfile, let nextProfile = state.activeProfile,
                let oldIndex = state.profiles.firstIndex(where: { $0.id == previousProfile }), let newIndex = state.profiles.firstIndex(where: { $0.id == nextProfile }),

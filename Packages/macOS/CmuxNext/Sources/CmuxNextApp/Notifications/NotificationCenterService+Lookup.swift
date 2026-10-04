@@ -10,7 +10,7 @@ extension NotificationCenterService {
     static func contentTab(_ resolved: FocusState.Resolved) -> String? {
         switch resolved {
         case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab),
-             .agentPage(_, let tab), .page(_, let tab): tab
+             .agentPage(_, let tab), .page(_, let tab), .conversation(_, let tab): tab
         default: nil
         }
     }

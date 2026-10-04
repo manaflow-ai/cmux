@@ -51,6 +51,7 @@ pub use multipath::{Multipath, MultipathControl, PathEvent, PathStats};
 pub use net::{Datagram, DatagramDrops, WgDatagramSocket, WgError, WgListener, WgNet};
 pub use pacing::Priority;
 pub use probe_schedule::ProbeConfig;
+pub use single_path::MIN_SEND_BUFFER;
 pub use stream::WgStream;
 pub use underlay::{
     DatagramSocket, DueProbes, Origin, Received, SocketPath, UdpUnderlay, Underlay,

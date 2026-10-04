@@ -34,6 +34,8 @@ export interface PresenceKeyBody {
 }
 
 export class UserDO extends OwnerDO<UserState> {
+  /** UserDO is the revocation authority: it closes a revoked install's sockets itself (afterOp). */
+  protected override checksInstallRevocation = false
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
 
@@ -49,7 +51,7 @@ export class UserDO extends OwnerDO<UserState> {
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 } },
       owns: (op) => op.startsWith("inbox."),
       maySubscribe: (_head, principal, entity) => principal.user === entity
-    })
+    }, (ws, a) => this.socketLive(ws, a))
   }
 
   /** The inbox engine of the bound user, opened on first use (also after hibernation). */
@@ -280,6 +282,14 @@ export class UserDO extends OwnerDO<UserState> {
     return (!state.user || state.user.id === principal.user) && installActive(state, principal)
   }
 
+  /** RPC from other owners (OwnerDO.runInstallChecks): which of these installs (with the token's grant) are active. Never creates an object. */
+  async installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<ReadonlyArray<boolean>> {
+    // One answer per entry, in order (two sockets of one install may hold different grants).
+    if (!this.isBound(entity)) return list.map(() => false)
+    const state = this.bind(entity).currentState
+    return list.map((x) => installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}) }))
+  }
+
   /** A revoked install loses its open sockets at once, not at token expiry. */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
     if (op !== "install.revoke" && op !== "install.revoke_by_team") return
@@ -303,7 +313,7 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */
   private existing() {
-    const row = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    const row = this.boundRow()
     return row ? this.bind(row.entity) : undefined
   }
 

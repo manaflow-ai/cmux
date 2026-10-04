@@ -1,0 +1,64 @@
+//! `app_control` strings of the CLI catalog (English and Japanese).
+
+/// `cmux app|action|settings|window|events` and action verbs: the scopes the
+/// cmux app owns (cli/app.rs).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AppControlMessages {
+    pub action_describe_usage: &'static str,
+    pub action_run_usage: &'static str,
+    pub settings_usage: &'static str,
+    pub events_after_invalid: &'static str,
+    pub scope_usage: &'static str,
+    pub handles_unstable: &'static str,
+    pub unexpected_argument: &'static str,
+    pub missing_value: &'static str,
+    pub arg_shape: &'static str,
+    pub no_app: &'static str,
+    pub unreachable: &'static str,
+    pub timeout: &'static str,
+    pub closed: &'static str,
+    pub invalid_response: &'static str,
+    pub root_scopes: &'static str,
+    pub acp_open_usage: &'static str,
+    pub browser_page_usage: &'static str,
+}
+
+pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
+    action_describe_usage: "usage: cmux action describe <action id or CLI name>",
+    action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
+    settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE | unset PATH",
+    events_after_invalid: "--after needs an event sequence number, not \"{value}\"",
+    scope_usage: "usage: cmux {scope} <action>; `cmux action list --noun {scope}` lists the actions",
+    handles_unstable: "account handles change after restart: Keychain unavailable",
+    unexpected_argument: "unexpected argument \"{value}\"",
+    missing_value: "{flag} needs a value",
+    arg_shape: "--arg needs NAME=VALUE, not \"{value}\"",
+    no_app: "no cmux app found: run this inside a cmux terminal, use the cmux bundled in the app, or pass --app-socket PATH",
+    unreachable: "the cmux app is not running at {path} ({error})",
+    timeout: "the cmux app did not answer within {seconds} s",
+    closed: "the cmux app closed the connection without an answer",
+    invalid_response: "the cmux app sent an answer this cmux cannot read",
+    acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
+    browser_page_usage: "usage: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT",
+    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history (list, search <text>)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
+};
+
+pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
+    action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
+    action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
+    settings_usage: "使い方: cmux settings get [パス] | set パス 値 | unset パス",
+    events_after_invalid: "--after にはイベント番号が必要です (「{value}」は不正)",
+    scope_usage: "使い方: cmux {scope} <アクション>。`cmux action list --noun {scope}` で一覧を表示",
+    handles_unstable: "アカウントのハンドルは再起動後に変わります: キーチェーンを使用できません",
+    unexpected_argument: "予期しない引数「{value}」",
+    missing_value: "{flag} には値が必要です",
+    arg_shape: "--arg には 名前=値 が必要です (「{value}」は不正)",
+    no_app: "cmux アプリが見つかりません: cmux のターミナル内で実行するか、アプリ同梱の cmux を使うか、--app-socket パス を指定してください",
+    unreachable: "cmux アプリが {path} で動作していません ({error})",
+    timeout: "cmux アプリが {seconds} 秒以内に応答しませんでした",
+    closed: "cmux アプリが応答せずに接続を閉じました",
+    invalid_response: "cmux アプリの応答を読み取れません",
+    acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
+    browser_page_usage: "使い方: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト",
+    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索 (list、search <テキスト>)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
+};

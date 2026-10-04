@@ -59,3 +59,24 @@ import Testing
         #expect(view.firstRun.isHidden)
     }
 }
+
+/// spec/app-screens.md section 3: clicking empty space in the Home column
+/// focuses the message box (R65).
+@MainActor
+@Suite struct HomeEmptyClickFocusTests {
+    @Test func clickingEmptyTranscriptSpaceFocusesTheMessageBox() throws {
+        let (window, view) = HomeFirstRunTests.view()
+        defer { window.close() }
+        view.controller.update(items: [], summary: HomeFirstRunTests.summary(), typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        window.makeFirstResponder(nil)
+        let point = view.rowHost.convert(CGPoint(x: view.rowHost.bounds.midX, y: 120), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                        clickCount: 1, pressure: 1))
+            if type == .leftMouseDown { view.rowHost.mouseDown(with: event) } else { view.rowHost.mouseUp(with: event) }
+        }
+        #expect(window.firstResponder === view.field.textView)
+    }
+}

@@ -20,9 +20,10 @@ export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
     if (typeof entry?.harness !== "string" || !Array.isArray(entry.models)) continue;
     byHarness.set(
       entry.harness,
-      (entry.models as { id?: unknown; modelId?: unknown; name?: unknown }[]).map((model) => ({
+      (entry.models as { id?: unknown; modelId?: unknown; name?: unknown; unavailable?: unknown }[]).map((model) => ({
         id: String(model.id ?? model.modelId),
         name: typeof model.name === "string" ? model.name : undefined,
+        ...(typeof model.unavailable === "string" ? { unavailable: model.unavailable } : {}),
       })),
     );
   }
@@ -42,9 +43,17 @@ export function sessionModels(
   summary: Pick<Summary, "harness" | "configOptions"> | undefined,
 ): { id: string; name: string }[] {
   const listed = catalog.find((harness) => harness.id === summary?.harness)?.models ?? [];
-  if (listed.length > 0) return listed.map((model) => ({ id: model.id, name: model.name || model.id }));
+  if (listed.length > 0) return listed.map((model) => ({ id: model.id, name: modelLabel(model) }));
   const option = summary?.configOptions?.find(
     (candidate) => candidate.category === "model" || candidate.id === "model",
   );
   return (option?.options ?? []).map((choice) => ({ id: choice.value, name: choice.name || choice.value }));
+}
+
+/// A model's label; one acpmux will not run says so, with the start of the reason.
+export function modelLabel(model: { id: string; name?: string; unavailable?: string }): string {
+  const name = model.name || model.id;
+  if (!model.unavailable) return name;
+  const reason = model.unavailable.length > 60 ? `${model.unavailable.slice(0, 59)}…` : model.unavailable;
+  return `${name} · unavailable: ${reason}`;
 }

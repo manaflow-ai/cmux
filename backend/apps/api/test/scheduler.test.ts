@@ -112,6 +112,8 @@ describe("automations end to end (workerd)", () => {
     const automation = create.json.value.id as string
     const slot = create.json.value.next_run_at as number
     await inScheduler(team, async (instance) => {
+      // Fail closed: the scheduler loads the team's run policy before it creates runs.
+      await (instance as unknown as { ensureRunPolicy(e: string): Promise<void> }).ensureRunPolicy(team)
       // Both wakes see the same due slot (as a retried or duplicated alarm would).
       const fires = [1, 2].map(() =>
         instance.submitSystem("automation.fire", { automation, trigger: create.json.value.triggers[0].id, scheduled_at: slot }, `fire:${automation}:${create.json.value.triggers[0].id}:${slot}`)
@@ -260,6 +262,7 @@ describe("webhook triggers (workerd)", () => {
     const trigger = create.json.value.triggers[0].id as string
     let run = ""
     await inDO(scheduler(team), async (instance, state) => {
+      await instance.ensureRunPolicy(team)
       // One synchronous turn: a delivered run marked dispatched with no Workflow instance behind it.
       const r = instance.submitSystem("automation.deliver", { automation, trigger, delivery_id: "orphan" }, "deliver-orphan")
       run = r.frames.find((f: any) => f.t === "result").value.id

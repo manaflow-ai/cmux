@@ -4,10 +4,12 @@
 //   generated/scopes.json    op name -> scope (the host's scope check and the consent UI)
 //   generated/ops.json       op names
 // Sources until the merged D7 catalog exists: cmux-tui resource ops, cloud ops,
-// app actions. `--check` exits 1 when a generated file is stale.
+// app actions, and every first-party app's catalog fragment (app-catalogs.ts).
+// `--check` exits 1 when a generated file is stale.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
 
 const here = new URL(".", import.meta.url).pathname
 const repo = join(here, "../../../..")
@@ -16,7 +18,12 @@ export const API_VERSION = "1.0.0"
 
 type TypeIR = { kind: string; [k: string]: unknown }
 interface Field { required: boolean; type: TypeIR; description?: string }
-interface Op { class: string; risk?: string; params?: { selectors?: Record<string, string>; fields?: Record<string, Field> }; result?: TypeIR; docs?: string; source: "local" | "cloud" }
+interface Op {
+  class: string; risk?: string; params?: { selectors?: Record<string, string>; fields?: Record<string, Field> }; result?: TypeIR; docs?: string
+  source: "local" | "cloud" | "app"
+  /** App catalog ops: the owning app and JSON Schema input/output instead of params/result. */
+  owner?: string; input?: Record<string, unknown>; output?: Record<string, unknown>
+}
 
 /** Op families that share one scope family. */
 const SCOPE_FAMILY: Record<string, string> = { tab: "workspace", pane: "workspace", screen: "workspace", window: "workspace", session: "session", frontend_projection: "client" }
@@ -55,6 +62,10 @@ export function loadCatalog(): { ops: Record<string, Op>; types: Record<string, 
   for (const [name, op] of Object.entries(local.operations as Record<string, Op>)) ops[name] = { ...op, source: "local" }
   const cloudOps = (cloud.operations ?? {}) as Record<string, Op>
   for (const [name, op] of Object.entries(cloudOps)) if (!ops[name]) ops[name] = { ...op, source: "cloud" }
+  for (const op of loadAppCatalogs(join(repo, "first-party-apps"))) {
+    if (ops[op.name]) throw new Error(`${op.owner} declares ${op.name}, which ${ops[op.name]!.owner ?? `the ${ops[op.name]!.source} catalog`} already owns`)
+    ops[op.name] = { class: op.class, risk: op.risk, docs: op.docs, source: "app", owner: op.owner, input: op.input, output: op.output }
+  }
   return { ops, types: { ...cloud.types, ...local.types }, generics: { ...(cloud.generics ?? {}), ...(local.generics ?? {}) }, actions: actions.filter((a) => a.cli === "offered").map((a) => a.id).sort() }
 }
 
@@ -89,6 +100,7 @@ function objectType(fields: Record<string, Field> | undefined, depth: number): s
 }
 
 function paramsType(op: Op): string {
+  if (op.source === "app") return schemaType(op.input)
   const parts: string[] = []
   for (const [sel, need] of Object.entries(op.params?.selectors ?? {})) {
     // The host fills machine and session with the current ones, so they are optional for apps.
@@ -139,8 +151,10 @@ export function generate(): Record<string, string> {
       node = node.children.get(p)!
     }
     const op = ops[name]!
-    const doc = `/** \`${name}\` (${op.class}, scope \`${scopes[name]!.scope}\`)${op.docs ? `: ${op.docs}` : ""} */`
-    node.ops.push([parts.at(-1)!, `${doc}\n${ident(parts.at(-1)!)}: CmuxOp<${paramsType(op)}, ${tsType(op.result)}>`])
+    const owner = op.source === "app" && op.owner ? `, owner \`${op.owner}\`` : ""
+    const doc = `/** \`${name}\` (${op.class}, scope \`${scopes[name]!.scope}\`${owner})${op.docs ? `: ${op.docs}` : ""} */`
+    const result = op.source === "app" ? (op.output ? schemaType(op.output) : "unknown") : tsType(op.result)
+    node.ops.push([parts.at(-1)!, `${doc}\n${ident(parts.at(-1)!)}: CmuxOp<${paramsType(op)}, ${result}>`])
   }
   const render = (t: Tree, indent: string): string => {
     const lines: string[] = []

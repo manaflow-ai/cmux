@@ -55,6 +55,7 @@ export type Body = {
 } | {
   readonly type: "code"
   readonly ref: CodeRef
+  readonly egress?: ReadonlyArray<EgressHost>
 }
 
 export type Budget = {
@@ -133,6 +134,8 @@ export type DeviceStatus = {
   readonly conflicts: ReadonlyArray<string>
   readonly reported_at: number
 }
+
+export type EgressHost = string
 
 export type EmailAddress = string
 
@@ -589,6 +592,9 @@ export type Run = {
     readonly type: string
     readonly scheduled_at?: number
     readonly delivery_id?: string
+    readonly parent_run?: RunId
+    readonly root_run?: RunId
+    readonly depth?: number
   }
   readonly state: RunState
   readonly step: number
@@ -653,6 +659,10 @@ export type Step = {
 } | {
   readonly type: "note"
   readonly text: string
+} | {
+  readonly type: "op"
+  readonly op: "automation.list" | "automation.get" | "automation.runs.list" | "automation.run" | "usage.summary"
+  readonly params: unknown
 }
 
 export type TargetPolicy = {

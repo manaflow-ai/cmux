@@ -25,12 +25,12 @@ Vite serves the real pane source at `http://127.0.0.1:4176/`, opens it with `?mo
 To iterate in a plain browser against a real, standalone acpmux daemon (no app build), start a slot:
 
 ```sh
-webviews/scripts/agent-pane/dev-slot.sh up 1 [--cwd DIR]   # prints the page URL
+webviews/scripts/agent-pane/dev-slot.sh up 1 [--cwd DIR]   # prints the pane, diff and markdown URLs
 webviews/scripts/agent-pane/dev-slot.sh status
 webviews/scripts/agent-pane/dev-slot.sh down 1
 ```
 
-Slot N runs `acpmux daemon run` with its own `ACPMUX_HOME` (`/tmp/acpdev-N`, sessions kept across restarts), port 47900+N and a fresh token, and Vite on port 4180+N, the only extra origin that daemon trusts (`websocket.allowed_origins`). The printed URL carries the endpoint and token in its fragment, which the browser never sends to Vite; `devHost.ts` answers the handshake in Swift's place. Native-only requests (git, files, tabs, dictation) fail as `native.unsupported`, so the changes view is empty here. Run one slot per worktree to compare variants side by side. The daemon binary is `$ACPMUX_BIN`, else the newest one bundled in a tagged DerivedData build; it must be new enough for the pane.
+Slot N runs `acpmux daemon run` with its own `ACPMUX_HOME` (`/tmp/acpdev-N`, sessions kept across restarts), port 47900+N and a fresh token, and the [webviews dev server](../../../README.md#dev-server) on port 4180+N (the pane at `/agent-pane/`), the only extra origin that daemon trusts. The printed pane URL carries the endpoint and token in its fragment, which the browser never sends to Vite; `devHost.ts` answers the handshake in Swift's place. Native-only requests (git, files, tabs, dictation) fail as `native.unsupported`, so the changes view is empty here. Run one slot per worktree to compare variants side by side. The daemon binary is `$ACPMUX_BIN`, else the newest one bundled in a built app (`/tmp/panedev-*-app` or a tagged DerivedData build); it must be new enough for the pane.
 
 To iterate on the real pane inside a running cmux-next with hot reload:
 

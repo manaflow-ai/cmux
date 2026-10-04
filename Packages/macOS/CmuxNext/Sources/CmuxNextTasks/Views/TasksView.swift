@@ -25,7 +25,7 @@ struct TasksView: View {
                 }
             }
         }
-        .background(colors.background)
+        .background(colors.surface)
         .overlay(alignment: .bottom) {
             if let reject = model.lastReject {
                 Text(reject)
