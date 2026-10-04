@@ -196,6 +196,11 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     artifacts = workflow("cmux-tui-artifacts.yml")
     triggers = workflow_triggers(artifacts)
     assert "pull_request_target" in triggers
+    pr_trigger = triggers["pull_request_target"]
+    assert pr_trigger.get("branches") == ["feat-cmux-next"]
+    assert "paths" not in pr_trigger, (
+        "same-tree publication must run for Swift-only PRs when the base key is missing"
+    )
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
     assert 'CARGO_NET_RETRY: "10"' in daemon
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
