@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
@@ -189,5 +189,30 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     const nia = { identity: `${user}:s`, kind: "session" as const, user, display_name: "Nia" }
     const res = await conversationMutate(testEnv as never, nia, { t: "op", op: "conversation.create", params: { title: "first", participants: [{ id: user, kind: "human", display_name: "Nia" }] }, idempotency_key: crypto.randomUUID() })
     expect(rejectOf(res)).toMatchObject({ code: "home.user_not_ready", retryable: false })
+  })
+
+  it("with the budget spent, dm.open still reopens an existing DM (no charge, no reach); a new DM is refused", async () => {
+    const ola = await signIn("rate-reopen-ola", "Ola")
+    const pam = await signIn("rate-reopen-pam", "Pam")
+    const quin = await signIn("rate-reopen-quin", "Quin")
+    await joinTeam(ola, pam)
+    await joinTeam(ola, quin)
+    const opened = await op(ola.token, "dm.open", { peer: pam.user })
+    const dm = opened.value.conversation.id as string
+    // The DM reaches Ola's inbox peer index once the outbox drains.
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm))
+    const peerOf = () => inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(ola.user)), async (i) => (await i.readInbox(ola.user, sessionPrincipal(ola), "inbox.dm_peer", { peer: pam.user })).value?.conversation)
+    for (let n = 0; n < 100 && (await peerOf()) !== dm; n++) {
+      await runDurableObjectAlarm(conv)
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    expect(await peerOf()).toBe(dm)
+    await spend(ola, ola.user, "conversation.create", 60)
+    const rec = recordingEnv()
+    const again = await conversationMutate(rec.env, sessionPrincipal(ola), { t: "op", op: "dm.open", params: { peer: pam.user }, idempotency_key: crypto.randomUUID() })
+    expect(again.frames.find((f) => f.t === "result")).toMatchObject({ value: { conversation: { id: dm } } })
+    expect(rec.calls.filter((c) => c !== "user.readInbox")).toEqual([])
+    const fresh = await conversationMutate(testEnv as never, sessionPrincipal(ola), { t: "op", op: "dm.open", params: { peer: quin.user }, idempotency_key: crypto.randomUUID() })
+    expect(rejectOf(fresh)).toMatchObject({ code: "home.rate_limited" })
   })
 })
