@@ -58,6 +58,14 @@ impl TestClient {
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
+    setup_env(policy, BTreeMap::new()).await
+}
+
+/// `setup` with the fake agent's env (FAKE_* switches).
+async fn setup_env(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -65,7 +73,7 @@ async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
         HarnessProfile {
             kind: Default::default(),
             argv: vec!["python3".into(), fake.into()],
-            env: BTreeMap::new(),
+            env,
             description: None,
             fallback: None,
             family: None,
@@ -321,6 +329,74 @@ async fn kill_then_prompt_resumes_via_load() {
         .into_iter()
         .any(|e| e.kind == "config" && e.msg.get("replayed") == Some(&json!(true)));
     assert!(replayed, "{kinds:?}");
+}
+
+/// A prompt that arrives while another caller is still loading the
+/// session's respawned agent waits for the load: the agent is not handed
+/// out before `session/load` answered (it would answer "Session not found",
+/// and the prompt would be lost).
+#[tokio::test]
+async fn a_prompt_during_a_slow_session_load_waits_for_the_load() {
+    let gate = std::env::temp_dir().join(format!("acpmux-load-gate-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([("FAKE_LOAD_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "slow-load"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve("slow-load").unwrap();
+    hub.detach_child(&session).await;
+    // Another caller (the pane's `_acpmux/warm`) respawns it; the load hangs.
+    let warmer = {
+        let hub = hub.clone();
+        let id = id.clone();
+        tokio::spawn(async move { hub.warm_sessions(&[id], 1).await })
+    };
+    let load_sent = || {
+        hub.events(&id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|e| e.dir == "out" && e.kind == method::SESSION_LOAD)
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !load_sent() {
+        assert!(std::time::Instant::now() < deadline, "session/load was never sent");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    c.next += 1;
+    let prompt_id = c.next;
+    c.tx.send(
+        Message::request(
+            prompt_id,
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "during load"}]}),
+        )
+        .to_line(),
+    )
+    .await
+    .unwrap();
+    // The prompt is in flight before the load answers.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    std::fs::write(&gate, b"open").unwrap();
+    let answer = loop {
+        let line = tokio::time::timeout(Duration::from_secs(20), c.rx.recv())
+            .await
+            .expect("timeout waiting for the prompt answer")
+            .expect("connection closed");
+        if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+            && rid == prompt_id
+        {
+            break (result, error);
+        }
+    };
+    let _ = std::fs::remove_file(&gate);
+    assert!(answer.1.is_none(), "prompt during load failed: {:?}", answer.1);
+    assert_eq!(answer.0.unwrap()["stopReason"], "end_turn");
+    warmer.await.unwrap();
 }
 
 #[tokio::test]
