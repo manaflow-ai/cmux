@@ -17,7 +17,12 @@ Capture: --out-root PATH --date YYYY-MM-DD --cua PATH --target APP
   --dry-run                   print the plan; no mkdir, SSH, CUA, or cmux-ci
 EOF
 }
-die() { echo "showcase-capture: $*" >&2; exit 2; }
+REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
+die() {
+ echo "showcase-capture: $*" >&2
+ echo "Repair: $REPAIR_URL#captures-and-the-fleet" >&2
+ exit 2
+}
 HOST=${CMUX_SHOWCASE_HOST:-}; TAG=${CMUX_SHOWCASE_TAG:-}; CHECKOUT=${CMUX_SHOWCASE_CHECKOUT:-}
 REF=${CMUX_SHOWCASE_REF:-}; WORKSPACE_URL=${PR_URL:-${CMUX_SHOWCASE_WORKSPACE:-}}
 SUBMITTER=${SUBMITTER:-${CMUX_SHOWCASE_SUBMITTER:-}}; ARTIFACT_JOB=${CMUX_SHOWCASE_ARTIFACT_JOB:-}; APP_PATH=${CMUX_SHOWCASE_APP:-}
@@ -203,7 +208,7 @@ if (( ! SKIP_BUILD )) && [[ -z $APP_PATH && -z $ARTIFACT_JOB ]]; then
 fi
 if [[ -z $APP_PATH && -n $ARTIFACT_JOB ]]; then
  [[ $ARTIFACT_JOB =~ ^[a-f0-9]{24}$ ]] || die "--artifact-job must be a 24-character controller job id"
- remote "command -v cmux-ci >/dev/null || { echo 'cmux-ci is required on the capture mini for direct artifact pulls' >&2; exit 127; }"
+ remote "command -v cmux-ci >/dev/null || { echo 'cmux-ci is required on the capture mini for direct artifact pulls' >&2; echo 'Repair: $REPAIR_URL#capture-mini-client' >&2; exit 127; }"
  remote_dir='$HOME/cmux-showcase-runs/$TAG-$ARTIFACT_JOB'
  remote "mkdir -p $remote_dir/app"
  remote "cmux-ci artifact $(printf '%q' "$ARTIFACT_JOB") $remote_dir/app.zip"

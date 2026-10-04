@@ -8,6 +8,7 @@ OUT=$TMP/out
 output=$($SCRIPT --dry-run --host mini --tag showcase-test --checkout /tmp/checkout --out-root "$OUT")
 grep -q 'dry run (no effects)' <<<"$output"
 test ! -e "$OUT"
+grep -q -- "REPAIR.md" "$SCRIPT"
 # Artifact bytes must be pulled on the capture host; Big Red never relays an app zip.
 grep -q -- "cmux-ci artifact" "$SCRIPT"
 ! grep -q -- "scp \"\$RECEIPTS/cmux-\$TAG.zip" "$SCRIPT"
