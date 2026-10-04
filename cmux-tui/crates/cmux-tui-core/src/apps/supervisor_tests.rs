@@ -1167,3 +1167,5 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
 mod provider_channel;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_store_tests.rs"]
+mod store;

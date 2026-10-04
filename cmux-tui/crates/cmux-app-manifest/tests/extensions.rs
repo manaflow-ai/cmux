@@ -181,8 +181,13 @@ fn presentation_rules() {
     let mut first = manifest(page);
     first["id"] = json!("cmux/x");
     first["repository"] = json!("https://github.com/manaflow-ai/cmux");
-    first["presentation"] = json!({ "sidebarItem": { "section": "top", "order": 0 }, "screen": "appColumn", "tab": true });
+    first["presentation"] =
+        json!({ "sidebarItem": { "section": "top", "order": 0 }, "screen": "app", "tab": true });
     assert!(validate_manifest(&first).is_empty());
+    // The daemon accepts only the app screen; appColumn is gone.
+    let mut column = first.clone();
+    column["presentation"]["screen"] = json!("appColumn");
+    assert!(validate_manifest(&column).iter().any(|i| i.code == "schema"));
     // hiddenByDefault: installed but hidden until the user shows it.
     first["presentation"]["hiddenByDefault"] = json!(true);
     assert!(validate_manifest(&first).is_empty(), "{:?}", validate_manifest(&first));
@@ -194,7 +199,7 @@ fn presentation_rules() {
 fn home_app_store_and_coderouter_use_the_same_presentation_fields() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../first-party-apps");
     let mut orders = Vec::new();
-    for (name, screen) in [("home", "appColumn"), ("app-store", "app"), ("coderouter", "app")] {
+    for (name, screen) in [("home", "app"), ("app-store", "app"), ("coderouter", "app")] {
         let m: Value = serde_json::from_str(
             &std::fs::read_to_string(root.join(name).join("cmux-app.v2.json")).expect("read"),
         )
