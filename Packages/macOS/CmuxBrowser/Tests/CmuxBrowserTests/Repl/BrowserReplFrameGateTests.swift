@@ -137,6 +137,36 @@ struct BrowserReplFrameGateTests {
         #expect(await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: page.frames) } == nil)
     }
 
+    // MARK: Probes that never answer
+
+    /// The gate's own probes (the focus probe, the frame boxes, a frame's
+    /// document) are bounded: one that does not answer refuses the call
+    /// with `stale` instead of hanging every later input call.
+    @Test func aProbeThatNeverAnswersRefusesWithStale() async throws {
+        let page = try await FramePage.load()
+        // The page's web process runs no other script for 25 s, so the
+        // gate's probes of any frame in it do not answer (as when a
+        // navigation replaces the document and WebKit drops the completion).
+        page.webView.evaluateJavaScript("{ const end = Date.now() + 25000; while (Date.now() < end) {} }", completionHandler: nil)
+        let gate = Self.gate()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        let webView = SendableBox(page.webView)
+        let frames = SendableBox(page.frames)
+        let focus = await browserReplWithDeadline(seconds: 30) { @MainActor in
+            await Self.error { try await gate.checkFocus(in: webView.value, frames: frames.value) }
+        }
+        #expect(focus??.code == "stale", "the focus probe of a frame that does not answer hung or passed: \(String(describing: focus))")
+        let pointer = await browserReplWithDeadline(seconds: 30) { @MainActor in
+            await Self.error { try await gate.checkPointer(at: [CGPoint(x: 50, y: 50)], in: webView.value, frames: frames.value) }
+        }
+        #expect(pointer??.code == "stale", "the frame-box probe of a page that does not answer hung or passed: \(String(describing: pointer))")
+        let frame = SendableBox(blocked)
+        let document = await browserReplWithDeadline(seconds: 30) { @MainActor in
+            await Self.error { try await gate.authorize(frame.value, in: webView.value) }
+        }
+        #expect(document??.code == "stale", "the document probe of a frame that does not answer hung or passed: \(String(describing: document))")
+    }
+
     // MARK: Support
 
     static let world = WKContentWorld.world(name: "cmux-frame-gate-tests")
@@ -245,4 +275,11 @@ final class FramePageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, stop task: any WKURLSchemeTask) {}
+}
+
+/// Hands main-actor test values to a `@Sendable` closure that runs on the
+/// main actor.
+struct SendableBox<T>: @unchecked Sendable {
+    let value: T
+    init(_ value: T) { self.value = value }
 }
