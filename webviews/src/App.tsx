@@ -860,6 +860,16 @@ export function App({ config, initialStatus }: ConfigProps) {
     },
     [currentVisibleItemId, scrollToItem, visibleItemsRef],
   );
+  // Collapses or expands the file under the viewport through the header caret's path.
+  const setCurrentFileCollapsed = useCallback(
+    (collapsed: boolean) => {
+      const target = currentVisibleItemId();
+      if (target) {
+        setItemCollapsed(target, collapsed);
+      }
+    },
+    [currentVisibleItemId, setItemCollapsed],
+  );
   // GitHub's `v`: toggles the file under the viewport (or the active file).
   const toggleViewedCurrentFile = useCallback(() => {
     const target = currentVisibleItemId();
@@ -951,6 +961,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     jumpAdjacentFile,
     jumpAdjacentHunk,
     toggleViewedCurrentFile,
+    setCurrentFileCollapsed,
     findBridgeRef,
   );
   const setStatus = (status: DiffViewerStatus) => {
@@ -2988,6 +2999,7 @@ function useNativeViewerNavigation(
   onJumpAdjacentFile: (direction: -1 | 1) => void,
   onJumpAdjacentHunk: (direction: -1 | 1) => void,
   onToggleViewed: () => void,
+  onSetCurrentCollapsed: (collapsed: boolean) => void,
   findBridgeRef: React.MutableRefObject<{ open: boolean; controller: DiffFindController }>,
 ) {
   useEffect(() => {
@@ -3020,6 +3032,12 @@ function useNativeViewerNavigation(
         case "diffViewerToggleViewed":
           onToggleViewed();
           return true;
+        case "diffViewerCollapseFile":
+          onSetCurrentCollapsed(true);
+          return true;
+        case "diffViewerExpandFile":
+          onSetCurrentCollapsed(false);
+          return true;
         case "diffViewerOpenFind":
           dispatch({ type: "request-find" });
           return true;
@@ -3050,7 +3068,7 @@ function useNativeViewerNavigation(
       document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
       disposeManualInputReset();
     };
-  }, [dispatch, findBridgeRef, onJumpAdjacentFile, onJumpAdjacentHunk, onToggleViewed, viewerRef]);
+  }, [dispatch, findBridgeRef, onJumpAdjacentFile, onJumpAdjacentHunk, onSetCurrentCollapsed, onToggleViewed, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {
