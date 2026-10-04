@@ -903,7 +903,10 @@ fn state_resource_cases<'a>(
         (vec!["screen", "group", "remove", "--screens", screen], "screen_group.remove_screens"),
         (vec!["screen", "group", "g", "ungroup"], "screen_group.ungroup"),
         (vec!["closed", "list"], "closed.list"),
+        (vec!["closed", "list", "--window", "i/w", "--limit", "5"], "closed.list"),
         (vec!["closed", "c1", "reopen"], "closed.reopen"),
+        (vec!["closed", "reopen", "--window", "i/w"], "closed.reopen"),
+        (vec!["closed", "c1", "reopen", "--members", "0,2"], "closed.reopen"),
         (vec!["workspace", workspace, "status", "list"], "workspace_status.list"),
         (
             vec!["workspace", workspace, "status", "set", "k", "t", "--icon", "i", "--color", "c"],
