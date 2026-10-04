@@ -42051,6 +42051,399 @@
           }
         }
       }
+    },
+    "settings.choice.onHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Hover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ポインタを置いたとき"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند التمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pri prelasku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved markør"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beim Darüberfahren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al pasar el puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Au survol"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al passaggio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលដាក់ទស្សន៍ទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마우스를 올릴 때"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved peker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po najechaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao passar o ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "При наведении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อวางเมาส์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üzerine Gelince"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "При наведенні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi di chuột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "悬停时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "懸停時"
+          }
+        }
+      }
+    },
+    "settings.window.titlebarButtons": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titlebar Buttons"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "タイトルバーのボタン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أزرار شريط العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dugmad naslovne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Knapper i titellinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Titelleistentasten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botones de la barra de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boutons de la barre de titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsanti della barra del titolo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប៊ូតុងរបារចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "제목 막대 버튼"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Knapper i tittellinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przyciski paska tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botões da barra de título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки заголовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มแถบชื่อเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başlık Çubuğu Düğmeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nút thanh tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标题栏按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "標題列按鈕"
+          }
+        }
+      }
+    },
+    "settings.window.titlebarButtons.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「ポインタを置いたとき」では、ポインタが上端の行に来るまで「戻る」と「進む」を隠します。サイドバーのボタンは常に表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«عند التمرير» يُخفي زرَّي الرجوع والتقدم حتى يصل المؤشر إلى الصف العلوي. يظهر زر الشريط الجانبي دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pri prelasku skriva Nazad i Naprijed dok pokazivač nije iznad gornjeg reda. Dugme bočne trake se uvijek prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved markør skjuler Tilbage og Frem, indtil markøren er over den øverste række. Sidepanelknappen vises altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Beim Darüberfahren“ blendet Zurück und Vor aus, bis der Zeiger über der obersten Zeile ist. Die Seitenleistentaste ist immer sichtbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al pasar el puntero oculta Atrás y Adelante hasta que el puntero esté sobre la fila superior. El botón de la barra lateral siempre se muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Au survol masque Précédent et Suivant jusqu'à ce que le pointeur soit sur la rangée du haut. Le bouton de la barre latérale reste toujours visible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al passaggio nasconde Indietro e Avanti finché il puntatore non è sulla riga superiore. Il pulsante della barra laterale è sempre visibile."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលដាក់ទស្សន៍ទ្រនិច លាក់ថយក្រោយ និងទៅមុខ រហូតដល់ទស្សន៍ទ្រនិចនៅលើជួរខាងលើ។ ប៊ូតុងរបារចំហៀងបង្ហាញជានិច្ច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마우스를 올릴 때는 포인터가 맨 위 행에 올 때까지 뒤로와 앞으로를 숨깁니다. 사이드바 버튼은 항상 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ved peker skjuler Tilbake og Frem til pekeren er over øverste rad. Sidepanelknappen vises alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Po najechaniu ukrywa Wstecz i Dalej, dopóki wskaźnik nie znajdzie się nad górnym wierszem. Przycisk paska bocznego jest zawsze widoczny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ao passar o ponteiro oculta Voltar e Avançar até o ponteiro estar sobre a linha superior. O botão da barra lateral sempre aparece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведении» скрывает «Назад» и «Вперёд», пока указатель не окажется над верхней строкой. Кнопка боковой панели видна всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อวางเมาส์ จะซ่อนย้อนกลับและไปข้างหน้าจนกว่าตัวชี้จะอยู่เหนือแถวบนสุด ปุ่มแถบด้านข้างแสดงเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üzerine gelince, işaretçi üst satıra gelene kadar Geri ve İleri'yi gizler. Kenar çubuğu düğmesi her zaman görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«При наведенні» приховує «Назад» і «Вперед», доки вказівник не опиниться над верхнім рядком. Кнопка бічної панелі видна завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi di chuột sẽ ẩn Quay lại và Tiến tới cho đến khi con trỏ ở trên hàng trên cùng. Nút thanh bên luôn hiển thị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“悬停时”会隐藏后退和前进，直到指针移到顶部一行。侧边栏按钮始终显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「懸停時」會隱藏上一頁與下一頁，直到指標移到頂端一列。側邊欄按鈕一律顯示。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -18,3 +18,19 @@ public nonisolated enum WindowTitlebarSetting {
         return (style, nil)
     }
 }
+
+/// `window.titlebarButtons` in cmux-next.json (R83): "hover" (default) or
+/// "always".
+public nonisolated enum TitlebarButtonsSetting {
+    public static let configPath = ["window", "titlebarButtons"]
+    public static let fallback: TitlebarButtonsMode = .hover
+
+    static func parse(_ root: JSONValue) -> (TitlebarButtonsMode, SettingsDiagnostic?) {
+        guard let value = root.value(at: configPath) else { return (fallback, nil) }
+        guard let text = value.stringValue, let mode = TitlebarButtonsMode(rawValue: text) else {
+            let choices = TitlebarButtonsMode.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "window.titlebarButtons", message: "expected one of \(choices)"))
+        }
+        return (mode, nil)
+    }
+}

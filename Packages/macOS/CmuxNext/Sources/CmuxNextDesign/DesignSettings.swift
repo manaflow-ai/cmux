@@ -87,6 +87,8 @@ public final class DesignSettings {
     public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
+    /// `window.titlebarButtons`.
+    public var titlebarButtons: TitlebarButtonsMode = .hover
 
     public init() {}
 

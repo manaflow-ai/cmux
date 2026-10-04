@@ -1,6 +1,16 @@
 public import AppKit
 
 /// `window.titlebar` in cmux.json.
+/// `window.titlebarButtons` (R83): when the title bar's buttons (Back,
+/// Forward, and later ones; never the sidebar toggle) show.
+public nonisolated enum TitlebarButtonsMode: String, Sendable, CaseIterable, Codable {
+    /// Hidden until the pointer is over the title bar row, then they fade
+    /// in, in place (the default).
+    case hover
+    /// Always shown.
+    case always
+}
+
 public nonisolated enum TitlebarStyle: String, Sendable, CaseIterable, Codable {
     /// No titlebar strip (the default, user nxdog9): content reaches the
     /// window's top edge, the traffic lights sit in the top row, and every

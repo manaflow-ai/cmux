@@ -85,6 +85,18 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
+            SettingDescriptor(
+                TitlebarButtonsSetting.configPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
+                help: SettingsText.keyed("settings.window.titlebarButtons.help",
+                                        "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."),
+                kind: .choice([
+                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(TitlebarButtonsSetting.fallback.rawValue),
+                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
+            ),
             newTabKind(group: tabs),
             newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
