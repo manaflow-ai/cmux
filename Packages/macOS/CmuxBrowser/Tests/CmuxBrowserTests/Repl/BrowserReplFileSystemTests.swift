@@ -546,6 +546,44 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d"))
     }
 
+    /// A recursive `rm` removes many entries; each is a change, so a tree
+    /// cannot remove past the session's limit in one call.
+    @Test("A recursive rm counts every entry it removes and stops at the session's limit")
+    func recursiveRemoveCountsEveryEntry() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        func makeTree(_ name: String) throws {
+            try FileManager.default.createDirectory(atPath: scratch.root + "/\(name)/sub", withIntermediateDirectories: true)
+            for index in 0..<10 {
+                #expect(FileManager.default.createFile(atPath: scratch.root + "/\(name)/f\(index)", contents: nil))
+            }
+            for index in 0..<3 {
+                #expect(FileManager.default.createFile(atPath: scratch.root + "/\(name)/sub/g\(index)", contents: nil))
+            }
+        }
+        // The tree is 15 entries: itself, 10 files, sub and its 3 files.
+        try makeTree("whole")
+        let fits = makeFileSystem(scratch, budget: BrowserReplWriteBudget(perSessionEntryChanges: 20))
+        #expect(fits.perform("rm", arguments: ["path": "whole", "recursive": true]).failureCode == "ok")
+        #expect(!FileManager.default.fileExists(atPath: scratch.root + "/whole"))
+        for index in 0..<5 {
+            #expect(fits.perform("mkdir", arguments: ["path": "d\(index)"]).failureCode == "ok", "change \(16 + index)")
+        }
+        #expect(fits.perform("mkdir", arguments: ["path": "d5"]).failureCode == "EDQUOT", "the rm took fewer than 15 changes")
+
+        try makeTree("partial")
+        let short = makeFileSystem(scratch, budget: BrowserReplWriteBudget(perSessionEntryChanges: 5))
+        let result = short.perform("rm", arguments: ["path": "partial", "recursive": true])
+        guard case .failure(let error) = result else {
+            Issue.record("a 15-entry tree was removed with a budget of 5 changes")
+            return
+        }
+        #expect(error.code == "EDQUOT")
+        #expect(error.message.contains("4 entries") && error.message.contains("rest remain"), "\(error.message)")
+        let left = try FileManager.default.subpathsOfDirectory(atPath: scratch.root + "/partial")
+        #expect(left.count == 10, "\(left.sorted())")
+    }
+
     /// `readdir` and `rm -r` run on the session's thread; on a large tree a
     /// cell that timed out (or a session that closed) must not wait for the
     /// whole traversal.
