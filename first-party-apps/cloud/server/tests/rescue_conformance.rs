@@ -21,7 +21,7 @@ pub mod vectors {
     use super::frames_common::{Host, MAX_FRAME, end, last_offset, not_open, output};
     use cmux_terminal_iface::{
         BackendError, Close, Direction, End, ExitStatus, FrameBody, Grid, Lost, OpenRequest,
-        Signal, TerminalBackend,
+        Signal, TerminalBackend, check_closed,
     };
     use std::time::{Duration, Instant};
 
@@ -241,6 +241,17 @@ pub mod vectors {
         assert!(not_open(host.push(credit)));
         assert!(host.take().is_empty());
     }
+
+    /// End after close (the shared crate's rule, `check_closed`): output and
+    /// an exit the far end sent before the close but the host did not take
+    /// yet never arrive, and no `end` follows the close.
+    pub fn no_end_follows_a_close(far: &mut dyn FarEnd) {
+        let mut host = open(far, "t-close-end");
+        host.write(b"echo late\nexit 3\n").expect("write");
+        wait_far("the far end read the exit", || has(&far.received(), "exit 3"));
+        host.terminal.close(Close::Graceful).expect("close");
+        assert_eq!(check_closed(&mut *host.terminal), Ok(()));
+    }
 }
 
 // --- The rescue backend over a fake transport that runs the tiny shell. ---
@@ -458,4 +469,9 @@ fn rescue_transport_drop_gives_lost() {
 #[test]
 fn rescue_close_refuses_later_calls() {
     vectors::close_refuses_later_calls(&mut far());
+}
+
+#[test]
+fn rescue_no_end_follows_a_close() {
+    vectors::no_end_follows_a_close(&mut far());
 }
