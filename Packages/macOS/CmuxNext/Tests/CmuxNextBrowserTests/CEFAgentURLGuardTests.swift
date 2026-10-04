@@ -48,4 +48,17 @@ import Testing
         commit(tab, "chrome://extensions/")
         #expect(tab.state.url?.absoluteString == "chrome://extensions/")
     }
+
+    /// The first navigation starts at browser creation, before the shim
+    /// guard is set: an agent-driven tab is created on about:blank instead.
+    @Test func anAgentDrivenTabIsNeverCreatedOnAChromiumPage() throws {
+        let tab = makeTab()
+        tab.markAgentDriven()
+        tab.load(try #require(URL(string: "chrome://password-manager/passwords")))
+        #expect(tab.initialURLString == "about:blank")
+
+        let person = makeTab()
+        person.load(try #require(URL(string: "chrome://extensions/")))
+        #expect(person.initialURLString == "chrome://extensions/")
+    }
 }
