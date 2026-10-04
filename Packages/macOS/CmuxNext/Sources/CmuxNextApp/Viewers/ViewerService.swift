@@ -50,8 +50,8 @@ final class ViewerService {
     // MARK: Opening
 
     /// A diff tab for `directory` in `pane`; the folder joins the recents.
-    func openDiff(_ directory: String, in pane: PaneController, focus: Bool) throws {
-        try diffViewer.openDiff(directory: directory, in: pane, focus: focus)
+    func openDiff(_ directory: String, in pane: PaneController, focus: Bool) async throws {
+        try await diffViewer.openDiff(directory: directory, in: pane, focus: focus)
         recents.record(URL(fileURLWithPath: directory, isDirectory: true), as: .diff)
     }
 
@@ -59,7 +59,9 @@ final class ViewerService {
     func diffPickerPage(for pane: PaneController) -> PalettePageSpec {
         picker.openPage(.init(choose: .folders, startDirectory: Self.start(for: pane), recents: [.diff])) { [weak self, weak pane] urls in
             guard let self, let pane, let folder = urls?.first else { return }
-            self.report { try self.openDiff(folder.path, in: pane, focus: true) }
+            Task {
+                do { try await self.openDiff(folder.path, in: pane, focus: true) } catch { self.showRefusal(Self.reason(error)) }
+            }
         }
     }
 
@@ -105,8 +107,8 @@ final class ViewerService {
         return await picker.open(options)?.first?.path
     }
 
-    private func report(_ body: () throws -> Void) {
-        do { try body() } catch { showRefusal((error as? ActionFailure)?.message ?? error.localizedDescription) }
+    static func reason(_ error: any Error) -> String {
+        (error as? ActionFailure)?.message ?? error.localizedDescription
     }
 
     /// A refusal after the action returned (the picker answered later).

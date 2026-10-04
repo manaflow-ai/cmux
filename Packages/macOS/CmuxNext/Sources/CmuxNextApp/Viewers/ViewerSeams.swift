@@ -8,13 +8,14 @@ import CmuxNextActions
 /// to it, and the open actions here call it unchanged.
 @MainActor
 protocol DiffViewerOpening: AnyObject {
-    func openDiff(directory: String, in pane: PaneController, focus: Bool) throws
+    /// Throws when nothing opens (no repository there, no diff host).
+    func openDiff(directory: String, in pane: PaneController, focus: Bool) async throws
 }
 
 /// Until S4: says why no diff opens.
 @MainActor
 final class UnavailableDiffViewer: DiffViewerOpening {
-    func openDiff(directory: String, in pane: PaneController, focus: Bool) throws {
+    func openDiff(directory: String, in pane: PaneController, focus: Bool) async throws {
         throw ActionFailure(message: ViewerStrings.noDiffViewer)
     }
 }

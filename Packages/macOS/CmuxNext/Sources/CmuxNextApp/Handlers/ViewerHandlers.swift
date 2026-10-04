@@ -19,11 +19,13 @@ enum ViewerHandlers {
         let viewers = services.viewers
         registry.bind("openDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
-            if let folder = ViewerService.folder(of: pane) {
-                try viewers.openDiff(folder, in: pane, focus: invocation.allowsViewChange)
-            } else {
-                showPicker(viewers.diffPickerPage(for: pane), context)
-            }
+            guard let folder = ViewerService.folder(of: pane) else { return showPicker(viewers.diffPickerPage(for: pane), context) }
+            let focus = invocation.allowsViewChange
+            // No repository at the pane's folder: the picker asks for one.
+            registry.track(Task { @MainActor in
+                do { try await viewers.openDiff(folder, in: pane, focus: focus) } catch { showPicker(viewers.diffPickerPage(for: pane), context) }
+                return nil
+            })
         })
         registry.bind("palette.openDirectoryDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
