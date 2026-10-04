@@ -87,7 +87,7 @@ impl ScpEndpoint {
     }
 }
 
-fn valid_host_key(text: &str) -> bool {
+pub(crate) fn valid_host_key(text: &str) -> bool {
     let Some(encoded) = text.strip_prefix("ssh-ed25519 ") else { return false };
     let Ok(blob) = STANDARD.decode(encoded) else { return false };
     blob.len() == 51

@@ -263,8 +263,12 @@ impl<C: ControlPlane> Server<C> {
     pub fn with_parts(
         control_plane: C,
         attach: crate::link::Attach,
-        edge: crate::ports::Edge,
+        mut edge: crate::ports::Edge,
     ) -> Self {
+        // The pinned host keys are read once, at start.
+        if let Some(path) = attach.env().known_hosts_path() {
+            edge.load_known_hosts(path);
+        }
         Self {
             control_plane,
             projection: Projection::default(),

@@ -108,6 +108,12 @@ impl AppEnv {
         Ok(env)
     }
 
+    /// `<data>/ssh/known_hosts`, without touching the disk; `None` without
+    /// a data folder. The only known_hosts file the server reads.
+    pub fn known_hosts_path(&self) -> Option<PathBuf> {
+        self.data_dir().map(|d| d.join("ssh").join("known_hosts"))
+    }
+
     /// `<data>/ssh` (owner-only) with the server-owned `config` (written
     /// each time, so its content is always this server's) and the path of
     /// `known_hosts`.
@@ -146,18 +152,37 @@ pub(crate) fn private_dir(path: &Path) -> io::Result<()> {
 /// Replaces `path` with `bytes` (owner read and write only): written to a
 /// sibling, then renamed, so a reader sees the old file or the new one.
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_private_with(path, bytes, |from, to| std::fs::rename(from, to))
+}
+
+/// [`write_private`] with the rename step given (a failing one stands for
+/// a crash before the rename: the old file stays, the sibling is removed).
+/// The sibling is a new file (`create_new`, never a link someone placed),
+/// mode 0600 whatever the umask, synced before the rename.
+pub(crate) fn write_private_with(
+    path: &Path,
+    bytes: &[u8],
+    rename: fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
     use std::io::Write as _;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let staging = path.with_file_name(format!(".{name}.cmux-{}", std::process::id()));
+    // A sibling left by a crash of an earlier process with the same id.
+    let _ = std::fs::remove_file(&staging);
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     let written = options.open(&staging).and_then(|mut file| {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
         file.write_all(bytes)?;
         file.sync_all()
     });
-    let renamed = written.and_then(|()| std::fs::rename(&staging, path));
+    let renamed = written.and_then(|()| rename(&staging, path));
     if renamed.is_err() {
         let _ = std::fs::remove_file(&staging);
     }
