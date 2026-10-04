@@ -6,6 +6,8 @@ USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>]
+  cmux closed <closed> delete [--members <i,j,...>]
+  cmux closed clear [--since-ms <unix-ms>]
 
 The session keeps every close as one group: a bulk close (a tab group, the
 tabs to the right) is one group. Reopen restores the whole group, each tab in
@@ -13,6 +15,8 @@ its pane at its old index, each screen in its workspace, each workspace as a
 new workspace. Without an id, reopen takes the newest group of the window, else
 the newest group of a closed window, never a group of another open window.
 --members reopens only those members; the rest stay in the group.
+delete and clear remove groups permanently; clear --since-ms removes only the
+groups closed at or after that time.
 ";
 
 pub(super) const GIT_HELP: &str = "\

@@ -365,6 +365,8 @@ pub enum ResourceOperation {
     ClosedList,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
+    #[serde(rename = "closed.delete")]
+    ClosedDelete,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]

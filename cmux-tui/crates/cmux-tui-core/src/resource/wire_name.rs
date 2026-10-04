@@ -145,6 +145,7 @@ impl ResourceOperation {
             Self::StreamCancel => "stream.cancel",
             Self::ClosedList => "closed.list",
             Self::ClosedReopen => "closed.reopen",
+            Self::ClosedDelete => "closed.delete",
             Self::WindowRecordList => "window_record.list",
             Self::WindowRecordPut => "window_record.put",
             Self::WindowRecordDelete => "window_record.delete",

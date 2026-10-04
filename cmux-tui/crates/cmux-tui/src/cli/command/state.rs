@@ -676,8 +676,9 @@ pub(super) fn parse_screen_group(
 // closed
 
 /// `closed list [--window W] [--limit N]`, `closed reopen [--window W]`
-/// (the newest group of that window: Cmd-Shift-T) and
-/// `closed <id> reopen [--members 0,2]`: the closed groups of the session.
+/// (the newest group of that window: Cmd-Shift-T),
+/// `closed <id> reopen [--members 0,2]`, `closed <id> delete [--members]`
+/// and `closed clear [--since-ms T]`: the closed groups of the session.
 pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     let mut params = Params::default();
@@ -692,6 +693,23 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
         ["reopen"] => {
             insert_optional_string(&mut params.fields, flags, "window", "window");
             Op::ClosedReopen
+        }
+        ["clear"] => {
+            params.insert("all", Value::Bool(true));
+            if let Some(since) = flags.take("since-ms") {
+                if since.is_empty() || !since.bytes().all(|byte| byte.is_ascii_digit()) {
+                    return Err(UsageError::new("--since-ms must be a Unix time in milliseconds"));
+                }
+                params.insert("since_ms", Value::String(since));
+            }
+            Op::ClosedDelete
+        }
+        [closed, "delete"] => {
+            params.insert("closed", Value::String((*closed).into()));
+            if let Some(members) = flags.take("members") {
+                params.insert("members", closed_members(&members)?);
+            }
+            Op::ClosedDelete
         }
         [closed, "reopen"] => {
             if closed.is_empty() || closed.len() > 64 {
