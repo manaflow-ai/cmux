@@ -52,6 +52,12 @@ const joinTeam = async (owner: Person, member: Person) => {
   })
 }
 const human = (p: Person, name = "anything") => ({ id: p.user, kind: "human", display_name: name })
+/** Fills `actor`'s hourly budget for `op` in `owner`'s UserDO with `n` attempts made now (no reach RPCs). */
+const spend = (owner: Person, actor: string, op: string, n: number) =>
+  inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(owner.user)), async (_i, state) => {
+    state.storage.sql.exec("CREATE TABLE IF NOT EXISTS home_rate (actor TEXT NOT NULL, op TEXT NOT NULL, at INTEGER NOT NULL)")
+    for (let i = 0; i < n; i++) state.storage.sql.exec("INSERT INTO home_rate (actor, op, at) VALUES (?, ?, ?)", actor, op, Date.now())
+  })
 
 const sessionPrincipal = (p: Person) => ({ identity: `${p.user}:s`, kind: "session" as const, user: p.user, team: p.team, display_name: p.name })
 const rejectOf = (res: { frames: ReadonlyArray<{ t: string }> }) => res.frames.find((f) => f.t === "reject") as { code: string; retryable: boolean; details?: { retry_after_ms?: number } } | undefined
@@ -106,5 +112,16 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     expect(await stub.homeRateTake(id, id, "conversation.create")).toMatchObject({ ok: false })
     const tables = await inDO(stub, async (_i, state) => state.storage.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('home_rate', 'do_entity')").toArray().map((r: any) => r.name))
     expect(tables).not.toContain("home_rate")
+  })
+
+  it("dm.open with a user peer counts against the conversation.create budget, before any reach RPC", async () => {
+    const eve = await signIn("rate-dm-eve", "Eve")
+    const fay = await signIn("rate-dm-fay", "Fay")
+    await joinTeam(eve, fay)
+    await spend(eve, eve.user, "conversation.create", 60)
+    const rec = recordingEnv()
+    const refused = await conversationMutate(rec.env, sessionPrincipal(eve), { t: "op", op: "dm.open", params: { peer: fay.user }, idempotency_key: crypto.randomUUID() })
+    expect(rejectOf(refused)).toMatchObject({ code: "home.rate_limited", retryable: true })
+    expect(rec.calls).toEqual([])
   })
 })
