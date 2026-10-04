@@ -111,7 +111,8 @@ describe("revealed reply", () => {
     const more = "Hi there, this reply keeps arriving in one burst of many words at once.";
     view.render(createElement(RevealedMarkdown, { text: more, streaming: true }));
     expect(view.host.textContent).toBe("Hi");
-    step(2);
+    // Commits run at 60 Hz: the first frame starts the clock, the next commit moves the text.
+    step(4);
     const partial = view.host.textContent ?? "";
     expect(partial.length).toBeGreaterThan(2);
     expect(partial.length).toBeLessThan(more.length);
