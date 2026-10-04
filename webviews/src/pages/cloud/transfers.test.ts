@@ -55,10 +55,44 @@ describe("Cloud file transfers", () => {
   });
 
   test("an event that comes before the action's answer still settles the transfer", async () => {
-    const { store } = await browsing({ holdTransfers: false });
+    const { provider, store } = await browsing({ holdTransfers: false });
+    const order: string[] = [];
+    await provider.subscribe(CloudOps.fileTransferChanged, () => order.push("event"));
+    const call = provider.call.bind(provider);
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      const result = await call<R>(op, params);
+      if (op === ACTION_RUN) order.push("answer");
+      return result;
+    };
     await store.files.push();
-    await settle();
+    expect(order).toEqual(["event", "answer"]);
     expect(transfers(store)).toEqual([expect.objectContaining({ direction: "push", state: "done" })]);
+  });
+
+  test("an action that answers after the session changed adds no running row", async () => {
+    const { provider, store } = await browsing();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const call = provider.call.bind(provider);
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === ACTION_RUN) await gate;
+      return call<R>(op, params);
+    };
+    const pushing = store.files.push();
+    await settle();
+    await store.retry();
+    release();
+    await pushing;
+    expect(transfers(store)).toEqual([]);
+  });
+
+  test("a busy refusal is dropped when the person opens another folder", async () => {
+    const { store } = await browsing();
+    for (let i = 0; i < 4; i += 1) await store.files.pull("/home/cmux/notes.txt");
+    await store.files.push();
+    expect(store.getSnapshot().detail!.files!.busy).toBeDefined();
+    await store.files.open("/home/cmux/src");
+    expect(store.getSnapshot().detail!.files!.busy).toBeUndefined();
   });
 
   test("transfer_busy shows a retryable message, no error banner, and Retry runs the action again", async () => {
