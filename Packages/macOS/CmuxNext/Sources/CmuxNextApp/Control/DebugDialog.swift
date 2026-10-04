@@ -65,6 +65,7 @@ enum DebugDialog {
         }
         var object: [String: JSONValue] = [
             "id": .number(Double(record.id)), "title": .string(record.spec.title),
+            "identifier": record.spec.identifier.map { .string($0) } ?? .null,
             "lines": .array(record.spec.lines.map { .string($0) }), "scope": .string(record.scope),
             "visible": .bool(record.visible), "values": .object(values),
             "buttons": .array(record.spec.buttons.map { button in

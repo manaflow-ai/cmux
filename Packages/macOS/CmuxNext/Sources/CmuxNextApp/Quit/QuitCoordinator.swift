@@ -19,6 +19,8 @@ final class QuitCoordinator {
     private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
+    /// The last dialog brought the app forward (`debug.quit`).
+    private(set) var lastAskActivated = false
     private unowned let services: AppServices
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
 
@@ -26,10 +28,15 @@ final class QuitCoordinator {
         self.services = services
     }
 
-    /// Records the origin, then starts AppKit's termination. A quit that is
-    /// already asking or completing ignores a repeat (a second Cmd-Q).
+    /// Records the origin, then starts AppKit's termination. A second Cmd-Q
+    /// while the dialog asks confirms its default (keep) on the first step
+    /// and does nothing on the confirmation; a quit already completing
+    /// ignores a repeat.
     func requestQuit(_ origin: QuitOrigin) {
-        guard !isQuitting else { return }
+        guard !isQuitting else {
+            if origin == .interactive { sheet?.answerDefault() }
+            return
+        }
         origins.record(origin)
         // From a run-loop callout, not from inside the caller's main-queue
         // job (control socket, palette): terminateLater spins a nested run
@@ -52,7 +59,11 @@ final class QuitCoordinator {
     }
 
     func shouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !isQuitting else { return .terminateLater }
+        guard !isQuitting else {
+            // A second Quit that reached AppKit directly (Dock, menu).
+            sheet?.answerDefault()
+            return .terminateLater
+        }
         isQuitting = true
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
@@ -65,13 +76,23 @@ final class QuitCoordinator {
             case .quit(let choice):
                 await complete(choice, remember: false, sender)
             case .ask(let prompt):
-                ask(prompt, sender)
+                ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
+                                                                  noActivate: WindowPlacement.noActivate))
             }
         }
         return .terminateLater
     }
 
-    private func ask(_ prompt: QuitPrompt, _ sender: NSApplication) {
+    /// A quit from the Dock or the app switcher while cmux is inactive is the
+    /// user's: cmux comes forward so the dialog is seen. Never in a
+    /// no-activate launch; non-interactive quits never ask.
+    static func shouldActivate(_ origin: QuitOrigin, isActive: Bool, noActivate: Bool) -> Bool {
+        origin == .interactive && !isActive && !noActivate
+    }
+
+    private func ask(_ prompt: QuitPrompt, _ sender: NSApplication, activate: Bool) {
+        lastAskActivated = activate
+        if activate { NSApp.activate() }
         let sheet = QuitAlert(prompt: prompt) { [weak self] answer in
             guard let self else { return }
             self.sheet = nil
