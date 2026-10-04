@@ -174,3 +174,27 @@ describe("inbox Domain (rows)", () => {
     expect(listInbox(rows, { limit: 200 })[0]?.conversation).toBe("conv_a")
   })
 })
+
+describe("inbox totals (home-scale review P1)", () => {
+  it("the inbox head keeps unread, mention and unread-conversation totals across bumps", async () => {
+    const { inboxDomain } = await import("../src/inbox/domain.ts")
+    const { MemoryRows } = await import("@cmux/ownership")
+    const rows = new MemoryRows()
+    const system = { identity: "system:test", kind: "system" as const }
+    let head = inboxDomain.initial()
+    const bump = (conversation: string, rev: number, unread: number, mentions: number) => {
+      const r = inboxDomain.reduce(head, "inbox.bump", { user: "user_a", conversation, rev, kind: "group", title: "", last_seq: rev, last_at: "2026-10-02T00:00:00.000Z", preview: "", unread, mentions }, { principal: system, now: 1, tx: `t${conversation}${rev}`, newId: (p: string) => `${p}1`, rows })
+      if (!r.ok) throw new Error(r.code)
+      rows.apply(r.writes ?? [])
+      head = r.state
+    }
+    bump("conv_A", 1, 2, 1)
+    bump("conv_B", 1, 3, 0)
+    expect(head).toMatchObject({ totals: { unread: 5, mentions: 1, conversations: 2 } })
+    bump("conv_A", 2, 0, 0)
+    expect(head).toMatchObject({ totals: { unread: 3, mentions: 0, conversations: 1 } })
+    // A stale bump changes nothing.
+    bump("conv_A", 1, 9, 9)
+    expect(head).toMatchObject({ totals: { unread: 3, mentions: 0, conversations: 1 } })
+  })
+})
