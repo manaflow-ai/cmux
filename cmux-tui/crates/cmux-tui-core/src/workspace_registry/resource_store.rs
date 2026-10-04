@@ -1837,6 +1837,7 @@ fn validate_registry_browser(browser: &RegistryBrowser) -> anyhow::Result<()> {
 }
 
 mod screen_rows;
+pub(crate) use screen_rows::repair_resources_at_open;
 mod viewport;
 use screen_rows::upsert_resource_screen;
 use viewport::validate_registry_viewport;

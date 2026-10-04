@@ -62,8 +62,8 @@ pub(crate) enum ColumnProjection {
 /// Restores the row ([`LayoutColumn::normalize_rows`]) and sticky
 /// invariants of `columns` and returns the compatibility projection. Owner
 /// of the "columns mode" rule: two or more columns, or one column with two or
-/// more rows. Such a lone column keeps its id and width, so a second column
-/// joining it changes neither.
+/// more rows. Such a lone column fills the screen width (1.0) and keeps its
+/// id, also when a second column joins it.
 pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnProjection {
     for column in columns.iter_mut() {
         column.normalize_rows();
@@ -74,6 +74,9 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
             root: column.root,
             zellij_auto_layout: column.zellij_auto_layout,
         };
+    }
+    if let [column] = columns.as_mut_slice() {
+        column.width = 1.0;
     }
     normalize_sticky_columns(columns);
     let Some(first) = columns.first() else { return ColumnProjection::Unchanged };
