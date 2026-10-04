@@ -118,3 +118,23 @@ async fn a_dial_crosses_two_meshes_and_reaches_the_peer_daemon_entry_stamped() {
     within(dial).await.unwrap();
     server.abort();
 }
+
+/// A paired install that rotates its key keeps its overlay `/128`; the sync
+/// removes the old key before it adds the new one, so the reload succeeds
+/// (review P2-2), and syncing the same file again changes nothing.
+#[tokio::test]
+async fn a_rotated_peer_key_syncs_cleanly() {
+    let a = node("inst_a").await;
+    let b_old = node("inst_b").await;
+    let b_new = node("inst_b").await;
+    let endpoint = b_old.socket.local_addr().unwrap();
+    let overlay_a = mesh(a);
+    let mut pairings = Pairings::default();
+    pairings.upsert(record(&b_old, endpoint)).unwrap();
+    within(overlay_a.sync_peers(&pairings)).await.unwrap();
+    within(overlay_a.sync_peers(&pairings)).await.unwrap();
+    pairings.upsert(record(&b_new, endpoint)).unwrap();
+    assert_eq!(pairings.peers.len(), 1);
+    within(overlay_a.sync_peers(&pairings)).await.expect("a rotated key must sync");
+    within(overlay_a.sync_peers(&Pairings::default())).await.unwrap();
+}
