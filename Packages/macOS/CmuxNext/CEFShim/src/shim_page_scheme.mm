@@ -18,10 +18,22 @@ namespace {
 // Immutable after construction: Create runs off the UI thread.
 class PageFactory : public CefSchemeHandlerFactory {
  public:
-  PageFactory(std::string root, std::string csp) : root_(std::move(root)), csp_(std::move(csp)) {}
+  PageFactory(std::string domain, std::string root, std::string csp)
+      : domain_(std::move(domain)), root_(std::move(root)), csp_(std::move(csp)) {}
 
-  CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame>, const CefString&,
+  CefRefPtr<CefResourceHandler> Create(CefRefPtr<CefBrowser>, CefRefPtr<CefFrame> frame, const CefString&,
                                        CefRefPtr<CefRequest> request) override {
+    const bool main_frame = request->GetResourceType() == RT_MAIN_FRAME;
+    std::string frame_url;
+    std::string parent_url;
+    if (frame) {
+      frame_url = frame->GetURL().ToString();
+      if (CefRefPtr<CefFrame> parent = frame->GetParent()) parent_url = parent->GetURL().ToString();
+    }
+    if (!PageRequestAllowed(main_frame, frame_url, parent_url, domain_)) {
+      static char kBody[] = "Forbidden";
+      return Respond(403, "Forbidden", "text/plain", Headers(), kBody, sizeof(kBody) - 1);
+    }
     if (request->GetMethod().ToString() != "GET") {
       static char kBody[] = "Method Not Allowed";
       CefResponse::HeaderMap headers = Headers();
@@ -44,8 +56,7 @@ class PageFactory : public CefSchemeHandlerFactory {
  private:
   CefResponse::HeaderMap Headers() const {
     CefResponse::HeaderMap headers;
-    headers.emplace("Content-Security-Policy", csp_);
-    headers.emplace("X-Content-Type-Options", "nosniff");
+    for (auto& [name, value] : PageResponseHeaders(csp_)) headers.emplace(name, value);
     return headers;
   }
 
@@ -55,6 +66,7 @@ class PageFactory : public CefSchemeHandlerFactory {
     return new CefStreamResourceHandler(status, text, mime, headers, CefStreamReader::CreateForData(body, size));
   }
 
+  const std::string domain_;
   const std::string root_;
   const std::string csp_;
   IMPLEMENT_REFCOUNTING(PageFactory);
@@ -101,7 +113,7 @@ int AddPage(const char* id, const char* resource_root, const char* csp, bool fir
   if (stat(root.c_str(), &info) != 0 || !S_ISDIR(info.st_mode)) return 0;
   // Pinned to its real path now (a later symlink swap of the given path
   // cannot move it); ResolvePagePath checks real paths again per request.
-  CefRefPtr<PageFactory> factory = new PageFactory(root, csp ? csp : kCmuxPageDefaultCSP);
+  CefRefPtr<PageFactory> factory = new PageFactory(domain, root, csp ? csp : kCmuxPageDefaultCSP);
   pages()[domain] = factory;
   if (g_global_ready) CefRegisterSchemeHandlerFactory(kCmuxPageScheme, domain, factory);
   ForEachRequestContext([&](CefRefPtr<CefRequestContext> context) {

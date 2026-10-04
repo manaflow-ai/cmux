@@ -42,10 +42,23 @@ enum FirstPartyPageSchemes {
         roots.filter { refusal(id: $0.key, root: $0.value, bundleResources: bundleResources) == nil }
     }
 
+    /// The first-party descriptors whose pages ship a bundled root.
+    static let descriptors: [PageDescriptor] = [.agent, .history, .cloud]
+
+    /// The accepted entries of `roots`, each with its page's own CSP.
+    static func entries(roots: [String: URL], bundleResources: URL) -> [String: CEFPageSchemes.Entry] {
+        var out: [String: CEFPageSchemes.Entry] = [:]
+        for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
+            guard let page = descriptors.first(where: { $0.id == id }) else { continue }
+            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header)
+        }
+        return out
+    }
+
     /// Hands the checked table to Chromium; call before Chromium starts.
     @MainActor static func install(bundle: Bundle = .main) {
         guard let resources = bundle.resourceURL else { return }
-        CEFPageSchemes.firstPartyRoots = accepted(roots: bundledRoots(), bundleResources: resources)
+        CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources)
     }
 
     /// Real paths, compared component by component (`Resources2` is not inside `Resources`).
