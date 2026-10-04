@@ -22,8 +22,8 @@ use serde_json::Value;
 
 use super::remote_entry::{RemoteGate, RemotePeer};
 use super::{
-    BoundedOutbound, ClientTransport, MAX_JSON_LINE_BYTES, MessageWriter, QueuedSink, RenderService,
-    SinkControl, transport,
+    BoundedOutbound, ClientTransport, MAX_JSON_LINE_BYTES, MessageWriter, QueuedSink,
+    RenderService, SinkControl, transport,
 };
 use crate::fs_ops::stream::{self, StreamRequest};
 use crate::fs_ops::{FsError, FsService, frame_command};
