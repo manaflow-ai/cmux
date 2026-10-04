@@ -85,6 +85,8 @@ extension CEFTab {
             machine.apply(.unresponsiveChanged(true))
         case .renderResponsive:
             machine.apply(.unresponsiveChanged(false))
+        case .devToolsEvent(_, let method, let params):
+            devToolsEvents.deliver(BrowserDevToolsEvent(method: method, params: params))
         default:
             break
         }

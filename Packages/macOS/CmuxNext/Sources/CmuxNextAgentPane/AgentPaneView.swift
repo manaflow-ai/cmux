@@ -84,9 +84,7 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         dictation = AgentPaneDictation { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) }
         super.init(frame: .zero)
-        configuration.userContentController.addScriptMessageHandler(
-            AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
-        )
+        installHostBridge(on: configuration)
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false

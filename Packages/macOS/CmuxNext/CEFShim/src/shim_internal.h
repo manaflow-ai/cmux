@@ -104,6 +104,10 @@ void Emit(int kind,
 std::map<int, CefRefPtr<CefBrowser>>& browsers();
 CefRefPtr<CefBrowser> BrowserById(int browser_id);
 
+// Browsers whose DevTools protocol events go to the host
+// (cmux_shim_devtools_watch_events; UI thread only).
+std::set<int>& devtools_event_browsers();
+
 // Browsers the host asked to close (so DoClose can tell window.close apart).
 void MarkHostClose(int browser_id);
 bool TakeHostClose(int browser_id);

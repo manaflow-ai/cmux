@@ -99,6 +99,11 @@ typedef enum {
   // Focus left the page (CefFocusHandler::OnTakeFocus): Tab past the last
   // element (a = 1) or Shift-Tab past the first (a = 0).
   CMUX_SHIM_TAKE_FOCUS = 31,
+  // A DevTools protocol event (CefDevToolsMessageObserver::OnDevToolsEvent)
+  // of a browser the host watches (cmux_shim_devtools_watch_events), for
+  // example Runtime.bindingCalled. s1 = method, s2 = params JSON ("{}" when
+  // the event has none).
+  CMUX_SHIM_DEVTOOLS_EVENT = 32,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -261,6 +266,11 @@ CMUX_SHIM_EXPORT void cmux_shim_close(int browser_id);
 // Runs a DevTools method in process; DEVTOOLS_RESULT carries the returned id.
 // Returns 0 when the browser is gone or params_json is not a JSON object.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json);
+// enabled != 0: DevTools protocol events of browser_id go to the host as
+// CMUX_SHIM_DEVTOOLS_EVENT; 0 stops them. Events flow only for domains or
+// bindings the host turned on with cmux_shim_devtools_call. Closing the
+// browser stops them.
+CMUX_SHIM_EXPORT void cmux_shim_devtools_watch_events(int browser_id, int enabled);
 
 // DevTools. DevTools browsers are never tabs: they have their own
 // client and report only CMUX_SHIM_DEVTOOLS_* events.

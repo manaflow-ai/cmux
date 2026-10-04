@@ -60,6 +60,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
     let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// `cmux_shim_devtools_watch_events(browser, enabled)`.
+    let devToolsWatchEvents: @convention(c) (Int32, Int32) -> Void
 
     /// `cmux_shim_devtools_command_t`.
     enum DevToolsCommand {
@@ -214,6 +216,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")
         devToolsCall = try r("cmux_shim_devtools_call")
+        devToolsWatchEvents = try r("cmux_shim_devtools_watch_events")
         devToolsSetKeyHandler = try r("cmux_shim_devtools_set_key_handler")
         devToolsSetPlacement = try r("cmux_shim_devtools_set_placement")
         devToolsCommand = try r("cmux_shim_devtools_command")

@@ -55,6 +55,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case omniboxSuggestions(requestID: Int32, extensionID: String, json: String)
     /// Focus left the page past its last (`forward`) or first element.
     case takeFocus(browser: Int32, forward: Bool)
+    /// A DevTools protocol event of a watched browser
+    /// (`cmux_shim_devtools_watch_events`): `params` is its JSON object.
+    case devToolsEvent(browser: Int32, method: String, params: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -98,6 +101,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 29: self = .installPrompt(browser: browser, promptID: request, json: s1)
         case 30: self = .omniboxSuggestions(requestID: request, extensionID: s1, json: s2)
         case 31: self = .takeFocus(browser: browser, forward: a != 0)
+        case 32: self = .devToolsEvent(browser: browser, method: s1, params: s2)
         default: self = .unknown(kind: kind)
         }
     }

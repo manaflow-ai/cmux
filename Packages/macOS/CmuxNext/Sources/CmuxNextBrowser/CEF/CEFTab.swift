@@ -46,6 +46,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A toolbar click that came before the browser existed.
     @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
+    /// Subscribers of this page's DevTools protocol events
+    /// (``devToolsEventStream()``); the shim forwards events only while
+    /// there is one.
+    @ObservationIgnored let devToolsEvents = CEFDevToolsEventFanout()
 
     var machine = BrowserTabStateMachine()
     @ObservationIgnored var isCreationPending = false
@@ -157,6 +161,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
         if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
+        // A subscriber that came before the browser existed.
+        if devToolsEvents.hasSubscribers { runtime.shim?.devToolsWatchEvents(browser, 1) }
         refreshExtensionActions()
     }
 
@@ -198,6 +204,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        devToolsEvents.finishAll()
         findContinuation?.resume(returning: .none)
         findContinuation = nil
         host.removed(self)

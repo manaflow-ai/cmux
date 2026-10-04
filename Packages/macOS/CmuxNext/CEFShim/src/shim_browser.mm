@@ -173,6 +173,14 @@ int cmux_shim_devtools_call(int browser_id, const char* method, const char* para
   return host->ExecuteDevToolsMethod(0, method, params);
 }
 
+void cmux_shim_devtools_watch_events(int browser_id, int enabled) {
+  if (enabled && BrowserById(browser_id)) {
+    devtools_event_browsers().insert(browser_id);
+  } else {
+    devtools_event_browsers().erase(browser_id);
+  }
+}
+
 char* cmux_shim_ext_actions(int browser_id, int icon_px) {
   return fork_api().ext_actions ? fork_api().ext_actions(browser_id, icon_px) : nullptr;
 }

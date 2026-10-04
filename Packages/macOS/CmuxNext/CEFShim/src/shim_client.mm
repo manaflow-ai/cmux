@@ -300,6 +300,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     ForgetNavigationGuard(id);
     registrations_.erase(id);
+    devtools_event_browsers().erase(id);
     browsers().erase(id);
     ForgetOwnBackground(id);
     ForgetDevTools(id);
@@ -408,6 +409,16 @@ class Client : public CefClient,
                               size_t result_size) override {
     std::string json(static_cast<const char*>(result), result_size);
     Emit(CMUX_SHIM_DEVTOOLS_RESULT, browser->GetIdentifier(), message_id, success ? 1 : 0, 0, json);
+  }
+
+  // Only watched browsers: an unwatched page's events (console messages of
+  // a domain some other caller enabled) never cross into Swift.
+  void OnDevToolsEvent(CefRefPtr<CefBrowser> browser, const CefString& method, const void* params,
+                       size_t params_size) override {
+    int id = browser->GetIdentifier();
+    if (!devtools_event_browsers().count(id)) return;
+    std::string json = params && params_size ? std::string(static_cast<const char*>(params), params_size) : "{}";
+    Emit(CMUX_SHIM_DEVTOOLS_EVENT, id, 0, 0, 0, method.ToString(), json);
   }
 
  private:

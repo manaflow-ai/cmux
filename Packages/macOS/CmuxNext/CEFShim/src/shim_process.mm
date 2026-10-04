@@ -45,6 +45,11 @@ CefRefPtr<CefBrowser> BrowserById(int browser_id) {
   return it == map.end() ? nullptr : it->second;
 }
 
+std::set<int>& devtools_event_browsers() {
+  static std::set<int> set;
+  return set;
+}
+
 static std::set<int>& host_closes() {
   static std::set<int> set;
   return set;
