@@ -28,7 +28,8 @@ extension HomeNativeTranscriptView {
         attach(urls.map { .file($0) })
     }
 
-    func pickFiles() {
+    /// Opens the file picker as a sheet (the attach button, `home.attachFiles`).
+    public func pickFiles() {
         guard let window, attachmentPreparer != nil else { return }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true

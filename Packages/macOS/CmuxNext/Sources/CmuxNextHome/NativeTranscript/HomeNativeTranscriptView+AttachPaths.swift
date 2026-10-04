@@ -20,6 +20,9 @@ public enum HomeAttachResult: String, Sendable {
 /// the very path a drop, a paste or the file picker takes, so a preflight
 /// proves the user's path.
 extension HomeNativeTranscriptView {
+    /// The composer has a data side and takes attachments.
+    public var canAttach: Bool { attachmentPreparer != nil }
+
     public func attachFiles(paths: [String], via: HomeAttachVia) -> HomeAttachResult {
         guard attachmentPreparer != nil else { return .notConnected }
         let urls = paths.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }

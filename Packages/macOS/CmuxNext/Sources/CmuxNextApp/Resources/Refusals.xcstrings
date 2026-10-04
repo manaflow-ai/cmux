@@ -19650,6 +19650,270 @@
           }
         }
       }
+    },
+    "handlers.refusal.homeAttachNoHome": {
+      "comment": "Refusal: home.attachFiles ran while no Home conversation is shown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a Home conversation to attach files."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتح محادثة في الرئيسية لإرفاق ملفات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvorite razgovor u Početnoj da priložite datoteke."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn en samtale i Hjem for at vedhæfte filer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffne eine Unterhaltung in „Home“, um Dateien anzuhängen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre una conversación de Inicio para adjuntar archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrez une conversation de l’Accueil pour joindre des fichiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri una conversazione di Home per allegare file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ファイルを添付するには、ホームの会話を開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកការសន្ទនាក្នុងទំព័រដើម ដើម្បីភ្ជាប់ឯកសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일을 첨부하려면 홈 대화를 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne en samtale i Hjem for å legge ved filer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz rozmowę w Home, aby załączyć pliki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abra uma conversa do Início para anexar arquivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Откройте разговор на главной, чтобы прикрепить файлы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดการสนทนาในหน้าหลักเพื่อแนบไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosya eklemek için Ana Sayfa’da bir sohbet açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрийте розмову на головній, щоб прикріпити файли."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở một cuộc trò chuyện trong Trang chủ để đính kèm tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开主页中的对话以附加文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開主頁中的對話以附加檔案。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.homeAttachNoFile": {
+      "comment": "Refusal: home.attachFiles was given a path with no file; %@ is the path.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No file at “%@”."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد ملف في ”%@“."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema datoteke na „%@“."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der er ingen fil på “%@”."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unter „%@“ gibt es keine Datei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ningún archivo en “%@”."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun fichier à « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun file in “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」にファイルがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានឯកសារនៅ “%@” ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”에 파일이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen fil på «%@»."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak pliku w „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum arquivo em “%@”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет файла по пути «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีไฟล์ที่ “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” konumunda dosya yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає файлу за шляхом «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có tệp tại “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”处没有文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」沒有檔案。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

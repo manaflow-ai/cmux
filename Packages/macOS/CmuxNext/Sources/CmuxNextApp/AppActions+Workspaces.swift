@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextLayout
 import CmuxNextSidebar
 
@@ -48,6 +49,22 @@ extension AppActions {
                 services.windows.reveal(workspaceID: home.id)
             }
         }
+        // The composer's attach button as an action (home.attachFiles): a path
+        // goes to the shown Home composer through its own intake (as a drop);
+        // without one the shown composer opens its file picker.
+        registry.bind("home.attachFiles", invoke: { invocation in
+            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.canAttach else {
+                services.registry.refuse(RefusalStrings.homeAttachNoHome)
+                return
+            }
+            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+                view.pickFiles()
+                return
+            }
+            if view.attachFiles(paths: [path], via: .drop) == .missingFile {
+                services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
+            }
+        })
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
