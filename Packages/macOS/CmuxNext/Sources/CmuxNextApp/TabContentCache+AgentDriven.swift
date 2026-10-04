@@ -43,3 +43,9 @@ extension TabContentCache {
         agentDrivenTabs.insert(key)
     }
 }
+
+extension TabContentCache {
+    /// Stub (plans/cmux-next/passwords.md, section 3.4).
+    func allowAgentWithExtensions(_ key: String) {}
+    func agentMayUseExtensionTab(_ key: String) -> Bool { false }
+}
