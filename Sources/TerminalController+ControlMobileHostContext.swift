@@ -30,7 +30,27 @@ extension TerminalController: ControlMobileHostContext {
     }
 
     func controlMobileWorkspaceList(params: [String: JSONValue]) -> ControlCallResult {
-        bridgeMobileResult(v2MobileWorkspaceList(params: foundationParams(params)))
+        let workspaceResult = bridgeMobileResult(
+            v2MobileWorkspaceList(params: foundationParams(params))
+        )
+        guard case let .ok(.object(workspacePayload)) = workspaceResult else {
+            return workspaceResult
+        }
+        // The v2 method carries the host identity and capabilities alongside
+        // the workspace snapshot, removing one relay round trip for startup.
+        // Read the published v2 cache directly. `v2MobileHostStatus` has a
+        // legacy physical-device fallback for its standalone response, which
+        // must never be embedded in a v2 workspace snapshot.
+        guard case let .ok(hostStatusPayload) = MobileHostPublicStatusCache.result(
+            includeIdentity: true
+        ),
+        let hostStatusValue = JSONValue(foundationObject: hostStatusPayload),
+        case let .object(hostStatusObject) = hostStatusValue else {
+            return workspaceResult
+        }
+        var combined = workspacePayload
+        combined["host_status"] = .object(hostStatusObject)
+        return .ok(.object(combined))
     }
 
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult {

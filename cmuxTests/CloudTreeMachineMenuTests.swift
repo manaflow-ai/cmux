@@ -101,6 +101,7 @@ struct CloudTreeMachineMenuTests {
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
             Self.title("cloud.operation.kind.resize", "Resize machine"),
+            Self.title("machines.menu.network", "Network\u{2026}"),
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
@@ -147,6 +148,8 @@ struct CloudTreeMachineMenuTests {
         let memoryResize = try #require(recorder.memoryResizes.first)
         #expect(memoryResize.0 == Self.machineID)
         #expect(memoryResize.1 == 16)
+        try Self.choose(Self.title("machines.menu.network", "Network\u{2026}"), in: menu)
+        #expect(recorder.networkEdits.map { $0.0 } == [Self.machineID])
         try Self.choose(Self.title("machines.menu.checkpoint", "Checkpoint"), in: menu)
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
@@ -703,13 +706,13 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.pinChanges.first?.1 == true)
     }
 
-    /// The machine row's hover trash is SwiftUI inside an NSTableView row.
+    /// The machine row's + and ⋯ are SwiftUI inside an NSTableView row.
     /// NSTableView forwards a click only to subviews it validates, so a click
-    /// on the trash used to run the row's click action (toggle) and never
-    /// reached `confirmDelete`. Synthetic events do not drive SwiftUI buttons
-    /// in an offscreen test window, so this checks AppKit's routing decision.
-    @Test("The outline hands a click on the machine row's hover trash to the button")
-    func hoverTrashClickRoutesToButton() throws {
+    /// on a row button used to run the row's click action (toggle) and never
+    /// reached the button. Synthetic events do not drive SwiftUI buttons in an
+    /// offscreen test window, so this checks AppKit's routing decision.
+    @Test("The outline hands a click on the machine row's buttons to the button")
+    func machineRowButtonClickRoutesToButton() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions(recording: recorder),
@@ -741,7 +744,24 @@ struct CloudTreeMachineMenuTests {
         #expect(outline.validateProposedFirstResponder(hit, for: nil))
     }
 
-    @Test("Idle machine hover controls do not steal the row click target")
+    @Test("Machine rows keep New Workspace and More Actions visible without hover")
+    func machineRowButtonsShowAtRest() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 360, height: 32))
+        cell.configure(node: Self.machineNode(), machineActions: Self.machineActions(recording: recorder), nodeActions: Self.nodeActions(recording: recorder))
+        cell.setHovered(false)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        #expect(!buttons.isHidden)
+        #expect(buttons.alphaValue == CloudTreeCellView.restingButtonsAlpha, "Dimmed at rest, full on row hover")
+        cell.setHovered(true)
+        #expect(buttons.alphaValue == 1)
+        #expect(CloudTreeRowHoverButtons.showsAtRest(for: Self.machineNode().kind))
+    }
+
+    @Test("Idle hover-only controls do not steal the row click target")
     func idleHoverControlsDoNotStealRowClick() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
@@ -756,7 +776,7 @@ struct CloudTreeMachineMenuTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = container
         defer { window.contentView = nil; withExtendedLifetime(window) {} }
-        coordinator.apply(nodes: [Self.machineNode()])
+        coordinator.apply(nodes: [CloudTreeNode(id: "terminals", kind: .terminalsPool(machine: .cloud(Self.machineID), count: 0))])
         container.layoutSubtreeIfNeeded()
 
         let outline = try #require(coordinator.outlineView)
@@ -798,7 +818,41 @@ struct CloudTreeMachineMenuTests {
         #expect(buttons.isHidden)
     }
 
-    private static func machineNode(expired: Bool = false) -> CloudTreeNode {
+    @Test("Keep Agents Up to Date shows the machine's setting and flips it")
+    func keepAgentsUpdatedIsCheckableAndWired() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-agent-updates-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        let title = Self.title("machines.menu.keepAgentsUpdated", "Keep Agents Up to Date")
+
+        // A server that predates the setting reports none: no item to offer.
+        coordinator.apply(nodes: [Self.machineNode()])
+        #expect(try #require(coordinator.contextMenu(forRow: 0)).items.allSatisfy { $0.title != title })
+
+        for (setting, next) in [(CloudAgentUpdates.image, true), (.latest, false)] {
+            coordinator.apply(nodes: [Self.machineNode(agentUpdates: setting)])
+            let menu = try #require(coordinator.contextMenu(forRow: 0))
+            let titles = menu.items.map(\.title)
+            let item = try #require(menu.items.first { $0.title == title })
+            #expect(item.state == (setting == .latest ? .on : .off))
+            #expect(titles.firstIndex(of: title) == titles.firstIndex(of: Self.title("machines.menu.network", "Network\u{2026}")).map { $0 + 1 })
+            try Self.choose(title, in: menu)
+            #expect(recorder.agentUpdateChanges.last?.0 == Self.machineID)
+            #expect(recorder.agentUpdateChanges.last?.1 == next)
+        }
+    }
+
+    private static func machineNode(expired: Bool = false, agentUpdates: CloudAgentUpdates? = nil) -> CloudTreeNode {
         var machine = MachineSnapshot(
             id: machineID,
             provider: "freestyle",
@@ -809,6 +863,7 @@ struct CloudTreeMachineMenuTests {
             label: "Big Machine"
         )
         if expired { machine.freeAccess = .expired }
+        machine.agentUpdates = agentUpdates
         machine.privateAddress = "10.99.0.7"
         machine.stats = VMStats(
             state: .awake,
@@ -835,6 +890,8 @@ struct CloudTreeMachineMenuTests {
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
             promptUpgrade: {},
+            editNetwork: { id, label in recorder.networkEdits.append((id, label)) },
+            setAgentUpdates: { id, keepUpdated in recorder.agentUpdateChanges.append((id, keepUpdated)) },
             setPinned: { id, pinned in recorder.pinChanges.append((id, pinned)); return nil }
         )
     }
@@ -889,5 +946,7 @@ private final class CloudTreeMenuVerbRecorder {
     var pinChanges: [(String, Bool)] = []
     var renamedMachines: [(String, String)] = []
     var renamedWorkspaces: [(SurfaceMachineID, (String, String))] = []
+    var networkEdits: [(String, String?)] = []
+    var agentUpdateChanges: [(String, Bool)] = []
     var renamedRemoteViews: [(SurfaceResourceID, String)] = []
 }

@@ -87,6 +87,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
+    private var scheduledRefreshForce = false
     private var portsCache: (ports: [Int], at: Date)?
     var portDiscovery = CloudPortDiscovery()
     private(set) var summaryGeneration: UInt64 = 0
@@ -96,14 +97,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.portDiscoveryState = portDiscovery.state
         catalog.updateMachine(info, from: self)
     }
-
     @discardableResult
     func requestPortDiscovery() -> UInt64 {
         let request = portDiscovery.request()
         publishPortDiscovery()
         return request
     }
-
     func abandonPortDiscoveryRequest(_ request: UInt64) {
         let previousState = portDiscovery.state
         portDiscovery.abandonRequest(request)
@@ -206,7 +205,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             installNotificationSync()
         }
     }
-
     /// Stops machine-bound activity while retaining this provider and its graph.
     /// The control plane may report the machine running again later.
     func stopTransportResources() {
@@ -214,7 +212,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         displayCoordinator.stop()
         portDiscovery.invalidate()
     }
-
     private func stopSharedTransportResources() {
         lifecycleGeneration &+= 1
         guestURLService?.stop()
@@ -233,13 +230,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcherID = nil
         scheduledRefresh?.cancel()
         scheduledRefresh = nil
+        scheduledRefreshForce = false
         stateRecoveryRefreshTask?.cancel()
         stateRecoveryRefreshTask = nil
         stateRecoveryRefreshQueued = false
         for task in remoteTerminalProjectionTasks.values { task.cancel() }
         remoteTerminalProjectionTasks.removeAll()
     }
-
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false
@@ -288,7 +285,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let inactive = current.withStatus(status)
         update(summary: inactive)
     }
-
     /// Retires every attachment and transport task this provider owns.
     ///
     /// - Parameter stopReason: What open panes present afterwards. Panes stay
@@ -339,7 +335,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info.linkError = detail
         catalog.updateMachine(info, from: self)
     }
-
     /// One refresh pass. Sleeping machines retain their graph without being woken.
     func performRefresh(force: Bool) async -> Bool {
         guard !hasLostAccess else { return false }
@@ -916,15 +911,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the machine is unreachable, not that the terminal ended.
     private func closePanesForVanishedRemoteTerminals(observation: CloudVMStateObservation) {
         guard !manualMirrorSessions.isEmpty else { return }
-        let live = Set(
-            catalog.authoritativeSnapshot.resources(on: machine)
-                .filter { $0.id.kind == .terminal }
-                .map(\.id.key)
-        )
+        let resources = catalog.authoritativeSnapshot.resources(on: machine)
+        let live = Set(resources.filter { $0.kind == .terminal }.map(\.id.key))
+        let boundTerminalIDs = Set(manualMirrorSessions.values.map(\.terminalID))
+        let hasMissingTerminalCandidate = !boundTerminalIDs.isSubset(of: live)
+        // A complete-graph scan is only needed when cleanup has a terminal it
+        // might close. Row-local publications can retire pending overlays, so a
+        // cached completeness result would be stale precisely in this case.
+        let graphComplete = !hasMissingTerminalCandidate || cloudState.map {
+            CloudVMGraphCompleteness(state: $0, resources: resources).isComplete()
+        } ?? false
         let closing = CloudTerminalPaneClosure.panelsToClose(
             boundTerminals: manualMirrorSessions.mapValues(\.terminalID),
             liveTerminalKeys: live,
-            freshness: observation.freshness
+            freshness: observation.freshness,
+            graphComplete: graphComplete
         )
         for panelID in closing {
             guard let terminalID = manualMirrorSessions[panelID]?.terminalID else { continue }
@@ -1615,7 +1616,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // to publish its listener. Always refresh on the successful
             // connection edge so stale hub/link errors disappear from the
             // machine, ports, and display rows immediately.
-            scheduleRefresh()
+            scheduleRefresh(force: true)
             notificationSync?.linkDidConnect()
         case .snapshot(let cursor, _, let payload):
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
@@ -1765,24 +1766,36 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Mutations also request a snapshot as a safety check. One main-actor yield
     /// coalesces calls made in the same transaction without adding a time guess.
     func reconcileRemovedRemoteWorkspace(_ id: String) { info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }; catalog.updateMachine(info, from: self) }
-    func scheduleRefresh() {
+    func scheduleRefresh(force: Bool = false) {
         let lifecycle = lifecycleGeneration
+        scheduledRefreshForce = scheduledRefreshForce || force
         guard scheduledRefresh == nil else { return }
         scheduledRefresh = Task { [weak self] in
             await Task.yield()
             guard !Task.isCancelled, let self else { return }
             self.scheduledRefresh = nil
+            let requestedForce = self.scheduledRefreshForce
+            self.scheduledRefreshForce = false
             guard self.lifecycleGeneration == lifecycle, self.isRegisteredInCatalog() else { return }
-            await self.refreshCurrentGraph(force: false)
+            if requestedForce { await self.refreshDisplays() }
+            await self.refreshCurrentGraph(force: requestedForce)
         }
     }
     func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }
-    private func reprojectRestoredPanes(generation: UInt64) {
+    /// Rebinds only the resource projections resolved by the latest catalog publication.
+    func projectionsRestored(resources: Set<SurfaceResourceID>) {
+        reprojectRestoredPanes(generation: lifecycleGeneration, resourceIDs: resources)
+    }
+    /// Reprojects restored panes while preserving lifecycle and ownership guards.
+    private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
-        reprojectRestoredBrowserPanes(generation: generation)
-        let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter { $0.kind == .terminal }
+        reprojectRestoredBrowserPanes(generation: generation, resourceIDs: resourceIDs)
+        let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
+        let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter {
+            $0.kind == .terminal && (resourceIDs == nil || resourceIDs!.contains($0.id))
+        }
         for terminal in terminals {
-            for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
+            for projection in (resourceIDs == nil ? catalog.projections(of: terminal.id) : projectionsByResource?[terminal.id] ?? []) where !materializedPanels.contains(projection.panelID) {
                 guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0, catalog: catalog) }) != false,
                       let workspace = AppDelegate.shared?.workspace(containingSurfaceID: projection.panelID),
                       let paneID = SurfacePaneFactory.paneID(ofPanel: projection.panelID, in: projection.workspaceID) else {
@@ -1817,14 +1830,21 @@ extension SurfaceMachineInfo {
     /// diagnostics because a missing graph is not necessarily a network failure. Internal
     /// snake-case reason codes stay out of user-facing errors.
     var linkFailureMessage: String {
+        let machineUnavailableMessage = String(
+            localized: "cloud.operation.failure.machineUnavailable",
+            defaultValue: "cmux cannot reach the Cloud service for this machine right now."
+        )
         switch linkState {
         case .asleep:
             return String(localized: "cloud.operation.failure.machineAsleep", defaultValue: "This machine is asleep. Wake it to connect.")
         case .unavailable:
-            return String(localized: "cloud.operation.failure.machineUnavailable", defaultValue: "cmux cannot reach the Cloud service for this machine right now.")
+            return machineUnavailableMessage
         default:
             guard let linkError else { return CloudDiagnosticFailure.network.label }
             let message = linkError.trimmingCharacters(in: .whitespacesAndNewlines)
+            if message == "cloud_api_unavailable" {
+                return machineUnavailableMessage
+            }
             guard !message.isEmpty,
                   message.range(of: #"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$"#, options: .regularExpression) == nil else {
                 return CloudDiagnosticFailure.network.label

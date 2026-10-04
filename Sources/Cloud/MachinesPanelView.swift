@@ -17,13 +17,12 @@ struct MachinesPanelView: View {
     @State private var devicesModel: DevicesPanelViewModel
     @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
     @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
-    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-    private var cloudBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
+    @State var billingPlanLoaded = false
     @State private var bannerDismissals: CloudBannerDismissalStore
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -31,22 +30,26 @@ struct MachinesPanelView: View {
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
     let teamPickerPresentation: CloudTeamPickerPresentation?
+    let activationCoordinator: CloudActivationCoordinator
 
     init(
         chromeBackgroundColor: NSColor,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
         tabManager: TabManager? = nil,
-        teamPickerPresentation: CloudTeamPickerPresentation? = nil
+        teamPickerPresentation: CloudTeamPickerPresentation? = nil,
+        activationCoordinator: CloudActivationCoordinator,
+        viewModel: MachinesPanelViewModel? = nil
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         self.teamPickerPresentation = teamPickerPresentation
+        self.activationCoordinator = activationCoordinator
         _bannerDismissals = State(
             initialValue: AppDelegate.shared?.cloudBannerDismissalStore
                 ?? CloudBannerDismissalStore(defaults: .standard)
         )
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
+        _viewModel = StateObject(wrappedValue: viewModel ?? MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
                 guard let tabManager else { return [] }
@@ -58,11 +61,11 @@ struct MachinesPanelView: View {
         _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
-    private var accountFlow: HostAccountFlow? {
+    var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
     }
 
-    private var authState: CloudVMPanelAuthState {
+    var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             // Keep the embedded sign-in screen mounted while the browser is
@@ -77,24 +80,7 @@ struct MachinesPanelView: View {
     }
 
     private var includesCloud: Bool {
-        _ = cloudBetaEnabled
         return CloudMachinesFeature.isEnabled
-    }
-
-    /// The panel replaces its cached tree as soon as a team mutation starts;
-    /// waiting for the scope observer would leave the previous team's rows
-    /// visible while the create or switch is still in flight.
-    private var isTeamChangePending: Bool {
-        accountFlow?.isSelectingTeam == true
-            || accountFlow?.isCreatingTeam == true
-            || viewModel.awaitingCatalogScope
-    }
-
-    private var teamScopeLoadingLabel: String {
-        if accountFlow?.isCreatingTeam == true {
-            return String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…")
-        }
-        return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
     }
 
     private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
@@ -113,19 +99,14 @@ struct MachinesPanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            switch authState {
-            case .checking:
-                authCheckingState
-            case .signedOut:
-                authGate
-            case .signedIn:
-                authenticatedContent
-            }
+        activationContent
+        .onAppear {
+            activationCoordinator.reconcile()
+            syncPolling(for: authState)
         }
-        .onAppear { syncPolling(for: authState) }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
-        .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
+        .onChange(of: activationCoordinator.state) { _, _ in syncPolling(for: authState) }
+        .onChange(of: activationCoordinator.isPreparing) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
             devicesModel.consumePendingReveal()
         }
@@ -143,6 +124,7 @@ struct MachinesPanelView: View {
         }
         .onDisappear {
             viewModel.stopPolling()
+            viewModel.cancelCloudAgentTask()
         }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
@@ -154,17 +136,37 @@ struct MachinesPanelView: View {
         .task {
             await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
         }
+        .task(id: accountFlow?.currentIdentity?.id) {
+            guard let accountFlow, accountFlow.isAuthenticated,
+                  let requestedIdentityID = accountFlow.currentIdentity?.id else {
+                billingPlanLoaded = false
+                return
+            }
+            billingPlanLoaded = false
+            await accountFlow.refreshBillingPlan()
+            guard !Task.isCancelled,
+                  accountFlow.isAuthenticated,
+                  accountFlow.currentIdentity?.id == requestedIdentityID else { return }
+            billingPlanLoaded = true
+        }
         .task(id: devBackend.attempt) {
             await devBackend.observe()
-            if devBackend.status?.isReady == true { viewModel.refresh() }
+            if devBackend.status?.isReady == true, !activationCoordinator.isPreparing { viewModel.refresh() }
         }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
     @ViewBuilder
-    private var authenticatedContent: some View {
+    var authenticatedContent: some View {
         if includesCloud {
             controlBar
+            CloudNewMachineButton {
+                _ = AppDelegate.shared?.performNewCloudMachineAction(
+                    tabManager: tabManager,
+                    preferredWindow: tabManager?.window,
+                    debugSource: "cloudTree.newMachineButton"
+                )
+            }
         }
         if includesCloud {
             MachinesPanelBanners(
@@ -197,21 +199,10 @@ struct MachinesPanelView: View {
         }
     }
 
-    private var teamScopeLoading: some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text(teamScopeLoadingLabel)
-                .cmuxFont(size: 12)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("CloudMachinesTeamLoading")
-    }
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
-            if includesCloud {
+            if includesCloud && !activationCoordinator.isPreparing {
                 viewModel.startPolling()
             } else {
                 viewModel.stopPolling()
@@ -227,10 +218,10 @@ struct MachinesPanelView: View {
 
     private var cloudStatus: some View {
         MachinesCloudStatus(
-            activeOperation: viewModel.activeOperation,
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
+            treeHint: viewModel.treeHint,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
             onDismissTreeError: { error in
                 bannerDismissals.dismiss(id: "machines.tree-error", signature: error)
@@ -256,13 +247,18 @@ struct MachinesPanelView: View {
         return status
     }
 
-    private var controlBar: some View {
+    /// Renders the Cloud team header with its team scope and Invite action.
+    var controlBar: some View {
         CloudTeamPickerHeader(
             accountFlow: accountFlow,
             presentation: teamPickerPresentation,
             chromeBackgroundColor: chromeBackgroundColor,
+            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+            onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
             status: { cloudStatus }
         )
+        .disabled(activationCoordinator.isPreparing)
     }
 
     @ViewBuilder
@@ -290,7 +286,7 @@ struct MachinesPanelView: View {
         }
     }
 
-    private var authCheckingState: some View {
+    var authCheckingState: some View {
         VStack(spacing: 10) {
             Spacer()
             ProgressView()
@@ -308,7 +304,7 @@ struct MachinesPanelView: View {
     }
 
     @ViewBuilder
-    private var authGate: some View {
+    var authGate: some View {
         if let accountFlow {
             CloudMachinesSignInView(accountFlow: accountFlow)
         } else {
@@ -370,9 +366,6 @@ struct MachinesPanelView: View {
         }
     }
 
-    /// Cloud-agent launcher: each agent entry opens a local terminal running
-    /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
-    /// the same kickoff prompt on the clipboard for any other terminal.
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -387,7 +380,6 @@ struct MachinesPanelView: View {
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
@@ -398,7 +390,8 @@ struct MachinesPanelView: View {
         // Max-only size and wait for a server rejection.
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
+        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
+        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         var nodeActions = CloudTreeNodeActions.bound(
@@ -408,9 +401,9 @@ struct MachinesPanelView: View {
             selectLocalWorkspace: { workspaceID in
                 tabManager?.selectedTabId = workspaceID
             },
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
+            onHint: { [weak viewModel] hint in viewModel?.noteTreeHint(hint) },
             refresh: { refreshMachines() },
             refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
             workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
@@ -487,19 +480,8 @@ struct MachinesPanelView: View {
                 // Say the true thing instead of pretending the fleet is empty:
                 // offline, reconnecting, or the failure with its real fix.
                 MachinesListStatusEmptyState(status: status, perform: performListStatusAction)
-            } else if viewModel.awaitingCatalogScope {
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(
-                        localized: "cloud.teamPicker.switching",
-                        defaultValue: "Switching teams…"
-                    ))
-                    .cmuxFont(size: 12)
-                    .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("CloudMachinesTeamLoading")
+            } else if isTeamChangePending {
+                teamScopeLoading
             } else if viewModel.hasLoadedOnce {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))
@@ -549,7 +531,7 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
-        .cloudErrorCopyMenu(viewModel.lastErrorDescription)
+        .cloudErrorCopyMenu(String(localized: "cloud.operation.failedAction", defaultValue: "This operation did not complete. Check the machine state before you try it again."))
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
@@ -575,7 +557,7 @@ struct MachinesPanelView: View {
         )
     }
 
-    /// Paid plans: "Your plan includes 50 machines" under the create button,
+    /// Paid plans: "Your plan includes 5 machines" under the create button,
     /// so the empty state answers "what do I get" before the Cloud Machines
     /// header shows a count. The uncapped wording only appears when an
     /// operator lifted the cap.

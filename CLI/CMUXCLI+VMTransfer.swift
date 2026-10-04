@@ -595,6 +595,7 @@ extension CMUXCLI {
             cliWriteStderr("watching \(localPath) (\(last.count) files) — every change is pushed to \(vmID):\(remotePath); Ctrl-C stops\n")
         }
         var syncs = 0
+        var retryDelaySeconds = 1.0
         let clock = DateFormatter()
         clock.dateFormat = "HH:mm:ss"
         while true {
@@ -611,17 +612,42 @@ extension CMUXCLI {
             }
             // A transient edit may disappear while settling.
             guard current != last else { continue }
-            let outcome = try performVMPush(
-                vmID: vmID,
-                localURL: localURL,
-                localPath: localPath,
-                isDirectory: isDirectory,
-                remotePath: remotePath,
-                excludes: excludes,
-                client: client
-            )
+            let outcome: VMPushOutcome
+            do {
+                outcome = try performVMPush(
+                    vmID: vmID,
+                    localURL: localURL,
+                    localPath: localPath,
+                    isDirectory: isDirectory,
+                    remotePath: remotePath,
+                    excludes: excludes,
+                    client: client
+                )
+            } catch let error as VMSCPGrantTransportFailure {
+                // A dropped grant request is recoverable while watching: keep
+                // the settled local snapshot pending and retry without making
+                // the user edit the file again. Other failures remain fatal so
+                // host-key, policy, and malformed-response errors stay visible.
+                let delay = retryDelaySeconds
+                let errorDescription = String(describing: error)
+                if jsonOutput {
+                    print(jsonString([
+                        "event": "retrying",
+                        "error": errorDescription,
+                        "files": current.count,
+                        "delay_seconds": delay,
+                    ], prettyPrinted: false))
+                    fflush(stdout)
+                } else {
+                    cliWriteStderr("Cloud transfer failed (\(errorDescription)); retrying in \(String(format: "%.1f", delay))s.\n")
+                }
+                Thread.sleep(forTimeInterval: delay)
+                retryDelaySeconds = min(delay * 2, 10.0)
+                continue
+            }
             last = current
             syncs += 1
+            retryDelaySeconds = 1.0
             if jsonOutput {
                 var payload = outcome.jsonPayload
                 payload["event"] = "synced"
@@ -840,19 +866,11 @@ extension CMUXCLI {
         }
     }
 
-    /// Seconds between `vm.status` polls. `CMUX_VM_WAIT_POLL_SECONDS` overrides the
-    /// default so tests against a mock socket do not wait out the real cadence.
+    /// Seconds between `vm.status` polls; see ``VMReadyPollInterval``.
     static func vmReadyPollInterval(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> TimeInterval {
-        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"],
-              let parsed = TimeInterval(raw),
-              parsed.isFinite,
-              parsed >= 0.01,
-              parsed <= 3 else {
-            return 3
-        }
-        return parsed
+        VMReadyPollInterval.resolve(environment: environment)
     }
 
     // MARK: - transfer plumbing
@@ -993,7 +1011,7 @@ extension CMUXCLI {
           --machine <id>        Skip routing and use this machine.
           --new                 Force a fresh pool machine.
           --size <s>            Memory preset for a machine this run creates
-                                (4g to 24g on Pro; 32g and 64g need cmux Max).
+                                (4g to 32g on Pro; 64g needs cmux Max).
           --timeout <seconds>   Command timeout (default \(vmRunDefaultTimeoutSeconds)s, max 15 minutes).
           --wait, --output      Accepted for symmetry with `vm agent`; `vm run` always
                                 blocks on the command and prints its output.
@@ -1064,7 +1082,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g on Pro (32g and 64g need cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm run: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g on Pro (64g needs cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }
@@ -1406,6 +1424,7 @@ extension CMUXCLI {
 
     private static let vmRunCreateIdempotencyTTLSeconds: TimeInterval = 30 * 60
 
+    /// Provisions a pool VM and retains its idempotency key across ambiguous replies.
     private func createPoolVM(memoryMb: Int?, client: SocketClient) throws -> String {
         let idempotency = try activeVMRunCreateIdempotency(memoryMb: memoryMb)
         var params: [String: Any] = [
@@ -1440,7 +1459,14 @@ extension CMUXCLI {
             throw error
         }
         guard let id = response["id"] as? String, !id.isEmpty else {
-            throw CLIError(message: "vm run: create returned no machine id")
+            // The provider may have created the machine despite the missing id.
+            // Keep the key reusable even while this process is still alive.
+            markVMRunCreateIdempotencyUncertain(idempotency)
+            let message = CMUXDiffViewerLocalization.string(
+                "cli.vm.run.createMissingMachineID",
+                defaultValue: "vm run: create returned no machine id"
+            )
+            throw CLIError(message: message)
         }
         // Membership is recorded before anything else can fail: this is what
         // makes the machine eligible for reuse by later runs.
@@ -1663,7 +1689,7 @@ extension CMUXCLI {
           --new          Ignore the pool and report a fresh machine.
           --provision    Actually create the machine when routing would.
           --size <s>     Memory preset for a machine --provision creates
-                         (4g to 24g on Pro; 32g and 64g need cmux Max).
+                         (4g to 32g on Pro; 64g needs cmux Max).
           --json         {machine, created, reason, would_provision, directory}
         """
     }
@@ -1712,7 +1738,7 @@ extension CMUXCLI {
                            (exit 1, the agent is not stopped). Default: no limit.
           --new            Force a fresh pool machine.
           --size <s>       Memory preset for a machine this call creates
-                           (4g to 24g on Pro; 32g and 64g need cmux Max).
+                           (4g to 32g on Pro; 64g needs cmux Max).
 
         Examples:
           cmux vm agent --agent claude --sync -- "run the test suite and fix failures"
@@ -1815,7 +1841,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g on Pro (32g and 64g need cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm route: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g on Pro (64g needs cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }
@@ -1920,7 +1946,7 @@ extension CMUXCLI {
         var memoryMb: Int?
         if let sizeOption {
             guard let parsed = Self.parseCloudVMSize(sizeOption) else {
-                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g on Pro (32g and 64g need cmux Max), or memory in MB (at least 512).")
+                throw CLIError(message: "vm agent: unknown size '\(sizeOption)'. Sizes: 4g, 8g, 16g, 24g, 32g on Pro (64g needs cmux Max), or memory in MB (at least 512).")
             }
             memoryMb = parsed
         }

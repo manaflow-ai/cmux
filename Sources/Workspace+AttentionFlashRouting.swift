@@ -20,6 +20,7 @@ extension Workspace {
     func installTerminalVisualBellRouting(for terminalPanel: TerminalPanel) {
         terminalPanel.surface.onExplicitInput = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel else { return }
+            terminalPanel.onManualMirrorExplicitInput?()
             terminalPanel.recordExplicitInput()
             // Explicit input is shared-sizing activity for this Mac pane.
             TerminalController.shared.noteLocalTerminalSizingActivity(surfaceID: terminalPanel.id)

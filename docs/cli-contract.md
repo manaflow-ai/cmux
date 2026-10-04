@@ -100,6 +100,7 @@ Environment:
 | `current` | Print bounded current-work facts (`--limit <1...200>`, `--json`). Read-only: it does not refresh machines, read transcripts, or change any work item. See [Glaeda execution exchange and current-work ownership](#glaeda-execution-exchange-and-current-work-ownership). |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. Records also report metadata for matching cmux-owned scratch roots (`scratch_owned`, byte count, file count, and root path); unmarked directories are never scanned. |
 | `session-debug` | Alias for `sessions debug`, kept for older debug scripts. Works without a socket. |
+| `session restore [--list] [--session <id>]...` | Recover stopped Claude sessions from the agent journal. `--list` inspects candidates; repeatable `--session` selects exact ids. Without ids, restore acts only after an unexpected quit. Requires a running cmux, but help works without a socket. Each restored session opens in its own background workspace and resumes through its recorded launcher. |
 | `session move <session-id> --to <ssh-destination\|local>` | Move a stopped Claude Code session between this Mac and an SSH host and resume it there. Refuses while a Claude process for the session runs on either side. Carries the cwd's git checkout (a snapshot commit of the working tree on top of HEAD at `refs/agent-move/<id>`, HEAD on the same branch when it is safe, plus modified, deleted and untracked non-ignored files; adds a worktree when the repository exists on the destination but the path does not; refuses when the destination has its own uncommitted changes or its branch has commits HEAD lacks), then the transcript, its session directory, file history, and the project memory directory (merged both ways, newest wins, nothing deleted). When the destination home is not the same directory at the same path, paths under the home are mapped and the project is re-slugged. Opens a `cmux ssh` workspace (or a local workspace for `--to local`) that resumes the session with its recorded launcher (on a host, cmux-owned launchers such as `claude-teams` fall back to the plain agent command), and clears the old local surface's resume binding. `--from` defaults to where the last move put the session (`~/.cmuxterm/agent-moves/<id>.json`). Flags: `--name`, `--no-code`, `--port`, `--identity`, `--ssh-option`, `--no-focus`. |
 | `auth`, `login`, `logout` | `auth <status\|login\|logout\|team>`, with `status` the default; `team` carries `list`, `use`, and `create`. Sign-in and sign-out run through the app, and `login` waits for the browser round trip. `login` and `logout` are top-level aliases for `auth login` and `auth logout`. |
 | `billing` | `billing checkout --plan <go\|pro\|max> [--no-open]` prints the plan's checkout URL and opens it in the browser. `--no-open` and `--json` print without opening. |
@@ -130,6 +131,7 @@ Environment:
 | `workspace-group` | Sidebar workspace group namespace: `list`, `create`, `rename`, `ungroup`, `delete`, `collapse`, `expand`, `pin`, `unpin`, `add`, `remove`, `set-anchor`, `set-color`, `set-icon`, `move`, `focus`, `new-workspace`. `delete` only closes the grouped workspaces when `--close-workspaces` is passed; without it, it ungroups them exactly like `ungroup`. Both accept `--remove-generated-anchor`. |
 | `todo` | Per-workspace checklist namespace: `add "text" [--state <pending\|in-progress\|completed>] [--origin <user\|agent>]`, `list`, `check <index\|id>`, `uncheck <index\|id>`, `start <index\|id>` (in-progress), `edit <index\|id> "text"`, `rm <index\|id>`, `clear`, `set ['<json>']` (atomic replace from a JSON item array, inline or piped on stdin), `open` (open or focus the workspace's todo pane). Targets the caller's workspace by default with `--workspace <id\|ref\|index>` override; `<index>` is the 1-based number printed by `todo list`. Items cap at 50 per workspace. See [Workspace todos](#workspace-todos). |
 | `comments` | Diff review comments namespace: `list` (alias `ls`) `[--repo <path>] [--all] [--json]` — read-only listing of review comments saved from the diff viewer for one git repository (default: the repository containing the current directory). Pending comments only by default; `--all` includes comments already delivered to an agent through a TextBox submission. Backed by the socket v2 method `comments.list`. |
+| `pr` | Attach, replace, or clear a pull-request link for the caller's workspace: `cmux pr <url\|number>` or `cmux pr clear`, with optional `--workspace` and `--window` selectors. Validates the repository and pull-request metadata before changing the sidebar, preserves the link through watcher refreshes, and does not change focus. |
 | `review` | Read local adversarial-review receipts from the repository Git metadata without connecting to the cmux socket. `list` enumerates runs newest first; `show [<id\|latest>]` prints one receipt; `findings [<id\|latest>] [--all]` prints surfaced findings and hides refuted/suppressed findings by default. All subcommands accept `--repo <path>` and `--json`. |
 | `vault` | Vault session-index namespace: `sessions [--agent <id>] [--folder <path>] [--limit <n>]` lists indexed agent sessions newest first; `search <query>` searches them with `agent:`/`repo:`/`ws:`/`before:`/`after:` operators; `checkpoints --agent <id> --session <id>` lists a session's checkpoint timeline (derived turn checkpoints + manual ones); `checkpoint … [--name <text>]` creates a manual checkpoint (capturing the workspace git HEAD when available); `fork … (--checkpoint <id> \| --turn <n>) [--open]` forks a new session from a checkpoint and prints the new session id (plus its resume command when one is available) (`--open` also opens it in a new workspace). Backed by the socket v2 methods `vault.sessions`, `vault.search`, `vault.checkpoints`, `vault.checkpoint`, and `vault.fork`; all support `--json`. |
 | `recover` | `recover [--query <text>] [--session <id>] [--limit <n>] [--focus]` discovers local Claude recovery records through `sr recover`; an exact `--session` creates a new workspace running `sr codex` with bounded continuation context. `--json` lists records without launching. |
@@ -143,6 +145,7 @@ Environment:
 | `ssh-tmux` | Mirror a remote host's tmux sessions into the current window over SSH tmux control mode (`tmux -CC`): each session becomes a workspace, each window a tab, each pane a split. `ssh-tmux <destination> [--port <n>] [--identity <path>] [--name <title>] [--no-focus]`. Unlike `mosh-tmux`, which attaches one terminal to one session, this mirrors the whole server. |
 | `local-tmux` | Opt in to a user-owned local tmux server. `start`, `attach`, `list`, `status`, `detach`, `close`, and `cleanup` preserve and manage named sessions independently of the cmux GUI; `cleanup` previews stale records unless `--prune` is supplied. `list`, `status`, `detach`, `close`, `cleanup`, and `attach --headless` work without a running cmux control socket. This preserves live processes across cmux lifecycle events, not a machine shutdown or reboot; use a remote tmux owner for continuity while the Mac is offline. See [`docs/local-tmux.md`](local-tmux.md). |
 | `tmux attach` | Compatibility alias for `local-tmux attach`. |
+| `local-zellij` | Opt in to zellij sessions in a private socket directory. `start`, `attach`, `list`, `status`, and `close` manage named sessions independently of the cmux GUI; clients attach with `--on-force-close detach`, so closing a surface detaches instead of ending the session. `list`, `status`, `close`, `start --detached`, and `attach --headless` work without a running cmux control socket. See [`docs/local-zellij.md`](local-zellij.md). |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
 | `ssh-session-attach` | Create a local terminal surface that reattaches to an existing persisted SSH PTY session. |
@@ -184,10 +187,11 @@ Environment:
 | `send-key` | Send one key to a terminal surface. Refuses to send into an open agent dialog unless `--force`. |
 | `agent message` | Send a message to the agent in another workspace or surface (`agent.message.send`). Delivered through the recipient's agent hooks, never as keystrokes. `--reply-to <id>` answers a received message; `-` reads the text from stdin. |
 | `agent inbox` | List agent messages newest first (`agent.message.list`); `--mark-read` marks the listed messages read. |
-| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. Local socket only: `terminal.paste` is not on the `cmux ssh` relay allowlist. |
+| `agent messages [on\|off\|status] [<target>] [--workspace]` | Turn agent messages off or on for one surface (default: the caller's) or, with `--workspace`, a whole workspace (`agent.message.settings`). Turning them off refuses new messages to it and fails the ones already queued. The app-wide switch is `agentMessages.enabled`. |
+| `paste` | Paste text from an argument or stdin into a terminal surface through the Cmd+V paste path (`terminal.paste`). The CLI sends the text unchanged; Ghostty brackets it when the program enabled bracketed paste (otherwise newlines become Enter) and replaces unsafe control bytes with spaces. `--submit` presses the agent-aware submit key afterwards. Refuses to paste over an agent prompt draft or into an open dialog unless `--force`. Authenticated remote-workspace relays may use `terminal.paste` only with an exact owned workspace/surface and `submit_key` `none` or `return`; the relay cannot use window/focus fallback selectors or arbitrary submit keys. |
 | `send-panel` | Send text to a terminal surface. Same draft guard and `--force` as `send`. |
 | `send-key-panel` | Send one key to a terminal surface. Same dialog guard and `--force` as `send-key`. |
-| `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
+| `notify` | Send a notification to a workspace/surface and return its notification id; `--clear` clears the resolved caller/target scope. `--desktop <true\|false>` (also `--desktop=<value>`) sets the notification's `desktop` effect before notification hooks run, sent as `effects: {"desktop": <value>}` on the create request: `false` records the entry in the Notifications panel, sidebar badge and pane ring without a native banner; `true` is the default and changes nothing; hooks can still override it; it has no effect with `--clear`. Supports `--id-format refs\|uuids\|both` for human-readable handles. |
 | `list-notifications` | List queued notifications, including `created_at` and `tab_title`. |
 | `dismiss-notification` | Remove one notification, or remove already-read notifications with `--all-read`. |
 | `mark-notification-read` | Mark one notification, a workspace/surface scope, or all notifications read. |
@@ -401,6 +405,21 @@ object with:
 | `stores` | Per-agent hook store files that were read: `agent`, `path`, `exists`, `session_count`. |
 | `sessions` | The limited result set of session records. |
 
+Agent session recovery:
+
+`cmux session restore --list` asks the running app for journal-backed recovery
+candidates, excluding sessions that are still running or already open. It lists
+the agent kind, session id, cwd, and resume command without opening a workspace.
+In JSON, records also include the prior workspace id and last-activity timestamp.
+
+Without `--list`, each repeatable `--session <id>` selects an exact candidate;
+explicit ids may be restored after a normal quit. Without an id, recovery runs
+only when the previous cmux exit was unclean. Each restored session opens in a
+separate, unselected workspace titled from its cwd (or agent kind), then resumes
+through its recorded launcher. Some terminals start immediately; the remainder
+start on the workspace's first visit. Listing and recovery require a running
+cmux socket; `cmux session restore --help` does not.
+
 Auth subcommands:
 
 | Command | Contract |
@@ -449,6 +468,8 @@ VM subcommands:
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses the machine's private cmux-tui route through the app's user-space WireGuard hub. The first open gets one enrollment invitation from `vm.cmux_remote_info`; a known device reconnects with its pinned daemon fingerprint and cached private route, without a connection-time control-plane request. The app then uses `workspace.create` or `workspace.cloud_vm_terminal_ready`, `workspace.cloud_vm_bind`, and `surface.new_terminal {machine, open: true, workspace_id, focus, name: "shell"}`. There is no public WebSocket or automatic SSH fallback. `cmux vm ssh` remains an explicit diagnostic command. |
 | `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
 | `vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]` | Grow an existing machine in place. CPU is 1–32 vCPUs, memory is 4–64 GiB in whole GiB, and disk is 4–256 GiB in 4 GiB steps. The server enforces account plan ceilings and returns provider-confirmed resources. |
+| `vm network <id> [set --mode <full\|allowlist\|none> [--dns <on\|off>] \| set --policy <json> \| add-domain <domain>... \| remove-domain <domain>... \| add-range <cidr> [--port <n>] [--protocol <tcp\|udp>] [--note <text>] \| remove-range <cidr> [--port <n>] [--protocol <tcp\|udp>] \| preset <add\|remove> <preset-id>...]` | Show or change the machine's outbound network policy. Changes apply live without a restart; `--json` returns `{policy, presets, requiredDomains, agentUpdateDomains, applied}`. |
+| `vm agent-updates <id> [latest\|image]` | Show or change whether the machine keeps its coding agents (Claude Code, Codex, OpenCode, Pi, agent-browser) up to date. `latest` installs, on attach and at most once a day, each agent's newest GitHub release that has been public for 3 days, verified against its sha256 digest (never a downgrade, never npm); `image` (the default) keeps the image's versions. Updates reach only `api.github.com`, `github.com` and GitHub's release-asset host, which every network mode allows; a `note` appears only if a policy blocks one of them. `--json` returns `{id, agent_updates, note?}`. `vm new --agent-updates <latest\|image>` chooses at create. |
 | `vm desktop <id>`, `vm vnc <id>` | Open the private VM desktop through the authenticated userspace hub in a browser pane. noVNC and websockify use one loopback forward; no system VPN setup is required. |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
 | `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
@@ -472,6 +493,16 @@ VM subcommands:
 | `vm ports <id>` | Show listening TCP ports inside the VM. |
 | `vm handoff <id>` | Print a short attach handoff block. |
 | `vm promote-template <id>` | Promote the VM into a reusable template. |
+
+Surface resume bindings (`surface resume` and `surface-resume`):
+
+| Command | Contract |
+| --- | --- |
+| `surface resume set [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>] [--name <name>] [--kind <kind>] [--checkpoint <id>\|--checkpoint-id <id>] [--source <source>] [--cwd <path>] (--shell <command>\|-- <argv...>)` | Store a restart command for the selected terminal surface (`surface.resume.set`). `--checkpoint-id` takes precedence over `--checkpoint`; `--source` defaults to `cli`, and `--cwd` defaults to `$PWD` or the current directory. `--shell` takes one complete command string; the `-- <argv...>` form also stores a structured launch command. |
+| `surface resume [show\|get] [--json] [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>]` | Read the binding (`surface.resume.get`); `show` is the default and `get` is an alias. Plain output is the command, `No resume binding` if absent, or `null` if the public binding hides a private routed command. `--json` prints the public socket payload, including `resume_binding` and surface/workspace identifiers. |
+| `surface resume clear [--workspace <id\|ref\|index>] [--surface <id\|ref\|index>] [--window <id\|ref\|index>] [--checkpoint <id>\|--checkpoint-id <id>] [--source <source>]` | Clear the binding (`surface.resume.clear`). Optional checkpoint and source values guard the clear so a different binding is not removed; `--checkpoint-id` takes precedence over `--checkpoint`. The response includes `cleared` and the resulting `resume_binding`. |
+
+The selectors default to the caller's `CMUX_SURFACE_ID` or `CMUX_WORKSPACE_ID` when applicable; `--window` supplies context for refs and indexes. These bindings record how to resume a surface; `session restore` and `restore` perform recovery. `surface --help` and `surface-resume --help` print the same family help without a socket.
 
 Remotes subcommands:
 
@@ -599,13 +630,13 @@ tmux compatibility commands:
 
 | Command | Contract |
 | --- | --- |
-| `capture-pane` | Read pane text. |
-| `resize-pane` | Resize a pane with direction flags. |
-| `pipe-pane` | Pipe pane text to a shell command. |
-| `wait-for` | Signal or wait on a named synchronization point. |
-| `swap-pane` | Swap two panes. |
-| `break-pane` | Move a pane into a new workspace. |
-| `join-pane` | Join a pane into another pane. |
+| `capture-pane` | Read pane text, targeting `--workspace`, `--surface`, or `--window`; `--scrollback` includes history and `--lines <n>` returns its last lines. |
+| `resize-pane` | Resize `--pane` in a workspace/window with `-L`, `-R`, `-U`, or `-D` and optional `--amount <n>`. |
+| `pipe-pane` | Pipe the selected surface's text to `--command <shell-command>` or a trailing shell command. Accepts workspace, surface, and window selectors. |
+| `wait-for` | Wait on a named synchronization point with optional `--timeout <seconds>`, or signal it with `-S`/`--signal`. |
+| `swap-pane` | Swap required `--pane` and `--target-pane` selectors, optionally scoped by workspace/window and `--focus <true\|false>`. |
+| `break-pane` | Move the selected pane/surface into a new pane context; accepts workspace/window selectors and `--focus <true\|false>` or `--no-focus`. |
+| `join-pane` | Join the selected pane/surface into required `--target-pane`; accepts workspace/window selectors and `--focus <true\|false>` or `--no-focus`. |
 | `next-window`, `previous-window`, `last-window` | Move workspace selection. |
 | `last-pane` | Focus the last pane. |
 | `find-window` | Find a workspace by title or content. |
@@ -626,10 +657,17 @@ Browser subcommands:
 | `browser open`, `browser open-split`, `browser new` | Create or open a browser surface. |
 | `browser goto`, `browser navigate` | Navigate to a URL. |
 | `browser back`, `browser forward`, `browser reload` | Navigate browser history or reload. |
+| `browser react-grab toggle` | Toggle React grab for the selected browser surface; `--return-to <terminal-surface>` routes the result back to a terminal. |
+| `browser devtools toggle`, `browser devtools console` | Toggle Web Inspector or show the browser console for an optional `--surface`. |
+| `browser focus-mode enter`, `browser focus-mode exit`, `browser focus-mode toggle` | Change focus mode for an optional `--surface`; `on` and `off` are also accepted. |
+| `browser design-mode enable`, `browser design-mode disable`, `browser design-mode toggle`, `browser design-mode status` | Change or read design mode for an optional `--surface`; bare `design-mode` reads status. |
+| `browser zoom in`, `browser zoom out`, `browser zoom reset`, `browser zoom <factor>` | Change page zoom for an optional `--surface`; a numeric factor sets absolute zoom. |
+| `browser history clear --force` | Permanently clear the default browser profile's history, like the View menu action; `--yes` also confirms. |
 | `browser url`, `browser get-url` | Print current URL. |
 | `browser focus-webview`, `browser is-webview-focused` | Focus or query webview focus. |
 | `browser snapshot` | Print a DOM snapshot. |
 | `browser eval` | Evaluate JavaScript. |
+| `browser repl` | Run JavaScript with a Playwright `page` API against the workspace's browser panes in a persistent session; `browser repl guide` prints the guide. |
 | `browser wait` | Wait for selector, text, URL, load state, or JS predicate. |
 | `browser click`, `browser dblclick`, `browser hover`, `browser focus`, `browser check`, `browser uncheck`, `browser scroll-into-view` | Run element interaction. |
 | `browser type`, `browser fill` | Type into or set an input. |
@@ -649,7 +687,8 @@ Browser subcommands:
 | `browser cookies` | Get, set, or clear cookies; `set` accepts `--http-only` to keep the cookie hidden from page JavaScript. `clear` requires an explicit scope such as `--url`, `--domain`, `--name`, or `--all`, and returns the removed count as `cleared` in JSON output. |
 | `browser storage` | Get, set, or clear local/session storage. |
 | `browser tab` | Create, list, switch, or close browser tabs. |
-| `browser console`, `browser errors` | List or clear console messages and errors. |
+| `browser console list`, `browser console clear` | List or clear console messages for the selected browser surface. |
+| `browser errors list`, `browser errors clear` | List or clear browser errors for the selected surface. |
 | `browser highlight` | Highlight an element. |
 | `browser state` | Save or load browser state. |
 | `browser addinitscript`, `browser addscript`, `browser addstyle` | Inject scripts or CSS. |
@@ -890,6 +929,7 @@ the expected text without connecting to a cmux socket.
 - `cmux --help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `open <path-or-url>...`
 - `cmux --help` -> `sessions [list] [options]`
+- `cmux --help` -> `session restore [--list] [--session <id>]...`
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `Start & Resume:`
 - `cmux --help` -> `Diagnostics / Advanced:`
@@ -927,9 +967,9 @@ the expected text without connecting to a cmux socket.
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux glaeda --help` -> `Usage: cmux glaeda <request|observe> [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout|team>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|network|agent-updates|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm domains --help` -> `cmux cloud domains [list]`
 - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`
 - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`
@@ -948,6 +988,8 @@ the expected text without connecting to a cmux socket.
 - `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
 - `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
 - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
+- `cmux surface --help` -> `cmux surface resume set [flags] -- <argv...>`
+- `cmux surface-resume --help` -> `cmux surface resume show [--json] [flags]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|agent> [options]`
@@ -978,6 +1020,7 @@ the expected text without connecting to a cmux socket.
 - `cmux restore --help` -> `Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux fork --help` -> `Usage: cmux fork [--surface <id|ref>] <kind> <checkpoint-id>`
 - `cmux restore-session --help` -> `Usage: cmux restore-session`
+- `cmux session restore --help` -> `Usage: cmux session restore [--list] [--session <id>]...`
 - `cmux open --help` -> `Usage: cmux open <path-or-url>...`
 - `cmux feedback --help` -> `Usage: cmux feedback`
 - `cmux feed --help` -> `Usage: cmux feed tui [--opentui|--legacy]`
@@ -1044,13 +1087,13 @@ the expected text without connecting to a cmux socket.
 - `cmux rename-workspace --help` -> `Usage: cmux rename-workspace`
 - `cmux rename-window --help` -> `Usage: cmux rename-workspace`
 - `cmux current-workspace --help` -> `Usage: cmux current-workspace`
-- `cmux capture-pane --help` -> `Usage: cmux capture-pane`
-- `cmux resize-pane --help` -> `Usage: cmux resize-pane`
-- `cmux pipe-pane --help` -> `Usage: cmux pipe-pane`
-- `cmux wait-for --help` -> `Usage: cmux wait-for`
-- `cmux swap-pane --help` -> `Usage: cmux swap-pane`
-- `cmux break-pane --help` -> `Usage: cmux break-pane`
-- `cmux join-pane --help` -> `Usage: cmux join-pane`
+- `cmux capture-pane --help` -> `Usage: cmux capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]`
+- `cmux resize-pane --help` -> `Usage: cmux resize-pane [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [-L|-R|-U|-D] [--amount <n>]`
+- `cmux pipe-pane --help` -> `Usage: cmux pipe-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <shell-command> | <shell-command>]`
+- `cmux wait-for --help` -> `Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]`
+- `cmux swap-pane --help` -> `Usage: cmux swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]`
+- `cmux break-pane --help` -> `Usage: cmux break-pane [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
+- `cmux join-pane --help` -> `Usage: cmux join-pane --target-pane <id|ref|index> [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
 - `cmux next-window --help` -> `Usage: cmux next-window`
 - `cmux previous-window --help` -> `Usage: cmux previous-window`
 - `cmux last-window --help` -> `Usage: cmux last-window`
@@ -1074,6 +1117,7 @@ the expected text without connecting to a cmux socket.
 - `cmux send-key --help` -> `Usage: cmux send-key`
 - `cmux agent message --help` -> `Usage: cmux agent message`
 - `cmux agent inbox --help` -> `Usage: cmux agent inbox`
+- `cmux agent messages --help` -> `Usage: cmux agent messages`
 - `cmux paste --help` -> `Usage: cmux paste`
 - `cmux send-panel --help` -> `Usage: cmux send-panel`
 - `cmux send-key-panel --help` -> `Usage: cmux send-key-panel`
@@ -1098,7 +1142,16 @@ the expected text without connecting to a cmux socket.
 - `cmux simulate-app-active --help` -> `Usage: cmux simulate-app-active`
 - `cmux claude-hook --help` -> `Usage: cmux claude-hook`
 - `cmux browser --help` -> `Usage: cmux browser`
-- `cmux browser --help` -> `download list [--limit <1...25>]`
+- `cmux help browser` -> `browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]`
+- `cmux help browser` -> `browser devtools toggle|console [--surface <id>]`
+- `cmux help browser` -> `browser focus-mode enter|exit|toggle [--surface <id>]`
+- `cmux help browser` -> `browser design-mode enable|disable|toggle|status [--surface <id>]`
+- `cmux help browser` -> `browser zoom in|out|reset|<factor> [--surface <id>]`
+- `cmux help browser` -> `browser history clear --force`
+- `cmux help browser` -> `browser console <list|clear>`
+- `cmux help browser` -> `browser errors <list|clear>`
+- `cmux browser --help` -> `screenshot [--out <path>] [--json]`
+- `cmux browser --help` -> `download list [--limit <1...25>] [--json]`
 - `cmux open-browser --help` -> `Legacy alias for 'cmux browser open'`
 - `cmux navigate --help` -> `Legacy alias for 'cmux browser navigate'`
 - `cmux browser-back --help` -> `Legacy alias for 'cmux browser back'`

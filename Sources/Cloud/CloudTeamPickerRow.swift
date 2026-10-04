@@ -113,6 +113,15 @@ struct CloudTeamPickerRow: View {
             invitations: accountFlow.receivedInvitations.map { .init(id: $0.id, teamName: $0.teamName) },
             onJoin: { [presentation, accountFlow] invitation in
                 presentation.joinInvitation(invitation.id, accountFlow: accountFlow)
+            },
+            accountEmail: accountFlow.currentIdentity?.email,
+            onSwitchAccount: { [weak anchor, accountFlow] in
+                let switchAccount: @MainActor () -> Void = { Task { await accountFlow.switchAccount() } }
+                if let anchor { anchor.afterDismiss(switchAccount) } else { switchAccount() }
+            },
+            onSignOut: { [weak anchor, accountFlow] in
+                let signOut: @MainActor () -> Void = { Task { await accountFlow.signOut() } }
+                if let anchor { anchor.afterDismiss(signOut) } else { signOut() }
             }
         )
     }

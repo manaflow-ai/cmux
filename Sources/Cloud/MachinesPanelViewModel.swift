@@ -24,8 +24,6 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Per-machine coderouter spend from the last successful usage fetch.
     @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
-    /// Human-readable label of the Cloud VM action currently running from this panel.
-    @Published private(set) var activeOperation: String?
     /// Surface catalog: machines, their resources, and local projections.
     @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty
     /// Local workspaces in sidebar order for terminal grouping.
@@ -36,6 +34,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
+    /// Set when `treeErrorDescription` is trusted, user-facing guidance rather
+    /// than an upstream failure; only that copy is shown verbatim.
+    @Published private(set) var treeHint: String?
     /// In-flight and failed creates appear above the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
@@ -48,17 +49,42 @@ final class MachinesPanelViewModel: ObservableObject {
         let selected = tabManager.selectedTabId
         return tabManager.tabs.map { CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected) }
     }
-    func beginOperation(_ label: String) {
-        activeOperation = label
-    }
-
     func endOperation() {
-        activeOperation = nil
         if wantsPolling { refresh() }
     }
 
+    /// Opens one local Cloud Agent terminal and owns the asynchronous work for
+    /// the lifetime of this panel model. Selecting another agent cancels the
+    /// previous launch instead of leaving an unowned task behind the view.
+    func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
+        cloudAgentTask?.cancel()
+        cloudAgentTask = Task { @MainActor [weak self] in
+            defer { self?.cloudAgentTask = nil }
+            do { _ = try await CloudAgentSkillLauncher.openAgent(agent) }
+            catch is CancellationError { return }
+            catch { self?.noteTreeFailure(error.localizedDescription) }
+            self?.endOperation()
+        }
+    }
+
+    /// Cancels a launch when the Machines panel leaves the view hierarchy.
+    func cancelCloudAgentTask() {
+        cloudAgentTask?.cancel()
+        cloudAgentTask = nil
+    }
+
     func noteTreeFailure(_ description: String) {
+        // A tree failure is an event, not a persistent state banner. Clear a
+        // prior dismissal so repeating the same ownership hint remains
+        // visible on the next invalid attempt.
+        AppDelegate.shared?.cloudBannerDismissalStore.clear(id: "machines.tree-error")
+        treeHint = nil
         treeErrorDescription = description
+    }
+
+    func noteTreeHint(_ hint: String) {
+        noteTreeFailure(hint)
+        treeHint = hint
     }
 
     /// Projects the coordinator's typed reachability event into this panel's
@@ -102,6 +128,7 @@ final class MachinesPanelViewModel: ObservableObject {
     let resourceStats: VMResourceStatsStore?
     var machineIndexByID: [String: Int] = [:]
     var usageTask: Task<Void, Never>?
+    private var cloudAgentTask: Task<Void, Never>?
     var usageFailureCount = 0
     var usageRetryNotBefore: Date?
     /// One-shot timer armed at the exact next free-access transition (a
@@ -117,6 +144,7 @@ final class MachinesPanelViewModel: ObservableObject {
     var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
     var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
     var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
+    var vcpusByMemoryMb: [String: Int]? { lastLimits?.vcpusByMemoryMb }
     private var authScopeObservers: [NSObjectProtocol] = []
     private var wakeObserver: NSObjectProtocol?
     private var lifecycleObserver: NSObjectProtocol?
@@ -273,6 +301,7 @@ final class MachinesPanelViewModel: ObservableObject {
         pollTask?.cancel()
         statsTask?.cancel()
         usageTask?.cancel()
+        cloudAgentTask?.cancel()
         treeTask?.cancel()
         freeAccessTransitionTask?.cancel()
         resourceUpdatesTask?.cancel()
@@ -413,7 +442,6 @@ final class MachinesPanelViewModel: ObservableObject {
         localWorkspaces = []
         treeErrorDescription = nil
         plan = nil
-        activeOperation = nil
         createCoordinator.cancelAllForAuthTransition()
         lastErrorDescription = nil
         listProblem = nil
@@ -429,8 +457,8 @@ final class MachinesPanelViewModel: ObservableObject {
         awaitingCatalogScope = true
     }
 
-    /// Re-enables catalog rows only after the shared provider registry has
-    /// finished retiring the old team and resuming the new one.
+    /// Re-enables catalog rows once the registry has discovered the new team.
+    /// Remote workspace details continue refreshing independently.
     private func finishTeamScopeTransition() {
         awaitingCatalogScope = false
         readCatalog()
@@ -561,7 +589,6 @@ final class MachinesPanelViewModel: ObservableObject {
                 machines = []
                 machineIndexByID.removeAll()
                 plan = nil
-                activeOperation = nil
                 lastErrorDescription = nil
                 listProblem = nil
                 hasLoadedOnce = false

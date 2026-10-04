@@ -35,7 +35,7 @@ struct CloudSidebarSurfaceRegressionTests {
         let snapshot = SidebarWorkspaceSnapshotFactory(
             workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
         ).makeSnapshot()
-        #expect((snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)).contains { $0.contains("Directory unavailable") })
+        #expect((snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)).allSatisfy { !$0.contains("Directory unavailable") })
         #expect(snapshot.compactGitBranchSummaryText == nil)
         #expect(snapshot.branchDirectoryLines.allSatisfy { $0.branch == nil })
         #expect(snapshot.pullRequestRows.isEmpty)
@@ -217,6 +217,10 @@ struct CloudSidebarSurfaceRegressionTests {
             let presentation = CloudPortsStatusPresentation.make(info: info)
             #expect(presentation.action == action)
             #expect(presentation.title.lowercased().contains(phrase.lowercased()) || presentation.message.lowercased().contains(phrase.lowercased()))
+            if state == .loading {
+                #expect(presentation.title == "Discovering ports…")
+                #expect(presentation.message.isEmpty)
+            }
             if state != .loading && state != .unsupported && state != .empty(.noListeningService) {
                 #expect(presentation.message.contains("Cloud VPN"), "cmux forwarding truth must remain visible")
             }

@@ -23,7 +23,7 @@ public struct CloudTreeDevicesSection: Equatable, Sendable {
     public var incomingAccessEnabled: Bool = false
     public var discoveryManaged: Bool = false
     public var incomingAccessManaged: Bool = false
-    /// Whether Cloud/Beta availability permits either device preference.
+    /// Whether Cloud availability permits either device preference.
     public var available: Bool = true
 
     /// Both independent actions stay visible below the devices, preceded by

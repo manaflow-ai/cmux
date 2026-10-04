@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Cloud VM 资源不足",
+      "memoryMessage": "你的 VM 已使用 {pool} GB 内存中的 {used} GB。此 VM 需要 {requested} GB。",
+      "vcpuMessage": "你的 VM 已使用 {pool} 个 vCPU 中的 {used} 个。此 VM 需要 {requested} 个 vCPU。",
+      "upgradeAction": "暂停或删除一台 VM，或升级到 Max。",
+      "action": "暂停或删除一台 VM。"
     }
   },
   "billingRecovery": {
@@ -403,6 +410,7 @@
       "label": "账户菜单",
       "settings": "设置",
       "billing": "账单",
+      "switchAccount": "切换账号",
       "signOut": "退出登录",
       "signingOut": "正在退出…",
       "signOutError": "无法退出登录，请重试。",
@@ -426,7 +434,7 @@
         "memberReadOnly": "只有团队管理员可以更改此方案。",
         "grantedBody": "cmux 团队已向 {team} 授予 Team 访问权限，没有需要管理的订阅。",
         "seatsUsed": "已使用 {members}/{seats}",
-        "overSeat": "{team} 有 {members} 名成员，但只有 {seats} 个付费席位。成员仍可加入；请添加席位以覆盖所有人。",
+        "overSeat": "{team} 有 {members} 名成员和 {seats} 个付费席位。席位数跟随成员数，订阅会自动更新。",
         "addSeats": "添加席位"
       },
       "teamList": {
@@ -489,16 +497,17 @@
           ],
           "pro": [
             "在 Cloud VM 上运行云端智能体",
-            "所有 VM 共享 24 GB 内存和 6 个 vCPU",
+            "最多 5 台 Cloud VM，共享 20 个 vCPU 和 40 GB 内存",
             "cmux iOS 应用"
           ],
           "max": [
-            "所有 VM 共享 64 GB 内存和 16 个 vCPU",
+            "最多 5 台 Cloud VM，共享 80 个 vCPU 和 160 GB 内存",
             "更大的机器规格",
             "Pro 的全部功能"
           ],
           "team": [
             "每位成员都享有 Pro 的全部功能",
+            "每个付费席位最多 5 台 Cloud VM，每个付费席位的 20 个 vCPU 和 40 GB 内存由整个团队共享",
             "整个团队一张发票",
             "优先支持"
           ]
@@ -541,6 +550,11 @@
         "team": "创建团队",
         "banner": "你现在使用的是 {plan}。",
         "bannerLink": "套餐与账单"
+      },
+      "appStore": {
+        "title": "通过 App Store 计费",
+        "body": "你的方案是在 cmux iPhone 应用中购买的，由 Apple 计费。请在 App Store 订阅中更改或取消。",
+        "manage": "在 App Store 中管理"
       }
     },
     "mobileDevices": {
@@ -942,7 +956,7 @@
         "featurePrioritySupport": "优先支持",
         "chooseFree": "继续使用免费方案",
         "chooseTeam": "升级到 Team（${price}/席位/月）",
-        "upgradeLater": "席位是弹性的：邀请人数可以超过已付费席位数，之后再添加席位即可。",
+        "upgradeLater": "席位数跟随成员数：每位成员都计费，有人加入或离开时总数会更新。",
         "inviteTitle": "邀请成员加入 {team}",
         "inviteDescription": "可选。你也可以稍后在团队的成员页面邀请成员。",
         "inviteByEmail": "通过邮箱邀请",
@@ -1125,6 +1139,80 @@
       "revokeApiKeyConfirmTitle": "撤销此 API 密钥？",
       "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用数据不可用",
+      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
+    },
+    "cloud": {
+      "title": "Cloud 机器与 Mac 访问",
+      "description": "设置每台机器的出站网络，并查看可通过 WireGuard 访问你的私有 Cloud VM 网络的 Mac。iPhone 和 Iroh 配对记录单独管理。",
+      "macAccessTitle": "Mac 访问",
+      "machines": {
+        "title": "机器",
+        "empty": "你没有 Cloud 机器。",
+        "personal": "个人",
+        "team": "团队",
+        "status": {
+          "provisioning": "正在启动",
+          "running": "运行中",
+          "failed": "失败",
+          "paused": "已暂停",
+          "destroyed": "已删除"
+        }
+      },
+      "network": {
+        "open": "网络",
+        "title": "{name} 的出站网络",
+        "description": "选择此机器可以访问的目标。更改会立即生效，无需重启。",
+        "loading": "正在加载网络策略…",
+        "loadError": "无法加载此机器的网络策略。",
+        "saveError": "无法应用此网络策略。",
+        "unsupported": "此机器不支持出站网络控制。",
+        "retry": "重试",
+        "appliedLabel": "状态：",
+        "applied": {
+          "applied": "已应用",
+          "pending": "正在应用",
+          "failed": "应用失败"
+        },
+        "unsaved": "有未保存的更改",
+        "refresh": "刷新",
+        "modeLabel": "出站访问",
+        "mode": {
+          "full": {
+            "label": "完整互联网",
+            "description": "任何公共地址。"
+          },
+          "allowlist": {
+            "label": "允许列表",
+            "description": "仅限你列出的预设、域名和 IP 范围。"
+          },
+          "none": {
+            "label": "无互联网",
+            "description": "仅限下方列出的 cmux 主机。"
+          }
+        },
+        "presetsTitle": "预设",
+        "presetsNote": "每个预设会添加精确的主机名。使用其他子域名的服务可能需要更多域名。",
+        "domainsTitle": "域名",
+        "domainsNote": "仅限精确主机名，且仅限 443 端口上的 HTTPS。暂不支持通配符。",
+        "domainInput": "域名",
+        "rangesTitle": "IP 范围",
+        "rangesNote": "提供商防火墙在机器外部执行这些规则。端口留空表示允许所有端口。指定端口时需要选择协议。",
+        "cidrInput": "IP 范围 (CIDR)",
+        "portInput": "端口",
+        "protocolInput": "协议",
+        "anyProtocol": "任意",
+        "noteInput": "备注（可选）",
+        "allPorts": "所有端口",
+        "dnsLabel": "允许 DNS",
+        "dnsNote": "让工具解析你的 IP 范围所指向的名称。域名不需要 DNS。开放的 DNS 是一个出站通道：进程可以把数据放在它查询的名称中发送出去。",
+        "requiredTitle": "始终允许",
+        "requiredNote": "cmux 在所有模式下都需要这些主机，以便在机器中安装和更新 CLI。",
+        "add": "添加",
+        "remove": "移除",
+        "discard": "放弃更改",
+        "close": "关闭",
+        "apply": "应用"
+      },
       "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。",
       "apiKeysEmptyTitle": "还没有 API 密钥",
       "apiKeysEmptyHint": "创建一个密钥来验证 CodeRouter 客户端。",
@@ -2032,9 +2120,9 @@
         "automation": {
           "ampIntegration": "开启或关闭 cmux 的 Amp 钩子。关闭后，捆绑的插件仍保持安装，但处于闲置状态。",
           "suppressSubagentNotifications": "隐藏嵌套 Codex 或 Claude 子代理的可见完成通知和状态变更，同时将其事件保留在 Feed 遥测中。",
-          "agentAutoResume": "当 cmux 启动的代理因可重试的上游错误（模型容量已满、过载或连接中断）结束回合时，按退避策略向其发送 `continue`。等待人工输入的回合永远不会被恢复。",
           "workspaceAutoNaming": "可选的 AI 自动命名：根据代理对话内容自动命名工作区和标签页。启用后，cmux 会使用各受支持代理自己的二进制文件将会话总结为简短标题；手动重命名始终优先。",
           "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。",
+          "agentAutoResume": "当 cmux 启动的代理因可重试的上游错误（模型容量已满、过载或连接中断）结束回合时，按退避策略向其发送 `continue`。等待人工输入的回合永远不会被恢复。",
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
@@ -2087,6 +2175,7 @@
           "compactStatusIcons": "按状态替换 compactAgentStatus 字形的 SF Symbol 名称，例如 {\"terminal\": \"apple.terminal\", \"needsInput\": \"hand.raised.fill\"}。未设置的状态使用内置符号，无法显示的名称也会回退到内置符号。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。",
+          "showAgentUsage": "在 Claude Code 或 Codex 的状态条目后附加编码代理的用量：所用模型和已占用的上下文窗口，并在 Claude Code 上按 Anthropic 公布的标价给出 API 费用估算（主线程与子代理）。该费用仅为估算，并非你的订阅账单；批处理／优先级档位、合作伙伴定价、快速模式以及服务器工具费用均未计入。",
           "beta": {
             "conversations": {
               "enabled": "在侧边栏选择器中显示统一的对话视图。"
@@ -2839,14 +2928,21 @@
       "planMax": "Max",
       "sizesDefault": "如果不选择规格，新机器将使用 8 GB 内存。运行 cmux vm ls --json 可查看你的套餐允许的规格。",
       "limitsTitle": "套餐限制",
-      "limitsDesc": "套餐限制按机器数量计算，而不是共享的 CPU 或内存池。每台机器都会获得其规格对应的资源。",
+      "limitsDesc": "你的活跃机器共享同一个 vCPU 和内存资源池。你可以运行一台大机器，也可以运行几台小机器。已暂停的机器不占用资源池。磁盘按每台机器单独设置，不计入资源池。",
       "limitsFree": "免费账户无法创建机器。",
-      "limitsPaid": "Pro 和 Max 账户最多可拥有 50 台活跃机器。正在运行或正在启动的机器即为活跃机器。",
-      "limitsTeam": "Team 账户每个付费席位最多可拥有 50 台活跃机器。",
-      "limitsMax": "大于 24 GB 的机器需要 cmux Max。",
+      "limitsPaid": "Pro 和 Founder's Edition 账户最多可拥有 5 台活跃机器，共享 20 个 vCPU 和 40 GB 内存。正在运行或正在启动的机器即为活跃机器。",
+      "limitsTeam": "Team 账户每个付费席位最多可拥有 5 台活跃机器。每个付费席位会为团队资源池增加 20 个 vCPU 和 40 GB 内存。",
+      "limitsMax": "Max 账户最多可拥有 5 台活跃机器，共享 80 个 vCPU 和 160 GB 内存。在 Pro 和 Team 中，单台机器最高 32 GB 和 16 vCPU；在 Max 中最高 64 GB 和 32 vCPU。",
+      "limitsPoolFull": "如果新建、恢复、扩容或分叉的机器会超出资源池，cmux 会拒绝该请求，并显示资源池的已用量。暂停或删除一台机器以释放资源，或升级到 Max。",
       "limitsPricing": "当前价格请查看定价页面。不按用量计费，也没有超额费用。",
+      "agentUpdatesTitle": "让编码代理保持最新",
+      "agentUpdatesDesc": "开启此设置后，机器会更新 Claude Code、Codex、OpenCode、pi 和 agent-browser。机器创建后以及每次连接时都会检查，每 24 小时最多一次。更新在后台独立运行，因此不会阻塞连接。",
+      "agentUpdatesSource": "每个工具都来自其官方 GitHub 版本，并使用发布资源的 sha256 摘要进行校验。不使用 npm。版本发布满 3 天后才会安装，更新绝不会安装更旧的版本。正在运行的代理会继续使用启动时的文件，更新失败时当前版本保持不变。",
+      "agentUpdatesStatus": "上次检查的结果在 /etc/cmux/agent-updates.state 中，更新程序的日志在 /var/log/cmux-agent-updates.log 中。失败的检查会在下次连接时重新运行。",
+      "agentUpdatesToggle": "“新建机器”面板默认开启此设置。要为现有机器更改，请右键点击机器并选择“让代理保持最新”，或运行 cmux vm agent-updates。除非传入 --agent-updates latest，否则 cmux vm new 会保留镜像中的版本。关闭更新后，已安装的版本会保留。",
+      "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有网络模式下都允许这些主机，包括“允许列表”和“无互联网”，因此网络策略不会阻止更新。",
       "resizeTitle": "调整规格",
-      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长最多扩展到 256 GB，内存最多 64 GB，CPU 最多 32 vCPU。实际上限由你的套餐决定。",
+      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长最多扩展到 256 GB。在 Pro 和 Team 中，内存最多 32 GB，CPU 最多 16 vCPU；在 Max 中，内存最多 64 GB，CPU 最多 32 vCPU。机器越大，占用的资源池越多。实际上限由你的套餐决定。",
       "pauseTitle": "暂停与恢复",
       "pauseDesc": "cmux vm pause 会停止机器的计算资源。磁盘、工作区和终端历史会保留，正在运行的进程会停止。cmux vm resume 会重新启动机器。打开已暂停的机器或在其上运行命令也会启动它。",
       "pauseIdle": "机器空闲时不会自动暂停。机器会一直运行，直到你暂停或删除它。",
@@ -2997,9 +3093,11 @@
       "errPlan": "Cloud VM 需要付费套餐",
       "fixPlan": "免费账户无法创建机器。请在定价页面升级。",
       "errSize": "所选规格需要更高级的套餐",
-      "fixSize": "大于 24 GB 的机器需要 cmux Max。请选择更小的规格或升级。",
+      "fixSize": "大于 32 GB 的机器需要 cmux Max。请选择更小的规格或升级。",
       "errLimit": "已达到活跃机器数量上限",
       "fixLimit": "暂停或删除一台机器后重试。",
+      "errPool": "Cloud VM 资源不足",
+      "fixPool": "你的活跃机器已经用完了共享的 vCPU 或内存。暂停或删除一台机器、选择更小的规格，或升级到 Max。",
       "errLocked": "机器已被锁定",
       "fixLocked": "你的付费套餐已到期，且该机器创建已超过 7 天。升级后即可重新连接。你的文件会被保留。",
       "errAgentMissing": "claude 或 codex: command not found",
@@ -5102,7 +5200,8 @@
   "pricing": {
     "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
     "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
-    "signedOutSignIn": "登录"
+    "signedOutSignIn": "登录",
+    "manageInAppStore": "在 App Store 中管理"
   },
   "platforms": {
     "macos": "macOS",
@@ -5268,6 +5367,60 @@
     "signedOutTitle": "登录以授权 coderouter",
     "signedOutBody": "一个命令行应用正在等待你登录。使用你的 cmux 账户登录，即可完成此终端的连接。如果这不是你发起的请求，请关闭此页面。",
     "signInButton": "登录"
+  },
+  "cmuxSignIn": {
+    "signInTitle": "登录 cmux",
+    "signInSubtitle": "一个账号即可使用应用、cloud 和控制台。",
+    "signUpTitle": "创建 cmux 账号",
+    "signUpSubtitle": "一个账号即可使用应用、cloud 和控制台。",
+    "continueWithProvider": "使用 {provider} 继续",
+    "signInWithPasskey": "使用通行密钥登录",
+    "orContinueWith": "或继续使用",
+    "emailLabel": "电子邮件",
+    "emailPlaceholder": "you@company.com",
+    "continueWithEmail": "使用邮箱继续",
+    "emailCodeTab": "邮箱",
+    "emailPasswordTab": "邮箱和密码",
+    "passwordLabel": "密码",
+    "repeatPasswordLabel": "确认密码",
+    "signInButton": "登录",
+    "createAccountButton": "创建账号",
+    "forgotPassword": "忘记密码？",
+    "noAccount": "还没有账号？",
+    "signUpLink": "注册",
+    "haveAccount": "已有账号？",
+    "signInLink": "登录",
+    "checkEmailTitle": "查看你的邮箱",
+    "checkEmailBody": "输入我们发送到 {email} 的 6 个字符的验证码。",
+    "codeLabel": "验证码",
+    "back": "返回",
+    "resendCode": "重新发送验证码",
+    "chooseAccountTitle": "选择账号",
+    "chooseAccountSubtitle": "以继续使用 cmux",
+    "useAnotherAccount": "使用其他账号",
+    "forgetAccount": "从此列表中移除 {account}",
+    "signedOut": "已退出",
+    "signingInAs": "正在以 {account} 登录…",
+    "sessionEnded": "此账号已退出。请重新登录以继续。",
+    "redirecting": "正在登录…",
+    "lastUsed": "上次使用",
+    "legal": "继续即表示你同意{terms}和{privacy}。",
+    "termsOfService": "服务条款",
+    "privacyPolicy": "隐私政策",
+    "signUpDisabled": "目前无法创建新账号。",
+    "noMethods": "目前无法登录，请稍后再试。",
+    "embeddedDisabled": "嵌入页面中的登录按钮已停用。请在单独的标签页中打开此页面。",
+    "errorInvalidEmail": "请输入有效的邮箱地址。",
+    "errorPasswordRequired": "请输入密码。",
+    "errorPasswordTooShort": "请至少使用 {min} 个字符。",
+    "errorPasswordTooLong": "最多使用 {max} 个字符。",
+    "errorPasswordsDontMatch": "两次输入的密码不一致。",
+    "errorWrongPassword": "邮箱或密码不正确。",
+    "errorInvalidCode": "验证码无效。请检查邮箱后重试。",
+    "errorInvalidTotp": "双重验证码无效。",
+    "errorSignUpNotAllowed": "目前无法创建新账号。",
+    "errorPasskey": "通行密钥登录未完成。请重试或改用其他方式。",
+    "errorGeneric": "出了点问题，请重试。"
   },
   "MobileRelease106": {
     "title": "1.0.6 更新内容",

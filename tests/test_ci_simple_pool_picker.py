@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -44,10 +46,10 @@ class PickRuleTests(unittest.TestCase):
                 picker.BLACKSMITH[0],
             ),
             (
-                "queued release protects its pool",
+                "queued release consumes only its slots",
                 picker.State(jobs=1, blacksmith=(pool(picker.BLACKSMITH[0], 5, reserved=1),
                                                  pool(picker.BLACKSMITH[1], 10))),
-                picker.BLACKSMITH[1],
+                picker.BLACKSMITH[0],
             ),
             (
                 "all full uses the lowest queued plus running ratio",
@@ -72,8 +74,188 @@ class PickRuleTests(unittest.TestCase):
         self.assertEqual(picker.pick(state).label, "glaeda-std-xcode-26.6")
 
 
+LIGHT = "glaeda-light-xcode-26.6"
+STD = "glaeda-std-xcode-26.6"
+OWNED_ENV = {
+    "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+    "CI_PR_POOL_OWNED": "1",
+    "CI_OWNED_POOL_SLOTS": json.dumps({STD: 42, LIGHT: 4, "glaeda-root-light-xcode-26.6": 2}),
+    "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode_26.6.app",
+    "RUN_MACOS": "true",
+}
+
+
+def runner(name, labels, *, busy, status="online"):
+    return {"name": name, "status": status, "busy": busy, "labels": [{"name": label} for label in labels]}
+
+
+def light_runner(index, *, busy, status="online"):
+    return runner(f"light-{index}", [LIGHT, "glaeda-root-light-xcode-26.6", "glaeda-side-light-xcode-26.6"],
+                  busy=busy, status=status)
+
+
+def std_runner(index, *, busy):
+    return runner(f"std-{index}", [STD, "glaeda-root-std-xcode-26.6", "glaeda-gui-std-xcode-26.6"], busy=busy)
+
+
+def snapshot(pools):
+    return {"version": 1, "generated_at": "2026-10-01T04:15:00Z", "pools": pools}
+
+
+def observed(runners, pools, *, jobs=4, env=None, runners_error=None):
+    """observe() over a fake live read: these runners, this janitor snapshot."""
+    class Fake(picker.LiveState):
+        def runners(self):
+            if runners_error:
+                raise runners_error
+            return runners
+
+        def snapshot(self):
+            return snapshot(pools)
+
+        def active_jobs(self):
+            # GitHub has no repository-wide job listing (HTTP 404).
+            raise OSError("HTTP Error 404: Not Found")
+
+    original = picker.LiveState
+    picker.LiveState = Fake
+    try:
+        return picker.observe(token="t", repository="manaflow-ai/cmux", jobs=jobs,
+                              env=env or OWNED_ENV, fork=False)
+    finally:
+        picker.LiveState = original
+
+
+class ConfiguredPoolTests(unittest.TestCase):
+    """Only the pools CI_OWNED_POOL_SLOTS lists are owned pools."""
+
+    def test_an_unlisted_owned_looking_label_is_never_picked(self):
+        # Ten idle aws runners carry glaeda-std-xcode-26.3, which sorts before
+        # the minis' 26.6; picking it sent compile admission to five runners
+        # per EC2 Mac while the minis sat idle (cmux#17207).
+        aws = [runner(f"aws-{index}", ["glaeda-std-xcode-26.3", "glaeda-root-std-xcode-26.3"], busy=False)
+               for index in range(10)]
+        minis = [std_runner(index, busy=False) for index in range(8)]
+        choice = picker.pick(observed(aws + minis, {}))
+        self.assertEqual(choice.label, STD)
+        busy_minis = [std_runner(index, busy=True) for index in range(8)]
+        self.assertNotEqual(picker.pick(observed(aws + busy_minis, {})).label, "glaeda-std-xcode-26.3")
+
+
+class LiveRunnerReadTests(unittest.TestCase):
+    """The organization has hundreds of runners; the minis are not on the first page."""
+
+    def test_runners_reads_every_page(self):
+        pages = {
+            1: [runner(f"other-{index}", ["blacksmith-6vcpu-macos-26"], busy=False) for index in range(100)],
+            2: [std_runner(index, busy=False) for index in range(30)],
+        }
+        asked = []
+
+        class Paged(picker.LiveState):
+            def _get(self, path):
+                asked.append(path)
+                page = int(path.rsplit("page=", 1)[1]) if "&page=" in path else 1
+                return {"total_count": 130, "runners": pages.get(page, [])}
+
+        runners = Paged("t", "manaflow-ai/cmux").runners()
+        self.assertEqual(len(runners), 130)
+        self.assertEqual(len(asked), 2)
+
+
+class OwnedQueueTests(unittest.TestCase):
+    """An owned pool's free runners are its idle runners less the jobs queued on its family."""
+
+    def test_many_queued_on_light_and_none_free_never_picks_light(self):
+        # 2026-10-01 04:15Z: 25 jobs queued on the light family (14 root, 6
+        # plain, 5 side), its 3 online runners busy and 1 offline, and every std
+        # mini busy. #16306's admission still went to light and waited an hour.
+        runners = [light_runner(i, busy=True) for i in range(3)] + [light_runner(3, busy=False, status="offline")]
+        runners += [std_runner(i, busy=True) for i in range(12)]
+        pools = {"glaeda-root-light-xcode-26.6": {"queued": 14, "running": 1},
+                 LIGHT: {"queued": 6, "running": 2},
+                 "glaeda-side-light-xcode-26.6": {"queued": 5, "running": 1},
+                 STD: {"queued": 4, "running": 3},
+                 picker.BLACKSMITH[0]: {"queued": 0, "running": 2},
+                 picker.BLACKSMITH[1]: {"queued": 0, "running": 4}}
+        choice = picker.pick(observed(runners, pools))
+        self.assertFalse(choice.owned, choice)
+        self.assertNotEqual(choice.label, LIGHT)
+        self.assertTrue(choice.label.startswith("blacksmith-"), choice)
+
+    def test_idle_runners_do_not_count_while_their_family_has_a_queue(self):
+        # Two light runners idle, but six jobs queued on the light root label:
+        # they take those runners first.
+        runners = [light_runner(0, busy=False), light_runner(1, busy=False), light_runner(2, busy=True)]
+        pools = {"glaeda-root-light-xcode-26.6": {"queued": 6, "running": 1}}
+        state = observed(runners, pools, jobs=1)
+        light = next(pool for pool in state.owned if pool.label == LIGHT)
+        self.assertEqual((light.available, light.queued), (0, 6))
+        self.assertFalse(picker.pick(state).owned)
+        # With the queue drained, the idle runners take the run.
+        self.assertEqual(picker.pick(observed(runners, {}, jobs=1)).label, LIGHT)
+
+    def test_std_is_preferred_over_light(self):
+        runners = [light_runner(i, busy=False) for i in range(4)] + [std_runner(i, busy=False) for i in range(6)]
+        self.assertEqual(picker.pick(observed(runners, {}, jobs=4)).label, STD)
+
+    def test_without_a_runners_read_no_owned_pool_is_eligible(self):
+        state = observed([], {}, runners_error=OSError("HTTP Error 403"))
+        self.assertEqual(state.owned, ())
+        self.assertFalse(picker.pick(state).owned)
+        # No token at all: no live read either.
+        offline = picker.observe(token="", repository="manaflow-ai/cmux", jobs=1, env=OWNED_ENV, fork=False)
+        self.assertFalse(picker.pick(offline).owned)
+
+    def test_blacksmith_load_comes_from_the_snapshot(self):
+        pools = {picker.BLACKSMITH[0]: {"queued": 7, "running": 5, "reserved_queued": 1},
+                 picker.BLACKSMITH[1]: {"queued": 2, "running": 10}}
+        state = observed([], pools, runners_error=OSError("no runners"))
+        by_label = {pool.label: pool for pool in state.blacksmith}
+        self.assertEqual((by_label[picker.BLACKSMITH[0]].queued, by_label[picker.BLACKSMITH[0]].reserved), (7, 1))
+        self.assertEqual(by_label[picker.BLACKSMITH[1]].running, 10)
+        # The reserved count consumes one slot; the pool may still be picked
+        # when its remaining capacity is sufficient.
+        self.assertNotEqual(picker.pick(state).label, picker.BLACKSMITH[0])
+
+    def test_logged_picker_inputs_use_unreserved_slots(self):
+        # Janitor snapshots at 00:32 and 00:52 had ordinary CI jobs falsely
+        # counted as reservations. The two real nightly jobs consume only
+        # two 6vcpu-26 slots; PRs can still use any remaining capacity.
+        at_0032 = picker.State(
+            jobs=5,
+            blacksmith=(
+                pool(picker.BLACKSMITH[0], 5, running=5, queued=7),
+                pool(picker.BLACKSMITH[1], 10, running=10, queued=43, reserved=2),
+                pool(picker.BLACKSMITH[2], 10, running=8, queued=13),
+            ),
+        )
+        self.assertEqual(picker.pick(at_0032).label, picker.BLACKSMITH[2])
+
+        at_0052 = picker.State(
+            jobs=3,
+            blacksmith=(
+                pool(picker.BLACKSMITH[0], 5, running=4, queued=1),
+                pool(picker.BLACKSMITH[1], 10, running=10, queued=37, reserved=2),
+                pool(picker.BLACKSMITH[2], 10, running=7, queued=4),
+            ),
+        )
+        self.assertEqual(picker.pick(at_0052).label, picker.BLACKSMITH[2])
+
+    def test_an_owned_pick_names_a_blacksmith_retry_runner(self):
+        """github-actions[bot]'s rescue attempt 3 takes pr_retry_runner; the owned label kept it queued."""
+        runners = [std_runner(i, busy=False) for i in range(6)]
+        pools = {picker.BLACKSMITH[0]: {"queued": 9, "running": 5}}
+        choice = picker.pick(observed(runners, pools, jobs=4))
+        self.assertEqual(choice.label, STD)
+        values = picker.write_outputs(choice, 4, env=OWNED_ENV)
+        self.assertEqual(values["runner"], STD)
+        self.assertEqual(values["retry_runner"], picker.BLACKSMITH[1])
+        self.assertTrue(values["retry_runner"].startswith("blacksmith-"))
+
+
 class LiveReaderTests(unittest.TestCase):
-    def test_live_reader_batches_runners_and_jobs(self):
+    def test_live_reader_reads_the_org_runners_once(self):
         class Fake(picker.LiveState):
             def __init__(self):
                 super().__init__("token", "manaflow-ai/cmux")
@@ -81,16 +263,12 @@ class LiveReaderTests(unittest.TestCase):
 
             def _get(self, path):
                 self.paths.append(path)
-                if "/runners" in path:
-                    return {"runners": []}
-                return {"jobs": []}
+                return {"runners": []}
 
         api = Fake()
         self.assertEqual(api.runners(), [])
-        self.assertEqual(api.active_jobs(), [])
-        self.assertEqual(len(api.paths), 2)
+        self.assertEqual(len(api.paths), 1)
         self.assertIn("/orgs/manaflow-ai/actions/runners", api.paths[0])
-        self.assertIn("/repos/manaflow-ai/cmux/actions/jobs", api.paths[1])
 
     def test_outputs_keep_workflow_contract_for_owned_choice(self):
         values = picker.write_outputs(
@@ -123,21 +301,11 @@ class LiveReaderTests(unittest.TestCase):
         self.assertIn(" swift-package ", routed["owned_jobs"])
 
     def test_only_explicitly_allowed_fork_can_use_owned_pool(self):
-        base = {
-            "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-            "CI_PR_POOL_OWNED": "1",
-            "CI_OWNED_POOL_SLOTS": '{"glaeda-std-xcode-26.6": 2}',
-            "RUN_MACOS": "true",
-            "MACOS_RUNNER_PR": picker.BLACKSMITH[1],
-        }
-        trusted = picker.observe(token="", repository="manaflow-ai/cmux", jobs=1,
-                                 env={**base, "CI_PR_POOL_FORK_ALLOWED": "1"},
-                                 fork=False)
-        untrusted = picker.observe(token="", repository="manaflow-ai/cmux", jobs=1,
-                                   env=base, fork=True)
+        runners = [std_runner(i, busy=False) for i in range(2)]
+        trusted = observed(runners, {}, jobs=1, env={**OWNED_ENV, "CI_PR_POOL_FORK_ALLOWED": "1"})
+        untrusted = dataclasses.replace(trusted, fork=True)
         self.assertTrue(picker.pick(trusted).owned)
         self.assertFalse(picker.pick(untrusted).owned)
-
 
 if __name__ == "__main__":
     unittest.main()

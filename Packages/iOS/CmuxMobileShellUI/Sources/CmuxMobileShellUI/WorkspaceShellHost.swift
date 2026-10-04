@@ -48,6 +48,7 @@ struct WorkspaceShellHost: View {
             showAddSSHComputer: showAddSSHComputer,
             taskComposerPresentation: taskComposerPresentation
         )
+        .modifier(TaskComposerPrefetchModifier(store: store))
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()
         }
