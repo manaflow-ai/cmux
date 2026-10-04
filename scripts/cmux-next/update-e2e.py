@@ -277,11 +277,12 @@ def main():
         shell_pid = wait(lambda: open(f"{work}/shell.pid").read().strip() if os.path.exists(f"{work}/shell.pid") else None, 10)
 
         s, sparkle_log = stage_update(app, "quit path")
-        delta_len = to_item["deltas"].get(from_item["build"])
-        lengths = [int(x) for x in re.findall(r"download expected length: (\d+)", sparkle_log)]
-        if delta_len:
-            record("delta update used", delta_len in lengths, f"expected lengths {lengths}, delta {delta_len}")
-
+        if to_item["deltas"].get(from_item["build"]):
+            # Sparkle keeps the download in its cache until it installs.
+            cache = f"{HOME}/Library/Caches/{BUNDLE_ID}"
+            files = [f for _, _, names in os.walk(cache) for f in names]
+            deltas = [f for f in files if f.endswith(".delta")]
+            record("delta update used", bool(deltas), ", ".join(deltas) or f"no .delta in the Sparkle cache ({len(files)} files)")
         app.quit()
         record("install on quit replaced the bundle", bool(wait(lambda: bundle_build(path) == to_item["build"], 300, 2)),
                f"bundle build {bundle_build(path)}")
