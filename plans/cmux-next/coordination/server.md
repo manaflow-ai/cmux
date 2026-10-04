@@ -1,7 +1,7 @@
 # Lane: server
 
 ## Active streams
-_No active streams._
+- lane 10 next (after relaygate round 3): bundle the server LaunchAgent plist (`Contents/Library/LaunchAgents/com.cmux.server.plist`) and its `cmux host run` binary into the app bundle, and the privileged helper (`bundle-server-helper.sh`) Team-ID signed, in the build scripts; precondition for the live check in plans/cmux-next/server-live-check.md. ConversationGate connection follows with the pairing-record and recheck drivers (entry serves DenyAllGate until then: UNVERIFIED in production).
 
 ## Landed
 - 2026-10-04 (this push) app/server: real status and Stop Serving (server.md 9.4, 13, 14). `LocalServerSource` reads `cmux server status --json` and `cmux host roles --json` from the bundled CLI (file events, no timer) and replaces the mock in `CloudPairingSource.app`; `ServerHealthFixer` runs allowlisted helper fixes from a user click only; `ServerStopServing` reverts through the helper and removes the LaunchAgent and the helper, with `ServerFixGate` (FIFO) and an app-side fix ledger (0600, per helper label) so a never-approved helper needs no prompt; `ProcessRunner` public, kills its child on cancel and on timeout only when started. New refusal and Server strings in 21 languages. No new action or op (server lead v3, helper C)

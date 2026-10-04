@@ -262,6 +262,15 @@ function sharedChunkName(id: string): string | null {
   ) {
     return "markdown-vendor";
   }
+  // The accessibility wrapper's libraries (src/ui: Base UI, its Floating UI, TanStack Virtual). Only
+  // the pages that use src/ui load this chunk; it must not join the eager `vendor` chunk.
+  if (
+    /\/node_modules\/(@base-ui|@floating-ui|@tanstack\/(react-)?virtual-core|@tanstack\/react-virtual|reselect|use-sync-external-store)\//.test(
+      id,
+    )
+  ) {
+    return "ui-vendor";
+  }
   // Framework code both surfaces share. Pinning it to a stable `vendor`
   // chunk name keeps the shared chunk from being renamed (and rehashed)
   // whenever an unrelated shared module changes.

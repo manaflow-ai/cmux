@@ -10,7 +10,17 @@ import {
   parseRecents,
   tildePath,
 } from "../src/viewer-empty/ops";
-import { breadcrumb, parentPath, pickerKeyAction, pickerRows, queryJump } from "../src/viewer-empty/pickerModel";
+import {
+  breadcrumb,
+  folderQuery,
+  isPathQuery,
+  parentPath,
+  pathQuery,
+  pickerKeyAction,
+  pickerLocations,
+  pickerRows,
+  queryJump,
+} from "../src/viewer-empty/pickerModel";
 import { relativeTime } from "../src/viewer-empty/time";
 import { emptySourceOptions } from "../src/viewer-empty/DiffEmptyState";
 
@@ -113,16 +123,63 @@ describe("picker model", () => {
     expect(pickerKeyAction({ key: "Escape" }, at(""))).toEqual({ kind: "cancel" });
     expect(pickerKeyAction({ key: "n", ctrlKey: true }, at(""))).toEqual({ kind: "move", delta: 1 });
     expect(pickerKeyAction({ key: "ArrowDown", metaKey: true }, at(""))).toBeNull();
+    // Cmd-Up is the parent folder; other Cmd and Ctrl chords are the app's.
+    expect(pickerKeyAction({ key: "ArrowUp", metaKey: true }, at("ab", 1))).toEqual({ kind: "up" });
+    expect(pickerKeyAction({ key: "ArrowUp", metaKey: true, shiftKey: true }, at(""))).toBeNull();
+    expect(pickerKeyAction({ key: "s", metaKey: true }, at(""))).toBeNull();
+    expect(pickerKeyAction({ key: "PageDown", ctrlKey: true }, at(""))).toBeNull();
+    expect(pickerKeyAction({ key: "Enter", ctrlKey: true }, at(""))).toBeNull();
+    // Right to left: the inline-end arrow (Left) enters, the inline-start arrow (Right) goes up.
+    const rtl = (query: string, caret = query.length) => ({ ...at(query, caret), dir: "rtl" as const });
+    expect(pickerKeyAction({ key: "ArrowLeft" }, rtl("ab"))).toEqual({ kind: "enter" });
+    expect(pickerKeyAction({ key: "ArrowRight" }, rtl("ab", 0))).toEqual({ kind: "up" });
+    expect(pickerKeyAction({ key: "ArrowRight" }, rtl("ab"))).toBeNull();
   });
 
-  test("jumps: ~, / and name/", () => {
+  test("jumps: name/ only; ~ and / are path mode now", () => {
     const rows = pickerRows(entries, "", "folder", new Set());
-    expect(queryJump("~", rows, "/h")).toEqual({ path: "/h" });
-    expect(queryJump("~", rows, null)).toEqual({ path: "~" });
-    expect(queryJump("/", rows, "/h")).toEqual({ path: "/" });
-    expect(queryJump("alpha/", rows, "/h")).toEqual({ path: "/h/Alpha" });
-    expect(queryJump("nope/", rows, "/h")).toBeNull();
-    expect(queryJump("al", rows, "/h")).toBeNull();
+    expect(queryJump("~", rows)).toBeNull();
+    expect(queryJump("/", rows)).toBeNull();
+    expect(queryJump("alpha/", rows)).toEqual({ path: "/h/Alpha" });
+    expect(queryJump("nope/", rows)).toBeNull();
+    expect(queryJump("al", rows)).toBeNull();
+    expect(queryJump("~/alpha/", rows)).toBeNull();
+  });
+
+  test("path mode: / and ~/ queries name a folder and a filter", () => {
+    expect(isPathQuery("~")).toBe(false);
+    expect(isPathQuery("~/")).toBe(true);
+    expect(pathQuery("fun", "/h")).toBeNull();
+    expect(pathQuery("/", "/h")).toEqual({ dir: "/", rest: "" });
+    expect(pathQuery("/Us", "/h")).toEqual({ dir: "/", rest: "Us" });
+    expect(pathQuery("/tmp/a", "/h")).toEqual({ dir: "/tmp", rest: "a" });
+    expect(pathQuery("~/", "/h/")).toEqual({ dir: "/h", rest: "" });
+    expect(pathQuery("~/fun/cm", "/h")).toEqual({ dir: "/h/fun", rest: "cm" });
+    expect(pathQuery("~/fun/", null)).toEqual({ dir: "~/fun", rest: "" });
+    expect(folderQuery("/h/fun", "/h")).toBe("~/fun/");
+    expect(folderQuery("/h", "/h")).toBe("~/");
+    expect(folderQuery("/tmp", "/h")).toBe("/tmp/");
+    expect(folderQuery("/", "/h")).toBe("/");
+  });
+
+  test("Locations: home, the root, then recent folders, without the shown folder", () => {
+    const labels = { home: "Home", computer: "Computer" };
+    const names = (locations: ReturnType<typeof pickerLocations>) => locations.map((row) => `${row.name}=${row.path}`);
+    expect(
+      names(
+        pickerLocations({
+          home: "/h",
+          current: "/h",
+          recents: ["/h/a", "/h/b", "/h/a", "/x/c", "/y/d"],
+          mode: "folder",
+          labels,
+        }),
+      ),
+    ).toEqual(["Computer=/", "a=/h/a", "b=/h/b", "c=/x/c"]);
+    expect(
+      names(pickerLocations({ home: "/h", current: "/tmp", recents: ["/h/n/x.md"], mode: "file", labels })),
+    ).toEqual(["Home=/h", "Computer=/", "n=/h/n"]);
+    expect(names(pickerLocations({ home: null, current: "/", recents: [], mode: "folder", labels }))).toEqual([]);
   });
 
   test("breadcrumb and parent", () => {
