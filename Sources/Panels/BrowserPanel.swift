@@ -4234,8 +4234,9 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func applyProxyConfigurationIfAvailable() {
         guard #available(macOS 14.0, *) else { return }
-        // A browser REPL session's proxy store keeps the proxy it was given.
-        if BrowserReplProxyStores.owns(webView.configuration.websiteDataStore) { return }
+        // A live browser REPL session's proxy store keeps the proxy it was
+        // given; once the session ends the store is the browser's again.
+        if BrowserReplProxyStores.shared.owns(webView.configuration.websiteDataStore) { return }
 
         if cloudBrowserMachineID != nil {
             if let endpoint = cloudBrowserProxyEndpoint, let address = cloudAccess.model?.target.host {

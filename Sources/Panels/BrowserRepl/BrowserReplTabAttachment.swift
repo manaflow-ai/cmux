@@ -1226,18 +1226,3 @@ struct BrowserReplContextOptions {
     /// block subresource loads.
     var ruleList: WKContentRuleList?
 }
-
-/// Data stores created for `session.configure({ proxy })`. Their proxy is
-/// fixed; panel proxy mirroring leaves them alone.
-@MainActor
-enum BrowserReplProxyStores {
-    private static let stores = NSHashTable<WKWebsiteDataStore>.weakObjects()
-
-    static func register(_ store: WKWebsiteDataStore) {
-        stores.add(store)
-    }
-
-    static func owns(_ store: WKWebsiteDataStore) -> Bool {
-        stores.contains(store)
-    }
-}

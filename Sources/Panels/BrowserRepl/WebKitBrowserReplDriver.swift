@@ -197,6 +197,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             self.clearSessionLabels()
             self.closeOpenedTabs()
+            // The agent's proxy ends with the session: a tab it kept, now
+            // the user's, and any tab opened from one on the same private
+            // store go back to the browser's own proxy settings, which every
+            // tab applies again on this notification.
+            self.proxyDataStore = nil
+            if BrowserReplProxyStores.shared.sessionEnded(sessionID) {
+                NotificationCenter.default.post(name: .browserSystemProxySettingsDidChange, object: nil)
+            }
             self.releaseDownloadWaiters()
             for directory in self.fileChooserDirectories {
                 try? FileManager.default.removeItem(at: directory)
@@ -734,7 +742,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "session.configure: content rules come from the domain policy")
         }
         if params.keys.contains("proxy") {
-            proxyDataStore = try Self.proxyDataStore(params["proxy"] as? [String: Any])
+            proxyDataStore = try Self.proxyDataStore(params["proxy"] as? [String: Any], sessionID: sessionID)
         }
         contextOptions = options
         BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID)
@@ -764,9 +772,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// A non-persistent data store whose connections go through `proxy`, or
-    /// `nil` to clear it.
+    /// `nil` to clear it. The proxy is `sessionID`'s and ends with it
+    /// (``BrowserReplProxyStores``).
     @MainActor
-    private static func proxyDataStore(_ proxy: [String: Any]?) throws -> WKWebsiteDataStore? {
+    private static func proxyDataStore(_ proxy: [String: Any]?, sessionID: String) throws -> WKWebsiteDataStore? {
         guard let proxy, let server = proxy["server"] as? String, !server.isEmpty else { return nil }
         let raw = server.contains("://") ? server : "http://\(server)"
         guard let url = URL(string: raw), let host = url.host, !host.isEmpty else {
@@ -794,7 +803,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         let store = WKWebsiteDataStore.nonPersistent()
         store.proxyConfigurations = [configuration]
-        BrowserReplProxyStores.register(store)
+        BrowserReplProxyStores.shared.register(store, sessionID: sessionID)
         return store
     }
 
