@@ -3082,18 +3082,6 @@
       },
       "ms": 1063
     },
-    "edge.sessions-same-tab": {
-      "value": {
-        "bSaw": "Count 1",
-        "aSaw": "Count 1",
-        "concurrent": true,
-        "after": "Count 3",
-        "closedForB": {
-          "error": "Target page, context or browser has been closed"
-        }
-      },
-      "ms": 1407
-    },
     "edge.web-process-crash": {
       "value": {
         "killed": true,

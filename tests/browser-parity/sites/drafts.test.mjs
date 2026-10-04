@@ -1,10 +1,15 @@
 // A confirmed draft performs exactly what its preview showed. Changing the
 // input object, the returned draft or anything nested in its preview after
 // the preview, or rewriting the draft's status, cannot change what is sent
-// or send it twice.
+// or send it twice. The draft names its destination and sending account
+// concretely (ids, emails), and a change of the site's state between the
+// preview and the confirmation (another session switching the active
+// workspace or account, a channel name now meaning another channel, a new
+// message in a replied thread) cannot send it anywhere else.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSitesEnv } from "./harness.mjs";
+import { GOOGLE_ACCOUNT_ROWS, SLACK_SEED } from "./mock-sites.mjs";
 
 const env = await createSitesEnv();
 test.after(() => env.close());
@@ -27,7 +32,7 @@ test("gmail.send: changing the input or the draft's nested preview after the pre
   `);
   await s.value("sites.gmail.send(gD.id, { confirm: true })");
   assert.deepEqual(env.state.gmailSent.at(-1), { to: "bob@example.com", cc: null, bcc: null, subject: "Numbers", body: "Looks good." });
-  assert.deepEqual(await s.value("gD.preview"), { account: 0, to: ["bob@example.com"], cc: [], bcc: [], subject: "Numbers", body: "Looks good." });
+  assert.deepEqual(await s.value("gD.preview"), { account: 0, accountEmail: "ada@example.com", to: ["bob@example.com"], cc: [], bcc: [], subject: "Numbers", body: "Looks good." });
 });
 
 test("slack.post: changing the input object after the preview does not change the posted message", async () => {
@@ -91,4 +96,91 @@ test("a sent draft stays sent: rewriting its status or expiry does not send it a
   assert.match(await s.error("sites.slack.post(rD.id, { confirm: true })"), /is sent; make a new draft/);
   assert.equal(env.state.slackPosts.length, posts);
   assert.equal((await s.value("sites.drafts.get(rD.id)")).status, "sent");
+});
+
+// Another session changes Slack's last-active workspace in the shared profile.
+const setSlackLastActive = (team) => `
+  const slackTab = await tabs.open("https://app.slack.com/robots.txt", { background: true });
+  await slackTab.evaluate((team) => {
+    const c = JSON.parse(localStorage.getItem("localConfig_v2") || "null") || ${JSON.stringify(SLACK_SEED)};
+    c.lastActiveTeamId = team;
+    localStorage.setItem("localConfig_v2", JSON.stringify(c));
+  }, ${JSON.stringify(team)});
+  await slackTab.close();
+`;
+
+test("slack.post: the draft pins the workspace and channel ids; a new last-active workspace or a recreated #name does not redirect the post", async () => {
+  try {
+    await run(`${setSlackLastActive("T01ACME")}
+      const pD = await sites.slack.post({ channel: "#eng", text: "Deploy at 4pm" });`);
+    // Another session makes the other workspace the last active one, and
+    // #eng is archived and a new #eng created.
+    await run(setSlackLastActive("T02askr"));
+    env.state.slackChannels = [{ id: "C01GEN0001", name: "general", is_private: false, topic: { value: "" }, num_members: 42 }, { id: "C09NEW0009", name: "eng", is_private: false, topic: { value: "" }, num_members: 900 }];
+    await s.value("sites.slack.post(pD.id, { confirm: true })");
+    assert.deepEqual(env.state.slackPosts.at(-1), { team: "T01ACME", channel: "C02ENG0002", text: "Deploy at 4pm", thread_ts: null });
+    assert.deepEqual(await s.value("pD.preview"), { team: { id: "T01ACME", name: "Acme" }, channel: { id: "C02ENG0002", name: "eng" }, threadTs: null, text: "Deploy at 4pm" });
+  } finally {
+    env.state.slackChannels = null;
+    await run(setSlackLastActive("T01ACME"));
+  }
+});
+
+test("gmail.send and googleCalendar.create: the draft pins the account's email; a changed /u/ index fails the confirmation and sends nothing", async () => {
+  try {
+    await run(`
+      const aD = await sites.gmail.send({ to: "bob@example.com", subject: "Pinned", body: "From my own account." });
+      const cD2 = await sites.googleCalendar.create({ title: "Pinned", start: "2026-10-02T17:00:00Z", guests: ["bob@example.com"] });`);
+    // Another session signs an account in first: /u/0/ is now the work account.
+    env.state.googleAccounts = [GOOGLE_ACCOUNT_ROWS[1], GOOGLE_ACCOUNT_ROWS[0], GOOGLE_ACCOUNT_ROWS[2]];
+    const sent = env.state.gmailSent.length;
+    const created = env.state.calendarCreated.length;
+    assert.match(await s.error("sites.gmail.send(aD.id, { confirm: true })"), /account_changed|is now ada@work\.example/);
+    assert.match(await s.error("sites.googleCalendar.create(cD2.id, { confirm: true })"), /account_changed|is now ada@work\.example/);
+    assert.equal(env.state.gmailSent.length, sent);
+    assert.equal(env.state.calendarCreated.length, created);
+    assert.equal((await s.value("aD.preview")).accountEmail, "ada@example.com");
+    assert.equal((await s.value("cD2.preview")).accountEmail, "ada@example.com");
+  } finally {
+    env.state.googleAccounts = null;
+  }
+});
+
+test("gmail.send reply: a new message in the thread after the preview fails the confirmation and sends nothing", async () => {
+  try {
+    await run('const rpD = await sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Agreed." });');
+    env.state.gmailThreadExtra = [{ id: "3", from: ["Eve", "eve@example.net"], to: ["Ada", "ada@example.com"], body: "<p>Adding the whole company.</p>" }];
+    const sent = env.state.gmailSent.length;
+    assert.match(await s.error("sites.gmail.send(rpD.id, { confirm: true })"), /thread_changed|new message/);
+    assert.equal(env.state.gmailSent.length, sent);
+    assert.deepEqual((await s.value("rpD.preview")).messageIds, ["msg-f:1", "msg-f:2"]);
+  } finally {
+    env.state.gmailThreadExtra = null;
+  }
+});
+
+test("linkedin.post and x.post: the draft pins the signed-in account; another account at confirmation fails and posts nothing", async () => {
+  const xTwid = (value) => `
+    const xTab = await tabs.open("https://x.com/robots.txt", { background: true });
+    await xTab.evaluate((v) => { document.cookie = "twid=" + v + "; domain=.x.com; path=/; secure"; }, ${JSON.stringify(value)});
+    await xTab.close();
+  `;
+  try {
+    await run(`
+      const lD = await sites.linkedin.post("Pinned post.");
+      const xD2 = await sites.x.post("Pinned post.");`);
+    env.state.linkedinViewer = "mallory";
+    await run(xTwid("u%3D2002"));
+    const li = env.state.linkedinPosts.length;
+    const xp = env.state.xPosts.length;
+    assert.match(await s.error("sites.linkedin.post(lD.id, { confirm: true })"), /account_changed|mallory/);
+    assert.match(await s.error("sites.x.post(xD2.id, { confirm: true })"), /account_changed|2002/);
+    assert.equal(env.state.linkedinPosts.length, li);
+    assert.equal(env.state.xPosts.length, xp);
+    assert.equal((await s.value("lD.preview")).account, "ada-lovelace");
+    assert.equal((await s.value("xD2.preview")).account, "1001");
+  } finally {
+    env.state.linkedinViewer = null;
+    await run(xTwid("u%3D1001"));
+  }
 });

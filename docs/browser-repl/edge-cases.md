@@ -103,6 +103,6 @@ processes or on a person's window run in the cmux app only.
 | Id | Scenario | cmux behavior | Case |
 | --- | --- | --- | --- |
 | `sessions-two-tabs` | Two REPL sessions, each on its own tab, at once | Both finish with their own results; no cross-talk | `edge.sessions-two-tabs` |
-| `sessions-same-tab` | Two sessions on one tab | Both see each other's changes; concurrent clicks both land; closing by one is seen by the other | `edge.sessions-same-tab` |
+| `sessions-same-tab` | Two sessions on one tab | A tab a running session opened is its own: another session lists it with `ownedBy` and `tabs.use()` fails naming the owner; concurrent calls of the one session both land (sessions share a tab by being one `--session`) | `edge.sessions-same-tab` |
 | `web-process-crash` | The tab's web content process is killed | The page emits `crash`; calls fail as crashed until `reload()` or `goto()`, which recover | `edge.web-process-crash` |
 | `user-click-while-driving` | A person clicks in the pane while a session types | The person's click arrives as trusted input and the session's typing is intact | `edge.user-click-while-driving` |

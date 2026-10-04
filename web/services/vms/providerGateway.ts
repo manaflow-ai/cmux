@@ -19,6 +19,8 @@ import {
   type ProviderTunnel,
   type ProviderTunnelAttachment,
   type ProviderTunnelCreateResult,
+  type VMFirewallRule,
+  type VMFirewallRuleInput,
   type RestoreOptions,
   type SnapshotRef,
   type SSHEndpoint,
@@ -185,6 +187,10 @@ export type VmProviderGatewayShape = {
   readonly attachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<ProviderTunnelAttachment, VmProviderOperationError>;
   readonly detachTunnelNetwork?: (provider: ProviderId, tunnelId: string, networkId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly listNetworkTunnelIds?: (provider: ProviderId, networkId: string) => Effect.Effect<string[], VmProviderOperationError>;
+  readonly listFirewallRules?: (provider: ProviderId, options?: { vmId?: string; vpcId?: string; tunnelId?: string }) => Effect.Effect<VMFirewallRule[], VmProviderOperationError>;
+  readonly getFirewallRule?: (provider: ProviderId, ruleId: string) => Effect.Effect<VMFirewallRule, VmProviderOperationError>;
+  readonly createFirewallRule?: (provider: ProviderId, options: VMFirewallRuleInput) => Effect.Effect<VMFirewallRule, VmProviderOperationError>;
+  readonly deleteFirewallRule?: (provider: ProviderId, ruleId: string) => Effect.Effect<void, VmProviderOperationError>;
 };
 
 export class VmProviderGateway extends Context.Tag("cmux/VmProviderGateway")<
@@ -452,4 +458,24 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       if (!networking.listNetworkTunnelIds) throw new VmOperationUnsupportedError({ provider, operation: "listNetworkTunnelIds" });
       return await networking.listNetworkTunnelIds(networkId);
     }),
+  listFirewallRules: (provider, options) => providerEffect(provider, "listFirewallRules", async () => {
+    const networking = getProvider(provider).privateNetworking;
+    if (!networking?.listFirewallRules) throw new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" });
+    return await networking.listFirewallRules(options);
+  }),
+  getFirewallRule: (provider, ruleId) => providerEffect(provider, "getFirewallRule", async () => {
+    const networking = getProvider(provider).privateNetworking;
+    if (!networking?.getFirewallRule) throw new VmOperationUnsupportedError({ provider, operation: "getFirewallRule" });
+    return await networking.getFirewallRule(ruleId);
+  }),
+  createFirewallRule: (provider, options) => providerEffect(provider, "createFirewallRule", async () => {
+    const networking = getProvider(provider).privateNetworking;
+    if (!networking?.createFirewallRule) throw new VmOperationUnsupportedError({ provider, operation: "createFirewallRule" });
+    return await networking.createFirewallRule(options);
+  }),
+  deleteFirewallRule: (provider, ruleId) => providerEffect(provider, "deleteFirewallRule", async () => {
+    const networking = getProvider(provider).privateNetworking;
+    if (!networking?.deleteFirewallRule) throw new VmOperationUnsupportedError({ provider, operation: "deleteFirewallRule" });
+    await networking.deleteFirewallRule(ruleId);
+  }),
 });

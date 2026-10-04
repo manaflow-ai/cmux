@@ -155,17 +155,24 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   let nextId = 1;
   const modifiersDown = new Set();
 
-  const emit = (event, payload) => {
-    for (const d of drivers) {
-      for (const h of d.listeners.get(event) ?? []) {
-        try {
-          h(payload);
-        } catch (e) {
-          console.error(`driver listener for ${event} failed:`, e);
-        }
+  const emitTo = (d, event, payload) => {
+    for (const h of d.listeners.get(event) ?? []) {
+      try {
+        h(payload);
+      } catch (e) {
+        console.error(`driver listener for ${event} failed:`, e);
       }
     }
   };
+  const emit = (event, payload) => {
+    for (const d of drivers) emitTo(d, event, payload);
+  };
+  // The headers a session other than the tab's creator gets
+  // (Dictionary.removingBrowserReplCredentialHeaders in the app).
+  const CREDENTIAL_HEADERS = new Set(["cookie", "set-cookie", "set-cookie2", "authorization", "proxy-authorization", "x-api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token"]);
+  const withoutCredentials = (headers) => Object.fromEntries(Object.entries(headers).filter(([k]) => !CREDENTIAL_HEADERS.has(k.toLowerCase())));
+  // A tab another live session created: `driver` may not drive it.
+  const ownerRefusing = (tab, driver) => (tab.creator && tab.creator !== driver && drivers.has(tab.creator) ? tab.creator : null);
 
   function frameId(tab, frame) {
     let id = tab.frameIds.get(frame);
@@ -179,7 +186,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   function register(page) {
     if (tabOf.has(page)) return tabOf.get(page);
-    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], clipboardCommand: null, openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), inputDrivers: [], heldKeys: new Map(), heldButtons: new Map() };
+    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], clipboardCommand: null, openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), inputDrivers: [], heldKeys: new Map(), heldButtons: new Map(), requestRecipients: new Map() };
     tabs.set(tab.targetId, tab);
     tabOf.set(page, tab);
     frameId(tab, page.mainFrame());
@@ -233,17 +240,35 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         (e) => emit("download.finished", { targetId, downloadId, error: String(e.message) }),
       );
     });
+    // As in the app (BrowserReplTabOwnership.networkRecipients): a network
+    // event goes to the tab's live creator, the sessions with a network
+    // listener on the tab and the session whose action started the
+    // request; only the creator gets credential headers.
     const net = (event) => (r) => {
       const req = r.request ? r.request() : r;
-      emit(event, {
-        targetId,
-        requestId: req._guid ?? req.url(),
-        url: req.url(),
-        method: req.method(),
-        resourceType: req.resourceType(),
-        status: r.status ? r.status() : undefined,
-        headers: r.headers ? r.headers() : undefined,
-      });
+      const requestId = req._guid ?? req.url();
+      const live = (d) => drivers.has(d);
+      const recipients = new Set([...tab.handled].filter(([d, events]) => live(d) && events.has("network")).map(([d]) => d));
+      if (tab.creator && live(tab.creator)) recipients.add(tab.creator);
+      if (event === "request") {
+        for (const d of tab.inputDrivers) if (live(d)) recipients.add(d);
+        tab.requestRecipients.set(requestId, new Set(recipients));
+      } else {
+        for (const d of tab.requestRecipients.get(requestId) ?? []) if (live(d)) recipients.add(d);
+        if (event !== "response") tab.requestRecipients.delete(requestId);
+      }
+      const headers = r.headers ? r.headers() : undefined;
+      for (const d of recipients) {
+        emitTo(d, event, {
+          targetId,
+          requestId,
+          url: req.url(),
+          method: req.method(),
+          resourceType: req.resourceType(),
+          status: r.status ? r.status() : undefined,
+          headers: headers && d !== tab.creator ? withoutCredentials(headers) : headers,
+        });
+      }
     };
     page.on("request", net("request"));
     page.on("response", net("response"));
@@ -542,16 +567,20 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         .filter((h) => !qs.length || qs.some((q) => h.url.toLowerCase().includes(q) || h.title.toLowerCase().includes(q)))
         .slice(0, limit);
     },
-    "tabs.list": async () =>
-      Promise.all([...tabs.values()].map(async (t) => ({
-        targetId: t.targetId,
-        title: await t.page.title().catch(() => ""),
-        url: t.page.url(),
-        active: t.targetId === activeTarget,
-        windowId: 1,
-        dataStore: DATA_STORE,
-        ...(t.openerTargetId ? { openerTargetId: t.openerTargetId } : {}),
-      }))),
+    "tabs.list": async (_params, driver) =>
+      Promise.all([...tabs.values()].map(async (t) => {
+        const owner = ownerRefusing(t, driver);
+        return {
+          targetId: t.targetId,
+          title: await t.page.title().catch(() => ""),
+          url: t.page.url(),
+          active: t.targetId === activeTarget,
+          windowId: 1,
+          // Another live session's tab: its owner, never its data store.
+          ...(owner ? { ownerSession: owner.sessionId } : { dataStore: DATA_STORE }),
+          ...(t.openerTargetId ? { openerTargetId: t.openerTargetId } : {}),
+        };
+      })),
     // One Playwright context, so one data store for every tab.
     "tabs.dataStore": async ({ targetId } = {}) => {
       if (targetId !== undefined) tabFor(targetId);
@@ -570,7 +599,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       return { targetId: tab.targetId };
     },
     "tab.handleEvents": async ({ targetId, events }, driver) => {
-      const known = ["dialog", "filechooser", "download"];
+      const known = ["dialog", "filechooser", "download", "network"];
       if (!Array.isArray(events) || events.some((e) => !known.includes(e))) {
         throw new DriverError("invalid", `tab.handleEvents: events must be an array of ${known.join(", ")}`);
       }
@@ -968,9 +997,10 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const ACTIONS = /^(input\.|frame\.evaluate$|tab\.navigate$|tab\.reload$|tab\.history$)/;
   const NAVIGATIONS = /^tab\.(navigate|reload|history)$/;
 
-  function createDriver() {
+  function createDriver({ sessionId = `dev-${nextId++}` } = {}) {
     const driver = {
       name: "dev",
+      sessionId,
       listeners: new Map(),
       opened: new Set(),
       sessionName: null,
@@ -998,6 +1028,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         const fn = methods[method];
         if (!fn) throw new DriverError("unsupported", `Unsupported driver method ${method}`);
         if (driver.policyFailure) throw driver.policyFailure;
+        // As the app's driver: a tab another live session created is that
+        // session's alone.
+        const owned = params.targetId && tabs.get(params.targetId);
+        const owner = owned && ownerRefusing(owned, driver);
+        if (owner) {
+          throw new DriverError("denied", `the tab ${params.targetId} belongs to the REPL session "${owner.sessionId}", which is still running; a session drives only the tabs it opened and the user's tabs (tabs.list({ all: true }) shows each tab's owner)`);
+        }
         if (driver.blockReason && params.targetId && GUARDED.test(method) && tabs.has(params.targetId)) {
           const url = tabs.get(params.targetId).page.url();
           const reason = driver.blockReason(url);
@@ -1044,6 +1081,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         drivers.delete(driver);
         for (const tab of tabs.values()) {
           tab.handled.delete(driver);
+          // What the creating session put in the tab's clipboard ends with it.
+          if (tab.creator === driver) tab.clipboard = [];
           // Keys and buttons this session left pressed are released, last
           // pressed first, so the page sees keyup and mouseup.
           for (const [held, k] of [...tab.heldKeys].reverse()) {
@@ -1334,7 +1373,7 @@ export async function runDevCells(cells, { workDir } = {}) {
       const print = (level, text) => lines.push(text);
       let entry = cell.session ? named.get(cell.session) : null;
       if (!entry) {
-        const driver = browser.driver();
+        const driver = browser.driver({ sessionId: cell.session || `oneshot-${outputs.length + 1}` });
         driver.on("download.finished", (p) => p.path && readable.add(fs.realpathSync(p.path)));
         let current = print;
         const host = createNodeHost({ workDir: dir, sessionId: cell.session || `oneshot-${outputs.length + 1}`, print: (l, t) => current(l, t), readable });

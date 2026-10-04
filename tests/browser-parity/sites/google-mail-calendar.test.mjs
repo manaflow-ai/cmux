@@ -44,7 +44,7 @@ test("gmail.attachment downloads through the session", async () => {
 test("gmail.send returns a draft and sends nothing; the confirmed draft sends once, after Gmail's undo window", async () => {
   const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "Re: numbers", body: "Looks good, thanks." })');
   assert.equal(d.status, "draft");
-  assert.deepEqual(d.preview, { account: 0, to: ["bob@example.com"], cc: [], bcc: [], subject: "Re: numbers", body: "Looks good, thanks." });
+  assert.deepEqual(d.preview, { account: 0, accountEmail: "ada@example.com", to: ["bob@example.com"], cc: [], bcc: [], subject: "Re: numbers", body: "Looks good, thanks." });
   assert.match(d.category, /\[9\]/);
   assert.equal(env.state.gmailSent.length, 0);
   assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)})`), /pass \{ confirm: true \}/);

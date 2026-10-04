@@ -68,7 +68,7 @@
         // guests: [emails], timeZone, recurrence: "RRULE:...", uid }.
         // create(draftId, { confirm: true }) saves it (and sends invitations to guests).
         create(input, options) {
-          return t.write("googleCalendar", "create", input, options, (e) => {
+          return t.write("googleCalendar", "create", input, options, async (e) => {
             if (!e || typeof e !== "object" || !e.title) throw new S.SiteError("invalid", "googleCalendar.create: expected { title, start, end }");
             const start = toDate(e.start, "start");
             const end = e.end === undefined ? new Date(start.getTime() + (e.allDay ? 86400000 : 3600000)) : toDate(e.end, "end");
@@ -85,12 +85,16 @@
             base(uid);
             q.set("authuser", String(uid));
             const url = `https://calendar.google.com/calendar/render?${q}`;
+            // The draft pins the account by email: u/N is positional.
+            const g = S.shared.google;
+            const accountEmail = await g.accountEmail(t, "googleCalendar.create", uid);
             return {
               category: guests.length ? "[9] create appointments; [14] sends invitations to guests" : "[9] create appointments",
-              summary: `Create "${e.title}" ${e.allDay ? "all day" : ""} ${start.toISOString()} to ${end.toISOString()} in account u/${uid}${guests.length ? `, inviting ${guests.join(", ")}` : ""}`.replace(/\s+/g, " "),
-              preview: { account: uid, title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, description: e.description || "", location: e.location || "", guests, timeZone: e.timeZone || null, recurrence: e.recurrence || null },
-              run: () =>
-                t.withTab(url, async (page) => {
+              summary: `Create "${e.title}" ${e.allDay ? "all day" : ""} ${start.toISOString()} to ${end.toISOString()} as ${accountEmail} (u/${uid})${guests.length ? `, inviting ${guests.join(", ")}` : ""}`.replace(/\s+/g, " "),
+              preview: { account: uid, accountEmail, title: String(e.title), start: start.toISOString(), end: end.toISOString(), allDay: !!e.allDay, description: e.description || "", location: e.location || "", guests, timeZone: e.timeZone || null, recurrence: e.recurrence || null },
+              run: async () => {
+                await g.checkAccount(t, "googleCalendar.create", uid, accountEmail);
+                return t.withTab(url, async (page) => {
                   t.assertSignedIn("googleCalendar.create", page, SIGN_IN);
                   const save = page.getByRole("button", { name: "Save", exact: true });
                   await save.first().waitFor({ timeout: 30000 });
@@ -101,7 +105,8 @@
                   }
                   await t.waitIn(page, () => !/\/eventedit/.test(location.pathname) || /Event saved|Saved/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "googleCalendar", timeout: 20000, what: "Calendar to save the event" });
                   return { status: "saved", title: String(e.title), start: start.toISOString(), end: end.toISOString() };
-                }),
+                });
+              },
             };
           });
         },

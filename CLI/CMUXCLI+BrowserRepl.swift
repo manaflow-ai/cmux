@@ -11,15 +11,19 @@ extension CMUXCLI {
                 print(Self.browserReplGuideText())
                 return
             case "list":
-                let payload = try client.sendV2(method: "browser.repl.list", params: [:])
+                // The caller's workspace's sessions; `--all-workspaces` lists every one's.
+                let params = try browserReplScopeParams(Array(arguments.dropFirst()), client: client).params
+                let payload = try client.sendV2(method: "browser.repl.list", params: params)
                 if jsonOutput {
                     print(jsonString(payload))
                 } else {
+                    let everyWorkspace = params["all_workspaces"] as? Bool == true
                     for session in payload["sessions"] as? [[String: Any]] ?? [] {
                         let name = session["session"] as? String ?? ""
                         let idle = session["idle_seconds"] as? Int ?? 0
                         let cwd = session["cwd"] as? String ?? ""
-                        print("\(name)\t\(idle)s\t\(cwd)")
+                        let workspace = session["workspace_id"] as? String ?? ""
+                        print(everyWorkspace ? "\(name)\t\(workspace)\t\(idle)s\t\(cwd)" : "\(name)\t\(idle)s\t\(cwd)")
                     }
                 }
                 return
@@ -27,14 +31,19 @@ extension CMUXCLI {
                 try runBrowserReplMCP(Array(arguments.dropFirst()), client: client)
                 return
             case "reset":
-                let (sessionOption, rest) = parseOption(Array(arguments.dropFirst()), name: "--session")
-                guard let session = sessionOption ?? rest.first, !session.isEmpty else {
+                // The session of that name in the caller's workspace;
+                // `--all-workspaces` resets it in every workspace.
+                let (sessionOption, afterSession) = parseOption(Array(arguments.dropFirst()), name: "--session")
+                let (scope, positional) = try browserReplScopeParams(afterSession, client: client)
+                var params = scope
+                guard let session = sessionOption ?? positional.first, !session.isEmpty else {
                     throw CLIError(message: String(
                         localized: "cli.browser.repl.error.sessionRequired",
                         defaultValue: "A session name is required"
                     ))
                 }
-                let payload = try client.sendV2(method: "browser.repl.reset", params: ["session": session])
+                params["session"] = session
+                let payload = try client.sendV2(method: "browser.repl.reset", params: params)
                 print(jsonOutput ? jsonString(payload) : "OK")
                 return
             default:
@@ -73,7 +82,7 @@ extension CMUXCLI {
             var params = baseParams
             params["code"] = code
             if let sessionOption { params["session"] = sessionOption }
-            let ok = try evaluateBrowserRepl(params: params, client: client, jsonOutput: jsonOutput, timeoutMilliseconds: timeoutMilliseconds)
+            let ok = try evaluateBrowserRepl(params: params, client: client, jsonOutput: jsonOutput, timeoutMilliseconds: timeoutMilliseconds).ok
             if !ok {
                 // The error is already printed; only the exit status remains.
                 fflush(stdout)
@@ -84,20 +93,38 @@ extension CMUXCLI {
 
         // Interactive: one line per cell in a session that lives until EOF.
         let session = sessionOption ?? "cli-\(getpid())"
+        // A session belongs to a workspace; once the first cell bound one,
+        // every later call names it, so a change of focus never reaches
+        // another workspace's session.
+        var callParams = baseParams
         defer {
             if sessionOption == nil {
-                _ = try? client.sendV2(method: "browser.repl.reset", params: ["session": session])
+                _ = try? client.sendV2(method: "browser.repl.reset", params: Self.browserReplWorkspaceScope(of: callParams).merging(["session": session]) { _, new in new })
             }
         }
         while true {
             FileHandle.standardError.write(Data("> ".utf8))
             guard let line = readLine(strippingNewline: true) else { break }
             if line.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-            var params = baseParams
+            var params = callParams
             params["code"] = line
             params["session"] = session
-            _ = try evaluateBrowserRepl(params: params, client: client, jsonOutput: jsonOutput, timeoutMilliseconds: timeoutMilliseconds)
+            let outcome = try evaluateBrowserRepl(params: params, client: client, jsonOutput: jsonOutput, timeoutMilliseconds: timeoutMilliseconds)
+            Self.pinBrowserReplWorkspace(outcome.workspaceID, in: &callParams)
         }
+    }
+
+    /// Makes later calls name `workspaceID`, the workspace the app bound the
+    /// session to, instead of the caller's or the focused one.
+    private static func pinBrowserReplWorkspace(_ workspaceID: String?, in params: inout [String: Any]) {
+        guard let workspaceID, params["workspace_id"] == nil else { return }
+        params["workspace_id"] = workspaceID
+        params.removeValue(forKey: "caller_workspace_id")
+    }
+
+    /// The workspace params of `params`, for `browser.repl.reset`.
+    private static func browserReplWorkspaceScope(of params: [String: Any]) -> [String: Any] {
+        params.filter { $0.key == "workspace_id" || $0.key == "caller_workspace_id" }
     }
 
     /// Parses `--timeout`, `--workspace` and `--max-output` into the params
@@ -140,20 +167,44 @@ extension CMUXCLI {
             }
             baseParams["max_output"] = value
         }
-        // `--workspace` must exist. `CMUX_WORKSPACE_ID` is only a hint: it can
-        // come from another cmux instance, so the app falls back to the
-        // focused workspace when it does not know the id.
+        baseParams.merge(try browserReplWorkspaceParams(workspaceOption, client: client)) { _, new in new }
+        return (baseParams, timeoutMilliseconds, remaining)
+    }
+
+    /// The workspace a call acts on: `--workspace`, which must exist, else
+    /// the caller's. `CMUX_WORKSPACE_ID` is only a hint: it can come from
+    /// another cmux instance, so the app falls back to the focused
+    /// workspace when it does not know the id.
+    private func browserReplWorkspaceParams(_ workspaceOption: String?, client: SocketClient) throws -> [String: Any] {
         if let workspaceOption, !workspaceOption.isEmpty {
             if let workspace = try normalizeWorkspaceHandle(workspaceOption, client: client) {
-                baseParams["workspace_id"] = workspace
+                return ["workspace_id": workspace]
             }
-        } else if let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]?
+            return [:]
+        }
+        if let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             UUID(uuidString: caller) != nil {
-            baseParams["caller_workspace_id"] = caller
+            return ["caller_workspace_id": caller]
         }
+        return [:]
+    }
 
-        return (baseParams, timeoutMilliseconds, remaining)
+    /// Parses `--all-workspaces` and `--workspace` for `list` and `reset`,
+    /// which act on the caller's workspace's sessions by default.
+    /// - Returns: The params and the arguments left.
+    private func browserReplScopeParams(_ arguments: [String], client: SocketClient) throws -> (params: [String: Any], rest: [String]) {
+        let everyWorkspace = arguments.contains("--all-workspaces")
+        let (workspaceOption, rest) = parseOption(arguments.filter { $0 != "--all-workspaces" }, name: "--workspace")
+        if let stray = rest.first(where: { $0.hasPrefix("--") }) {
+            let prefix = String(
+                localized: "cli.browser.repl.error.unknownOption",
+                defaultValue: "browser repl does not support this option"
+            )
+            throw CLIError(message: "\(prefix): \(stray)")
+        }
+        if everyWorkspace { return (["all_workspaces": true], rest) }
+        return (try browserReplWorkspaceParams(workspaceOption, client: client), rest)
     }
 
     /// `cmux browser repl mcp`: a Model Context Protocol server on stdio whose
@@ -188,12 +239,16 @@ extension CMUXCLI {
             params["code"] = code
             params["session"] = session
             if let maxOutput { params["max_output"] = maxOutput }
-            return try client.sendV2(method: "browser.repl.eval", params: params, responseTimeout: responseTimeout)
+            let payload = try client.sendV2(method: "browser.repl.eval", params: params, responseTimeout: responseTimeout)
+            // The session's workspace, for every later call (see the interactive loop).
+            Self.pinBrowserReplWorkspace(payload["workspace_id"] as? String, in: &baseParams)
+            return payload
         }
+        let resetParams = { Self.browserReplWorkspaceScope(of: baseParams).merging(["session": session]) { _, new in new } }
         let server = BrowserReplMCPServer(version: resolvedVersionInfo()["CFBundleShortVersionString"] ?? "dev") { name, arguments in
             switch name {
             case "reset":
-                let payload = try client.sendV2(method: "browser.repl.reset", params: ["session": session])
+                let payload = try client.sendV2(method: "browser.repl.reset", params: resetParams())
                 let existed = payload["existed"] as? Bool ?? false
                 return .text(existed ? "Session \(session) reset" : "Session \(session) had no state")
             case "screenshot":
@@ -218,14 +273,24 @@ extension CMUXCLI {
                 return BrowserReplMCPServer.result(ofEval: try evaluate(code, nil))
             }
         }
-        while let line = readLine(strippingNewline: true) {
-            guard let reply = server.handle(line: line) else { continue }
+        // Lines are bounded like `--eval -`: a longer one is answered with a
+        // JSON-RPC error and skipped to its newline, never buffered whole.
+        var reader = BrowserReplMCPLineReader(maximumLineBytes: Self.maximumEncodedTextBytes)
+        while let line = reader.nextLine() {
+            let reply: String?
+            switch line {
+            case .text(let text):
+                reply = server.handle(line: text)
+            case .tooLong:
+                reply = BrowserReplMCPServer.oversizedLineReply(maximumBytes: Self.maximumEncodedTextBytes)
+            }
+            guard let reply else { continue }
             FileHandle.standardOutput.write(Data((reply + "\n").utf8))
         }
         // No other client can name this server's own session, so its tabs
         // and variables end with the server instead of idling for 30 minutes.
         if namedSession == nil {
-            _ = try? client.sendV2(method: "browser.repl.reset", params: ["session": session])
+            _ = try? client.sendV2(method: "browser.repl.reset", params: resetParams())
         }
     }
 
@@ -238,19 +303,21 @@ extension CMUXCLI {
     }
 
     /// Sends one cell and prints its output, then `[ok | Nms]` or `[error | Nms]`.
-    /// - Returns: Whether the cell finished without an uncaught error.
+    /// - Returns: Whether the cell finished without an uncaught error, and
+    ///   the workspace the session is bound to.
     private func evaluateBrowserRepl(
         params: [String: Any],
         client: SocketClient,
         jsonOutput: Bool,
         timeoutMilliseconds: Int
-    ) throws -> Bool {
+    ) throws -> (ok: Bool, workspaceID: String?) {
         let responseTimeout = TimeInterval(timeoutMilliseconds) / 1000 + 15
         let payload = try client.sendV2(method: "browser.repl.eval", params: params, responseTimeout: responseTimeout)
         let ok = payload["ok"] as? Bool ?? false
+        let workspaceID = payload["workspace_id"] as? String
         if jsonOutput {
             print(jsonString(payload))
-            return ok
+            return (ok, workspaceID)
         }
         for line in payload["output"] as? [[String: Any]] ?? [] {
             print(Self.browserReplTerminalText(line["text"] as? String ?? ""))
@@ -264,7 +331,7 @@ extension CMUXCLI {
             print(color ? "\u{1B}[2m[ok | \(duration)ms]\u{1B}[0m" : "[ok | \(duration)ms]")
         }
         fflush(stdout)
-        return ok
+        return (ok, workspaceID)
     }
 
     /// `text` with every control character except newline and tab made
@@ -366,13 +433,16 @@ extension CMUXCLI {
         cmux browser repl 'await page.goto("https://example.com"); snapshot()'
         cmux browser repl --eval - < script.js
         cmux browser repl --session work --eval 'const s1 = await snapshot()'
-        cmux browser repl list | reset <session> | guide
+        cmux browser repl list | reset <session> [--all-workspaces] | guide
 
     Without `--session` each call is one-shot: its tabs close at the end
     unless `page.keep()` was called. With `--session NAME`, top-level
     `const`/`let` bindings and tabs persist across calls. Idle sessions close
     after 30 minutes. The session binds to your cmux workspace, or to the
-    focused workspace when you run outside cmux.
+    focused workspace when you run outside cmux; the same name in another
+    workspace is another session, and `list` and `reset` act on your
+    workspace's sessions (`--all-workspaces` for every one). A name is up to
+    64 letters, digits, `.`, `_` and `-`; at most 32 sessions are open.
 
     ## Environment
 
@@ -407,6 +477,59 @@ extension CMUXCLI {
       `page.dialog()?.accept()`, `page.fileChooser()?.setFiles(paths)`.
     - Treat an action as unconfirmed until a fresh snapshot shows its effect.
     """
+}
+
+/// Reads newline-delimited lines from a file descriptor (stdin by default)
+/// with a byte cap: a line past the cap is reported as ``Line/tooLong`` and
+/// the rest of it is read and dropped, so memory stays bounded by the cap.
+struct BrowserReplMCPLineReader {
+    enum Line {
+        case text(String)
+        case tooLong
+    }
+
+    let maximumLineBytes: Int
+    private let fileDescriptor: Int32
+    private var pending = Data()
+    private var chunk = [UInt8](repeating: 0, count: 1 << 16)
+    private var atEnd = false
+
+    init(maximumLineBytes: Int, fileDescriptor: Int32 = STDIN_FILENO) {
+        self.maximumLineBytes = maximumLineBytes
+        self.fileDescriptor = fileDescriptor
+    }
+
+    /// The next line without its newline, `.tooLong` for one past the cap,
+    /// or `nil` at end of input.
+    mutating func nextLine() -> Line? {
+        var discarding = false
+        while true {
+            if let newline = pending.firstIndex(of: 0x0A) {
+                let line = pending[pending.startIndex..<newline]
+                pending.removeSubrange(pending.startIndex...newline)
+                if discarding || line.count > maximumLineBytes { return .tooLong }
+                return .text(String(decoding: line, as: UTF8.self))
+            }
+            if pending.count > maximumLineBytes {
+                // Past the cap with no newline yet: keep none of it.
+                pending.removeAll(keepingCapacity: true)
+                discarding = true
+            }
+            if atEnd {
+                if discarding { return .tooLong }
+                guard !pending.isEmpty else { return nil }
+                defer { pending.removeAll() }
+                return .text(String(decoding: pending, as: UTF8.self))
+            }
+            let descriptor = fileDescriptor
+            let count = chunk.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
+            if count > 0 {
+                pending.append(contentsOf: chunk[0..<count])
+            } else if count == 0 || errno != EINTR {
+                atEnd = true
+            }
+        }
+    }
 }
 
 /// JSON-RPC 2.0 handling for `cmux browser repl mcp` (Model Context Protocol,
@@ -532,6 +655,12 @@ struct BrowserReplMCPServer {
         }
         lines.append("[ok | \(duration)ms]")
         return .text(lines.joined(separator: "\n"))
+    }
+
+    /// The reply to a line longer than `maximumBytes`: its id is unknown, so
+    /// the error carries a null id.
+    static func oversizedLineReply(maximumBytes: Int) -> String {
+        encode(error(id: NSNull(), code: -32600, message: "Request too large: a message is at most \(maximumBytes / (1024 * 1024)) MiB"))
     }
 
     /// Handles one line; returns the reply line, or nil for a notification.

@@ -110,9 +110,16 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
     public let host: String
     public let port: String?
 
-    /// Parses `raw`; unsafe patterns (several wildcards, a wildcard TLD or an
+    /// Parses `raw`; unsafe patterns (several wildcards, a wildcard TLD, a
+    /// wildcard over a public suffix such as `*.com` or `*.co.uk`, or an
     /// embedded wildcard) are refused. `title` prefixes the error.
-    public static func parse(_ raw: String, title: String) throws -> BrowserReplDomainPattern {
+    /// - Parameter publicSuffixes: The list that decides whether a
+    ///   wildcard's base is a public suffix.
+    public static func parse(
+        _ raw: String,
+        title: String,
+        publicSuffixes: BrowserReplPublicSuffixList = .system
+    ) throws -> BrowserReplDomainPattern {
         let quoted = JSONSerialization.browserReplString(raw) ?? raw
         var text = raw.trimmingCharacters(in: .whitespaces).lowercased()
         guard !text.isEmpty else {
@@ -154,6 +161,13 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             host = host.hasPrefix("*.") ? "*." + BrowserReplHostName.normalize(String(host.dropFirst(2))) : BrowserReplHostName.normalize(host)
             if host.isEmpty || host == "*." {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): expected a domain")
+            }
+            if host.hasPrefix("*."), publicSuffixes.isPublicSuffix(String(host.dropFirst(2))) {
+                let base = String(host.dropFirst(2))
+                throw BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(title): \(quoted): \(base) is a public suffix, so *.\(base) would cover every site under it; name a site, such as *.example.\(base)"
+                )
             }
         }
         return BrowserReplDomainPattern(raw: raw, scheme: scheme, host: host, port: port)

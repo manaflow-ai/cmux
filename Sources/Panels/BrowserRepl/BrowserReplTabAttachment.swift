@@ -341,6 +341,13 @@ final class BrowserReplTabAttachment {
         isAttached && ownership.isSessionOwned ? ownership.creatorSessionID : nil
     }
 
+    /// The live session that created this tab when it is not `sessionID`,
+    /// which then may not drive it (``BrowserReplTabOwnership/ownerRefusing(_:)``).
+    func ownerRefusing(_ sessionID: String) -> String? {
+        guard isAttached, let owner = ownership.ownerRefusing(sessionID), sinks[owner] != nil else { return nil }
+        return owner
+    }
+
     func addSink(sessionID: String, sink: @escaping BrowserReplTabEventSink) {
         let wasAttached = isAttached
         sinks[sessionID] = sink
@@ -509,7 +516,11 @@ final class BrowserReplTabAttachment {
         for respond in dialogs.removeAll(ownedBy: sessionID) { respond(false, nil) }
         for chooser in fileChoosers.removeAll(ownedBy: sessionID) { chooser.respond(nil) }
         sinks.removeValue(forKey: sessionID)
-        ownership.detach(sessionID: sessionID)
+        if ownership.detach(sessionID: sessionID) {
+            // What the creating session copied or wrote is its own; a
+            // session that drives the kept tab later never reads it.
+            clipboardItems = []
+        }
         if sinks.isEmpty {
             detachAll()
         } else {
@@ -685,6 +696,22 @@ final class BrowserReplTabAttachment {
         for sink in sinks.values { sink(name, body) }
     }
 
+    /// Sends a network event only to the sessions it belongs to
+    /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``),
+    /// with its credential headers only for the tab's creator.
+    private func emitNetwork(_ name: String, _ payload: [String: Any]) {
+        let requestID = payload["requestId"] as? String ?? ""
+        for recipient in ownership.networkRecipients(event: name, requestID: requestID) {
+            guard let sink = sinks[recipient.sessionID] else { continue }
+            var body = payload
+            body["targetId"] = targetID
+            if !recipient.seesCredentials, let headers = body["headers"] as? [String: String] {
+                body["headers"] = headers.removingBrowserReplCredentialHeaders()
+            }
+            sink(name, body)
+        }
+    }
+
     /// Sends a routed event (dialog, file chooser, download) to the one
     /// session it was routed to.
     private func emit(_ name: String, _ payload: [String: Any], to sessionID: String) {
@@ -720,7 +747,7 @@ final class BrowserReplTabAttachment {
                let status = payload["status"] as? Int {
                 self.mainDocumentStatus = status
             }
-            self.emit(event, payload)
+            self.emitNetwork(event, payload)
         }
         observer.onInflightChange = { [weak self] count in
             guard let self, count == 0 else { return }

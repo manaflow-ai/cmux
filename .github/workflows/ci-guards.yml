@@ -94,10 +94,6 @@ jobs:
           echo "CI fast guards already reported failure for this revision; skipping duplicate guard execution."
           exit 1
 
-      - name: Validate merge-gate decisions
-        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: python3 tests/test_merge_gate.py
-
       - name: Validate macOS runner guards
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh

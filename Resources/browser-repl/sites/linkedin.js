@@ -96,13 +96,14 @@
           return got;
         });
       }
+      // { id, publicIdentifier, firstName, lastName, headline, url }
+      async function me() {
+        const json = await api("/voyager/api/me");
+        const mini = byType(json, "MiniProfile")[0] || {};
+        return { id: (json.data && json.data.plainId) || null, publicIdentifier: mini.publicIdentifier || null, firstName: mini.firstName || null, lastName: mini.lastName || null, headline: mini.occupation || null, url: mini.publicIdentifier ? `${ORIGIN}/in/${mini.publicIdentifier}/` : null };
+      }
       return {
-        // { id, publicIdentifier, firstName, lastName, headline, url }
-        async me() {
-          const json = await api("/voyager/api/me");
-          const mini = byType(json, "MiniProfile")[0] || {};
-          return { id: (json.data && json.data.plainId) || null, publicIdentifier: mini.publicIdentifier || null, firstName: mini.firstName || null, lastName: mini.lastName || null, headline: mini.occupation || null, url: mini.publicIdentifier ? `${ORIGIN}/in/${mini.publicIdentifier}/` : null };
-        },
+        me,
         // { publicIdentifier, firstName, lastName, headline, location, url }
         async profile(who) {
           const id = identifier(who);
@@ -124,14 +125,20 @@
         },
         // Draft a post (visible to the user's network): post(text). post(draftId, { confirm: true }) publishes it.
         post(input, options) {
-          return t.write("linkedin", "post", input, options, (text) => {
+          return t.write("linkedin", "post", input, options, async (text) => {
             if (typeof text !== "string" || !text.trim()) throw new S.SiteError("invalid", "linkedin.post: expected the post text");
+            // The draft pins the signed-in member; another session can sign
+            // in as someone else before the confirmation.
+            const account = (await me()).publicIdentifier;
+            if (!account) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell which LinkedIn member is signed in");
             return {
               category: "[9] representational communication (public post)",
-              summary: `Publish a LinkedIn post (${text.length} characters)`,
-              preview: { text },
-              run: () =>
-                t.withTab(`${ORIGIN}/feed/?shareActive=true&text=${encodeURIComponent(text)}`, async (page) => {
+              summary: `Publish a LinkedIn post as ${account} (${text.length} characters)`,
+              preview: { account, text },
+              run: async () => {
+                const now = (await me()).publicIdentifier;
+                if (now !== account) throw new S.SiteError("account_changed", `linkedin.post: the signed-in member is now ${now || "nobody"}, not ${account} as drafted; nothing was posted`);
+                return t.withTab(`${ORIGIN}/feed/?shareActive=true&text=${encodeURIComponent(text)}`, async (page) => {
                   t.assertSignedIn("linkedin.post", page, SIGN_IN);
                   const box = page.locator('div[role="dialog"] div[role="textbox"]').first();
                   await box.waitFor({ timeout: 30000 });
@@ -140,7 +147,8 @@
                   await page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first().click();
                   await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
                   return { status: "posted" };
-                }),
+                });
+              },
             };
           });
         },

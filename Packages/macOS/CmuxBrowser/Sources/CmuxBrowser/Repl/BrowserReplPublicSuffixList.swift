@@ -8,12 +8,22 @@ public import Foundation
 /// pages are separate sites). The dev backend's stand-in is
 /// `tests/browser-parity/lib/public-suffix.mjs`.
 public final class BrowserReplPublicSuffixList: Sendable {
-    private let isPublicSuffix: @Sendable (String) -> Bool
+    private let lookup: @Sendable (String) -> Bool
 
     /// - Parameter isPublicSuffix: Whether a normalized name (`co.uk`) is a
     ///   public suffix.
     public init(isPublicSuffix: @escaping @Sendable (String) -> Bool) {
-        self.isPublicSuffix = isPublicSuffix
+        self.lookup = isPublicSuffix
+    }
+
+    /// Whether `name` (`com`, `co.uk`, `github.io`) is itself a public
+    /// suffix, so a wildcard over it would name every site under it.
+    public func isPublicSuffix(_ name: String) -> Bool {
+        var trimmed = name.trimmingCharacters(in: .whitespaces)
+        while trimmed.hasPrefix(".") { trimmed.removeFirst() }
+        let normalized = BrowserReplHostName.normalize(trimmed)
+        guard !normalized.isEmpty, !BrowserReplHostName.isIPAddress(normalized) else { return false }
+        return lookup(normalized)
     }
 
     /// The system's list. Where CFNetwork does not export it, no name is a
@@ -33,7 +43,7 @@ public final class BrowserReplPublicSuffixList: Sendable {
         let labels = normalized.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard labels.count > 1, !labels.contains(where: \.isEmpty) else { return normalized }
         // The longest public suffix wins: walk from the longest parent.
-        for start in 0..<(labels.count - 1) where isPublicSuffix(labels[(start + 1)...].joined(separator: ".")) {
+        for start in 0..<(labels.count - 1) where lookup(labels[(start + 1)...].joined(separator: ".")) {
             return labels[start...].joined(separator: ".")
         }
         return normalized

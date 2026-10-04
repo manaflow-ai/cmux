@@ -89,7 +89,10 @@
       .join(".");
   }
 
-  function parsePattern(raw, title) {
+  // `isPublicSuffix(name)` (the session's Public Suffix List, through
+  // `policy("publicSuffix")`) refuses a wildcard over a public suffix such
+  // as *.com or *.co.uk, which would name every site under it.
+  function parsePattern(raw, title, isPublicSuffix) {
     if (typeof raw !== "string" || !raw.trim()) throw new Error(`${title}: expected domain patterns as non-empty strings, got ${JSON.stringify(raw)}`);
     let p = raw.trim().toLowerCase();
     let scheme = null;
@@ -114,6 +117,10 @@
     }
     const normalized = host === "*" ? host : host.startsWith("*.") ? "*." + normalizeHost(host.slice(2)) : normalizeHost(host);
     if (!normalized || normalized === "*.") throw new Error(`${title}: ${JSON.stringify(raw)}: expected a domain`);
+    if (normalized.startsWith("*.") && isPublicSuffix && isPublicSuffix(normalized.slice(2))) {
+      const base = normalized.slice(2);
+      throw new Error(`${title}: ${JSON.stringify(raw)}: ${base} is a public suffix, so *.${base} would cover every site under it; name a site, such as *.example.${base}`);
+    }
     return { raw, scheme, host: normalized, port };
   }
 
@@ -1277,7 +1284,7 @@
         if (typeof fn !== "function") throw new Error(`tools.register: ${name}: expected a function`);
         const params = options.params || null;
         if (params) for (const [k, t] of Object.entries(params)) if (typeof t !== "string" || !TYPES[t.replace(/\?$/, "")]) throw new Error(`tools.register: ${name}: params.${k}: expected one of ${Object.keys(TYPES).join(", ")} (add ? when optional), got ${JSON.stringify(t)}`);
-        const domains = options.domains ? options.domains.map((d) => parsePattern(d, "tools.register")) : null;
+        const domains = options.domains ? options.domains.map((d) => parsePattern(d, "tools.register", (name) => policyHost("publicSuffix", { name }))) : null;
         const entry = { name, fn, description: String(options.description || ""), params, domains };
         if (registry.has(name)) delete tools[registry.get(name).name];
         registry.set(name, entry);

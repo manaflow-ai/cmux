@@ -13,6 +13,37 @@ struct BrowserReplDomainPolicyTests {
         return policy
     }
 
+    @Test("A wildcard over a public suffix (*.com, *.co.uk) is refused for the policy and secrets; one over a site is not")
+    func wildcardOverAPublicSuffixIsRefused() throws {
+        let suffixes = BrowserReplPublicSuffixList(isPublicSuffix: { ["com", "uk", "co.uk", "github.io"].contains($0) })
+        let boundary = BrowserReplBoundary(publicSuffixes: suffixes)
+        for raw in ["*.com", "*.co.uk", "https://*.CO.UK.", "*.github.io:443"] {
+            for key in ["allowed", "prohibited"] {
+                let (result, updated) = boundary.policyOperation("set", [key: [raw], "title": "session.allowedDomains"])
+                #expect(updated == nil, "\(key) \(raw)")
+                #expect(throws: BrowserReplDriverError.self, "\(key) \(raw)") { try result.get() }
+            }
+            let secret = boundary.secretsOperation("set", ["name": "pw", "value": "hunter22", "domains": [raw]])
+            #expect(throws: BrowserReplDriverError.self, "secret \(raw)") { try secret.get() }
+        }
+        let (result, _) = boundary.policyOperation("set", ["allowed": ["*.com"], "title": "session.allowedDomains"])
+        #expect(throws: BrowserReplDriverError.self) { try result.get() }
+        if case .failure(let error) = result {
+            #expect(error.message.contains("public suffix"))
+        }
+        // A wildcard over a registrable domain, and a public suffix named
+        // exactly (one host), stay accepted.
+        for raw in ["*.example.com", "*.example.co.uk", "*.ada.github.io", "com", "*.localhost"] {
+            let (ok, updated) = boundary.policyOperation("set", ["allowed": [raw], "title": "session.allowedDomains"])
+            #expect(throws: Never.self, "\(raw)") { try ok.get() }
+            #expect(updated != nil, "\(raw)")
+        }
+        // The system list knows com and co.uk.
+        #expect(throws: BrowserReplDriverError.self) { try BrowserReplDomainPattern.parse("*.com", title: "t") }
+        #expect(throws: BrowserReplDriverError.self) { try BrowserReplDomainPattern.parse("*.co.uk", title: "t") }
+        #expect(throws: Never.self) { try BrowserReplDomainPattern.parse("*.example.co.uk", title: "t") }
+    }
+
     @Test("Setting a cookie on a parent domain needs every subdomain allowed and none prohibited")
     func cookieSetScope() throws {
         let one = try policy(allowed: ["https://www.parent.test"])

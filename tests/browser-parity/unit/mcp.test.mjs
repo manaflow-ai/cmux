@@ -16,6 +16,7 @@ import readline from "node:readline";
 import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const CLI = process.env.PARITY_CMUX_CLI;
+const BOUND_WORKSPACE = "11111111-2222-3333-4444-555555555555";
 const PNG = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489", "hex").toString("base64");
 
 function fakeSocket(file, calls) {
@@ -37,7 +38,8 @@ function fakeSocket(file, calls) {
         const code = String(p.code);
         let output = [{ level: "log", text: `ran: ${code}` }];
         if (code.includes("cmux-mcp-image:")) output = [{ level: "log", text: `cmux-mcp-image:${PNG}` }];
-        result = { ok: !code.includes("throw"), output, duration_ms: 3 };
+        // The app answers with the workspace it bound the session to.
+        result = { ok: !code.includes("throw"), output, duration_ms: 3, workspace_id: BOUND_WORKSPACE };
         if (code.includes("throw")) result.error = "Error: boom";
       } else if (req.method === "browser.repl.reset") {
         result = { session: p.session, existed: true };
@@ -196,6 +198,65 @@ test("repl mcp: without --session each server process gets its own session", { s
     assert.deepEqual(calls.slice(before).filter((c) => c.method === "browser.repl.reset").map((c) => c.params.session).sort(), sessions.map((s) => s.eval).sort());
   } finally {
     await Promise.all(servers.map((s) => s.stop()));
+    server.close();
+    removeTestDir(dir);
+  }
+});
+
+test("repl mcp: later calls name the workspace the first call bound", { skip: !CLI && "set PARITY_CMUX_CLI" }, async () => {
+  const dir = makeTestDir("cmux-mcp-");
+  const socket = path.join(dir, "s.sock");
+  const calls = [];
+  const server = await fakeSocket(socket, calls);
+  const env = { ...process.env, CMUX_SOCKET_PATH: socket, CMUX_SOCKET: socket, CMUX_CLI_SENTRY_DISABLED: "1" };
+  delete env.CMUX_WORKSPACE_ID;
+  const s = startServer([], env);
+  try {
+    await s.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } });
+    await s.request("tools/call", { name: "eval", arguments: { code: "1" } });
+    await s.request("tools/call", { name: "eval", arguments: { code: "2" } });
+    await s.request("tools/call", { name: "reset", arguments: {} });
+    const [first, second] = calls.filter((c) => c.method === "browser.repl.eval");
+    assert.equal(first.params.workspace_id, undefined, "the first call lets the app choose");
+    assert.equal(second.params.workspace_id, BOUND_WORKSPACE);
+    assert.equal(calls.find((c) => c.method === "browser.repl.reset").params.workspace_id, BOUND_WORKSPACE);
+  } finally {
+    await s.stop();
+    server.close();
+    removeTestDir(dir);
+  }
+});
+
+// A line longer than the CLI's input cap (15 MiB, as --eval) is refused with
+// a JSON-RPC error instead of being buffered whole; the server goes on.
+test("repl mcp: an oversized line fails with a JSON-RPC error and the server keeps serving", { skip: !CLI && "set PARITY_CMUX_CLI" }, async () => {
+  const dir = makeTestDir("cmux-mcp-");
+  const socket = path.join(dir, "s.sock");
+  const calls = [];
+  const server = await fakeSocket(socket, calls);
+  const env = { ...process.env, CMUX_SOCKET_PATH: socket, CMUX_SOCKET: socket, CMUX_CLI_SENTRY_DISABLED: "1" };
+  delete env.CMUX_WORKSPACE_ID;
+  const s = startServer(["--session", "big"], env);
+  const errors = [];
+  readline.createInterface({ input: s.child.stdout }).on("line", (line) => {
+    try {
+      const msg = JSON.parse(line);
+      if (msg.id === null && msg.error) errors.push(msg.error);
+    } catch {}
+  });
+  try {
+    await s.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } });
+    const code = "x".repeat(16 * 1024 * 1024);
+    s.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 99, method: "tools/call", params: { name: "eval", arguments: { code } } }) + "\n");
+    // Replies come in order: the refusal is out before the next request's reply.
+    const list = await s.request("tools/list", {});
+    assert.ok(list.result.tools.length > 0, "the server still answers");
+    assert.equal(errors.length, 1, "one error for the oversized line");
+    assert.equal(errors[0].code, -32600);
+    assert.match(errors[0].message, /too large/);
+    assert.equal(calls.filter((c) => c.method === "browser.repl.eval").length, 0, "the oversized request never reached the app");
+  } finally {
+    await s.stop();
     server.close();
     removeTestDir(dir);
   }

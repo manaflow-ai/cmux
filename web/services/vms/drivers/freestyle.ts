@@ -35,6 +35,8 @@ import {
   type VMFileContents,
   type VMFileEntry,
   type VMFileStat,
+  type VMFirewallRule,
+  type VMFirewallRuleInput,
   type ProviderNetwork,
   type ProviderTunnel,
   type ProviderTunnelAttachment,
@@ -921,6 +923,23 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     } catch (err) {
       throw new ProviderError("freestyle", `listNetworkTunnelIds(${networkId})`, err);
     }
+  }
+
+  async listFirewallRules(options?: { vmId?: string; vpcId?: string; tunnelId?: string }): Promise<VMFirewallRule[]> {
+    const result = await this.client().firewall.rules.list(options);
+    return result.rules as VMFirewallRule[];
+  }
+
+  async getFirewallRule(ruleId: string): Promise<VMFirewallRule> {
+    return await this.client().firewall.rules.get(ruleId) as VMFirewallRule;
+  }
+
+  async createFirewallRule(options: VMFirewallRuleInput): Promise<VMFirewallRule> {
+    return await this.client().firewall.rules.create({ action: "allow", ...options }) as VMFirewallRule;
+  }
+
+  async deleteFirewallRule(ruleId: string): Promise<void> {
+    await this.client().firewall.rules.delete(ruleId);
   }
 
   /**

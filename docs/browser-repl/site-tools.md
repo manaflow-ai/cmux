@@ -30,6 +30,20 @@ rules neither reference enforces together:
    afterwards changes nothing: the confirmed call performs the action the
    preview showed. The status and expiry the confirm step checks stay in the
    session; `sites.drafts.get(id)` reads the current status.
+   The draft also names its destination and sending account concretely,
+   resolved when it is made, and the confirmed call acts only there, so a
+   change of shared browser state another session can make between the
+   preview and the confirmation never redirects it: a Slack draft holds the
+   workspace and channel ids (`team` omitted means Slack's last-active
+   workspace at draft time, a `#name` the channel it named then), Gmail and
+   Calendar drafts the account's email for their `/u/` index, a Gmail reply
+   the ids of the thread's messages, and LinkedIn and X drafts the
+   signed-in member or user id. When the account at that index, the
+   signed-in account or the replied thread has changed, the confirmation
+   fails with `account_changed` or `thread_changed` and sends nothing; make
+   a new draft. Drive, Docs, Sheets, Slides and Notion drafts already name
+   the file or page by id, and a WebMCP draft fails when its tab left the
+   previewed URL.
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
    is reported, never solved; a wrong Google account is an HTTP 403 that names
@@ -100,7 +114,8 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 `not_found`, `forbidden`, `timeout`, `captcha`, `consent_required`,
 `no_captions`, `confirm_required`, `draft_required`, `draft_not_found`,
 `draft_mismatch`, `draft_used`, `draft_expired`, `draft_changed`,
-`compose_mismatch`, `write_requires_draft`, `unsupported`.
+`compose_mismatch`, `account_changed`, `thread_changed`,
+`write_requires_draft`, `unsupported`.
 
 | Method | Mechanism | Kind |
 | --- | --- | --- |
@@ -117,7 +132,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `youtube.search`, `.metadata`, `.captions`, `.comments` | desktop watch/results HTML (`ytInitialPlayerResponse`, `ytInitialData`, also as an escaped string), InnerTube `/youtubei/v1/next` | read |
 | `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A caption URL is fetched only when it is https on `www.youtube.com`, `m.youtube.com` or `youtube.com` (track URLs come from page data); other tracks are skipped. A video with no track fails as `no_captions` | read |
 | `slack.workspaces()`, `.channels`, `.history`, `.replies`, `.search`, `.user`, `.call(team, readMethod, params)` | Slack Web API from an app.slack.com tab, token from that page's `localStorage` | read |
-| `slack.post({ team, channel, text, threadTs })` | draft; confirmed: `chat.postMessage` | write [9] |
+| `slack.post({ team, channel, text, threadTs })` | draft with the workspace and channel ids and names; confirmed: `chat.postMessage` to those ids with that workspace's token | write [9] |
 | `notion.accounts()`, `.search(q, { spaceId })`, `.read(url)` | `/api/v3` (`getSpaces`, `search`, `loadPageChunk`, `syncRecordValues`) same-origin, on `app.notion.com`, else `www.notion.so`; `{ origin }` pins one of those two exactly and refuses any other | read |
 | `notion.append(page, markdown)` | draft; confirmed: `saveTransactions` (`set` and `listAfter` per block, after the last block) | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |

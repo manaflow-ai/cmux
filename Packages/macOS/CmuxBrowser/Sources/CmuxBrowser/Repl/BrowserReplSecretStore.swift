@@ -45,7 +45,13 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     private var totpKeys: [(name: String, key: Data, domains: [BrowserReplDomainPattern])] = []
     private var codeCache: (window: Int64, codes: [ValidCodes])?
 
-    public init() {}
+    private let publicSuffixes: BrowserReplPublicSuffixList
+
+    /// - Parameter publicSuffixes: The list that refuses a secret's
+    ///   wildcard domain over a public suffix (`*.com`).
+    public init(publicSuffixes: BrowserReplPublicSuffixList = .system) {
+        self.publicSuffixes = publicSuffixes
+    }
 
     public var isEmpty: Bool { lock.withLock { entries.isEmpty } }
 
@@ -59,7 +65,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         guard !rawDomains.isEmpty else {
             throw invalid("\(title): \(name): domains: expected the domains it may be typed into, such as [\"example.com\"]; a secret without domains is not accepted")
         }
-        let domains = try rawDomains.map { try BrowserReplDomainPattern.parse($0, title: title) }
+        let domains = try rawDomains.map { try BrowserReplDomainPattern.parse($0, title: title, publicSuffixes: publicSuffixes) }
         let isTOTP = totp || name.hasSuffix("bu_2fa_code")
         if isTOTP, Self.base32Decode(value) == nil { throw invalid("secrets: a TOTP secret must be base32") }
         lock.withLock {

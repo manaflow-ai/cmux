@@ -6,6 +6,35 @@ public enum BrowserReplTabEvent: String, CaseIterable, Sendable {
     case fileChooser = "filechooser"
     /// A download: kept in the temporary directory and reported to the session.
     case download
+    /// Network events (`request`, `response`, `requestfinished`,
+    /// `requestfailed`): a listener on the page.
+    case network
+}
+
+/// A session a network event goes to, and whether it gets the request's
+/// and response's credential headers (``Swift/Dictionary/removingBrowserReplCredentialHeaders()``).
+public struct BrowserReplNetworkRecipient: Sendable, Equatable {
+    public let sessionID: String
+    /// Only the tab's live creator sees `Cookie`, `Authorization` and the like.
+    public let seesCredentials: Bool
+
+    public init(sessionID: String, seesCredentials: Bool) {
+        self.sessionID = sessionID
+        self.seesCredentials = seesCredentials
+    }
+}
+
+extension Dictionary where Key == String, Value == String {
+    /// Header names whose values sign the user in: never shown to a session
+    /// that did not create the tab.
+    static var browserReplCredentialHeaderNames: Set<String> {
+        ["cookie", "set-cookie", "set-cookie2", "authorization", "proxy-authorization", "x-api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token"]
+    }
+
+    /// These headers (names lowercase) without the credential ones.
+    public func removingBrowserReplCredentialHeaders() -> [String: String] {
+        filter { !Self.browserReplCredentialHeaderNames.contains($0.key.lowercased()) }
+    }
 }
 
 /// Decides, for one browser tab that REPL sessions drive, whether the
@@ -29,6 +58,10 @@ public enum BrowserReplTabEvent: String, CaseIterable, Sendable {
 /// A routed event goes to one session (``recipient(for:)``), and only that
 /// session may answer it: a second session driving the same tab never sees
 /// or answers a dialog, file chooser or download routed to another.
+///
+/// A tab a session created is that session's alone while it lives: no other
+/// session may drive it (``ownerRefusing(_:)``). Network events go only to
+/// the sessions they belong to (``networkRecipients(event:requestID:)``).
 public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// The attached session that created the tab, if any.
     public private(set) var creatorSessionID: String?
@@ -38,6 +71,15 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     private var handlerOrder: [String] = []
     /// Sessions whose input the page is handling, latest last.
     private var inputSessionIDs: [String] = []
+    /// The sessions each open request's events go to, oldest request first.
+    private var requestRecipients: [TrackedRequest] = []
+    private struct TrackedRequest: Sendable, Equatable {
+        let requestID: String
+        var sessionIDs: Set<String>
+    }
+    /// Open requests remembered at most; a later event of an older one goes
+    /// only to the creator and the sessions with a network listener.
+    static let maximumTrackedRequests = 1000
 
     public init() {}
 
@@ -54,12 +96,53 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
 
     /// Records that `sessionID` left the tab. When it created the tab, the
     /// tab becomes the user's for the sessions that remain.
-    public mutating func detach(sessionID: String) {
+    /// - Returns: Whether `sessionID` was the tab's creator: what it put in
+    ///   the tab (its clipboard) must not outlive it.
+    @discardableResult
+    public mutating func detach(sessionID: String) -> Bool {
         attachedSessionIDs.remove(sessionID)
         handledEvents.removeValue(forKey: sessionID)
         handlerOrder.removeAll { $0 == sessionID }
         inputSessionIDs.removeAll { $0 == sessionID }
-        if creatorSessionID == sessionID { creatorSessionID = nil }
+        for index in requestRecipients.indices { requestRecipients[index].sessionIDs.remove(sessionID) }
+        guard creatorSessionID == sessionID else { return false }
+        creatorSessionID = nil
+        return true
+    }
+
+    /// The live session that created the tab, when that is not `sessionID`:
+    /// `sessionID` may not drive the tab. `nil` for the creator itself and
+    /// for a user's tab (one no live session created).
+    public func ownerRefusing(_ sessionID: String) -> String? {
+        guard isSessionOwned, let creatorSessionID, creatorSessionID != sessionID else { return nil }
+        return creatorSessionID
+    }
+
+    /// The sessions a network event of `requestID` goes to, in session id
+    /// order: the tab's live creator, a session with a network listener
+    /// on the tab, and a session whose input the page was handling when the
+    /// request started (the rest of that request follows it). Only the
+    /// creator sees credential headers.
+    /// - Parameter event: `request` starts a request; `requestfinished` and
+    ///   `requestfailed` end it.
+    public mutating func networkRecipients(event: String, requestID: String) -> [BrowserReplNetworkRecipient] {
+        let creator = isSessionOwned ? creatorSessionID : nil
+        var sessions = Set(handledEvents.filter { $0.value.contains(.network) }.keys)
+        if let creator { sessions.insert(creator) }
+        let tracked = requestRecipients.firstIndex { $0.requestID == requestID }
+        if event == "request" {
+            let started = sessions.union(inputSessionIDs.filter { attachedSessionIDs.contains($0) })
+            if let tracked { requestRecipients.remove(at: tracked) }
+            requestRecipients.append(TrackedRequest(requestID: requestID, sessionIDs: started))
+            if requestRecipients.count > Self.maximumTrackedRequests { requestRecipients.removeFirst() }
+            sessions = started
+        } else if let tracked {
+            sessions.formUnion(requestRecipients[tracked].sessionIDs)
+            if event == "requestfinished" || event == "requestfailed" { requestRecipients.remove(at: tracked) }
+        }
+        return sessions.filter { attachedSessionIDs.contains($0) }.sorted().map {
+            BrowserReplNetworkRecipient(sessionID: $0, seesCredentials: $0 == creator)
+        }
     }
 
     /// Records that the page is handling input `sessionID` sent; dialogs and

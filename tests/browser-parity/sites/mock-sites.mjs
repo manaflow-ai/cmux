@@ -37,6 +37,8 @@ export const COOKIES = [
   { name: "tenant.session.token", value: SECRETS.jiraSession, domain: "acme.atlassian.net", path: "/", secure: true, httpOnly: true },
   { name: "cloud.session.token", value: "atl-session-secret", domain: ".atlassian.com", path: "/", secure: true, httpOnly: true },
   { name: "auth_token", value: SECRETS.xSession, domain: ".x.com", path: "/", secure: true, httpOnly: true },
+  // X's signed-in user id, readable by the page (u=<id>).
+  { name: "twid", value: "u%3D1001", domain: ".x.com", path: "/", secure: true },
   { name: "asset_session", value: "asset-session-secret", domain: "assets.example", path: "/", secure: true, httpOnly: true },
 ];
 
@@ -48,7 +50,12 @@ const cookieOf = (req, name) => {
 };
 
 export function createState() {
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors() };
+  // Tests change these to stand for another session or the site changing
+  // between a draft and its confirmation; null keeps the defaults.
+  // slackChannels: the user's channels; googleAccounts: ListAccounts rows;
+  // gmailThreadExtra: messages added to every thread; linkedinViewer: the
+  // signed-in member's public identifier.
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -57,19 +64,16 @@ export function createState() {
 const GOOGLE_LOGIN = "https://accounts.google.com/ServiceLogin?continue=";
 const signedInGoogle = (req) => cookieOf(req, "SID") === SECRETS.googleSID;
 
-function accounts(req, url) {
+export const GOOGLE_ACCOUNT_ROWS = [
+  ["gaia.l.a", 1, "Ada Lovelace", "ada@example.com", "https://example.com/a.png", 1, 1, 0, null, 1, "1001", null, null, null, 0, 1],
+  ["gaia.l.a", 1, "Ada at Work", "ada@work.example", "https://example.com/b.png", 1, 1, 0, null, 1, "1002", null, null, null, 0, 1],
+  ["gaia.l.a", 1, "Old Account", "old@example.com", "https://example.com/c.png", 1, 1, 0, null, 1, "1003", null, null, null, 1, 1],
+];
+
+function accounts(req, url, body, state) {
   if (url.pathname === "/ListAccounts" && req.method === "POST") {
     if (!signedInGoogle(req)) return { json: ["gaia.l.a.r", []] };
-    return {
-      json: [
-        "gaia.l.a.r",
-        [
-          ["gaia.l.a", 1, "Ada Lovelace", "ada@example.com", "https://example.com/a.png", 1, 1, 0, null, 1, "1001", null, null, null, 0, 1],
-          ["gaia.l.a", 1, "Ada at Work", "ada@work.example", "https://example.com/b.png", 1, 1, 0, null, 1, "1002", null, null, null, 0, 1],
-          ["gaia.l.a", 1, "Old Account", "old@example.com", "https://example.com/c.png", 1, 1, 0, null, 1, "1003", null, null, null, 1, 1],
-        ],
-      ],
-    };
+    return { json: ["gaia.l.a.r", state.googleAccounts || GOOGLE_ACCOUNT_ROWS] };
   }
   if (url.pathname === "/ServiceLogin") return { html: html('<form><input type="email" name="identifier"></form>', "Sign in - Google Accounts") };
   return { status: 404, text: "not found" };
@@ -184,6 +188,7 @@ const GMAIL_APP = `
 <div id="app"></div>
 <script>
 const base = location.pathname;
+const EXTRA = __GMAIL_EXTRA__;
 const params = new URLSearchParams(location.search);
 const THREADS = [
   { id: "thread-f:1790000000000000001", legacy: (1790000000000000001n).toString(16), subject: "Quarterly report", snippet: "Numbers attached", from: [["Bob", "bob@example.com"]], date: "Mon, Sep 28, 2026, 9:00 AM", unread: true, labels: ["inbox"] },
@@ -218,6 +223,7 @@ function thread(app, key) {
       (expanded ? '' : '<span role="button" aria-label="Expand all">Expand all</span>') +
       msg("1", ["Bob", "bob@example.com"], ["Ada", "ada@example.com"], "Mon, Sep 28, 2026, 9:00 AM", t.body || "<p>Hi Ada,</p><p>The <b>numbers</b> are attached. See <a href='https://example.com/r'>the report</a>.</p>", true, expanded) +
       msg("2", ["Ada", "ada@example.com"], ["Bob", "bob@example.com"], "Mon, Sep 28, 2026, 10:00 AM", "<p>Thanks Bob!</p>", false, true) +
+      EXTRA.map((m) => msg(m.id, m.from, m.to, "Tue, Sep 29, 2026, 8:00 AM", m.body, false, true)).join("") +
       '<div role="button" data-tooltip="Reply" aria-label="Reply">Reply</div><div id="replybox"></div></div>';
     const expand = app.querySelector('[aria-label="Expand all"]');
     if (expand) expand.addEventListener("click", () => { expanded = true; draw(); });
@@ -251,7 +257,7 @@ function gmail(req, url, body, state) {
     return { json: { ok: true } };
   }
   if (url.searchParams.get("view") === "att") return { status: 200, headers: { "content-type": "text/csv", "content-disposition": 'attachment; filename="q3.csv"' }, body: "quarter,total\nQ3,9000\n" };
-  if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) return { html: html(GMAIL_APP, "Inbox - ada@example.com - Gmail") };
+  if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])), "Inbox - ada@example.com - Gmail") };
   return { status: 404, text: "" };
 }
 
@@ -441,13 +447,19 @@ function slackApi(req, url, body, state, sameOrigin = false) {
   const team = Object.values(SLACK_TEAMS).find((t) => url.hostname === `${t.domain}.slack.com`);
   const reply = (json) => ({ status: 200, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(json) });
   if (!team || form.token !== team.token || cookieOf(req, "d") !== SECRETS.slackCookie) return reply({ ok: false, error: "invalid_auth" });
-  const channels = [
+  const defaults = [
     { id: "C01GEN0001", name: "general", is_private: false, topic: { value: "Company-wide" }, num_members: 42 },
     { id: "C02ENG0002", name: "eng", is_private: true, topic: { value: "" }, num_members: 7 },
   ];
+  const channels = state.slackChannels || defaults;
   switch (method[1]) {
     case "users.conversations":
       return reply({ ok: true, channels, response_metadata: { next_cursor: "" } });
+    case "conversations.info": {
+      // Archived and renamed channels keep their id.
+      const c = channels.find((x) => x.id === form.channel) || defaults.find((x) => x.id === form.channel);
+      return reply(c ? { ok: true, channel: c } : { ok: false, error: "channel_not_found" });
+    }
     case "conversations.history":
       if (!channels.some((c) => c.id === form.channel)) return reply({ ok: false, error: "channel_not_found" });
       return reply({ ok: true, messages: [{ type: "message", user: "U01ADA", text: "Ship it", ts: "1790000000.000200", thread_ts: "1790000000.000100", reply_count: 2 }, { type: "message", user: "U01BOB", text: "Report attached", ts: "1790000000.000100", files: [{ name: "q3.pdf" }] }], has_more: false });
@@ -522,7 +534,7 @@ function linkedin(req, url, body, state) {
   const signed = cookieOf(req, "li_at") === "li-at-secret";
   if (url.pathname.startsWith("/voyager/api/")) {
     if (!signed || req.headers["csrf-token"] !== SECRETS.linkedinJsession) return { status: 403, json: { status: 403 } };
-    if (url.pathname === "/voyager/api/me") return { json: { data: { plainId: 424242, "*miniProfile": "urn:li:fs_miniProfile:ACo1" }, included: [{ $type: "com.linkedin.voyager.identity.shared.MiniProfile", firstName: "Ada", lastName: "Lovelace", occupation: "Analyst", publicIdentifier: "ada-lovelace", entityUrn: "urn:li:fs_miniProfile:ACo1" }] } };
+    if (url.pathname === "/voyager/api/me") return { json: { data: { plainId: 424242, "*miniProfile": "urn:li:fs_miniProfile:ACo1" }, included: [{ $type: "com.linkedin.voyager.identity.shared.MiniProfile", firstName: "Ada", lastName: "Lovelace", occupation: "Analyst", publicIdentifier: state.linkedinViewer || "ada-lovelace", entityUrn: "urn:li:fs_miniProfile:ACo1" }] } };
     if (url.pathname === "/voyager/api/identity/dash/profiles") {
       const id = url.searchParams.get("memberIdentity");
       return { json: { data: {}, included: [{ $type: "com.linkedin.voyager.dash.identity.profile.Profile", publicIdentifier: id, firstName: "Grace", lastName: "Hopper", headline: "Rear Admiral", geoLocation: { geo: { defaultLocalizedName: "Arlington, Virginia" } } }] } };
