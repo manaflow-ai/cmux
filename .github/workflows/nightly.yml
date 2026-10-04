@@ -55,8 +55,13 @@ on:
           - github
           - warp
           - r2
-      tag_permission_probe:
-        description: Run the scratch-tag permission probe without building or publishing a channel.
+      promote_nightly_next_sha:
+        description: Main only. Move branch nightly-next to this green feat-cmux-next commit (40 hex) and build nothing in this run; the push run on nightly-next publishes it.
+        required: false
+        default: ''
+        type: string
+      promote_nightly_next_debounce:
+        description: Skip the promotion when a nightly-next build started within NIGHTLY_NEXT_MIN_INTERVAL_HOURS (set by the automatic request).
         required: false
         default: false
         type: boolean
@@ -66,16 +71,19 @@ on:
         default: ''
         type: string
       probe_mode:
-        description: Credential path for the scratch-tag probe; run github-token first, then app-token.
+        description: Scratch-tag permission probe. `off` runs the normal workflow; any other value runs only the probe (no build or publish) with that credential path; run github-token first, then app-token.
         required: false
-        default: both
+        default: 'off'
         type: choice
         options:
+          - 'off'
           - both
           - github-token
           - app-token
 
 concurrency:
+  # A nightly-next promotion request builds nothing here, so it gets its own
+  # group and never replaces a pending main build (the job serializes itself).
   # A six-hour cache warmup must not wait behind a publishing nightly build or
   # hold one behind a saturated runner pool. Only that schedule gets a separate
   # group, and a newer tick may replace the older warmup. The daily 08:47 UTC
@@ -84,7 +92,7 @@ concurrency:
   # Keep scheduled and manually requested cache seeds in different groups. A
   # scheduled tick may replace an older scheduled tick, but must never cancel
   # an explicit manual refresh that happens to be running at the same time.
-  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: ${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}
 
 permissions:
@@ -98,7 +106,7 @@ env:
 
 jobs:
   decide:
-    if: github.event_name != 'workflow_dispatch' || inputs.tag_permission_probe != true
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -444,12 +452,134 @@ jobs:
               ])
               .write();
 
+  # Moves the protected branch `nightly-next` (the cmux-next NIGHTLY track,
+  # which publishes from its own push run) to a feat-cmux-next commit. Runs
+  # only here on main, in the `release` environment, with the release App (the
+  # only bypass actor of the nightly-next ruleset). cmux-next.yml on
+  # feat-cmux-next requests it after a green push run (debounce=true); a person
+  # can Run workflow with the SHA (no debounce). The commit counts only through
+  # a cmux-next.yml push run on feat-cmux-next for that exact SHA whose
+  # "cmux-next Release compile (Xcode 26)" job passed.
+  promote-nightly-next:
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: nightly-next-promote
+      cancel-in-progress: false
+    steps:
+      - name: Mint release App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Move nightly-next
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
+          DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
+          MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const source = 'feat-cmux-next';
+            const target = 'nightly-next';
+            const requiredJob = 'cmux-next Release compile (Xcode 26)';
+            const sha = (process.env.REQUESTED_SHA || '').trim();
+            if (!/^[0-9a-f]{40}$/.test(sha)) {
+              core.setFailed(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
+              return;
+            }
+
+            // A pushed feat-cmux-next head whose push run passed the Release compile.
+            const pushRuns = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: source, head_sha: sha, per_page: 100,
+            });
+            let green = false;
+            for (const run of pushRuns) {
+              if (run.head_sha !== sha || run.head_branch !== source || run.event !== 'push') continue;
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+              });
+              if (jobs.some((job) => job.name === requiredJob && job.conclusion === 'success')) {
+                green = true;
+                break;
+              }
+            }
+            if (!green) {
+              core.setFailed(`${sha} has no cmux-next.yml push run on ${source} with a successful "${requiredJob}" job`);
+              return;
+            }
+
+            // Debounce requested promotions: one nightly-next build per interval.
+            const minHours = Number(process.env.MIN_INTERVAL_HOURS);
+            if (process.env.DEBOUNCE === 'true' && Number.isFinite(minHours) && minHours > 0) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner, repo, workflow_id: 'nightly.yml', branch: target, per_page: 1,
+              });
+              const last = data.workflow_runs[0];
+              if (last) {
+                const ageHours = (Date.now() - Date.parse(last.created_at)) / 3_600_000;
+                if (ageHours < minHours) {
+                  core.notice(`Debounced: the last ${target} build started ${ageHours.toFixed(2)}h ago (minimum ${minHours}h).`);
+                  return;
+                }
+              }
+            }
+
+            const sourceHead = (await github.rest.git.getRef({ owner, repo, ref: `heads/${source}` })).data.object.sha;
+            const writer = getOctokit(process.env.APP_TOKEN);
+            let current = null;
+            try {
+              current = (await github.rest.git.getRef({ owner, repo, ref: `heads/${target}` })).data.object.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            if (current === sha) {
+              core.notice(`${target} is already at ${sha}.`);
+              return;
+            }
+            if (!current) {
+              await writer.rest.git.createRef({ owner, repo, ref: `refs/heads/${target}`, sha });
+            } else {
+              const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${current}...${sha}` });
+              let force = false;
+              if (data.status === 'diverged') {
+                // A hand-made baseline build (a feat-cmux-next commit plus
+                // patches) may be replaced when the point where it left
+                // feat-cmux-next is on feat-cmux-next; `sha` descends from it,
+                // so the branch never moves to older history.
+                const base = data.merge_base_commit?.sha;
+                if (base) {
+                  const { data: onSource } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${sourceHead}` });
+                  force = onSource.status === 'ahead' || onSource.status === 'identical';
+                }
+              }
+              if (data.status !== 'ahead' && !force) {
+                core.notice(`${sha} does not move ${target} forward from ${current} (compare status ${data.status}); nothing promoted.`);
+                return;
+              }
+              await writer.rest.git.updateRef({ owner, repo, ref: `heads/${target}`, sha, force });
+            }
+            core.notice(`Promoted ${target} to ${sha}; its push run publishes it.`);
+
   probe-nightly-tag-permission:
-    if: github.event_name == 'workflow_dispatch' && inputs.tag_permission_probe == true
+    if: github.event_name == 'workflow_dispatch' && (inputs.probe_mode || 'off') != 'off'
     uses: ./.github/workflows/nightly-tag-permission-probe.yml
     with:
       target_sha: ${{ inputs.probe_target_sha || github.sha }}
-      mode: ${{ inputs.probe_mode || 'both' }}
+      mode: ${{ inputs.probe_mode }}
     secrets: inherit
 
   refresh-compilation-cache:
@@ -2070,8 +2200,11 @@ jobs:
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          # The release App (Contents + Workflows write only); its id and key
+          # live only in the release environment. manaflow-glaeda-route has
+          # no contents permission, so it could never move this tag.
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: write
