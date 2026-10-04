@@ -63,6 +63,34 @@ struct BrowserReplFocusContainmentTests {
         #expect(setup.window.firstResponder === setup.webView)
     }
 
+    // WebKit can handle a key after the driver's round trip (a Tab queued
+    // behind Shift's flagsChanged), so the takeFocus may come after the
+    // automated input ended. Seen live: Shift+Tab from a driven page moved the
+    // first responder off the user's terminal. Focus that is not in the web
+    // view cannot leave it, whoever asks.
+    @Test func focusTheWebViewDoesNotHoldNeverMoves() {
+        let setup = makeWindow()
+        #expect(setup.window.makeFirstResponder(setup.before))
+        setup.webView.browserTakeFocus(forward: true)
+        setup.webView.browserTakeFocus(forward: false)
+        #expect(isFirstResponder(setup.before, in: setup.window))
+    }
+
+    @Test func aRenderWindowNeverHandsFocusOn() {
+        let panel = BrowserOffscreenRenderPanel(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: true)
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        panel.contentView = content
+        let webView = WKWebView(frame: content.bounds)
+        let other = NSTextField(frame: NSRect(x: 0, y: 0, width: 50, height: 20))
+        content.addSubview(webView)
+        content.addSubview(other)
+        webView.nextKeyView = other
+        other.nextKeyView = webView
+        #expect(panel.makeFirstResponder(webView))
+        webView.browserTakeFocus(forward: true)
+        #expect(panel.firstResponder === webView)
+    }
+
     @Test func theUsersOwnTabLeavesThePageAsBefore() {
         let setup = makeWindow()
         #expect(setup.window.makeFirstResponder(setup.webView))
