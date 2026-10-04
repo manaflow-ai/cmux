@@ -15,9 +15,10 @@
 pub mod api;
 pub mod identity;
 pub mod info;
+mod private;
 pub mod wait;
 
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -26,7 +27,7 @@ use cmux_server_core::pairing::{PairingCode, fingerprint_words, qr_payload};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::error::{Error, IoContext, Result};
+use crate::error::{Error, Result};
 use crate::fsx;
 
 pub use api::HostInfo;
@@ -157,7 +158,16 @@ struct Pending {
     expires_at: u64,
     thumbprint: String,
     api: String,
+    /// The Worker `ENVIRONMENT` the begin proof was signed for.
+    #[serde(default)]
+    environment: String,
 }
+
+/// A code is never trusted to live longer than this after `now` (the
+/// backend's TTL is 10 minutes), whatever `expires_at` says.
+const MAX_CODE_LIFE: Duration = Duration::from_secs(10 * 60);
+/// Slack after expiry for the Worker's 4408 to arrive.
+const EXPIRY_MARGIN: Duration = Duration::from_secs(30);
 
 /// An exclusive lock on the pairing folder, released on drop.
 struct PairLock {
@@ -166,12 +176,7 @@ struct PairLock {
 
 fn lock(dir: &Path) -> Result<PairLock> {
     let path = dir.join(".lock");
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(&path)
-        .ctx(path.display())?;
+    let file = private::open_lock(&path)?;
     match file.try_lock() {
         Ok(()) => Ok(PairLock { _file: file }),
         Err(TryLockError::WouldBlock) => {
@@ -182,12 +187,11 @@ fn lock(dir: &Path) -> Result<PairLock> {
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Option<T>> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
+    match private::read(path)? {
+        Some(bytes) => serde_json::from_slice(&bytes)
             .map(Some)
             .map_err(|e| Error::internal(format!("{}: {e}", path.display()))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(Error::io(path.display(), e)),
+        None => Ok(None),
     }
 }
 
@@ -205,88 +209,131 @@ fn remove_if_present(path: &Path) -> Result<()> {
     }
 }
 
+/// Server-sent text for a terminal: no control characters, bounded.
+fn printable(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).take(200).collect()
+}
+
+fn field<'a>(record: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    record.get(key).and_then(Value::as_str)
+}
+
 fn paired_from(record: &Map<String, Value>) -> Option<Paired> {
-    let field = |k: &str| record.get(k).and_then(Value::as_str).map(str::to_owned);
-    Some(Paired { host: field("host")?, team: field("team")? })
+    Some(Paired {
+        host: printable(field(record, "host")?),
+        team: printable(field(record, "team")?),
+    })
 }
 
-/// The stored pairing, when this server is paired.
-pub fn load_paired(layout: &Layout) -> Result<Option<Paired>> {
-    let path = pairing_dir(layout).join(CREDENTIALS_FILE);
-    Ok(read_json::<Map<String, Value>>(&path)?.as_ref().and_then(paired_from))
-}
-
-/// Runs one pairing. `on_started` gets the code before any wait begins.
+/// Runs one pairing. `on_started` gets each code before its wait begins.
 pub fn run(req: &PairRequest<'_>, on_started: &mut dyn FnMut(&Started)) -> Result<PairOutcome> {
     fsx::ensure_dir(&fsx::local(&req.layout.state), 0o700)?;
+    private::check_dir(&req.layout.state)?;
     let dir = pairing_dir(req.layout);
     fsx::ensure_dir(&dir, 0o700)?;
+    private::check_dir(&req.layout.state.join(PAIRING_DIR))?;
     let _lock = lock(&dir)?;
-    if let Some(paired) = load_paired(req.layout)? {
+    let identity = InstallIdentity::load_or_create(&dir)?;
+    let thumbprint_b64u = identity.thumbprint_b64u();
+    if let Some(record) = read_json::<Map<String, Value>>(&dir.join(CREDENTIALS_FILE))? {
+        let paired = paired_from(&record)
+            .ok_or_else(|| Error::internal(format!("{CREDENTIALS_FILE} has no host or team")))?;
+        if field(&record, "thumbprint") != Some(thumbprint_b64u.as_str())
+            || field(&record, "api") != Some(req.api.base.as_str())
+        {
+            return Err(Error::rejected(format!(
+                "this server is paired as host {} through {}, with another install key or API than this run ({}); unpair it first",
+                paired.host,
+                printable(field(&record, "api").unwrap_or("an unknown API")),
+                req.api.base
+            )));
+        }
         return Ok(PairOutcome::AlreadyPaired(paired));
     }
-    let identity = InstallIdentity::load_or_create(&dir)?;
-    let thumbprint = identity.thumbprint();
     let pending_path = dir.join(PENDING_FILE);
-    // Reuse an earlier code of this key and API when it has a minute left.
-    let reusable = read_json::<Pending>(&pending_path)?.filter(|p| {
-        p.thumbprint == identity.thumbprint_b64u()
+    let start = Instant::now();
+    let now = || req.now_ms + start.elapsed().as_millis() as u64;
+    // A stored code of this key, API and environment is used until it
+    // really expires: it may be approved already, and a new begin would
+    // lose that result and make a second install on a second approval.
+    let mut pending = read_json::<Pending>(&pending_path)?.filter(|p| {
+        p.thumbprint == thumbprint_b64u
             && p.api == req.api.base
-            && p.expires_at > req.now_ms + 60_000
+            && p.environment == req.api.environment
+            && p.expires_at > now()
             && api::valid_collect_secret(&p.collect_secret)
     });
-    let (pending, resumed) = match reusable {
-        Some(p) => (p, true),
-        None => {
-            let begun = api::begin(req.api, &identity, &req.info, req.now_ms)?;
-            let p = Pending {
-                code: begun.code.as_str().to_owned(),
-                collect_secret: begun.collect_secret,
-                expires_at: begun.expires_at,
-                thumbprint: identity.thumbprint_b64u(),
-                api: req.api.base.clone(),
-            };
-            write_json(&pending_path, &p)?;
-            (p, false)
+    let fixed_deadline = req.timeout.map(|t| start + t);
+    let mut fresh = false;
+    loop {
+        let (p, resumed) = match pending.take() {
+            Some(p) => (p, true),
+            None => {
+                let begun = api::begin(req.api, &identity, &req.info, now())?;
+                let p = Pending {
+                    code: begun.code.as_str().to_owned(),
+                    collect_secret: begun.collect_secret,
+                    expires_at: begun.expires_at,
+                    thumbprint: thumbprint_b64u.clone(),
+                    api: req.api.base.clone(),
+                    environment: req.api.environment.clone(),
+                };
+                write_json(&pending_path, &p)?;
+                fresh = true;
+                (p, false)
+            }
+        };
+        let code = PairingCode::normalize(&p.code)
+            .map_err(|_| Error::internal(format!("{}: invalid code", pending_path.display())))?;
+        let thumbprint = identity.thumbprint();
+        let started = Started {
+            code: code.display(),
+            expires_at: p.expires_at,
+            words: fingerprint_words(&thumbprint).map(str::to_owned),
+            qr_payload: qr_payload(&code, &thumbprint),
+            resumed,
+        };
+        on_started(&started);
+        if !req.wait {
+            return Ok(PairOutcome::Pending(started));
         }
-    };
-    let code = PairingCode::normalize(&pending.code)
-        .map_err(|_| Error::internal(format!("{}: invalid code", pending_path.display())))?;
-    let started = Started {
-        code: code.display(),
-        expires_at: pending.expires_at,
-        words: fingerprint_words(&thumbprint).map(str::to_owned),
-        qr_payload: qr_payload(&code, &thumbprint),
-        resumed,
-    };
-    on_started(&started);
-    if !req.wait {
-        return Ok(PairOutcome::Pending(started));
+        let life = Duration::from_millis(p.expires_at.saturating_sub(now())).min(MAX_CODE_LIFE);
+        let deadline = fixed_deadline.unwrap_or_else(|| Instant::now() + life + EXPIRY_MARGIN);
+        // A timeout (the `?`) keeps the code for the next `pair --wait`.
+        match wait::wait(req.api, code.as_str(), &p.collect_secret, deadline)? {
+            wait::End::Paired(record) => return store(req, &dir, &thumbprint_b64u, record),
+            wait::End::Refused => {
+                remove_if_present(&pending_path)?;
+                return Err(Error::rejected("the pairing was refused"));
+            }
+            wait::End::Expired => {
+                remove_if_present(&pending_path)?;
+                // A stored code ran out: begin once more. A fresh code
+                // that runs out ends the run.
+                if fresh {
+                    return Err(Error::unreachable(
+                        "the pairing code expired; run `cmux server pair` again",
+                    ));
+                }
+            }
+        }
     }
-    let until_expiry = Duration::from_millis(pending.expires_at.saturating_sub(req.now_ms));
-    let deadline = Instant::now() + req.timeout.unwrap_or(until_expiry + Duration::from_secs(5));
-    let record = match wait::wait(req.api, code.as_str(), &pending.collect_secret, deadline)? {
-        wait::End::Paired(record) => record,
-        // Both spend the code; a timeout (the `?` above) keeps it for the
-        // next `pair --wait`.
-        wait::End::Refused => {
-            remove_if_present(&pending_path)?;
-            return Err(Error::rejected("the pairing was refused"));
-        }
-        wait::End::Expired => {
-            remove_if_present(&pending_path)?;
-            return Err(Error::unreachable(
-                "the pairing code expired; run `cmux server pair` again",
-            ));
-        }
-    };
+}
+
+fn store(
+    req: &PairRequest<'_>,
+    dir: &Path,
+    thumbprint_b64u: &str,
+    record: Map<String, Value>,
+) -> Result<PairOutcome> {
     let paired = paired_from(&record)
         .ok_or_else(|| Error::internal("the pairing result has no host or team"))?;
     let mut stored = record;
     stored.insert("api".to_owned(), Value::String(req.api.base.clone()));
-    stored.insert("thumbprint".to_owned(), Value::String(identity.thumbprint_b64u()));
+    stored.insert("environment".to_owned(), Value::String(req.api.environment.clone()));
+    stored.insert("thumbprint".to_owned(), Value::String(thumbprint_b64u.to_owned()));
     stored.insert("paired_at".to_owned(), Value::from(crate::host::now_ms()));
     write_json(&dir.join(CREDENTIALS_FILE), &stored)?;
-    remove_if_present(&pending_path)?;
+    remove_if_present(&dir.join(PENDING_FILE))?;
     Ok(PairOutcome::Paired(paired))
 }

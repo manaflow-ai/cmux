@@ -21,6 +21,13 @@ pub(super) fn pair(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     if timeout.is_some() && !args.has("wait") {
         return Err(Error::usage("--timeout needs --wait"));
     }
+    if crate::host::resolve_mode(false) == cmux_server_core::InstallMode::System {
+        // The keys would be made by root (or by whoever runs this) in the
+        // service user's state folder; the service could not read them.
+        return Err(Error::rejected(
+            "pairing a system-mode server is not supported yet: the keys must belong to the service user `cmux`. Pair a user-mode server, without sudo",
+        ));
+    }
     let layout = super::lifecycle::layout(ctx, false)?;
     let api = ApiTarget::from_env();
     let request = PairRequest {

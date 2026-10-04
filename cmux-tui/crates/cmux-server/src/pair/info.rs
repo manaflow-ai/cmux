@@ -5,9 +5,23 @@ use super::api::HostInfo;
 
 const MAX_TEXT: usize = 80;
 
-/// At most 80 printable characters (the backend's limit).
+/// Printable text of at most 80 UTF-16 code units (the backend's limit is
+/// a JavaScript string length), never split inside a character.
 pub fn clean(text: &str, fallback: &str) -> String {
-    let out: String = text.trim().chars().filter(|c| !c.is_control()).take(MAX_TEXT).collect();
+    clean_to(text, fallback, MAX_TEXT)
+}
+
+fn clean_to(text: &str, fallback: &str, max_units: usize) -> String {
+    let mut units = 0;
+    let out: String = text
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take_while(|c| {
+            units += c.len_utf16();
+            units <= max_units
+        })
+        .collect();
     if out.is_empty() { fallback.to_owned() } else { out }
 }
 
@@ -66,6 +80,6 @@ pub fn host_info(cmux_version: &str) -> HostInfo {
         platform: platform_name().to_owned(),
         os_version: clean(&os_version().unwrap_or_default(), "unknown"),
         arch: arch_name().to_owned(),
-        cmux_version: clean(cmux_version, "unknown").chars().take(40).collect(),
+        cmux_version: clean_to(cmux_version, "unknown", 40),
     }
 }

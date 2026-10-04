@@ -3,8 +3,6 @@
 //! and kept in `<state>/pairing/` (0700) as 0600 files. Neither key is ever
 //! printed, logged or passed on argv; only the public halves leave.
 
-use std::fs;
-use std::io;
 use std::path::Path;
 
 use base64::Engine;
@@ -152,23 +150,8 @@ fn decode_wg(text: &[u8]) -> Option<[u8; 32]> {
     STANDARD.decode(text).ok()?.try_into().ok()
 }
 
-/// Reads a key file; `None` when it is missing. A key file readable by
-/// others is refused, never silently narrowed.
+/// Reads a key file; `None` when it is missing. A symlink, another
+/// owner or a key readable by others is refused, never silently narrowed.
 fn read_secret(path: &Path) -> Result<Option<Vec<u8>>> {
-    let meta = match fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(Error::io(path.display(), e)),
-    };
-    if !meta.is_file() {
-        return Err(Error::rejected(format!("{} is not a regular file", path.display())));
-    }
-    if cfg!(unix) && fsx::mode_of(&meta) & 0o077 != 0 {
-        return Err(Error::rejected(format!(
-            "{} is readable by others (mode {:o}); remove it or chmod 600",
-            path.display(),
-            fsx::mode_of(&meta)
-        )));
-    }
-    fs::read(path).map(Some).map_err(|e| Error::io(path.display(), e))
+    super::private::read(path)
 }

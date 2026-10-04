@@ -2,16 +2,19 @@
 //! subprotocols `cmux.pair.v1` and `collect.<secret>`. The PairingDO pushes
 //! `{t:"pending"}`, then `{t:"paired", host, team, user, install, …}` or
 //! `{t:"refused"}` with close code 4403; expiry closes with 4408. Nothing
-//! polls: the client blocks on one read whose deadline is the time left.
+//! polls: the client blocks on reads bounded by one total deadline, and a
+//! frame or message larger than 64 KiB ends the wait.
 
 use std::io::{self, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::http::HeaderValue;
+use tungstenite::protocol::WebSocketConfig;
 use tungstenite::{Message, WebSocket};
 
 use super::ApiTarget;
@@ -26,41 +29,63 @@ pub const CLOSE_EXPIRED: u16 = 4408;
 /// What the PairingDO pushed on success: the result object without `t`.
 pub type Paired = Map<String, Value>;
 
-enum Stream {
+/// Each frame and each message is at most this large; the PairingDO
+/// sends small JSON objects.
+pub const MAX_FRAME: usize = 64 * 1024;
+
+enum Inner {
     Plain(TcpStream),
     Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
 }
 
+/// The socket with one total deadline: every read and write gets the time
+/// that is left as its socket timeout, and none starts after the deadline,
+/// so a slow drip of bytes cannot extend the wait.
+struct Stream {
+    inner: Inner,
+    deadline: Instant,
+}
+
 impl Stream {
-    fn tcp(&self) -> &TcpStream {
-        match self {
-            Stream::Plain(s) => s,
-            Stream::Tls(s) => &s.sock,
-        }
+    fn arm(&self) -> io::Result<()> {
+        let left = self
+            .deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| io::Error::from(io::ErrorKind::TimedOut))?;
+        let tcp = match &self.inner {
+            Inner::Plain(s) => s,
+            Inner::Tls(s) => &s.sock,
+        };
+        tcp.set_read_timeout(Some(left))?;
+        tcp.set_write_timeout(Some(left))
     }
 }
 
 impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self {
-            Stream::Plain(s) => s.read(buf),
-            Stream::Tls(s) => s.read(buf),
+        self.arm()?;
+        match &mut self.inner {
+            Inner::Plain(s) => s.read(buf),
+            Inner::Tls(s) => s.read(buf),
         }
     }
 }
 
 impl Write for Stream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self {
-            Stream::Plain(s) => s.write(buf),
-            Stream::Tls(s) => s.write(buf),
+        self.arm()?;
+        match &mut self.inner {
+            Inner::Plain(s) => s.write(buf),
+            Inner::Tls(s) => s.write(buf),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        match self {
-            Stream::Plain(s) => s.flush(),
-            Stream::Tls(s) => s.flush(),
+        self.arm()?;
+        match &mut self.inner {
+            Inner::Plain(s) => s.flush(),
+            Inner::Tls(s) => s.flush(),
         }
     }
 }
@@ -79,11 +104,25 @@ fn is_timeout(e: &io::Error) -> bool {
     matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
 }
 
+/// Resolves on a helper thread so the deadline also bounds DNS (the
+/// system resolver has no timeout parameter). A resolver that hangs past
+/// the deadline leaves that thread to finish on its own.
+fn resolve(host: &str, port: u16, deadline: Instant) -> Result<Vec<SocketAddr>> {
+    let (tx, rx) = mpsc::channel();
+    let name = host.to_owned();
+    std::thread::spawn(move || {
+        let _ = tx.send((name.as_str(), port).to_socket_addrs().map(Iterator::collect));
+    });
+    match rx.recv_timeout(remaining(deadline)?) {
+        Ok(Ok(addrs)) => Ok(addrs),
+        Ok(Err(e)) => Err(Error::unreachable(format!("resolve {host}: {e}"))),
+        Err(_) => Err(timed_out()),
+    }
+}
+
 fn connect(api: &ApiTarget, deadline: Instant) -> Result<Stream> {
     let (tls, host, port) = api.endpoint()?;
-    let addrs = (host.as_str(), port)
-        .to_socket_addrs()
-        .map_err(|e| Error::unreachable(format!("resolve {host}: {e}")))?;
+    let addrs = resolve(&host, port, deadline)?;
     let mut last = None;
     let mut tcp = None;
     for addr in addrs {
@@ -102,7 +141,7 @@ fn connect(api: &ApiTarget, deadline: Instant) -> Result<Stream> {
         ))
     })?;
     if !tls {
-        return Ok(Stream::Plain(tcp));
+        return Ok(Stream { inner: Inner::Plain(tcp), deadline });
     }
     let _ = rustls::crypto::ring::default_provider().install_default();
     use rustls_platform_verifier::ConfigVerifierExt;
@@ -112,7 +151,7 @@ fn connect(api: &ApiTarget, deadline: Instant) -> Result<Stream> {
         .map_err(|_| Error::usage(format!("invalid API host {host}")))?;
     let conn = rustls::ClientConnection::new(Arc::new(config), name)
         .map_err(|e| Error::internal(format!("TLS setup: {e}")))?;
-    Ok(Stream::Tls(Box::new(rustls::StreamOwned::new(conn, tcp))))
+    Ok(Stream { inner: Inner::Tls(Box::new(rustls::StreamOwned::new(conn, tcp))), deadline })
 }
 
 /// How a wait ended, other than a timeout or a transport error.
@@ -129,17 +168,16 @@ pub enum End {
 /// it. Reaching `deadline` first is an `Unreachable` error (exit 5).
 pub fn wait(api: &ApiTarget, code: &str, secret: &str, deadline: Instant) -> Result<End> {
     let stream = connect(api, deadline)?;
-    stream
-        .tcp()
-        .set_read_timeout(Some(remaining(deadline)?))
-        .map_err(|e| Error::io("socket", e))?;
     let url = api.ws_url(&format!("/v1/pair/wait?code={code}"))?;
     let mut request =
         url.as_str().into_client_request().map_err(|e| Error::internal(format!("{e}")))?;
     let protocols = HeaderValue::from_str(&format!("{SUBPROTOCOL}, collect.{secret}"))
         .map_err(|_| Error::internal("collect secret is not a header value"))?;
     request.headers_mut().insert("Sec-WebSocket-Protocol", protocols);
-    let mut socket = match tungstenite::client(request, stream) {
+    let config = WebSocketConfig::default()
+        .max_frame_size(Some(MAX_FRAME))
+        .max_message_size(Some(MAX_FRAME));
+    let mut socket = match tungstenite::client::client_with_config(request, stream, Some(config)) {
         Ok((socket, _)) => socket,
         Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(r)))
             if r.status().as_u16() == 404 =>
@@ -157,13 +195,11 @@ pub fn wait(api: &ApiTarget, code: &str, secret: &str, deadline: Instant) -> Res
         }
         Err(tungstenite::HandshakeError::Interrupted(_)) => return Err(timed_out()),
     };
-    read_result(&mut socket, deadline)
+    read_result(&mut socket)
 }
 
-fn read_result(socket: &mut WebSocket<Stream>, deadline: Instant) -> Result<End> {
+fn read_result(socket: &mut WebSocket<Stream>) -> Result<End> {
     loop {
-        let left = remaining(deadline)?;
-        socket.get_ref().tcp().set_read_timeout(Some(left)).map_err(|e| Error::io("socket", e))?;
         let message = match socket.read() {
             Ok(message) => message,
             Err(tungstenite::Error::Io(e)) if is_timeout(&e) => return Err(timed_out()),
