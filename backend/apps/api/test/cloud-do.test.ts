@@ -96,6 +96,10 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     const cut = await create(stub, team, alice, "cut-key")
     expect(cut).toMatchObject({ t: "reject", code: "mutation.indeterminate", retryable: true })
     expect(await stub.fakeControl({})).toMatchObject({ creates: 0, pending: 1 })
+    // N4: a same-key retry before the backoff ends does not spend an attempt.
+    expect(await create(stub, team, alice, "cut-key")).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 0, pending: 1 })
+    await stub.fakeControl({ advance_ms: 5_000 })
     const retry = await create(stub, team, alice, "cut-key")
     expect(retry).toMatchObject({ t: "result", replayed: true })
     expect(await stub.fakeControl({})).toMatchObject({ creates: 1, pending: 0 })
@@ -126,6 +130,7 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     const m = (await create(stub, team, alice)).value.machine
     await stub.fakeControl({ fail_next: 1 })
     expect(reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: m.id }, "del-cut")))).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
+    await stub.fakeControl({ advance_ms: 5_000 })
     expect(reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: m.id }, "del-cut")))).toMatchObject({ t: "result", value: { deleted: true }, replayed: true })
     expect(await stub.fakeControl({})).toMatchObject({ deletes: 1, vms: [] })
   })

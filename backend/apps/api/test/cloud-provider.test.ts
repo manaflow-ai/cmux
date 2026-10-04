@@ -24,7 +24,7 @@ interface Counters {
   deletes: number
   vms: Array<FakeVm>
   pending: number
-  suspects: Array<{ name: string; provider_id: string }>
+  suspects: Array<{ name: string; provider_id: string; reason: string }>
 }
 interface CloudStub {
   submit(entity: string, principal: Principal, frame: Frame): Promise<SubmitResult>
@@ -97,7 +97,7 @@ describe("P1-2: hourly orphan report (never a delete)", { timeout: 60_000 }, () 
     await stub.fakeControl({ add_vm: { name: "cmuxnp-test-tvm-team-x-e1", team, machine: orphan } })
     for (let i = 0; i < 8; i++) await tick(stub)
     const c = await stub.fakeControl({})
-    expect(c.suspects.map((s) => s.name)).toEqual([providerName(PREFIX, orphan)])
+    expect(c.suspects.map((s) => [s.name, s.reason])).toEqual([[providerName(PREFIX, orphan), "unknown"]])
     expect(c.vms.map((v) => v.name).sort()).toEqual([providerName(PREFIX, live), providerName(PREFIX, orphan), providerName(PREFIX, "vm_aaaaaaaaaaaaaaaaaaaa"), "cmuxnp-test-tvm-team-x-e1"].sort())
     expect(c.deletes).toBe(0)
   })
@@ -113,6 +113,7 @@ describe("P2-6: provider settings", { timeout: 60_000 }, () => {
     await create(b.stub, b.team, b.p, "idle-key")
     const id = (await b.stub.readOp(b.team, b.p, "cloud.machine.list", {})).value.machines[0].id as string
     reply(await b.stub.submit(b.team, b.p, frame("cloud.machine.idle_policy.set", { machine: id, idle_seconds: 0 })))
+    await b.stub.fakeControl({ advance_ms: 5_000 })
     expect(await create(b.stub, b.team, b.p, "idle-key")).toMatchObject({ t: "result" })
     expect((await b.stub.fakeControl({})).vms[0]!.idle).toBe(-1)
   })
