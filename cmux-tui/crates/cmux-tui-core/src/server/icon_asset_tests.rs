@@ -231,10 +231,9 @@ fn a_create_retry_returns_the_stored_record_after_its_old_icon_was_collected() {
     run(&mux, json!({"cmd":"update-browser-profile","browser_profile":PROFILE,"icon":"star"}))
         .unwrap();
     run(&mux, json!({"cmd":"update-profile","profile":"prof_art","icon":"star"})).unwrap();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
+    let now =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+            as u64;
     let swept = mux.workspace_registry.lock().unwrap().sweep_blobs_at(now + 8 * DAY_MS).unwrap();
     assert_eq!(swept, 1);
     // The retries are idempotent: they return the stored records.

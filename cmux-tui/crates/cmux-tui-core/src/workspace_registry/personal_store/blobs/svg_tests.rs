@@ -95,7 +95,9 @@ fn reference_chains_that_multiply_or_cycle_are_refused() {
     // The same through uses of masked paths (each use names a path without a use).
     let mut body = String::from("<defs>");
     for level in 0..6 {
-        body.push_str(&format!("<path id=\"p{level}\" d=\"M0 0\" mask=\"url(#n{level})\"/><mask id=\"n{level}\">"));
+        body.push_str(&format!(
+            "<path id=\"p{level}\" d=\"M0 0\" mask=\"url(#n{level})\"/><mask id=\"n{level}\">"
+        ));
         for _ in 0..10 {
             body.push_str(&format!("<use href=\"#p{}\"/>", level + 1));
         }
@@ -118,10 +120,7 @@ fn reference_chains_that_multiply_or_cycle_are_refused() {
 #[test]
 fn output_never_repeats_an_attribute_or_carries_a_non_xml_character() {
     let doubled = r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="http://www.w3.org/1999/xlink" xmlns:y="http://www.w3.org/1999/xlink"><use x:href="#a" y:href="#b"/></svg>"##;
-    assert_eq!(
-        clean(doubled),
-        format!("{XLINK_OPEN}<use xlink:href=\"#a\"/></svg>")
-    );
+    assert_eq!(clean(doubled), format!("{XLINK_OPEN}<use xlink:href=\"#a\"/></svg>"));
     let odd = "<svg xmlns=\"http://www.w3.org/2000/svg\" id=\"a&#xFFFF;b\"><title>x&#xFFFE;y\u{FFFF}z</title></svg>";
     assert_eq!(
         clean(odd),

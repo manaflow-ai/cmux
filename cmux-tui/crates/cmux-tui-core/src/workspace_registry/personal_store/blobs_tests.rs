@@ -185,7 +185,8 @@ fn a_put_the_sweep_cannot_make_room_for_is_refused() {
     let count = (MAX_TOTAL_BYTES as usize) / MAX_RASTER_BYTES;
     let mut first = Vec::new();
     for seed in 0..count {
-        let blob = registry.put_blob_at("image/png", &png(seed as u32, MAX_RASTER_BYTES), T0).unwrap();
+        let blob =
+            registry.put_blob_at("image/png", &png(seed as u32, MAX_RASTER_BYTES), T0).unwrap();
         first.push(blob);
     }
     // Blob 1 is named by an icon, so no sweep may take it.
