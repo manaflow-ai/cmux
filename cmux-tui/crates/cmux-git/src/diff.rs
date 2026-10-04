@@ -27,7 +27,9 @@ pub enum ScopeError {
     /// The branch scope found no base branch.
     NoBaseBranch,
     /// HEAD and the base branch (its short name) share no commit.
-    NoMergeBase { base: String },
+    NoMergeBase {
+        base: String,
+    },
     Git(GitFailure),
 }
 
@@ -38,7 +40,9 @@ impl std::fmt::Display for ScopeError {
             Self::NoBaseBranch => formatter.write_str(
                 "no base branch: origin's default branch, main and master are all missing",
             ),
-            Self::NoMergeBase { base } => write!(formatter, "HEAD and {base} have no common commit"),
+            Self::NoMergeBase { base } => {
+                write!(formatter, "HEAD and {base} have no common commit")
+            }
             Self::Git(failure) => formatter.write_str(&failure.reason()),
         }
     }
@@ -54,14 +58,9 @@ impl std::error::Error for ScopeError {}
 pub fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, ScopeError> {
     let head = repository.commit("HEAD");
     let empty_tree = || repository.empty_tree().map_err(ScopeError::Git);
-    let compare =
-        |revisions: Vec<String>, cached: bool, untracked: bool, base: Option<String>| Comparison {
-            revisions: Some(revisions),
-            cached,
-            untracked,
-            head: head.clone(),
-            base,
-        };
+    let compare = |revisions: Vec<String>, cached: bool, untracked: bool, base: Option<String>| {
+        Comparison { revisions: Some(revisions), cached, untracked, head: head.clone(), base }
+    };
     Ok(match scope {
         "uncommitted" => {
             let tree = match &head {

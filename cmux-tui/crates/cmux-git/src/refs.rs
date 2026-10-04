@@ -6,7 +6,8 @@ use crate::Repository;
 use crate::run::GitFailure;
 
 /// `for-each-ref` output read per listing. A line is a ref name, a commit
-/// and an upstream, so this holds tens of thousands of branches.
+/// and an upstream, so this holds tens of thousands of branches; past it the
+/// listing is marked truncated.
 const MAX_LISTING_BYTES: usize = 8 * 1024 * 1024;
 
 /// Where a branch lives.
@@ -65,7 +66,7 @@ pub struct Branches {
 
 /// At most `limit` branches: local ones first, then remote ones, each by
 /// newest commit, then by name. A local branch carries its upstream and its
-/// ahead and behind counts, which git computes per branch.
+/// ahead and behind counts, which git computes for every local branch.
 pub fn branches(repository: &Repository, limit: usize) -> Result<Branches, GitFailure> {
     let current = current_branch(repository)?;
     let (mut listed, mut truncated) = listing(repository, "refs/heads", limit)?;
@@ -94,20 +95,19 @@ fn current_branch(repository: &Repository) -> Result<Option<String>, GitFailure>
 const FORMAT: &str = "--format=%(refname)%00%(HEAD)%00%(objectname)%00%(upstream:short)%00\
                       %(upstream:track,nobracket)%00%(committerdate:unix)%00%(symref)";
 
-/// Up to `limit` branches under `namespace`, and whether more exist.
+/// Up to `limit` branches under `namespace`, and whether more exist. The
+/// listing is read whole and cut here: `--count` would count the `HEAD`
+/// aliases this drops.
 fn listing(
     repository: &Repository,
     namespace: &str,
     limit: usize,
 ) -> Result<(Vec<BranchRef>, bool), GitFailure> {
-    // One more than the limit tells whether any were left out.
-    let count = format!("--count={}", limit.saturating_add(1));
     let arguments = [
         "for-each-ref",
         // The last key sorts first: newest commit, then name.
         "--sort=refname",
         "--sort=-committerdate",
-        count.as_str(),
         FORMAT,
         namespace,
     ];

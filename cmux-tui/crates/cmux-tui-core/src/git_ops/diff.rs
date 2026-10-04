@@ -121,8 +121,7 @@ fn report(
     let mut files = tracked(repository, comparison, operation, &paths)?;
     let mut untracked_skipped = 0;
     if comparison.untracked {
-        let listing =
-            git(repository, operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
+        let listing = git(repository, operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
         let mut names = parse::file_list(&listing.stdout);
         if listing.truncated {
             // The last name may be cut short.

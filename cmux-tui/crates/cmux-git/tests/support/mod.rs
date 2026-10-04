@@ -16,10 +16,7 @@ impl Folder {
         let folder = std::env::temp_dir().join(format!(
             "cmux-git-test-{name}-{}-{index}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         fs::create_dir_all(&folder).unwrap();
         Self(fs::canonicalize(folder).unwrap())
