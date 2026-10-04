@@ -847,10 +847,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// An opaque id for `store`, equal for tabs that share cookies and
-    /// storage (`tabs.list`, `tabs.dataStore`), for the life of the store.
+    /// storage (`tabs.list`, `tabs.dataStore`), for the life of the store
+    /// and never reused (`WKWebsiteDataStore.browserReplID`).
     @MainActor
     static func dataStoreID(_ store: WKWebsiteDataStore) -> String {
-        String(UInt(bitPattern: ObjectIdentifier(store).hashValue), radix: 16)
+        store.browserReplID
     }
 
     /// `tabs.dataStore`: the store cookie calls with these params use.
@@ -2107,25 +2108,29 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // after the wait for WebKit's editor state, during which the page
         // can move focus. What remains is the cross-process gap between the
         // check's last reply and the insert reaching the web process.
+        let sessionID = self.sessionID
         let checkTarget: @MainActor @Sendable () async throws -> Void = {
             guard let name = params["secretName"] as? String else { return }
             let frames = await BrowserReplFrameTree.frames(of: panel.webView)
+            let rawDomains = params["secretDomains"] as? [[String: Any]] ?? []
             try await BrowserReplSecretGuard.checkSecretTarget(
                 name: name,
-                domains: params["secretDomains"] as? [[String: Any]] ?? [],
+                domains: rawDomains,
                 webView: panel.webView,
                 frames: frames
             )
-        }
-        // Recorded before typing: other sessions that read the tab do not
-        // hold the secret, so the tab keeps it masked for them, also when
-        // typing fails partway and part of the value is already in the page.
-        // A value refused by the domain check is masked without being typed,
-        // which hides nothing a reader needs.
-        if let name = params["secretName"] as? String {
-            let domains = (params["secretDomains"] as? [[String: Any]] ?? []).compactMap(BrowserReplDomainPattern.from(json:))
+            // Recorded once the domain check passes and before typing, on
+            // the same main-actor turn as the commit: other sessions that
+            // read the tab do not hold the secret, so the tab keeps it
+            // masked for them, also when typing fails partway and part of
+            // the value is already in the page. A refused value is never
+            // recorded, so it never becomes a mask other sessions see.
             BrowserReplTabAttachments.shared.typedSecrets.record(
-                tab: panel.id.uuidString, name: name, value: text, domains: domains, typist: sessionID
+                tab: panel.id.uuidString,
+                name: name,
+                value: text,
+                domains: rawDomains.compactMap(BrowserReplDomainPattern.from(json:)),
+                typist: sessionID
             )
         }
         try await withWindow(panel) { webView, _ in
@@ -2312,10 +2317,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let policy = currentPolicy
         let frameGate = self.frameGate
         let image: CGImage = try await withWindow(panel) { webView, _ in
-            try await Self.withSecretMasks(masks, policy: policy, webView: webView) {
+            try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .handToCapture, webView: webView) { blockedChildFrames in
                 // Frames the domain policy blocks (an ad or tracker under
-                // allowedDomains) are blanked, not the whole capture refused.
-                try await frameGate.coverBlockedFrames(in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) }) {
+                // allowedDomains) are blanked, not the whole capture refused:
+                // those of the tree, and those whose document the mask found
+                // blocked (a frame that navigated after the tree was read).
+                try await frameGate.coverBlockedFrames(
+                    in: webView,
+                    frames: { await BrowserReplFrameTree.frames(of: webView) },
+                    blockedChildFrames: blockedChildFrames
+                ) {
                     try await BrowserReplCapture.snapshotWithRegion(webView: webView, clip: clip, fullPage: fullPage)
                 }
             }
@@ -2330,7 +2341,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let masks = typedSecretMasks(params)
         let policy = currentPolicy
         let data: Data = try await withWindow(panel) { [self] webView, _ in
-            try await Self.withSecretMasks(masks, policy: policy, webView: webView) {
+            // A PDF cannot blank a frame: any frame whose marked document
+            // the policy blocks refuses it, also one that navigated after
+            // checkFramePolicy read the tree.
+            try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .refuse, webView: webView) { _ in
                 try await self.printPDF(webView: webView, params: params)
             }
         }
@@ -2339,15 +2353,18 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// Runs `capture` with registered secrets masked in frames on their
     /// domains, bound to the documents the frames show, and refuses it when
-    /// a frame shows a page the policy blocks (BrowserReplCaptureMask).
+    /// the main frame, or with `.refuse` any frame, shows a page the policy
+    /// blocks; with `.handToCapture` `capture` gets the blocked child frames
+    /// to blank (BrowserReplCaptureMask).
     @MainActor
     private static func withSecretMasks<T>(
         _ masks: [[String: Any]],
         policy: BrowserReplDomainPolicy,
+        blockedChildFrames: BrowserReplCaptureMask.BlockedChildFrames,
         webView: WKWebView,
-        _ capture: () async throws -> T
+        _ capture: (_ blockedChildFrames: [String: String]) async throws -> T
     ) async throws -> T {
-        try await BrowserReplCaptureMask(secretMasks: masks, policy: policy).run(
+        try await BrowserReplCaptureMask(secretMasks: masks, policy: policy, blockedChildFrames: blockedChildFrames).run(
             in: webView,
             frames: { await BrowserReplFrameTree.frames(of: webView).map(\.info) },
             capture

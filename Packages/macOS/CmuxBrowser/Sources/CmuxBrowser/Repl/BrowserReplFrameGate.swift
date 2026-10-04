@@ -84,12 +84,10 @@ public final class BrowserReplFrameGate {
     /// The session's policy; only the native session sets it.
     public var policy = BrowserReplDomainPolicy()
     private let world: WKContentWorld
-    /// How long one of the gate's own probes (a frame's document, its focus,
-    /// the frame boxes) may take. WebKit does not call a script's completion
-    /// when a navigation replaces the document it runs in, and a busy page
-    /// answers late; past this the call is refused with `stale`.
-    private let probeTimeout: Duration
-    private let clock: any Clock<Duration>
+    /// Bounds each of the gate's own probes (a frame's document, its focus,
+    /// the frame boxes); one that does not answer in time refuses the call
+    /// with `stale`.
+    private let prober: BrowserReplScriptProbe
     /// The document each frame last showed when the gate read it.
     private var known: [Key: BrowserReplFrameDocument] = [:]
 
@@ -104,8 +102,7 @@ public final class BrowserReplFrameGate {
     ///   - clock: measures `probeTimeout`.
     public init(world: WKContentWorld, probeTimeout: Duration = .seconds(5), clock: any Clock<Duration> = ContinuousClock()) {
         self.world = world
-        self.probeTimeout = probeTimeout
-        self.clock = clock
+        prober = BrowserReplScriptProbe(timeout: probeTimeout, clock: clock)
     }
 
     /// Why the policy blocks the document WebKit recorded for `frame` when
@@ -256,15 +253,24 @@ public final class BrowserReplFrameGate {
     /// (`-webkit-box-reflect`, `filter`), or an element of the page samples
     /// what lies under it (`backdrop-filter`). The page can still move a
     /// frame and put it back within the capture.
+    ///
+    /// - Parameter blockedChildFrames: Child frames (`frameID` to the
+    ///   policy's reason) whose live document is blocked, as the capture
+    ///   mask found them (``BrowserReplCaptureMask/BlockedChildFrames/handToCapture``):
+    ///   a frame can navigate to a blocked page after the tree was read, so
+    ///   its record still names the old one. They are blanked like the
+    ///   blocked frames of the tree, and one missing from the tree read
+    ///   before the capture refuses it.
     public func coverBlockedFrames(
         in webView: WKWebView,
         frames: @MainActor () async -> [BrowserReplFrame],
+        blockedChildFrames: [String: String] = [:],
         capture: () async throws -> (image: CGImage, region: CGRect)
     ) async throws -> CGImage {
         guard policy.isActive else { return try await capture().image }
-        let before = try await captureCovers(in: webView, frames: await frames())
+        let before = try await captureCovers(in: webView, frames: await frames(), alsoBlocked: blockedChildFrames, requireAlsoBlocked: true)
         let (image, region) = try await capture()
-        let after = try await captureCovers(in: webView, frames: await frames())
+        let after = try await captureCovers(in: webView, frames: await frames(), alsoBlocked: blockedChildFrames, requireAlsoBlocked: false)
         let covers = before + after
         guard !covers.isEmpty else { return image }
         return try Self.blank(covers, in: image, region: region)
@@ -272,8 +278,13 @@ public final class BrowserReplFrameGate {
 
     /// The boxes (CSS pixels of the main frame's viewport) a capture must
     /// blank; see ``coverBlockedFrames(in:frames:capture:)``.
-    func captureCovers(in webView: WKWebView, frames: [BrowserReplFrame]) async throws -> [CGRect] {
-        let tops = try blockedTops(frames, in: webView)
+    func captureCovers(
+        in webView: WKWebView,
+        frames: [BrowserReplFrame],
+        alsoBlocked: [String: String] = [:],
+        requireAlsoBlocked: Bool = false
+    ) async throws -> [CGRect] {
+        let tops = try blockedTops(frames, in: webView, alsoBlocked: alsoBlocked, requireAlsoBlocked: requireAlsoBlocked)
         guard !tops.isEmpty else { return [] }
         let found = try await boxes(of: tops, in: webView, frames: frames, effects: true)
         if found.backdrop {
@@ -441,11 +452,29 @@ public final class BrowserReplFrameGate {
     /// The main frame's child frames that are or hold a blocked frame, one
     /// per child. Throws `blocked` when the main frame is blocked, or a
     /// blocked frame's place in the tree is unknown.
-    private func blockedTops(_ frames: [BrowserReplFrame], in webView: WKWebView) throws -> [BlockedTop] {
-        let blockedFrames = blocked(frames, in: webView)
-        guard let first = blockedFrames.first, let main = frames.first else { return [] }
-        if first.frame.frameID == main.frameID {
-            throw blocked(first.frame, document: nil, reason: first.reason)
+    ///
+    /// - Parameters:
+    ///   - alsoBlocked: Frames (`frameID` to reason) to count as blocked
+    ///     whatever the tree recorded for them.
+    ///   - requireAlsoBlocked: Throw `blocked` when one of `alsoBlocked` is
+    ///     not in `frames`, instead of passing over it.
+    private func blockedTops(
+        _ frames: [BrowserReplFrame],
+        in webView: WKWebView,
+        alsoBlocked: [String: String] = [:],
+        requireAlsoBlocked: Bool = false
+    ) throws -> [BlockedTop] {
+        var blockedFrames = blocked(frames, in: webView)
+        for (id, reason) in alsoBlocked.sorted(by: { $0.key < $1.key }) where !blockedFrames.contains(where: { $0.frame.frameID == id }) {
+            guard let frame = frames.first(where: { $0.frameID == id }) else {
+                guard requireAlsoBlocked else { continue }
+                throw BrowserReplDriverError(code: "blocked", message: "Frame \(id) showed a page the domain policy blocks (\(reason)) when the capture was prepared and is no longer in the tab's frame tree, so a capture could show it")
+            }
+            blockedFrames.append((frame, reason))
+        }
+        guard let main = frames.first, !blockedFrames.isEmpty else { return [] }
+        if let entry = blockedFrames.first(where: { $0.frame.frameID == main.frameID }) {
+            throw blocked(entry.frame, document: nil, reason: entry.reason)
         }
         let byID = Dictionary(frames.map { ($0.frameID, $0) }, uniquingKeysWith: { first, _ in first })
         var tops: [BlockedTop] = []
@@ -517,8 +546,7 @@ public final class BrowserReplFrameGate {
     }
 
     /// Runs one of the gate's own scripts in its world, failing with
-    /// `stale` when it has not answered within ``probeTimeout``. The
-    /// script itself cannot be cancelled; a late answer is dropped.
+    /// `stale` when it has not answered in time (``BrowserReplScriptProbe``).
     private func probe(
         _ source: String,
         arguments: [String: Any],
@@ -526,28 +554,7 @@ public final class BrowserReplFrameGate {
         frame: WKFrameInfo?,
         what: String
     ) async throws -> Any? {
-        let race = ProbeRace()
-        let world = self.world
-        Task { @MainActor in
-            do {
-                race.finish(.success(BrowserReplProbeValue(value: try await webView.callAsyncJavaScript(source, arguments: arguments, in: frame, contentWorld: world))))
-            } catch {
-                race.finish(.failure(error))
-            }
-        }
-        let clock = self.clock
-        let timeout = probeTimeout
-        let message = "\(what) within \(timeout.components.seconds) s (it may have navigated or be busy); try again"
-        let deadline = Task { @MainActor in
-            do {
-                try await clock.sleep(for: timeout)
-            } catch {
-                return
-            }
-            race.finish(.failure(BrowserReplDriverError(code: "stale", message: message.prefix(1).uppercased() + message.dropFirst())))
-        }
-        defer { deadline.cancel() }
-        return try await race.value().value
+        try await prober.call(source, arguments: arguments, in: webView, frame: frame, contentWorld: world, what: what)
     }
 
     private func blocked(_ frame: BrowserReplFrame, document: BrowserReplFrameDocument?, reason: String) -> BrowserReplDriverError {
@@ -565,37 +572,5 @@ public final class BrowserReplFrameGate {
 
     private static func format(_ value: CGFloat) -> String {
         value == value.rounded() ? String(Int(value)) : String(format: "%.1f", Double(value))
-    }
-}
-
-/// A probe's answer, carried between main-actor tasks.
-private struct BrowserReplProbeValue: @unchecked Sendable {
-    let value: Any?
-}
-
-/// First answer wins: the probe's or the timeout's.
-@MainActor
-private final class ProbeRace {
-    private var result: Result<BrowserReplProbeValue, any Error>?
-    private var continuation: CheckedContinuation<BrowserReplProbeValue, any Error>?
-
-    func finish(_ value: Result<BrowserReplProbeValue, any Error>) {
-        guard result == nil else { return }
-        result = value
-        if let continuation {
-            self.continuation = nil
-            continuation.resume(with: value)
-        }
-    }
-
-    func value() async throws -> BrowserReplProbeValue {
-        if let result { return try result.get() }
-        return try await withCheckedThrowingContinuation { continuation in
-            if let result {
-                continuation.resume(with: result)
-            } else {
-                self.continuation = continuation
-            }
-        }
     }
 }

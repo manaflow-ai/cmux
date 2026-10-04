@@ -17,6 +17,9 @@ public struct BrowserReplSecretTarget {
     /// The secret's domains (`secretDomains` as the session sends them).
     public let domains: [BrowserReplDomainPattern]
     private let world: WKContentWorld
+    /// Bounds each focus probe: WebKit drops a script's completion when a
+    /// navigation replaces its document, and a busy page answers late.
+    private let probe: BrowserReplScriptProbe
     /// Answers, in one frame's document, whether it holds the focused
     /// element (a function body returning a boolean).
     var focusProbe = Self.focusProbe
@@ -29,22 +32,36 @@ public struct BrowserReplSecretTarget {
     /// - Parameters:
     ///   - domains: `secretDomains` as the session sends them.
     ///   - world: The driver's own content world.
-    public init(name: String, domains: [[String: Any]], world: WKContentWorld) {
+    ///   - probe: Bounds each focus probe.
+    public init(name: String, domains: [[String: Any]], world: WKContentWorld, probe: BrowserReplScriptProbe = BrowserReplScriptProbe()) {
         self.name = name
         self.domains = domains.compactMap(BrowserReplDomainPattern.from(json:))
         self.world = world
+        self.probe = probe
     }
 
     /// Throws `invalid` unless the focused frame's origin matches one of the
-    /// secret's domains.
+    /// secret's domains, and `stale` when a frame does not answer within the
+    /// probe's bound.
     /// - Parameter frames: The tab's frame tree, read just before.
     public func check(in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
         // The document that answers "focused" names its own origin.
-        let probe = "const focused = (() => {\n\(focusProbe)\n})();\nreturn focused ? String(self.origin) : null;"
+        let source = "const focused = (() => {\n\(focusProbe)\n})();\nreturn focused ? String(self.origin) : null;"
         var focusedOrigin: String?
         for frame in frames {
             guard let info = frame.info else { continue }
-            let answer = try? await webView.callAsyncJavaScript(probe, arguments: [:], in: info, contentWorld: world)
+            let answer: Any?
+            do {
+                answer = try await probe.call(
+                    source, arguments: [:], in: webView, frame: info, contentWorld: world,
+                    what: "secret \"\(name)\" was not typed: frame \(frame.frameID) did not report its focus"
+                )
+            } catch let error as BrowserReplDriverError {
+                throw error
+            } catch {
+                // A frame that has gone holds no focus.
+                answer = nil
+            }
             if let origin = answer as? String { focusedOrigin = origin }
         }
         guard let origin = focusedOrigin else {

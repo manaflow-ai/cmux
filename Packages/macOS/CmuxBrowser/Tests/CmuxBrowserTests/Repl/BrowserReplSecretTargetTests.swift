@@ -100,4 +100,26 @@ struct BrowserReplSecretTargetTests {
             try await target().check(in: webView, frames: [frame("1", main, parent: nil), frame("2", stale, parent: "1")])
         }
     }
+
+    /// WebKit drops a script's completion when a navigation replaces its
+    /// document, and a busy page answers late: the focus probe is bounded,
+    /// and one that does not answer refuses the secret with `stale`
+    /// instead of hanging the call.
+    @Test func aFocusProbeThatNeverAnswersRefusesWithStale() async throws {
+        let webView = await load(#"<iframe id=child srcdoc="\#(Self.focusedField)"></iframe><script>webkit.messageHandlers.frame.postMessage('main')</script>"#, posting: ["main", "child"])
+        let main = try #require(frames.infos["main"])
+        let child = try #require(frames.infos["child"])
+        let target = SendableBox(try target())
+        let tree = SendableBox([frame("1", main, parent: nil), frame("2", child, parent: "1")])
+        let view = SendableBox(webView)
+        // The page's web process runs no other script for 8 s, past the
+        // 5 s bound.
+        BrowserReplFrameGateTests.startBusyLoop(in: webView, seconds: 8)
+        let error = await browserReplWithDeadline(seconds: 20) { @MainActor in
+            await BrowserReplFrameGateTests.error {
+                try await target.value.check(in: view.value, frames: tree.value)
+            }
+        }
+        #expect(error??.code == "stale", "a focus probe that did not answer hung or passed: \(String(describing: error))")
+    }
 }

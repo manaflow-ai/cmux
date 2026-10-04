@@ -25,7 +25,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
+| `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
 | `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid` |
 | `tabs.close` | `{ targetId, runBeforeUnload? }` | |
@@ -239,9 +239,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   Results, events, fetch responses, output, errors, written files and
   files read back are redacted by the session. Another session that drives the same tab
   (`tabs.use`) does not hold the secret, so the driver remembers each value
-  it typed, by tab, typing session and secret name, from before it types
-  until the tab closes (sessions whose secrets share a name keep separate
-  values), and masks it as typed, `<secret:name>`, in every result,
+  it typed, by tab, typing session and secret name, from when the domain
+  check passes, before it types, until the tab closes (a value the check
+  refuses is never remembered; sessions whose secrets share a name keep
+  separate values), and masks it as typed, `<secret:name>`, in every result,
   event and error it returns to any other session, and in their captures;
   once the typing session ends, also for a later session of the same name.
   A TOTP secret's typed value is its code, masked as that literal.
@@ -282,14 +283,24 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the main frame is blocked or a blocked frame's content cannot be hidden
   that way (its box is unknown, its frame element or an ancestor has
   `-webkit-box-reflect` or `filter`, or an element of the page has
-  `backdrop-filter`). Frame documents are judged again when the capture is prepared, and the capture is refused when a frame shows another document after it. Child frames are matched to their elements through
+  `backdrop-filter`). When a capture is prepared, the driver marks each
+  frame's document in its own content world and judges the document it
+  marked, the one the capture shows (a frame can navigate after the tree
+  read): a PDF is refused while any marked document is blocked; a
+  screenshot is refused while the main frame's is, and blanks every child
+  frame whose marked document is blocked like the tree's blocked frames
+  (it is refused when such a frame is missing from the tree read before
+  the capture). The capture is refused when a frame shows another
+  document after it. Child frames are matched to their elements through
   `window.frames`, which leaves out frames in shadow trees, so while the
   main frame has a frame in a shadow tree every box counts as unknown. In tabs the session created the content rules keep a
   blocked frame from loading at all; its empty frame belongs to the parent
   and refuses nothing. The page can still move a frame or the focus in its
   own web process between the check and the input reaching it. Each of
   these checks' own scripts (a frame's document, its focus, the frame
-  boxes) must answer within 5 s, or the call fails with `stale`: WebKit
+  boxes), each capture mask script (mark, mask, check, restore) and each
+  focus probe of a secret's typing check must answer within 5 s, or the
+  call fails with `stale`: WebKit
   drops a script's completion when a navigation replaces its document, and
   a busy page answers late.
 - Page-opened windows: a window a page opens from a user's tab, also one

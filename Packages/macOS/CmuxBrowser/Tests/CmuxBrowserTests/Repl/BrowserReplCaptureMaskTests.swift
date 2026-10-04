@@ -256,6 +256,66 @@ struct BrowserReplCaptureMaskTests {
         #expect(captured)
     }
 
+    // MARK: Blocked child frames
+
+    /// A frame keeps its id when it navigates, so a child frame can show a
+    /// page the policy blocks after the driver judged the tree and before
+    /// the mask marks it. A PDF cannot blank a frame, so a child frame whose
+    /// marked document is blocked refuses it.
+    @Test func aPDFOfAChildFrameWhoseDocumentIsBlockedIsRefused() async throws {
+        let page = try await FramePage.load()
+        let mask = BrowserReplCaptureMask(secretMasks: [], policy: Self.policy(prohibiting: "cmux-test://blocked.test"), blockedChildFrames: .refuse)
+        var captured = false
+        let error = await BrowserReplFrameGateTests.error {
+            try await mask.run(in: page.webView, frames: { page.frames.map(\.info) }) { captured = true }
+        }
+        #expect(error?.code == "blocked", "a PDF of a blocked child frame was allowed: \(String(describing: error))")
+        #expect(!captured)
+    }
+
+    /// A screenshot blanks blocked frames itself: the mask hands it each
+    /// child frame whose marked document the policy blocks, so a frame that
+    /// navigated to a blocked page after the tree was judged is blanked too.
+    @Test func aScreenshotIsHandedTheChildFramesWhoseDocumentIsBlocked() async throws {
+        let page = try await FramePage.load()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        let allowed = try #require(page.frame(path: "/child"))
+        let mask = BrowserReplCaptureMask(secretMasks: [], policy: Self.policy(prohibiting: "cmux-test://blocked.test"), blockedChildFrames: .handToCapture)
+        let handed = try await mask.run(in: page.webView, frames: { page.frames.map(\.info) }) { blockedChildFrames in
+            blockedChildFrames
+        }
+        #expect(handed[blocked.frameID] != nil, "the blocked child frame was not handed to the screenshot: \(handed)")
+        #expect(handed[allowed.frameID] == nil, "an allowed child frame was handed to the screenshot as blocked")
+    }
+
+    // MARK: Scripts that never answer
+
+    /// WebKit drops a script's completion when a navigation replaces its
+    /// document, and a busy page answers late: the mask's scripts are
+    /// bounded, and one that does not answer refuses the capture with
+    /// `stale` instead of hanging it.
+    @Test func aMaskScriptThatNeverAnswersRefusesWithStale() async throws {
+        let page = try await FramePage.load()
+        let mask = BrowserReplCaptureMask(secretMasks: [], policy: Self.policy(prohibiting: "cmux-test://other.test"))
+        let infos = SendableBox(page.frames.map(\.info))
+        let webView = SendableBox(page.webView)
+        // The page's web process runs no other script for 8 s, past the
+        // 5 s bound.
+        BrowserReplFrameGateTests.startBusyLoop(in: page.webView, seconds: 8)
+        let error = await browserReplWithDeadline(seconds: 20) { @MainActor in
+            await BrowserReplFrameGateTests.error {
+                try await mask.run(in: webView.value, frames: { infos.value }) { true }
+            }
+        }
+        #expect(error??.code == "stale", "a mask script that did not answer hung or passed: \(String(describing: error))")
+    }
+
+    static func policy(prohibiting pattern: String) -> BrowserReplDomainPolicy {
+        var policy = BrowserReplDomainPolicy()
+        policy.prohibited = [try! BrowserReplDomainPattern.parse(pattern, title: "test")]
+        return policy
+    }
+
     /// The mask step fails in a frame on the secret's domain (here the frame
     /// went away after the frame list was read): the capture is refused
     /// rather than taken with that frame unmasked.
