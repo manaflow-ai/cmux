@@ -47,3 +47,7 @@ pub(crate) fn wait_for_pid_file(path: &Path) -> libc::pid_t {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+// R81 spare host tests live beside these waits (the root file is at its size limit).
+#[path = "standby_host.rs"]
+mod standby_host;

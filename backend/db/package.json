@@ -29,6 +29,7 @@
   },
   "exports": {
     "./schema": "./schema/index.ts",
-    "./schema-mysql": "./schema-mysql/index.ts"
+    "./schema-mysql": "./schema-mysql/index.ts",
+    "./projection-compare": "./projection-compare.ts"
   }
 }

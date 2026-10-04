@@ -2,7 +2,7 @@
 // scaled down in the page to at most MAX_IMAGE_SIDE pixels (an icon never draws larger), so the
 // stored asset stays far below the owner's size limit; SVG text is sanitized for the preview and
 // sanitized again by the owner. The host stores the asset (`IconAssetSink`) and returns the value.
-import { useState, type ClipboardEvent, type DragEvent } from "react";
+import { useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import type { Strings } from "../pages/shared/i18n";
 import type { IconValue } from "./iconValue";
 import { sanitizeSVG } from "./svgSanitize";
@@ -38,12 +38,15 @@ export function AssetTab({
   sink,
   strings,
   onPicked,
+  onKeyDown,
   prepare = prepareImage,
 }: {
   kind: AssetKind;
   sink: IconAssetSink | undefined;
   strings: Strings;
   onPicked: (value: IconValue) => void;
+  /** The picker's keys (Escape, Ctrl-Tab) while a control of this tab has focus. */
+  onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
   prepare?: (file: Blob) => Promise<Blob>;
 }) {
   const { t } = strings;
@@ -138,6 +141,7 @@ export function AssetTab({
           placeholder={t("iconPicker.asset.urlPlaceholder")}
           aria-label={t("iconPicker.asset.url")}
           onChange={(event) => setURL(event.target.value)}
+          onKeyDown={onKeyDown}
         />
         <button type="submit" disabled={busy || !url.trim()}>
           {t("iconPicker.asset.add")}

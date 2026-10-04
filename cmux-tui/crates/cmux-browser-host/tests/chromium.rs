@@ -92,12 +92,8 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
     let origin = format!("http://127.0.0.1:{port}");
 
     let started = Instant::now();
-    let chromium = HeadlessChromium::launch(&HeadlessOptions {
-        binary: binary.into(),
-        user_data_dir: None,
-        extra_args: Vec::new(),
-    })
-    .expect("launch Chromium");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
     let events = Arc::new(Mutex::new(Vec::new()));
     let sink = events.clone();
     let driver = CdpDriver::attach_browser(
