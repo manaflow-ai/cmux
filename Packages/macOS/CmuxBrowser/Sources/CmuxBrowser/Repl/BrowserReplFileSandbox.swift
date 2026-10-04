@@ -194,6 +194,12 @@ public struct BrowserReplFileSandbox: Sendable {
         return nil
     }
 
+    /// WebKit content rules that keep pages in a session's tabs from loading
+    /// local files outside `roots`.
+    public static func contentRules(roots: [String]) -> [[String: Any]] {
+        []
+    }
+
     /// Held by every REPL `fs.rename` around its `renameat`, and by a file
     /// navigation from its last check until the browser took its read
     /// access (``withPinnedFileAccess(_:roots:_:)``): no REPL session (this
