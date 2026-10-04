@@ -70,18 +70,18 @@ extension WindowOverlayHost {
             // The rest of this click (drags and the up of the same button)
             // still comes to the panel, which got the down: it goes to the same target.
             forwardTarget = forwardingTarget(for: panel.convertPoint(toScreen: point), in: window)
-            forwardButton = event.buttonNumber
+            forwardButton = Self.button(of: event)
             forward(event)
             return true
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            guard forwardTarget != nil, event.buttonNumber == forwardButton else {
+            guard forwardTarget != nil, Self.button(of: event) == forwardButton else {
                 if forwardTarget == nil { routeMouse(at: NSEvent.mouseLocation) }
                 return false
             }
             forward(event)
             return true
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            guard forwardTarget != nil, event.buttonNumber == forwardButton else { return false }
+            guard forwardTarget != nil, Self.button(of: event) == forwardButton else { return false }
             forward(event)
             forwardTarget = nil
             return true
@@ -90,6 +90,16 @@ extension WindowOverlayHost {
             return false
         default:
             return false
+        }
+    }
+
+    /// The mouse button of an event: from its type for left and right
+    /// (`buttonNumber` is not set on every event), else `buttonNumber`.
+    static func button(of event: NSEvent) -> Int {
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged, .leftMouseUp: 0
+        case .rightMouseDown, .rightMouseDragged, .rightMouseUp: 1
+        default: event.buttonNumber
         }
     }
 
