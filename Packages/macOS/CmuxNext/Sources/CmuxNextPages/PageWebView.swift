@@ -239,6 +239,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// mounted its claimed page, in `ProcessInfo.systemUptime` seconds; nil until it has.
     public internal(set) var paintedUptime: TimeInterval?
     public var hasPainted: Bool { paintedUptime != nil }
+    /// Called when the page reports its first frame (stub: not called yet).
+    public var onPaint: (() -> Void)?
 
     func receive(_ message: PageHostMessage) async -> Any? {
         // Trust checks the document's origin: while a shell page is claimed, that is the shell.

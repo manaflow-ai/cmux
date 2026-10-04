@@ -18,6 +18,8 @@ public import CmuxNextWakeups
 public final class PageHostPool {
     public struct Policy: Sendable {
         public var idleInput: Duration = .milliseconds(750)
+        /// Stub: the next spare does not prepare anything yet.
+        public var preparesLastClaimed = true
         public init() {}
     }
 
@@ -26,6 +28,8 @@ public final class PageHostPool {
         public var page: String
         /// The host was parked in another window than the caller's.
         public var crossWindow: Bool
+        /// Stub: no claim is prepared yet.
+        public var prepared = false
         /// Main-thread time of the claim.
         public var milliseconds: Double
     }
@@ -72,6 +76,8 @@ public final class PageHostPool {
     /// The parked spare, if any (``isSpareReady`` once it can be claimed).
     public var spareHost: PageWebView? { spare }
     public var isSpareReady: Bool { spare != nil && spareReady }
+    /// The claimed hosts still alive (stub: at most one).
+    public var claimedHosts: [PageWebView] { claimed.map { [$0] } ?? [] }
     /// The claimed host, if any.
     public var claimedHost: PageWebView? { claimed }
 
@@ -120,6 +126,21 @@ public final class PageHostPool {
         }
         host.close()
         scheduleBuild()
+    }
+
+    /// The page mounted in the spare ahead of its claim (stub: none yet).
+    public var preparedPage: String? { nil }
+    /// Called when the spare has a page mounted ahead of its claim.
+    public var onPrepared: ((PageWebView, String) -> Void)?
+    /// Hosts the pool keeps alive: the spare and the claimed hosts.
+    public var hostCount: Int { (spare == nil ? 0 : 1) + (claimed == nil ? 0 : 1) }
+    /// Whether the pool may build a spare now.
+    public var mayBuild: Bool { shouldBuild }
+
+    /// `descriptor` is likely next (its trigger is about to fire): stub, only marks a shell page likely.
+    public func prepare(_ descriptor: PageDescriptor, routes: [PageRoute],
+                        dynamicResources: (any PageDynamicResourceSource)? = nil, size: CGSize? = nil) {
+        noteLikely()
     }
 
     /// A shell page is likely soon: build a spare at the next idle moment.

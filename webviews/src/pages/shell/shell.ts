@@ -54,6 +54,8 @@ export interface ShellOptions {
   readonly pages: readonly ShellPage[];
   readonly win: ShellWindow;
   readonly languages?: () => readonly string[];
+  /** Called once the claimed page drew its first frame (stub: not called yet). */
+  readonly painted?: () => void;
 }
 
 export class PageShell {
