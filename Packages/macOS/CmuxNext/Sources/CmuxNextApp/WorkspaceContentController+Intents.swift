@@ -39,6 +39,17 @@ extension WorkspaceContentController {
             sendGesture(transaction, phase: .ended, label: "set-column-sticky") { connection in
                 try await connection.setColumnSticky(of: handle, sticky: wire, transaction: daemonTransaction)
             }
+        case .setRowHeights(let column, let heights, let fit):
+            setRowHeights(column, heights: heights, fit: fit)
+        case .newRow(let below, let height):
+            guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.panes[below] else {
+                return services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.rows))
+            }
+            let cwd = panes[below]?.selectedTab?.cwd
+            let key = workspace.key
+            spawnPane("new-row") {
+                try await RowCommands($0).newRow(below: handle, height: height, options: SpawnOptions(cwd: cwd, workspace: key))
+            }
         case .selectScreen(let screen):
             // Every screen switch (switcher click, screen actions) focuses the
             // screen's most recently focused pane (its active
@@ -90,6 +101,24 @@ extension WorkspaceContentController {
                 then?()
             } catch {
                 daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// A row divider release: one typed intent in the store's log, shown
+    /// over the mirror until the daemon settles or refuses it (rows.md Z1;
+    /// the layout model keeps no copy).
+    private func setRowHeights(_ column: LayoutColumnID, heights: [RowHeight], fit: Bool) {
+        guard daemon.supports(DaemonCapabilities.shared.rows), let handle = handles.columns[column] else { return }
+        var mapped: [RowHeightValue] = []
+        for height in heights {
+            guard let row = handles.rows[height.row] else { return }
+            mapped.append(RowHeightValue(row: row, height: height.height))
+        }
+        let values = mapped
+        Task {
+            _ = await daemon.intend("set-row-heights", .setRowHeights(column: handle, heights: values)) { connection in
+                try await RowCommands(connection).setRowHeights(column: handle, heights: values, fit: fit)
             }
         }
     }
