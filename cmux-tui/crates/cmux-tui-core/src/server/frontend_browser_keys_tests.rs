@@ -10,7 +10,7 @@ fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
         outbound: Arc::new(BoundedOutbound::default()),
         control: None,
     });
-    handle_command(mux, 0, command, &writer)
+    handle_command(mux, mux.local_test_client(0), command, &writer)
 }
 
 /// Frontend-rendered browser tabs in the raw tree.

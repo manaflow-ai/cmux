@@ -28,14 +28,15 @@ extension HomeNativeTranscriptView {
         attach(urls.map { .file($0) })
     }
 
-    func pickFiles() {
+    /// Opens the file picker as a sheet (the attach button, `home.attachFiles`).
+    public func pickFiles() {
         guard let window, attachmentPreparer != nil else { return }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.prompt = HomeStrings.attachPrompt
-        panel.allowedContentTypes = HomeAttachmentPolicy.allowedTypes.keys.sorted().compactMap { UTType(mimeType: $0) }
+        panel.allowedContentTypes = HomeComposerCheck.pickerTypes
         // task-owner: the sheet belongs to the window; the task ends when it closes
         Task { [weak self] in
             guard await panel.beginSheetModal(for: window) == .OK else { return }
@@ -101,6 +102,12 @@ extension HomeNativeTranscriptView {
     /// upload, a resend after backoff): `HomeStoreBinding.onRefusal`.
     public func showRefusal(_ rejection: HomeRejection) {
         field.showNotice(HomeStrings.rejection(rejection))
+    }
+
+    /// An op (a tapback, a read cursor) ran out of resends unanswered
+    /// (`HomeStoreBinding.onUnanswered`): it may not have gone through.
+    public func showUnanswered(_ intent: HomeIntent) {
+        field.showNotice(HomeStrings.unanswered)
     }
 
     /// Returns when every attachment given so far is in the draft (tests).

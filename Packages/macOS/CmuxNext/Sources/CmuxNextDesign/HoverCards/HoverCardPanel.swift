@@ -4,6 +4,8 @@ public import AppKit
 public enum HoverCardPlacement: Sendable {
     /// Under the target, left-aligned (tab strips).
     case below
+    /// Over the target, left-aligned (a tab strip at the bottom, R109).
+    case above
     /// Right of the target, top-aligned (sidebar rows).
     case beside
 }
@@ -25,6 +27,8 @@ final class HoverCardPanel: NSPanel {
     private var anchor: CGRect = .zero
     private var placement: HoverCardPlacement = .below
     private var applyTheme: (() -> Void)?
+    /// The scope the card draws in; a retarget within it adopts nothing again.
+    private weak var adoptedScope: ThemeScope?
 
     init() {
         glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius)
@@ -54,6 +58,8 @@ final class HoverCardPanel: NSPanel {
 
     /// Shows `body` at `anchor` (screen) as a child of `parent`. `themeAnchor`
     /// is the view the card describes; the card draws in its theme scope.
+    /// `sliding` (a retarget of a visible card) moves it in the same frame
+    /// like any other placement; only a first show fades in.
     func present(body newBody: NSView, anchor: CGRect, placement: HoverCardPlacement, parent: NSWindow,
                  themeAnchor: NSView?, sliding: Bool, applyTheme: @escaping () -> Void) {
         let wasDismissing = isDismissing
@@ -75,10 +81,15 @@ final class HoverCardPanel: NSPanel {
         // follows that scope's changes while it shows, at full strength even
         // over an unfocused pane's subtle strip.
         let scope = (themeAnchor?.themeScope ?? parent.themeScope).fullStrength
-        scope.adopt(self)
-        scope.addResponder(self)
         self.applyTheme = applyTheme
-        themeDidChange()
+        if adoptedScope !== scope {
+            scope.adopt(self)
+            scope.addResponder(self)
+            adoptedScope = scope
+            themeDidChange()
+        } else {
+            applyTheme()
+        }
         if parentWindowRef !== parent {
             parentWindowRef?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -86,7 +97,7 @@ final class HoverCardPanel: NSPanel {
         }
         self.anchor = anchor
         self.placement = placement
-        place(sliding: sliding)
+        place()
         // A fade-out in flight (hide and show in one turn) is replaced by a fade-in.
         if !isVisible || alphaValue < 1 || wasDismissing {
             if !isVisible { alphaValue = 0 }
@@ -105,20 +116,21 @@ final class HoverCardPanel: NSPanel {
     func follow(_ newAnchor: CGRect) {
         guard newAnchor != anchor, isShowingCard else { return }
         anchor = newAnchor
-        place(sliding: false)
+        place()
     }
 
     /// The body's size changed (a resources row appeared).
     func refit() {
         guard isShowingCard else { return }
-        place(sliding: false)
+        place()
     }
 
-    private func place(sliding: Bool) {
+    private func place() {
         glass.layoutSubtreeIfNeeded()
         let size = glass.fittingSize
         var origin: CGPoint = switch placement {
         case .below: CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
+        case .above: CGPoint(x: anchor.minX, y: anchor.maxY + Metrics.space2)
         case .beside: CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
         }
         if let screen = parentWindowRef?.screen ?? NSScreen.main {
@@ -127,12 +139,9 @@ final class HoverCardPanel: NSPanel {
             origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
             origin.y = min(max(origin.y, visible.minY + margin), visible.maxY - size.height - margin)
         }
-        let frame = CGRect(origin: origin, size: size)
-        if sliding, isVisible, Motion.animatesMovement {
-            Motion.animateTimed(.panel) { animator().setFrame(frame, display: true) }
-        } else {
-            setFrame(frame, display: true)
-        }
+        // R131: a retarget moves the card in the same frame (Chrome); a
+        // window-frame slide restarted on every tab trailed the pointer.
+        setFrame(CGRect(origin: origin, size: size), display: true)
     }
 
     func dismiss() {

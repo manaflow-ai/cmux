@@ -54,8 +54,11 @@ export type SwitchPort = {
   setConfig(configId: string, value: string): Promise<void>;
   /// Ends a session a superseded switch started and nobody used.
   discard(sessionId: string): void;
-  /// Tells acpmux a harness is likely next, so it can warm its adapter. A no-op without support.
-  prewarm(harness: string): void;
+  /// Tells acpmux a harness is likely next in `cwd`, so its pool can ready a session. A no-op
+  /// without support or over a remote-origin connection; never awaited.
+  prewarm(harness: string, cwd?: string): void;
+  /// The connection can take a prewarm hint (acpmux lists the method and calls it local).
+  prewarmSupported(): boolean;
 };
 
 /// Injected time, so the debounce is testable and the store never keeps a timer while idle.
@@ -70,7 +73,8 @@ export const browserSwitchClock: SwitchClock = {
 
 /// How long the pointer or keyboard rests on a harness before the prewarm hint goes out.
 export const PREWARM_DEBOUNCE_MS = 150;
-/// A harness hinted this recently is not hinted again.
+/// The same harness hinted again this soon after its last hint is not sent again (acpmux keeps
+/// only the newest hint, so a harness hinted after another one always goes out).
 export const PREWARM_REPEAT_MS = 30_000;
 
 export type SwitchConfig = { model?: string; mode?: string; options: Readonly<Record<string, string>> };
@@ -151,7 +155,7 @@ export class HarnessSwitch {
   private left?: { sessionId: string; harness?: string };
   private hintTarget?: string;
   private cancelHint?: () => void;
-  private hinted = new Map<string, number>();
+  private lastHint?: { harness: string; at: number };
   private handlers: SwitchHandlers = {};
 
   constructor(private readonly clock: SwitchClock = browserSwitchClock) {}
@@ -326,13 +330,15 @@ export class HarnessSwitch {
     this.changed();
   }
 
-  /// The pointer or keyboard rests on `harness` in the picker. Debounced; one hint per harness
-  /// per PREWARM_REPEAT_MS; nothing for the harness the pane already runs.
+  /// The highlight rests on `harness` in the picker (the pointer, the arrows, or the choices
+  /// opening on it). Debounced; a repeat of the last hint within PREWARM_REPEAT_MS and the
+  /// harness the pane already runs are not sent. The hint names the folder a switch would use.
   hint(harness: string | undefined): void {
     if (harness === this.hintTarget) return;
     this.cancelHintTimer();
     this.hintTarget = harness;
-    if (!harness) return;
+    // A connection that cannot prewarm (remote origin, no _acpmux/prewarm) starts no timer.
+    if (!harness || !this.port?.prewarmSupported()) return;
     this.cancelHint = this.clock.schedule(() => {
       this.cancelHint = undefined;
       const port = this.port;
@@ -341,10 +347,10 @@ export class HarnessSwitch {
       const running = this.intent?.harness ?? shown?.harness;
       if (harness === running) return;
       const now = this.clock.now();
-      const last = this.hinted.get(harness);
-      if (last !== undefined && now - last < PREWARM_REPEAT_MS) return;
-      this.hinted.set(harness, now);
-      port.prewarm(harness);
+      const last = this.lastHint;
+      if (last?.harness === harness && now - last.at < PREWARM_REPEAT_MS) return;
+      this.lastHint = { harness, at: now };
+      port.prewarm(harness, this.intent?.cwd ?? shown?.cwd);
     }, PREWARM_DEBOUNCE_MS);
   }
 

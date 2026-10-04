@@ -125,8 +125,9 @@ enum TabMoves {
     }
 
     /// Moves the tab into a new column pinned to `edge` on `anchor`'s screen,
-    /// in one daemon commit (move-tab-to-column with `dock`,
-    /// edge-docks-v1). The column that held the edge scrolls again. Top and
+    /// in one daemon commit (move-tab-to-column with `dock`: dock-columns-v1,
+    /// and edge-docks-v1 for top and bottom; an older daemon would ignore
+    /// `dock` and make a plain column, so it is refused here). The column that held the edge scrolls again. Top and
     /// bottom are edge docks; `mode` nil uses `layout.dockColumnMode`, and
     /// `width` nil a third of the height for a band or the width of a new
     /// column beside the anchor for a side.
@@ -135,7 +136,8 @@ enum TabMoves {
                                   services: AppServices,
                                   transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
-        guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.edgeDocks),
+        guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.dockColumns),
+              !edge.isBand || daemon.supports(DaemonCapabilities.shared.edgeDocks),
               !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)

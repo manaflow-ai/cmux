@@ -544,6 +544,16 @@
         }
       }
     },
+    "CloudConnectServices": {
+      "kind": "array",
+      "items": {
+        "kind": "enum",
+        "values": [
+          "daemon",
+          "ssh"
+        ]
+      }
+    },
     "CloudMachine": {
       "kind": "object",
       "fields": {
@@ -759,6 +769,17 @@
             "kind": "primitive",
             "name": "string",
             "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+          }
+        },
+        "upgrade_plan": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+            }
           }
         },
         "limits": {
@@ -3932,6 +3953,7 @@
         "computerUse.allowed",
         "browserAutomation.rawCdp",
         "cloud.sandboxes",
+        "cloud.connectServices",
         "telemetry.level",
         "updates.channel",
         "updates.minimumVersion",
@@ -5224,6 +5246,28 @@
                 "type": {
                   "kind": "primitive",
                   "name": "boolean"
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "cloud.connectServices": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "CloudConnectServices"
                 }
               },
               "mode": {
@@ -14809,9 +14853,11 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
+        "cloud.rate_limited",
         "cloud.size.locked",
         "cloud.snapshot.not_found",
         "idempotency.conflict",
@@ -15170,6 +15216,7 @@
         "client.too_old",
         "cloud.machine.not_found",
         "cloud.provider.unavailable",
+        "cloud.rate_limited",
         "idempotency.conflict",
         "mutation.indeterminate",
         "owner.unreachable",
@@ -18333,6 +18380,17 @@
                 "type": "string",
                 "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
               },
+              "upgrade_plan": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "limits": {
                 "type": "object",
                 "properties": {
@@ -18425,6 +18483,7 @@
             },
             "required": [
               "plan_id",
+              "upgrade_plan",
               "limits",
               "usage"
             ],
@@ -19128,6 +19187,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.no_snapshot_configured",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
@@ -48632,6 +48692,17 @@
               "gmail"
             ]
           },
+          "CloudConnectServices": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "daemon",
+                "ssh"
+              ]
+            },
+            "maxItems": 2
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -48893,6 +48964,22 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.connectServices": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/CloudConnectServices"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -49344,6 +49431,17 @@
               "gmail"
             ]
           },
+          "CloudConnectServices": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "daemon",
+                "ssh"
+              ]
+            },
+            "maxItems": 2
+          },
           "TeamPolicyValues": {
             "type": "object",
             "properties": {
@@ -49605,6 +49703,22 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.connectServices": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/CloudConnectServices"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -49892,6 +50006,7 @@
               "computerUse.allowed",
               "browserAutomation.rawCdp",
               "cloud.sandboxes",
+              "cloud.connectServices",
               "telemetry.level",
               "updates.channel",
               "updates.minimumVersion",
@@ -50105,6 +50220,17 @@
               "google_calendar",
               "gmail"
             ]
+          },
+          "CloudConnectServices": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "daemon",
+                "ssh"
+              ]
+            },
+            "maxItems": 2
           },
           "TeamPolicyValues": {
             "type": "object",
@@ -50367,6 +50493,22 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.connectServices": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/CloudConnectServices"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -50810,6 +50952,7 @@
               "computerUse.allowed",
               "browserAutomation.rawCdp",
               "cloud.sandboxes",
+              "cloud.connectServices",
               "telemetry.level",
               "updates.channel",
               "updates.minimumVersion",
@@ -50893,6 +51036,17 @@
               "google_calendar",
               "gmail"
             ]
+          },
+          "CloudConnectServices": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "daemon",
+                "ssh"
+              ]
+            },
+            "maxItems": 2
           },
           "TeamPolicyValues": {
             "type": "object",
@@ -51155,6 +51309,22 @@
                 "properties": {
                   "value": {
                     "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "cloud.connectServices": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "$ref": "#/$defs/CloudConnectServices"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"

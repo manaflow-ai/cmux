@@ -68,6 +68,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // and a random token and saves both, so the URL is stable afterwards.
     // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
     // listener without one gets one, and the file keeps it.
+    rotate_saved_token_once(&mut config);
     let needs_token = config
         .websocket
         .as_ref()
@@ -93,6 +94,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             token: Some(kept_token.unwrap_or_else(random_token)),
             allowed_origins,
             allowed_hosts,
+            // A kept token was rotated just above; a new one is new.
+            token_rotated: TOKEN_ROTATION,
         });
         if let Err(e) = config.save() {
             tracing::warn!("could not save generated web config: {e}");
@@ -140,11 +143,19 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             .as_ref()
             .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
             .unwrap_or_default();
+        let token_rotated = config.websocket.as_ref().map_or(0, |w| w.token_rotated);
+        // A later save (policy, peers, presets) writes the saved token, never
+        // a `--token` value for this run.
+        let saved_token = config.websocket.as_ref().and_then(|w| w.token.clone());
+        if token != &saved_token {
+            config.web_token_override = token.clone();
+        }
         config.websocket = Some(crate::config::WebSocketConfig {
             listen: addr.clone(),
-            token: token.clone(),
+            token: saved_token.or_else(|| token.clone()),
             allowed_origins,
             allowed_hosts,
+            token_rotated,
         });
     }
     let hub = Hub::new(config, store);
@@ -172,7 +183,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         "pid": std::process::id(),
         "socket": socket_path(),
         "listen": bound,
-        "webUrl": hub.config.read().await.web_listener().map(crate::hub::web_url),
+        "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
@@ -248,6 +259,43 @@ fn write_ready(fd: i32, ready: &Value) {
     if fd <= 2 {
         // Never close stdio.
         std::mem::forget(f);
+    }
+}
+
+/// The rotation `websocket.tokenRotated` records (see `rotate_saved_token_once`).
+const TOKEN_ROTATION: u32 = 1;
+
+/// Builds before this one sent the saved WebSocket token to remote-origin
+/// connections (`_acpmux/status` `webUrl`), so a token saved by one may be
+/// known elsewhere: replace it once, at the first start of this build, and
+/// mark it so it never rotates again. Every reader takes the token fresh
+/// (the app's host and `acpmux web` from `_acpmux/status` over the unix
+/// socket, ssh peers from the remote config at each connect); a `--token`
+/// flag still overrides the listener's token. Returns whether it rotated.
+fn rotate_saved_token_once(config: &mut crate::config::Config) -> bool {
+    let Some(w) = config.websocket.as_mut() else { return false };
+    if w.token_rotated >= TOKEN_ROTATION || w.token.as_deref().is_none_or(|t| t.trim().is_empty()) {
+        return false;
+    }
+    let old = w.token.replace(random_token());
+    w.token_rotated = TOKEN_ROTATION;
+    match config.save() {
+        Ok(()) => {
+            tracing::info!(
+                "the saved WebSocket token was rotated once; run `acpmux web` for the new link"
+            );
+            true
+        }
+        Err(e) => {
+            // Never run on a token the file does not hold (ssh peers read
+            // the file): keep the old one and rotate at the next start.
+            tracing::warn!("could not save the rotated WebSocket token; rotating next start: {e}");
+            if let Some(w) = config.websocket.as_mut() {
+                w.token = old;
+                w.token_rotated = 0;
+            }
+            false
+        }
     }
 }
 

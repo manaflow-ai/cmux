@@ -57,6 +57,8 @@ export const CloudSnapshot = Schema.Struct({
 
 export const CloudPlan = Schema.Struct({
   plan_id: PlanId,
+  /** The plan that lifts these limits, for the page's "See plans"; null when there is none. */
+  upgrade_plan: Schema.NullOr(PlanId),
   limits: Schema.Struct({
     max_active: Schema.Int,
     max_saved: Schema.Int,
@@ -98,6 +100,8 @@ const READ = ["auth.forbidden", "auth.unauthenticated", "selector.not_found", "v
 const MUTATION = [...mutationErrors, ...GATES]
 /** A provider call can fail for now or be cut off; the caller retries the same key after mutation.indeterminate. */
 const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
+/** Create and delete are limited per team (CLOUD_MUTATION_LIMIT); retryable, retry after a minute. */
+const LIMITED = ["cloud.rate_limited"]
 const KEY = " After mutation.indeterminate, retry with the same idempotency key."
 const PERSON = " Agent principals are refused; the client asks a person first."
 
@@ -143,7 +147,7 @@ export const CloudMachineCreate = cloudMutation(
   "money",
   Schema.Struct({ name: Schema.optionalKey(MachineName), size: CloudMachineSize, image: Schema.optionalKey(ImageId), from_snapshot: Schema.optionalKey(SnapshotId) }),
   MachineResult,
-  ["cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER],
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER, ...LIMITED],
   "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine." + KEY,
   "cloud machine create",
   true
@@ -166,7 +170,7 @@ export const CloudMachineDelete = cloudMutation(
   "destructive",
   MachineParams,
   Deleted,
-  ["cloud.machine.not_found", ...PROVIDER],
+  ["cloud.machine.not_found", ...PROVIDER, ...LIMITED],
   "Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key." + KEY,
   "cloud machine delete",
   true
@@ -250,7 +254,7 @@ export const CloudSnapshotRestore = cloudMutation(
   "money",
   Schema.Struct({ snapshot: SnapshotId, name: Schema.optionalKey(MachineName) }),
   MachineResult,
-  ["cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER],
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER],
   "Create a new machine from a snapshot (plan checks as create)." + KEY,
   "cloud snapshot restore",
   true

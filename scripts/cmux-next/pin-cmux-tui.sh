@@ -45,6 +45,11 @@
 #        and, when the push starts no run, gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short>.
 #     3. ./scripts/cmux-next/pin-cmux-tui.sh pin --commit <sha> --verified-run <run-id>
 #     4. Commit scripts/cmux-next/cmux-tui.pin; delete the helper branch.
+#     5. GPLv3 source availability: tag the pinned commit (and every commit a
+#        vendor pins) with an annotated tag and push it:
+#          git tag -a cmux-tui-src-<first 11 of sha> <full sha> -m "source for vendored cmux-tui crates"
+#          git push origin refs/tags/cmux-tui-src-<first 11 of sha>
+#        Never move or delete these tags.
 #
 # App host (cmux-app-host, apps-v1): both modes also fetch the app host the
 #   same build published, cmux-tui-app-host-<target> in the commit-addressed

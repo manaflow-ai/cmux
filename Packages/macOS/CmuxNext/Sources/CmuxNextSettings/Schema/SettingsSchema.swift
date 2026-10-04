@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + palette + tasks + appearance + terminal + sidebarSections + browser + notifications + labs + feed
+        general + updates + columnLayout + palette + picker + tasks + appearance + terminal + sidebarSections + browser + notifications + labs + feed
     }
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
@@ -85,7 +85,21 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
+            SettingDescriptor(
+                TitlebarButtonsSetting.configPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
+                help: SettingsText.keyed("settings.window.titlebarButtons.help",
+                                        "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."),
+                kind: .choice([
+                    SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
+                    SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
+                ]),
+                default: .string(TitlebarButtonsSetting.fallback.rawValue),
+                keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
+            ),
             newTabKind(group: tabs),
+            plusButton(group: tabs),
+            ChromePlacementSetting.tabBarPositionDescriptor(group: tabs),
             newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,

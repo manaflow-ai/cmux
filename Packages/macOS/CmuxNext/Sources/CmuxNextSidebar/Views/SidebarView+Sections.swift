@@ -8,8 +8,7 @@ extension SidebarView {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
-            scroll.autohidesScrollers = true
-            scroll.scrollerStyle = .overlay
+            SystemScrollers.follow(scroll)
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
@@ -34,6 +33,7 @@ extension SidebarView {
             line.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
             layer?.addSublayer(line)
         }
+        installCardStack()
     }
 
     /// Lays out both bands between `top` and the footer; returns the

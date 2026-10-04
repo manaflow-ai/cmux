@@ -33,6 +33,8 @@ struct CreationSlot {
     /// `None` until the slot's launch step finished; then the terminal id of
     /// its prelaunched host, if it has one.
     launched: Mutex<Option<Option<String>>>,
+    /// Debug timing marks of this create (`CMUX_TUI_DEBUG_SPANS`).
+    trace: Mutex<Option<crate::debug_spans::Trace>>,
 }
 
 impl Command {
@@ -120,9 +122,12 @@ impl ConnectionSurfaceScheduler {
         writer: &MessageWriter,
     ) -> bool {
         let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
+        let label = if prelaunch.is_some() { "new-tab" } else { "create" };
+        let trace = crate::debug_spans::Trace::start(label, Instant::now());
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
             launched: Mutex::new(None),
+            trace: Mutex::new(None),
         });
         self.begin_creation();
         self.creations.state.lock().unwrap().slots.push_back(slot.clone());
@@ -130,7 +135,12 @@ impl ConnectionSurfaceScheduler {
         let job_mux = mux.clone();
         let job_writer = writer.clone();
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
+            crate::debug_spans::install(trace);
+            crate::debug_spans::mark("job.start");
             let launched = prelaunch.and_then(|prelaunch| prelaunch.launch(&job_mux));
+            crate::debug_spans::mark("prelaunch.done");
+            let trace = crate::debug_spans::take();
+            *slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = trace;
             *slot.launched.lock().unwrap() = Some(launched);
             scheduler.commit_ready_creations(&job_mux, client, &job_writer);
         });
@@ -182,6 +192,9 @@ impl ConnectionSurfaceScheduler {
     ) -> bool {
         let launched = slot.launched.lock().unwrap().take().flatten();
         let pending = slot.request.lock().unwrap().take();
+        let trace = slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        crate::debug_spans::install(trace);
+        crate::debug_spans::mark("commit.start");
         let keep_open = match pending {
             // A closed connection drops its queued requests unexecuted.
             Some(_) if self.cancelled.is_cancelled() => true,
@@ -195,6 +208,8 @@ impl ConnectionSurfaceScheduler {
             }
             None => true,
         };
+        crate::debug_spans::mark("reply.queued");
+        crate::debug_spans::finish(crate::debug_spans::take());
         if let Some(terminal_hex) = launched {
             mux.discard_prelaunched_terminal(&terminal_hex);
         }

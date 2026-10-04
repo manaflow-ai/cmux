@@ -1,3 +1,4 @@
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextSettings
@@ -25,7 +26,7 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         guard PageTunables.appStore.value == .web else { return nil }
         let relay = DaemonPageRelay(services: services)
-        let confirming = ConfirmingPageProvider(inner: relay, presenter: AlertPageConfirmationPresenter()) { op, params in
+        let confirming = ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
             guard AppsPageConfirmations.needsDetail(op), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
                                                context: PageCallContext(page: PageDescriptor.apps.id))
@@ -54,7 +55,7 @@ struct PageFactory {
         let provider = CodeRouterPageProvider(ops: ops, connect: { id in
             registry.perform(ActionID(rawValue: "accounts.connect"), invocation: ActionInvocation(arguments: ["provider": .string(id)], origin: .user))
         })
-        let confirming = ConfirmingPageProvider(inner: provider, presenter: AlertPageConfirmationPresenter()) { op, params in
+        let confirming = ConfirmingPageProvider(inner: provider, presenter: DialogPageConfirmationPresenter()) { op, params in
             CodeRouterPageConfirmations.confirmation(op: op, params: params)
         }
         let native = AppPageNativeProvider(services: services, page: .coderouter)
@@ -88,9 +89,22 @@ struct PageFactory {
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes?.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
+        let accounts = services.accounts.model
+        provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
+        provider.accountsRun = { params in
+            guard let action = AccountsPageAction(action: params["action"]?.stringValue ?? "", provider: params["provider"]?.stringValue,
+                                                  account: params["account"]?.stringValue, secret: params["secret"]?.stringValue) else {
+                throw PageError.invalidParams("unknown accounts action")
+            }
+            if let error = await accounts.perform(action) { return ["error": .string(error)] }
+            return .object([:])
+        }
+        provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
+        provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .settings, routes: routes, route: route)
+        let page = PageWebView(descriptor: .settings, routes: routes, route: route,
+                               dynamicResources: SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices))
         native.anchor = { [weak page] in page }
         return page
     }

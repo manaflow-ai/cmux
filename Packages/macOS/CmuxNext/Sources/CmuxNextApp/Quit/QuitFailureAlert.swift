@@ -20,81 +20,66 @@ enum QuitFailureContent {
     }
 }
 
-/// "Some sessions did not end" after Quit's end choice: Retry (default,
-/// Return) runs the end again, Quit Anyway (Escape) quits with what did not
-/// end still running. Shown like `QuitAlert` (a sheet on the window, else a
-/// floating panel), until the CmuxDialog conversion (R96) replaces both.
+/// "Some sessions did not end" after Quit's end choice, as a cmux dialog
+/// (R96): Retry (default, Return) runs the end again, Quit Anyway (Escape)
+/// quits with what did not end still running. It blocks the window like
+/// `QuitAlert`, else shows app-wide; a closed window or SIGTERM answers
+/// Quit Anyway.
 @MainActor
 final class QuitFailureAlert {
     static let retryID = "retry"
     static let quitAnywayID = "quit-anyway"
 
     let lines: [String]
-    private let alert = NSAlert()
-    private(set) var buttons: [(id: String, button: NSButton)] = []
+    let buttons: [(id: String, title: String)]
+    private let body: [String]
+    private let center: CmuxDialogCenter
+    private var dialogID: Int?
+    private(set) var isAttachedSheet = false
     private var completion: ((QuitFailureAnswer) -> Void)?
 
-    init(failures: [EndSessionsFailure], completion: @escaping (QuitFailureAnswer) -> Void) {
+    init(failures: [EndSessionsFailure], center: CmuxDialogCenter = .shared, completion: @escaping (QuitFailureAnswer) -> Void) {
         self.completion = completion
-        let lines = QuitFailureContent.lines(failures)
-        self.lines = [QuitStrings.failedTitle] + lines
-        alert.alertStyle = .warning
-        alert.messageText = QuitStrings.failedTitle
-        alert.informativeText = lines.joined(separator: "\n")
-        for (id, title) in [(Self.retryID, QuitStrings.retry), (Self.quitAnywayID, QuitStrings.quitAnyway)] {
-            let button = alert.addButton(withTitle: title)
-            button.target = self
-            button.action = #selector(pressed(_:))
-            button.identifier = NSUserInterfaceItemIdentifier(id)
-            if id == Self.quitAnywayID { button.keyEquivalent = "\u{1b}" }
-            buttons.append((id, button))
-        }
-        alert.layout()
+        self.center = center
+        body = QuitFailureContent.lines(failures)
+        lines = [QuitStrings.failedTitle] + body
+        buttons = [(Self.quitAnywayID, QuitStrings.quitAnyway), (Self.retryID, QuitStrings.retry)]
     }
 
-    var isAttachedSheet: Bool { alert.window.sheetParent != nil }
+    var spec: CmuxDialogSpec {
+        CmuxDialogSpec(title: QuitStrings.failedTitle, lines: body,
+                       buttons: [CmuxDialogButton(id: Self.quitAnywayID, title: QuitStrings.quitAnyway, role: .cancel),
+                                 CmuxDialogButton(id: Self.retryID, title: QuitStrings.retry, role: .default)],
+                       identifier: "cmux.dialog.quitFailure")
+    }
 
     func present(in window: NSWindow?) {
-        let panel = alert.window
-        if let window, window.isVisible, !window.isMiniaturized {
-            window.themeScope.adopt(panel)
-            window.beginSheet(panel) { [weak self] response in
-                // Ended by someone else (SheetDismissal): quit with what is left.
-                if response == .cancel { self?.finish(.quitAnyway) }
-            }
-            return
-        }
-        ThemeScope.app.adopt(panel)
-        panel.level = .floating
-        panel.center()
-        if WindowPlacement.noActivate {
-            panel.orderFrontRegardless()
-        } else {
-            NSApp.activate()
-            panel.makeKeyAndOrderFront(nil)
+        guard completion != nil else { return }
+        let attach = window.flatMap { $0.isVisible && !$0.isMiniaturized ? $0 : nil }
+        isAttachedSheet = attach != nil
+        dialogID = center.present(spec, in: attach.map { .window($0) } ?? .app) { [weak self] answer in
+            self?.dialogID = nil
+            self?.finish(answer.button == Self.retryID ? .retry : .quitAnyway)
         }
     }
 
     /// Clicks `retry` or `quit-anyway`. False for any other id.
     @discardableResult
     func press(_ id: String) -> Bool {
-        guard let button = buttons.first(where: { $0.id == id })?.button else { return false }
-        button.performClick(nil)
-        return true
+        guard let dialogID, buttons.contains(where: { $0.id == id }) else { return false }
+        return center.press(dialogID, button: id)
     }
 
-    /// SIGTERM while the alert is open: quit with what is left.
+    /// SIGTERM while the dialog is open: quit with what is left.
     func answerQuitAnyway() { finish(.quitAnyway) }
-
-    @objc private func pressed(_ sender: NSButton) {
-        finish(sender.identifier?.rawValue == Self.retryID ? .retry : .quitAnyway)
-    }
 
     private func finish(_ answer: QuitFailureAnswer) {
         guard let completion else { return }
         self.completion = nil
-        let panel = alert.window
-        if let sheetParent = panel.sheetParent { sheetParent.endSheet(panel, returnCode: .OK) } else { panel.orderOut(nil) }
+        if let dialogID {
+            self.dialogID = nil
+            center.dismiss(dialogID)
+        }
         completion(answer)
     }
 }

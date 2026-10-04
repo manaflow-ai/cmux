@@ -3,10 +3,11 @@
 //!
 //!   cmux-browser-host serve [--socket PATH]
 //!   cmux-browser-host eval [--session NAME] [--engine E] [--max-output N] [--timeout-ms N] (-|CODE)
-//!   cmux-browser-host mcp [--session NAME] [--engine E] [--timeout-ms N]
 //!   cmux-browser-host list | close --session NAME | guide | version
 //!
 //! `eval` starts the host on demand when no host answers on the socket.
+//! MCP clients use `cmux mcp serve` (one MCP entry point, cmux.json
+//! mcp.enabled); this binary has no MCP server.
 
 #[cfg(unix)]
 fn main() {
@@ -23,9 +24,6 @@ fn main() {
 mod unix {
     use cmux_browser_host::engines::HostEngines;
     use cmux_browser_host::host::{Host, agent_bundle, bundle};
-    use cmux_browser_host::mcp::{
-        McpServer, code_for_tool, result_of_eval, screenshot_code, screenshot_result,
-    };
     use cmux_browser_host::server::{bind, default_socket_path, serve};
     use serde_json::{Value, json};
     use std::io::{BufRead, BufReader, Read, Write};
@@ -35,6 +33,7 @@ mod unix {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    #[derive(Clone)]
     struct Options {
         socket: PathBuf,
         session: String,
@@ -127,8 +126,13 @@ mod unix {
                 print!("{}", bundle::GUIDE);
                 0
             }
-            "eval" => eval_command(&options),
-            "mcp" => mcp_command(&options, rest.iter().any(|a| a == "--session")),
+            "eval" => eval_command(&options, rest.iter().any(|a| a == "--session")),
+            "mcp" => {
+                eprintln!(
+                    "cmux-browser-host: no MCP server here; use `cmux mcp serve` (turn it on with \"mcp\": {{\"enabled\": true}} in cmux.json)"
+                );
+                2
+            }
             "list" => simple(&options, "browser.repl.list", json!({})),
             "close" => simple(&options, "browser.repl.close", json!({"session": options.session})),
             other => {
@@ -298,11 +302,36 @@ mod unix {
         }
     }
 
-    fn eval_command(options: &Options) -> i32 {
+    /// A request whose answer is not printed (cleanup).
+    fn simple_quiet(options: &Options, method: &str, params: Value) {
+        if let Ok(mut stream) = connect(options) {
+            let _ = request(&mut stream, 1, method, params);
+        }
+    }
+
+    /// Without `--session` the call is a one-shot session, as `cmux browser
+    /// repl --eval` is: its own name, closed after the call, so nothing
+    /// (variables, tabs, ref numbers) carries over to the next call.
+    fn eval_command(options: &Options, named: bool) -> i32 {
         let Some(code) = &options.code else {
             eprintln!("cmux-browser-host eval: pass code or - for stdin");
             return 2;
         };
+        if !named {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let mut one_shot = options.clone();
+            one_shot.session = format!("oneshot-{}-{nanos:x}", std::process::id());
+            let code = eval_in(&one_shot, code);
+            simple_quiet(&one_shot, "browser.repl.close", json!({"session": one_shot.session}));
+            return code;
+        }
+        eval_in(options, code)
+    }
+
+    fn eval_in(options: &Options, code: &str) -> i32 {
         let mut stream = match connect(options) {
             Ok(stream) => stream,
             Err(error) => {
@@ -342,98 +371,6 @@ mod unix {
                 1
             }
         }
-    }
-
-    /// MCP server on stdio. Without `--session` each server gets its own
-    /// session, closed when stdin ends, so two clients never share state by
-    /// accident; a named session is how clients share one on purpose.
-    fn mcp_command(options: &Options, named: bool) -> i32 {
-        let mut stream = match connect(options) {
-            Ok(stream) => stream,
-            Err(error) => {
-                eprintln!("cmux-browser-host: {error}");
-                return 1;
-            }
-        };
-        let session = if named {
-            options.session.clone()
-        } else {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.subsec_nanos())
-                .unwrap_or(0);
-            format!("mcp-{}-{nanos:x}", std::process::id())
-        };
-        let open = json!({"session": session, "engine": options.engine, "cwd": caller_cwd()});
-        if let Err(error) = request(&mut stream, 1, "browser.repl.open", open.clone()) {
-            eprintln!("{}", error["message"].as_str().unwrap_or("error"));
-            return 1;
-        }
-        let mut next_id = 2u64;
-        let timeout = options.timeout_ms;
-        let mut server = McpServer {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-            call_tool: |name: &str, arguments: &Value| -> Result<_, String> {
-                next_id += 1;
-                let mut eval = |code: String, max_output: Option<u64>| -> Result<Value, String> {
-                    let mut params = json!({"session": session, "code": code});
-                    if let Some(max) = max_output {
-                        params["maxOutput"] = json!(max);
-                    }
-                    if let Some(ms) = timeout {
-                        params["timeoutMs"] = json!(ms);
-                    }
-                    request(&mut stream, next_id, "browser.repl.eval", params)
-                        .map_err(|e| e["message"].as_str().unwrap_or("error").to_owned())
-                };
-                match name {
-                    "reset" => {
-                        let closed = request(
-                            &mut stream,
-                            next_id,
-                            "browser.repl.close",
-                            json!({"session": session}),
-                        )
-                        .map_err(|e| e["message"].as_str().unwrap_or("error").to_owned())?;
-                        request(&mut stream, next_id + 1, "browser.repl.open", open.clone())
-                            .map_err(|e| e["message"].as_str().unwrap_or("error").to_owned())?;
-                        next_id += 1;
-                        let text = if closed["closed"].as_bool() == Some(true) {
-                            format!("Session {session} reset")
-                        } else {
-                            format!("Session {session} had no state")
-                        };
-                        Ok(cmux_browser_host::mcp::ToolResult::text(text, false))
-                    }
-                    "screenshot" => {
-                        let marker = "cmux-mcp-image:";
-                        Ok(screenshot_result(
-                            &eval(screenshot_code(arguments, marker), Some(0))?,
-                            marker,
-                        ))
-                    }
-                    other => {
-                        let code = code_for_tool(other, arguments)
-                            .ok_or_else(|| format!("Unknown tool: {other}"))?;
-                        Ok(result_of_eval(&eval(code, None)?))
-                    }
-                }
-            },
-        };
-        let stdin = std::io::stdin();
-        let mut stdout = std::io::stdout();
-        for line in stdin.lock().lines() {
-            let Ok(line) = line else { break };
-            if let Some(reply) = server.handle_line(&line) {
-                let _ = writeln!(stdout, "{reply}");
-                let _ = stdout.flush();
-            }
-        }
-        drop(server);
-        if !named && let Ok(mut stream) = connect(options) {
-            let _ = request(&mut stream, 1, "browser.repl.close", json!({"session": session}));
-        }
-        0
     }
 
     /// The caller's directory, the session's fs root when it is narrow enough.

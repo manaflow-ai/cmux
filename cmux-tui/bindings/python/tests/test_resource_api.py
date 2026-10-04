@@ -110,16 +110,16 @@ class ResourceApiTests(unittest.TestCase):
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
 
-    def test_viewport_columns_decode_their_sticky_flag(self) -> None:
-        def viewport(sticky: object) -> dict:
+    def test_viewport_columns_decode_their_dock_flag(self) -> None:
+        def viewport(dock: object) -> dict:
             first = {
                 "column_id": "split_00000000000000000000000000000008",
                 "width": 0.5,
                 "root": {"kind": "leaf", "pane_id": "pane_00000000000000000000000000000005",
                          "tab_ids": []},
             }
-            if sticky is not ...:
-                first["sticky"] = sticky
+            if dock is not ...:
+                first["dock"] = dock
             second = {
                 "column_id": "split_00000000000000000000000000000009",
                 "width": 0.5,
@@ -129,12 +129,28 @@ class ResourceApiTests(unittest.TestCase):
             return {"kind": "viewport", "base_width": 0.5, "columns": [first, second]}
 
         pinned = _layout_node(viewport({"edge": "top", "mode": "docked"}))
-        self.assertEqual(pinned.columns[0].sticky, cmux.LayoutColumnSticky("top", "docked"))
-        self.assertIsNone(pinned.columns[1].sticky)
-        self.assertIsNone(_layout_node(viewport(None)).columns[0].sticky)
-        self.assertIsNone(_layout_node(viewport(...)).columns[0].sticky)
+        self.assertEqual(pinned.columns[0].dock, cmux.LayoutColumnDock("top", "docked"))
+        self.assertIsNone(pinned.columns[1].dock)
+        self.assertIsNone(_layout_node(viewport(None)).columns[0].dock)
+        self.assertIsNone(_layout_node(viewport(...)).columns[0].dock)
         with self.assertRaises(cmux.ProtocolError):
             _layout_node(viewport({"edge": "diagonal", "mode": "docked"}))
+
+    def test_a_legacy_sticky_flag_decodes_as_dock(self) -> None:
+        # R87: `sticky` is the pre-rename name of `dock` (replayed results).
+        node = _layout_node({
+            "kind": "viewport", "base_width": 0.5,
+            "columns": [
+                {"column_id": "split_00000000000000000000000000000008", "width": 0.5,
+                 "root": {"kind": "leaf", "pane_id": "pane_00000000000000000000000000000005",
+                          "tab_ids": []},
+                 "sticky": {"edge": "left", "mode": "overlay"}},
+                {"column_id": "split_00000000000000000000000000000009", "width": 0.5,
+                 "root": {"kind": "leaf", "pane_id": "pane_0000000000000000000000000000000a",
+                          "tab_ids": []}},
+            ],
+        })
+        self.assertEqual(node.columns[0].dock, cmux.LayoutColumnDock("left", "overlay"))
 
     def test_journal_record_subjects_use_the_declared_wire_grammar(self) -> None:
         record = {

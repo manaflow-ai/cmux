@@ -329,7 +329,7 @@
       "send-key",
       "set-client-info",
       "set-client-sizing",
-      "set-column-sticky",
+      "set-column-dock",
       "set-default-colors",
       "set-frontend-browser-history",
       "set-personal-terminal",

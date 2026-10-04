@@ -14,12 +14,11 @@ mod wire;
 
 pub(crate) use call::{Ctx, decode_answer};
 pub use control_plane::{
-    ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus, WireCall, WireError, WireReply,
-    WireResult,
+    ControlPlane, RelayError, SessionStatus, WireCall, WireError, WireReply, WireResult,
 };
 pub use error::{CloudError, codes};
 pub(crate) use ledger::Ledger;
 pub use ledger::upstream_key;
 pub use relay::{HostRelay, RELAY_QUEUE_LINES};
-pub use serve::{serve, serve_with};
+pub use serve::{OP_CANCELLED, serve, serve_with};
 pub use wire::{Origin, Request};

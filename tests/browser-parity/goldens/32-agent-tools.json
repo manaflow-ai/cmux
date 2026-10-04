@@ -225,7 +225,7 @@
     ],
     "secret-value": [
       "<secret:key>",
-      "{\"k\":{\"__secret\":\"key\"}}",
+      "{\"k\":\"<secret:key>\"}",
       [
         {
           "name": "key",

@@ -15,16 +15,13 @@
 # expected; 1 when a check fails that is not on the expected-fail list.
 #
 # EXPECTED FAILURES (remove a line when its fix lands; an XPASS is reported):
-#   prompt-is-cmux-dialog      dialogs lead (G1/G6, plan Q2): the prompt is an NSAlert, not a CmuxDialog (no debug.dialog)
 #   second-quit-keeps          dialogs lead + app lifecycle (D2, plan Q3): a second Cmd-Q is ignored today
 #   dock-quit-inactive         dialogs lead + app lifecycle (G7, plan Q3): no inactive-app quit hook (debug.quit inactive)
-#   update-relaunch-no-prompt  app lifecycle (D3, plan Q3): no debug hook drives a Sparkle relaunch
 # The End Everything checks (end-everything-*) are NOT on this list: they
 # must pass (the home_not_closable fix).
 set -euo pipefail
 
-XFAIL=(prompt-is-cmux-dialog
-       second-quit-keeps dock-quit-inactive update-relaunch-no-prompt)
+XFAIL=(second-quit-keeps dock-quit-inactive)
 
 app="" zip="" tag="" out=""
 while [ $# -gt 0 ]; do
@@ -33,7 +30,7 @@ while [ $# -gt 0 ]; do
     --zip) zip="$2"; shift 2 ;;
     --tag) tag="$2"; shift 2 ;;
     --out) out="$2"; shift 2 ;;
-    -h|--help) sed -n 2,26p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,22p "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -154,8 +151,10 @@ check prompt-counts-agents "$(cond python3 -c "
 import json,sys
 d=json.load(open('$out/prompt.json')); p=(d.get('result') or d)['prompt']
 sys.exit(0 if (p.get('agents') or 0)>=1 and p.get('agents_in_turn',0)>=1 and p.get('busy_agents') else 1)")" "$(tr -d '\n' <"$out/prompt.json" | cut -c1-300)"
-dialog="$(rpc_ok debug.dialog '{}')"
-check prompt-is-cmux-dialog "$(cond grep -q '"ok": *true' <<<"$dialog")"
+dialog="$(rpc_ok debug.dialog '{}' || true)"
+printf '%s\n' "$dialog" >"$out/prompt-dialog.json"
+check prompt-is-cmux-dialog "$(cond grep -q '"identifier": *"cmux.dialog.quit"' <<<"$dialog")"
+check prompt-reports-activated "$(cond grep -q '"activated"' "$out/prompt.json")"
 rpc_ok debug.quit '{"press":"quit"}' >/dev/null || true
 check app-quits-on-keep "$(cond wait_exit "$APP_PID" 15)"
 
@@ -204,7 +203,19 @@ else
   launch
 fi
 check dock-quit-inactive 1 "needs debug.quit {open:true, inactive:true}"
-check update-relaunch-no-prompt 1 "needs a debug hook for updaterWillRelaunchApplication"
+# 9b. Update relaunch (R138, D3): Sparkle's relaunch path never asks and keeps sessions.
+HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
+rpc_ok debug.updater '{"action":"relaunch"}' >"$out/update-relaunch.json"
+asked=no
+for i in $(seq 1 15); do
+  alive "$APP_PID" || break
+  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true' && asked=yes
+  sleep 1
+done
+check update-relaunch-no-prompt "$(cond test "$asked" = no)" "$(cat "$out/update-relaunch.json")"
+check update-relaunch-app-quits "$(cond wait_exit "$APP_PID" 20)"
+for p in "$TUI_PID" $HOSTS "$SHELL_PID" "$LOOP_PID"; do check "update-relaunch-keeps-$p" "$(cond alive "$p")"; done
+launch
 
 # 8b. Quit Everything, keep layout (D1: End Sessions, Keep Layout today) -------------
 HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
@@ -241,6 +252,8 @@ failure="$(rpc_ok debug.quit '{}' || true)"
 if printf '%s' "$failure" | grep -q '"failure"'; then
   printf '%s\n' "$failure" >"$out/end-everything-failure.json"
   check end-everything-no-failure 1 "$(printf '%s' "$failure" | tr -d '\n' | cut -c1-300)"
+  fdialog="$(rpc_ok debug.dialog '{}' || true)"
+  check end-everything-failure-is-cmux-dialog "$(cond grep -q '"identifier": *"cmux.dialog.quitFailure"' <<<"$fdialog")"
   rpc_ok debug.quit '{"press":"quit-anyway"}' >/dev/null || true
 else
   check end-everything-no-failure 0

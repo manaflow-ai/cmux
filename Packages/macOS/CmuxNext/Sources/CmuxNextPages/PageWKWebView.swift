@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 import WebKit
 
 /// The WebKit view of every first-party page (DESKTOP-FEEL, R139): the host half of the shared
@@ -31,6 +32,28 @@ final class PageWKWebView: WKWebView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// When a real key or mouse event last reached this view (`systemUptime`): a page call shortly
+    /// after it is backed by the person's gesture (``hasRecentUserGesture(within:)``). Page script
+    /// cannot set it.
+    private(set) var lastUserEventUptime: TimeInterval?
+
+    /// Whether a key or mouse event reached the view within `seconds`.
+    func hasRecentUserGesture(within seconds: TimeInterval = 1, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        guard let last = lastUserEventUptime else { return false }
+        return now - last <= seconds
+    }
+
+    func noteUserEvent(_ event: NSEvent) {
+        lastUserEventUptime = event.timestamp > 0 ? event.timestamp : ProcessInfo.processInfo.systemUptime
+    }
+
+    override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
+    override func keyUp(with event: NSEvent) { noteUserEvent(event); super.keyUp(with: event) }
+    override func mouseDown(with event: NSEvent) { noteUserEvent(event); super.mouseDown(with: event) }
+    override func mouseUp(with event: NSEvent) { noteUserEvent(event); super.mouseUp(with: event) }
+    override func mouseDragged(with event: NSEvent) { noteUserEvent(event); super.mouseDragged(with: event) }
+    override func rightMouseDown(with event: NSEvent) { noteUserEvent(event); super.rightMouseDown(with: event) }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         Self.keepDesktopItems(in: menu)

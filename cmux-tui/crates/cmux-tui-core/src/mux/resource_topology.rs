@@ -5,7 +5,7 @@ use anyhow::Context;
 use serde_json::{Map, Value, json};
 
 use super::*;
-use crate::model::{ColumnSticky, LayoutColumn, ScreenLayoutSnapshot};
+use crate::model::{ColumnDock, LayoutColumn, ScreenLayoutSnapshot};
 use crate::resource::{
     BrowserPublicId, ContentPublicId, PanePublicId, ResourceError, ResourceOperation,
     ScreenPublicId, SplitPublicId, TabPublicId, TabResourceIdentity, WorkspacePublicId,
@@ -24,10 +24,13 @@ use cmux_layout_reducer::LayoutOpKind;
 mod batch_close;
 mod column_update;
 mod layout_projection;
+mod pane_browser;
 mod published_screen;
 mod structural_move;
+mod unpublished_creation;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
+use pane_browser::{creation_identity_kind, effect_browser_cell_size};
 use published_screen::screen_value;
 pub(super) use structural_move::structural_tab_move_plan;
 
@@ -3802,16 +3805,7 @@ impl Mux {
                     created_path,
                 ) {
                     Ok(commit) => Ok(ResourceCreationSettlement::Created(commit)),
-                    Err(_) => {
-                        if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
-                            return Ok(settlement);
-                        }
-                        if recovery.interrupted {
-                            return Ok(ResourceCreationSettlement::Pending);
-                        }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
-                    }
+                    Err(error) => self.settle_unpublished_creation(&recovery, failure, error),
                 }
             }
             ResourceCreationEvidence::NotApplied(reason) => {
@@ -3945,7 +3939,8 @@ impl Mux {
         let operation: ResourceOperation =
             serde_json::from_value(Value::String(recovery.operation.clone()))
                 .context("stored resource creation has an invalid operation")?;
-        match created_identity_kind(operation) {
+        let fields = recovery.intent["fields"].as_object().cloned().unwrap_or_default();
+        match creation_identity_kind(operation, &fields) {
             Some(CreatedIdentityKind::Browser) => {
                 self.browser_creation_evidence(&recovery.intent, recovery.interrupted)
             }
@@ -4081,7 +4076,8 @@ impl Mux {
             "path":resolved.path,
             "fields":fields,
         });
-        if topology_effect_creates_terminal(operation) {
+        let creates = creation_identity_kind(operation, fields);
+        if creates == Some(CreatedIdentityKind::Terminal) {
             let terminal_id = match fields.get(RESERVED_TERMINAL_ID_FIELD) {
                 Some(requested) => {
                     let requested =
@@ -4117,7 +4113,7 @@ impl Mux {
                 "mutation_origin":mutation.origin,
             });
         }
-        if operation == ResourceOperation::TabCreateBrowser {
+        if creates == Some(CreatedIdentityKind::Browser) {
             // A frontend-rendered browser registers its content id before
             // the tab commits, so the creation must use that exact id.
             let browser_id = match fields.get("frontend_browser_id").and_then(Value::as_str) {
@@ -4963,19 +4959,10 @@ impl Mux {
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
-        let cwd = cwd.or_else(|| self.pane_cwd(target));
         let pane_public_id = PanePublicId::random()?;
-        let reservation = self.effect_terminal_reservation(
-            intent,
-            &workspace_key,
-            argv.as_deref(),
-            cwd.as_deref(),
-            None,
-            size,
-            None,
-        )?;
-        let surface =
-            self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, argv, reservation)?;
+        let spawned =
+            self.effect_spawn_pane_surface(intent, target, &workspace_key, argv, cwd, size)?;
+        let surface = spawned.surface().clone();
         #[cfg(test)]
         if viewport_width.is_some()
             && let Some(hook) = self.viewport_split_after_spawn.lock().unwrap().clone()
@@ -5113,11 +5100,7 @@ impl Mux {
         let (delta, changed_screen, created) = match attached {
             Ok(attached) => attached,
             Err(error) => {
-                self.fail_hosted_terminal_attachment(
-                    &surface,
-                    "resource-terminal-pane-attach-failed",
-                    "pane-disappeared-before-attach",
-                )?;
+                self.fail_pane_surface_attachment(&spawned)?;
                 return Err(error);
             }
         };
@@ -5213,10 +5196,6 @@ fn resource_effect_indeterminate(idempotency_key: &str, operation: &str) -> Reso
         }),
         false,
     )
-}
-
-fn topology_effect_creates_terminal(operation: ResourceOperation) -> bool {
-    created_identity_kind(operation) == Some(CreatedIdentityKind::Terminal)
 }
 
 fn is_resource_close_operation(operation: ResourceOperation) -> bool {
@@ -5356,6 +5335,7 @@ fn validate_effect_fields(
                 );
             }
             rows::validate_row_height_field(fields, direction)?;
+            pane_browser::validate_pane_browser_fields(fields)?;
             let _ = effect_cell_size(fields)?;
             let _ = optional_effect_command(fields)?;
         }
@@ -5443,33 +5423,6 @@ fn effect_cell_size(fields: &Map<String, Value>) -> anyhow::Result<Option<(u16, 
     }
 }
 
-fn effect_browser_cell_size(
-    mux: &Mux,
-    fields: &Map<String, Value>,
-) -> anyhow::Result<Option<(u16, u16)>> {
-    let (width, height) = match (
-        fields.get("width_px").and_then(Value::as_u64),
-        fields.get("height_px").and_then(Value::as_u64),
-    ) {
-        (None, None) => return Ok(None),
-        (Some(width), Some(height)) => (width, height),
-        _ => anyhow::bail!("width_px and height_px must be paired"),
-    };
-    let (cell_width, cell_height) = mux.cell_pixel_size();
-    let columns = width
-        .checked_add(u64::from(cell_width).saturating_sub(1))
-        .context("browser width overflows")?
-        / u64::from(cell_width.max(1));
-    let rows = height
-        .checked_add(u64::from(cell_height).saturating_sub(1))
-        .context("browser height overflows")?
-        / u64::from(cell_height.max(1));
-    Ok(Some((
-        u16::try_from(columns).context("browser width exceeds terminal geometry")?,
-        u16::try_from(rows).context("browser height exceeds terminal geometry")?,
-    )))
-}
-
 #[derive(Debug)]
 struct ParsedResourceLayout {
     workspace_index: usize,
@@ -5536,7 +5489,7 @@ fn parse_resource_layout_document(
                 .filter(|columns| !columns.is_empty())
                 .context("viewport columns must be non-empty")?;
             let mut parsed = Vec::with_capacity(columns.len());
-            let mut changed_sticky = false;
+            let mut changed_dock = false;
             for column in columns {
                 let id = parse_layout_split(state, screen_slot, &column["column_id"])?;
                 anyhow::ensure!(seen_splits.insert(id), "layout split appears more than once");
@@ -5555,31 +5508,31 @@ fn parse_resource_layout_document(
                     &mut seen_tabs,
                     &mut tab_orders,
                 )?;
-                // `sticky` present: `null` clears the flag, an object sets
+                // `dock` present: `null` clears the flag, an object sets
                 // it. Absent: a column that keeps its id keeps its flag, so a
-                // client without `sticky-columns-v1` never clears one.
+                // client without `dock-columns-v1` never clears one.
                 let kept = current
                     .layout_columns
                     .iter()
                     .find(|column| column.id == id)
-                    .and_then(|column| column.sticky);
-                let sticky = match column.get("sticky") {
+                    .and_then(|column| column.dock);
+                let dock = match column.get("dock") {
                     Some(Value::Null) => None,
                     Some(value) => Some(
-                        serde_json::from_value::<ColumnSticky>(value.clone())
-                            .context("invalid viewport column sticky")?,
+                        serde_json::from_value::<ColumnDock>(value.clone())
+                            .context("invalid viewport column dock")?,
                     ),
                     None => kept,
                 };
-                changed_sticky |= sticky.is_some() && sticky != kept;
-                parsed.push(LayoutColumn { sticky, ..LayoutColumn::new(id, width, root, None) });
+                changed_dock |= dock.is_some() && dock != kept;
+                parsed.push(LayoutColumn { dock, ..LayoutColumn::new(id, width, root, None) });
             }
-            // A document that sets a new flag must satisfy the sticky
+            // A document that sets a new flag must satisfy the docked
             // invariants itself. Flags it keeps or echoes unchanged are
             // repaired by normalization, as when a column is removed.
             anyhow::ensure!(
-                !changed_sticky || crate::model::sticky_columns_are_consistent(&parsed),
-                "invalid viewport sticky columns"
+                !changed_dock || crate::model::dock_columns_are_consistent(&parsed),
+                "invalid viewport dock columns"
             );
             anyhow::ensure!(
                 parsed.first().is_some_and(|column| column.width == base_width),
@@ -6358,7 +6311,7 @@ fn registry_screen_from_layout(
                             .collect::<anyhow::Result<Vec<_>>>()
                     })
                     .transpose()?,
-                sticky: column.sticky,
+                dock: column.dock,
                 rows: registry_viewport::registry_rows(state, column)?,
             })
         })

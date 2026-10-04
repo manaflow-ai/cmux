@@ -26,7 +26,7 @@ order (next, else previous). Closing the last column springs back to the clamp, 
 forced (no empty space past the last column).
 
 Not reproducible live on this build: docked columns (the pinned daemon lacks
-`sticky-columns-v1`); closing a window and the last workspace were not exercised.
+`dock-columns-v1`); closing a window and the last workspace were not exercised.
 
 ## Rules
 
@@ -127,7 +127,7 @@ closing the focused pane: its left neighbor, no scroll), C1 (CLI close of an unf
 column: focus kept), S1 (new workspace revealed), S2 (CLI close above the viewport: rows
 unchanged pixel for pixel), S3 (selected workspace closed: successor fully visible, no
 jump) all pass. `debug.focus`: `app_active` false, `key_window` null throughout.
-UNVERIFIED live: docked columns (pinned daemon lacks `sticky-columns-v1`; covered by
+UNVERIFIED live: docked columns (pinned daemon lacks `dock-columns-v1`; covered by
 `CloseFocusReducerTests`), closing the last workspace, closing a window, a selected
 workspace closed while scrolled out of view (covered by `SidebarCloseScrollTests`), the
 pill and animation smoothness (screenshots are settled frames).

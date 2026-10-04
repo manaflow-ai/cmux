@@ -17,7 +17,6 @@ pub mod fs_sandbox;
 pub mod gate;
 pub mod host;
 pub mod lease;
-pub mod mcp;
 pub mod policy;
 pub mod protocol;
 pub mod provider;

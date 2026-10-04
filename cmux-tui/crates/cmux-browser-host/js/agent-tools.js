@@ -13,7 +13,7 @@
 // (runtime-core.js Session.call, its event router and Page._afterAction).
 // The domain policy, the secret vault, TOTP, masking and capture masking are
 // the host's (plans/cmux-next/browser-host.md section 4): this file only
-// forwards to host.secret* and host.policy* and passes secret handles on.
+// calls host.secrets(op) and host.policy(op) and passes secret handles on.
 (function (root) {
   "use strict";
   const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
@@ -693,16 +693,38 @@
     };
 
     // ---- secrets -------------------------------------------------------------
-    // The vault is the host's (browser-host.md section 4): values never live in
-    // this context. A secret set here is agent-known (the agent has the value
-    // anyway) and only masked; a secret the user gives the host never enters
-    // this context. secret(name) is a {__secret: name} handle that the host
-    // resolves after checking the receiving frame's origin (TOTP included).
-    const hostCall = (name, ...args) => {
-      if (typeof host[name] !== "function") throw new Error(`${name}: this browser host has no secret vault or domain policy`);
-      return host[name](...args);
+    // Values live in the host (browser-host.md section 4), never in this
+    // context: main's natives host.secrets(op, args) and host.policy(op,
+    // args) answer with names, never values. A secret set here is
+    // agent-known (the agent has the value anyway) and only masked.
+    // secret(name) is main's name object, typed by the host from
+    // input.insertText { secret } after it checks the focused frame's
+    // origin (TOTP included). cmux-next: a host without the "secret.insert"
+    // capability gets a {__secret: name} handle in the text instead.
+    const secretsHost = (op, args) => host.secrets(op, args || {});
+    // main's secret(name) object: a branded name the host resolves from
+    // input.insertText { secret }, where the host has that capability.
+    const SecretBrand = new WeakSet();
+    class Secret {
+      constructor(name) {
+        this.name = name;
+        SecretBrand.add(this);
+        Object.freeze(this);
+      }
+      toString() {
+        return `<secret:${this.name}>`;
+      }
+      toJSON() {
+        return this.toString();
+      }
+    }
+    Object.freeze(Secret.prototype);
+    const hostTypesSecrets = () => {
+      const caps = session.driver && typeof session.driver.capabilities === "function" ? session.driver.capabilities() : [];
+      return Array.isArray(caps) && caps.includes("secret.insert");
     };
-    const isSecret = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && typeof v.__secret === "string" && Object.keys(v).length === 1;
+    const isHandle = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && typeof v.__secret === "string" && Object.keys(v).length === 1;
+    const isSecret = (v) => (v !== null && typeof v === "object" && SecretBrand.has(v)) || isHandle(v);
     function makeHandle(name) {
       const h = { __secret: name };
       Object.defineProperty(h, "toString", { value: () => `<secret:${name}>`, enumerable: false });
@@ -717,74 +739,47 @@
       for (const d of domains) parsePattern(d, title);
       return { domains: [...domains], totp: !!(options.totp || /bu_2fa_code$/.test(name)) };
     }
-    const listSecrets = () => hostCall("secretList");
     const secrets = Object.freeze({
       // set(name, value, { domains, totp }): the value is typed only into
       // frames on those domains and is masked as <secret:name> everywhere.
       set(name, value, options) {
         const opts = checkSecretArgs(name, value, options, "secrets.set");
-        return hostCall("secretSet", name, value, opts);
+        return secretsHost("set", { name, value, domains: opts.domains, totp: opts.totp });
       },
-      // Secrets map: { "<domain pattern>": { name: value } },
-      // as an object or a JSON file path. A value { value, totp } is accepted.
+      // { "<domain pattern>": { name: value } }, as an object or a JSON file
+      // path (read by the host, so the values never enter this context). A
+      // value { value, totp } is accepted.
       load(source) {
-        let data = source;
-        if (typeof source === "string") {
-          const text = fs.readFileSync(source, "utf8");
-          try {
-            data = JSON.parse(text);
-          } catch (e) {
-            throw new Error(`secrets.load: ${source} is not JSON`);
-          }
-        }
-        if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("secrets.load: expected { \"<domain pattern>\": { name: value } }");
-        const merged = new Map(); // name -> { value, domains, totp }
-        for (const [pattern, entries] of Object.entries(data)) {
+        if (typeof source === "string") return secretsHost("load", { path: source });
+        if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("secrets.load: expected { \"<domain pattern>\": { name: value } }");
+        for (const [pattern, entries] of Object.entries(source)) {
           if (!entries || typeof entries !== "object") throw new Error(`secrets.load: ${JSON.stringify(pattern)}: a secret needs domains; expected { "<domain pattern>": { name: value } }`);
-          for (const [name, v] of Object.entries(entries)) {
-            const value = v && typeof v === "object" ? v.value : v;
-            const totpOn = !!(v && typeof v === "object" && v.totp);
-            const prior = merged.get(name);
-            if (prior && prior.value === value) {
-              prior.domains.push(pattern);
-              prior.totp = prior.totp || totpOn;
-            } else merged.set(name, { value, domains: [pattern], totp: totpOn });
-          }
+          for (const [name, v] of Object.entries(entries)) checkSecretArgs(name, v && typeof v === "object" ? v.value : v, { domains: [pattern] }, "secrets.load");
         }
-        const out = [];
-        for (const [name, s] of merged) {
-          const opts = checkSecretArgs(name, s.value, { domains: s.domains, totp: s.totp }, "secrets.load");
-          out.push(hostCall("secretSet", name, s.value, opts));
-        }
-        return out;
+        return secretsHost("load", { object: source });
       },
-      list: () => listSecrets(),
-      has: (name) => listSecrets().some((s) => s.name === name),
-      delete: (name) => hostCall("secretDelete", name),
-      clear() {
-        for (const s of listSecrets()) hostCall("secretDelete", s.name);
+      list: () => secretsHost("list"),
+      has: (name) => secretsHost("has", { name }),
+      delete: (name) => secretsHost("delete", { name }),
+      clear: () => {
+        secretsHost("clear");
       },
     });
     function secret(name) {
       if (!secrets.has(name)) throw new Error(`secret(${JSON.stringify(name)}): no such secret; register it with secrets.set(name, value, { domains }) or secrets.load(file)`);
-      return makeHandle(name);
+      return hostTypesSecrets() ? new Secret(name) : makeHandle(name);
     }
 
     // ---- domain policy -------------------------------------------------------
     // Enforced by the host below this context. Agent code may narrow the
-    // policy for its session (the host intersects it with the user's policy
-    // and refuses a change after a lock); it can never widen the user's.
+    // policy for its session (cmux-next: the host intersects it with the
+    // user's policy and refuses a change after a lock); it never widens it.
+    const policyHost = (op, args) => host.policy(op, args || {});
     function setPolicy(field, title, list, options) {
-      if (list === undefined) return hostCall("policyGet")[field];
+      if (list === undefined) return policyHost("get")[field];
       if (list !== null && !Array.isArray(list)) throw new Error(`${title}: expected an array of domain patterns or null, got ${JSON.stringify(list)}`);
       if (list) for (const d of list) parsePattern(d, title);
-      const change = { [field]: field === "prohibited" ? list || [] : list && list.length ? list : null };
-      if (options && options.lock) change.lock = true;
-      try {
-        return hostCall("policyNarrow", change)[field];
-      } catch (e) {
-        throw new Error(`${title}: ${(e && e.message) || e}`);
-      }
+      return policyHost("set", { [field]: list, lock: !!(options && options.lock), title })[field];
     }
 
     // ---- browser-context options (session.configure) -------------------------------
@@ -835,13 +830,13 @@
     const NAVIGATIONS = new Set(["tab.navigate", "tab.history", "tab.reload"]);
     // A secret handle is recorded by name; other text as given (the host
     // masks agent-known secret values in every file it writes).
-    const traceText = (t) => (isSecret(t) ? `<secret:${t.__secret}>` : t);
+    const traceText = (t) => (isHandle(t) ? `<secret:${t.__secret}>` : isSecret(t) ? String(t) : t);
     function traceParams(method, p) {
       const o = {};
       if (p.url !== undefined) o.url = p.url;
       if (method === "input.mouse") Object.assign(o, { type: p.type, x: p.x, y: p.y, button: p.button, deltaX: p.deltaX, deltaY: p.deltaY });
       if (method === "input.key") Object.assign(o, { type: p.type, modifiers: p.modifiers, key: traceText(p.key) });
-      if (method === "input.insertText") o.text = traceText(p.text);
+      if (method === "input.insertText") o.text = p.secret ? `<secret:${p.secret}>` : traceText(p.text);
       if (method === "input.setFiles") o.files = (p.files || []).map((f) => f.name);
       if (method === "tab.history") o.delta = p.delta;
       if (method === "dialog.respond") o.accept = p.accept;
@@ -902,16 +897,7 @@
           if (d) Object.assign(d, { state: p.error ? "failed" : "finished", path: p.path || null, error: p.error || null });
         }
       },
-      // The host already sent a tab that left the policy to about:blank; this
-      // only makes the action that took it there fail with the reason.
       async afterAction(page) {
-        if (typeof host.policyCheck === "function" && !page._closed) {
-          const message = await host.policyCheck(page._targetId);
-          if (message) {
-            await page._syncInfo().catch(() => {});
-            throw new Error(message);
-          }
-        }
         if (recorder) {
           const file = await recordFrame(page);
           if (file) trace({ t: new Date(session.now()).toISOString(), tab: page._targetId, event: "after-action", url: page.url(), frame: file });
@@ -927,9 +913,9 @@
     // Default scope: the sites (registrable domains) of one tab, so a saved
     // state never carries the rest of the user's profile by accident.
     // { all: true } saves everything; { urls } saves what those URLs see.
-    // cmux-next: registrableDomain below answers a host's site until the
-    // host answers it from the Public Suffix List (policy op "site").
-    const siteOf = (hostname) => registrableDomain(hostname);
+    // The host answers a host's site (cmux-next: from a compact suffix list
+    // until it has the Public Suffix List, port plan D6).
+    const siteOf = (hostname) => policyHost("site", { host: String(hostname || "") });
     async function storageState(options = {}, fromPage) {
       if (options === null || typeof options !== "object") throw new Error(`session.storageState: options: expected an object, got ${JSON.stringify(options)}`);
       const urls = options.urls ? [].concat(options.urls) : null;
@@ -1025,16 +1011,12 @@
       allowedDomains: (list, options) => setPolicy("allowed", "session.allowedDomains", list, options),
       prohibitedDomains: (list, options) => setPolicy("prohibited", "session.prohibitedDomains", list, options),
       blockIPAddresses(on, options) {
-        if (on === undefined) return hostCall("policyGet").blockIPAddresses;
-        const change = { blockIPAddresses: !!on };
-        if (options && options.lock) change.lock = true;
-        try {
-          return hostCall("policyNarrow", change).blockIPAddresses;
-        } catch (e) {
-          throw new Error(`session.blockIPAddresses: ${(e && e.message) || e}`);
-        }
+        if (on === undefined) return policyHost("get").blockIPs;
+        return policyHost("set", { blockIPs: !!on, lock: !!(options && options.lock), title: "session.blockIPAddresses" }).blockIPs;
       },
-      blockedNavigations: () => hostCall("policyLog"),
+      // cmux-next: the host blocks a navigation before its request and keeps
+      // the log (policy op "log").
+      blockedNavigations: () => policyHost("log"),
       // Playwright browser-context options for the tabs this session created:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,

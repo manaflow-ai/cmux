@@ -207,7 +207,19 @@ each step (job start, prelaunch target, spare take, host publication, bootstrap,
 connect, workspace persist, commit start, `new_tab` selectors/commit/events, every registry
 commit start, every mutex wait of 0.5 ms or more with its call site, reply queued).
 `SPANS=1 scripts/cmux-next/new-tab-daemon-bench.py BIN` prints the gap before each mark.
-Results go into this section before stage A code starts.
+Results (2026-10-04, cmux-lawrence-2, 2 x 20 tabs per build), mean per tab:
+
+| step | marks only (nt13) | plus barrier sync (nt14) |
+| --- | --- | --- |
+| daemon request to reply, p50 | 94.9 / 76.8 ms | 55.6 / 45.1 ms |
+| host Launch handling (host process) | 36 / 26 ms | 23 / 18 ms |
+| publication lock | 10 ms | 0.4 ms |
+| `persist_workspace` | 10-11 ms | 3 ms |
+| 5 registry SQLite commits | 31 / 24 ms | 23 / 20 ms |
+| bootstrap, connect, lock waits | 1-3 ms | 1-3 ms |
+
+Stage A takes the host Launch (about 20 ms) and 4 of the 5 commits (about 16 ms) off the reply
+path. The next marks go into the host's Launch step (PTY open, terminal setup).
 
 ## 8. Test plan (red first)
 

@@ -1,20 +1,15 @@
 //! [`RescueTransport`]: the interactive byte stream to a Cloud machine when
 //! its cmux-tui daemon is down.
 //!
-//! PLATFORM GAP: the cmux Cloud API has no route for an interactive stream
-//! today (checked 2026-10-04 in `web/app/api/vm/[id]/*`):
-//! - `exec` runs one command and answers once (no stdin, no PTY, 15 min cap);
-//! - `scp-endpoint` authorizes a 15-minute Ed25519 key with `restrict`
-//!   (no PTY) for file transfer over the private network;
-//! - `sessions` (legacy websocket attach) answers 409
-//!   `vm_attach_transport_unsupported`;
-//! - `attach-endpoint` and `cmux-remote` reach the daemon, which is the part
-//!   that is down in a rescue.
+//! PLATFORM GAP: the rescue stream is `cloud.shell.open` on the cmux-next
+//! backend (contract 2.6, a wire stream the Worker relays from the
+//! provider's exec terminal), which has not shipped. The daemon link cannot
+//! serve it: the daemon is the part that is down in a rescue.
 //!
 //! So production uses [`MissingRescueRoute`], which refuses every open with
 //! `unsupported`. Tests use a fake. No route is invented here.
 
-use super::iface::{BackendError, ExitStatus, Grid, Signal};
+use cmux_terminal_iface::{BackendError, ExitStatus, Grid, Signal};
 
 pub type StreamId = u64;
 

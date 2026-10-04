@@ -33,6 +33,20 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         fixtures.removeValue(forKey: key)?.close()
     }
 
+    /// `debug.home.attach`: the shown Home composer of the active window
+    /// (the real Home tab or this fixture) takes the files by path.
+    static func attach(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        let paths = params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? params["path"]?.stringValue.map { [$0] } ?? []
+        guard let via = HomeAttachVia(rawValue: params["via"]?.stringValue ?? "drop") else {
+            return .object(["error": .string("via must be drop, paste or pick")])
+        }
+        guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window) else {
+            return .object(["error": .string("no Home conversation is shown")])
+        }
+        let result = view.attachFiles(paths: paths, via: via)
+        return .object(["ok": .bool(result == .accepted), "result": .string(result.rawValue), "via": .string(via.rawValue)])
+    }
+
     static func open(services: AppServices, attachments: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments

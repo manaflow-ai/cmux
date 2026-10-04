@@ -36,7 +36,57 @@ pub async fn within<T>(
     after: Duration,
     fut: impl std::future::Future<Output = T>,
 ) -> Result<T, HostTimeout> {
-    tokio::time::timeout(after, fut).await.map_err(|_| HostTimeout { what, after })
+    within_on(&*crate::clock::TokioClock::new(), what, after, fut).await
+}
+
+/// [`within`] on an injected clock (`crate::clock`): tests drive the
+/// deadline with a `ManualClock` instead of waiting for it.
+pub async fn within_on<T>(
+    clock: &dyn crate::clock::Clock,
+    what: &'static str,
+    after: Duration,
+    fut: impl std::future::Future<Output = T>,
+) -> Result<T, HostTimeout> {
+    // A budget past the clock's range has no deadline (as tokio's timeout).
+    let Some(at) = clock.now().checked_add(after) else { return Ok(fut.await) };
+    let deadline = clock.sleep_until(at);
+    tokio::select! {
+        // The work first: a result ready together with the deadline wins.
+        biased;
+        value = fut => Ok(value),
+        () = deadline => Err(HostTimeout { what, after }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::ManualClock;
+
+    #[tokio::test]
+    async fn a_deadline_on_the_injected_clock_fires_when_the_clock_passes_it() {
+        let clock = ManualClock::new();
+        let mut wait = std::pin::pin!(within_on(
+            &*clock,
+            "test",
+            Duration::from_secs(5),
+            std::future::pending::<()>()
+        ));
+        // Polled once first, so the deadline is set from the clock's start.
+        assert!(futures::poll!(&mut wait).is_pending());
+        clock.advance(Duration::from_secs(5));
+        let out = tokio::time::timeout(Duration::from_secs(2), wait)
+            .await
+            .expect("the deadline ignored the injected clock");
+        assert_eq!(out, Err(HostTimeout { what: "test", after: Duration::from_secs(5) }));
+    }
+
+    #[tokio::test]
+    async fn work_ready_with_the_deadline_wins_and_a_huge_budget_never_panics() {
+        let clock = ManualClock::new();
+        assert_eq!(within_on(&*clock, "test", Duration::ZERO, async { 7 }).await, Ok(7));
+        assert_eq!(within_on(&*clock, "test", Duration::MAX, async { 8 }).await, Ok(8));
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

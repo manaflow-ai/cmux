@@ -120,7 +120,7 @@ public final class SettingsWindowModel {
     private func drain(_ descriptor: SettingDescriptor) async {
         while let next = latest.removeValue(forKey: descriptor.id) {
             do {
-                try await settings.setSetting(descriptor, to: next)
+                try await settings.setSetting(descriptor, to: next, by: .user)
                 writeError = nil
             } catch {
                 writeError = SettingsWindowStrings.writeFailed(String(describing: error))
@@ -137,7 +137,7 @@ public final class SettingsWindowModel {
     public func resetAll() {
         Task {
             do {
-                try await settings.resetAllSettings()
+                try await settings.resetAllSettings(by: .user)
                 writeError = nil
             } catch {
                 writeError = SettingsWindowStrings.writeFailed(String(describing: error))

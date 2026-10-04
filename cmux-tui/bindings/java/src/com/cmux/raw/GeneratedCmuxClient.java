@@ -818,8 +818,8 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final Object setColumnSticky(SetColumnStickyRequest request) throws CmuxException {
-        Object result = execute(Commands.SET_COLUMN_STICKY, request.toWire());
+    public final Object setColumnDock(SetColumnDockRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_COLUMN_DOCK, request.toWire());
         return Wire.immutableJson(result);
     }
 

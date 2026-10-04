@@ -59,7 +59,13 @@ pub(super) fn serve_line_connection(
         return;
     };
     let client = mux.control_clients.register(transport, writer.clone());
-    admission.registered(&mux, client);
+    if !admission.registered(&mux, client) {
+        // Refused before its first frame (the remote entry's revocation
+        // limits): nothing is read or dispatched.
+        disconnect_client(&mux, client, false);
+        let _ = writer_thread.join();
+        return;
+    }
     let mut hello = client_hello::HelloGate::new(transport);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
@@ -95,9 +101,14 @@ pub(super) fn serve_line_connection(
             None => {
                 match hello.observe(&mux, client, &line, || reader.get_ref().peer_process_key()) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => {
-                        handle_connection_message(&mux, client, &line, &writer, &surface_scheduler)
-                    }
+                    None => handle_connection_frame(
+                        &mux,
+                        client,
+                        transport,
+                        &line,
+                        &writer,
+                        &surface_scheduler,
+                    ),
                 }
             }
         };

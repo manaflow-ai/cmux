@@ -1,0 +1,2237 @@
+{
+  "v": 1,
+  "description": "Agent cursor visibility rules (plans/cmux-next/agent-cursor.md section 3; decisions CURSOR-HIDDEN, CURSOR-SHOW, CURSOR-SCREENS, 2026-10-04). Rects are overlay (layout-root, y-down) points of the window. anchor is tabChip | tabStrip | columnEdge.<leading|trailing|top|bottom> | workspaceRow | windowEdge. Replayed by Packages/macOS/CmuxNext/Tests/CmuxNextAgentCursorVisibilityTests.",
+  "cases": [
+    {
+      "name": "selected_tab_visible",
+      "rule": "CURSOR-SHOW: the selected tab of a visible pane draws the cursor in its page viewport",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "visible",
+        "window": "w1",
+        "viewport": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "clip": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "zoom": 1
+      }
+    },
+    {
+      "name": "background_tab_points_at_its_chip",
+      "rule": "CURSOR-HIDDEN: a background tab in its pane pulses at its tab chip",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-b",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "tabChip",
+        "rect": {
+          "x": 8,
+          "y": 4,
+          "w": 110,
+          "h": 28
+        }
+      }
+    },
+    {
+      "name": "background_tab_without_chip_points_at_strip",
+      "rule": "CURSOR-HIDDEN: a tab hidden in a collapsed tab group falls back to the strip",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-b",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-b": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "tabStrip",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 500,
+          "h": 36
+        }
+      }
+    },
+    {
+      "name": "selected_page_not_laid_out_points_at_chip",
+      "rule": "a selected tab whose page is not laid out yet pulses at its chip",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": null
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "tabChip",
+        "rect": {
+          "x": 8,
+          "y": 4,
+          "w": 110,
+          "h": 28
+        }
+      }
+    },
+    {
+      "name": "other_workspace_same_window_points_at_sidebar_row",
+      "rule": "CURSOR-HIDDEN: another workspace of the same window pulses at its sidebar row; never switches workspace",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws2",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": []
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "workspaceRow",
+        "rect": {
+          "x": -240,
+          "y": 80,
+          "w": 220,
+          "h": 28
+        }
+      }
+    },
+    {
+      "name": "tab_in_parked_workspace_points_at_sidebar_row",
+      "rule": "CURSOR-HIDDEN: a parked (mounted, not shown) workspace is another workspace: sidebar row (here its collapsed group row)",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws2",
+            "listedWorkspaces": [
+              "ws2",
+              "ws1"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 176,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": []
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "workspaceRow",
+        "rect": {
+          "x": -240,
+          "y": 176,
+          "w": 220,
+          "h": 28
+        }
+      }
+    },
+    {
+      "name": "sidebar_hidden_falls_back_to_window_edge",
+      "rule": "CURSOR-HIDDEN: with the sidebar hidden the indicator sits on the leading window edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws2",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": true,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": []
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "windowEdge",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 4,
+          "h": 700
+        }
+      }
+    },
+    {
+      "name": "workspace_without_sidebar_row_falls_back_to_window_edge",
+      "rule": "a listed workspace with no sidebar row (another profile) uses the window edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws2",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {},
+            "panes": []
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "windowEdge",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 4,
+          "h": 700
+        }
+      }
+    },
+    {
+      "name": "column_scrolled_out_left",
+      "rule": "CURSOR-HIDDEN: a niri column scrolled out to the left pulses at the leading strip edge; never auto-scrolls",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": -600,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": -600,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "columnEdge.leading",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 4,
+          "h": 700
+        }
+      }
+    },
+    {
+      "name": "column_scrolled_out_right",
+      "rule": "CURSOR-HIDDEN: a column scrolled out to the right pulses at the trailing strip edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 1100,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 1100,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "columnEdge.trailing",
+        "rect": {
+          "x": 996,
+          "y": 0,
+          "w": 4,
+          "h": 700
+        }
+      }
+    },
+    {
+      "name": "column_partially_visible_draws_with_clip",
+      "rule": "a partially visible column is visible: the viewport keeps its origin, the clip is the shown part",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 700,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 700,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 700,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "visible",
+        "window": "w1",
+        "viewport": {
+          "x": 700,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "clip": {
+          "x": 700,
+          "y": 72,
+          "w": 300,
+          "h": 628
+        },
+        "zoom": 1
+      }
+    },
+    {
+      "name": "column_under_docked_column_points_at_edge",
+      "rule": "a strip column wholly under a docked column is not visible: the edge of the uncovered strip",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 280,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 300,
+                  "y": 0,
+                  "w": 700,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 280,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "columnEdge.leading",
+        "rect": {
+          "x": 300,
+          "y": 0,
+          "w": 4,
+          "h": 700
+        }
+      }
+    },
+    {
+      "name": "row_scrolled_out_top",
+      "rule": "a pane scrolled out above (row scroll inside a column) pulses at the top edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": -800,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": -728,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "columnEdge.top",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 500,
+          "h": 4
+        }
+      }
+    },
+    {
+      "name": "background_tab_in_partial_column_chip_is_clipped",
+      "rule": "a background tab's chip in a partially visible column is cut to the shown part",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 700,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-b",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 950,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "tabChip",
+        "rect": {
+          "x": 950,
+          "y": 4,
+          "w": 50,
+          "h": 28
+        }
+      }
+    },
+    {
+      "name": "docked_devtools_uses_page_viewport",
+      "rule": "docked DevTools share the page area: the viewport is the page's part only",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 380
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "visible",
+        "window": "w1",
+        "viewport": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 380
+        },
+        "clip": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 380
+        },
+        "zoom": 1
+      }
+    },
+    {
+      "name": "page_zoom_is_reported",
+      "rule": "page zoom travels with the visible placement",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1.5
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "visible",
+        "window": "w1",
+        "viewport": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "clip": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "zoom": 1.5
+      }
+    },
+    {
+      "name": "window_on_other_display_draws",
+      "rule": "CURSOR-SCREENS: a window on another display draws in that window",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Studio Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "visible",
+        "window": "w1",
+        "viewport": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "clip": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "zoom": 1
+      }
+    },
+    {
+      "name": "window_on_other_space_draws_nothing",
+      "rule": "CURSOR-SCREENS: a window on another Space draws nothing",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": false,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "notDrawn",
+        "reason": "otherSpace"
+      }
+    },
+    {
+      "name": "minimized_window_draws_nothing",
+      "rule": "CURSOR-SCREENS: a minimized window draws nothing",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": true,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "notDrawn",
+        "reason": "minimized"
+      }
+    },
+    {
+      "name": "tab_closed",
+      "rule": "a closed tab draws nothing",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": null,
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "notDrawn",
+        "reason": "tabClosed"
+      }
+    },
+    {
+      "name": "workspace_in_no_window",
+      "rule": "a workspace no window lists draws nothing",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws9",
+          "pane": "p9"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "notDrawn",
+        "reason": "notInAnyWindow"
+      }
+    },
+    {
+      "name": "window_showing_beats_window_listing",
+      "rule": "the window that shows the workspace wins over a front window that only lists it",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w-front",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws2",
+            "listedWorkspaces": [
+              "ws2",
+              "ws1"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": []
+          },
+          {
+            "id": "w-back",
+            "screen": "Studio Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 700
+                },
+                "clip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 1000,
+                  "h": 700
+                },
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "visible",
+        "window": "w-back",
+        "viewport": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "clip": {
+          "x": 0,
+          "y": 72,
+          "w": 500,
+          "h": 628
+        },
+        "zoom": 1
+      }
+    },
+    {
+      "name": "pane_not_on_active_screen_points_at_window_edge",
+      "rule": "a pane on another screen (screen bar) of the shown workspace uses the window edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": [
+              {
+                "id": "p1",
+                "frame": null,
+                "clip": null,
+                "selectedTab": "tab-a",
+                "strip": {
+                  "x": 0,
+                  "y": 0,
+                  "w": 500,
+                  "h": 36
+                },
+                "chips": {
+                  "tab-a": {
+                    "x": 8,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  },
+                  "tab-b": {
+                    "x": 120,
+                    "y": 4,
+                    "w": 110,
+                    "h": 28
+                  }
+                },
+                "page": {
+                  "viewport": {
+                    "x": 0,
+                    "y": 72,
+                    "w": 500,
+                    "h": 628
+                  },
+                  "zoom": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "windowEdge",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 4,
+          "h": 700
+        }
+      }
+    },
+    {
+      "name": "target_pane_missing_points_at_window_edge",
+      "rule": "a pane the layout has not measured uses the window edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws1",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": -240,
+                "y": 80,
+                "w": 220,
+                "h": 28
+              },
+              "ws2": {
+                "x": -240,
+                "y": 112,
+                "w": 220,
+                "h": 28
+              }
+            },
+            "panes": []
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "windowEdge",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 4,
+          "h": 700
+        }
+      }
+    }
+  ]
+}

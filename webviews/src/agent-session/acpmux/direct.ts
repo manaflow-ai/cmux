@@ -400,6 +400,9 @@ export class AcpmuxDirectClient {
   private handoffSupported = false;
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
   private extensions: readonly string[] = [];
+  /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
+  /// WebSocket connection is remote-origin to acpmux, which never pools for it.
+  private localOrigin = false;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -526,6 +529,7 @@ export class AcpmuxDirectClient {
       this.canFork = servesOperation(initialized, FORK_OP);
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
+      this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
       this.handoffSupported = supportsHandoff(initialized);
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
@@ -1472,13 +1476,16 @@ export class AcpmuxDirectClient {
     if (sessionId === this.selectedSessionId) return;
     void this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
   }
-  /// acpmux serves `_acpmux/prewarm`: a hint that `harness` is likely next.
+  /// acpmux serves `_acpmux/prewarm` to this connection: it lists the method and calls the
+  /// connection local. A remote-origin connection is never asked (acpmux refuses it).
   get prewarmSupported(): boolean {
-    return this.extensions.includes(PREWARM_METHOD);
+    return this.localOrigin && this.extensions.includes(PREWARM_METHOD);
   }
-  /// Hints acpmux to warm `harness`'s adapter. Older daemons do not list the method and are not asked.
-  prewarm(harness: string): void {
-    if (this.prewarmSupported) void this.request(PREWARM_METHOD, { harness }).catch(() => undefined);
+  /// Hints acpmux's session pool that `harness` is likely next, in `cwd` when known. Never
+  /// awaited; a refusal (the pool is off, a failed start) is ignored.
+  prewarm(harness: string, cwd?: string): void {
+    if (!this.prewarmSupported) return;
+    void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch(() => undefined);
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;

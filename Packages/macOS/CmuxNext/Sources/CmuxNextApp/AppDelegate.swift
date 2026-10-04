@@ -81,6 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             #if DEBUG
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
+            // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
+            if let window = services?.windows.active?.window { Task { @MainActor in await RecoveryNotice.show(in: window) } }
             CATransaction.setCompletionBlock {
                 MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") }
             }
@@ -138,6 +140,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
         services.settings = settings
+        UserOnlySettingConfirmation.install(settings, services: services)
+        // Every palette-exposed schema setting in the palette (R93).
+        services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+            services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
+        }
         services.history.commands.start(settings: settings)
         services.locationTrail.watchScope(settings: settings)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
@@ -175,6 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)
+        services.updater.follow(settings)
         services.startHibernation(settings: settings)
         services.terminalTheme.follow(settings)
         services.themes.start()
@@ -191,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
-                control.registerUpdateMethods(services.updater)
+                control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
                 control.registerPageDebugMethods()

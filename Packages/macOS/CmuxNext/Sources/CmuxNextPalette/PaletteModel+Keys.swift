@@ -31,11 +31,16 @@ extension PaletteModel {
             if let id = selectedItem?.actionID, onEditShortcut?(id) == true { return true }
             _ = openActionsMenu()
         case .openActions:
-            // Tab: a keyword, a scope row or a drill enters a scope;
-            // otherwise the Actions menu opens.
+            // Tab: a tree page enters the selected row; a keyword, a scope
+            // row or a drill enters a scope; otherwise the Actions menu opens.
+            if enterSelectedRow() { return true }
             send(.tab)
         case .closeActions:
             send(.shiftTab)
+        case .escape where currentPageIsHierarchical && !query.isEmpty:
+            // A tree page clears its query as typing would, so a typed path
+            // returns to the folder it started from.
+            query = ""
         case .escape:
             // A text step's text is the answer, not a search: Escape on a
             // prompt that a shortcut or menu opened cancels it at once
@@ -48,7 +53,13 @@ extension PaletteModel {
             send(.escape)
         case .back:
             guard query.isEmpty else { return false }
+            // A tree page goes up first; at its top Backspace pops it.
+            if leaveLevel() { return true }
             send(.backspaceOnEmpty)
+        case .enterRow:
+            _ = enterSelectedRow()
+        case .leaveLevel:
+            _ = leaveLevel()
         case .closeItem:
             return handleCloseItem()
         case .actionsFilterAppend, .actionsFilterDeleteBackward:
@@ -124,7 +135,7 @@ extension PaletteModel {
             }
         case .toggleActions, .closeActions, .escape:
             actionsMenu = nil
-        case .openActions:
+        case .openActions, .enterRow, .leaveLevel:
             break
         case .back:
             return false

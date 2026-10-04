@@ -1,5 +1,6 @@
 public import Foundation
 public import WebKit
+import CmuxNextDesign
 
 /// The WebKit engine: one `WKWebView` per tab, one persistent
 /// `WKWebsiteDataStore` per profile.
@@ -17,8 +18,12 @@ public final class WebKitEngine: BrowserEngine {
     /// Hosts whose untrusted certificate the user chose to proceed past, per
     /// browser profile, until the app quits (never written to disk).
     var certificateExceptions: [BrowserProfileID: Set<String>] = [:]
+    /// Low Power Mode keeps new tabs near 60 fps (tests replace it).
+    var lowPowerMode: () -> Bool = { ProcessInfo.processInfo.isLowPowerModeEnabled }
     /// Per-profile site permissions, shared with the Chromium engine.
     public var siteSettings: SiteSettingsRegistry = .shared
+    /// Browser passkey authorization (one per app; tests inject a fake).
+    public var passkeyAuthorization: WebKitPasskeyAuthorization = .shared
     /// Appended to WebKit's user agent, e.g. "cmux/1.0 Safari/605.1.15".
     public var applicationNameForUserAgent: String?
 
@@ -69,6 +74,9 @@ public final class WebKitEngine: BrowserEngine {
 
     /// Settings every tab needs, including page-opened ones.
     private func prepare(_ configuration: WKWebViewConfiguration) {
+        // The display's full rate (120 Hz on ProMotion); near 60 fps in Low
+        // Power Mode. Read when each tab is made.
+        WebKitRenderRate.apply(fullRate: !lowPowerMode(), to: configuration.preferences)
         // Native element fullscreen takes over the display; the pane shim
         // replaces it (PaneFullscreenScript).
         configuration.preferences.isElementFullscreenEnabled = false

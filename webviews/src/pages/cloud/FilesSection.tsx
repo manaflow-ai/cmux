@@ -2,7 +2,8 @@
 // click; a file click previews a small text file, which Edit turns into a field that Save writes back.
 // Delete, Upload and Download go to the host (native confirmation or file panel); the page never
 // calls `fs.remove`, `file.push` or `file.pull` itself. A push or pull shows as a transfer row that
-// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry.
+// is running until its `file.transfer.changed` event; a busy refusal shows a message with Retry. A
+// machine whose daemon has no file ops yet (`fs-v1`) shows "Not available yet" for that machine.
 import { useState } from "react";
 import { formatBytes, plainKeys, type SectionProps } from "./sectionParts";
 import { joinPath } from "./files";
@@ -10,7 +11,12 @@ import { CloudOps } from "./ops";
 import { format, L } from "./strings";
 import type { FileTransfer } from "./transfers";
 
-const TRANSFER_LABEL = { running: L.transferRunning, done: L.transferDone, failed: L.transferFailed } as const;
+const TRANSFER_LABEL = {
+  running: L.transferRunning,
+  done: L.transferDone,
+  failed: L.transferFailed,
+  cancelled: L.transferCancelled,
+} as const;
 
 function Transfers({ transfers, strings }: { transfers: readonly FileTransfer[]; strings: SectionProps["strings"] }) {
   const { t } = strings;
@@ -136,18 +142,19 @@ export function FilesSection({
 }: Omit<SectionProps, "machine"> & { transfers: readonly FileTransfer[] }) {
   const { t } = strings;
   const files = detail.files;
+  const off = unavailable.includes(CloudOps.fsList) || !!files?.unavailable;
   const rows = <Transfers transfers={transfers.filter((item) => item.machine === detail.machine)} strings={strings} />;
   const header = (
     <div className="cloud-subsection-header">
       <h3 className="cloud-subsection-title">{t(L.files)}</h3>
-      {!files && !unavailable.includes(CloudOps.fsList) && (
+      {!files && !off && (
         <button type="button" className="cloud-link-button cloud-files-browse" onClick={() => void store.files.open()}>
           {t(L.filesBrowse)}
         </button>
       )}
     </div>
   );
-  if (unavailable.includes(CloudOps.fsList))
+  if (off)
     return (
       <>
         {header}

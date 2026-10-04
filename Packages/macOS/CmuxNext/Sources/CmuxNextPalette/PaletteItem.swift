@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextDesign
 
 /// One row of palette results.
 public struct PaletteItem: Identifiable {
@@ -45,6 +46,15 @@ public struct PaletteItem: Identifiable {
     /// The row's typed commands, primary first (`palette.run`). Empty for a
     /// row that only the palette UI can run.
     public var actionRefs: [PaletteActionRef] = []
+    /// Real colors drawn in the icon's place (a color setting's value, a
+    /// theme's colors; R98). Empty draws `symbol`.
+    public var swatches: [ThemeRGB] = []
+    /// The row matches only a query that starts with this text, and never
+    /// shows for an empty query (the picker's hidden files: `.`).
+    public var queryPrefix: String?
+    /// The row shows for an empty query only, never as a match (the
+    /// picker's Locations).
+    public var hidesWhenTyping = false
 
     public init(
         id: String,

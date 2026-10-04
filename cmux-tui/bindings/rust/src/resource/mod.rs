@@ -38,7 +38,7 @@ pub use model::{
     BrowserViewerResizeResult, CellPixelsResult, ClientSnapshot, ClientTerminalSize,
     ClientTransport, ConfirmationRequiredDetails, ConnectedClientSnapshot, Created, CreatedPath,
     CreationRecovery, CreationResolution, CreationState, Cursor, Document,
-    FrontendProjectionSnapshot, LayoutColumn, LayoutColumnSticky, LayoutDirection, LayoutDocument,
+    FrontendProjectionSnapshot, LayoutColumn, LayoutColumnDock, LayoutDirection, LayoutDocument,
     LayoutLeaf, LayoutNode, LayoutSplit, LayoutStack, LayoutViewport, MachineOrigin,
     MachineSnapshot, MachineStatus, MutationReceipt, MutationResult, NotificationSnapshot,
     PairingCode, PairingRequestSnapshot, PairingResolutionResult, PairingStatus,

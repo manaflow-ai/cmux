@@ -64,14 +64,16 @@ final class PaneHostView: NSView {
 
     /// Height of the content's header (tab strip, toolbar); 0 without one.
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
+    /// Height of the content's footer (a tab strip at the bottom); 0 without one.
+    var footerHeight: CGFloat { reporter?.paneFooterHeight ?? 0 }
 
     /// The padded rect the content view fills, in this view's coordinates.
     var contentRect: CGRect { clipView.frame }
 
-    /// The rounded area the border and ring trace: below the content's
-    /// header, or the whole padded rect for content without one.
+    /// The rounded area the border and ring trace: between the content's
+    /// header and footer, or the whole padded rect for content without them.
     var roundedRect: CGRect {
-        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: reporter?.paneHeaderHeight ?? 0)
+        PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: headerHeight, footerHeight: footerHeight)
     }
 
     /// Applies the pane padding and corner radius (live style values).
@@ -98,15 +100,16 @@ final class PaneHostView: NSView {
         // pass when the clip view is resized manually, so keep the content
         // frame in lockstep with the clip bounds here.
         if content.frame != clipView.bounds { content.frame = clipView.bounds }
-        let header = reporter?.paneHeaderHeight ?? 0
-        let radius = PaneChromeGeometry.cornerRadius(for: PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header), style: style)
+        let header = headerHeight, footer = footerHeight
+        let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
+        let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)
         if let reporter {
             clipView.setCornerRadius(0)
             reporter.setPaneContentCornerRadius(radius)
         } else {
             clipView.setCornerRadius(radius)
         }
-        chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header)
+        chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header, footerHeight: footer)
     }
 
     /// Tells the content when the pane's frame in the window changed.

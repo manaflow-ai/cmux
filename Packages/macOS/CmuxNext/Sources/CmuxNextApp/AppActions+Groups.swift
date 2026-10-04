@@ -34,7 +34,7 @@ extension AppActions {
         })
         // Cmd-Shift-C (Arc, Chrome extensions): the page's URL, as the
         // omnibar's Copy writes it (the full URL, never the elided text).
-        registry.bind("browser.copyURL", isEnabled: { chrome()?.tab.state.url != nil }, invoke: { chrome($0)?.copyPageURL() })
+        registry.bind("browser.copyURL", isEnabled: { chrome()?.tab.state.url != nil }, invoke: { _ = chrome($0)?.copyPageURL() })
         // Cmd-L goes through the window's focus coordinator, which also takes
         // key back from a focused Chromium page window.
         registry.bind("focusBrowserAddressBar", isEnabled: { chrome() != nil }, invoke: { invocation in

@@ -79,6 +79,8 @@ final class DaemonService {
     @ObservationIgnored private(set) var retryWake: RetryWake
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    /// How the connections reach this app's daemon (the page relay opens its own with it).
+    @ObservationIgnored private(set) var endpointProvider: DaemonConnection.EndpointProvider?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -101,6 +103,7 @@ final class DaemonService {
                 return
             }
         }
+        endpointProvider = launcher.endpointProvider
         if let session = try? DaemonLauncher.sessionName(tag: launch.tag) {
             launchSnapshotSession = session
             showLaunchSnapshot(session: session)

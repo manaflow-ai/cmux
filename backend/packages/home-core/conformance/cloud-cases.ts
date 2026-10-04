@@ -11,6 +11,7 @@ export const cloudCases = (c: Corpus): void => {
   c.create("create group: roles, settings, state", { ...group, participants: [human(ALICE, "Alice"), human(BOB, "Bob"), agent(CHIEF, ALICE)] }, "commit")
   c.create("create group: untitled is allowed", { ...group, title: "", participants: [human(ALICE)] }, "commit")
   c.create("create group: addresses join only by invite", { ...group, participants: [human(ALICE), address(ADDRESS)] }, "invalid_participant")
+  c.create("create group: a paired device never joins a cloud head", { ...group, participants: [human(ALICE), { ...human("remote_inst_1"), person: ALICE } as never] }, "invalid_participant")
   c.create("create group: custom settings", { ...group, participants: [human(ALICE)], settings: { wake_policy: "mentions", history_visible: "since_join" } }, "commit")
   c.create("create group: bad settings", { ...group, participants: [human(ALICE)], settings: { wake_policy: "loud" as never } }, "invalid_settings")
   const dm = { actor: ALICE, title: "", now: NOW, kind: "dm" as const }
@@ -24,6 +25,7 @@ export const cloudCases = (c: Corpus): void => {
   const host = new CoreHost(groupHead())
   const send = (key: string, body: string): Op => ({ kind: "message.send", client_msg_id: key, parts: [text(body)] })
   c.op(host, "send: by a member", BOB, "m1", send("m1", "hello"), "commit")
+  c.op(host, "send: a cloud head refuses a paired-device mention", BOB, "m1d", { kind: "message.send", client_msg_id: "m1d", parts: [{ type: "text", text: "hi", runs: [{ start: 0, length: 2, mention: "remote_inst_1" }] }] }, "invalid_parts")
   c.op(host, "participants.add: stamps role, joined_seq, added_by", BOB, "p1", { kind: "participants.add", participant: human(CAROL, "Carol") }, "commit")
   c.op(host, "participants.add: a address", BOB, "p2", { kind: "participants.add", participant: address(ADDRESS) }, "invalid_participant")
   c.op(host, "participants.remove: a member may not remove another", BOB, "r1", { kind: "participants.remove", participant: CAROL }, "forbidden")

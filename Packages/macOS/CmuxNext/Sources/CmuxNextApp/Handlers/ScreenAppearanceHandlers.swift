@@ -45,7 +45,7 @@ enum ScreenAppearanceHandlers {
                 return ScreenCommands.setIcon(ref.screen, icon, daemon: ref.daemon)
             }
             guard let anchor = ctx.services.iconPicker.activeWindowAnchor() ?? ctx.refuse(ScreenStrings.iconArgumentRequired) else { return }
-            ctx.services.iconPicker.pick(current: ref.screen.icon, at: anchor) { result in
+            ctx.services.iconPicker.pick(current: ref.screen.icon, target: "screen:\(ref.screen.id)", at: anchor) { result in
                 switch result {
                 case .set(let icon): ScreenCommands.setIcon(ref.screen, icon, daemon: ref.daemon)
                 case .clear: ScreenCommands.setIcon(ref.screen, nil, daemon: ref.daemon)

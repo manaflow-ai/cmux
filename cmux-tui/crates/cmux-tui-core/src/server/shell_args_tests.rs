@@ -107,7 +107,7 @@ fn respawned_terminals_follow_the_frontend_flag() {
     let pane = frontend.mux.with_state(|state| state.pane_of(docked).unwrap());
     frontend.run(json!({
         "cmd": "move-tab-to-column", "surface": docked, "pane": pane, "width": 0.4,
-        "sticky": {"edge": "right", "mode": "docked"}, "respawn": respawn,
+        "dock": {"edge": "right", "mode": "docked"}, "respawn": respawn,
     }));
     let fresh = frontend.mux.with_state(|state| state.panes[&pane].tabs[0]);
     assert_eq!(frontend.argv(&json!({"surface": fresh})), vec![FRONTEND_SHELL.to_string()]);
@@ -145,7 +145,7 @@ fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
         outbound: Arc::new(BoundedOutbound::default()),
         control: None,
     });
-    handle_command(mux, 0, command, &writer)
+    handle_command(mux, mux.local_test_client(0), command, &writer)
 }
 
 /// The argv the created terminal was spawned with (the in-process test

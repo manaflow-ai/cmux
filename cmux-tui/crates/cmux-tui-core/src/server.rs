@@ -102,11 +102,12 @@ pub use loopback_forward::{
 };
 mod admission;
 mod client_hello;
+#[cfg(unix)]
+mod fs_wire;
 mod line_connection;
 mod origin_gate;
 mod pending_handoff;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
-use pending_handoff::reject_message_during_pending_handoff;
 mod bookmarks;
 mod browser_profiles;
 mod conversation_tabs_wire;
@@ -114,17 +115,24 @@ mod conversations;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
+mod pending_handoff;
 mod personal;
 mod raw_tab;
 #[cfg(unix)]
 mod remote_entry;
+mod remote_relay;
+#[cfg(test)]
+use remote_relay::handle_connection_message;
 mod responses;
 mod rows;
 mod screen_json;
 mod session_stream;
+mod split_kind;
 mod split_respawn;
 mod tab_column;
 mod websocket_listener;
+#[cfg(unix)]
+pub use fs_wire::FsGate;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -133,6 +141,7 @@ pub use launch_snapshot::{
 pub use remote_entry::{
     DenyAllGate, LinkVerifier, RemoteEntryServer, RemoteGate, RemotePeer, serve_remote_entry,
 };
+pub use remote_relay::ConversationGate;
 use responses::{
     response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
     send_response,
@@ -154,14 +163,16 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
-/// `set-column-sticky` and the optional `Screen.columns[].sticky` field: at
+/// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
-pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
-/// Top and bottom docks: `set-column-sticky` and `move-tab-to-column` accept
+pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
+/// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
+pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -432,9 +443,10 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-        STICKY_COLUMNS_CAPABILITY,
+        DOCK_COLUMNS_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
         ROWS_CAPABILITY,
+        PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -511,6 +523,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
     capabilities.extend(crate::apps::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::fs_ops::advertised());
     capabilities
 }
 
@@ -1770,54 +1784,8 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
-    NewPaneRight {
-        pane: PaneId,
-        #[serde(default)]
-        width: Option<f32>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-    },
-    Split {
-        pane: PaneId,
-        /// "right" or "down"
-        dir: String,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-    },
+    NewPaneRight(split_kind::NewPaneRightParams),
+    Split(split_kind::SplitParams),
     SetRatio {
         pane: PaneId,
         /// "right" or "down"
@@ -1836,12 +1804,12 @@ enum Command {
         #[serde(default)]
         transaction: Option<u64>,
     },
-    /// `sticky-columns-v1`: pin or unpin the viewport column containing
+    /// `dock-columns-v1`: pin or unpin the viewport column containing
     /// `pane`. `edge` and `mode` stay strings so a bad value answers with
     /// `error_code:"invalid-argument"` instead of a decode error.
-    SetColumnSticky {
+    SetColumnDock {
         pane: PaneId,
-        sticky: bool,
+        dock: bool,
         #[serde(default)]
         edge: Option<String>,
         #[serde(default)]
@@ -10574,9 +10542,13 @@ fn resource_stream_end(
     end
 }
 
-fn handle_connection_message(
+/// One frame of a connection. `transport` is the connection's own value
+/// (not a registry lookup), so a remote-entry connection always takes the
+/// remote path, also after its registry record is gone.
+fn handle_connection_frame(
     mux: &Arc<Mux>,
     client: u64,
+    transport: ClientTransport,
     message: &str,
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
@@ -10588,6 +10560,9 @@ fn handle_connection_message(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
+    if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
+        return remote_relay::handle_frame(mux, client, message, writer);
+    }
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
     // serving. Closing here would drop the requester's pending
@@ -10595,7 +10570,7 @@ fn handle_connection_message(
     // arrives meanwhile (a subscriber's snapshot refresh) is refused
     // without being executed and the connection stays open.
     if mux.daemon_handoff_in_progress() {
-        return reject_message_during_pending_handoff(message, writer);
+        return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
     if crate::resource_router::is_resource_protocol_message(message) {
         return origin_gate::handle_resource_line(mux, client, message, writer);
@@ -10605,6 +10580,10 @@ fn handle_connection_message(
     }
     #[cfg(unix)]
     if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     let request = match serde_json::from_str::<Request>(message) {
@@ -10680,6 +10659,7 @@ fn handle_request_with_cancellation(
             }
         }
     };
+    let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
     let response_ok = response.ok;
     let sent = responses::send_response_with_reason(writer, response, reason);
     // Flush the successful acknowledgement before making the owning loop
@@ -12830,6 +12810,9 @@ fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
+    if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {
+        return remote;
+    }
     match cmd {
         Command::UrlOpenSubscribe { terminal_ids } => {
             mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
@@ -14143,45 +14126,8 @@ fn handle_command_with_cancellation(
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewPaneRight {
-            pane,
-            width,
-            cols,
-            rows,
-            cwd,
-            env,
-            keep,
-            terminal_id,
-            shell_args,
-        } => {
-            let spawn = placement_spawn_options(
-                cwd,
-                env.as_ref(),
-                terminal_id,
-                shell_args,
-                frontend_shell(mux, client),
-            )?;
-            let surface = mux.new_pane_right_with_options(
-                pane,
-                width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
-                spawn,
-                optional_surface_size(cols, rows),
-            )?;
-            placed_terminal_result(mux, &surface, keep)
-        }
-        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            let dir = parse_split_dir(&dir)?;
-            let spawn = placement_spawn_options(
-                cwd,
-                env.as_ref(),
-                terminal_id,
-                shell_args,
-                frontend_shell(mux, client),
-            )?;
-            let surface =
-                mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
-            placed_terminal_result(mux, &surface, keep)
-        }
+        Command::NewPaneRight(params) => split_kind::new_pane_right(mux, client, params),
+        Command::Split(params) => split_kind::split(mux, client, params),
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
             mux.set_ratio_checked(pane, dir, ratio)?;
@@ -14210,14 +14156,14 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
-        Command::SetColumnSticky { pane, sticky, edge, mode, transaction } => {
-            let sticky = crate::mux::parse_column_sticky(sticky, edge.as_deref(), mode.as_deref())?;
-            let outcome = mux.set_column_sticky(
+        Command::SetColumnDock { pane, dock, edge, mode, transaction } => {
+            let dock = crate::mux::parse_column_dock(dock, edge.as_deref(), mode.as_deref())?;
+            let outcome = mux.set_column_dock(
                 pane,
-                sticky,
+                dock,
                 transaction.map(|transaction| (client, transaction)),
             )?;
-            let mut data = json!({"column": outcome.column, "sticky": outcome.sticky});
+            let mut data = json!({"column": outcome.column, "dock": outcome.dock});
             if let Some(transaction) = transaction {
                 data["transaction"] = json!(transaction);
             }
@@ -16130,12 +16076,16 @@ mod session_identity_tests;
 mod personal_tests;
 
 #[cfg(test)]
-#[path = "server/sticky_columns_tests.rs"]
-mod sticky_columns_tests;
+#[path = "server/dock_columns_tests.rs"]
+mod dock_columns_tests;
 
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
+
+#[cfg(test)]
+#[path = "server/pane_browser_kind_tests.rs"]
+mod pane_browser_kind_tests;
 
 #[cfg(test)]
 #[path = "server/personal_terminal_tests.rs"]
@@ -21098,7 +21048,9 @@ mod tests {
         let unix_client = mux.control_clients.register(ClientTransport::Unix, test_writer());
         let websocket_client =
             mux.control_clients.register(ClientTransport::WebSocket, test_writer());
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity =
+            handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer())
+                .unwrap();
         assert!(
             identity["capabilities"]
                 .as_array()
@@ -22550,14 +22502,17 @@ mod tests {
     #[test]
     fn identify_and_ping_return_build_metadata() {
         let mux = test_mux();
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity =
+            handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer())
+                .unwrap();
         assert_eq!(identity["app"].as_str(), Some("cmux-tui"));
         assert_eq!(identity["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(identity["protocol"].as_u64(), Some(PROTOCOL_VERSION as u64));
         assert_eq!(identity["build_commit"].as_str(), stamped_build_commit());
         assert_eq!(identity["ghostty_commit"].as_str(), stamped_ghostty_commit());
 
-        let data = handle_command(&mux, 0, Command::Ping, &test_writer()).unwrap();
+        let data =
+            handle_command(&mux, mux.local_test_client(0), Command::Ping, &test_writer()).unwrap();
         assert_eq!(data["ok"].as_bool(), Some(true));
         assert_eq!(data["version"].as_str(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(data["build_commit"].as_str(), stamped_build_commit());
@@ -22588,7 +22543,9 @@ mod tests {
     fn lifecycle_ready_identity_advertises_new_public_protocol() {
         let mux = test_mux();
         mux.mark_server_lifecycle_ready();
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity =
+            handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer())
+                .unwrap();
 
         assert_eq!(identity["lifecycle_ready"], true);
         assert_eq!(identity["protocol"].as_u64(), Some(12));
@@ -22607,7 +22564,7 @@ mod tests {
 
         let result = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::ReportAgent {
                 surface: surface.id,
                 state: "working".into(),
@@ -22641,7 +22598,7 @@ mod tests {
         for source in ["plugin", "detected"] {
             let error = handle_command(
                 &mux,
-                0,
+                mux.local_test_client(0),
                 Command::ReportAgent {
                     surface: surface.id,
                     state: "working".into(),
@@ -22955,7 +22912,9 @@ mod tests {
         let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
         let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
 
-        let before = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        let before =
+            handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
+                .unwrap();
         let split = before["workspaces"][0]["screens"][0]["layout"]["split"]
             .as_u64()
             .expect("protocol v8 split id");
@@ -22967,8 +22926,10 @@ mod tests {
             "ratio": 0.7
         }))
         .unwrap();
-        handle_command(&mux, 0, request.cmd, &test_writer()).unwrap();
-        let after_exact = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        handle_command(&mux, mux.local_test_client(0), request.cmd, &test_writer()).unwrap();
+        let after_exact =
+            handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
+                .unwrap();
         assert_eq!(after_exact["workspaces"][0]["screens"][0]["layout"]["split"], split);
         let exact_ratio = after_exact["workspaces"][0]["screens"][0]["layout"]["ratio"]
             .as_f64()
@@ -22983,9 +22944,10 @@ mod tests {
             "ratio": 0.3
         }))
         .unwrap();
-        handle_command(&mux, 0, legacy.cmd, &test_writer()).unwrap();
+        handle_command(&mux, mux.local_test_client(0), legacy.cmd, &test_writer()).unwrap();
         let after_legacy =
-            handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+            handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
+                .unwrap();
         assert_eq!(after_legacy["workspaces"][0]["screens"][0]["layout"]["split"], split);
         let legacy_ratio = after_legacy["workspaces"][0]["screens"][0]["layout"]["ratio"]
             .as_f64()
@@ -22999,7 +22961,9 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            handle_command(&mux, 0, unknown.cmd, &test_writer()).unwrap_err().to_string(),
+            handle_command(&mux, mux.local_test_client(0), unknown.cmd, &test_writer())
+                .unwrap_err()
+                .to_string(),
             "unknown split 999999"
         );
     }
@@ -23013,7 +22977,9 @@ mod tests {
             ContentPublicId::Browser(_) => panic!("workspace started with a browser"),
         };
 
-        let tree = handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap();
+        let tree =
+            handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
+                .unwrap();
 
         for (path, prefix) in [
             (&tree["workspaces"][0]["resource_id"], "ws_"),
@@ -23036,8 +23002,8 @@ mod tests {
         let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
         mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
         let split =
-            handle_command(&mux, 0, Command::ListWorkspaces, &test_writer()).unwrap()["workspaces"]
-                [0]["screens"][0]["layout"]["split"]
+            handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
+                .unwrap()["workspaces"][0]["screens"][0]["layout"]["split"]
                 .as_u64()
                 .expect("viewport projection exposes a stable split");
         let outbound = Arc::new(BoundedOutbound::default());
@@ -23045,7 +23011,7 @@ mod tests {
 
         handle_message(
             &mux,
-            7,
+            mux.local_test_client(7),
             &json!({
                 "id": 21,
                 "cmd": "set-split-ratio",
@@ -23078,7 +23044,7 @@ mod tests {
         ] {
             handle_message(
                 &mux,
-                7,
+                mux.local_test_client(7),
                 &json!({
                     "id": id,
                     "cmd": "set-viewport-pane-width",
@@ -23096,7 +23062,7 @@ mod tests {
 
         handle_message(
             &mux,
-            7,
+            mux.local_test_client(7),
             &json!({
                 "id": 33,
                 "cmd": "new-pane-right",
@@ -23120,7 +23086,7 @@ mod tests {
         for (cols, rows) in [(Some(80), None), (None, Some(24))] {
             let error = handle_command(
                 &mux,
-                0,
+                mux.local_test_client(0),
                 Command::CreateTerminal {
                     workspace: Some(workspace),
                     key: None,
@@ -23172,7 +23138,8 @@ mod tests {
             },
         };
 
-        let first = handle_command(&mux, 0, command(), &test_writer()).unwrap();
+        let first =
+            handle_command(&mux, mux.local_test_client(0), command(), &test_writer()).unwrap();
         assert_eq!(first["replayed"], false);
         let first_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(first_snapshot["screens"].as_array().unwrap().len(), 1);
@@ -23182,7 +23149,8 @@ mod tests {
         assert_eq!(first_snapshot["tabs"][0]["content_id"], first_snapshot["terminals"][0]["id"]);
         let first_revision = first_snapshot["cursor"]["revision"].clone();
 
-        let replay = handle_command(&mux, 0, command(), &test_writer()).unwrap();
+        let replay =
+            handle_command(&mux, mux.local_test_client(0), command(), &test_writer()).unwrap();
         assert_eq!(replay["replayed"], true);
         let replayed_snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert_eq!(replayed_snapshot["cursor"]["revision"], first_revision);
@@ -24120,7 +24088,7 @@ mod tests {
             } else {
                 Command::ClosePane { pane, end_terminals: false }
             };
-            handle_command(&mux, 0, command, &test_writer()).unwrap();
+            handle_command(&mux, mux.local_test_client(0), command, &test_writer()).unwrap();
 
             assert!(!mux.with_state(|state| state.surfaces.contains_key(&surface)));
             assert!(mux.surface(surface).is_some());
@@ -24138,7 +24106,7 @@ mod tests {
 
     fn run_json_command(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
         let command: Command = serde_json::from_value(request)?;
-        handle_command(mux, 0, command, &test_writer())
+        handle_command(mux, mux.local_test_client(0), command, &test_writer())
     }
 
     #[test]
@@ -24806,7 +24774,7 @@ mod tests {
             terminal_id: Some(IDLE.into()),
             idle_close_seconds: Some(3_600),
         };
-        let result = handle_command(&mux, 0, set, &test_writer()).unwrap();
+        let result = handle_command(&mux, mux.local_test_client(0), set, &test_writer()).unwrap();
         assert_eq!(result["terminal_id"], IDLE);
         assert_eq!(result["idle_close_seconds"], 3_600);
         // A stable terminal id works as well, and null means never close.
@@ -24816,7 +24784,7 @@ mod tests {
                 terminal_id: Some(NEVER.into()),
                 idle_close_seconds,
             };
-            handle_command(&mux, 0, set, &test_writer()).unwrap();
+            handle_command(&mux, mux.local_test_client(0), set, &test_writer()).unwrap();
         }
         assert_eq!(mux.terminal_idle_policy(IDLE).unwrap(), Some(3_600));
         assert_eq!(mux.terminal_idle_policy(NEVER).unwrap(), None);
@@ -24825,7 +24793,7 @@ mod tests {
             terminal_id: Some(IDLE.into()),
             idle_close_seconds: Some(60),
         };
-        assert!(handle_command(&mux, 0, ambiguous, &test_writer()).is_err());
+        assert!(handle_command(&mux, mux.local_test_client(0), ambiguous, &test_writer()).is_err());
 
         // An attached view keeps the terminal alive regardless of elapsed time.
         let start = Instant::now();
@@ -25762,7 +25730,9 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains(&format!("unknown client {client}")));
+        // A disconnected id is unregistered, so dispatch fails closed before
+        // the resize path (server/remote_relay: never local trust).
+        assert_eq!(error.to_string(), "remote_denied");
         assert_eq!(surface.size(), (100, 40));
     }
 
@@ -27060,7 +27030,9 @@ mod tests {
     #[test]
     fn identify_advertises_additive_capabilities() {
         let mux = test_mux();
-        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        let identity =
+            handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer())
+                .unwrap();
 
         let capabilities = identity["capabilities"].as_array().expect("capabilities");
         for expected in [
@@ -27103,7 +27075,7 @@ mod tests {
 
         let preview = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::UndoLayout { pane: right_pane, revision: None, confirm_close: false },
             &writer,
         )
@@ -27115,7 +27087,7 @@ mod tests {
 
         let error = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::UndoLayout { pane: right_pane, revision: None, confirm_close: true },
             &writer,
         )
@@ -27125,7 +27097,7 @@ mod tests {
 
         let result = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::UndoLayout { pane: right_pane, revision: Some(revision), confirm_close: true },
             &writer,
         )
@@ -27145,7 +27117,7 @@ mod tests {
 
         handle_message(
             &mux,
-            7,
+            mux.local_test_client(7),
             &json!({"id": 19, "cmd": "undo-layout", "pane": pane}).to_string(),
             &writer,
         );
@@ -27351,7 +27323,12 @@ mod tests {
         let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
         let worker = std::thread::spawn(move || {
             result_tx
-                .send(handle_command(&worker_mux, 0, Command::ReloadConfig, &test_writer()))
+                .send(handle_command(
+                    &worker_mux,
+                    worker_mux.local_test_client(0),
+                    Command::ReloadConfig,
+                    &test_writer(),
+                ))
                 .unwrap();
         });
         assert!(matches!(
@@ -27423,7 +27400,7 @@ mod tests {
 
         let data = handle_command(
             &mux,
-            0,
+            mux.local_test_client(0),
             Command::SetWindowTitle { title: "hello".to_string() },
             &test_writer(),
         )
@@ -27434,7 +27411,8 @@ mod tests {
             Ok(MuxEvent::WindowTitleRequested(title)) if title == "hello"
         ));
 
-        handle_command(&mux, 0, Command::ClearWindowTitle, &test_writer()).unwrap();
+        handle_command(&mux, mux.local_test_client(0), Command::ClearWindowTitle, &test_writer())
+            .unwrap();
         assert!(matches!(
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::WindowTitleRequested(title)) if title.is_empty()

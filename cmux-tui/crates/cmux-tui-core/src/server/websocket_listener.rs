@@ -307,9 +307,14 @@ fn handle_websocket_connection_with_permit(
                 let mut text = text.to_string();
                 let keep_open = match hello.observe(&mux, client, &text, || None) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => {
-                        handle_connection_message(&mux, client, &text, &writer, &surface_scheduler)
-                    }
+                    None => handle_connection_frame(
+                        &mux,
+                        client,
+                        ClientTransport::WebSocket,
+                        &text,
+                        &writer,
+                        &surface_scheduler,
+                    ),
                 };
                 zeroize_string(&mut text);
                 if !keep_open {

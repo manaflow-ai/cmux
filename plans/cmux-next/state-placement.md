@@ -263,6 +263,14 @@ to UsageMeterDO (hard cap) and ClickHouse (detail); MySQL holds the monthly summ
    wrong epoch, replay, unknown kid, rotated kid). Target: with bind and connect_info, 2026-10-10.
 7. Revocation: install revocation through UserDO closes links (the token is checked at hello and
    bound to one install); a machine delete emits `cloud.machine.removed` and drops the peer entry.
+8. Files (decision FINDER-FS): Cloud files go only through the link `daemon` service, never a backend
+   file route. Policy and grants may give `daemon` only together with `ssh` (team policy key
+   cloud.connectServices and CloudDO grants share cloudServicesProblem; landed b3965540ce5).
+   fs-v1 on Cloud depends on this backend work, now UNVERIFIED until it exists: bind records host,
+   epoch, key and keyset; connect_info lists `daemon` for a caller the policy allows; link_token
+   mints `daemon`. Verification (by 2026-10-10): on development, create a machine, bind it with the
+   image's agent, call connect_info and link_token as an install, and have `cmux link` open `daemon`
+   and list a directory; a caller without `ssh` gets no `daemon` in services and link_token refuses it.
 
 ## 6. Classic Cloud migration
 

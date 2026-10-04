@@ -7,7 +7,8 @@ import Foundation
 /// refused on every path, and other keys (custom actions, shortcut
 /// bindings) keep the raw file write.
 extension ControlRouter {
-    func writeSetting(_ value: JSONValue?, at path: [String], store: any ControlSettingsStore) async throws {
+    func writeSetting(_ value: JSONValue?, at path: [String], store: any ControlSettingsStore, call: ControlCall) async throws {
+        var writer = try ControlSettingsPolicy.writer(call)
         if value != nil, SettingsSchema.isRetired(path) {
             throw ControlError(code: "removed", message: String(describing: SettingRetired(key: path.joined(separator: "."))))
         }
@@ -15,17 +16,26 @@ extension ControlRouter {
         if let descriptor, let value, !descriptor.accepts(value) {
             throw ControlError.invalidParams(String(describing: SettingRefused(key: descriptor.id, value: value)))
         }
-        if let writer = settingsWriter {
-            if let managed = await writer.managedKey(forPath: path) {
+        if let owner = settingsWriter {
+            if let managed = await owner.managedKey(forPath: path) {
                 throw ControlError(code: "managed", message: String(describing: SettingManaged(key: managed.key, source: managed.source)))
+            }
+            if let descriptor, !writer.mayWrite(descriptor) {
+                guard call.params["confirm"]?.boolValue == true else { throw ControlSettingsPolicy.userOnly(descriptor.id) }
+                guard await owner.confirmUserOnlyWrite(key: descriptor.id, value: value) else {
+                    throw ControlSettingsPolicy.declined(descriptor.id)
+                }
+                writer = .user
             }
             if descriptor != nil {
                 do {
-                    try await writer.setSetting(at: path, to: value)
+                    try await owner.setSetting(at: path, to: value, by: writer)
                 } catch let refused as SettingRefused {
                     throw ControlError.invalidParams(String(describing: refused))
                 } catch let managed as SettingManaged {
                     throw ControlError(code: "managed", message: String(describing: managed))
+                } catch let userOnly as SettingUserOnly {
+                    throw ControlSettingsPolicy.userOnly(userOnly.key)
                 }
                 snapshots.publish { $0.settings = nil }
                 return

@@ -33,6 +33,12 @@ nonisolated enum RefusalStrings {
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    static var homeAttachNoHome: String {
+        text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
+    }
+    static func homeAttachNoFile(_ path: String) -> String {
+        String(format: text("handlers.refusal.homeAttachNoFile", "No file at “%@”."), path)
+    }
     static var notABrowserTab: String { text("handlers.refusal.notABrowserTab", "This tab is not a web page.") }
     static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
     static var directionRight: String { text("handlers.refusal.directionRight", "right") }

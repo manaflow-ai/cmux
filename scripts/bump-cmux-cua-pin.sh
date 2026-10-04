@@ -9,7 +9,7 @@
 #   CMUX_CUA_RELEASE_TAG="cmux-cua-vX.Y.Z"
 #   CMUX_CUA_DARWIN_UNIVERSAL_UNSIGNED_SHA256="<sha256 of cmux-cua-X.Y.Z-darwin-universal-unsigned.tar.gz>"
 # The hash is computed from the downloaded asset and must equal the release's
-# SHA256SUMS line. nightly-next and release builds embed the helper from that
+# checksums.txt (or SHA256SUMS) line. nightly-next and release builds embed the helper from that
 # asset and fail on a mismatch. Build the app on the fleet before pushing.
 set -euo pipefail
 tag="${1:-}"
@@ -27,11 +27,18 @@ sha="$(git ls-remote "https://github.com/$repo.git" "refs/tags/$tag^{}" | awk '{
 asset="cmux-cua-$version-darwin-universal-unsigned.tar.gz"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-gh release download "$tag" --repo "$repo" --pattern "$asset" --pattern SHA256SUMS --dir "$work"
-[[ -f "$work/$asset" && -f "$work/SHA256SUMS" ]] || { echo "release $tag lacks $asset or SHA256SUMS" >&2; exit 1; }
+# The release's checksum list: checksums.txt (current workflow) or SHA256SUMS.
+assets="$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')"
+sums=""
+for candidate in checksums.txt SHA256SUMS; do
+  if grep -qx "$candidate" <<<"$assets"; then sums="$candidate"; break; fi
+done
+[[ -n "$sums" ]] || { echo "release $tag has no checksums.txt or SHA256SUMS" >&2; exit 1; }
+grep -qx "$asset" <<<"$assets" || { echo "release $tag lacks $asset" >&2; exit 1; }
+gh release download "$tag" --repo "$repo" --pattern "$asset" --pattern "$sums" --dir "$work"
 digest="$(shasum -a 256 "$work/$asset" | awk '{print $1}')"
-listed="$(awk -v name="$asset" '{ f = $2; sub(/^\*/, "", f); if (f == name) print $1 }' "$work/SHA256SUMS")"
-[[ "$digest" == "$listed" ]] || { echo "$asset: computed $digest, SHA256SUMS says '${listed:-missing}'" >&2; exit 1; }
+listed="$(awk -v name="$asset" '{ f = $2; sub(/^\*/, "", f); if (f == name) print $1 }' "$work/$sums")"
+[[ "$digest" == "$listed" ]] || { echo "$asset: computed $digest, $sums says '${listed:-missing}'" >&2; exit 1; }
 
 python3 - "$pin_file" "$sha" "$tag" "$digest" <<'PY'
 import re, sys

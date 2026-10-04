@@ -16,7 +16,11 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod paging;
+mod pool;
+mod resolve;
+pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod shutdown;
+use shutdown::ShutdownPlan;
 mod spawn;
 mod stream;
 mod tap;
@@ -255,12 +259,9 @@ pub struct Hub {
     pub(super) handoffs: handoff::Handoffs,
     /// New agents run under agent hosts (`enable_agent_hosts`).
     pub(super) agent_hosts: AtomicBool,
-    /// `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything):
-    /// the coming shutdown ends hosted agents instead of detaching them.
-    pub(super) end_agents_on_shutdown: AtomicBool,
-    /// Sessions whose hosted agents a shutdown with `endAgents` still keeps
-    /// (`keepSessions`: the app's Home Chief).
-    pub(super) keep_on_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// What the coming shutdown does with hosted agents, decided once:
+    /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
+    pub(super) shutdown_plan: StdMutex<ShutdownPlan>,
     /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
     /// futures must not write a second result when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
@@ -279,6 +280,8 @@ pub struct Hub {
     pub(super) stopping: AtomicBool,
     /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
     pub(super) idle_pass: Mutex<()>,
+    /// Hidden pre-created sessions for instant harness switches (`pool/`).
+    pub(super) pool: Arc<pool::PoolState>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -337,8 +340,7 @@ impl Hub {
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
             agent_hosts: AtomicBool::new(false),
-            end_agents_on_shutdown: AtomicBool::new(false),
-            keep_on_shutdown: StdMutex::new(Default::default()),
+            shutdown_plan: StdMutex::new(ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
@@ -348,6 +350,7 @@ impl Hub {
             idle_reaper: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
+            pool: Arc::new(pool::PoolState::new()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -854,13 +857,15 @@ impl Hub {
     }
 }
 
-/// Browser URL for the dashboard, with the token in the query string.
-pub fn web_url(w: &crate::config::WebSocketConfig) -> String {
+/// Browser URL for the dashboard, with the listener's token in the query
+/// string (a `--token` value for this run, else the saved one).
+pub fn web_url(cfg: &crate::config::Config) -> Option<String> {
+    let w = cfg.web_listener()?;
     let host = w.listen.replace("0.0.0.0", "127.0.0.1").replace("[::]", "[::1]");
-    match &w.token {
+    Some(match cfg.web_token_override.as_ref().or(w.token.as_ref()) {
         Some(t) => format!("http://{host}/?token={t}"),
         None => format!("http://{host}/"),
-    }
+    })
 }
 
 /// Current value of a select config option, by id.

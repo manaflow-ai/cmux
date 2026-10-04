@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4. */
+/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
 
 
 import type * as T from "./types.js";
@@ -942,10 +942,10 @@ export type MoveTabGroupToSplitResult = T.JsonValue;
 export interface MoveTabToColumnRequest extends CmuxRequestBase {
   cmd: "move-tab-to-column";
   "after_column"?: (T.Id) | null;
+  "dock"?: (T.ColumnPin) | null;
   "pane"?: (T.Id) | null;
   "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
-  "sticky"?: (T.ColumnPin) | null;
   "surface": T.Id;
   "transaction"?: (string) | null;
   "width"?: (number) | null;
@@ -1098,10 +1098,12 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "cwd"?: (string) | null;
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  "url"?: (string) | null;
   "width"?: (number) | null;
 }
 export type NewPaneRightResult = T.SurfaceResult;
@@ -1555,15 +1557,15 @@ export interface SetClientSizingRequest extends CmuxRequestBase {
 export type SetClientSizingResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
-export interface SetColumnStickyRequest extends CmuxRequestBase {
-  cmd: "set-column-sticky";
+export interface SetColumnDockRequest extends CmuxRequestBase {
+  cmd: "set-column-dock";
+  "dock": boolean;
   "edge"?: (string) | null;
   "mode"?: (string) | null;
   "pane": T.Id;
-  "sticky": boolean;
   "transaction"?: (bigint) | null;
 }
-export type SetColumnStickyResult = T.JsonValue;
+export type SetColumnDockResult = T.JsonValue;
 
 /** Protocol v5; authority: control. */
 export interface SetDefaultColorsRequest extends CmuxRequestBase {
@@ -1780,10 +1782,12 @@ export interface SplitRequest extends CmuxRequestBase {
   "dir": T.SplitDirection;
   "env"?: (Record<string, string>) | null;
   "keep"?: boolean;
+  "kind"?: (T.PaneKind) | null;
   "pane": T.Id;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
+  "url"?: (string) | null;
 }
 export type SplitResult = T.SurfaceResult;
 
@@ -2192,7 +2196,7 @@ export type CmuxRequest =
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
-  | SetColumnStickyRequest
+  | SetColumnDockRequest
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
   | SetPersonalTerminalRequest
@@ -3535,12 +3539,12 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
-  "set-column-sticky": {
-    request: SetColumnStickyRequest;
-    result: SetColumnStickyResult;
+  "set-column-dock": {
+    request: SetColumnDockRequest;
+    result: SetColumnDockResult;
     authority: "control";
     since: 12;
-    capability: "sticky-columns-v1";
+    capability: "dock-columns-v1";
     stream: null;
   };
   "set-default-colors": {

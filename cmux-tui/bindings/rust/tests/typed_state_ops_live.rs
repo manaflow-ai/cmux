@@ -112,12 +112,12 @@ fn typed_state_ops_live_daemon() {
     screen.update_column(column.clone(), ColumnUpdateOptions::width(0.6)).unwrap();
     let pin = ColumnUpdateOptions::pin(ColumnEdge::Right, ColumnMode::Docked);
     screen.update_column(column.clone(), pin).unwrap();
-    // The layout document carries the flag (sticky-columns-v1).
+    // The layout document carries the flag (dock-columns-v1).
     let LayoutNode::Viewport(pinned) = screen.refresh().unwrap().layout.root else {
         panic!("still a viewport");
     };
-    let sticky = pinned.columns.iter().find(|c| c.column_id.as_str() == column).unwrap().sticky;
-    assert_eq!(sticky.map(|s| (s.edge, s.mode)), Some((ColumnEdge::Right, ColumnMode::Docked)));
+    let dock = pinned.columns.iter().find(|c| c.column_id.as_str() == column).unwrap().dock;
+    assert_eq!(dock.map(|s| (s.edge, s.mode)), Some((ColumnEdge::Right, ColumnMode::Docked)));
     screen.update_column(column, ColumnUpdateOptions::unpin()).unwrap();
 
     // window_record.*: compare-and-swap on the record's own revision.

@@ -14,8 +14,6 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.openInWebKit",
         ],
         .unimplemented: [
-            "palette.openDirectoryDiffViewer",
-            "openDiffViewer",
             "palette.browserToggleOmnibar",
             "toggleReactGrab",
             "palette.openCloudPane",
@@ -70,7 +68,8 @@ nonisolated extension ActionSurfaceCatalog {
             "canvasEqualizeHeights", "canvasDistributeHorizontally", "canvasDistributeVertically", "simulatorHome",
             "simulatorRotateLeft", "simulatorRotateRight", "simulatorToggleAppearance",
             "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
-            "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview",
+            "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
+            "markdownLink", "markdownBack", "markdownForward",
             "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",

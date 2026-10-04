@@ -3,13 +3,34 @@
 
 use super::*;
 
+/// The shutdown's decision about hosted agents (`Hub::shutdown_plan`).
+#[derive(Default)]
+pub(crate) struct ShutdownPlan {
+    /// The shutdown read this plan; it can no longer change.
+    started: bool,
+    end_agents: bool,
+    keep: std::collections::HashSet<String>,
+}
+
 impl Hub {
     /// The coming shutdown ends hosted agents too (the app's Quit
     /// Everything), except those of the sessions in `keep` (the app's Home
     /// Chief), which detach; without it a shutdown detaches every one.
-    pub fn end_agents_at_shutdown(&self, keep: std::collections::HashSet<String>) {
-        *self.keep_on_shutdown.lock().unwrap() = keep;
-        self.end_agents_on_shutdown.store(true, Ordering::SeqCst);
+    /// Refused once a shutdown has started: it already handed the agents
+    /// off, and nothing would end them.
+    pub fn end_agents_at_shutdown(
+        &self,
+        keep: std::collections::HashSet<String>,
+    ) -> Result<(), RpcError> {
+        let mut plan = self.shutdown_plan.lock().unwrap();
+        if plan.started {
+            return Err(RpcError::internal(
+                "the daemon is already shutting down and hands its agents off; endAgents comes too late",
+            ));
+        }
+        plan.end_agents = true;
+        plan.keep = keep;
+        Ok(())
     }
 
     /// Stop every agent at once and save. Each agent's process group gets
@@ -20,13 +41,22 @@ impl Hub {
     /// their host (else by nonce proof), and a turn in progress is recorded
     /// as cancelled.
     pub async fn shutdown_all(&self) {
+        // Pooled sessions are hidden, never user sessions: they end with the
+        // daemon, alongside the sessions below.
+        tokio::join!(self.stop_pool(), self.shutdown_sessions());
+    }
+
+    async fn shutdown_sessions(&self) {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         // The idle reaper must not end a hosted agent this shutdown hands off.
         self.stop_idle_reaper();
         // A pass that already started finishes first (bounded by its kills).
         drop(self.idle_pass.lock().await);
-        let end_agents = self.end_agents_on_shutdown.load(Ordering::SeqCst);
-        let keep = self.keep_on_shutdown.lock().unwrap().clone();
+        let (end_agents, keep) = {
+            let mut plan = self.shutdown_plan.lock().unwrap();
+            plan.started = true;
+            (plan.end_agents, plan.keep.clone())
+        };
         let sessions = self.sessions();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
@@ -111,3 +141,22 @@ impl Hub {
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::MemoryStore;
+
+    /// A shutdown already running (SIGTERM, or a plain `_acpmux/shutdown`)
+    /// has decided to hand the agents off; a later `endAgents` cannot change
+    /// that and must say so instead of reporting success.
+    #[tokio::test]
+    async fn end_agents_after_the_shutdown_started_is_refused() {
+        let hub = Hub::new(Config::default(), Box::new(MemoryStore::default()));
+        hub.shutdown_all().await;
+        assert!(
+            hub.end_agents_at_shutdown(Default::default()).is_err(),
+            "endAgents was accepted after the shutdown had handed the agents off"
+        );
+    }
+}

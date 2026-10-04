@@ -47,15 +47,13 @@ public final class HomeNativeFixture {
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         self.view = view
-        binding = HomeStoreBinding(store: store, controller: view.controller)
+        let binding = HomeStoreBinding(store: store, controller: view.controller)
+        self.binding = binding
+        view.connect(binding)
         if attachments { await addAttachments(to: view, in: id) }
     }
 
     private func addAttachments(to view: HomeNativeTranscriptView, in id: ConversationID) async {
-        view.attachmentPreparer = store
-        binding?.onAttachmentRefusal = { [weak view] _, refusal in view?.showAttachmentRefusal(refusal) }
-        binding?.onRefusal = { [weak view] _, rejection in view?.showRefusal(rejection) }
-        view.onCancelSend = { [weak b = binding] key in b?.cancelSend(key) ?? false }
         guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
         for file in files {
             guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }

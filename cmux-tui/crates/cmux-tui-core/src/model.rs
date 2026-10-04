@@ -15,12 +15,12 @@ mod layout_columns;
 mod layout_rows;
 
 #[cfg(test)]
-pub(crate) use layout_columns::normalize_sticky_columns;
+pub(crate) use layout_columns::normalize_dock_columns;
+pub use layout_columns::{ColumnDock, DockEdge, DockMode, ViewportColumn};
 pub(crate) use layout_columns::{
-    ColumnProjection, LayoutColumn, LayoutMutationKey, LayoutResizeOwner, project_layout_columns,
-    sticky_columns_are_consistent, sticky_flags_are_consistent,
+    ColumnProjection, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
+    dock_columns_are_consistent, dock_flags_are_consistent, project_layout_columns,
 };
-pub use layout_columns::{ColumnSticky, StickyEdge, StickyMode, ViewportColumn};
 pub(crate) use layout_rows::{LayoutRow, ROW_HEIGHT_PERMILLE};
 
 #[derive(Debug, Clone)]

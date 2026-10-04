@@ -45,10 +45,15 @@ plans `cloud-app.md`, `transport.md`, `team-vm-plan.md`, `identity.md`, backend 
   key and never makes a new one (C7's delete retry logic maps to this one code).
 - Every mutation result carries the entity `revision`; the client applies it to its projection and
   drops any older event (C4i watch/revision logic survives).
-- Principals: `session` and `install` for everything the owner may do; destructive and money ops
-  (`machine.delete`, `snapshot.delete`, `machine.create`, `machine.resize` up) need origin `user`
-  on the client side (native confirmation) and are refused for agent principals (`agt` claim) by
-  the backend.
+- Principals: `session` and `install` for reads and ordinary mutations. Money and destructive ops
+  (`machine.create`, `machine.delete`, `machine.resize`, `machine.upgrade`, `snapshot.create`,
+  `snapshot.restore`, `snapshot.delete`, `billing.checkout`, `migration.start`) never use the default
+  install grants (coordinator decision, 2026-10-04): they need a user principal (session), or, after
+  the origin window lands, an install carrying a fresh single-use `origin.confirmation` token from the
+  native confirmation sheet (decision ORIGIN). Until then an install is refused with `auth.forbidden`,
+  also when its grant lists money or destructive; agent principals (`agt` claim) are always refused.
+  Vectors: `machine.create.install`, `machine.delete.install` (refusals) and
+  `machine.create.install_confirmed` (marked PENDING ORIGIN).
 - Target: `team` (a personal account is a team of one). Ownership: a machine belongs to a team and
   has a creator user; v1 shows the caller's own machines and the team machines the policy allows.
 
@@ -269,11 +274,11 @@ role, new backend or transport underneath. DELETE = gone in v1. NEW = files the 
 | `src/link/config.rs` | 234 | CHANGE | link details from `cmux.host.link.get` for `cmux link`, no hub socket |
 | `src/link/spawner.rs` | 177 | CHANGE | spawns or asks `cmux link` to dial a host id (lane 12) |
 | `src/link/argv.rs` | 157 | DELETE | the `remote connect --wireguard-hub` argv goes with the classic transport |
-| `src/connector/mod.rs` | 128 | CHANGE (C13) | `connector.open` app-to-host, frames, pump |
+| `src/connector/mod.rs` | 128 | CHANGE (C13) | `connector.open` app-to-host, frames, pump. STATUS: iface swap done (shared `cmux-terminal-iface`); the frame data plane is not used yet: the link reports `DataPlane::Socket {path}` (shared crate, cldv3-iface) and refuses data/credit frames as `invalid`, bytes ride the carrier socket; close by channel and the `ConnectorEvent` drain are trait methods now; the PUMP is the next Cloud lane item, C13b uses the carrier socket behind one adapter until then |
 | `src/connector/iface.rs` | 127 | DELETE (C13) | replaced by `cmux-terminal-iface` |
 | `src/rescue/mod.rs`, `src/rescue/backend.rs` | 10, 342 | KEEP (C13 frames) | the byte terminal stays |
 | `src/rescue/iface.rs` | 332 | DELETE (C13) | replaced by `cmux-terminal-iface` |
-| `src/rescue/transport.rs` | 86 | CHANGE | `MissingRescueRoute` becomes the `cloud.shell.open` wire stream |
+| `src/rescue/transport.rs` | 86 | CHANGE | `MissingRescueRoute` becomes the `cloud.shell.open` wire stream. GATE: the live stream may land only with the held-output bound (`rescue/stream.rs` MAX_HELD_BYTES, retryable `lost` output_overflow) or transport backpressure |
 | `src/ports/mod.rs`, `ops.rs`, `listener.rs`, `loopback.rs`, `tunnel.rs` | 234, 201, 214, 299, 61 | KEEP | loopback streams ride the link |
 | `src/proxy/mod.rs` | 212 | KEEP | browser proxy route on the link |
 | `src/fs/mod.rs` | 64 | CHANGE | only provider + transfers over the link |

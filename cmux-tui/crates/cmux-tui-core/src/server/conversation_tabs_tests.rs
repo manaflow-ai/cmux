@@ -13,7 +13,7 @@ fn writer_with_outbound() -> (MessageWriter, Arc<BoundedOutbound>) {
 fn run(mux: &Arc<Mux>, request: Value) -> anyhow::Result<Value> {
     let command: Command = serde_json::from_value(request)?;
     let (writer, _) = writer_with_outbound();
-    handle_command(mux, 0, command, &writer)
+    handle_command(mux, mux.local_test_client(0), command, &writer)
 }
 
 fn pane_with_terminal(mux: &Arc<Mux>) -> PaneId {

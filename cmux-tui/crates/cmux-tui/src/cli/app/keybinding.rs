@@ -16,8 +16,12 @@ use crate::cli::UsageError;
 
 pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let usage = crate::localization::catalog().app_control.keybinding_usage;
-    let call =
-        |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
+    let call = |method, params| AppCommand::Call {
+        method,
+        params,
+        timeout: Some(READ_TIMEOUT),
+        pick: None,
+    };
     let Some((verb, tail)) = rest.split_first() else { return Err(UsageError::new(usage)) };
     match verb.as_str() {
         "list" => {

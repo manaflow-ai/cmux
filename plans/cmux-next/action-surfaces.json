@@ -3788,7 +3788,8 @@
         "family" : "digits",
         "key" : "1",
         "modifiers" : [
-          "ctrl"
+          "ctrl",
+          "opt"
         ]
       },
       "id" : "space.selectByNumber",
@@ -6021,8 +6022,7 @@
         "family" : "digits",
         "key" : "1",
         "modifiers" : [
-          "ctrl",
-          "opt"
+          "ctrl"
         ]
       },
       "id" : "selectSurfaceByNumber",
@@ -6466,6 +6466,29 @@
       "title" : "Go to Home",
       "title_key" : "action.home.show",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home attach",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.attachFiles",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Attach Files…",
+      "title_key" : "action.home.attachFiles",
+      "title_table" : "HomeActions"
     },
     {
       "cli" : "offered",
@@ -10201,59 +10224,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
-      "cli_name" : "browser open-diff-viewer",
-      "context_menu" : "unimplemented",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "g",
-        "modifiers" : [
-          "ctrl",
-          "shift",
-          "cmd"
-        ]
-      },
-      "id" : "openDiffViewer",
-      "mcp" : "unimplemented",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Diff Viewer",
-      "title_key" : "action.openDiffViewer",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "unimplemented",
-      "cli_name" : "browser open-directory-diff-viewer",
-      "context_menu" : "unimplemented",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.openDirectoryDiffViewer",
-      "mcp" : "unimplemented",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Directory Diff Viewer",
-      "title_key" : "action.palette.openDirectoryDiffViewer",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "liveInput",
       "cli_name" : "browser diff-next-line",
       "context_menu" : "noTargetSurface",
@@ -10802,6 +10772,82 @@
       },
       "title" : "Find Previous in Page",
       "title_key" : "action.browser.findPrevious",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-diff-viewer",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "openDiffViewer",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Diff Viewer",
+      "title_key" : "action.openDiffViewer",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-directory-diff-viewer",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.openDirectoryDiffViewer",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Diff Viewer in Folder…",
+      "title_key" : "action.palette.openDirectoryDiffViewer",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-markdown-file",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "openMarkdownFile",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Markdown File…",
+      "title_key" : "action.openMarkdownFile",
       "title_table" : "ActionCatalog"
     },
     {
@@ -15521,7 +15567,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "guiOnly",
+      "cli" : "offered",
       "cli_name" : "settings show-crash-logs",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -15530,7 +15576,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "help.showCrashLogs",
-      "mcp" : "guiOnly",
+      "mcp" : "systemChange",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",
@@ -18999,6 +19045,164 @@
       "title" : "Add Server…",
       "title_key" : "action.server.addServer",
       "title_table" : "ServerActions"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-save",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "s",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownSave",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Save",
+      "title_key" : "action.markdownSave",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-link",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "k",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownLink",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Insert Link",
+      "title_key" : "action.markdownLink",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-back",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "[",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownBack",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Back",
+      "title_key" : "action.markdownBack",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-forward",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "]",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownForward",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Forward",
+      "title_key" : "action.markdownForward",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action list-next",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "list.next",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Next Item",
+      "title_key" : "action.list.next",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action list-previous",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "list.previous",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Previous Item",
+      "title_key" : "action.list.previous",
+      "title_table" : "ActionCatalog"
     }
   ],
   "version" : 1

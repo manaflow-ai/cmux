@@ -6,7 +6,7 @@
 //! shares the terminal creation, journaling and recovery of every split.
 //! `set-row-heights` validates through the layout reducer
 //! (`LayoutOpKind::SetRowHeights`) on the model of the live state, then
-//! commits like `set-column-sticky` and records one layout-undo entry.
+//! commits like `set-column-dock` and records one layout-undo entry.
 
 use super::*;
 use crate::model::{LayoutMutationKey, LayoutResizeOwner, ROW_HEIGHT_PERMILLE};

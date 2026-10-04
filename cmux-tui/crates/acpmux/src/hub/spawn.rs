@@ -19,7 +19,17 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
-        let meta = session.meta();
+        self.spawn_profile_for(&session.meta(), profile, defaults_env).await
+    }
+
+    /// `spawn_profile` for a session's meta, also before the session exists
+    /// (the session pool keys and starts hidden sessions with it).
+    pub(super) async fn spawn_profile_for(
+        &self,
+        meta: &SessionMeta,
+        profile: &HarnessProfile,
+        defaults_env: &std::collections::BTreeMap<String, String>,
+    ) -> Result<HarnessProfile, RpcError> {
         let mut p = profile.clone();
         for (k, v) in defaults_env {
             p.env.entry(k.clone()).or_insert_with(|| v.clone());

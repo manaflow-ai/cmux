@@ -13,9 +13,8 @@ import Foundation
 /// page tab in the active window. One page view is kept and shown again on reopen, so a reopen
 /// does not load the page again. Keyboard goes to the Keyboard Shortcuts page.
 ///
-/// INTERIM (R82 B): the sections the React page does not draw yet (accounts, rooms, machines),
-/// and Settings with no main window open, still open the Swift Settings window with its model.
-/// That path goes when those sections reach the page.
+/// INTERIM (R82 B): Settings with no main window open still opens the Swift Settings window with
+/// its model; that path goes with the Swift UI (commit 6).
 @MainActor
 final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     unowned let services: AppServices
@@ -38,9 +37,6 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     /// The route the next page view opens on.
     private var pendingRoute: String?
 
-    /// Sections only the Swift window draws (R82 B, interim).
-    static let swiftSections: Set<SettingsSection> = [.accounts]
-
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
     /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
     /// nothing. `focus` false (automation) opens the tab without selecting it.
@@ -60,9 +56,6 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
                 throw ActionFailure(message: RefusalStrings.noWindowOpen)
             }
             return
-        }
-        if let target, Self.swiftSections.contains(target) {
-            return showWindow(settings: settings, section: section, anchor: anchor)
         }
         let route = Self.route(section: target, setting: setting)
         guard let window = services.windows.active else {
@@ -124,6 +117,8 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
+        // A live preview left by a closed page (mid-drag) must not stay applied.
+        services.settings?.endPreview()
         dropModelWhenUnused()
     }
 

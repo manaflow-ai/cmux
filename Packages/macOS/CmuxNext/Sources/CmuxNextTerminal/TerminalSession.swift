@@ -40,6 +40,11 @@ public final class TerminalSession {
         didSet { surfaceView.ownsGeometry = ownsGeometry }
     }
 
+    /// Why a dead terminal's host was lost (nil: its process ended, or it runs).
+    public var hostLoss: TerminalHostLoss? {
+        didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss) } }
+    }
+
     /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {

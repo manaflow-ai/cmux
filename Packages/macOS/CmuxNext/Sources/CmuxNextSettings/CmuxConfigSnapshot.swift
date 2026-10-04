@@ -126,6 +126,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// `window.titlebarButtons`; "hover" when unset or invalid.
+    public var titlebarButtons: TitlebarButtonsMode = TitlebarButtonsSetting.fallback
+    /// `tabs.plusButton`; "hover" when unset or invalid.
+    public var plusButton: PlusButtonMode = PlusButtonSetting.fallback
+    /// `sidebar.side` and `sidebar.spacesPosition` (R109).
+    public var sidebarSide: SidebarSide = .left
+    public var spacesPosition: SpacesPosition = .bottom
+    /// `tabs.barPosition` (R109).
+    public var tabBarPosition: TabBarPosition = .top
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
@@ -136,6 +145,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
     public var tasksLayout: TasksLayoutPreference = TasksLayoutSetting().fallback
+    /// `picker.pinned`: the cmux picker's pinned folders (absolute paths).
+    public var pickerPinned: [String] = []
     /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
     /// theme) when unset, empty or invalid.
     public var appTheme: String?
@@ -149,6 +160,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
+    /// `updates.*`: automatic update behavior (R114).
+    public var updates = UpdatesSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
     public var feedGitHub = FeedGitHubSettings()
     public var diagnostics: [SettingsDiagnostic]
@@ -240,6 +253,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        let (titlebarButtons, titlebarButtonsDiagnostic) = TitlebarButtonsSetting.parse(root)
+        snapshot.titlebarButtons = titlebarButtons
+        if let titlebarButtonsDiagnostic { snapshot.diagnostics.append(titlebarButtonsDiagnostic) }
+        let (plusButton, plusButtonDiagnostic) = PlusButtonSetting.parse(root)
+        snapshot.plusButton = plusButton
+        if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
+        ChromePlacementSetting.parse(root, into: &snapshot)
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
@@ -252,6 +272,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
+        let (pinned, pinnedDiagnostics) = PickerPinnedSetting.parse(root, home: NSHomeDirectory())
+        snapshot.pickerPinned = pinned
+        snapshot.diagnostics += pinnedDiagnostics
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
@@ -263,6 +286,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let historyScopeDiagnostic { snapshot.diagnostics.append(historyScopeDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }

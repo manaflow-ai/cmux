@@ -381,15 +381,15 @@ public final class Options {
     }
     /**
      * Pins, unpins, or resizes one viewport column ({@code column.update}).
-     * {@code column} is the column's split ID. Set {@code sticky},
+     * {@code column} is the column's split ID. Set {@code dock},
      * {@code width}, or both; {@code edge} ("left", "right", "top" or
      * "bottom") and {@code mode} ("docked" or "overlay") apply only when
-     * sticky is true.
+     * dock is true.
      */
     public record ColumnUpdate(
         Mutation mutation,
         String column,
-        Optional<Boolean> sticky,
+        Optional<Boolean> dock,
         Optional<String> edge,
         Optional<String> mode,
         Optional<Double> width
@@ -397,12 +397,12 @@ public final class Options {
         public ColumnUpdate {
             mutation = mut(mutation);
             Objects.requireNonNull(column, "column");
-            sticky = opt(sticky);
+            dock = opt(dock);
             edge = opt(edge);
             mode = opt(mode);
             width = opt(width);
-            if (sticky.isEmpty() && width.isEmpty()) {
-                throw new IllegalArgumentException("set sticky, width, or both");
+            if (dock.isEmpty() && width.isEmpty()) {
+                throw new IllegalArgumentException("set dock, width, or both");
             }
         }
     }

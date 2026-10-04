@@ -416,6 +416,52 @@ pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let _ = std::fs::remove_file(&record.socket);
 }
 
+/// Hosts of pooled sessions (hidden sessions nobody took yet,
+/// `hub/pool/`) keep their record, lock and socket in this subdirectory, so
+/// no reader of the hosts directory (adoption, `live_host_sessions`, the
+/// quit census) sees them. A daemon that starts ends every host left here.
+pub const POOL_DIR_NAME: &str = "pool";
+
+/// The pooled-host directory under `hosts`.
+pub fn pool_dir(hosts: &Path) -> PathBuf {
+    hosts.join(POOL_DIR_NAME)
+}
+
+/// A session took a pooled host: move its lock, then its record, from the
+/// pool directory `from` into the hosts directory `to`, where adoption finds
+/// it. The host keeps its lock (`flock` follows the open file, not the name)
+/// and its socket (the record names it).
+pub fn promote(from: &Path, to: &Path, record: &HostRecord) -> Result<()> {
+    ensure_private_dir(to)?;
+    let id = &record.session_id;
+    std::fs::rename(
+        live_path(from, id, &record.start_nonce),
+        live_path(to, id, &record.start_nonce),
+    )
+    .context("move the pooled host's lock")?;
+    std::fs::rename(record_path(from, id), record_path(to, id))
+        .context("move the pooled host's record")?;
+    Ok(())
+}
+
+/// A host started in the pool directory `dir` may have been promoted: end
+/// the promoted lock, and the promoted record when it is still this host's.
+pub fn remove_promoted(dir: &Path, record: &HostRecord) {
+    if dir.file_name().and_then(|n| n.to_str()) != Some(POOL_DIR_NAME) {
+        return;
+    }
+    let Some(hosts) = dir.parent() else { return };
+    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
+    let path = record_path(hosts, &record.session_id);
+    let ours = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<HostRecord>(&b).ok())
+        .is_some_and(|r| r.start_nonce == record.start_nonce);
+    if ours {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
 /// Write `value` to `path` through a temporary file and a rename.
 pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     use std::io::Write;
@@ -427,10 +473,16 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
         .mode(0o600)
         .open(&tmp)
         .with_context(|| format!("create {}", tmp.display()))?;
-    f.write_all(&serde_json::to_vec(record)?)?;
-    f.sync_all()?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+    let written = (|| -> Result<()> {
+        f.write_all(&serde_json::to_vec(record)?)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)?;
+        Ok(())
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 pub async fn write_frame<W: AsyncWriteExt + Unpin, T: Serialize>(

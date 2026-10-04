@@ -41,6 +41,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_WARM,
+    method::MUX_PREWARM,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
     method::MUX_HANDOFF_PREPARE,
@@ -56,6 +57,24 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
 ];
 
 pub(super) async fn handle_request(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    params: Value,
+) -> Result<Value, RpcError> {
+    let mut reply = dispatch_request(hub, conn, m, params).await;
+    // One place for every reply (status, the peer listings of peer_add,
+    // peer_reconnect and peer_remove, forwarded peer replies): only the
+    // local socket ever reads a token back.
+    if conn.origin != Origin::Local
+        && let Ok(v) = &mut reply
+    {
+        redact_for_remote(v);
+    }
+    reply
+}
+
+async fn dispatch_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
@@ -130,7 +149,7 @@ pub(super) async fn handle_request(
                 },
                 "authMethods": [],
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
-                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM,
+                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
@@ -356,6 +375,17 @@ pub(super) async fn handle_request(
                 params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
             let warmed = hub.warm_sessions(&requested, limit).await;
             Ok(json!({"warmed": warmed}))
+        }
+        method::MUX_PREWARM => {
+            let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+            hub.prewarm(crate::hub::PrewarmRequest {
+                harness: s("harness"),
+                preset: s("preset"),
+                cwd: s("cwd").map(PathBuf::from),
+                wait: params.get("wait").and_then(Value::as_bool) == Some(true),
+                remote: conn.origin == Origin::Web,
+            })
+            .await
         }
         "_acpmux/set_default_policy" => {
             let policy: PermissionPolicy = str_param(&params, "policy")
@@ -912,7 +942,7 @@ pub(super) async fn handle_request(
                 .map(str::to_owned)
                 .collect();
             if end_agents {
-                hub.end_agents_at_shutdown(keep.clone());
+                hub.end_agents_at_shutdown(keep.clone())?;
             }
             hub.stop_idle_reaper();
             hub.shutdown.notify_waiters();
@@ -938,4 +968,30 @@ pub(super) async fn handle_request(
             Err(RpcError::method_not_found(other))
         }
     }
+}
+
+/// A remote-origin (Web) connection never learns a token: not the
+/// dashboard link (`webUrl` carries this listener's token) and not the
+/// userinfo, query or fragment of a peer's URL (a user may have written a
+/// peer's token there). The local socket keeps both (`acpmux web`, the app's host).
+fn redact_for_remote(reply: &mut Value) {
+    if let Some(obj) = reply.as_object_mut() {
+        obj.remove("webUrl");
+    }
+    if let Some(peers) = reply.get_mut("peers").and_then(Value::as_array_mut) {
+        for peer in peers {
+            if let Some(url) = peer.get("url").and_then(Value::as_str) {
+                peer["url"] = Value::String(url_without_secrets(url));
+            }
+        }
+    }
+}
+
+/// `scheme://user:secret@host/path?q#f` -> `scheme://host/path`.
+fn url_without_secrets(url: &str) -> String {
+    let bare = url.split(['?', '#']).next().unwrap_or_default();
+    let Some((scheme, rest)) = bare.split_once("://") else { return bare.to_owned() };
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    format!("{scheme}://{host}{path}")
 }

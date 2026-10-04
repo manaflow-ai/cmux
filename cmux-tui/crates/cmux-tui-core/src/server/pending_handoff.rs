@@ -1,7 +1,13 @@
-//! Refusal of requests that arrive while a daemon handoff is reserved but not
-//! yet acknowledged (moved out of server.rs, behavior unchanged).
+//! Refusal of messages that arrive while a daemon handoff is reserved but
+//! not yet acknowledged (moved out of server.rs, behavior unchanged).
 
-use super::*;
+use serde_json::json;
+
+use super::responses::{send_bad_request, send_response};
+use super::{
+    DAEMON_SHUTDOWN_PENDING_CODE, MessageWriter, Request, ResourceError, Response,
+    ResponseErrorDelivery, send_resource_response,
+};
 
 const PENDING_HANDOFF_ERROR: &str = "daemon shutdown is in progress; request was not executed";
 

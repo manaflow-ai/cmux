@@ -5950,11 +5950,11 @@ pub const UndoLayoutOptions = struct {
     confirmation_token: ?[]const u8 = null,
 };
 
-/// `column.update`: set `sticky`, `width`, or both. `edge` ("left",
+/// `column.update`: set `dock`, `width`, or both. `edge` ("left",
 /// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
-/// when `sticky` is true.
+/// when `dock` is true.
 pub const ColumnUpdateOptions = struct {
-    sticky: ?bool = null,
+    dock: ?bool = null,
     edge: ?[]const u8 = null,
     mode: ?[]const u8 = null,
     width: ?f64 = null,
@@ -6773,11 +6773,11 @@ fn encodeLayoutNode(
                     "root",
                     try encodeLayoutNode(allocator, column.root),
                 );
-                if (column.sticky) |sticky| {
+                if (column.dock) |dock| {
                     var flag = raw.wire.Object.init(allocator);
-                    try flag.put("edge", .{ .string = @tagName(sticky.edge) });
-                    try flag.put("mode", .{ .string = @tagName(sticky.mode) });
-                    try encoded.put("sticky", .{ .object = flag });
+                    try flag.put("edge", .{ .string = @tagName(dock.edge) });
+                    try flag.put("mode", .{ .string = @tagName(dock.mode) });
+                    try encoded.put("dock", .{ .object = flag });
                 }
                 try columns.append(.{ .object = encoded });
             }
@@ -7282,8 +7282,8 @@ pub const LayoutStack = struct {
 pub const LayoutColumnEdge = enum { left, right, top, bottom };
 pub const LayoutColumnMode = enum { docked, overlay };
 
-/// A pinned column's edge and presentation (catalog `LayoutColumnSticky`).
-pub const LayoutColumnSticky = struct {
+/// A pinned column's edge and presentation (catalog `LayoutColumnDock`).
+pub const LayoutColumnDock = struct {
     edge: LayoutColumnEdge,
     mode: LayoutColumnMode,
 };
@@ -7292,8 +7292,8 @@ pub const LayoutColumn = struct {
     column_id: SplitId,
     width: f64,
     root: *const LayoutNode,
-    /// The column's sticky flag (`sticky-columns-v1`); null while it scrolls.
-    sticky: ?LayoutColumnSticky = null,
+    /// The column's dock flag (`dock-columns-v1`); null while it scrolls.
+    dock: ?LayoutColumnDock = null,
 };
 
 pub const LayoutViewport = struct {
@@ -8446,7 +8446,7 @@ fn decodeLayoutNode(
             const column = try detailObject(raw_column);
             try ensureOnlyFields(
                 column,
-                &.{ "column_id", "width", "root", "sticky" },
+                &.{ "column_id", "width", "root", "dock", "sticky" },
             );
             const width = try floatValue(
                 column.get("width") orelse return error.MissingField,
@@ -8466,7 +8466,9 @@ fn decodeLayoutNode(
                     column.get("root") orelse
                         return error.MissingField,
                 ),
-                .sticky = try decodeLayoutColumnSticky(column.get("sticky")),
+                // `sticky` is the pre-R87 name of `dock`: a replayed or
+                // older result still decodes; `dock` wins.
+                .dock = try decodeLayoutColumnDock(column.get("dock") orelse column.get("sticky")),
             };
         }
         node.* = .{ .viewport = .{
@@ -8483,7 +8485,7 @@ fn decodeLayoutNode(
 }
 
 /// An omitted or null flag is null (the column scrolls).
-fn decodeLayoutColumnSticky(value: ?raw.wire.Value) !?LayoutColumnSticky {
+fn decodeLayoutColumnDock(value: ?raw.wire.Value) !?LayoutColumnDock {
     const present = value orelse return null;
     if (present == .null) return null;
     const object = try detailObject(present);
@@ -11569,7 +11571,7 @@ fn HandleImpl(
             if (comptime !std.mem.eql(u8, scope, "screen")) {
                 return error.UnsupportedHandleOperation;
             }
-            if (options.sticky == null and options.width == null) {
+            if (options.dock == null and options.width == null) {
                 return error.InvalidColumnUpdate;
             }
             var params = try Params(Id).init(
@@ -11580,8 +11582,8 @@ fn HandleImpl(
             );
             defer params.deinit();
             try params.putString("column", column.slice());
-            if (options.sticky) |sticky| {
-                try params.putValue("sticky", .{ .bool = sticky });
+            if (options.dock) |dock| {
+                try params.putValue("dock", .{ .bool = dock });
             }
             if (options.edge) |edge| {
                 try params.putString("edge", edge);
@@ -16680,7 +16682,7 @@ test "operation inventory includes capability corrections" {
     );
 }
 
-test "viewport columns decode their sticky flag and refuse an unknown edge" {
+test "viewport columns decode their dock flag and refuse an unknown edge" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -16701,7 +16703,7 @@ test "viewport columns decode their sticky flag and refuse an unknown edge" {
         "\"tab_ids\":[]}}]}}";
     const pinned = try raw.wire.parse(
         allocator,
-        prefix ++ ",\"sticky\":{\"edge\":\"top\",\"mode\":\"docked\"}" ++ suffix,
+        prefix ++ ",\"dock\":{\"edge\":\"top\",\"mode\":\"docked\"}" ++ suffix,
         .{},
     );
     const document = try decodeLayoutDocument(allocator, pinned.value);
@@ -16710,13 +16712,13 @@ test "viewport columns decode their sticky flag and refuse an unknown edge" {
         else => return error.ExpectedViewport,
     };
     try std.testing.expectEqual(
-        @as(?LayoutColumnSticky, .{ .edge = .top, .mode = .docked }),
-        columns[0].sticky,
+        @as(?LayoutColumnDock, .{ .edge = .top, .mode = .docked }),
+        columns[0].dock,
     );
-    try std.testing.expectEqual(@as(?LayoutColumnSticky, null), columns[1].sticky);
+    try std.testing.expectEqual(@as(?LayoutColumnDock, null), columns[1].dock);
     const unknown = try raw.wire.parse(
         allocator,
-        prefix ++ ",\"sticky\":{\"edge\":\"diagonal\",\"mode\":\"docked\"}" ++ suffix,
+        prefix ++ ",\"dock\":{\"edge\":\"diagonal\",\"mode\":\"docked\"}" ++ suffix,
         .{},
     );
     try std.testing.expectError(

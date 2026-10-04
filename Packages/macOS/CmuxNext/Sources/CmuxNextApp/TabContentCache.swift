@@ -33,6 +33,13 @@ final class TabContentCache {
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
+    /// Browser pages' hover card thumbnails, captured when a page leaves the
+    /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
+    /// apart from `previews`, whose full-size page images hibernation shows.
+    let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    /// Pages revealed since their last hide: the next hide captures their
+    /// thumbnail (`TabContentCache+Lifecycle`).
+    var shownPages: Set<String> = []
     let webKit = WebKitEngine()
     let cef: CEFEngine
     /// Pages visited in the default browser profile, shared by its omnibars for suggestions and
@@ -360,21 +367,9 @@ final class TabContentCache {
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)
+        pageThumbnails.remove(key)
+        shownPages.remove(key)
         onPresentationChange?()
-    }
-
-    // MARK: Previews
-
-    func previewImage(for key: String, maxPixelSize: CGSize) async -> CGImage? {
-        if let entry = terminals[key],
-           let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
-            previews.insert(image, for: key)
-            return image
-        }
-        if let entry = browsers[key], let image = try? await entry.tab.snapshot() {
-            return image
-        }
-        return previews.image(for: key)
     }
 }
 

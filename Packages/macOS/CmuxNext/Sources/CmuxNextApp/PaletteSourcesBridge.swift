@@ -13,6 +13,12 @@ enum PaletteSourcesBridge {
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
             return Dictionary(uniqueKeysWithValues: assigned.map { (PaletteScopeID($0.key), $0.value) })
         }
+        // Theme rows draw the theme's swatch strip (R98), from the catalog's
+        // cache (read off the main thread at launch).
+        sources.argumentSwatches = { [weak services] source, value in
+            guard source == ActionSuggestions.ghosttyThemes else { return [] }
+            return services?.themes.catalog.swatches(for: value) ?? []
+        }
         return sources
     }
 

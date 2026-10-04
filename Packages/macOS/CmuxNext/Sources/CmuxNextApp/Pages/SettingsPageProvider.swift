@@ -19,6 +19,13 @@ final class SettingsPageProvider: PageProvider {
     /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
     /// in tests without an app.
     private let hostLists: (@MainActor () -> JSONValue)?
+    /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
+    /// without an app.
+    var accountsState: (@MainActor () -> JSONValue)?
+    var accountsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
+    var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
+    var acceptsTheme: (@MainActor (String) -> Bool)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -37,22 +44,57 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.set":
             guard let value = params["value"] else { throw PageError.invalidParams("value is required") }
             let descriptor = try descriptor(params)
-            return try await mutation(params) { try await self.write(descriptor, value == .null ? nil : value); return [descriptor.id] }
+            return try await mutation(params) { try await self.write(descriptor, value == .null ? nil : value, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset":
             let descriptor = try descriptor(params)
-            return try await mutation(params) { try await self.write(descriptor, nil); return [descriptor.id] }
+            return try await mutation(params) { try await self.write(descriptor, nil, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset_all":
             return try await mutation(params) {
                 let before = self.settings.snapshot.root
-                try await self.settings.resetAllSettings()
+                do {
+                    try await self.settings.resetAllSettings(by: Self.writer(context))
+                } catch let userOnly as SettingUserOnly {
+                    throw Self.userOnlyError(userOnly)
+                }
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
         case "cmux.settings.host.lists":
             guard let hostLists else { throw PageError(code: "cmux.page.unavailable", message: "no host lists") }
             return hostLists()
-        case "cmux.settings.preview", "cmux.settings.preview.end":
-            // No live preview yet: a change applies when it is written (flagged in react-pages.md S1).
+        case "cmux.settings.accounts.state":
+            guard let accountsState else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
+            return accountsState()
+        case "cmux.settings.accounts.run":
+            guard let accountsRun else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
+            return try await accountsRun(params)
+        case "cmux.settings.theme.set":
+            guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
+            guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
+            do { try setTheme(level, params["spec"]?.stringValue) } catch { throw PageError.invalidParams("unknown theme level \(level)") }
+            return .object([:])
+        case "cmux.settings.theme.accepts":
+            return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
+        case "cmux.settings.file.reveal":
+            NSWorkspace.shared.activateFileViewerSelecting([settings.file.url])
+            return .object([:])
+        case "cmux.settings.preview":
+            // Live preview (R82 commit 5): the value applies to every window without a write;
+            // the gesture's end writes it with cmux.settings.set, or preview.end restores.
+            let descriptor = try descriptor(params)
+            let value = params["value"].flatMap { $0 == .null ? nil : $0 }
+            if let source = settings.managedSource(for: descriptor) {
+                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: Self.managedInfo(source))
+            }
+            guard Self.writer(context).mayWrite(descriptor) else {
+                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+            }
+            guard settings.preview(descriptor, value) else {
+                throw PageError(code: "cmux.settings.invalid", message: "\(descriptor.id) does not accept this value")
+            }
+            return ["previewing": .string(descriptor.id)]
+        case "cmux.settings.preview.end":
+            settings.endPreview()
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
@@ -67,16 +109,11 @@ final class SettingsPageProvider: PageProvider {
     /// page, the palette, the CLI or a hand edit of the file).
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+        if stream == "cmux.settings.accounts.changed", let accountsState {
+            return Self.watch(accountsState, onEvent: onEvent)
+        }
         if stream == "cmux.settings.host.changed", let hostLists {
-            // One event per change of the lists (the stores are observable); the page re-reads.
-            let task = Task { @MainActor in
-                var last = hostLists()
-                for await lists in Observations({ hostLists() }) where lists != last {
-                    last = lists
-                    onEvent(lists)
-                }
-            }
-            return PageSubscription { task.cancel() }
+            return Self.watch(hostLists, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
@@ -86,6 +123,20 @@ final class SettingsPageProvider: PageProvider {
                 let keys = SettingsSchema.all.filter { $0.storedValue(in: root) != $0.storedValue(in: last) }.map(\.id)
                 last = root
                 if !keys.isEmpty { onEvent(["revision": .number(Double(count)), "keys": .array(keys.map(JSONValue.string))]) }
+            }
+        }
+        return PageSubscription { task.cancel() }
+    }
+
+    /// One event per change of `read`'s value (the stores it reads are observable); the event
+    /// carries the new value.
+    private static func watch(_ read: @escaping @MainActor () -> JSONValue,
+                              onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
+        let task = Task { @MainActor in
+            var last = read()
+            for await value in Observations({ read() }) where value != last {
+                last = value
+                onEvent(value)
             }
         }
         return PageSubscription { task.cancel() }
@@ -153,13 +204,27 @@ final class SettingsPageProvider: PageProvider {
         return value
     }
 
-    private func write(_ descriptor: SettingDescriptor, _ value: JSONValue?) async throws {
+    /// SECURITY (agent_settable): the Settings page writes as the user only for a call backed by a
+    /// real key or mouse event in its view (`context.userGesture`, the host's record) from the
+    /// bundled cmux.settings page (the router admits only its trusted frame). A script write with
+    /// no gesture is a page write and may change only agent-settable keys.
+    static func writer(_ context: PageCallContext) -> SettingWriter {
+        context.page == PageDescriptor.settings.id && context.userGesture ? .user : .caller("page")
+    }
+
+    static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {
+        PageError(code: "cmux.settings.user_only", message: String(describing: refusal), details: ["key": .string(refusal.key)])
+    }
+
+    private func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
         do {
-            try await settings.setSetting(descriptor, to: value)
+            try await settings.setSetting(descriptor, to: value, by: writer)
         } catch let managed as SettingManaged {
             throw PageError(code: "cmux.settings.managed", message: String(describing: managed), details: Self.managedInfo(managed.source))
         } catch let refused as SettingRefused {
             throw PageError(code: "cmux.settings.invalid", message: String(describing: refused))
+        } catch let userOnly as SettingUserOnly {
+            throw Self.userOnlyError(userOnly)
         }
         // The watcher applies the write; reading it back now keeps the page's refresh current.
         await settings.reload()

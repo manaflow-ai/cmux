@@ -26,6 +26,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 export const runtimeDir = path.join(repoRoot, "cmux-tui/crates/cmux-browser-host/js");
 
 const AGENT_KEY = 'Symbol.for("cmux.browserRepl.agent")';
+const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
 const NEEDS_AGENT = "__cmuxNeedsAgent__";
 const ERROR_KEY = "__cmuxError__";
 const JSON_KEY = "__cmuxJson__";
@@ -688,6 +689,15 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       return out;
     },
     "frame.evaluate": async ({ targetId, frameId: id, ...rest }) => evaluate(frameFor(targetId, id), rest),
+    // The host's read-only page-agent call (browser lead contract v1): the
+    // driver builds the call; only allowlisted methods run.
+    "frame.observe": async ({ targetId, frameId: id, method, args = [] }) => {
+      if (!OBSERVE_METHODS.has(method)) {
+        throw Object.assign(new DriverError("forbidden", `frame.observe: ${method} is not a read; use frame.evaluate`), { errorName: "observe_not_allowed" });
+      }
+      if (!Array.isArray(args) || args.length > 8 || JSON.stringify(args).length > 65536) throw new DriverError("invalid", "frame.observe: args: expected at most 8 JSON values (64 KiB)");
+      return evaluate(frameFor(targetId, id), { world: "agent", source: `(m, ...a) => globalThis[${AGENT_KEY}][m](...a)`, args: [method, ...args], awaitPromise: true });
+    },
     "frame.ownerBox": async ({ targetId, frameId: id }) => {
       const frame = frameFor(targetId, id);
       const owner = await frame.frameElement();
@@ -821,7 +831,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
     },
     // The session's domain policy covers cookies as in the app: blocked
     // URLs are refused and blocked sites' cookies are never listed, set or
-    // cleared (driver.cookieBlockReason, from the native-boundary emulation).
+    // cleared (driver.cookieBlockReason, from the reference host).
     "cookies.get": async ({ urls } = {}, driver) => {
       for (const url of urls || []) {
         const reason = driver.blockReason && driver.blockReason(url);
@@ -974,7 +984,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   // Reads and input on a tab whose page the session's policy blocks are
   // refused, as the app's driver does.
   // Of the cookie calls only cookies.clear takes its scope from the page.
-  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.clear$)/;
+  const GUARDED = /^(frame\.evaluate|frame\.observe|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.clear$)/;
   // The session's own input, script and navigations (WebKitBrowserReplDriver.isActionOnPage).
   const ACTIONS = /^(input\.|frame\.evaluate$|tab\.navigate$|tab\.reload$|tab\.history$)/;
   const NAVIGATIONS = /^tab\.(navigate|reload|history)$/;
@@ -988,12 +998,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       blockReason: null,
       cookieBlockReason: null,
       policyFailure: null,
-      // Called by the native-boundary emulation, never by the runtime. As
+      // Called by the reference host, never by the runtime. As
       // WebKit does, rules with a non-ASCII url-filter do not compile; then
       // every call fails until a policy that compiles replaces them.
-      async setDomainPolicy(policy, blockReason, cookieBlockReason, cookieSetBlockReason) {
+      // Called by the reference host (reference-host.mjs), never by the
+      // runtime. `rules` are the host's content rules for the policy.
+      async setDomainPolicy(policy, blockReason, cookieBlockReason, cookieSetBlockReason, rules = []) {
         driver.cookieSetBlockReason = policy.allowed || policy.prohibited.length || policy.blockIPs ? cookieSetBlockReason || null : null;
-        const rules = loadRuntime().agentTools.policyContentRules(policy);
         const bad = rules.find((r) => /[^\x00-\x7f]/.test(r.trigger["url-filter"]));
         if (bad) {
           driver.policyFailure = new DriverError("invalid", `the domain policy could not be applied: WebKit refused its content rules (contentRules: Only ASCII characters are supported in pattern ${bad.trigger["url-filter"]}); set a policy that compiles (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses), or reset the session if the policy is locked`);
@@ -1272,7 +1283,7 @@ export function createNodeHost({ workDir, sessionId = "dev", print, readable = n
     },
     fsOp: createFsOp({ workDir, tmpdir, readable }),
     // As the app's fetcher: every redirect hop is checked against the
-    // domain policy (init.blockReason, from the native-boundary emulation)
+    // domain policy (init.blockReason, from the reference host)
     // and a body over 64 MiB fails.
     async fetch(url, init = {}) {
       let current = url;

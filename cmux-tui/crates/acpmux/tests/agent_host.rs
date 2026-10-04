@@ -264,3 +264,100 @@ async fn a_wrong_token_gets_no_hello() {
     wait_dead(lock).await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A harness whose child calls setsid keeps the output pipe open after the
+/// harness exits. The host still reports the exit after a bounded drain
+/// instead of waiting for that pipe forever (and living forever).
+#[tokio::test]
+async fn an_escaped_grandchild_does_not_hold_back_the_exit() {
+    let dir = scratch("escape");
+    let pid_file = dir.join("grandchild.pid");
+    let mut spec = spec(&dir, "s-escape");
+    spec.program = "python3".into();
+    spec.args = vec![
+        "-c".into(),
+        format!(
+            "import os,time\nif os.fork()==0:\n    os.setsid()\n    open({:?},'w').write(str(os.getpid()))\n    time.sleep(60)\nelse:\n    time.sleep(0.2)\n    os._exit(0)\n",
+            pid_file.display().to_string()
+        ),
+    ];
+    let record = link::spawn(&launcher(), &spec).await.expect("spawn host");
+    let (link, _) = connected(&record, 0).await;
+    let lock = live_lock(&dir, &record);
+    let mut after = 0;
+    let exited = tokio::time::timeout(
+        Duration::from_secs(15),
+        read_until(&link, &mut after, |e| matches!(e, Entry::Exit { .. })),
+    )
+    .await;
+    // End the escaped grandchild this test started.
+    if let Ok(pid) =
+        std::fs::read_to_string(&pid_file).map(|p| p.trim().parse::<i32>().unwrap_or(0))
+        && pid > 0
+    {
+        // SAFETY: the pid this test's harness wrote for its own grandchild.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
+    assert!(exited.is_ok(), "the host never reported the harness exit");
+    // The host itself ends once its Exit is acknowledged.
+    wait_dead(lock).await;
+    drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Output that back-pressure keeps in the pipe is not a hung pipe: with no
+/// controller to acknowledge entries, the host stops reading at its buffer
+/// cap, and the harness exits meanwhile. Every line still arrives before
+/// the Exit once a controller reads them, however late it connects.
+#[tokio::test]
+async fn paced_output_left_in_the_pipe_at_exit_is_kept() {
+    let dir = scratch("paced");
+    let mut spec = spec(&dir, "s-paced");
+    // About 20 KB of lines: above the cap, below a pipe's buffer, so the
+    // harness writes them all and exits while most are still unread.
+    spec.buffer_cap = 4096;
+    spec.program = "python3".into();
+    spec.args = vec![
+        "-c".into(),
+        "import json,sys\nfor i in range(300):\n    print(json.dumps({'jsonrpc':'2.0','method':'x/line','params':{'i':i}}))\nsys.stdout.flush()\n".into(),
+    ];
+    let record = link::spawn(&launcher(), &spec).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    // Longer than the drain period: the harness has exited by now.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let (link, _) = connected(&record, 0).await;
+    let mut after = 0;
+    let seen = read_until(&link, &mut after, |e| matches!(e, Entry::Exit { .. })).await;
+    let lines = seen
+        .iter()
+        .filter(
+            |(_, e)| matches!(e, Entry::In { msg } if msg.get("method") == Some(&json!("x/line"))),
+        )
+        .count();
+    assert_eq!(lines, 300, "lines still in the pipe at the harness exit were dropped");
+    wait_dead(lock).await;
+    drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A host whose start fails (here the harness cannot be spawned) leaves no
+/// liveness lock file behind: a stale `.live` file would outlive the session.
+#[tokio::test]
+async fn a_failed_start_leaves_no_live_file() {
+    let dir = scratch("nolive");
+    let mut spec = spec(&dir, "s-nolive");
+    spec.program = "/nonexistent/harness".into();
+    assert!(link::spawn(&launcher(), &spec).await.is_err(), "a missing harness started");
+    let left: Vec<_> = std::fs::read_dir(dir.join("hosts"))
+        .expect("the host created its hosts dir")
+        .filter_map(|e| e.ok().map(|e| e.file_name()))
+        .collect();
+    assert!(
+        !left
+            .iter()
+            .any(|n| n.to_string_lossy().ends_with(".live")
+                || n.to_string_lossy().ends_with(".sock")),
+        "a failed start left {left:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
