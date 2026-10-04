@@ -265,6 +265,10 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
+    "cloud.machine.link_token": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
     "cloud.machine.list": {
       "scope": "cloud:read",
       "class": "read"

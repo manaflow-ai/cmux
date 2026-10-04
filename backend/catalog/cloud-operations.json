@@ -507,28 +507,6 @@
             }
           }
         },
-        "link_token": {
-          "required": true,
-          "type": {
-            "kind": "object",
-            "fields": {
-              "token": {
-                "required": true,
-                "type": {
-                  "kind": "primitive",
-                  "name": "string"
-                }
-              },
-              "expires_at": {
-                "required": true,
-                "type": {
-                  "kind": "primitive",
-                  "name": "int64"
-                }
-              }
-            }
-          }
-        },
         "daemon": {
           "required": true,
           "type": {
@@ -14546,13 +14524,13 @@
       },
       "cli": {
         "path": "cloud machine connect-info",
-        "visible": false
+        "visible": true
       },
       "mcp": {
-        "expose": "never",
+        "expose": "default",
         "group": "cloud"
       },
-      "docs": "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. The result carries a dial credential (link_token), so the op is off MCP and hidden on the CLI.",
+      "docs": "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -14709,22 +14687,6 @@
                   ]
                 }
               },
-              "link_token": {
-                "type": "object",
-                "properties": {
-                  "token": {
-                    "type": "string"
-                  },
-                  "expires_at": {
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "token",
-                  "expires_at"
-                ],
-                "additionalProperties": true
-              },
               "daemon": {
                 "type": "object",
                 "properties": {
@@ -14763,7 +14725,6 @@
               "peer",
               "gateway",
               "services",
-              "link_token",
               "daemon",
               "revision"
             ],
@@ -15887,6 +15848,214 @@
               "revision"
             ],
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.machine.link_token": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HostId"
+            }
+          },
+          "services": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "enum",
+                "values": [
+                  "daemon",
+                  "ssh"
+                ]
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "token": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "expires_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "host": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "HostId"
+                }
+              },
+              "epoch": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "services": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "enum",
+                    "values": [
+                      "daemon",
+                      "ssh"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.machine.not_bound",
+        "cloud.machine.not_found",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "execute",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud machine link-token",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. A same-key replay while the token is valid returns the same token. Only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "daemon",
+                "ssh"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "host",
+          "services"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer"
+          },
+          "host": {
+            "$ref": "#/$defs/HostId"
+          },
+          "epoch": {
+            "type": "integer"
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "daemon",
+                "ssh"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "token",
+          "expires_at",
+          "host",
+          "epoch",
+          "services"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
           }
         }
       }

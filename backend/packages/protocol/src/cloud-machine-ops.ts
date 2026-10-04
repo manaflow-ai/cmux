@@ -84,8 +84,6 @@ export const CloudConnectInfo = Schema.Struct({
     Schema.Struct({ tunnel_id: Schema.String, endpoint: Schema.String, server_public_key: Schema.String, client_address: Schema.String, allowed_ips: Schema.Array(Schema.String) })
   ),
   services: Schema.Array(Schema.Literals(["daemon", "ssh"])),
-  /** Single host, single install, these services and this epoch; at most 5 minutes. */
-  link_token: Schema.Struct({ token: Schema.String, expires_at: Millis }),
   daemon: Schema.Struct({ version: Schema.NullOr(Schema.String), capabilities: Schema.Array(Schema.String) }),
   revision: Revision
 }).annotate({ identifier: "CloudConnectInfo" })
@@ -103,8 +101,8 @@ const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
 const KEY = " After mutation.indeterminate, retry with the same idempotency key."
 const PERSON = " Agent principals are refused; the client asks a person first."
 
-const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string, hidden = false) =>
-  def({ name, owner: "cloud:CloudDO", class: "read", risk: "read", target: "team", principals: ["session", "install"], params, result, errors: [...READ, ...errors], docs, cli: { path: cli, visible: !hidden }, mcp: { expose: hidden ? "never" : "default", group: "cloud" } })
+const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string) =>
+  def({ name, owner: "cloud:CloudDO", class: "read", risk: "read", target: "team", principals: ["session", "install"], params, result, errors: [...READ, ...errors], docs, cli: { path: cli, visible: true }, mcp: { expose: "default", group: "cloud" } })
 
 const cloudMutation = <P extends Schema.Top, R extends Schema.Top>(
   name: string,
@@ -187,10 +185,35 @@ export const CloudMachineConnectInfo = cloudRead(
   Schema.Struct({ machine: Schema.optionalKey(MachineId), host: Schema.optionalKey(HostId) }),
   CloudConnectInfo,
   ["cloud.machine.not_bound", "cloud.machine.not_found"],
-  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. The result carries a dial credential (link_token), so the op is off MCP and hidden on the CLI.",
-  "cloud machine connect-info",
-  true
+  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token.",
+  "cloud machine connect-info"
 )
+
+const LinkService = Schema.Literals(["daemon", "ssh"])
+const LinkServices = Schema.Array(LinkService).check(Schema.isMinLength(1), Schema.isMaxLength(2), Schema.isUnique())
+
+export const CloudMachineLinkToken = def({
+  name: "cloud.machine.link_token",
+  owner: "cloud:CloudDO",
+  class: "mutation",
+  risk: "execute",
+  target: "team",
+  principals: ["install"],
+  params: Schema.Struct({ host: HostId, services: LinkServices }),
+  result: Schema.Struct({
+    /** Secret: shown once to the caller, checked by the VM daemon on `hello`. */
+    token: Schema.String,
+    /** At most 5 minutes after the mint. */
+    expires_at: Millis,
+    host: HostId,
+    epoch: Schema.Int,
+    services: LinkServices
+  }),
+  errors: [...MUTATION, "cloud.machine.not_bound", "cloud.machine.not_found"],
+  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. A same-key replay while the token is valid returns the same token. Only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+  cli: { path: "cloud machine link-token", visible: false },
+  mcp: { expose: "never", group: "cloud" }
+})
 export const CloudMachineUpgrade = cloudMutation(
   "cloud.machine.upgrade",
   "mutate-own",
@@ -290,6 +313,7 @@ export const cloudMachineOps = [
   CloudMachineDelete,
   CloudMachineIdlePolicySet,
   CloudMachineConnectInfo,
+  CloudMachineLinkToken,
   CloudMachineUpgrade,
   CloudSnapshotList,
   CloudSnapshotCreate,

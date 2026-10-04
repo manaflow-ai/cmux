@@ -89,10 +89,6 @@ export type CloudConnectInfo = {
     readonly allowed_ips: ReadonlyArray<string>
   } | null
   readonly services: ReadonlyArray<"daemon" | "ssh">
-  readonly link_token: {
-    readonly token: string
-    readonly expires_at: number
-  }
   readonly daemon: {
     readonly version: string | null
     readonly capabilities: ReadonlyArray<string>
@@ -1287,7 +1283,7 @@ export interface CloudOps {
       readonly url: string
     }
   }
-  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. The result carries a dial credential (link_token), so the op is off MCP and hidden on the CLI. */
+  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. */
   readonly "cloud.machine.connect_info": {
     readonly params: {
       readonly machine?: MachineId
@@ -1331,6 +1327,20 @@ export interface CloudOps {
     }
     readonly result: {
       readonly machine: CloudMachine
+    }
+  }
+  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. A same-key replay while the token is valid returns the same token. Only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+  readonly "cloud.machine.link_token": {
+    readonly params: {
+      readonly host: HostId
+      readonly services: ReadonlyArray<"daemon" | "ssh">
+    }
+    readonly result: {
+      readonly token: string
+      readonly expires_at: number
+      readonly host: HostId
+      readonly epoch: number
+      readonly services: ReadonlyArray<"daemon" | "ssh">
     }
   }
   /** List the team's Cloud machines one page at a time; no cursor = the first page. `revision` is the team's registry revision when the page was read. */
@@ -2925,6 +2935,7 @@ export const cloudOpMeta = {
   "cloud.machine.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.machine.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.idle_policy.set": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.link_token": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.machine.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.machine.pause": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.rename": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
