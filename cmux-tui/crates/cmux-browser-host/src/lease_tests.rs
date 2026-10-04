@@ -93,8 +93,14 @@ fn a_stopped_actor_cannot_dodge_the_stop_with_a_new_session_name() {
     let mut table = LeaseTable::default();
     table.apply(&act("t1"), &agent("s1", "agent:a", None), 1).unwrap();
     table.apply(&LeaseOp::Stop { target: "t1".into() }, &user(), 2).unwrap();
-    assert_eq!(table.apply(&act("t2"), &agent("s-new", "agent:a", None), 3), Err(LeaseError::StoppedByUser));
-    assert!(table.apply(&act("t2"), &agent("s2", "agent:b", None), 3).is_ok(), "other actors keep working");
+    assert_eq!(
+        table.apply(&act("t2"), &agent("s-new", "agent:a", None), 3),
+        Err(LeaseError::StoppedByUser)
+    );
+    assert!(
+        table.apply(&act("t2"), &agent("s2", "agent:b", None), 3).is_ok(),
+        "other actors keep working"
+    );
 }
 
 #[test]
@@ -102,8 +108,14 @@ fn a_stop_applies_to_the_principal_an_agent_acts_for() {
     let mut table = LeaseTable::default();
     table.apply(&act("t1"), &agent("s1", "agent:sub-1", Some("agent:chief")), 1).unwrap();
     table.apply(&LeaseOp::Stop { target: "t1".into() }, &user(), 2).unwrap();
-    for caller in [agent("s2", "agent:sub-2", Some("agent:chief")), agent("s3", "agent:chief", None)] {
-        assert_eq!(table.apply(&act("t2"), &caller, 3), Err(LeaseError::StoppedByUser), "{caller:?}");
+    for caller in
+        [agent("s2", "agent:sub-2", Some("agent:chief")), agent("s3", "agent:chief", None)]
+    {
+        assert_eq!(
+            table.apply(&act("t2"), &caller, 3),
+            Err(LeaseError::StoppedByUser),
+            "{caller:?}"
+        );
     }
     table.apply(&LeaseOp::Allow { actor: "agent:chief".into() }, &user(), 4).unwrap();
     assert!(table.apply(&act("t2"), &agent("s2", "agent:sub-2", Some("agent:chief")), 5).is_ok());
@@ -115,13 +127,21 @@ fn only_the_person_allows_a_stopped_principal_again() {
     table.apply(&act("t1"), &agent("s1", "agent:a", None), 1).unwrap();
     table.apply(&LeaseOp::Stop { target: "t1".into() }, &user(), 2).unwrap();
     let allow = LeaseOp::Allow { actor: "agent:a".into() };
-    assert_eq!(table.apply(&allow, &agent("s1", "agent:a", None), 3), Err(LeaseError::UserOriginRequired));
-    assert_eq!(table.apply(&act("t1"), &agent("s1", "agent:a", None), 4), Err(LeaseError::StoppedByUser));
+    assert_eq!(
+        table.apply(&allow, &agent("s1", "agent:a", None), 3),
+        Err(LeaseError::UserOriginRequired)
+    );
+    assert_eq!(
+        table.apply(&act("t1"), &agent("s1", "agent:a", None), 4),
+        Err(LeaseError::StoppedByUser)
+    );
 }
 
 #[test]
 fn only_provider_engines_refuse_the_implicit_session() {
-    for (engine, refused) in [("cef", true), ("webkit", true), ("headless", false), ("desktop", false)] {
+    for (engine, refused) in
+        [("cef", true), ("webkit", true), ("headless", false), ("desktop", false)]
+    {
         let mut table = LeaseTable::default();
         let mut caller = agent("default", "agent:a", None);
         caller.engine = engine.into();
@@ -149,5 +169,8 @@ fn a_gone_target_drops_its_lease_with_a_null_frame_and_no_origin_check() {
         .unwrap();
     assert_eq!(frames, vec![LeaseFrame { target: "t1".into(), lease: None }]);
     assert!(table.get("t1").is_none());
-    assert_eq!(table.apply(&LeaseOp::TargetGone { target: "t1".into() }, &LeaseCaller::default(), 3), Ok(vec![]));
+    assert_eq!(
+        table.apply(&LeaseOp::TargetGone { target: "t1".into() }, &LeaseCaller::default(), 3),
+        Ok(vec![])
+    );
 }
