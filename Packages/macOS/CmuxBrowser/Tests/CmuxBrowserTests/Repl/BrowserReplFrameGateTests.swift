@@ -201,6 +201,22 @@ struct BrowserReplFrameGateTests {
         #expect(error?.code == "blocked", "files were given to a chooser in a blocked frame")
     }
 
+    /// The chooser's frame is judged by the document it shows now; when the
+    /// frame tree read for the answer no longer has it (it went away, or its
+    /// id could not be read), that document cannot be judged, so no files
+    /// are given.
+    @Test func aFileChooserWhoseFrameIsMissingFromTheTreeIsRefused() async throws {
+        let page = try await FramePage.load()
+        let gate = Self.gate()
+        let allowed = try #require(page.frame(path: "/child")?.info)
+        let withoutChild = page.frames.filter { $0.info !== allowed }
+        let error = await Self.error { try await gate.checkFileChooser(frame: allowed, in: page.webView, frames: withoutChild) }
+        #expect(error != nil, "files were given to a chooser whose frame the tree no longer has")
+        let main = try #require(page.frames.first?.info)
+        let noMain = await Self.error { try await gate.checkFileChooser(frame: main, in: page.webView, frames: []) }
+        #expect(noMain != nil, "files were given to a main-frame chooser without a frame tree")
+    }
+
     /// `window.frames` leaves out frames in shadow trees, so a child's index
     /// in WebKit's frame tree is not its index there. A blocked frame in a
     /// shadow tree must still refuse a point over it.
