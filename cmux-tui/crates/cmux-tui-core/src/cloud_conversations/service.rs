@@ -140,6 +140,43 @@ struct Lease {
 struct Subscription {
     clients: BTreeSet<u64>,
     idle_since: Option<Instant>,
+    /// The shared socket's current state, which a later subscriber is told.
+    state: SocketState,
+}
+
+/// One `cloud-subscription-state`: the state, its reason and the account of
+/// the lease the socket used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SocketState {
+    state: &'static str,
+    reason: Option<&'static str>,
+    account: Option<String>,
+}
+
+impl SocketState {
+    fn event(&self, target: &Target) -> CloudEvent {
+        CloudEvent::SubscriptionState {
+            target: target.clone(),
+            state: self.state,
+            reason: self.reason,
+            account: self.account.clone(),
+        }
+    }
+
+    /// The `cloud-*-subscribe` reply.
+    fn reply(&self, target: &Target) -> Value {
+        let mut reply = json!({"state": self.state});
+        if let Some(reason) = self.reason {
+            reply["reason"] = json!(reason);
+        }
+        if let Some(account) = &self.account {
+            reply["account"] = json!(account);
+        }
+        if let Target::Conversation(id) = target {
+            reply["conversation"] = json!(id);
+        }
+        reply
+    }
 }
 
 struct Inner {
@@ -340,12 +377,15 @@ impl CloudConversations {
         if let Target::Conversation(id) = &target {
             require_conversation(id)?;
         }
-        let start = {
+        // A new socket starts `connecting` (or `disconnected` without a
+        // usable lease); its driver reports every later change.
+        let initial = self.inner.initial_state();
+        let (start, reply) = {
             let mut subscriptions = self.inner.subscriptions.lock().unwrap();
             if let Some(subscription) = subscriptions.get_mut(&target) {
                 subscription.clients.insert(client);
                 subscription.idle_since = None;
-                false
+                (false, subscription.state.reply(&target))
             } else {
                 let conversations = subscriptions
                     .keys()
@@ -359,11 +399,16 @@ impl CloudConversations {
                         "too many cloud conversation subscriptions",
                     ));
                 }
+                let reply = initial.reply(&target);
                 subscriptions.insert(
                     target.clone(),
-                    Subscription { clients: BTreeSet::from([client]), idle_since: None },
+                    Subscription {
+                        clients: BTreeSet::from([client]),
+                        idle_since: None,
+                        state: initial,
+                    },
                 );
-                true
+                (true, reply)
             }
         };
         if start {
@@ -377,11 +422,24 @@ impl CloudConversations {
                 return Err(CloudError::Unavailable(format!("stream thread: {error}")));
             }
         }
-        let mut reply = json!({"state": if self.inner.session_ready() { "connecting" } else { "disconnected" }});
-        if let Target::Conversation(id) = &target {
-            reply["conversation"] = json!(id);
-        }
         Ok(reply)
+    }
+
+    /// Emits `target`'s current socket state. The daemon calls it after it
+    /// sent a subscribe reply: replies and events travel on different queues
+    /// of a connection, so a change that raced the reply could otherwise
+    /// arrive before it and leave the client on the reply's older state.
+    pub fn announce_state(&self, target: &Target) {
+        let event = self
+            .inner
+            .subscriptions
+            .lock()
+            .unwrap()
+            .get(target)
+            .map(|subscription| subscription.state.event(target));
+        if let Some(event) = event {
+            self.inner.emit(event);
+        }
     }
 
     /// Ends `client`'s interest in `target`. The socket lingers (conversation)
@@ -450,9 +508,28 @@ impl Inner {
         *self.signal.lock().unwrap()
     }
 
-    fn session_ready(&self) -> bool {
+    /// The state a socket that has not run yet reports first.
+    fn initial_state(&self) -> SocketState {
         let now = (self.options.now_ms)();
-        self.lease.lock().unwrap().session.as_ref().is_some_and(|session| !session.is_expired(now))
+        let lease = self.lease.lock().unwrap();
+        match &lease.session {
+            None => {
+                SocketState { state: "disconnected", reason: Some("signed_out"), account: None }
+            }
+            Some(session) if session.is_expired(now) => SocketState {
+                state: "disconnected",
+                reason: Some("unauthenticated"),
+                account: session.account.clone(),
+            },
+            Some(session) => {
+                SocketState { state: "connecting", reason: None, account: session.account.clone() }
+            }
+        }
+    }
+
+    /// The account of the current lease, expired or not.
+    fn lease_account(&self) -> Option<String> {
+        self.lease.lock().unwrap().session.as_ref().and_then(|session| session.account.clone())
     }
 
     fn generation(&self) -> u64 {
@@ -562,24 +639,25 @@ impl Inner {
     }
 }
 
-/// Emits a subscription state only when it changes.
+/// Records the shared socket's state for later subscribers and emits it to
+/// subscribers whenever it changes.
 struct StateReporter<'a> {
     inner: &'a Inner,
     target: Target,
-    last: Option<(&'static str, Option<&'static str>)>,
+    last: Option<SocketState>,
 }
 
 impl StateReporter<'_> {
-    fn report(&mut self, state: &'static str, reason: Option<&'static str>) {
-        if self.last == Some((state, reason)) {
+    fn report(&mut self, state: &'static str, reason: Option<&'static str>, account: Option<&str>) {
+        let next = SocketState { state, reason, account: account.map(str::to_string) };
+        if self.last.as_ref() == Some(&next) {
             return;
         }
-        self.last = Some((state, reason));
-        self.inner.emit(CloudEvent::SubscriptionState {
-            target: self.target.clone(),
-            state,
-            reason,
-        });
+        if let Some(subscription) = self.inner.subscriptions.lock().unwrap().get_mut(&self.target) {
+            subscription.state = next.clone();
+        }
+        self.inner.emit(next.event(&self.target));
+        self.last = Some(next);
     }
 }
 
@@ -608,12 +686,13 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
         let session = match inner.stream_session() {
             Ok(session) => session,
             Err(reason) => {
-                reporter.report("disconnected", Some(reason));
+                reporter.report("disconnected", Some(reason), inner.lease_account().as_deref());
                 inner.wait(seen, inner.idle_wait(&target, poll));
                 continue;
             }
         };
-        reporter.report("connecting", None);
+        let account = session.account.as_deref();
+        reporter.report("connecting", None, account);
         let url = session.ws_url(&target.wire_path());
         let wire = inner.backend.connect(&url, session.bearer(), session.client_version.as_deref());
         let ended = match wire {
@@ -629,6 +708,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                     &mut reporter,
                     wire.as_mut(),
                     session.generation,
+                    account,
                     &mut backoff,
                 )
             }
@@ -636,8 +716,8 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
         match ended {
             Ended::Retired => break,
             Ended::Forbidden => {
+                reporter.report("closed", Some("forbidden"), account);
                 inner.remove(&target);
-                reporter.report("closed", Some("forbidden"));
                 break;
             }
             Ended::Reconnect => {}
@@ -646,7 +726,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                     reason: "unauthenticated",
                     expires_at: Some(session.expires_at),
                 });
-                reporter.report("disconnected", Some("unauthenticated"));
+                reporter.report("disconnected", Some("unauthenticated"), account);
                 // Only a new lease (or unsubscribe or shutdown) helps.
                 while inner.generation() == session.generation && !inner.retire(&target) {
                     let seen = inner.signal_now();
@@ -654,7 +734,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                 }
             }
             Ended::Dropped => {
-                reporter.report("disconnected", Some("unavailable"));
+                reporter.report("disconnected", Some("unavailable"), account);
                 let until = Instant::now() + backoff;
                 while Instant::now() < until
                     && inner.generation() == session.generation
@@ -679,6 +759,7 @@ fn pump(
     reporter: &mut StateReporter<'_>,
     wire: &mut dyn CloudWire,
     generation: u64,
+    account: Option<&str>,
     backoff: &mut Duration,
 ) -> Ended {
     loop {
@@ -704,10 +785,10 @@ fn pump(
                                 return Ended::Dropped;
                             }
                         }
-                        StreamAction::Emit(event) => inner.emit(event),
+                        StreamAction::Emit(event) => inner.emit(event.with_account(account)),
                         StreamAction::Live => {
                             *backoff = inner.options.backoff_min;
-                            reporter.report("live", None);
+                            reporter.report("live", None, account);
                         }
                         StreamAction::Forbidden => return Ended::Forbidden,
                     }

@@ -10746,6 +10746,9 @@ fn handle_request_with_cancellation(
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);
     }
+    if let Some(target) = cloud_conversations::subscribe_target(&cmd) {
+        return cloud_conversations::subscribe_then_announce(mux, client, id, cmd, target, writer);
+    }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {

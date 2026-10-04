@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa.
+// cmux-tui mux protocol 12, IR 8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -102,6 +102,8 @@ pub struct ClientListInvalidatedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     pub change: Nullable<T::JsonValue>,
     pub conversation: String,
     pub rev: u64,
@@ -112,6 +114,8 @@ pub struct CloudConversationChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationResyncedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     pub conversation: String,
     pub messages: Nullable<T::JsonValue>,
     pub rev: u64,
@@ -122,6 +126,8 @@ pub struct CloudConversationResyncedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudInboxChangedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     pub entries: Nullable<T::JsonValue>,
     pub seq: u64,
     pub transaction: String,
@@ -130,6 +136,8 @@ pub struct CloudInboxChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudInboxResetEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     pub seq: u64,
 }
 
@@ -144,6 +152,8 @@ pub struct CloudSessionNeededEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudSubscriptionStateEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub conversation: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]

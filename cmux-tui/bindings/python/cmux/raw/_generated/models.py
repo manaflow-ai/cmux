@@ -3541,6 +3541,7 @@ class CloudConversationChangedEvent(EventBase):
     rev: int
     seq: int
     transaction: str
+    account: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3553,6 +3554,7 @@ class CloudConversationResyncedEvent(EventBase):
     rev: int
     seq: int
     summary: Union[JsonValue, None]
+    account: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3563,6 +3565,7 @@ class CloudInboxChangedEvent(EventBase):
     event: Literal['cloud-inbox-changed']
     seq: int
     transaction: str
+    account: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3571,6 +3574,7 @@ class CloudInboxResetEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/cloud-inbox-reset/payload'
     event: Literal['cloud-inbox-reset']
     seq: int
+    account: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3589,6 +3593,7 @@ class CloudSubscriptionStateEvent(EventBase):
     event: Literal['cloud-subscription-state']
     scope: str
     state: str
+    account: Union[str, MissingType] = field(default=MISSING)
     conversation: Union[str, None, MissingType] = field(default=MISSING)
     reason: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})

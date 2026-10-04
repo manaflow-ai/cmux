@@ -23515,6 +23515,11 @@ Result<Json> Codec<CloudConversationChangedEvent>::encode(const CloudConversatio
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("cloud-conversation-changed")));
+    if (value.account) {
+        auto encoded = encode_value(*value.account);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("account", std::move(encoded).value());
+    }
     if (value.change) {
         auto encoded = encode_value(*value.change);
         if (!encoded) return std::move(encoded).error();
@@ -23541,6 +23546,12 @@ Result<CloudConversationChangedEvent> Codec<CloudConversationChangedEvent>::deco
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudConversationChangedEvent result{};
+    const Json* field_account = value.find("account");
+    if (field_account) {
+        auto decoded = decode_value<std::string>(*field_account);
+        if (!decoded) return std::move(decoded).error();
+        result.account = std::move(decoded).value();
+    }
     const Json* field_change = value.find("change");
     if (!field_change) {
         return make_error(ErrorCode::decode, "missing required field 'change'");
@@ -23606,6 +23617,11 @@ Result<Json> Codec<CloudConversationResyncedEvent>::encode(const CloudConversati
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("cloud-conversation-resynced")));
+    if (value.account) {
+        auto encoded = encode_value(*value.account);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("account", std::move(encoded).value());
+    }
     auto encoded_conversation = encode_value(value.conversation);
     if (!encoded_conversation) return std::move(encoded_conversation).error();
     object.emplace("conversation", std::move(encoded_conversation).value());
@@ -23636,6 +23652,12 @@ Result<CloudConversationResyncedEvent> Codec<CloudConversationResyncedEvent>::de
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudConversationResyncedEvent result{};
+    const Json* field_account = value.find("account");
+    if (field_account) {
+        auto decoded = decode_value<std::string>(*field_account);
+        if (!decoded) return std::move(decoded).error();
+        result.account = std::move(decoded).value();
+    }
     const Json* field_conversation = value.find("conversation");
     if (!field_conversation) {
         return make_error(ErrorCode::decode, "missing required field 'conversation'");
@@ -23705,6 +23727,11 @@ Result<Json> Codec<CloudInboxChangedEvent>::encode(const CloudInboxChangedEvent&
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("cloud-inbox-changed")));
+    if (value.account) {
+        auto encoded = encode_value(*value.account);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("account", std::move(encoded).value());
+    }
     if (value.entries) {
         auto encoded = encode_value(*value.entries);
         if (!encoded) return std::move(encoded).error();
@@ -23725,6 +23752,12 @@ Result<CloudInboxChangedEvent> Codec<CloudInboxChangedEvent>::decode(const Json&
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudInboxChangedEvent result{};
+    const Json* field_account = value.find("account");
+    if (field_account) {
+        auto decoded = decode_value<std::string>(*field_account);
+        if (!decoded) return std::move(decoded).error();
+        result.account = std::move(decoded).value();
+    }
     const Json* field_entries = value.find("entries");
     if (!field_entries) {
         return make_error(ErrorCode::decode, "missing required field 'entries'");
@@ -23772,6 +23805,11 @@ Result<Json> Codec<CloudInboxResetEvent>::encode(const CloudInboxResetEvent& val
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("cloud-inbox-reset")));
+    if (value.account) {
+        auto encoded = encode_value(*value.account);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("account", std::move(encoded).value());
+    }
     auto encoded_seq = encode_value(value.seq);
     if (!encoded_seq) return std::move(encoded_seq).error();
     object.emplace("seq", std::move(encoded_seq).value());
@@ -23782,6 +23820,12 @@ Result<CloudInboxResetEvent> Codec<CloudInboxResetEvent>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudInboxResetEvent result{};
+    const Json* field_account = value.find("account");
+    if (field_account) {
+        auto decoded = decode_value<std::string>(*field_account);
+        if (!decoded) return std::move(decoded).error();
+        result.account = std::move(decoded).value();
+    }
     const Json* field_seq = value.find("seq");
     if (!field_seq) {
         return make_error(ErrorCode::decode, "missing required field 'seq'");
@@ -23857,6 +23901,11 @@ Result<Json> Codec<CloudSubscriptionStateEvent>::encode(const CloudSubscriptionS
     (void)value;
     Json::Object object;
     object.emplace("event", Json(std::string("cloud-subscription-state")));
+    if (value.account) {
+        auto encoded = encode_value(*value.account);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("account", std::move(encoded).value());
+    }
     if (!value.conversation.is_absent()) {
         auto encoded = encode_value(value.conversation);
         if (!encoded) return std::move(encoded).error();
@@ -23880,6 +23929,12 @@ Result<CloudSubscriptionStateEvent> Codec<CloudSubscriptionStateEvent>::decode(c
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudSubscriptionStateEvent result{};
+    const Json* field_account = value.find("account");
+    if (field_account) {
+        auto decoded = decode_value<std::string>(*field_account);
+        if (!decoded) return std::move(decoded).error();
+        result.account = std::move(decoded).value();
+    }
     const Json* field_conversation = value.find("conversation");
     if (field_conversation) {
         if (field_conversation->is_null()) {

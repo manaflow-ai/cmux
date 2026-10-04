@@ -342,7 +342,8 @@ fn a_later_subscriber_gets_the_current_state_and_a_state_event_after_its_reply()
     let mut seen = Vec::new();
     wait_until("the socket to go live", || {
         seen.extend(cloud_events(&events));
-        seen.iter().any(|event| event["event"] == "cloud-subscription-state" && event["state"] == "live")
+        seen.iter()
+            .any(|event| event["event"] == "cloud-subscription-state" && event["state"] == "live")
     });
 
     let second = mux.control_clients.register(ClientTransport::Unix, writer());
@@ -359,9 +360,11 @@ fn a_later_subscriber_gets_the_current_state_and_a_state_event_after_its_reply()
     let mut after = Vec::new();
     wait_until("the state event after the reply", || {
         after.extend(cloud_events(&events));
-        after.iter().any(|event| event["event"] == "cloud-subscription-state"
-            && event["conversation"] == CONV
-            && event["state"] == "live")
+        after.iter().any(|event| {
+            event["event"] == "cloud-subscription-state"
+                && event["conversation"] == CONV
+                && event["state"] == "live"
+        })
     });
     mux.cloud_conversations().unwrap().shutdown();
 }

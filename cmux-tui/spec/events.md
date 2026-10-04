@@ -433,13 +433,18 @@ request's `transaction`, or null.
 
 Relays one committed cloud conversation event to trusted local connections:
 `object{event:"cloud-conversation-changed", conversation:string, rev:uint64,
-seq:uint64, transaction:string, change:Change}` with the `conversation-changed`
-`Change` shapes plus `object{kind:"invite", conversation, invite}`. The
-related events `cloud-conversation-resynced` (`summary`, `messages`),
-`cloud-inbox-changed` (`entries`), `cloud-inbox-reset`,
-`cloud-subscription-state` (`scope`, `state`, `reason?`) and
-`cloud-session-needed` (`reason`, `expires_at?`) are specified in
-plans/cmux-next/home-cloud-proxy.md section 5.
+seq:uint64, transaction:string, change:Change, account?:string}` with the
+`conversation-changed` `Change` shapes plus
+`object{kind:"invite", conversation, invite}`. The related events
+`cloud-conversation-resynced` (`summary`, `messages`, `account?`),
+`cloud-inbox-changed` (`entries`, `account?`), `cloud-inbox-reset`
+(`account?`), `cloud-subscription-state` (`scope`, `state`, `reason?`,
+`account?`) and `cloud-session-needed` (`reason`, `expires_at?`) are specified
+in plans/cmux-next/home-cloud-proxy.md section 5. `account` is the cloud user
+id (the JWT `sub`) of the lease the daemon used for the upstream socket that
+produced the event, absent when that lease has no readable `sub`; a client
+drops an event whose `account` is present and differs from the account
+signed in now.
 
 ### conversation-typing
 

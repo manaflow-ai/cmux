@@ -17910,7 +17910,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. Shares one upstream inbox socket among local clients. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections only. Shares one upstream inbox socket among local clients. Replies {state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-inbox-unsubscribe": {
@@ -17955,7 +17955,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. Shares one upstream socket per conversation; at most 64. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections only. Shares one upstream socket per conversation; at most 64. Replies {conversation, state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-conversation-unsubscribe": {
@@ -21347,6 +21347,14 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -21409,6 +21417,14 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -21455,6 +21471,14 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false
@@ -21484,6 +21508,14 @@
        "name": "uint64"
       },
       "presence": "required",
+      "nullable": false
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
       "nullable": false
      }
     },
@@ -21539,6 +21571,14 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
      }
     },
     "additional_properties": false

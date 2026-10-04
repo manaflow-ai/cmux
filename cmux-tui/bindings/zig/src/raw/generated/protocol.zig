@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa";
+pub const ir_sha256 = "8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -7491,33 +7491,53 @@ pub const ClientListInvalidatedEvent = struct {
 };
 
 pub const CloudConversationChangedEvent = struct {
+    account: ?[]const u8 = null,
     change: wire.Nullable(JsonValue),
     conversation: []const u8,
     event: []const u8,
     rev: u64,
     seq: u64,
     transaction: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "account",
+    };
 };
 
 pub const CloudConversationResyncedEvent = struct {
+    account: ?[]const u8 = null,
     conversation: []const u8,
     event: []const u8,
     messages: wire.Nullable(JsonValue),
     rev: u64,
     seq: u64,
     summary: wire.Nullable(JsonValue),
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "account",
+    };
 };
 
 pub const CloudInboxChangedEvent = struct {
+    account: ?[]const u8 = null,
     entries: wire.Nullable(JsonValue),
     event: []const u8,
     seq: u64,
     transaction: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "account",
+    };
 };
 
 pub const CloudInboxResetEvent = struct {
+    account: ?[]const u8 = null,
     event: []const u8,
     seq: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "account",
+    };
 };
 
 pub const CloudSessionNeededEvent = struct {
@@ -7527,11 +7547,16 @@ pub const CloudSessionNeededEvent = struct {
 };
 
 pub const CloudSubscriptionStateEvent = struct {
+    account: ?[]const u8 = null,
     conversation: wire.Field([]const u8) = .absent,
     event: []const u8,
     reason: wire.Field([]const u8) = .absent,
     scope: []const u8,
     state: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "account",
+    };
 };
 
 pub const ColorsChangedEvent = struct {

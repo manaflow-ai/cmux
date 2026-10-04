@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa. */
+/* cmux-tui mux protocol 12, IR 8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646. */
 
 
 import type * as T from "./types.js";
@@ -66,6 +66,7 @@ export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & 
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationChangedEvent = { event: "cloud-conversation-changed" } & {
+  "account"?: string;
   "change": (T.JsonValue) | null;
   "conversation": string;
   "rev": bigint;
@@ -75,6 +76,7 @@ export type CloudConversationChangedEvent = { event: "cloud-conversation-changed
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
+  "account"?: string;
   "conversation": string;
   "messages": (T.JsonValue) | null;
   "rev": bigint;
@@ -84,6 +86,7 @@ export type CloudConversationResyncedEvent = { event: "cloud-conversation-resync
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
+  "account"?: string;
   "entries": (T.JsonValue) | null;
   "seq": bigint;
   "transaction": string;
@@ -91,6 +94,7 @@ export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
+  "account"?: string;
   "seq": bigint;
 };
 
@@ -102,6 +106,7 @@ export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type CloudSubscriptionStateEvent = { event: "cloud-subscription-state" } & {
+  "account"?: string;
   "conversation"?: (string) | null;
   "reason"?: (string) | null;
   "scope": string;

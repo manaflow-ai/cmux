@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa. */
+/* cmux-tui mux protocol 12, IR 8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa" as const;
+export const SDK_IR_SHA256 = "8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -495,7 +495,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. Shares one upstream socket per conversation; at most 64. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. Shares one upstream socket per conversation; at most 64. Replies {conversation, state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "cloud-conversation-unsubscribe": {
@@ -525,7 +525,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. Shares one upstream inbox socket among local clients. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. Shares one upstream inbox socket among local clients. Replies {state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "cloud-inbox-unsubscribe": {
@@ -19914,6 +19914,14 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "cloud-conversation-changed": {
     "additional_properties": false,
     "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "change": {
         "nullable": true,
         "presence": "required",
@@ -19968,6 +19976,14 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "cloud-conversation-resynced": {
     "additional_properties": false,
     "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "conversation": {
         "nullable": false,
         "presence": "required",
@@ -20022,6 +20038,14 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "cloud-inbox-changed": {
     "additional_properties": false,
     "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "entries": {
         "nullable": true,
         "presence": "required",
@@ -20060,6 +20084,14 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "cloud-inbox-reset": {
     "additional_properties": false,
     "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
@@ -20112,6 +20144,14 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "cloud-subscription-state": {
     "additional_properties": false,
     "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "conversation": {
         "nullable": true,
         "presence": "optional",

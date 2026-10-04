@@ -9,6 +9,11 @@ use serde_json::{Value, json};
 use super::contract::{Target, conversation_change, inbox_entries, snapshot_parts};
 
 /// A daemon event of `cloud-conversations-v1`.
+///
+/// `account` is the cloud user id (JWT `sub`) of the lease the daemon used
+/// for the upstream socket that produced the event, `None` when that lease
+/// had no readable `sub` (or no lease was involved). Clients drop stream
+/// events whose account is not the one signed in now.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CloudEvent {
     ConversationChanged {
@@ -17,6 +22,7 @@ pub enum CloudEvent {
         seq: u64,
         transaction: String,
         change: Value,
+        account: Option<String>,
     },
     ConversationResynced {
         conversation: String,
@@ -24,19 +30,23 @@ pub enum CloudEvent {
         seq: u64,
         summary: Value,
         messages: Vec<Value>,
+        account: Option<String>,
     },
     InboxChanged {
         seq: u64,
         transaction: String,
         entries: Vec<Value>,
+        account: Option<String>,
     },
     InboxReset {
         seq: u64,
+        account: Option<String>,
     },
     SubscriptionState {
         target: Target,
         state: &'static str,
         reason: Option<&'static str>,
+        account: Option<String>,
     },
     SessionNeeded {
         reason: &'static str,
@@ -45,18 +55,54 @@ pub enum CloudEvent {
 }
 
 impl CloudEvent {
+    /// Tags a stream event with the account of the socket's lease.
+    pub(crate) fn with_account(mut self, socket_account: Option<&str>) -> Self {
+        match &mut self {
+            Self::ConversationChanged { account, .. }
+            | Self::ConversationResynced { account, .. }
+            | Self::InboxChanged { account, .. }
+            | Self::InboxReset { account, .. }
+            | Self::SubscriptionState { account, .. } => {
+                *account = socket_account.map(str::to_string);
+            }
+            Self::SessionNeeded { .. } => {}
+        }
+        self
+    }
+
+    fn account(&self) -> Option<&str> {
+        match self {
+            Self::ConversationChanged { account, .. }
+            | Self::ConversationResynced { account, .. }
+            | Self::InboxChanged { account, .. }
+            | Self::InboxReset { account, .. }
+            | Self::SubscriptionState { account, .. } => account.as_deref(),
+            Self::SessionNeeded { .. } => None,
+        }
+    }
+
     /// The event line sent to subscribed trusted local clients.
     pub fn wire_json(&self) -> Value {
+        let mut value = self.untagged_json();
+        if let Some(account) = self.account() {
+            value["account"] = json!(account);
+        }
+        value
+    }
+
+    fn untagged_json(&self) -> Value {
         match self {
-            Self::ConversationChanged { conversation, rev, seq, transaction, change } => json!({
-                "event": "cloud-conversation-changed",
-                "conversation": conversation,
-                "rev": rev,
-                "seq": seq,
-                "transaction": transaction,
-                "change": change,
-            }),
-            Self::ConversationResynced { conversation, rev, seq, summary, messages } => json!({
+            Self::ConversationChanged { conversation, rev, seq, transaction, change, .. } => {
+                json!({
+                    "event": "cloud-conversation-changed",
+                    "conversation": conversation,
+                    "rev": rev,
+                    "seq": seq,
+                    "transaction": transaction,
+                    "change": change,
+                })
+            }
+            Self::ConversationResynced { conversation, rev, seq, summary, messages, .. } => json!({
                 "event": "cloud-conversation-resynced",
                 "conversation": conversation,
                 "rev": rev,
@@ -64,14 +110,14 @@ impl CloudEvent {
                 "summary": summary,
                 "messages": messages,
             }),
-            Self::InboxChanged { seq, transaction, entries } => json!({
+            Self::InboxChanged { seq, transaction, entries, .. } => json!({
                 "event": "cloud-inbox-changed",
                 "seq": seq,
                 "transaction": transaction,
                 "entries": entries,
             }),
-            Self::InboxReset { seq } => json!({"event": "cloud-inbox-reset", "seq": seq}),
-            Self::SubscriptionState { target, state, reason } => {
+            Self::InboxReset { seq, .. } => json!({"event": "cloud-inbox-reset", "seq": seq}),
+            Self::SubscriptionState { target, state, reason, .. } => {
                 let mut value = json!({
                     "event": "cloud-subscription-state",
                     "scope": target.scope(),
@@ -216,7 +262,7 @@ impl StreamState {
         self.awaiting_snapshot = false;
         self.last_seq = Some(seq);
         let event = match &self.target {
-            Target::Inbox => CloudEvent::InboxReset { seq },
+            Target::Inbox => CloudEvent::InboxReset { seq, account: None },
             Target::Conversation(conversation) => match snapshot_parts(frame) {
                 Ok((summary, messages, rev, seq)) => CloudEvent::ConversationResynced {
                     conversation: conversation.clone(),
@@ -224,6 +270,7 @@ impl StreamState {
                     seq,
                     summary,
                     messages,
+                    account: None,
                 },
                 Err(_) => return Vec::new(),
             },
@@ -254,11 +301,14 @@ impl StreamState {
                     seq,
                     transaction,
                     change,
+                    account: None,
                 },
                 None => return self.request_snapshot(),
             },
             Target::Inbox => match inbox_entries(frame) {
-                Some(entries) => CloudEvent::InboxChanged { seq, transaction, entries },
+                Some(entries) => {
+                    CloudEvent::InboxChanged { seq, transaction, entries, account: None }
+                }
                 None => return self.request_snapshot(),
             },
         };

@@ -172,6 +172,39 @@ pub(super) fn is_network(cmd: &Command) -> bool {
     )
 }
 
+/// The target of a `cloud-*-subscribe` command.
+pub(super) fn subscribe_target(cmd: &Command) -> Option<Target> {
+    match cmd {
+        Command::CloudInboxSubscribe => Some(Target::Inbox),
+        Command::CloudConversationSubscribe(params) => {
+            Some(Target::Conversation(params.conversation.clone()))
+        }
+        _ => None,
+    }
+}
+
+/// Answers a subscribe with the shared socket's current state, then emits
+/// that state as a `cloud-subscription-state` event. A reply travels on the
+/// connection's control queue and events on its event stream, so a state
+/// change that raced the reply may be written before it; the event queued
+/// after the reply always follows it, and every later change follows too.
+pub(super) fn subscribe_then_announce(
+    mux: &Arc<Mux>,
+    client: u64,
+    id: Option<Value>,
+    cmd: Command,
+    target: Target,
+    writer: &MessageWriter,
+) -> bool {
+    let result = handle_command_with_cancellation(mux, client, cmd, writer, None);
+    let subscribed = result.is_ok();
+    let sent = send(writer, id, result);
+    if subscribed && let Some(service) = mux.cloud_conversations() {
+        service.announce_state(&target);
+    }
+    sent
+}
+
 /// Answers a network command from a worker thread. Trust, availability and
 /// op shape are checked first on the request loop, so those errors answer
 /// at once and nothing leaves a refused connection.

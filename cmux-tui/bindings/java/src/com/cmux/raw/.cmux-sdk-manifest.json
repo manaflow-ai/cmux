@@ -342,8 +342,8 @@
     },
     {
       "path": "CloudConversationChangedEvent.java",
-      "sha256": "690e07ca7feca38991e075943a83f145871bde14769508c9c41a875702977afd",
-      "size": 5321
+      "sha256": "d17f28fd15439b66ee2ed2ed6979a95be57ede0c242d85f8d8d58f6afe9e3197",
+      "size": 5946
     },
     {
       "path": "CloudConversationHistoryRequest.java",
@@ -357,8 +357,8 @@
     },
     {
       "path": "CloudConversationResyncedEvent.java",
-      "sha256": "16da30df9aa67849736aac81a7b354becd631e84ec9c8538f5dfb32177131338",
-      "size": 5313
+      "sha256": "5b3d3e0caa706affbac3ac135b96705ec8302353c78da5617dba9365de44ac4d",
+      "size": 5939
     },
     {
       "path": "CloudConversationSnapshotRequest.java",
@@ -377,8 +377,8 @@
     },
     {
       "path": "CloudInboxChangedEvent.java",
-      "sha256": "d95cc1f1db49a40c34a8330b902b29fbb407bdb5d620b3fc834888bd12b00431",
-      "size": 3800
+      "sha256": "3871b374c4ac7c4e794d31d29fbc8f59971e03c0960ffcd6203b2b8a14db2231",
+      "size": 4418
     },
     {
       "path": "CloudInboxListRequest.java",
@@ -387,8 +387,8 @@
     },
     {
       "path": "CloudInboxResetEvent.java",
-      "sha256": "3dfeb48a4844522802d8b79b94167defd62cba841e0578aa0b6ee29027728b1b",
-      "size": 2249
+      "sha256": "4869560e23cabf753bb12f17778a383421ea072b159cc005810116542ce422cf",
+      "size": 2865
     },
     {
       "path": "CloudInboxSubscribeRequest.java",
@@ -422,8 +422,8 @@
     },
     {
       "path": "CloudSubscriptionStateEvent.java",
-      "sha256": "11dca253f58d6057ba29fa3d6ed5b2c16573e6cf2d4bda164e9f0873630a2656",
-      "size": 4451
+      "sha256": "e08ad24bc7ecdcdee95c2c30d18541aee42c2b86ba3a6507ad7709c644d4fd80",
+      "size": 5074
     },
     {
       "path": "ColorsChangedEvent.java",
@@ -1347,7 +1347,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "e6b399225c4d9bda139f3fa990df910090c4e77969ba154a44a7abf91c360eaa",
+      "sha256": "7b6485e9ddbee84e6248e91c9e8ace2bb0f559459f8cfec2eea51e83eeae9639",
       "size": 5473
     },
     {
@@ -2422,7 +2422,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa",
+  "ir_sha256": "8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

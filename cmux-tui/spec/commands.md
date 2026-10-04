@@ -5442,6 +5442,14 @@ The daemon keeps one upstream socket per target for all local clients and
 publishes the `cloud-*` events on the subscribe stream. A closed connection
 releases its interests.
 
+A subscribe replies with the shared socket's current state,
+`object{conversation?:string, state:string, reason?:string, account?:string}`
+(`connecting`, `live`, `disconnected` or `closed`; a later subscriber to a
+live socket gets `live`), and then emits the same state as a
+`cloud-subscription-state` event, so a change that raced the reply never
+leaves the client on an older state. Every later change of the shared socket
+is a `cloud-subscription-state` event.
+
 ### create-profile
 
 | Field | Value |

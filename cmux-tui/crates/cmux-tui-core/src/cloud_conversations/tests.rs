@@ -301,7 +301,7 @@ fn inbox_stream_subscribes_the_welcomed_users_inbox() {
     let actions = stream.on_text(&welcome());
     assert_eq!(sent(&actions[0]), json!({"t": "subscribe", "stream": format!("inbox:{ME}")}));
     let reset = stream.on_text(&json!({"t": "snapshot", "stream": format!("inbox:{ME}"), "seq": 3, "state": {"next_pin": 0}, "decided": []}).to_string());
-    assert_eq!(reset, vec![StreamAction::Emit(CloudEvent::InboxReset { seq: 3 })]);
+    assert_eq!(reset, vec![StreamAction::Emit(CloudEvent::InboxReset { seq: 3, account: None })]);
     let entry =
         json!({"conversation": CONV, "rev": 2, "kind": "group", "title": "Launch", "unread": 1});
     let bump = json!({"t": "event", "stream": format!("inbox:{ME}"), "seq": 4, "tx": "t4", "op": "inbox.bump",
@@ -313,7 +313,8 @@ fn inbox_stream_subscribes_the_welcomed_users_inbox() {
         vec![StreamAction::Emit(CloudEvent::InboxChanged {
             seq: 4,
             transaction: "t4".into(),
-            entries: vec![entry]
+            entries: vec![entry],
+            account: None,
         })]
     );
     let mut anonymous = StreamState::new(Target::Inbox);
@@ -625,11 +626,11 @@ fn an_account_switch_resets_the_inbox_instead_of_resuming_the_old_users_seq() {
     second.push_text(inbox_snapshot(OTHER, 2));
 
     service.subscribe(1, Target::Inbox).unwrap();
-    events.wait_for(|seen| seen.contains(&CloudEvent::InboxReset { seq: 7 }));
+    events.wait_for(|seen| seen.contains(&CloudEvent::InboxReset { seq: 7, account: None }));
     let mut other = session_params(9_000_000);
     other.access_token = "stack.jwt.other-user".into();
     service.set_session(other).unwrap();
-    events.wait_for(|seen| seen.contains(&CloudEvent::InboxReset { seq: 2 }));
+    events.wait_for(|seen| seen.contains(&CloudEvent::InboxReset { seq: 2, account: None }));
     assert_eq!(frames(first.sent()), [json!({"t": "subscribe", "stream": format!("inbox:{ME}")})]);
     assert_eq!(
         frames(second.sent()),
@@ -769,4 +770,35 @@ fn a_later_subscriber_is_told_the_shared_sockets_current_state() {
     wire.push_close(Some(1006));
     events.wait_for(|seen| seen.iter().any(|e| is_state(e, "disconnected")));
     service.shutdown();
+}
+
+#[test]
+fn the_account_is_the_tokens_sub_read_without_verification() {
+    use super::session::token_account;
+    assert_eq!(token_account(&jwt("user_123")).as_deref(), Some("user_123"));
+    // The payload is base64url without padding; the signature is never read.
+    use base64::Engine;
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"sub":"padded?"}"#);
+    assert!(payload.contains('_'), "{payload} uses the URL-safe alphabet");
+    assert_eq!(token_account(&format!("h.{payload}.")).as_deref(), Some("padded?"));
+    for unreadable in [
+        "stack.jwt.token".to_string(),
+        "only.two".to_string(),
+        "a.b.c.d".to_string(),
+        format!("h.{}.s", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"sub":7}"#)),
+        format!(
+            "h.{}.s",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"sub":""}"#)
+        ),
+        format!(
+            "h.{}.s",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"iss":"x"}"#)
+        ),
+        format!(
+            "h.{}.s",
+            base64::engine::general_purpose::STANDARD.encode(br#"{"sub":"padded?"}"#)
+        ),
+    ] {
+        assert_eq!(token_account(&unreadable), None, "{unreadable}");
+    }
 }

@@ -13,6 +13,7 @@ use super::CloudError;
 pub(crate) const EXPIRING_LEAD_MS: u64 = 120_000;
 const MAX_TOKEN_CHARS: usize = 8192;
 const MAX_VERSION_CHARS: usize = 64;
+const MAX_ACCOUNT_CHARS: usize = 256;
 
 /// `cloud-session-set` params.
 #[derive(Deserialize)]
@@ -47,6 +48,11 @@ pub(crate) struct CloudSession {
     pub(crate) expires_at: u64,
     pub(crate) client_version: Option<String>,
     pub(crate) generation: u64,
+    /// The cloud user id (JWT `sub`) of the token, read without verifying
+    /// the signature: it only tags events with their account, and the Worker
+    /// verifies the token on every request. `None` when the token has no
+    /// readable `sub`.
+    pub(crate) account: Option<String>,
 }
 
 impl fmt::Debug for CloudSession {
@@ -57,6 +63,7 @@ impl fmt::Debug for CloudSession {
             .field("token", &"[redacted]")
             .field("expires_at", &self.expires_at)
             .field("generation", &self.generation)
+            .field("account", &self.account)
             .finish()
     }
 }
@@ -102,6 +109,24 @@ pub(crate) fn validate_api_base_url(raw: &str) -> Result<String, CloudError> {
     })
 }
 
+/// The `sub` claim of a JWT-shaped token (`header.payload.signature`, each
+/// part base64url without padding). The signature is not checked: the value
+/// only tags events with an account (home-cloud-proxy.md section 5), never
+/// authorizes anything.
+pub(crate) fn token_account(token: &str) -> Option<String> {
+    use base64::Engine;
+    let mut parts = token.split('.');
+    let (_header, payload, _signature) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() {
+        return None;
+    }
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let sub = claims.get("sub")?.as_str()?;
+    (!sub.is_empty() && sub.len() <= MAX_ACCOUNT_CHARS && visible_ascii(sub))
+        .then(|| sub.to_string())
+}
+
 impl CloudSession {
     pub(crate) fn new(params: SessionParams, generation: u64) -> Result<Self, CloudError> {
         let origin = validate_api_base_url(&params.api_base_url)?;
@@ -121,12 +146,14 @@ impl CloudSession {
                 "client_version must be 1-{MAX_VERSION_CHARS} visible ASCII characters"
             )));
         }
+        let account = token_account(&token);
         Ok(Self {
             origin,
             token,
             expires_at: params.expires_at,
             client_version: params.client_version,
             generation,
+            account,
         })
     }
 

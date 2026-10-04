@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "48a0f86307589ae65fc01be0f5270144d3f734d0ec81f34fd67770e3c9d67eaa";
+inline constexpr std::string_view kProtocolIrSha256 = "8ff57f77708045b3d4a7f6fe2d555f6f2461d3a5494163ebfe9c587c1f93c646";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1164,6 +1164,7 @@ struct JsonValue {
 };
 
 struct CloudConversationChangedEvent {
+    std::optional<std::string> account{};
     std::optional<JsonValue> change{};
     std::string conversation{};
     std::uint64_t rev{};
@@ -1188,6 +1189,7 @@ struct CloudConversationOpRequest {
 };
 
 struct CloudConversationResyncedEvent {
+    std::optional<std::string> account{};
     std::string conversation{};
     std::optional<JsonValue> messages{};
     std::uint64_t rev{};
@@ -1213,6 +1215,7 @@ struct CloudConversationUnsubscribeRequest {
 };
 
 struct CloudInboxChangedEvent {
+    std::optional<std::string> account{};
     std::optional<JsonValue> entries{};
     std::uint64_t seq{};
     std::string transaction{};
@@ -1226,6 +1229,7 @@ struct CloudInboxListRequest {
 };
 
 struct CloudInboxResetEvent {
+    std::optional<std::string> account{};
     std::uint64_t seq{};
     friend bool operator==(const CloudInboxResetEvent&, const CloudInboxResetEvent&) = default;
 };
@@ -1261,6 +1265,7 @@ struct CloudSessionStatusRequest {
 };
 
 struct CloudSubscriptionStateEvent {
+    std::optional<std::string> account{};
     Field<std::string> conversation{};
     Field<std::string> reason{};
     std::string scope{};

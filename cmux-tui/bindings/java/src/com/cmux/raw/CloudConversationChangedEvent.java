@@ -12,6 +12,7 @@ import java.util.Objects;
 
 /** Immutable cloud-conversation-changed event. Protocol v12; streams: subscribe. */
 public final class CloudConversationChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    private final Field<String> account;
     private final Object change;
     private final String conversation;
     private final UInt64 rev;
@@ -19,6 +20,7 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
     private final String transaction;
 
     private CloudConversationChangedEvent(Builder builder) {
+        this.account = builder.account;
         if (!builder.changeSet) throw new IllegalArgumentException("change is required");
         this.change = builder.change == null ? null : Wire.immutableJson(builder.change);
         if (!builder.conversationSet) throw new IllegalArgumentException("conversation is required");
@@ -33,6 +35,7 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<String> account() { return account; }
     public Object change() { return change; }
     public String conversation() { return conversation; }
     public UInt64 rev() { return rev; }
@@ -44,6 +47,10 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
         Map<String, Object> object = Wire.object(value, "CloudConversationChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "cloud-conversation-changed", "CloudConversationChangedEvent.event");
+        Object rawAccount = Wire.optional(object, "account");
+        if (!Wire.isMissing(rawAccount)) {
+            builder.account(Wire.string(rawAccount, "CloudConversationChangedEvent.account"));
+        }
         Object rawChange = Wire.required(object, "change");
         builder.change(rawChange == null ? null : Wire.immutableJson(rawChange));
         Object rawConversation = Wire.required(object, "conversation");
@@ -61,6 +68,7 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "cloud-conversation-changed");
+        Wire.put(object, "account", account);
         Wire.put(object, "change", change);
         Wire.put(object, "conversation", conversation);
         Wire.put(object, "rev", rev);
@@ -72,16 +80,17 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudConversationChangedEvent that)) return false;
-        return Objects.equals(change, that.change) && Objects.equals(conversation, that.conversation) && Objects.equals(rev, that.rev) && Objects.equals(seq, that.seq) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(account, that.account) && Objects.equals(change, that.change) && Objects.equals(conversation, that.conversation) && Objects.equals(rev, that.rev) && Objects.equals(seq, that.seq) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(change, conversation, rev, seq, transaction); }
+    public int hashCode() { return Objects.hash(account, change, conversation, rev, seq, transaction); }
 
     @Override
     public String toString() { return "CloudConversationChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<String> account = Field.omitted();
         private Object change;
         private boolean changeSet;
         private String conversation;
@@ -93,6 +102,10 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
         private String transaction;
         private boolean transactionSet;
 
+        public Builder account(String value) {
+            this.account = Field.of(value);
+            return this;
+        }
         public Builder change(Object value) {
             this.change = value;
             this.changeSet = true;

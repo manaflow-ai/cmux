@@ -83,9 +83,9 @@ InboxEntry     = home-core InboxEntry (conversation, rev, kind, title, last_seq,
 | `cloud-conversation-snapshot` | `{conversation, tail}` (tail 1-50) | `{conversation:Summary, messages:[Message], rev, seq}` |
 | `cloud-conversation-history` | `{conversation, before_seq, limit}` (limit 1-200) | `{messages:[Message], has_more}` ascending seq, all `< before_seq` |
 | `cloud-conversation-op` | `{conversation?, idempotency_key, origin?, op}` | `{value, rev?, seq?, change?, replayed, transaction, stream, sequence}` |
-| `cloud-inbox-subscribe` | `{}` | `{state}` |
+| `cloud-inbox-subscribe` | `{}` | `{state, reason?, account?}` |
 | `cloud-inbox-unsubscribe` | `{}` | `{}` |
-| `cloud-conversation-subscribe` | `{conversation}` | `{conversation, state}` |
+| `cloud-conversation-subscribe` | `{conversation}` | `{conversation, state, reason?, account?}` |
 | `cloud-conversation-unsubscribe` | `{conversation}` | `{}` |
 
 `cloud-session-set`: `api_base_url` is an origin (`https://host[:port]`, or `http://` with a
@@ -135,21 +135,34 @@ invite of an address peer.
 Subscriptions: one upstream socket per target, shared by all local clients; a client's interests end
 with `…-unsubscribe` or when its connection closes. An upstream socket closes 60 s after its last
 local subscriber leaves (home-scale.md A7). At most 64 conversation subscriptions per daemon
-(`reason: "too_many_subscriptions"`). The reply's `state` is `connecting` when a lease is active and
-`disconnected` otherwise; `cloud-subscription-state` events report every later change.
+(`reason: "too_many_subscriptions"`). The reply carries the shared socket's current state, `reason`
+and `account` (section 5): a new socket answers `connecting` when a lease is usable and
+`disconnected` otherwise, and a later subscriber to a running socket gets that socket's state, for
+example `live`. Right after the reply the daemon emits the same state as a `cloud-subscription-state`
+event: replies and events travel on different queues of a connection, so a change that raced the
+reply may arrive before it, and the event that follows the reply leaves the client on the true state.
+Every later change of the shared socket (`connecting`, `live`, `disconnected`, `closed`) is a
+`cloud-subscription-state` event.
 
 ## 5. Events (after the normal `subscribe`, trusted local connections only)
 
 ```
-{"event":"cloud-conversation-changed","conversation":id,"rev":N,"seq":S,"transaction":tx,"change":Change}
-{"event":"cloud-conversation-resynced","conversation":id,"rev":N,"seq":S,"summary":Summary,"messages":[Message]}
-{"event":"cloud-inbox-changed","seq":S,"transaction":tx,"entries":[InboxEntry]}
-{"event":"cloud-inbox-reset","seq":S}
+{"event":"cloud-conversation-changed","conversation":id,"rev":N,"seq":S,"transaction":tx,"change":Change,"account"?:sub}
+{"event":"cloud-conversation-resynced","conversation":id,"rev":N,"seq":S,"summary":Summary,"messages":[Message],"account"?:sub}
+{"event":"cloud-inbox-changed","seq":S,"transaction":tx,"entries":[InboxEntry],"account"?:sub}
+{"event":"cloud-inbox-reset","seq":S,"account"?:sub}
 {"event":"cloud-subscription-state","scope":"inbox"|"conversation","conversation"?:id,
- "state":"connecting"|"live"|"disconnected"|"closed","reason"?:Reason}
+ "state":"connecting"|"live"|"disconnected"|"closed","reason"?:Reason,"account"?:sub}
 {"event":"cloud-session-needed","reason":"missing"|"expiring"|"expired"|"unauthenticated","expires_at"?:ms}
 ```
 
+- `account` (every event above except `cloud-session-needed`) is the cloud user id, the JWT `sub`
+  of the lease the daemon used for the upstream socket that produced the event. The daemon reads
+  it from the token's payload (base64url without padding) without verifying the signature: it
+  only tags events, and the Worker verifies the token on every request. The field is absent when
+  the lease has no readable `sub` and on `disconnected` states without a lease. The app drops an
+  event whose `account` is present and is not the account signed in now, so events of a socket
+  that still ran on the previous account's lease never reach the new account's mirror.
 - `cloud-conversation-changed` maps one owner event frame to the local `Change` shapes: a written
   `msg` row is `message` for `message.send` and `message-updated` otherwise; `read_cursor.set` is
   `read-cursor`; an invite delivery report is `invite`; every other op is `conversation` with the
@@ -220,14 +233,3 @@ on-disk cache and offline read-only view (home-scale.md A7), the daemon-held mir
 lands on feat-cmux-next, `cloud-inbox-list` takes `cursor?` and returns `next_cursor` so it matches
 `inbox.list`. The home-inbox branch had not landed when this branch merged feat-cmux-next, so part 1
 keeps the `{limit?, include_archived?}` request and `{entries, revision}` result.
-
-Subscription state for a later subscriber (cloud Home source review, 2026-10-04): section 5 says
-the client refuses edits while a target is not `live`. The Swift source (feat-cmux-next-home-cloud-source)
-cannot follow that yet. `CloudService::subscribe` answers `connecting` whenever a lease is active,
-also when the shared upstream socket for that target is already `live`, and `cloud-subscription-state`
-reports only later changes. A second local client, or the same client after it unsubscribed and
-subscribed within the 60 s linger, therefore stays at `connecting` with no event that moves it to
-`live`. Until the daemon answers with the socket's current state (or sends the current state to the
-new subscriber at once), the source refuses edits only while a target is `disconnected` or `closed`
-and lets them through while it is `connecting`. When this lands, the source refuses edits while not
-`live`, as section 5 says.
