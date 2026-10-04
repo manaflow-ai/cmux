@@ -29,12 +29,16 @@ enum BrowserProfileDeletePrompt {
 /// the build cannot read counts as "may hold", so automation is refused then too.
 enum BrowserProfileSecretsGuard {
     static func isPerson(_ origin: ActionOrigin) -> Bool {
-        true
+        origin == .user || origin == .page
     }
 
     /// Why automation may not delete a profile with these counts, nil when it may.
     static func refusal(_ counts: PasswordCounts) -> String? {
-        nil
+        switch (counts.passwords, counts.passkeys) {
+        case (0?, 0?): nil
+        case (nil, _), (_, nil): PasswordStrings.profileDeleteMayHoldSecrets
+        default: PasswordStrings.profileDeleteHoldsSecrets
+        }
     }
 
     /// Counts the profile's secrets, then deletes it or answers the refusal.

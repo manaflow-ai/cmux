@@ -55,6 +55,9 @@ final class CaptureExcludedDialogHost: CmuxDialogHosting {
 
     func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {
         inner.show(dialog, in: scope, scopeGone: scopeGone)
+        guard let window = dialog.window else { return }
+        restore[ObjectIdentifier(dialog)] = (window, window.sharingType)
+        window.sharingType = .none
     }
 
     func hide(_ dialog: CmuxDialogView) {

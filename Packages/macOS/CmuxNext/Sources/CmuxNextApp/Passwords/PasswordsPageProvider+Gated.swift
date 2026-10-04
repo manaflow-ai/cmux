@@ -78,6 +78,7 @@ extension PasswordsPageProvider {
         guard await store.capabilities().export else {
             throw PageError(code: PasswordOps.unavailableCode, message: PasswordStrings.availableAfterUpdate)
         }
+        guard exportAllowed() else { throw PageError(code: PasswordOps.exportOffCode, message: PasswordStrings.exportOff) }
         return try await once(params, context) {
             try await self.confirm(PageConfirmation(kind: .custom, name: String(format: PasswordStrings.exportTitle, profile.name),
                                                     detail: PasswordStrings.exportDetail))

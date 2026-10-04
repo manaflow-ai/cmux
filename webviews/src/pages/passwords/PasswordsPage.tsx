@@ -127,7 +127,7 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
           <button
             type="button"
             className="pw-button pw-export"
-            disabled={!snap.sections.export || disconnected}
+            disabled={!snap.sections.export || !snap.exportAllowed || disconnected}
             title={
               !snap.sections.export
                 ? t("passwords.page.availableAfterUpdate")
