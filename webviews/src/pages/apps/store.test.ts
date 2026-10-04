@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { pageError } from "../shared/pageClient";
 import { MockAppsProvider } from "./mockProvider";
 import { AppsStore } from "./store";
 import { AppsOps } from "./types";
@@ -94,5 +95,41 @@ describe("AppsStore", () => {
     await store.reload();
     expect(store.getSnapshot().connection).toBe("disconnected");
     expect(new AppsStore(null).getSnapshot()).toMatchObject({ connection: "disconnected", loading: false });
+  });
+
+  test("a retried action reuses its idempotency key; a new action gets a new one", async () => {
+    const { provider, store } = await started();
+    provider.failNext(AppsOps.install, pageError("cmux.protocol.timeout", "timed out", true));
+    await store.install("acme.caffeinate");
+    expect(store.getSnapshot().error).toBe("timed out");
+    // The person clicks Install again after the timeout: the same action, the same key.
+    await store.install("acme.caffeinate");
+    const installs = () => provider.calls.filter((call) => call.op === AppsOps.install).map((call) => call.key);
+    expect(installs().length).toBe(2);
+    expect(typeof installs()[0]).toBe("string");
+    expect(installs()[1]).toBe(installs()[0]);
+    await store.uninstall("acme.caffeinate");
+    await store.install("acme.caffeinate");
+    const uninstallKey = provider.calls.find((call) => call.op === AppsOps.uninstall)?.key;
+    expect(new Set([installs()[0], uninstallKey, installs()[2]]).size).toBe(3);
+    // Every mutation carries a key; reads and Open do not.
+    for (const call of provider.calls) {
+      const mutation = [AppsOps.install, AppsOps.uninstall, AppsOps.set, AppsOps.grantSet, AppsOps.update].includes(
+        call.op as never,
+      );
+      expect(typeof call.key === "string").toBe(mutation);
+    }
+  });
+
+  test("a refusal or a declined sheet ends the action: the next try is a new action", async () => {
+    const { provider, store } = await started();
+    provider.failNext(AppsOps.set, pageError("cmux.apps.origin", "needs a person", false));
+    await store.setHidden("cmux.github-prs", true);
+    provider.failNext(AppsOps.set, pageError("cmux.page.cancelled", "cancelled", false));
+    await store.setHidden("cmux.github-prs", true);
+    expect(store.getSnapshot().error).toBe("needs a person");
+    await store.setHidden("cmux.github-prs", true);
+    const keys = provider.calls.filter((call) => call.op === AppsOps.set).map((call) => call.key);
+    expect(new Set(keys).size).toBe(3);
   });
 });

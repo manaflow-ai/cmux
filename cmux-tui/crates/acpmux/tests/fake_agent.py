@@ -237,6 +237,11 @@ def main():
         rid = msg.get("id")
         params = msg.get("params") or {}
         if m == "initialize":
+            # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
+            # session start that take time (MCP servers), for pool latency.
+            if os.environ.get("FAKE_INIT_DELAY_MS"):
+                import time as pause  # main() binds `time` locally
+                pause.sleep(int(os.environ["FAKE_INIT_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
                 "agentInfo": {"name": "fake", "version": "0"},
@@ -244,6 +249,9 @@ def main():
                 "authMethods": [],
             }})
         elif m == "session/new":
+            if os.environ.get("FAKE_NEW_DELAY_MS"):
+                import time as pause  # main() binds `time` locally
+                pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
             known.add(f"fake-{sessions}")
             send({"jsonrpc": "2.0", "id": rid, "result": {
