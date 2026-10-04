@@ -146,6 +146,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         method.hasPrefix("input.")
     }
 
+    /// Trusted input for the whole tab, a point or a key, which reaches
+    /// whatever frame is under the point or holds the focus when it lands.
+    private static func isGuardedInput(_ method: String) -> Bool {
+        ["input.mouse", "input.drag", "input.key", "input.insertText"].contains(method)
+    }
+
     /// Methods that read or act on a page or its cookies; refused while the
     /// page is one the policy blocks. Of the cookie calls only
     /// `cookies.clear` takes its scope (the tab's site) from the page;
@@ -282,9 +288,27 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 }
             }
             try checkPagePolicy(method: method, params: params)
-            try await checkFramePolicy(method: method, params: params)
+            let guardsInput = Self.isGuardedInput(method) && currentPolicy.isActive && tabToPrepare != nil
+            if !guardsInput { try await checkFramePolicy(method: method, params: params) }
             let value: Any?
-            if Self.isActionOnPage(method), let panel = tabToPrepare {
+            if guardsInput, let panel = tabToPrepare {
+                // The input is a point or a key for the whole tab: while it
+                // is in flight, and while it is checked, every frame the
+                // policy blocks is inert (BrowserReplFrameGate.guardingInput),
+                // so a page that moves one under the point, or the focus into
+                // it, after the check does not hand it the event.
+                let webView = panel.webView
+                value = try await frameGate.guardingInput(
+                    in: webView,
+                    frames: { await BrowserReplFrameTree.frames(of: webView) },
+                    checkFocusAfter: method == "input.key" || method == "input.insertText"
+                ) {
+                    try await checkFramePolicy(method: method, params: params)
+                    return try await attachment(panel).withInput(sessionID: sessionID) {
+                        try await handle(method: method, params: params)
+                    }
+                }
+            } else if Self.isActionOnPage(method), let panel = tabToPrepare {
                 // What the page opens while it handles this session's input
                 // goes to this session, never to cmux's UI in front of the user.
                 value = try await attachment(panel).withInput(sessionID: sessionID) {

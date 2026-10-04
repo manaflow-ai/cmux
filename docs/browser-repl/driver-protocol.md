@@ -283,6 +283,27 @@ native (`BrowserReplBoundary` in the session, and the driver):
   can move the focus into a blocked frame meanwhile), and Copy and Cut
   once more after it, before the tab's clipboard takes what they copied;
   either fails with `blocked` and leaves the tab's clipboard unchanged.
+  The input itself is a point or a key for the whole tab, so the page could
+  move a blocked frame under the point, or the focus into it, between a
+  check and the event. While `input.mouse`, `input.drag`, `input.key` or
+  `input.insertText` is checked and in flight, the driver makes the element
+  of each blocked frame (without a blocked ancestor) `inert` in its parent,
+  from its own content world: an inert element is not hit tested and takes
+  no focus, wherever the page moves it. A blocked frame in a shadow tree
+  cannot be told from its siblings there, so every frame element in that
+  parent's shadow trees is inert meanwhile; a blocked frame in a closed
+  shadow root, out of the driver's reach, refuses the input (`blocked`).
+  After a key or inserted text the focus is checked again, still under the
+  guard. Then the guard comes off (an element the page made inert itself
+  stays inert), and the call fails with `blocked` when the page changed a
+  guarded element's `inert` attribute meanwhile. Residual: `inert` is an
+  attribute of the page's DOM, so the page sees it and can remove it; the
+  driver then reports `blocked` after the input, by which time the event
+  may have reached the frame (a detection, not a prevention). A frame the
+  tree read did not show as blocked (it navigated to a blocked page after
+  the read, or was created during the input) is not guarded, and an
+  allowed frame that holds the point or the focus keeps receiving input
+  while blocked frames are inert.
   A page script's write to the tab's clipboard (`page-clipboard.js`) from
   a frame the creating session's policy blocks, judged by WebKit's record
   of the frame that sent it, is rejected, so `clipboard.read` never hands
