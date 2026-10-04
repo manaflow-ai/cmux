@@ -139,8 +139,9 @@ export class ConversationDO extends OwnerDO<Head> {
   protected afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>): void {
     const state = this.boundEngine?.currentState
     if (state) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
-    // A retract or an edit may release attachment references: older uploads may now be collectable.
-    if ((op === "message.retract" || op === "message.edit") && frames.some((f) => f.t === "result")) store.markDirty(this.sqlStore, Date.now())
+    // A retract, an edit or a retention batch may release attachment references: older uploads may now be collectable.
+    const result = frames.find((f) => f.t === "result")
+    if (result?.t === "result" && (op === "message.retract" || op === "message.edit" || (op === conversation.SWEEP_OP && (result.value as { retention?: unknown }).retention !== undefined))) store.markDirty(this.sqlStore, Date.now())
   }
 
   /** What the attachment storage paths (home-attachment-gc.ts) need from this object. */
@@ -167,9 +168,9 @@ export class ConversationDO extends OwnerDO<Head> {
   }
 
   protected override async onWake(now: number): Promise<void> {
-    // The attachment work and the hygiene sweep each run even when the other throws; the first failure is rethrown so the alarm backs off.
+    // Sweep first (released uploads become due in this alarm), then attachments; each runs if the other throws; first failure rethrown.
     let failure: unknown
-    for (const run of [() => gc.runAttachmentWake(this.gc, this.boundRow()?.entity, now), () => this.sweepWake(now)]) {
+    for (const run of [() => this.sweepWake(now), () => gc.runAttachmentWake(this.gc, this.boundRow()?.entity, now)]) {
       try {
         await run()
       } catch (e) {
