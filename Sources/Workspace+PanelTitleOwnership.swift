@@ -16,7 +16,11 @@ extension Workspace {
         propagateToCloud: Bool = true
     ) -> Bool {
         guard panels[panelId] != nil else { return false }
-        if propagateToCloud, source != .remote,
+        let remoteTmuxPane = remoteTmuxControlPane(surfaceID: panelId)
+        // A remote tmux projection owns its title on tmux. Do not let the
+        // cloud-title bridge consume this local edit before it can be sent to
+        // the pane's `select-pane -T` control mutation.
+        if propagateToCloud, source != .remote, remoteTmuxPane == nil,
            let submitted = SurfaceCatalog.shared.submitCloudPanelRename(
                workspace: self, panelID: panelId, title: title, source: source
            ) { return submitted }
@@ -67,10 +71,10 @@ extension Workspace {
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
         // A remote tmux mirror tab rename propagates to `rename-window`.
-        if propagateToRemoteTmux, isRemoteTmuxMirror {
-            if let remotePane = remoteTmuxControlPane(surfaceID: panelId) {
-                _ = remotePane.requestRename(title: trimmed)
-            } else {
+        if propagateToRemoteTmux {
+            if let remoteTmuxPane {
+                _ = remoteTmuxPane.requestRename(title: trimmed)
+            } else if isRemoteTmuxMirror {
                 AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                     workspaceId: id, panelId: panelId, title: trimmed
                 )

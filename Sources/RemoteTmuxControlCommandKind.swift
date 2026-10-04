@@ -13,6 +13,9 @@ enum RemoteTmuxControlCommandKind: Equatable {
     case paneState(Int, UUID)
     case panePath(Int)
     case paneReflow(Int)
+    /// A direct `#{pane_title}` refresh used when a tmux build misses a
+    /// pane-title subscription notification.
+    case paneTitleReconciliation(Int)
     case paneColorReport(Int, RemoteTmuxPaneColors)
     case paneAltScreen(Int, UUID)
     case activityQuery(UUID)
