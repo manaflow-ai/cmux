@@ -116,11 +116,23 @@ final class ConversationViewController: UIViewController {
         view.scroll.panGestureRecognizer.addTarget(self, action: #selector(userScrolled))
         // Sends, refusals (the draft comes back through `onRestoreDraft`),
         // read cursors and older pages all go through the binding.
-        binding = HomeStoreBinding(store: store, controller: view.controller)
+        let binding = HomeStoreBinding(store: store, controller: view.controller)
+        // A refused reaction (or any other refused op but a send) says why.
+        binding.onRefusal = { [weak self] intent, rejection in
+            self?.presentRefusal(HomeRefusalAlert(intent: intent, rejection: rejection))
+        }
+        self.binding = binding
         view.controller.isVisibleToUser = isVisible
         observation.renderNow()
         view.layoutIfNeeded()
         revealFocus()
+    }
+
+    private func presentRefusal(_ content: HomeRefusalAlert) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: content.title, message: content.message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: HomeText.ok, style: .default))
+        present(alert, animated: true)
     }
 
     // MARK: Search hit

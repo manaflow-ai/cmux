@@ -44,6 +44,7 @@ enum HomeText {
     static var actionMute: String { String(localized: "home.action.mute", defaultValue: "Mute", bundle: .module) }
     static var actionUnmute: String { String(localized: "home.action.unmute", defaultValue: "Unmute", bundle: .module) }
     static var actionMarkRead: String { String(localized: "home.action.markRead", defaultValue: "Mark as Read", bundle: .module) }
+    static var tapbackFailedTitle: String { String(localized: "home.tapback.failedTitle", defaultValue: "Couldn't Add the Reaction", bundle: .module) }
     static var actionFailedTitle: String { String(localized: "home.action.failedTitle", defaultValue: "Couldn't Update the Conversation", bundle: .module) }
     static var ok: String { String(localized: "home.ok", defaultValue: "OK", bundle: .module) }
 
