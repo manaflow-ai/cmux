@@ -82,6 +82,47 @@ test("googleDrive.create: the file is the named account's, also when another ses
   assert.match(await s.error('sites.googleDrive.create("document", "Bad uid", { uid: "0&x=1" })'), /uid: expected a non-negative integer/);
 });
 
+// Docs, Sheets and Slides edits and Drive trash run in the file's editor
+// at a positional account index (/u/N/, authuser). The draft names the
+// account the editor is signed in as; the confirmation reads it again in
+// the editor, right before the first input, so another account at that
+// index (another session signed one in or out) edits or trashes nothing.
+const EDIT_DOC_ID = "1docPRIVATE000000000000000000000x";
+const EDIT_DOC = `https://docs.google.com/document/d/${EDIT_DOC_ID}/edit`;
+
+test("Google editor drafts: the draft names the editor's account; another account there at confirmation edits nothing", async () => {
+  const doc = env.state.editors.files.get(EDIT_DOC_ID);
+  const before = JSON.stringify(doc.blocks);
+  doc.shared = true;
+  try {
+    await s.run(`var edD = await sites.googleDocs.replace(${JSON.stringify(EDIT_DOC)}, "Intro", "Opening")`);
+    env.state.googleAccounts = SWITCHED();
+    assert.match(await s.error("sites.googleDocs.replace(edD.id, { confirm: true })"), /account_changed|ada@work\.example/);
+    assert.equal(JSON.stringify(doc.blocks), before, "the shared doc was edited as the work account");
+    assert.equal((await s.value("edD.preview")).account, "ada@example.com");
+  } finally {
+    doc.shared = false;
+    env.state.googleAccounts = null;
+  }
+});
+
+test("googleDrive.trash drafts: the draft names the editor's account; a switch while the confirmation's editor loads trashes nothing", async () => {
+  const doc = env.state.editors.files.get(EDIT_DOC_ID);
+  doc.shared = true;
+  try {
+    await s.run(`var trA = await sites.googleDrive.trash(${JSON.stringify(EDIT_DOC)})`);
+    env.state.googleSwitchOnLoad = SWITCHED();
+    assert.match(await s.error("sites.googleDrive.trash(trA.id, { confirm: true })"), /account_changed|ada@work\.example/);
+    assert.equal(doc.trashed, false, "the shared file was trashed as the work account");
+    assert.equal((await s.value("trA.preview")).account, "ada@example.com");
+  } finally {
+    doc.shared = false;
+    doc.trashed = false;
+    env.state.googleAccounts = null;
+    env.state.googleSwitchOnLoad = null;
+  }
+});
+
 const NOTION_PAGE_URL = "https://www.notion.so/acme/Team-Handbook-1a2b3c4d00004000800000000000abcd";
 
 test("notion.append: the draft names the Notion user; another user at confirmation appends nothing", async () => {

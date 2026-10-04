@@ -57,7 +57,7 @@ export function createState() {
   // signed-in member's public identifier; linkedinSwitchOnCompose: the
   // member another session signs in as when the share composer loads;
   // googleSwitchOnLoad: ListAccounts rows another session's sign-in makes
-  // current when a Gmail or Calendar page loads; notionUser: the Notion user
+  // current when a Gmail, Calendar or editor page loads; notionUser: the Notion user
   // the session holds; notionSwitchOnSync: the user another session signs
   // in as when Notion next answers syncRecordValues.
   return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, composerSuffix: null, gmailSignature: null, calendarTamper: null };
@@ -111,7 +111,10 @@ function docs(req, url, body, state) {
     if (!account) return { redirect: GOOGLE_LOGIN + encodeURIComponent(url.href) };
     return state.editors.handle(req, url, body, { owner: account[3] });
   }
-  const edited = state.editors.handle(req, url, body);
+  // An editor page is signed in as the account at its authuser index;
+  // another session may sign an account in while it loads.
+  if (/\/edit$/.test(url.pathname)) switchGoogleOnLoad(state);
+  const edited = state.editors.handle(req, url, body, { account: googleAccountAt(state, url.searchParams.get("authuser")) });
   if (edited) return edited;
   const m = /^\/(document|spreadsheets|presentation)\/d\/([\w-]+)\/(export|htmlview)$/.exec(url.pathname);
   if (!m) return { status: 404, html: html("Not found") };
