@@ -8,11 +8,12 @@ import Testing
 /// The React CodeRouter page's host side (coordinator decision: a separate cmux.coderouter page):
 /// `coderouter.detect` from the accounts service works signed out and carries no email, the page
 /// provider relays `cmux.coderouter.*` to the same ops the CodeRouter app uses, and the page may run
-/// only its four account actions.
+/// only its three account actions; Connect passes the native sheet.
 @MainActor
 struct CodeRouterPageTests {
     private nonisolated final class Calls: @unchecked Sendable {
         var methods: [String] = []
+        var origins: [String] = []
     }
 
     private static let signedOutAccounts: JSONValue = [
@@ -25,8 +26,9 @@ struct CodeRouterPageTests {
     ]
 
     private func ops(_ calls: Calls) -> CodeRouterAppOps {
-        CodeRouterAppOps(control: { method, _ throws(AppHostCapabilityError) in
+        CodeRouterAppOps(control: { method, params throws(AppHostCapabilityError) in
             calls.methods.append(method)
+            calls.origins.append(params["origin"]?.stringValue ?? "")
             return Self.signedOutAccounts
         })
     }
@@ -45,7 +47,7 @@ struct CodeRouterPageTests {
 
     @Test func thePageProviderRelaysItsNamespaceToTheCodeRouterOps() async throws {
         let calls = Calls()
-        let provider = CodeRouterPageProvider(ops: ops(calls))
+        let provider = CodeRouterPageProvider(ops: ops(calls), connect: { _ in true })
         let context = PageCallContext(page: PageDescriptor.coderouter.id)
         let status = try await provider.call("cmux.coderouter.status", params: [:], context: context)
         #expect(status["signed_in"]?.boolValue == false)
@@ -67,6 +69,40 @@ struct CodeRouterPageTests {
         #expect(page.admits("cmux.coderouter.status"))
         #expect(page.admits(PageNativeOp.actionRun))
         #expect(!page.admits("cmux.apps.install"))
-        #expect(page.actions == ["palette.auth.signIn", "accounts.connect", "accounts.reauthenticate", "accounts.refresh"])
+        #expect(page.actions == ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
+        // Connect adds a credential: never a plain action; the page calls the host op, which the
+        // host puts behind its native sheet (ConfirmingPageProvider + CodeRouterPageConfirmations).
+        #expect(!page.actions.contains("accounts.connect"))
+    }
+
+    /// A page call is the user's own only after the native sheet (context.confirmed).
+    @Test func onlyAConfirmedCallReachesTheOwnerAsTheUser() async throws {
+        let calls = Calls()
+        let provider = CodeRouterPageProvider(ops: ops(calls), connect: { _ in true })
+        _ = try await provider.call("cmux.coderouter.status", params: [:], context: PageCallContext(page: "cmux.coderouter"))
+        _ = try await provider.call("cmux.coderouter.status", params: [:],
+                                    context: PageCallContext(page: "cmux.coderouter", origin: "user", confirmed: true))
+        #expect(calls.origins == ["script", "user"])
+    }
+
+    /// Connect runs only after the sheet: unconfirmed it is refused and never reaches the action.
+    @Test func connectNeedsTheNativeSheet() async throws {
+        var connected: [String] = []
+        let provider = CodeRouterPageProvider(ops: ops(Calls()), connect: { connected.append($0); return true })
+        await #expect(throws: PageError.self) {
+            try await provider.call("cmux.coderouter.accounts.connect", params: ["provider": "codex"],
+                                    context: PageCallContext(page: "cmux.coderouter"))
+        }
+        #expect(connected.isEmpty)
+        let value = try await provider.call("cmux.coderouter.accounts.connect", params: ["provider": "codex"],
+                                            context: PageCallContext(page: "cmux.coderouter", origin: "user", confirmed: true))
+        #expect(connected == ["codex"])
+        #expect(value["connected"]?.boolValue == true)
+        let sheet = CodeRouterPageConfirmations.confirmation(
+            op: "cmux.coderouter.accounts.connect", params: ["provider": "codex", "name": "ChatGPT / Codex"])
+        #expect(sheet?.kind == .custom)
+        #expect(sheet?.name.contains("ChatGPT / Codex") == true)
+        #expect(sheet?.detail?.isEmpty == false)
+        #expect(CodeRouterPageConfirmations.confirmation(op: "cmux.coderouter.status", params: [:]) == nil)
     }
 }

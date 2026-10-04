@@ -34,14 +34,18 @@ describe("CodeRouterStore", () => {
     const { provider, store } = await started(new MockCodeRouterProvider({ signedIn: false }));
     await store.signIn();
     expect(store.getSnapshot().status?.signed_in).toBe(true);
-    await store.connect("codex");
+    await store.connect("codex", "ChatGPT / Codex");
     await store.reauthenticate("claude");
     const actions = provider.calls.filter((call) => call.op === CodeRouterOps.actionRun).map((call) => call.params);
     expect(actions).toEqual([
       { action: CodeRouterActions.signIn, args: {} },
-      { action: CodeRouterActions.connect, args: { provider: "codex" } },
       { action: CodeRouterActions.reauthenticate, args: { provider: "claude" } },
     ]);
+    // Connect adds a credential: it is the host's own op behind its native sheet, not an action.
+    expect(provider.calls.find((call) => call.op === CodeRouterOps.connect)?.params).toEqual({
+      provider: "codex",
+      name: "ChatGPT / Codex",
+    });
   });
 
   test("an unknown op is 'not available', a lost host is disconnected", async () => {
