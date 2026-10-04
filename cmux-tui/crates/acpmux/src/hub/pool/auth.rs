@@ -6,8 +6,8 @@
 //!
 //! The fingerprint names the account, not the token, where the file says
 //! which account it is: an OAuth token refresh rewrites the file without
-//! changing the account, and the harness refreshes its own tokens. Files
-//! with no account field count by size and modification time. Values are
+//! changing the account, and the harness refreshes its own tokens. Token
+//! files with no account field count by presence (a logout removes them). Values are
 //! hashed in memory and never stored or logged.
 
 use std::collections::BTreeMap;
@@ -37,7 +37,7 @@ enum Reader {
     CodexAuth,
     /// OpenCode `auth.json`: each provider's type, account and key.
     OpencodeAuth,
-    /// No account field: size and modification time.
+    /// No account field (token files): present or not.
     Stat,
 }
 
@@ -129,9 +129,10 @@ impl AuthCache {
         let Ok(md) = std::fs::metadata(path) else { return 0 };
         let (len, mtime) = (md.len(), md.modified().ok());
         if reader == Reader::Stat {
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            (len, mtime).hash(&mut h);
-            return h.finish() | 1;
+            // Present or not: the harness rewrites it on every token refresh,
+            // which must not discard its own pooled session; the account
+            // lives in a file the reader names.
+            return 1;
         }
         if let Some((l, m, part)) = self.parsed.lock().unwrap().get(path)
             && *l == len

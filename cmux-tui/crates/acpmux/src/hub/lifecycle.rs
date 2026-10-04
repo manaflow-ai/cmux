@@ -144,7 +144,14 @@ impl Hub {
                     }
                     n
                 }
-                None => unique_name_among(&sessions, agent),
+                // A pooled harness was started under its name: keep it.
+                None => match self
+                    .pool_claimed_name(&id)
+                    .filter(|n| !sessions.values().any(|s| s.meta().name == *n))
+                {
+                    Some(n) => n,
+                    None => unique_name_among(&sessions, agent),
+                },
             };
             let session = self.make_session(meta);
             sessions.insert(id.clone(), session.clone());

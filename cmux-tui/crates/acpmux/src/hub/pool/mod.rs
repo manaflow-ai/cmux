@@ -44,8 +44,12 @@ use policy::{Origin, Pool, PoolKey, Role, Take};
 /// Held log lines and inbound messages per entry, beyond which stderr is
 /// dropped (anything else is kept).
 const HELD_CAP: usize = 1024;
-/// Most a pooled start may take before it counts as failed.
+/// Most a pooled start's `initialize` and harness session may take before
+/// it counts as failed (and its host is ended).
 const START_BUDGET: Duration = Duration::from_secs(90);
+/// Most a `session/new` waits for a matching entry that is still starting
+/// before it starts cold.
+const CLAIM_WAIT: Duration = Duration::from_secs(15);
 /// How long an ended entry's host gets before it is ended by nonce proof.
 const END_GRACE: Duration = Duration::from_secs(2);
 
@@ -69,6 +73,11 @@ pub(crate) struct PoolState {
     /// of the one before it (the last-used role).
     recent: StdMutex<HashMap<PathBuf, (Spec, Option<Spec>)>>,
     rss: StdMutex<RssProbe>,
+    /// Hosts started for entries not in the pool yet, by reserved id:
+    /// `stop_pool` ends them too.
+    starting: StdMutex<HashMap<String, HostRecord>>,
+    /// Keys whose session alone is over the RSS cap: never started again.
+    oversize: StdMutex<std::collections::HashSet<PoolKey>>,
 }
 
 type Spec = (String, Option<String>);
@@ -86,6 +95,8 @@ impl PoolState {
             auth: auth::AuthCache::default(),
             recent: StdMutex::new(HashMap::new()),
             rss: StdMutex::new(Arc::new(tree_rss_bytes)),
+            starting: StdMutex::new(HashMap::new()),
+            oversize: StdMutex::new(Default::default()),
         }
     }
 }
@@ -99,6 +110,11 @@ enum TapSlot {
 /// One hidden session, ready for a `session/new` to take.
 pub(super) struct Pooled {
     session_id: String,
+    /// The name the harness was started with (`ACPMUX_SESSION_NAME`); the
+    /// taking session keeps it unless the request names another.
+    name: String,
+    /// The key it is served under.
+    key: PoolKey,
     child: Arc<ChildAgent>,
     record: HostRecord,
     claude: bool,
@@ -451,6 +467,9 @@ impl Hub {
         if !self.pool_enabled().await {
             return;
         }
+        if self.pool.oversize.lock().unwrap().contains(&spec.key) {
+            return;
+        }
         let idle = self.config.read().await.pool.idle();
         let now = self.clock.lock().unwrap().now();
         let wanted = {
@@ -463,27 +482,24 @@ impl Hub {
         let Some(generation) = wanted.start else { return };
         let hub = self.clone();
         tokio::spawn(async move {
-            let started = tokio::time::timeout(START_BUDGET, hub.spawn_pooled(&spec)).await;
-            match started {
-                Ok(Ok(p)) => {
+            match hub.spawn_pooled(&spec).await {
+                Ok(p) => {
+                    let id = p.session_id.clone();
                     let back = if hub.pool.stopping.load(Ordering::SeqCst) {
                         Some(p)
                     } else {
                         let now = hub.clock.lock().unwrap().now();
                         hub.pool.pool.lock().unwrap().complete(&spec.key, generation, p, now)
                     };
-                    let returned = back.is_some();
-                    hub.pool_discard(back.into_iter().collect());
-                    if !returned {
-                        hub.pool_after_ready().await;
+                    // In the pool now (or ended below): `stop_pool` finds it there.
+                    hub.pool.starting.lock().unwrap().remove(&id);
+                    match back {
+                        Some(p) => end_pooled(p).await,
+                        None => hub.pool_after_ready().await,
                     }
                 }
-                Ok(Err(e)) => {
+                Err(e) => {
                     tracing::warn!(harness = %spec.key.harness, "pooled session failed to start: {e:#}");
-                    hub.pool.pool.lock().unwrap().failed(&spec.key, generation);
-                }
-                Err(_) => {
-                    tracing::warn!(harness = %spec.key.harness, "pooled session did not start in {START_BUDGET:?}");
                     hub.pool.pool.lock().unwrap().failed(&spec.key, generation);
                 }
             }
@@ -515,7 +531,15 @@ impl Hub {
                     p.parked = true;
                 }
             }
-            pool.enforce_cap(cap, |p| p.rss)
+            let evicted = pool.enforce_cap(cap, |p| p.rss);
+            // A session over the cap on its own would only start again.
+            let mut oversize = self.pool.oversize.lock().unwrap();
+            for v in &evicted {
+                if v.rss > cap {
+                    oversize.insert(v.key.clone());
+                }
+            }
+            evicted
         };
         if !evicted.is_empty() {
             tracing::info!(
@@ -584,6 +608,31 @@ impl Hub {
         };
         let launcher = agent_host::link::HostLauncher::current()?;
         let record = agent_host::link::spawn(&launcher, &host_spec).await?;
+        self.pool.starting.lock().unwrap().insert(session_id.clone(), record.clone());
+        let started =
+            self.start_pooled(session_id.clone(), name, record.clone(), spec, claude).await;
+        if started.is_err() {
+            self.pool.starting.lock().unwrap().remove(&session_id);
+        }
+        started
+    }
+
+    /// The rest of `spawn_pooled` once its host runs: attach, `initialize`,
+    /// the harness session, all within `START_BUDGET`. On failure the host
+    /// is ended.
+    async fn start_pooled(
+        &self,
+        session_id: String,
+        name: String,
+        record: HostRecord,
+        spec: &PoolSpec,
+        claude: bool,
+    ) -> anyhow::Result<Pooled> {
+        let draft = &spec.draft;
+        if self.pool.stopping.load(Ordering::SeqCst) {
+            end_pooled_host(&record).await;
+            anyhow::bail!("the daemon is stopping");
+        }
         let (tap, slot) = holding_tap();
         let (inbound, target) = holding_inbound();
         let attached =
@@ -612,18 +661,22 @@ impl Hub {
                 )
             };
             Ok::<_, RpcError>((init, new_result))
-        }
-        .await;
-        let (init, new_result) = match started {
-            Ok(v) => v,
-            Err(e) => {
-                child.kill().await;
+        };
+        let (init, new_result) = match tokio::time::timeout(START_BUDGET, started).await {
+            Ok(Ok(v)) => v,
+            failed => {
+                let _ = tokio::time::timeout(END_GRACE, child.terminate(END_GRACE)).await;
                 end_pooled_host(&record).await;
-                anyhow::bail!("{}", e.message);
+                match failed {
+                    Ok(Err(e)) => anyhow::bail!("{}", e.message),
+                    _ => anyhow::bail!("no harness session within {START_BUDGET:?}"),
+                }
             }
         };
         Ok(Pooled {
             session_id,
+            name,
+            key: spec.key.clone(),
             child,
             record,
             claude,
@@ -679,12 +732,20 @@ impl Hub {
                 }
                 Take::Miss => return None,
                 Take::Warming(mut settled) => {
-                    if settled.changed().await.is_err() {
-                        return None;
+                    // A start that hangs never holds a user's session/new
+                    // longer than a cold start would roughly take.
+                    match tokio::time::timeout(CLAIM_WAIT, settled.changed()).await {
+                        Ok(Ok(())) => {}
+                        _ => return None,
                     }
                 }
             }
         }
+    }
+
+    /// The name the claimed pooled session for `id` was started with.
+    pub(super) fn pool_claimed_name(&self, id: &str) -> Option<String> {
+        self.pool.claimed.lock().unwrap().get(id).map(|p| p.name.clone())
     }
 
     /// The claimed pooled session for `id`, if `session/new` claimed one.
@@ -810,7 +871,14 @@ impl Hub {
         self.pool.stop.notify_one();
         let mut all = self.pool.pool.lock().unwrap().clear();
         all.extend(self.pool.claimed.lock().unwrap().drain().map(|(_, p)| p));
-        let ends = futures::future::join_all(all.into_iter().map(end_pooled));
+        // Starts still running: their hosts end by nonce proof; the start
+        // itself then fails on its closed link.
+        let starting: Vec<HostRecord> =
+            self.pool.starting.lock().unwrap().drain().map(|(_, r)| r).collect();
+        let ends = futures::future::join(
+            futures::future::join_all(all.into_iter().map(end_pooled)),
+            futures::future::join_all(starting.iter().map(end_pooled_host)),
+        );
         if tokio::time::timeout(END_GRACE * 3, ends).await.is_err() {
             tracing::warn!("pooled sessions did not end in time; the next daemon ends them");
         }
@@ -823,6 +891,20 @@ impl Hub {
         let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
         for (_, record) in good {
             end_pooled_host(&record).await;
+            // A crash between promote's two renames left the lock in hosts/.
+            let hosts = agent_host::hosts_dir();
+            if agent_host::liveness(&hosts, &record.session_id, &record.start_nonce)
+                != Liveness::Dead
+            {
+                super::hosts::end_host_blocking(
+                    hosts.clone(),
+                    record.session_id.clone(),
+                    Some(record.start_nonce.clone()),
+                    Some(record.host_pid),
+                )
+                .await;
+            }
+            agent_host::remove_promoted(&dir, &record);
         }
         for b in bad {
             let ended = super::hosts::end_host_blocking(
@@ -848,10 +930,11 @@ impl Hub {
         let hub = self.clone();
         tokio::spawn(async move {
             loop {
+                let shut = AtomicBool::new(false);
                 let stopped = async {
                     tokio::select! {
-                        _ = hub.shutdown.notified() => {}
-                        _ = hub.pool.stop.notified() => {}
+                        _ = hub.shutdown.notified() => shut.store(true, Ordering::SeqCst),
+                        _ = hub.pool.stop.notified() => shut.store(true, Ordering::SeqCst),
                     }
                 };
                 let state = hub.pool.clone();
@@ -874,7 +957,8 @@ impl Hub {
                 .await;
                 hub.pool.reaper.store(false, Ordering::SeqCst);
                 // An entry added while the reaper was leaving restarts it.
-                let again = !hub.pool.pool.lock().unwrap().is_empty()
+                let again = !shut.load(Ordering::SeqCst)
+                    && !hub.pool.pool.lock().unwrap().is_empty()
                     && !hub.pool.stopping.load(Ordering::SeqCst)
                     && !hub.stopping.load(Ordering::SeqCst)
                     && !hub.pool.reaper.swap(true, Ordering::SeqCst);

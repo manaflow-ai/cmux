@@ -366,3 +366,34 @@ async fn pooled_sessions_end_with_the_daemon_and_after_a_crash() {
     assert!(listed["sessions"].as_array().unwrap().is_empty(), "{listed}");
     assert_eq!(daemon.stored_sessions(), 0);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_start_still_running_ends_with_the_daemon() {
+    let mut daemon = Daemon::new("fly", 0);
+    let home = daemon.home.clone();
+    // The pooled harness hangs in its session start.
+    let mut slow = profile("b");
+    slow["env"]["FAKE_NEW_DELAY_MS"] = json!("60000");
+    daemon.write_config(&slow);
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/reload_config", json!({})).await;
+    let hint = rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
+    assert_eq!(hint["accepted"], true, "{hint}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let record = loop {
+        if let Some(r) = daemon.pool_records().pop()
+            && r["harness_pid"].as_i64().is_some()
+        {
+            break r;
+        }
+        assert!(Instant::now() < deadline, "the pooled host never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let harness = record["harness_pid"].as_i64().unwrap();
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["pool"]["entries"][0]["state"], "warming", "{status}");
+    rpc.call("_acpmux/shutdown", json!({})).await;
+    daemon.wait_exit();
+    assert!(gone_within(harness, Duration::from_secs(10)), "a start in flight outlived shutdown");
+    assert!(daemon.pool_records().is_empty());
+}
