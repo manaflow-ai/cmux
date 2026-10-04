@@ -51,11 +51,11 @@ describe("BridgePageClient", () => {
       details: { origin: "session_host", details: { exit_code: 128 } },
     }));
     const error = await client.call("x", {}).catch((e) => e);
-    expect(error.details).toEqual({ origin: "session_host", details: { exit_code: 128 } });
+    expect((error as { details?: unknown }).details).toEqual({ origin: "session_host", details: { exit_code: 128 } });
     const plain = await host((m) => ({ t: "err", id: m.id, code: "c", message: "m" }))
       .client.call("x", {})
       .catch((e) => e);
-    expect(plain.details).toBeUndefined();
+    expect((plain as { details?: unknown }).details).toBeUndefined();
   });
 
   test("a failed post is a retryable transport error; a malformed reply is invalid_result", async () => {
