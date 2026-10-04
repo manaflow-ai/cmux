@@ -17,6 +17,8 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
     private struct Cursor {
         var point: CGPoint?
         var paused = false
+        /// The session's last input: re-placed when its target's visibility changes.
+        var lastEvent: AutomationInputEvent?
     }
 
     private let resolver: AgentCursorTargetResolving
@@ -31,9 +33,17 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
     }
 
     public func render(_ event: AutomationInputEvent) {
-        let session = event.sessionID
-        var cursor = cursors[session] ?? Cursor()
+        var cursor = cursors[event.sessionID] ?? Cursor()
         guard !cursor.paused else { return }
+        let isClick = event.kind == .click || event.kind == .doubleClick || event.kind == .rightClick
+        draw(event, cursor: &cursor, pulse: isClick)
+        cursor.lastEvent = event
+        cursors[event.sessionID] = cursor
+    }
+
+    /// Places `event`'s cursor where its target is now.
+    private func draw(_ event: AutomationInputEvent, cursor: inout Cursor, pulse: Bool) {
+        let session = event.sessionID
         switch resolver.placement(forTarget: event.targetID) {
         case let .visible(content, clip, zoom, magnification):
             guard let target = AgentCursorGeometry.overlayPoint(
@@ -51,7 +61,7 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
                 host.apply(.place(session: session, point: target))
             }
             cursor.point = target
-            if event.kind == .click || event.kind == .doubleClick || event.kind == .rightClick {
+            if pulse {
                 host.apply(.pulse(session: session))
             }
         case let .hidden(anchor):
@@ -61,7 +71,6 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
             host.apply(.hide(session: session))
             cursor.point = nil
         }
-        cursors[session] = cursor
     }
 
     /// Called with a target the cursor no longer follows (its session's lease
@@ -72,14 +81,23 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
     /// scrolled, a window minimized, a tab or workspace switched): sessions
     /// whose last input went to `target` move their cursor to the new place.
     public func placementsDidChange(target: String) {
-        _ = target
+        for session in cursors.keys.sorted() {
+            guard var cursor = cursors[session], !cursor.paused,
+                  let event = cursor.lastEvent, event.targetID == target else { continue }
+            draw(event, cursor: &cursor, pulse: false)
+            cursors[session] = cursor
+        }
     }
 
     /// A lease frame for `session`: `nil` means the lease ended.
     public func leaseDidChange(session: String, state: AgentCursorLeaseState?) {
         guard let state else {
-            if cursors.removeValue(forKey: session) != nil {
+            if let ended = cursors.removeValue(forKey: session) {
                 host.apply(.remove(session: session))
+                if let target = ended.lastEvent?.targetID,
+                   !cursors.values.contains(where: { $0.lastEvent?.targetID == target }) {
+                    onUntrack?(target)
+                }
             }
             return
         }

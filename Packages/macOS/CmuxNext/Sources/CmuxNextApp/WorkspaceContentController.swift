@@ -68,6 +68,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
         if let planeLayer = layoutView.overlayPlane.layer {
             agentCursor = AgentCursorStack(hostLayer: planeLayer, resolver: services.agentCursorVisibility.resolver(for: self))
+            agentCursor?.model.onUntrack = { [weak services] target in services?.agentCursorVisibility.untrack(target) }
         }
         observe()
         screenBar = ScreenBarController(content: self)
