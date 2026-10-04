@@ -1,0 +1,387 @@
+{
+ "id": "real-instinct",
+ "title": "Instinct",
+ "participants": [
+  {
+   "id": "me",
+   "displayName": "Me",
+   "isMe": true
+  },
+  {
+   "id": "instinct",
+   "displayName": "Instinct",
+   "isMe": false,
+   "avatar": {
+    "monogram": "I"
+   }
+  }
+ ],
+ "messages": [
+  {
+   "id": "request",
+   "senderId": "me",
+   "sentAt": "2026-10-02T02:11:26-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Send me one of each: a photo, a video, a link, a PDF, an audio file, a contact, a location, a zip, a GIF and a long text with a code block. Then reply in a thread to two of them, and add one more reply to one of your thread replies. Thanks!"
+    }
+   ],
+   "status": {
+    "state": "read",
+    "at": "2026-10-02T02:11:28-07:00"
+   },
+   "reactions": []
+  },
+  {
+   "id": "r204853",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:46-07:00",
+   "parts": [
+    {
+     "type": "attachment",
+     "attachment": {
+      "id": "photo.jpeg",
+      "kind": "image",
+      "fileName": "photo.jpeg",
+      "mimeType": "image/jpeg",
+      "byteSize": 54246,
+      "transfer": {
+       "state": "done"
+      },
+      "asset": "real/photo.png",
+      "width": 600,
+      "height": 450
+     }
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204854",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:49-07:00",
+   "parts": [
+    {
+     "type": "attachment",
+     "attachment": {
+      "id": "clip.mov",
+      "kind": "video",
+      "fileName": "clip.mov",
+      "mimeType": "video/quicktime",
+      "byteSize": 73308,
+      "transfer": {
+       "state": "done"
+      },
+      "poster": "real/photo.png",
+      "width": 600,
+      "height": 450
+     }
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204855",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:49-07:00",
+   "parts": [
+    {
+     "type": "link",
+     "url": "https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/",
+     "title": "Workers for Platforms",
+     "siteName": "developers.cloudflare.com",
+     "image": "real/link.png",
+     "theme": "light"
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204856",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:51-07:00",
+   "parts": [
+    {
+     "type": "attachment",
+     "attachment": {
+      "id": "sample.pdf",
+      "kind": "file",
+      "fileName": "sample.pdf",
+      "mimeType": "application/pdf",
+      "byteSize": 29015,
+      "transfer": {
+       "state": "done"
+      }
+     }
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204857",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:53-07:00",
+   "parts": [
+    {
+     "type": "attachment",
+     "attachment": {
+      "id": "audio.m4a",
+      "kind": "audio",
+      "fileName": "audio.m4a",
+      "mimeType": "audio/x-m4a",
+      "byteSize": 28355,
+      "transfer": {
+       "state": "done"
+      }
+     }
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204858",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:55-07:00",
+   "parts": [
+    {
+     "type": "attachment",
+     "attachment": {
+      "id": "contact.vcf",
+      "kind": "contact",
+      "fileName": "contact.vcf",
+      "mimeType": "text/vcard",
+      "byteSize": 118,
+      "transfer": {
+       "state": "done"
+      }
+     }
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204859",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:58-07:00",
+   "parts": [
+    {
+     "type": "location",
+     "latitude": 37.7897,
+     "longitude": -122.3938,
+     "title": "Location from 10/2/26"
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204860",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:58-07:00",
+   "parts": [
+    {
+     "type": "attachment",
+     "attachment": {
+      "id": "sample.zip",
+      "kind": "file",
+      "fileName": "sample.zip",
+      "mimeType": "application/zip",
+      "byteSize": 180,
+      "transfer": {
+       "state": "done"
+      }
+     }
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204861",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:12:59-07:00",
+   "parts": [
+    {
+     "type": "attachment",
+     "attachment": {
+      "id": "anim.gif",
+      "kind": "image",
+      "fileName": "anim.gif",
+      "mimeType": "image/gif",
+      "byteSize": 3486,
+      "transfer": {
+       "state": "done"
+      },
+      "asset": "real/gif.png",
+      "width": 600,
+      "height": 448
+     }
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204862",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:13:01-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Long text test, paragraph one. This is a longer block of prose so the bubble wraps across several lines and you can check line height, truncation and \"read more\" behavior in your UI.\n\nParagraph two. It has a few sentences, some punctuation, an apostrophe or two (it's here), and a URL-free line so link detection doesn't interfere.\n\nParagraph three comes with a code block:\n\ndef greet(name):\n    if not name:\n        return \"hello, world\"\n    return f\"hello, {name}\"\n\nprint(greet(\"tester\"))\n\nLast line, after the code."
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "r204864",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:13:10-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Thread reply 1 to the link (item 3)."
+    }
+   ],
+   "reactions": [],
+   "replyTo": {
+    "messageId": "r204855",
+    "partIndex": 0
+   }
+  },
+  {
+   "id": "r204865",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:13:12-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Thread reply 2 to the link (item 3)."
+    }
+   ],
+   "reactions": [],
+   "replyTo": {
+    "messageId": "r204855",
+    "partIndex": 0
+   }
+  },
+  {
+   "id": "r204866",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:13:13-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Thread reply to the photo (item 1)."
+    }
+   ],
+   "reactions": [],
+   "replyTo": {
+    "messageId": "r204853",
+    "partIndex": 0
+   }
+  },
+  {
+   "id": "r204867",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:13:19-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Reply to a thread reply (nested under link reply 1)."
+    }
+   ],
+   "reactions": [],
+   "replyTo": {
+    "messageId": "r204855",
+    "partIndex": 0
+   }
+  },
+  {
+   "id": "r204868",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:13:22-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "All 10 items sent in order, plus the 4 thread replies. Notes: the location is an Apple Maps link, not a native pin (I can't send native pins). The contact is a .vcf attachment, and the audio is an .m4a file, not a native voice memo."
+    }
+   ],
+   "reactions": []
+  },
+  {
+   "id": "t11",
+   "senderId": "me",
+   "sentAt": "2026-10-02T02:14:42-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Test 11: please reply to THIS message in a thread with one short line."
+    }
+   ],
+   "status": {
+    "state": "read",
+    "at": "2026-10-02T02:14:44-07:00"
+   },
+   "reactions": []
+  },
+  {
+   "id": "t11r",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:14:52-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Threaded reply for test 11."
+    }
+   ],
+   "replyTo": {
+    "messageId": "t11",
+    "partIndex": 0
+   },
+   "reactions": []
+  },
+  {
+   "id": "t12",
+   "senderId": "me",
+   "sentAt": "2026-10-02T02:15:22-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Test 12: please reply in a thread to this one, and also send a normal (non-thread) reply after it."
+    }
+   ],
+   "status": {
+    "state": "read",
+    "at": "2026-10-02T02:15:24-07:00"
+   },
+   "reactions": []
+  },
+  {
+   "id": "t12r",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:15:32-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Threaded reply for test 12."
+    }
+   ],
+   "replyTo": {
+    "messageId": "t12",
+    "partIndex": 0
+   },
+   "reactions": []
+  },
+  {
+   "id": "t12n",
+   "senderId": "instinct",
+   "sentAt": "2026-10-02T02:15:36-07:00",
+   "parts": [
+    {
+     "type": "text",
+     "text": "Normal non-threaded reply for test 12."
+    }
+   ],
+   "reactions": []
+  }
+ ]
+}
