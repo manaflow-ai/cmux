@@ -17,6 +17,8 @@ export interface PlanLimits {
   readonly memory_options_mb: ReadonlyArray<number>
   readonly locked_memory_options_mb: ReadonlyArray<number>
   readonly vm_hours_included: number | null
+  readonly max_cpu: number
+  readonly max_disk_mb: number
 }
 
 export const STUB_PLAN: PlanLimits = {
@@ -25,7 +27,9 @@ export const STUB_PLAN: PlanLimits = {
   max_saved: 10,
   memory_options_mb: [4096, 8192],
   locked_memory_options_mb: [],
-  vm_hours_included: null
+  vm_hours_included: null,
+  max_cpu: 4,
+  max_disk_mb: 65536
 }
 
 /** What CloudDO's reducer needs from the deployment. Fixed per object instance, so the reducer stays pure. */

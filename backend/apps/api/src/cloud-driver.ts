@@ -22,8 +22,21 @@ export interface VmTag {
 export interface RawCloudDriver {
   find(name: string): Promise<{ readonly id: string; readonly tag: Record<string, unknown> } | null>
   /** `tag` null: this call made the VM; else the VM already under the name (checked by the guard). */
-  create(name: string, tag: VmTag): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
+  create(name: string, tag: VmTag, opts: CreateOptions): Promise<{ readonly id: string; readonly tag: Record<string, unknown> | null }>
   delete(id: string): Promise<void>
+  /** One page (100) of VMs whose metadata has `filter` (`key:value`). Used only to report, never to delete. */
+  list(filter: string, offset: number): Promise<{ readonly vms: ReadonlyArray<ListedVm>; readonly total: number }>
+}
+
+export interface CreateOptions {
+  /** The machine's idle policy in seconds; 0 = never pause. */
+  readonly idleSeconds: number
+}
+
+export interface ListedVm {
+  readonly id: string
+  readonly name: string | null
+  readonly tag: Record<string, unknown>
 }
 
 /**
@@ -55,14 +68,14 @@ export class GuardedCloudDriver {
   }
 
   /** The VM under `name`, created if missing. */
-  async ensure(name: string, tag: VmTag): Promise<{ id: string }> {
+  async ensure(name: string, tag: VmTag, opts: CreateOptions): Promise<{ id: string }> {
     this.guard(name)
     const found = await this.raw.find(name)
     if (found) {
       if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
       return { id: found.id }
     }
-    const created = await this.raw.create(name, tag)
+    const created = await this.raw.create(name, tag, opts)
     if (created.tag !== null && !ours(created.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
     return { id: created.id }
   }
@@ -79,19 +92,41 @@ export class GuardedCloudDriver {
 
 const REQUEST_TIMEOUT_MS = 20_000
 const CREATE_TIMEOUT_MS = 120_000
-const IDLE_TIMEOUT_SECONDS = 1800
+const LIST_PAGE = 100
+
+/**
+ * The create body (Freestyle SDK 0.2.10 CreateVmOptions, web/services/vms/drivers/freestyle.ts):
+ * - idleTimeoutSeconds: the machine's idle policy; our 0 (never pause) is Freestyle's -1.
+ * - autoDeleteSeconds -1: a user machine is persistent, never deleted for not running (on a plan
+ *   that caps it, -1 gets the cap). automaticRestart stays at its default, true.
+ * - firewall: a VM gets nothing implicitly; this allows egress to every publicly routable address.
+ *   `public: true` selects by address, so it does not cover private or VPC addresses. The machine
+ *   joins no VPC at create (no `vpcs`), so no VPC rule is needed now; the VPC attach work (lane 12)
+ *   adds a `{ vpcId }` rule with the attach.
+ * - size: create takes no resources (the snapshot decides; resize is a separate, grow-only call),
+ *   so the plan checks cpu, memory and disk but the size is not sent yet.
+ */
+export const createBody = (name: string, snapshot: string, tag: VmTag, opts: CreateOptions) => ({
+  slug: name,
+  snapshotId: snapshot,
+  idleTimeoutSeconds: opts.idleSeconds === 0 ? -1 : opts.idleSeconds,
+  autoDeleteSeconds: -1,
+  metadata: { cmux_next_team: tag.team, cmux_next_machine: tag.machine },
+  firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
+})
 
 /** Freestyle REST (the same v5 calls TeamVmDO's driver measured). Errors carry only the step, status and provider code. */
 export class FreestyleCloudDriver implements RawCloudDriver {
   constructor(
     private readonly apiKey: string,
     private readonly baseUrl: string,
-    private readonly snapshot: string
+    private readonly snapshot: string,
+    private readonly fetchFn: typeof fetch = fetch
   ) {}
 
   private async call(method: string, path: string, body?: unknown, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ status: number; json: Record<string, unknown> }> {
     try {
-      const res = await fetch(`${this.baseUrl.replace(/\/+$/, "")}${path}`, {
+      const res = await this.fetchFn(`${this.baseUrl.replace(/\/+$/, "")}${path}`, {
         method,
         headers: { authorization: `Bearer ${this.apiKey}`, ...(body === undefined ? {} : { "content-type": "application/json" }) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -122,24 +157,24 @@ export class FreestyleCloudDriver implements RawCloudDriver {
     return this.vm(got.json)
   }
 
-  async create(name: string, tag: VmTag) {
-    const created = await this.call(
-      "POST",
-      "/v5/vms",
-      {
-        slug: name,
-        snapshotId: this.snapshot,
-        idleTimeoutSeconds: IDLE_TIMEOUT_SECONDS,
-        metadata: { cmux_next_team: tag.team, cmux_next_machine: tag.machine },
-        firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
-      },
-      CREATE_TIMEOUT_MS
-    )
+  async create(name: string, tag: VmTag, opts: CreateOptions) {
+    const created = await this.call("POST", "/v5/vms", createBody(name, this.snapshot, tag, opts), CREATE_TIMEOUT_MS)
     if (created.status >= 200 && created.status < 300) return { id: this.vm(created.json).id, tag: null }
     // A duplicate name (409) or an unknown outcome: the VM under the name, if any, is the answer.
     const found = await this.find(name)
     if (found) return found
     this.fail(created.status, created.json, "create VM")
+  }
+
+  async list(filter: string, offset: number) {
+    const q = new URLSearchParams({ metadata: filter, limit: String(LIST_PAGE), offset: String(offset) })
+    const got = await this.call("GET", `/v5/vms?${q}`)
+    if (got.status !== 200) this.fail(got.status, got.json, "list VMs")
+    const vms = (Array.isArray(got.json.vms) ? got.json.vms : []) as Array<Record<string, unknown>>
+    return {
+      vms: vms.filter((v) => typeof v.id === "string").map((v) => ({ id: v.id as string, name: typeof v.slug === "string" ? v.slug : null, tag: (v.metadata ?? {}) as Record<string, unknown> })),
+      total: typeof got.json.totalCount === "number" ? got.json.totalCount : vms.length
+    }
   }
 
   async delete(id: string) {
@@ -155,7 +190,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
  */
 export class FakeCloudDriver implements RawCloudDriver {
   constructor(private readonly sql: SqlStore) {
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_vm (name TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, tag TEXT NOT NULL, idle INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, deletes INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO cloud_fake_ctl (id) VALUES (1)`)
   }
@@ -174,12 +209,20 @@ export class FakeCloudDriver implements RawCloudDriver {
     return row ? { id: row.id, tag: JSON.parse(row.tag) as Record<string, unknown> } : null
   }
 
-  async create(name: string, tag: VmTag) {
+  async create(name: string, tag: VmTag, opts: CreateOptions) {
     this.maybeFail()
-    const t = { cmux_next_team: tag.team, cmux_next_machine: tag.machine }
-    this.sql.exec(`INSERT INTO cloud_fake_vm (name, id, tag) VALUES (?, ?, ?)`, name, `fs-${name}`, JSON.stringify(t))
+    const body = createBody(name, "fake", tag, opts)
+    this.sql.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, ?)`, name, `fs-${name}`, JSON.stringify(body.metadata), body.idleTimeoutSeconds)
     this.sql.exec(`UPDATE cloud_fake_ctl SET creates = creates + 1 WHERE id = 1`)
     return { id: `fs-${name}`, tag: null }
+  }
+
+  /** Report-only path: never fails on purpose, so a background sweep cannot eat a test's fail_next. */
+  async list(filter: string, offset: number) {
+    const [key, value] = [filter.slice(0, filter.indexOf(":")), filter.slice(filter.indexOf(":") + 1)]
+    const all = this.sql.exec<{ name: string; id: string; tag: string }>(`SELECT name, id, tag FROM cloud_fake_vm ORDER BY name`)
+    const vms = all.map((r) => ({ id: r.id, name: r.name, tag: JSON.parse(r.tag) as Record<string, unknown> })).filter((v) => v.tag[key] === value)
+    return { vms: vms.slice(offset, offset + LIST_PAGE), total: vms.length }
   }
 
   async delete(id: string) {

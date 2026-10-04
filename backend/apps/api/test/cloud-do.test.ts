@@ -305,7 +305,8 @@ describe("cloud driver prefix guard", () => {
     const raw: RawCloudDriver = {
       find: async (name) => (calls.push(`find:${name}`), null),
       create: async (name) => (calls.push(`create:${name}`), { id: "fs-1", tag: null }),
-      delete: async (id) => void calls.push(`delete:${id}`)
+      delete: async (id) => void calls.push(`delete:${id}`),
+      list: async () => ({ vms: [], total: 0 })
     }
     return { calls, raw }
   }
@@ -326,11 +327,11 @@ describe("cloud driver prefix guard", () => {
       "cmuxnp-test-cld-vm-0000000000000000000A",
       "cmuxnp-test-cld-vmimg-fake"
     ]) {
-      await expect(driver.ensure(name, tag)).rejects.toBeInstanceOf(DriverError)
+      await expect(driver.ensure(name, tag, { idleSeconds: 0 })).rejects.toBeInstanceOf(DriverError)
       await expect(driver.remove(name, tag)).rejects.toMatchObject({ code: "cloud.provider.refused", final: true })
     }
     expect(calls).toEqual([])
-    await driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag)
+    await driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0 })
     expect(calls).toEqual(["find:cmuxnp-test-cld-vm-00000000000000000001", "create:cmuxnp-test-cld-vm-00000000000000000001"])
   })
 
@@ -339,7 +340,7 @@ describe("cloud driver prefix guard", () => {
     const driver = new GuardedCloudDriver(raw, "cmuxnp-dev-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
     for (const name of ["cmuxnp-dev-tvm-team-00000000000000000001-e1", "cmuxnp-dev-tvm-vm-00000000000000000001", "cmuxnp-dev-vm-00000000000000000001", "cmuxnp-dev-vmimg-vm-00000000000000000001"]) {
-      await expect(driver.ensure(name, tag)).rejects.toMatchObject({ code: "cloud.provider.refused" })
+      await expect(driver.ensure(name, tag, { idleSeconds: 0 })).rejects.toMatchObject({ code: "cloud.provider.refused" })
     }
     expect(calls).toEqual([])
     expect(() => new GuardedCloudDriver(raw, "cmuxnp-dev-")).toThrow()
@@ -355,11 +356,12 @@ describe("cloud driver prefix guard", () => {
       },
       delete: async () => {
         throw new Error("must not delete")
-      }
+      },
+      list: async () => ({ vms: [], total: 0 })
     }
     const driver = new GuardedCloudDriver(raw, "cmuxnp-test-cld-")
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }
-    await expect(driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag)).rejects.toMatchObject({ final: true })
+    await expect(driver.ensure("cmuxnp-test-cld-vm-00000000000000000001", tag, { idleSeconds: 0 })).rejects.toMatchObject({ final: true })
     await expect(driver.remove("cmuxnp-test-cld-vm-00000000000000000001", tag)).rejects.toMatchObject({ final: true })
   })
 })
