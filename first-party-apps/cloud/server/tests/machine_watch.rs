@@ -149,7 +149,8 @@ fn delete_emits_removed() {
 
 #[test]
 fn every_machine_mutation_result_carries_a_revision() {
-    let mut s = listed(&["vm-list", "vm-create", "vm-rename", "vm-resize", "vm-restore", "vm-fork"]);
+    let mut s =
+        listed(&["vm-list", "vm-create", "vm-rename", "vm-resize", "vm-restore", "vm-fork"]);
     let cases: [(&str, Value); 5] = [
         ("cloud.machine.create", json!({ "displayName": "scratch" })),
         ("cloud.machine.rename", json!({ "machine": "vm-alpha01", "displayName": "renamed" })),

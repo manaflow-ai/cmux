@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum WatchEvent {
     /// The record is new or changed: the full record after the change.
-    Upsert { revision: u64, machine: Machine },
+    Upsert { revision: u64, machine: Box<Machine> },
     /// The record is gone (deleted, destroyed, missing from a refresh, or
     /// signed out).
     Removed { revision: u64, id: String },
@@ -82,7 +82,7 @@ impl Projection {
         }
         for machine in upserts {
             self.machines.insert(machine.id.clone(), machine.clone());
-            self.events.push(WatchEvent::Upsert { revision, machine });
+            self.events.push(WatchEvent::Upsert { revision, machine: Box::new(machine) });
         }
     }
 
