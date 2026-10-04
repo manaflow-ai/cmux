@@ -41,7 +41,8 @@ export function MachineList({
 }: MachineListProps) {
   const { t, language } = strings;
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!plain(event)) return;
+    // Only keys aimed at the list itself or a row; a focused inline button keeps its own Return.
+    if (!plain(event) || (event.target as HTMLElement).tagName === "BUTTON") return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       const next = moveSelection(rows, selection, event.key === "ArrowDown" ? 1 : -1);
       if (next) onSelect(next);
@@ -69,7 +70,8 @@ export function MachineList({
             onClick={() => row.machine && onSelect(row.id)}
             onDoubleClick={() => row.machine && onOpen(row.id)}
             onKeyDown={(event) => {
-              if (!plain(event) || event.key !== "Enter" || !row.machine) return;
+              if (!plain(event) || event.key !== "Enter" || !row.machine || event.target !== event.currentTarget)
+                return;
               event.preventDefault();
               event.stopPropagation();
               onOpen(row.id);
