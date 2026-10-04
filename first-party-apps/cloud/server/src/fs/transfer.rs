@@ -14,7 +14,7 @@ use super::cancel::Cancel;
 use super::key::TransferKey;
 pub use super::openssh::host_alias;
 use super::path::{guest_arg, local_arg};
-use super::running::{Running, TRANSFER_BUSY};
+use super::running::{CancelAnswer, Running, TRANSFER_BUSY};
 use crate::api::{CloudError, ControlPlane, Origin, args, codes};
 use crate::app_env::SshFiles;
 use crate::ops::Server;
@@ -217,6 +217,7 @@ pub(crate) fn run<C: ControlPlane>(
         local: local.clone(),
         landing,
         route,
+        cancel: Cancel::default(),
     };
     let transfer = edge.transfers.start(worker, job, transfer_key, running)?;
     Ok(json!({
@@ -266,12 +267,20 @@ fn check_local(local: &std::path::Path, direction: Direction) -> Result<(), Clou
     }
 }
 
-/// `cloud.file.transfer.cancel {transfer}`.
+/// `cloud.file.transfer.cancel {transfer}`: `cancelling` for a running
+/// transfer (one `cancelled` event follows), `ended` for one that already
+/// ended (nothing changes), `cmux.cloud.not_found` for an id this server
+/// never issued.
 pub(crate) fn cancel<C: ControlPlane>(
-    _server: &mut Server<C>,
+    server: &mut Server<C>,
     raw: &Value,
 ) -> Result<Value, CloudError> {
     let map = args::object(raw, &["transfer"])?;
-    let _transfer = args::id(map, "transfer")?;
-    Err(CloudError::new(codes::UNSUPPORTED, "not built yet"))
+    let transfer = args::id(map, "transfer")?.to_owned();
+    let (edge, _) = server.edge_parts();
+    let state = match edge.transfers.cancel(&transfer)? {
+        CancelAnswer::Cancelling => "cancelling",
+        CancelAnswer::Ended => "ended",
+    };
+    Ok(json!({ "ok": true, "transfer": transfer, "state": state }))
 }
