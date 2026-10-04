@@ -165,10 +165,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
 
 - Secrets: values stay in the session. `input.insertText { secret }` reaches
   the driver as `{ text, secretName, secretDomains }`; the driver types it
-  only when the frame that holds the focused element has an origin
-  (`WKFrameInfo.securityOrigin`, checked in the driver's own content world)
+  only when the document that holds the focused element has an origin
   matching one of `secretDomains`, else fails with `secret "x" may not be
-  typed into <origin>; its domains are ...`. The check runs right before the
+  typed into <origin>; its domains are ...`. The origin is read in the
+  driver's own content world by the same evaluation that finds the focus,
+  in that document (its own origin, `null` when opaque), not from
+  WebKit's frame tree, which keeps naming a frame's old document after it
+  navigates. The check runs right before the
   text is committed, after the wait for the editor state (a page can move
   focus during that wait), and the marked text and insert follow on the
   same main-thread turn. A page can still move focus in its own web process

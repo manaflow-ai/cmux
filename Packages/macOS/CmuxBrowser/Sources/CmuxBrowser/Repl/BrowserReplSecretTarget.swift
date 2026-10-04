@@ -4,7 +4,12 @@ public import WebKit
 /// document holds the focused element, which is where inserted text goes,
 /// must have an origin on one of the secret's domains.
 ///
-/// The checks run in a content world page and agent code cannot reach.
+/// A frame keeps its id when it navigates, so the frame tree can name a
+/// document the frame no longer shows (`BrowserReplFrame.info`). The
+/// origin is therefore read by the same evaluation that finds the focus,
+/// in the document that holds it (`self.origin`, the document's own
+/// origin, `"null"` when opaque), never from the tree. The checks run in
+/// a content world page and agent code cannot reach.
 @MainActor
 public struct BrowserReplSecretTarget {
     /// The secret's name, for errors.
@@ -12,7 +17,8 @@ public struct BrowserReplSecretTarget {
     /// The secret's domains (`secretDomains` as the session sends them).
     public let domains: [BrowserReplDomainPattern]
     private let world: WKContentWorld
-    /// Answers, in one frame's document, whether it holds the focused element.
+    /// Answers, in one frame's document, whether it holds the focused
+    /// element (a function body returning a boolean).
     var focusProbe = Self.focusProbe
 
     static let focusProbe = """
@@ -33,13 +39,15 @@ public struct BrowserReplSecretTarget {
     /// secret's domains.
     /// - Parameter frames: The tab's frame tree, read just before.
     public func check(in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
-        var focused: BrowserReplFrame?
+        // The document that answers "focused" names its own origin.
+        let probe = "const focused = (() => {\n\(focusProbe)\n})();\nreturn focused ? String(self.origin) : null;"
+        var focusedOrigin: String?
         for frame in frames {
             guard let info = frame.info else { continue }
-            let answer = try? await webView.callAsyncJavaScript(focusProbe, arguments: [:], in: info, contentWorld: world)
-            if answer as? Bool == true { focused = frame }
+            let answer = try? await webView.callAsyncJavaScript(probe, arguments: [:], in: info, contentWorld: world)
+            if let origin = answer as? String { focusedOrigin = origin }
         }
-        guard let info = focused?.info, let origin = info.browserReplOrigin else {
+        guard let origin = focusedOrigin else {
             throw BrowserReplDriverError(code: "invalid", message: "secret \"\(name)\" was not typed: no focused field in the page")
         }
         guard domains.contains(where: { $0.matches(origin: origin, secure: true) }) else {
