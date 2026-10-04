@@ -304,6 +304,7 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             ]
             .map(String::from)
             .to_vec(),
+            server_dir: Some(root.0.join("servers")),
             sources: Sources {
                 first_party: None,
                 bundled: vec![bundled],
@@ -1192,6 +1193,7 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
             state_dir: Some(root.0.join("state")),
             host_binary: None,
             host_args: Vec::new(),
+            server_dir: None,
             sources: Sources {
                 first_party: Some(first_party),
                 bundled: vec![],
@@ -1229,6 +1231,7 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
             state_dir: Some(root.0.join("state")),
             host_binary: None,
             host_args: Vec::new(),
+            server_dir: None,
             sources: Sources {
                 first_party: Some(root.0.join("first-party")),
                 bundled: vec![],
@@ -1272,6 +1275,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
             state_dir: Some(root.0.join("state")),
             host_binary: None,
             host_args: Vec::new(),
+            server_dir: None,
             sources: Sources {
                 first_party: Some(tree.clone()),
                 bundled: vec![],
@@ -1372,4 +1376,160 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
         .unwrap();
     let granted = app_entry(&f.supervisor.list(), "cmux/term");
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
+}
+
+/// A v2-only first-party app `cmux/<dir>` whose catalog op `<dir>.ping` runs
+/// in its server (`server` is the manifest's `server` block).
+fn write_server_app(root: &Path, dir: &str, server: Value) {
+    let app = root.join(dir);
+    std::fs::create_dir_all(&app).unwrap();
+    let id = format!("cmux/{dir}");
+    let catalog = json!({ "family": dir, "operations": [{
+        "name": format!("{dir}.ping"), "owner": format!("app:{id}"), "class": "read", "risk": "read",
+        "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d", "since": format!("{dir}/1")
+    }] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
+    let manifest = json!({
+        "manifestVersion": 2, "id": id, "name": "Server", "version": "1.0.0", "description": "d",
+        "engines": { "cmux": "^2.0" }, "repository": "https://github.com/manaflow-ai/cmux",
+        "catalog": "catalog.json", "server": server, "files": ["catalog.json"]
+    });
+    std::fs::write(app.join("cmux-app.v2.json"), manifest.to_string()).unwrap();
+}
+
+/// A fake server binary: answers every op line with `{served: true}` and
+/// appends `start` and `stop` to the marker file given as its argument.
+fn write_fake_server(dir: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(dir).unwrap();
+    let path = dir.join("fake-server");
+    std::fs::write(
+        &path,
+        "#!/bin/sh\nmarker=\"$1\"\necho start >> \"$marker\"\nwhile IFS= read -r line; do\n  id=${line#*\\\"id\\\":\\\"}\n  id=${id%%\\\"*}\n  printf '{\"type\":\"result\",\"id\":\"%s\",\"ok\":true,\"result\":{\"served\":true}}\\n' \"$id\"\ndone\necho stop >> \"$marker\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn native_server(marker: &Path, lifecycle: Value) -> Value {
+    json!({
+        "kind": "native",
+        "binaries": { "darwin-arm64": "fake-server", "darwin-x64": "fake-server", "linux-arm64": "fake-server", "linux-x64": "fake-server" },
+        "args": [marker.to_string_lossy()],
+        "instances": "machine", "hosts": ["local"], "lifecycle": lifecycle
+    })
+}
+
+/// Waits until the marker file holds exactly `lines`.
+fn wait_marker(marker: &Path, lines: &[&str]) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let seen = std::fs::read_to_string(marker).unwrap_or_default();
+        if seen.lines().collect::<Vec<_>>() == lines {
+            return;
+        }
+        assert!(Instant::now() < deadline, "marker {seen:?}, want {lines:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn run_server_op(f: &Fixture, app: &str, op: &str) -> Result<Value, super::supervisor::ApiError> {
+    let (tx, rx) = channel();
+    f.supervisor.run(
+        run_request(app, op, None, Origin::User, None),
+        Box::new(move |r| tx.send(r).unwrap()),
+    );
+    rx.recv_timeout(Duration::from_secs(10)).unwrap()
+}
+
+#[test]
+fn always_servers_start_on_enable_and_stop_on_disable() {
+    let root = temp_dir();
+    let marker = root.0.join("always.marker");
+    write_fake_server(&root.0.join("servers"));
+    write_server_app(
+        &root.0.join("bundled"),
+        "srv",
+        native_server(&marker, json!({ "start": "always" })),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/srv");
+    wait_marker(&marker, &["start"]);
+    assert_eq!(
+        run_server_op(&f, "cmux/srv", "srv.ping").unwrap(),
+        json!({ "value": { "served": true } })
+    );
+    f.set("off", "cmux/srv", Origin::User, |o| o.enabled = Some(false)).unwrap();
+    wait_marker(&marker, &["start", "stop"]);
+    assert_eq!(run_server_op(&f, "cmux/srv", "srv.ping").unwrap_err().code, "apps.disabled");
+}
+
+#[test]
+fn on_demand_servers_start_on_the_first_call_and_stop_when_idle() {
+    let root = temp_dir();
+    let marker = root.0.join("demand.marker");
+    write_fake_server(&root.0.join("servers"));
+    write_server_app(
+        &root.0.join("bundled"),
+        "lazy",
+        native_server(&marker, json!({ "start": "onDemand", "idleStopSeconds": 1 })),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/lazy");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!marker.exists(), "an on-demand server waits for its first call");
+    assert_eq!(
+        run_server_op(&f, "cmux/lazy", "lazy.ping").unwrap(),
+        json!({ "value": { "served": true } })
+    );
+    wait_marker(&marker, &["start"]);
+    // idleStopSeconds: 1 stops it after the call; the next call starts it again.
+    wait_marker(&marker, &["start", "stop"]);
+    assert_eq!(
+        run_server_op(&f, "cmux/lazy", "lazy.ping").unwrap(),
+        json!({ "value": { "served": true } })
+    );
+    wait_marker(&marker, &["start", "stop", "start"]);
+}
+
+#[test]
+fn a_missing_server_binary_is_reported_once_and_never_retried() {
+    let root = temp_dir();
+    let mut server = native_server(&root.0.join("never.marker"), json!({ "start": "always" }));
+    server["binaries"] = json!({ "darwin-arm64": "absent", "darwin-x64": "absent", "linux-arm64": "absent", "linux-x64": "absent" });
+    write_server_app(&root.0.join("bundled"), "gone", server);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/gone");
+    std::thread::sleep(Duration::from_millis(300));
+    let errors = |f: &Fixture| {
+        f.supervisor.logs(CLIENT, "cmux/gone", false)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|l| l["level"] == "error")
+            .count()
+    };
+    assert_eq!(errors(&f), 1, "{}", f.supervisor.logs(CLIENT, "cmux/gone", false));
+    assert_eq!(
+        run_server_op(&f, "cmux/gone", "gone.ping").unwrap_err().code,
+        "apps.server_missing"
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(errors(&f), 1, "nothing retries a missing binary");
+}
+
+#[test]
+fn external_servers_are_refused_for_now() {
+    let root = temp_dir();
+    write_server_app(
+        &root.0.join("bundled"),
+        "ext",
+        json!({ "kind": "external", "instances": "user", "hosts": ["local"] }),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/ext");
+    assert_eq!(
+        run_server_op(&f, "cmux/ext", "ext.ping").unwrap_err().code,
+        "apps.server_unsupported"
+    );
 }
