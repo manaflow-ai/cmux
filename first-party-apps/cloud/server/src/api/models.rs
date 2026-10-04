@@ -145,7 +145,9 @@ pub struct MachinePage {
 }
 
 /// `cloud.machine.connect_info` (contract 1.7): how `cmux link` reaches a
-/// machine. Peer data comes in every bound state, paused included.
+/// machine. Peer data comes in every bound state, paused included. It
+/// carries no credential: the dial token is `cloud.machine.link_token`,
+/// which only `cmux link` calls.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConnectInfo {
     pub machine: String,
@@ -159,25 +161,8 @@ pub struct ConnectInfo {
     pub gateway: Option<serde_json::Value>,
     /// What this caller may dial: `daemon`, `ssh`.
     pub services: Vec<String>,
-    /// For one `hello` of `cmux link`. The server never passes it on: it
-    /// is read here only so it can be dropped (contract 1.7: `cmux-cloud`
-    /// never sees link tokens beyond this answer).
-    #[serde(default, skip_serializing)]
-    pub link_token: Option<Secret>,
     pub daemon: DaemonInfo,
     pub revision: Revision,
-}
-
-/// A credential read from an answer only to be dropped: never serialized
-/// (`skip_serializing` at each use) and never printed by `Debug`.
-#[derive(Clone, PartialEq, Deserialize)]
-#[serde(transparent)]
-pub struct Secret(serde_json::Value);
-
-impl std::fmt::Debug for Secret {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Secret(<redacted>)")
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

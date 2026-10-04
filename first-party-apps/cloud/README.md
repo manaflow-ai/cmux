@@ -43,7 +43,7 @@ Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<v
 | `cloud.machine.resize` | mutation, mutate-shared | never | `machine resize` (hidden) | `cloud.machine.resize` | origin `user` only, gesture required (a resize may cost money) |
 | `cloud.machine.delete` | mutation, destructive | never | `machine delete` (hidden) | `cloud.machine.delete` | origin `user` only, gesture required; a retry answers `{deleted: true}` |
 | `cloud.machine.idle_policy.set` | mutation, mutate-shared | default | `machine idle-policy set` | `cloud.machine.idle_policy.set` | |
-| `cloud.machine.connect_info` | read | default | `machine connect-info` | `cloud.machine.connect_info {machine} or {host}` | contract 1.7 record (peer data in every bound state; `state: paused` is not an error); the `link_token` is dropped, never passed on; `not_bound` while provisioning |
+| `cloud.machine.connect_info` | read | default | `machine connect-info` | `cloud.machine.connect_info {machine} or {host}` | contract 1.7 record (peer data in every bound state; `state: paused` is not an error); it carries no credential (an answer with a `link_token` is `bad_response`; the token is `cloud.machine.link_token`, which only `cmux link` calls); `not_bound` while provisioning |
 | `cloud.machine.upgrade` | mutation, mutate-own | never | `machine upgrade` (hidden) | `cloud.machine.upgrade` | classic machines only; origin `user` only, gesture required |
 | `cloud.snapshot.list` | read | default | `snapshot list` | `cloud.snapshot.list {machine?}` | one machine or the team |
 | `cloud.snapshot.create` | mutation, mutate-own | default | `snapshot create` | `cloud.snapshot.create` | |

@@ -133,7 +133,9 @@ as ProxyCommand; the app's own file features use daemon RPC on `daemon`; no `fil
 
 Who calls: `cmux link`, through the host credential relay (the host adds the install token of the
 install that runs the link). `cmux-cloud` passes only the host id to `link.dial`; it never sees
-peer keys or link tokens. Principals: `session`, `install`. Class `read`.
+peer keys or link tokens. Principals: `session`, `install`. Class `read`. A read never mints a
+credential: `connect_info` carries no token. The dial token comes from `cloud.machine.link_token`
+(below), which only `cmux link` calls.
 
 Request: `{machine}` or `{host}` (exactly one).
 
@@ -151,9 +153,8 @@ Result:
 | `peer.public_ipv6` | IPv6 or null | for `direct_wan` when the VM has one and the policy opened it for this install's /128 |
 | `gateway` | object or null | this install's own Freestyle tunnel when it is attached to the VM's VPC and the firewall rule for UDP 4101 exists: `{tunnel_id, endpoint, server_public_key, client_address, allowed_ips}`; null = no `tunnel` path for this caller (the link then reports `path_state` without it) |
 | `services` | array of `daemon`, `ssh` | what this caller may dial on this host (team policy); the VM's endpoint enforces the same list |
-| `link_token` | `{token, expires_at}` | single host, single install, the `services` above, this `epoch`; at most 5 minutes; the VM daemon checks it on `hello` (transport.md: a link with no valid token is closed after `hello`) |
 | `daemon` | `{version, capabilities}` | as the VM reported at bind; for the client's capability gates |
-| `revision` | int | the CloudDO stream sequence of the last change to this record |
+| `revision` | decimal string (`cmux.wire/1` `Revision`) | the CloudDO stream sequence of the last change to this record |
 
 Errors: `cloud.machine.not_found`; `cloud.machine.not_bound` (still provisioning; wait for the
 `cloud.machine.upsert` with `host` set); `auth.forbidden` (the caller may not reach this machine;
@@ -162,11 +163,22 @@ Errors: `cloud.machine.not_found`; `cloud.machine.not_bound` (still provisioning
 state is paused; the caller runs `cloud.machine.start` with an idempotency key, waits for the
 `running` upsert, and dials again.
 
+`cloud.machine.link_token` (the dial credential; accepted 2026-10-04, CLOUD-ROUTE): class
+`mutation`, idempotency required, principals `install` only, owner `cloud:CloudDO`, off MCP,
+hidden on the CLI, never in an app's `consumes.ops`. Request `{host, services}` (`services`: 1 or
+2 unique of `daemon`, `ssh`, a subset of what `connect_info` lists). Result `{token, expires_at,
+host, epoch, services}`: `token` is a secret for one `hello` (the VM daemon checks it; a link with
+no valid token is closed after `hello`), single host, single install, these services, this
+`epoch`; `expires_at` at most 5 minutes after the mint. A same-key replay while the token is valid
+returns the same token. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound`,
+`auth.forbidden`, plus the standard mutation and Worker gate codes.
+
 Cache rules for `cmux link`:
-1. Cache the result by host id, without `link_token`, for at most 300 s or until a
+1. Cache the `connect_info` result by host id for at most 300 s or until a
    `cloud.machine.upsert` with a higher `revision` arrives (key rotation, epoch change, VPC change,
    policy change all raise it). Pause and resume do not change peer data.
-2. `link_token` is used for one `hello` and never cached past `expires_at`; a reconnect asks again.
+2. A `cloud.machine.link_token` token is used for one `hello` and never cached past `expires_at`;
+   a reconnect mints a new one (a new idempotency key).
 3. On a handshake failure with a cached entry, fetch once more before reporting `unreachable`.
 4. `cloud.machine.removed` drops the entry at once and closes open links to that host.
 
@@ -186,6 +198,16 @@ sftp use short-lived certificates, never a static key.
 The app supervisor starts `cmux-cloud` on demand. The page, the sidebar, the CLI and MCP all call
 `cmux.cloud.*` ops on `cmux-cloud`. `cmux-cloud` keeps the machine projection (from
 `cloud.machine.list` plus the team wire events) and owns one link per machine.
+
+Routing (D-ROUTE, accepted 2026-10-04): the backend catalog
+(`backend/catalog/cloud-operations.json`) is the single owner of the client-facing `cloud.*`
+names; the Cloud app's fragment declares none of them and names the ones it serves in
+`cmux-app.v2.json` `consumes.ops`. The host routes those consumed ops to `cmux-cloud`, never
+straight to the backend, so the projection, the ledger, the origin rules and the argument checks
+always run. The app types (`cmux-app.d.ts`) must come from `cmux-cloud`'s own schemas (what it
+answers: `{machine, revision}`, no `expected_revision`, no credential), not from the backend rows.
+OPEN: `gen-cmux-global.ts` types every backend row from the backend catalog and reads no
+`consumes`, so this needs a generator change (owner: app platform).
 
 ### 2.2 What of today's server code survives (9.1k lines)
 
@@ -342,6 +364,13 @@ and for classic VMs before upgrade.
 - Credential: DECIDED: the install token (state-placement.md 5.5).
 - Rescue/classic exec stream: DECIDED feasible as a plain Worker WebSocket pipe (one per stream,
   idle close 10 min, max 4 per machine).
+
+- OPEN ITEM (a9, D-MONEY accepted): ops with risk `money` (`cloud.machine.create`,
+  `cloud.machine.resize`, `cloud.snapshot.restore`, `cloud.billing.checkout`) get no app scope and
+  are in the app global's `never` list. The first-party Cloud page reaches them only through its own
+  page path with a native confirm (origin `user`). Later, agents and mux principals that need to
+  create or resize machines (cloud browser and CUA work) get a user-granted spend budget (per
+  principal: amount, machine size cap, expiry, revocable, every spend audited), never an app scope.
 
 ## 6. Risks
 
