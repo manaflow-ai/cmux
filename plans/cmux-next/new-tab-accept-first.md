@@ -271,6 +271,35 @@ crate's test seam; release builds ignore the variables.
   `CMUX_TUI_TEST_ACCEPT_COMMIT_DELAY_MS`, `CMUX_TUI_TEST_ACTIVATE_DELAY_MS`,
   `CMUX_TUI_TEST_ADOPT_HOLD_MS`.
 
+## 8b. Implementation plan for steps 1-5 (from a read of the code, 2026-10-04)
+
+Facts that shape it: `PtyTerminalRuntime` (surface.rs) sets `host_identity`, `pid`, `command`,
+the reader and reaper threads and the render hub at construction, so a hosted runtime cannot be
+filled in later. `Surface::spawn_prelaunched` already receives the `SurfaceId`, the tab's
+`TabResourceIdentity` and the terminal public id chosen at prelaunch time.
+
+1. Launching surface: a third `Surface` variant, `Surface::Launching(LaunchingSurface)`, in a new
+   `surface/launching.rs`: `SurfaceMeta` (same id and tab identity), launch spec, size, the 64 KiB
+   input queue (whole-write admission), kept bytes after failure, and the attach waiters. Every
+   `match` on `Surface` that needs a host gets a typed refusal for `Launching`
+   (`terminal-launching`). Adoption builds the hosted surface with the same id and identities
+   (`spawn_prelaunched`) and replaces the `Arc<Surface>` in `State` under the state lock; attach
+   streams opened on the launching surface are moved to the hosted one by the attach handler
+   (re-attach on a `surface-replaced` wakeup), so no client sees a new surface id.
+2. Accept: `resource_correlated_creation_operation` gets a `TerminalCreationIntent` path for
+   `TabCreateTerminal` that writes prepare, executing, the terminal row (`launching`) and the
+   effect projection in one registry transaction (new `WorkspaceRegistry` method in a new module
+   file, because workspace_registry.rs, effect_store.rs and resource_topology.rs are at their
+   godfile baselines), inserts the launching surface, publishes the tree delta and returns.
+3. Launch job on the terminal work pool: wait for the prelaunch, adopt (A1 check under the
+   registry lock), commit `running`, swap the surface, Activate, flush the queue, publish
+   `terminal-lifecycle`.
+4. Failure: `persist_terminal_exit` with the cause, keep the surface as an exited launching
+   surface with its kept bytes; `terminal.relaunch` and `terminal.input.send_kept`.
+5. Restart: the restore path relaunches `launching` rows (new incarnation) and activates hosts
+   whose Hello carries `FLAG_LAUNCH_ACTIVATION_REQUIRED`; R1 reaper for records with no row and no
+   intent; G4 hooks under `cfg(any(test, debug_assertions))`; spec, sdk-schema, bindings.
+
 ## 9. Order
 
 1. Debug marks (section 7), bench numbers in this file.
