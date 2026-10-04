@@ -11,7 +11,7 @@ extension KeyRouter {
     func cancelsAttachedSheet(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.keyCode == ChordTracker.escapeKeyCode,
               event.modifierFlags.isDisjoint(with: [.command, .control, .option, .shift]),
-              let window, window.attachedSheet != nil else { return false }
-        return SheetDismissal.endTopmost(of: window)
+              let window else { return false }
+        return endTopmostSheet(window)
     }
 }
