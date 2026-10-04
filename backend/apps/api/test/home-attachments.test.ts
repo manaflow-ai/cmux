@@ -123,14 +123,14 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     expect(big.json.error.code).toBe("attachment.too_large")
   })
 
-  it("takes the daily byte quota per user (2 GB); a repeated intent for the same hash adds no bytes", async () => {
+  it("takes the daily byte quota per user (2 GB); every slot is charged, also a repeated intent for the same hash", async () => {
     const alice = await signIn("att-quota-alice")
     const { id } = await group(alice)
     const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 100_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
-    for (let i = 0; i < 20; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
-    // Same (conversation, hash): no new bytes.
+    for (let i = 0; i < 19; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
+    // Same (conversation, hash) again: a new slot, charged too.
     expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })).status).toBe(200)
-    const over = await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(20) })
+    const over = await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })
     expect(over.status).toBe(429)
     expect(over.json.error.code).toBe("attachment.quota")
     expect(over.json.error.retry_after_ms).toBeGreaterThan(0)
@@ -463,5 +463,165 @@ describe("Home attachments: presigned R2 PUT for 32-100 MB", { timeout: 120_000 
     expect(bad.status).toBe(400)
     expect(bad.json.error.code).toBe("attachment.hash_mismatch")
     expect(await testEnv.HOME_ATTACHMENTS.head(key2)).toBeNull()
+  })
+})
+
+describe("Home attachments: re-check blockers (sweep cursor, orphan slots, required tests)", { timeout: 180_000 }, () => {
+  type Inst = { nextWakeAt(s: unknown, now: number): number | null }
+  const usageRows = (user: string) =>
+    runInDurableObject(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)), async (_i, state) => (state.storage.sql.exec("SELECT key FROM home_attachment_usage").toArray() as Array<{ key: string }>).map((r) => r.key))
+  const slotRows = (stub: unknown) => runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT id, state FROM home_attachment_slots").toArray() as Array<{ id: string; state: string }>)
+  const expireSlots = (stub: unknown) => runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() - 2 * 3_600_000))
+  /** Fires the alarm until the DO has no due work (at most `max` times); answers how many fired. */
+  const drainAlarms = async (stub: DurableObjectStub, max = 20) => {
+    let n = 0
+    for (; n < max; n++) {
+      const due = await runInDurableObject(stub, async (i: Inst) => i.nextWakeAt(null, Date.now()))
+      if (due === null || due > Date.now()) break
+      await runDurableObjectAlarm(stub)
+    }
+    return n
+  }
+  const keyOfPresigned = (uploadUrl: string) => decodeURIComponent(new URL(uploadUrl).pathname).split("/").slice(2).join("/")
+
+  it("P1: the sweep keeps a cursor past 500 referenced old records, collects the unreferenced ones after them, and stops rescheduling", async () => {
+    const alice = await signIn("att-cursor-alice")
+    const g = await group(alice)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    // One real upload creates the tables; then 500 referenced and 30 unreferenced old records are seeded.
+    await upload(alice, g.id, bytesOf("seed"))
+    const old = Date.now() - 3 * 86_400_000
+    const hex = (i: number, tag: string) => createHash("sha256").update(`${tag}${i}`).digest("hex")
+    await runInDurableObject(stub, async (_i, state) => {
+      const sql = state.storage.sql
+      for (let i = 0; i < 500; i++) {
+        const h = hex(i, "ref")
+        sql.exec("INSERT INTO home_attachment_objects (hash, object_id, object_key, mime_type, byte_count, etag, uploaders, quota_user, created_at) VALUES (?, ?, ?, 'image/png', 1, NULL, '[]', 'user_nobody', ?)", h, h.slice(0, 32), `home/v1/${g.id}/${h.slice(0, 32)}`, old + i)
+        sql.exec("INSERT INTO own_rows (tbl, k, n, json) VALUES ('attref', ?, NULL, ?)", `${h}:msg_seed${i}`, JSON.stringify({ hash: h, message_id: `msg_seed${i}`, seq: 1 }))
+      }
+      for (let i = 0; i < 30; i++) {
+        const h = hex(i, "orphan")
+        sql.exec("INSERT INTO home_attachment_objects (hash, object_id, object_key, mime_type, byte_count, etag, uploaders, quota_user, created_at) VALUES (?, ?, ?, 'image/png', 1, NULL, '[]', 'user_nobody', ?)", h, h.slice(0, 32), `home/v1/${g.id}/${h.slice(0, 32)}`, old + 1000 + i)
+      }
+      sql.exec("UPDATE home_attachment_objects SET created_at = ? WHERE uploaders != '[]'", old - 1)
+      sql.exec("INSERT INTO home_attachment_sweep (id, cutoff, dirty_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET dirty_at = excluded.dirty_at", Number.MIN_SAFE_INTEGER, Date.now() - 1)
+    })
+    const fired = await drainAlarms(stub)
+    expect(fired).toBeGreaterThan(1)
+    expect(fired).toBeLessThan(20)
+    const left = await runInDurableObject(stub, async (_i, state) => (state.storage.sql.exec("SELECT COUNT(*) AS n FROM home_attachment_objects").toArray()[0] as { n: number }).n)
+    // 500 referenced stay; the 30 unreferenced and the unreferenced seed upload are collected.
+    expect(left).toBe(500)
+    const next = await runInDurableObject(stub, async (i: Inst) => i.nextWakeAt(null, Date.now()))
+    expect(next === null || next > Date.now() + 3_600_000).toBe(true)
+  })
+
+  it("P2: a slot that expires without a commit has its object deleted and its bytes refunded (open and uploading slots)", async () => {
+    const alice = await signIn("att-expire-alice")
+    const g = await group(alice)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    const big = new Uint8Array(33_000_000).fill(3)
+    const r = await intent(alice, g.id, big, { mime_type: "video/mp4", name: "x.mp4", width: undefined, height: undefined })
+    const key = keyOfPresigned(r.json.value.upload_url)
+    await testEnv.HOME_ATTACHMENTS.put(key, big, { sha256: sha(big) })
+    // A stream slot whose PUT started (consumed) but never finished.
+    const small = bytesOf("never finished")
+    const s = await intent(alice, g.id, small)
+    const sid = new URL(s.json.value.upload_url).pathname.split("/").pop()!.split(".")[0]!
+    const conv = stub as unknown as { uploadSlot(e: string, id: string, mode: string, consume: boolean): Promise<{ object_key: string } | null> }
+    const taken = await conv.uploadSlot(g.id, sid, "stream", true)
+    await testEnv.HOME_ATTACHMENTS.put(taken!.object_key, small)
+    expect(await usageRows(alice.user)).toHaveLength(2)
+    await expireSlots(stub)
+    await drainAlarms(stub)
+    expect(await testEnv.HOME_ATTACHMENTS.head(key)).toBeNull()
+    expect(await testEnv.HOME_ATTACHMENTS.head(taken!.object_key)).toBeNull()
+    expect(await slotRows(stub)).toEqual([])
+    expect(await usageRows(alice.user)).toEqual([])
+  })
+
+  it("P2: an 'exists' commit deletes the slot's object at once, refunds, and refuses a later PUT; a presigned re-PUT is deleted at URL expiry", async () => {
+    const alice = await signIn("att-exists-alice")
+    const bob = await signIn("att-exists-bob")
+    const g = await group(alice, [bob])
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    // Stream: Bob uploads bytes Alice already uploaded (not visible to him, so he gets a slot).
+    const body = bytesOf("same bytes twice")
+    await upload(alice, g.id, body)
+    const r = await intent(bob, g.id, body)
+    expect(r.json.value.state).toBe("upload")
+    const first = await put(r.json.value.upload_url, body)
+    expect(((await first.json()) as any).value.state).toBe("exists")
+    expect(await usageRows(bob.user)).toEqual([])
+    expect((await put(r.json.value.upload_url, body)).status).toBe(403)
+    expect((await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${g.id}/` })).objects).toHaveLength(1)
+
+    // Presigned: Bob's commit finds Alice's object; his object goes now, and a re-PUT before the URL expires is deleted at expiry.
+    const big = new Uint8Array(33_000_000).fill(5)
+    const aliceBig = await intent(alice, g.id, big, { mime_type: "video/mp4", name: "a.mp4", width: undefined, height: undefined })
+    await testEnv.HOME_ATTACHMENTS.put(keyOfPresigned(aliceBig.json.value.upload_url), big, { sha256: sha(big) })
+    expect((await post("/v1/home/attachments/commit", alice.token, { conversation: g.id, slot: aliceBig.json.value.slot })).json.value.state).toBe("stored")
+    const bobBig = await intent(bob, g.id, big, { mime_type: "video/mp4", name: "b.mp4", width: undefined, height: undefined })
+    const bobKey = keyOfPresigned(bobBig.json.value.upload_url)
+    await testEnv.HOME_ATTACHMENTS.put(bobKey, big, { sha256: sha(big) })
+    const committed = await post("/v1/home/attachments/commit", bob.token, { conversation: g.id, slot: bobBig.json.value.slot })
+    expect(committed.json.value.state).toBe("exists")
+    expect(await testEnv.HOME_ATTACHMENTS.head(bobKey)).toBeNull()
+    expect(await usageRows(bob.user)).toEqual([])
+    expect((await post("/v1/home/attachments/commit", bob.token, { conversation: g.id, slot: bobBig.json.value.slot })).status).toBe(403)
+    await testEnv.HOME_ATTACHMENTS.put(bobKey, big, { sha256: sha(big) })
+    await expireSlots(stub)
+    await drainAlarms(stub)
+    expect(await testEnv.HOME_ATTACHMENTS.head(bobKey)).toBeNull()
+    expect(await slotRows(stub)).toEqual([])
+  })
+
+  it("commit rechecks the archived state", async () => {
+    const alice = await signIn("att-archived-alice")
+    const id = convId()
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id)) as unknown as Stub & {
+      createUploadSlot(e: string, actor: string, quotaUser: string, meta: unknown, mode: string, id?: string): Promise<{ id: string; object_key: string } | null>
+      uploadSlot(e: string, id: string, mode: string, consume: boolean): Promise<unknown>
+      commitAttachment(e: string, slotId: string, etag?: string): Promise<{ ok: boolean; code?: string }>
+    }
+    const agent = "agent_att_archived_chief"
+    const owner = { ...alice.principal, owned_agents: [{ id: agent, display_name: "Chief" }] } as Principal
+    expect(result(await conv.submit(id, owner, { t: "op", op: "conversation.create", params: { id, kind: "group", title: "A", participants: [{ id: alice.user, kind: "human", display_name: "A" }, { id: agent, kind: "agent", display_name: "Chief", agent_class: "mux" }] }, idempotency_key: "c" }))).toMatchObject({ t: "result" })
+    const body = bytesOf("agent upload")
+    const slot = await conv.createUploadSlot(id, agent, alice.user, { hash: sha(body), byte_count: body.byteLength, mime_type: "image/png" }, "stream", "0".repeat(31) + "a")
+    expect(slot).not.toBeNull()
+    await conv.uploadSlot(id, slot!.id, "stream", true)
+    // The last human leaves: the conversation is archived while the chief stays a participant.
+    expect(result(await conv.submit(id, alice.principal, { t: "op", op: "participants.remove", params: { participant: alice.user }, idempotency_key: "leave" }))).toMatchObject({ t: "result" })
+    expect(await conv.commitAttachment(id, slot!.id)).toMatchObject({ ok: false, code: "archived" })
+  })
+
+  it("a presigned upload whose size differs from the intent is refused at commit and deleted", async () => {
+    const alice = await signIn("att-size-alice")
+    const g = await group(alice)
+    const declared = new Uint8Array(33_000_000).fill(1)
+    const r = await intent(alice, g.id, declared, { mime_type: "video/mp4", name: "s.mp4", width: undefined, height: undefined })
+    const key = keyOfPresigned(r.json.value.upload_url)
+    const shorter = declared.subarray(0, declared.byteLength - 1)
+    await testEnv.HOME_ATTACHMENTS.put(key, shorter, { sha256: sha(shorter) })
+    const c = await post("/v1/home/attachments/commit", alice.token, { conversation: g.id, slot: r.json.value.slot })
+    expect(c.status).toBe(400)
+    expect(c.json.error.code).toBe("attachment.size_mismatch")
+    expect(await testEnv.HOME_ATTACHMENTS.head(key)).toBeNull()
+  })
+
+  it("files over 32 MB answer 503 attachment.large_unavailable without the S3 settings", async () => {
+    const alice = await signIn("att-nos3-alice")
+    const g = await group(alice)
+    const { handleAttachmentIntent } = await import("../src/home-attachments.ts")
+    const noS3 = { ...testEnv, HOME_ATTACHMENTS_S3_ENDPOINT: undefined } as Env
+    const req = new Request("https://api.test/v1/home/attachments/intent", {
+      method: "POST",
+      headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ conversation: g.id, sha256: "a".repeat(64), byte_count: 40_000_000, mime_type: "video/mp4", name: "v.mp4" })
+    })
+    const res = await handleAttachmentIntent(req, noS3)
+    expect(res.status).toBe(503)
+    expect(((await res.json()) as any).error.code).toBe("attachment.large_unavailable")
   })
 })

@@ -62,25 +62,24 @@ describe("attachment quota (per user: 2 GB and 300 intents per day, 10 GB stored
   it("admits until the daily byte cap, then answers when to retry", () => {
     const day = ATTACHMENT_LIMITS.quota.dayBytes
     expect(day).toBe(2_000_000_000)
-    expect(attachmentQuota(empty, { bytes: day, repeat: false }, now)).toEqual({ ok: true })
+    expect(attachmentQuota(empty, day, now)).toEqual({ ok: true })
     const used = { ...empty, bytes: [{ bytes: day - 10, at: now - 3_600_000 }] }
-    expect(attachmentQuota(used, { bytes: 10, repeat: false }, now)).toEqual({ ok: true })
-    const refused = attachmentQuota(used, { bytes: 11, repeat: false }, now)
+    expect(attachmentQuota(used, 10, now)).toEqual({ ok: true })
+    const refused = attachmentQuota(used, 11, now)
     expect(refused).toMatchObject({ ok: false, code: "attachment.quota", window: "day_bytes" })
     expect(refused.ok === false && refused.retry_after_ms).toBe(23 * 3_600_000)
-    // A repeated intent (same conversation and hash today) adds no bytes.
-    expect(attachmentQuota(used, { bytes: 11, repeat: true }, now)).toEqual({ ok: true })
+    // Every slot is charged, also a repeated intent for the same hash (refunds happen on "exists" or expiry).
   })
-  it("caps intents per day at 300, repeats included", () => {
+  it("caps intents per day at 300", () => {
     const intents = Array.from({ length: 300 }, (_, i) => now - i * 1000)
     expect(ATTACHMENT_LIMITS.quota.dayIntents).toBe(300)
-    expect(attachmentQuota({ ...empty, intents: intents.slice(1) }, { bytes: 1, repeat: false }, now)).toEqual({ ok: true })
-    expect(attachmentQuota({ ...empty, intents }, { bytes: 1, repeat: true }, now)).toMatchObject({ ok: false, code: "attachment.quota", window: "day_intents" })
+    expect(attachmentQuota({ ...empty, intents: intents.slice(1) }, 1, now)).toEqual({ ok: true })
+    expect(attachmentQuota({ ...empty, intents }, 1, now)).toMatchObject({ ok: false, code: "attachment.quota", window: "day_intents" })
   })
   it("caps stored bytes per uploader at 10 GB", () => {
     expect(ATTACHMENT_LIMITS.quota.storedBytes).toBe(10_000_000_000)
-    expect(attachmentQuota({ ...empty, stored: 10_000_000_000 - 5 }, { bytes: 5, repeat: false }, now)).toEqual({ ok: true })
-    expect(attachmentQuota({ ...empty, stored: 10_000_000_000 - 5 }, { bytes: 6, repeat: false }, now)).toMatchObject({ ok: false, code: "attachment.storage_quota", window: "stored" })
+    expect(attachmentQuota({ ...empty, stored: 10_000_000_000 - 5 }, 5, now)).toEqual({ ok: true })
+    expect(attachmentQuota({ ...empty, stored: 10_000_000_000 - 5 }, 6, now)).toMatchObject({ ok: false, code: "attachment.storage_quota", window: "stored" })
   })
 })
 
