@@ -66,6 +66,9 @@ final class CloudTreeNode: NSObject {
         case device(CloudTreeDeviceRow)
         /// The "Devices" section header when devices share the tree with the fleet.
         case devicesSection(CloudTreeDevicesSection)
+        /// The team CodeRouter account and usage section.
+        case coderouterSection
+        case coderouterAddAccount
         /// The collapsible Cloud Machines section header. `canCreateMachine` shows its
         /// hover "+" (New Machine, Cmd-Y), false while Cloud Machines is off and the
         /// header stands alone; `usage` is the plan's machine count, nil until it loads.
@@ -87,6 +90,7 @@ final class CloudTreeNode: NSObject {
             switch self {
             case .cloudMachinesSection: "cloud"
             case .devicesSection: "desktopcomputer"
+            case .coderouterSection: "point.3.connected.trianglepath.dotted"
             default: nil
             }
         }
@@ -143,6 +147,8 @@ final class CloudTreeNode: NSObject {
         case .placeholder: return "placeholder"
         case .device: return "device"
         case .devicesSection: return "devicesSection"
+        case .coderouterSection: return "coderouterSection"
+        case .coderouterAddAccount: return "coderouterAddAccount"
         case .cloudMachinesSection: return "cloudMachinesSection"
         case .createAction: return "createAction"
         case .devicesEmpty: return "devicesEmpty"
@@ -197,6 +203,7 @@ final class CloudTreeNode: NSObject {
         case .browser(let row): return row.resource.machine
         case .device(let row): return row.machine
         case .devicesSection, .devicesEmpty: return .cloud("devices-section")
+        case .coderouterSection, .coderouterAddAccount: return .cloud("coderouter-section")
         case .cloudMachinesSection: return .cloud("cloud-machines-section")
         case .createAction(let action): return action.machine
         case .machineDetailTabs(let tabs): return tabs.machine
@@ -233,6 +240,8 @@ final class CloudTreeNode: NSObject {
         case .placeholder(_, let placeholder): return placeholder.text
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
+        case .coderouterSection: return String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter")
+        case .coderouterAddAccount: return String(localized: "coderouter.addAccount", defaultValue: "Add account")
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
         case .createAction(let action): return action.title
         case .machineDetailTabs, .machineEndSpacer: return ""

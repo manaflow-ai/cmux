@@ -132,6 +132,13 @@ extension CloudTreeNodeBuilder {
                 section: devicesSection
             ))
         }
+        // Keep CodeRouter immediately below My Devices so account management
+        // stays alongside the two account-scoped machine sections.
+        nodes.append(CloudTreeNode(
+            id: "coderouter-section",
+            kind: .coderouterSection,
+            children: [CloudTreeNode(id: "coderouter-section/add-account", kind: .coderouterAddAccount)]
+        ))
         return nodes
     }
 }

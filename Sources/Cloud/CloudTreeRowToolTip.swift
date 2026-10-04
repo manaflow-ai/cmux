@@ -93,12 +93,14 @@ enum CloudTreeRowToolTip {
             )
         case .createAction:
             return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
+        case .coderouterSection, .coderouterAddAccount:
+            return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
         case .machineDetailTabs:
             return .init(toolTip: nil, accessibilityLabel: String(localized: "cloudTree.machineDetails.label", defaultValue: "Machine Details"))
         case .machineEndSpacer:
             return .init(toolTip: nil, accessibilityLabel: "")
         case .terminalsPool, .displaysPool, .workspacesGroup, .browsersGroup, .portsGroup,
-             .resourcesPool, .devicesSection, .cloudMachinesSection, .devicesEmpty:
+             .resourcesPool, .devicesSection, .cloudMachinesSection, .coderouterSection, .coderouterAddAccount, .devicesEmpty:
             // Fixed section labels: they never truncate, so hover text would only
             // repeat what the row already reads. `.devicesEmpty` never reaches a
             // `CloudTreeCellView`, it has its own cell class; it is here so the

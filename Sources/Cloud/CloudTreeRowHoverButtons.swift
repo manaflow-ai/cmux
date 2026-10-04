@@ -14,6 +14,10 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .devicesSection(let section):
             CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
+        case .coderouterSection:
+            plus(String(localized: "coderouter.addAccount", defaultValue: "Add account")) {
+                nodeActions.showHint(String(localized: "coderouter.addAccount.help", defaultValue: "Use cmux coderouter claude add to add an account."))
+            }
         case .cloudMachinesSection(let canCreateMachine, _):
             if canCreateMachine {
                 plus(String(localized: "machines.new", defaultValue: "New Machine")) {
@@ -122,7 +126,7 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
+        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection, .coderouterSection:
             return true
         case .cloudMachinesSection(let canCreateMachine, _):
             return canCreateMachine

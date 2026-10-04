@@ -543,9 +543,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection, .coderouterSection:
                 toggle(node)
-            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer:
+            case .devicesEmpty, .machineDetailTabs, .machineEndSpacer, .coderouterAddAccount:
                 break
             case .createAction(let action):
                 action.perform(nodeActions)
@@ -841,6 +841,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .coderouterSection, .coderouterAddAccount:
+                return []
             case .createAction, .machineEndSpacer: return []
             case .machineDetailTabs(let tabs):
                 var items: [NSMenuItem] = []

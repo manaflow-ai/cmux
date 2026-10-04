@@ -47,6 +47,12 @@ struct CloudTreeRowContentView: View {
             CloudTreeDeviceRowContent(row: row, style: style)
         case .devicesSection:
             groupRow(title: String(localized: "cloudTree.group.devices", defaultValue: "My Devices"))
+        case .coderouterSection:
+            groupRow(title: String(localized: "cloudTree.group.coderouter", defaultValue: "Coderouter"))
+        case .coderouterAddAccount:
+            CloudTreeLeafRow(style: style, icon: "plus.circle", tint: .accentColor,
+                             title: String(localized: "coderouter.addAccount", defaultValue: "Add account"),
+                             detail: String(localized: "coderouter.manageAccounts", defaultValue: "Manage Claude accounts and usage"))
         case .cloudMachinesSection:
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
         case .createAction(let action):
@@ -158,6 +164,7 @@ struct CloudTreeRowContentView: View {
     static func groupCount(for kind: CloudTreeNode.Kind) -> CloudTreeGroupCount? {
         switch kind {
         case .devicesSection(let section): CloudTreeGroupCount(section.count)
+        case .coderouterSection: nil
         case .cloudMachinesSection(_, let usage?): CloudTreeGroupCount(usage: usage)
         case .terminalsPool(_, let count), .displaysPool(_, let count, _): CloudTreeGroupCount(count)
         default: nil
