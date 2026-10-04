@@ -106,8 +106,9 @@ struct WindowKeyTable {
 extension AppServices {
     /// The window the key window acts for, its close semantics, and
     /// whether the key window is a sheet or panel over it. Nil when there
-    /// is no key window of ours: a parentless Chromium page window, or a
-    /// borderless panel no window owns.
+    /// is no key window of ours (a parentless Chromium page window) and for
+    /// the palette opened with no window to sit on (it acts for the active
+    /// main window, as it does over one).
     ///
     /// The kind comes from the window kit (`NSWindow.windowKindRoot`). A
     /// window no owner installed acts as a main window when a main window
@@ -127,6 +128,7 @@ extension AppServices {
         if let kind = root.windowKind { return (root, kind.traits.close, !inside) }
         if windows.owner(of: key) != nil { return (root, .contentFirst, !inside) }
         if root === key, Self.isChromiumPageWindow(key) { return nil }
+        if palette?.owns(key) == true { return nil }
         KindlessWindowAudit.note(root)
         let closable = root.styleMask.isSuperset(of: [.titled, .closable])
         return (root, .window, !inside || !closable)
@@ -140,7 +142,10 @@ extension AppServices {
 }
 
 /// Logs (a fault in debug builds, never a crash) the first time each
-/// kind-less window acts as the key window (plans/cmux-next/windows.md).
+/// kind-less cmux window acts as the key window (plans/cmux-next/windows.md):
+/// its owner must install it through the window kit. AppKit's own panels
+/// (About, open and save, font, color), which no owner can install, are
+/// logged at debug level only.
 @MainActor
 enum KindlessWindowAudit {
     private static let seen = NSHashTable<NSWindow>.weakObjects()
@@ -150,6 +155,10 @@ enum KindlessWindowAudit {
         guard !seen.contains(window) else { return }
         seen.add(window)
         let name = String(describing: type(of: window))
+        if Bundle(for: type(of: window)).bundlePath.hasPrefix("/System/") {
+            logger.debug("system window without a kind is key: \(name, privacy: .public)")
+            return
+        }
         #if DEBUG
         logger.fault("window without a kind is key: \(name, privacy: .public)")
         #else

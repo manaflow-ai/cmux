@@ -58,8 +58,9 @@ struct PopupAndKindlessKeyTests {
         #expect(services.windows.controllers.count == 1)
     }
 
-    /// Cmd-W from the keyboard while the popup is key: the same outcome.
-    @Test func commandWInAPopupClosesThePopupNotTheMainWindowsTab() throws {
+    /// Cmd-W from the keyboard while the popup is key: the same outcome
+    /// (the key router's popup step, ahead of the table).
+    @Test func commandWKeyInAPopupClosesThePopupNotTheMainWindowsTab() throws {
         let (services, main, runs) = try world()
         let (page, panel) = try popup(over: main, in: services)
         services.keyWindowSource = { panel }
@@ -92,6 +93,8 @@ struct PopupAndKindlessKeyTests {
         })
         let refusal = registry.capturingRefusal { registry.perform(content.id, invocation: ActionInvocation()) }
         #expect(refusal == MiscHandlerStrings.notInThisWindow)
+        // App-level actions still run from it.
+        #expect(WindowKeyTable(registry: registry).behavior(for: "commandPalette", close: role.close, overRoot: role.overRoot) == .run)
     }
 
     /// A titled kind-less window of its own: Cmd-W closes it, as its close button does.

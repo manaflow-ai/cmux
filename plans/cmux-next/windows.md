@@ -115,8 +115,20 @@ changes. The React Settings page is transparent over it.
 - `.consume`: nothing runs, no beep (a sheet or panel over a standalone
   window got a close shortcut).
 - `.disabled(reason)`: the menu item is off, a run is refused with the
-  reason (destructive actions on main window content: tab, pane, workspace,
-  screen, group, column, window targets).
+  reason "Not available in this window." (destructive actions on main
+  window content: tab, pane, workspace, screen, group, column, window
+  targets).
+
+A key window without a kind (lane 20 v2): when a main window owns it
+(palette, sheets, panels over the main window) it acts as that main
+window; a parentless Chromium page window and the palette opened with no
+window under it act for the active main window; any other kind-less window
+is a window of its own, the safe default: close actions close it when it
+has a close button and do nothing when it has none, destructive content
+actions are refused, app-level actions run. It never reaches the main
+window behind it, and debug builds log a fault once per kind-less cmux
+window (AppKit's own panels only at debug level). Tests:
+`PopupAndKindlessKeyTests`.
 
 Rows: `main` runs everything. Every other kind: close actions (catalog ids
 whose last segment starts with `close`) are `.closeWindow`; app-level
@@ -159,7 +171,7 @@ windows (Chromium page windows, panels) are not included. Use
 | Debug Settings fallback | `DebugSettingsWindowController` | same | install(.debugSettings) |
 | App Store | `AppStoreWindowController` (becomes a page tab) | content before background | install(.appStore) until the page lands |
 | onboarding, gallery | `OnboardingWindowController`, `OnboardingGalleryController` | hand-built | install(.onboarding / .onboardingGallery) |
-| browser popup | `BrowserPopupPanel` | own Cmd-W interception (`popups.interceptKeyDown`) | install(.browserPopup); Cmd-W through the table |
+| browser popup | `BrowserPopupPanel` | own Cmd-W interception (`popups.interceptKeyDown`) | install(.browserPopup) (done); the key router's popup Cmd-W step is still in place, Close Tab from the menu and palette goes through the table (both tested) |
 | DevTools | `CEFDevToolsWindow` | hand-built | install(.devTools) |
 | page info, terminal/browser debug | `PageInfoWindows`, `TerminalDebugWindow`, `BrowserDebugWindow` | hand-built | install(kind) |
 
