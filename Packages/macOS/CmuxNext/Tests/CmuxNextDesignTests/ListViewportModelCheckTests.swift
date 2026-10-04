@@ -123,7 +123,7 @@ import Testing
         return bad
     }
 
-    static func explore(depth: Int, settle: Settle) -> (states: Int, transitions: Int, violations: [String]) {
+    static func explore(depth: Int, settle: Settle, stopAfterViolation: Bool = false) -> (states: Int, transitions: Int, violations: [String]) {
         var frontier: Set<World> = []
         func lists(_ n: Int) -> [[Int]] {
             guard n > 0 else { return [[]] }
@@ -154,7 +154,10 @@ import Testing
                     let after = apply(step, world, settle: settle)
                     transitions += 1
                     let bad = check(step, before: world, after: after, settle: settle)
-                    if !bad.isEmpty, violations.count < 5 { violations.append("\(world.order) h\(world.heights) vp\(world.viewport) off\(world.offset) f\(String(describing: world.focused)) \(step): \(bad)") }
+                    if !bad.isEmpty, violations.count < 5 {
+                        violations.append("\(world.order) h\(world.heights) vp\(world.viewport) off\(world.offset) f\(String(describing: world.focused)) \(step): \(bad)")
+                        if stopAfterViolation { return (seen.count, transitions, violations) }
+                    }
                     if seen.insert(after).inserted { next.insert(after) }
                 }
             }
@@ -197,7 +200,7 @@ import Testing
                 return real
             }
         }
-        let result = Self.explore(depth: 2, settle: mutant)
+        let result = Self.explore(depth: 2, settle: mutant, stopAfterViolation: true)
         #expect(!result.violations.isEmpty, "mutant \(name) not caught")
     }
 }
