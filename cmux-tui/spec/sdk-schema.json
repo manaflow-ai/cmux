@@ -16665,6 +16665,69 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "put-blob": {
+   "authority": "control",
+   "since": 12,
+   "capability": "icon-assets-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "media_type": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "media_type is image/png, image/jpeg, image/webp, or image/svg+xml; data is standard base64.",
+    "See spec/commands.md for the limits and the result object."
+   ]
+  },
+  "get-blob": {
+   "authority": "control",
+   "since": 12,
+   "capability": "icon-assets-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "blob": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "create-profile": {
    "authority": "control",
    "since": 12,

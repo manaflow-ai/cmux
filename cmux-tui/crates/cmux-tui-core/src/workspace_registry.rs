@@ -77,8 +77,7 @@ pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
     new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_presentation_color,
-    validate_presentation_icon, validate_tab_group_color, validate_tab_group_name,
-    validate_workspace_group_id,
+    validate_tab_group_color, validate_tab_group_name, validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;

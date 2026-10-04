@@ -209,6 +209,9 @@ rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled
 # data only, no new transitive code.
 icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
 sha2 = "0.10"
+# The SVG icon sanitizer's XML parser (cmux-tui-core). Already in the graph
+# at this version through plist; this adds no new code.
+quick-xml = { version = "0.41", default-features = false }
 # Ed25519 verification of the signed channel manifest (cmux-server-core).
 # ring is already in the graph through rustls; this adds no new code.
 ring = "0.17"
