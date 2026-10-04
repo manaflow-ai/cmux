@@ -15,6 +15,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 TOOL_NAME = os.environ.get("FAKE_TOOL_NAME", "Bash")
 TOOL_INPUT = json.loads(os.environ.get("FAKE_TOOL_INPUT", '{"command": "true"}'))
 LOG = os.environ.get("FAKE_MODEL_LOG")
+# A secret the probe planted in a file; the log records whether any request
+# body carried it back to the model (a read or an @path expansion leaked it).
+SECRET = os.environ.get("FAKE_SECRET")
+# Strings planted in user skills, commands, agents and hooks; the log records
+# which ones reached the model (the definition was loaded).
+SENTINELS = [x for x in os.environ.get("FAKE_SENTINELS", "").split(",") if x]
 
 
 def has_tool_result(body):
@@ -65,7 +71,9 @@ class Handler(BaseHTTPRequestHandler):
         if LOG:
             with open(LOG, "a") as log:
                 log.write(json.dumps({"path": self.path, "tools": [t.get("name") for t in body.get("tools") or []],
-                                      "tool_result": has_tool_result(body)}) + "\n")
+                                      "tool_result": has_tool_result(body),
+                                      "secret_seen": bool(SECRET) and SECRET in json.dumps(body),
+                                      "sentinels": [x for x in SENTINELS if x in json.dumps(body)]}) + "\n")
         if "count_tokens" in self.path:
             self._json(200, {"input_tokens": 1})
             return
