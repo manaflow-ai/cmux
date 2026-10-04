@@ -9050,3 +9050,39 @@ describe("Cloud snapshot idempotency", () => {
     expect(requests.size).toBe(0);
   });
 });
+
+describe("Cloud snapshot request ledger (Postgres)", () => {
+  dbTest("claims a key once, replays success, frees it on failure and takes over a stale attempt", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_snapshot_requests, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, image_id, status, provider_metadata)
+      values ('user-snapshot-ledger', 'team-snapshot-ledger', 'pro', 'freestyle', 'image-snapshot-ledger', 'running', '{}'::jsonb)
+      returning id
+    `;
+    const repo = vmRepositoryLiveShape;
+    const begin = (key: string, name: string | null, staleBefore = new Date(0)) =>
+      Effect.runPromise(repo.beginSnapshotRequest!({ vmId: vm.id, idempotencyKey: key, name, staleBefore }));
+
+    expect(await begin("k1", "nightly")).toEqual({ kind: "started" });
+    expect(await begin("k1", "nightly")).toEqual({ kind: "in_progress" });
+    expect(await begin("k1", "other")).toEqual({ kind: "conflict" });
+    await Effect.runPromise(repo.finishSnapshotRequest!({
+      vmId: vm.id, idempotencyKey: "k1", outcome: { kind: "succeeded", snapshot: { id: "snap-1", createdAt: 1234, name: "nightly" } },
+    }));
+    expect(await begin("k1", "nightly")).toEqual({ kind: "succeeded", snapshot: { id: "snap-1", createdAt: 1234, name: "nightly" } });
+
+    expect(await begin("k2", null)).toEqual({ kind: "started" });
+    await Effect.runPromise(repo.finishSnapshotRequest!({ vmId: vm.id, idempotencyKey: "k2", outcome: { kind: "failed" } }));
+    expect(await begin("k2", null)).toEqual({ kind: "started" });
+
+    // A pending attempt that is older than the stale bound is taken over once.
+    expect(await begin("k2", null, new Date(Date.now() + 60_000))).toEqual({ kind: "started" });
+    expect(await begin("k2", null, new Date(0))).toEqual({ kind: "in_progress" });
+
+    // Deleting the machine row deletes its requests.
+    await sql`delete from cloud_vms where id = ${vm.id}`;
+    const [{ count }] = await sql<{ count: string }[]>`select count(*)::text as count from cloud_vm_snapshot_requests`;
+    expect(count).toBe("0");
+  });
+});

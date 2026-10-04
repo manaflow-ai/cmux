@@ -23,6 +23,7 @@ import type {
   AttachOptions,
   ExecResult,
   ProviderId,
+  SnapshotRef,
   SSHEndpoint,
   VmEdgeRule,
   VMHandle,
@@ -76,6 +77,8 @@ import {
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  VmSnapshotInProgressError,
+  VmSnapshotIdempotencyConflictError,
   VmUsageLimitExceededError,
   VmGoShapeError,
   VM_MODEL_PLANE_FAILURE_CODES,
@@ -1777,23 +1780,58 @@ function reopenBaseIfProviderDeleted(
   );
 }
 
+/**
+ * A pending snapshot request older than this belongs to an attempt that died
+ * without finishing (the route budget is 600 s), so a retry may take it over.
+ */
+export const SNAPSHOT_REQUEST_STALE_MS = 15 * 60 * 1000;
+
 export function snapshotVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly name?: string;
+  /** Idempotency-Key of the request: a retry with the same key returns the first snapshot. */
+  readonly idempotencyKey?: string;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    const snapshot = yield* (providers.snapshot
+    const key = input.idempotencyKey;
+    if (key) {
+      if (!repo.beginSnapshotRequest || !repo.finishSnapshotRequest) {
+        return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "snapshotIdempotency" }));
+      }
+      const begin = yield* repo.beginSnapshotRequest({
+        vmId: vm.id,
+        idempotencyKey: key,
+        name: input.name ?? null,
+        staleBefore: new Date(Date.now() - SNAPSHOT_REQUEST_STALE_MS),
+      });
+      if (begin.kind === "succeeded") return begin.snapshot;
+      if (begin.kind === "in_progress") return yield* Effect.fail(new VmSnapshotInProgressError({ vmId: vm.id }));
+      if (begin.kind === "conflict") return yield* Effect.fail(new VmSnapshotIdempotencyConflictError({ vmId: vm.id }));
+    }
+    const finish = repo.finishSnapshotRequest;
+    const takeSnapshot: Effect.Effect<SnapshotRef, VmProviderOperationError | VmOperationUnsupportedError> = providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
-      })));
+      }));
+    // A failed attempt frees the key so the same request can retry. The
+    // original error wins over a failure to free it.
+    const freeKey: Effect.Effect<void> = key && finish
+      ? Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "failed" } }))
+      : Effect.void;
+    const snapshot = yield* Effect.tapError(takeSnapshot, () => freeKey);
+    if (key && finish) {
+      // The snapshot exists now. A failed write here leaves the row pending;
+      // a retry then waits for the stale window instead of failing this call.
+      yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } }));
+    }
     // Read after the provider confirms the snapshot. Grow-only resizes that
     // finish during snapshot creation are then included in the captured claim;
     // a later resize can only make this conservative.

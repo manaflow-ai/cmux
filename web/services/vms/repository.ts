@@ -31,6 +31,13 @@ import {
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
 import { allocateVmSlug } from "./vmNaming";
+import {
+  beginSnapshotRequest,
+  finishSnapshotRequest,
+  type BeginSnapshotRequestInput,
+  type FinishSnapshotRequestInput,
+  type SnapshotRequestBegin,
+} from "./snapshotRequests";
 import { storedAgentUpdates, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
 import {
@@ -197,6 +204,13 @@ export type VmRepositoryShape = {
    * doubles built before the feature keep compiling; the live layer always
    * provides them and workflows treat absence as "no networking".
    */
+  /**
+   * Idempotency ledger for snapshot create (`snapshotRequests.ts`). Optional so
+   * older test doubles compile; the live layer provides both, and a snapshot
+   * with a key and no ledger fails closed in the workflow.
+   */
+  readonly beginSnapshotRequest?: (input: BeginSnapshotRequestInput) => Effect.Effect<SnapshotRequestBegin, VmDatabaseError>;
+  readonly finishSnapshotRequest?: (input: FinishSnapshotRequestInput) => Effect.Effect<void, VmDatabaseError>;
   /** The owner's private-network row for one provider, or null when they have none yet. */
   readonly findNetwork?: (
     userId: string,
@@ -1288,6 +1302,8 @@ function networkUpsertLockKey(input: { readonly userId: string; readonly provide
 
 /** The Postgres-backed repository. Workflows wrap it with the analytics sink (see workflows.ts). */
 export const vmRepositoryLiveShape: VmRepositoryShape = {
+  beginSnapshotRequest,
+  finishSnapshotRequest,
   findNetwork: (userId, provider) =>
     dbEffect("findNetwork", async () => {
       const db = cloudDb();
