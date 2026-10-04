@@ -230,7 +230,7 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, to: workspaces); return .none
-        case .bookmarksChanged, .conversationChanged, .conversationTyping:
+        case .bookmarksChanged, .conversationChanged, .conversationTyping, .unknown(AppServerEvent.eventName, _):
             sideEvents.deliver(event)
             return .none
 
