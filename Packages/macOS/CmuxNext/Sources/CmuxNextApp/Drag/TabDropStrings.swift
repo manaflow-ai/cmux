@@ -13,6 +13,8 @@ nonisolated enum TabDropStrings {
             RefusalStrings.text("refusal.tabDrop.columnBeforeFirst", "A new column can't open before the first column.")
         case .groupDock:
             RefusalStrings.text("refusal.tabDrop.groupDock", "A tab group can't open a dock yet.")
+        case .surface(let reason):
+            reason
         }
     }
 

@@ -42,12 +42,6 @@ public nonisolated enum DropOverlayTunables {
 
     // MARK: Per style
 
-    public static let outlineStrokeWidth = number("outline.width", "Outline: width", help: "Width of the border around the drop rect.",
-                                                  2, range: 0.5...8, step: 0.25, unit: .points, property: "outlineStrokeWidth")
-    public static let outlineColor = Tunable<TunableColor>.color(
-        "drop.overlay.outline.color", .dropOverlay, "Outline: color", help: "Theme color of the outline (the accent; no blue).",
-        default: .focusRing, code: "DropOverlayTunables.outlineColor")
-
     public static let outlineWidth = number("glassOutline.width", "Glass outline: band width", help: "Width of the glass band.", 6, range: 1...30, step: 0.5, unit: .points, property: "outlineWidth")
     public static let cardWidthFraction = number("insetCard.widthFraction", "Inset card: width share", help: "Card width as a share of the target.",
                                                  0.6, range: 0.2...1, step: 0.05, unit: .fraction, property: "cardWidthFraction")
@@ -84,7 +78,7 @@ public nonisolated enum DropOverlayTunables {
     public static var all: [TunableDescriptor] {
         [style.descriptor, spring.descriptor, animated.descriptor, appearInset.descriptor, opacity.descriptor, floatingInset.descriptor,
          cornerRadius.descriptor, showLabel.descriptor, labelMinWidth.descriptor, color.descriptor,
-         outlineStrokeWidth.descriptor, outlineColor.descriptor]
+        ] + DropOutlineTunables.all
             + [outlineWidth, cardWidthFraction, cardMaxWidth, cardHeight, cardRegionOpacity].map(\.descriptor)
             + [cardShowsIcon.descriptor]
             + [splitGap, splitExistingOpacity, lineWidth, lineLength, lineRegionOpacity, glowWidth, glowOpacity, ghostWidth,

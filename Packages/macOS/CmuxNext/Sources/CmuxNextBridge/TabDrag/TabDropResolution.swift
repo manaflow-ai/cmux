@@ -45,6 +45,9 @@ extension TabDragResolver {
                                      outcome: outcome(for: nil, insideWindow: false, screenPoint: screenPoint, context: context))
         }
         guard let proposal else { return TabDropResolution(preview: .none, outcome: .cancel) }
+        if let reason = proposal.refusedReason {
+            return TabDropResolution(preview: .refused(proposal, .surface(reason)), outcome: .cancel)
+        }
         switch verdict(proposal.kind, context: context) {
         case .accept:
             return TabDropResolution(preview: .target(proposal),

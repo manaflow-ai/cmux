@@ -2,7 +2,7 @@ public import CmuxNextDesign
 
 /// Why a drop target cannot take the dragged tabs. The App shows the
 /// localized reason on the preview and again when the user drops there.
-public nonisolated enum TabDropRefusal: Hashable, Sendable, CaseIterable {
+public nonisolated enum TabDropRefusal: Hashable, Sendable {
     /// A split of the source pane with every tab it holds, on an owner that
     /// cannot spawn a replacement tab: nothing would be left to split.
     case splitEmptiesPane
@@ -10,6 +10,9 @@ public nonisolated enum TabDropRefusal: Hashable, Sendable, CaseIterable {
     case columnBeforeFirst
     /// A tab group dropped on a dock edge: groups have no dock move yet.
     case groupDock
+    /// The surface refused it with this localized reason
+    /// (`TabDropProposal.refusedReason`).
+    case surface(String)
 }
 
 /// What a surface's proposal means for this drag (tab-dnd, Lawrence

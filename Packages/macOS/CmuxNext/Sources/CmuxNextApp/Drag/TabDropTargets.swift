@@ -35,7 +35,17 @@ final class SidebarTabDropTarget: TabDropTargetProviding {
     }
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
-        guard let bridge, let hit = hit(screenPoint: screenPoint) else { return nil }
+        guard let bridge else { return nil }
+        guard let hit = hit(screenPoint: screenPoint) else {
+            // A row that refuses the tab still previews, with why (tab-dnd).
+            lastDrop = nil
+            guard let refusal = bridge.container.sidebarView.tabDragRefusal(screenPoint: screenPoint, sourceMachine: sourceMachine) else {
+                return nil
+            }
+            active = true
+            return TabDropProposal(kind: .newWorkspace(groupID: nil, index: -1), highlightFrame: refusal.highlightFrame,
+                                   refusedReason: refusal.text)
+        }
         lastDrop = hit.drop
         let kind: TabDropKind
         switch hit.drop {
