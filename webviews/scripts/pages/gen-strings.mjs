@@ -103,6 +103,16 @@ export const PAGES = {
     out: "webviews/src/pages/keybindings/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextApp/Resources/KeybindingsPage.xcstrings` }],
   },
+  // The Passwords page shares its table with its Swift provider and sheets (`passwords.page.` keys).
+  passwords: {
+    out: "webviews/src/pages/passwords/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextApp/Resources/Passwords.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("passwords.page.")),
+      },
+    ],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",
