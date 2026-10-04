@@ -13,7 +13,11 @@ use super::*;
 use crate::fs_ops::{FS_CAPABILITY, FS_COMMANDS, FsService, Roots};
 
 pub(super) fn test_mux() -> Arc<Mux> {
-    Mux::new_for_test("fs-wire", crate::SurfaceOptions::default())
+    let mux = Mux::new_for_test("fs-wire", crate::SurfaceOptions::default());
+    // The remote relay serves only an install with a good control-plane
+    // check (server-remote-conversations.md section 10).
+    mux.record_remote_check("inst_1");
+    mux
 }
 
 pub(super) fn peer() -> RemotePeer {
@@ -316,7 +320,7 @@ fn a_stream_dial_on_a_host_without_the_owner_is_refused() {
 fn the_link_entry_of_a_non_cloud_host_refuses_fs_and_denies_the_rest() {
     let directory = cmux_unix_socket::short_test_dir("fsentry");
     let path = cmux_link::entry_path::remote_entry_socket_path(&directory.path().join("s.sock"));
-    let mux = Mux::new_for_test("fs-entry", crate::SurfaceOptions::default());
+    let mux = test_mux();
     let verifier: LinkVerifier = Arc::new(|_stream: &UnixStream| Ok(()));
     let server = serve_remote_entry(mux, &path, verifier, Arc::new(FsGate)).unwrap();
     let stamp = r#"{"link_peer":{"install":"inst_1","user":"42","team":"team_a"}}"#;
