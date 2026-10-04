@@ -9,9 +9,10 @@
       bin/cmux-browser-host (fixed owner, mode and mtime, so the same binary
       gives the same archive bytes) and print its path.
   browser-host-release.py entries BASE_URL VERSION ARCHIVE...
-      print the channel-manifest package entries (vm-image.md 4.5 schema 1:
-      name, version, url, sha256, size, roles) for the archives, one per target,
-      with the target as an extra field. Unsigned: signing is the channel's step.
+      print {"schema": 2, "packages": [...]}: the channel-manifest package
+      entries (name, version, url, sha256, size, roles, and the required arch
+      and target of schema 2) for the archives, one per target. Unsigned:
+      signing is the channel's step.
 """
 
 from __future__ import annotations
@@ -28,6 +29,8 @@ from pathlib import Path
 
 NAME = "cmux-browser-host"
 TARGETS = ("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
+# Channel manifest schema 2 (decision MANIFEST-ARCH): arch and target are required per entry.
+SCHEMA = 2
 VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 
 
@@ -63,7 +66,7 @@ def package(binary: str, version: str, target: str, outdir: str) -> Path:
     return out
 
 
-def entries(base_url: str, version: str, archives: list[str]) -> list[dict]:
+def entries(base_url: str, version: str, archives: list[str]) -> dict:
     out = []
     for archive in archives:
         path = Path(archive)
@@ -71,12 +74,13 @@ def entries(base_url: str, version: str, archives: list[str]) -> list[dict]:
         if not match:
             raise SystemExit(f"unexpected archive name {path.name}")
         data = path.read_bytes()
+        target = match.group(1)
         out.append({"name": NAME, "version": version, "url": f"{base_url.rstrip('/')}/{path.name}",
                     "sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "roles": ["all"],
-                    "target": match.group(1)})
+                    "arch": target.split("-", 1)[0], "target": target})
     if sorted(e["target"] for e in out) != sorted(TARGETS):
         raise SystemExit(f"need one archive per target {TARGETS}, got {[e['target'] for e in out]}")
-    return out
+    return {"schema": SCHEMA, "packages": out}
 
 
 def main(argv: list[str]) -> int:
