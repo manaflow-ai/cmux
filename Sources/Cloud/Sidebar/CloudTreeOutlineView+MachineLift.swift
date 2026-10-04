@@ -74,7 +74,7 @@ extension CloudTreeOutlineView.Coordinator {
             isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned },
             closes: { if case .machine = $0.kind { return true }; return false }
         ) { machines in
-            withProgrammaticUpdate {
+            self.withProgrammaticUpdate {
                 for machine in machines { outline.collapseItem(machine) }
             }
         }
@@ -143,7 +143,7 @@ extension CloudTreeOutlineView.Coordinator {
                         outline.expandItem(machine)
                     }
                 }
-                restoreSelection(in: outline)
+                self.restoreSelection(in: outline)
             }
         }, mutate: commit)
     }
