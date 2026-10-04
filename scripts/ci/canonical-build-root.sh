@@ -33,9 +33,15 @@ default_root=/private/tmp/cmux-ci
 # CMUX_CI_CANONICAL_ROOT (the default for root 1, /private/tmp/cmux-ci-N
 # otherwise) and `glaeda-canonical-root take` rejects any other path, so keep
 # the hook's root there instead of deriving one from RUNNER_NAME.
+# Only a fleet Mac without glaeda (several runners sharing one disk) needs a
+# per-runner root. Ephemeral runners such as Blacksmith also report
+# self-hosted, but run one job per VM; a per-runner root there would start
+# every build cold and make its seeds unadoptable.
 glaeda_helper="${CMUX_CI_CANONICAL_ROOT_HELPER:-/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root}"
+fleet_dir="${CMUX_CI_FLEET_DIR:-/Users/Shared/cmux-build-fleet}"
 if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] \
   && [ -n "${RUNNER_NAME:-}" ] \
+  && [ -d "$fleet_dir" ] \
   && [ ! -x "$glaeda_helper" ] \
   && [ "${CMUX_CI_CANONICAL_ROOT:-$default_root}" = "$default_root" ]; then
   runner_key="$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9_.-' '_')"
