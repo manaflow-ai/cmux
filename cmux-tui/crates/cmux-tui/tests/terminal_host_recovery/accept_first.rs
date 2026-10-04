@@ -51,22 +51,20 @@ fn new_cat_tab(harness: &RecoveryHarness, id: u64, pane: u64) -> (serde_json::Va
     (reply, terminal_id)
 }
 
-/// The resource (public) id of the terminal with this hex terminal id.
+/// The resource (public) id of the terminal with this hex terminal id, from
+/// the tab that shows it (terminal rows carry only the public id).
 fn public_terminal_id(harness: &RecoveryHarness, terminal: &str) -> String {
-    let terminals = resource_request(
-        &harness.socket,
-        "accept-terminal-list",
-        "terminal.list",
-        serde_json::json!({"machine": "current", "session": "current"}),
-        None,
-    );
-    terminals
+    let tree = request(&harness.socket, serde_json::json!({"id": 9_001, "cmd": "list-workspaces"}));
+    tree["workspaces"]
         .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row.to_string().contains(terminal))
-        .and_then(|row| row["id"].as_str())
-        .expect("the terminal is listed")
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .find(|tab| tab["terminal_id"] == terminal)
+        .and_then(|tab| tab["terminal_resource_id"].as_str())
+        .expect("the terminal is in the tree")
         .to_string()
 }
 
@@ -170,7 +168,7 @@ fn a_launch_that_fails_after_accept_keeps_the_tab_and_its_input() {
         &harness.socket,
         serde_json::json!({
             "id": 3, "cmd": "new-tab", "pane": pane, "terminal_id": terminal,
-            "env": {"SHELL": missing},
+            "env": {"SHELL": missing}, "shell_args": ["-l"],
         }),
     );
     assert_eq!(reply["lifecycle"], "launching", "{reply}");
@@ -197,8 +195,12 @@ fn a_launch_that_fails_after_accept_keeps_the_tab_and_its_input() {
         }),
         Some("accept-relaunch"),
     );
-    assert_ne!(relaunched["value"]["terminal_incarnation"], exited["terminal_incarnation"]);
-    wait_for_terminal_lifecycle(&harness.socket, &terminal, "running");
+    assert_eq!(relaunched["value"]["terminal"], public.as_str(), "{relaunched}");
+    // The v2 API keeps the host incarnation private; the legacy resolver
+    // shows the relaunch runs a new one.
+    let running = wait_for_terminal_lifecycle(&harness.socket, &terminal, "running");
+    assert!(running["terminal_incarnation"].is_string(), "{running}");
+    assert_ne!(running["terminal_incarnation"], exited["terminal_incarnation"]);
     std::thread::sleep(Duration::from_millis(300));
     let clean = request(
         &harness.socket,
