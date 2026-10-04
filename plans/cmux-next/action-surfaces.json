@@ -3788,7 +3788,8 @@
         "family" : "digits",
         "key" : "1",
         "modifiers" : [
-          "ctrl"
+          "ctrl",
+          "opt"
         ]
       },
       "id" : "space.selectByNumber",
@@ -6021,8 +6022,7 @@
         "family" : "digits",
         "key" : "1",
         "modifiers" : [
-          "ctrl",
-          "opt"
+          "ctrl"
         ]
       },
       "id" : "selectSurfaceByNumber",
