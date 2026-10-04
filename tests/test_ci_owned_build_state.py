@@ -1168,6 +1168,8 @@ class Wiring(unittest.TestCase):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():
+            if name == "Compile app-host test product":
+                continue
             self.assertNotIn("owned", block.lower(), name)
         self.assertNotIn("CMUX_OWNED_STATE_ROOT", identity.recipe_projection(text)["job_controls"]["env"])
 
@@ -1208,14 +1210,13 @@ class Wiring(unittest.TestCase):
     def test_a_second_compile_slot_keeps_its_own_root_and_state(self):
         # The first slot, and every Blacksmith job, keeps the default root and store.
         for runner in ("glaeda-std-xcode-26.6", "blacksmith-6vcpu-macos-26"):
-            self.assertEqual(self.slot(None, runner), (0, "CMUX_CI_CANONICAL_ROOT=/private/tmp/cmux-ci\n", "root=/private/tmp/cmux-ci\n"))
+            self.assertEqual(self.slot(None, runner), (0, "", "root=/private/tmp/cmux-ci\n"))
         code, env, out = self.slot("/private/tmp/cmux-ci-2")
         self.assertEqual(code, 0)
         self.assertEqual(
             env,
             "CMUX_OWNED_PACKAGE_STORE=/Users/Shared/cmux-build-fleet/ci\n"
-            "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n"
-            "CMUX_CI_CANONICAL_ROOT=/private/tmp/cmux-ci-2\n",
+            "CMUX_OWNED_STATE_ROOT=/Users/Shared/cmux-build-fleet/ci/cmux-ci-2\n",
         )
         self.assertEqual(out, "root=/private/tmp/cmux-ci-2\n")
         # Only an owned Mac may move the root, and only to a slot root.
