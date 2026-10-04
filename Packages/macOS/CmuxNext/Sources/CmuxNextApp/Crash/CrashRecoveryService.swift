@@ -60,14 +60,33 @@ final class CrashRecoveryService {
         noticeShown = true
         let text = recovery.skipsBrowserPages ? CrashStrings.restartNoticeSafe : CrashStrings.restartNotice
         // The report paths are found off the main thread after launch; the
-        // button reads them when clicked, and opens the report folder if
-        // neither exists yet.
+        // button reads them when clicked (the same path as Help > Show
+        // Crash Logs).
         let panel = RestartNoticePanel(text: text) { [weak self] in
-            guard let self else { return }
-            NSWorkspace.shared.open(self.previousCrashLog ?? self.previousReport ?? self.writer.directory)
+            self?.showCrashLogs()
         }
         panel.show(on: window)
         notice = panel
+    }
+
+    /// Help > Show Crash Logs, the palette, `cmux action run
+    /// help.showCrashLogs` and the restart notice: the newest crash log in
+    /// TextEdit (`CrashLogOpener`). The folder listing runs off the main
+    /// thread.
+    func showCrashLogs(opener: CrashLogOpener = .system) {
+        let previousSystemLog = previousCrashLog
+        let previousReport = previousReport
+        let directory = writer.directory
+        Task.detached(priority: .userInitiated) {  // task-owner: one-shot open; nothing to cancel
+            let target = CrashLogOpener.target(
+                previousSystemLog: previousSystemLog, previousReport: previousReport, reportDirectory: directory,
+                systemLogs: CrashRecoveryService.systemLogsFolder, executable: ProcessInfo.processInfo.processName)
+            await MainActor.run { _ = opener.show(target) }
+        }
+    }
+
+    nonisolated static var systemLogsFolder: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Logs/DiagnosticReports", directoryHint: .isDirectory)
     }
 
     /// The restart notice's text while it is shown (`debug.crashes`).
@@ -108,7 +127,7 @@ final class CrashRecoveryService {
     /// The newest macOS crash report of this executable written after
     /// `date` (`~/Library/Logs/DiagnosticReports/<name>-<date>.ips`).
     nonisolated static func systemCrashLog(after date: Date, name: String = ProcessInfo.processInfo.processName) -> URL? {
-        let folder = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Logs/DiagnosticReports")
+        let folder = systemLogsFolder
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         return files
             .filter { $0.pathExtension == "ips" && $0.lastPathComponent.hasPrefix(name + "-") }
