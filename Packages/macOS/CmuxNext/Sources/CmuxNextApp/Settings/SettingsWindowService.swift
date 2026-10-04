@@ -117,6 +117,8 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
+        // A live preview left by a closed page (mid-drag) must not stay applied.
+        services.settings?.endPreview()
         dropModelWhenUnused()
     }
 

@@ -74,8 +74,20 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.file.reveal":
             NSWorkspace.shared.activateFileViewerSelecting([settings.file.url])
             return .object([:])
-        case "cmux.settings.preview", "cmux.settings.preview.end":
-            // No live preview yet: a change applies when it is written (flagged in react-pages.md S1).
+        case "cmux.settings.preview":
+            // Live preview (R82 commit 5): the value applies to every window without a write;
+            // the gesture's end writes it with cmux.settings.set, or preview.end restores.
+            let descriptor = try descriptor(params)
+            let value = params["value"].flatMap { $0 == .null ? nil : $0 }
+            if let source = settings.managedSource(for: descriptor) {
+                throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: Self.managedInfo(source))
+            }
+            guard settings.preview(descriptor, value) else {
+                throw PageError(code: "cmux.settings.invalid", message: "\(descriptor.id) does not accept this value")
+            }
+            return ["previewing": .string(descriptor.id)]
+        case "cmux.settings.preview.end":
+            settings.endPreview()
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }

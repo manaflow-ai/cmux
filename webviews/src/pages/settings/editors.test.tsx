@@ -98,8 +98,9 @@ describe("editors", () => {
     expect(order).toEqual([
       "cmux.settings.preview",
       "cmux.settings.preview",
-      "cmux.settings.preview.end",
+      // The write lands before the preview ends, so the window never flashes the old value.
       "cmux.settings.set",
+      "cmux.settings.preview.end",
     ]);
   });
 
