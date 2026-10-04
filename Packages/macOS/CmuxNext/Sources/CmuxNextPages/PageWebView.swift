@@ -62,6 +62,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         get { (webView as? PageWKWebView)?.fileDrop }
         set { (webView as? PageWKWebView)?.fileDrop = newValue }
     }
+    /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
+    /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
+    /// gesture (a file page's "Open <path>?" sheet) records the value it used.
+    public var lastUserEventUptime: TimeInterval? { (webView as? PageWKWebView)?.lastUserEventUptime }
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     private var crashReloads = PageCrashReloads()
