@@ -36,18 +36,22 @@ pub async fn within<T>(
     after: Duration,
     fut: impl std::future::Future<Output = T>,
 ) -> Result<T, HostTimeout> {
-    tokio::time::timeout(after, fut).await.map_err(|_| HostTimeout { what, after })
+    within_on(&*crate::clock::TokioClock::new(), what, after, fut).await
 }
 
 /// [`within`] on an injected clock (`crate::clock`): tests drive the
 /// deadline with a `ManualClock` instead of waiting for it.
 pub async fn within_on<T>(
-    _clock: &dyn crate::clock::Clock,
+    clock: &dyn crate::clock::Clock,
     what: &'static str,
     after: Duration,
     fut: impl std::future::Future<Output = T>,
 ) -> Result<T, HostTimeout> {
-    within(what, after, fut).await
+    let deadline = clock.sleep_until(clock.now() + after);
+    tokio::select! {
+        value = fut => Ok(value),
+        () = deadline => Err(HostTimeout { what, after }),
+    }
 }
 
 #[cfg(test)]
@@ -60,7 +64,10 @@ mod tests {
         let clock = ManualClock::new();
         let wait = tokio::spawn({
             let clock = clock.clone();
-            async move { within_on(&*clock, "test", Duration::from_secs(5), std::future::pending::<()>()).await }
+            async move {
+                within_on(&*clock, "test", Duration::from_secs(5), std::future::pending::<()>())
+                    .await
+            }
         });
         tokio::task::yield_now().await;
         clock.advance(Duration::from_secs(5));
