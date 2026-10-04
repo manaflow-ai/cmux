@@ -62,13 +62,15 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS closed_v1_copied (
            closed_id TEXT PRIMARY KEY NOT NULL,
-           closed_at_ms INTEGER NOT NULL
+           closed_at_ms INTEGER NOT NULL,
+           v1_sequence INTEGER
          );",
     )?;
+    add_ledger_sequences(transaction)?;
     reconcile_v1(transaction)?;
     let rows = {
         let mut statement = transaction.prepare(
-            "SELECT closed_id, kind, record_json, closed_at_ms FROM closed_history
+            "SELECT closed_id, kind, record_json, closed_at_ms, sequence FROM closed_history
              WHERE closed_id NOT IN (SELECT closed_id FROM closed_v1_copied)
              ORDER BY sequence ASC",
         )?;
@@ -79,11 +81,12 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?
     };
-    for (closed_id, kind, record, closed_at_ms) in rows {
+    for (closed_id, kind, record, closed_at_ms, sequence) in rows {
         let record: Value = serde_json::from_str(&record)?;
         let group = json!({
             "id": closed_id,
@@ -98,46 +101,66 @@ fn migrate_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
             params![closed_id, kind, closed_at_ms, serde_json::to_string(&group)?],
         )?;
         transaction.execute(
-            "INSERT INTO closed_v1_copied(closed_id, closed_at_ms) VALUES(?1, ?2)",
-            params![closed_id, closed_at_ms],
+            "INSERT INTO closed_v1_copied(closed_id, closed_at_ms, v1_sequence) VALUES(?1, ?2, ?3)",
+            params![closed_id, closed_at_ms, sequence],
         )?;
     }
     Ok(())
 }
 
-/// The most rows a v1 daemon keeps; it evicts its oldest rows past this.
-const V1_MAX_ITEMS: usize = 50;
+/// The first v2 build kept no v1 sequence in the ledger: add the column
+/// and fill it for every row still in v1 (a removed row stays unknown).
+fn add_ledger_sequences(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_sequence = transaction
+        .prepare("PRAGMA table_info(closed_v1_copied)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "v1_sequence");
+    if !has_sequence {
+        transaction.execute_batch("ALTER TABLE closed_v1_copied ADD COLUMN v1_sequence INTEGER;")?;
+    }
+    transaction.execute_batch(
+        "UPDATE closed_v1_copied SET v1_sequence =
+           (SELECT h.sequence FROM closed_history AS h WHERE h.closed_id = closed_v1_copied.closed_id)
+         WHERE v1_sequence IS NULL;",
+    )?;
+    Ok(())
+}
 
 /// Copied v1 rows that a downgraded v1 daemon removed since the copy. A v1
-/// daemon removes a row when it reopens it, or when it evicts its oldest
-/// rows past [`V1_MAX_ITEMS`]. When the rows now in v1 plus the removed
-/// ones fit in that bound, the table never overflowed, so every removed row
-/// was reopened and its group goes too (never reopened twice). Otherwise a
-/// removed row at least as new as the oldest remaining row was reopened
-/// (eviction takes the oldest), and an older one may only have been
-/// evicted, so its group stays (history is kept). The ledger forgets every
-/// removed row.
+/// daemon removes a row when it reopens it, or when it evicts its rows with
+/// the lowest sequence past 50. A removed row with a copied row of a LOWER
+/// sequence still present was reopened (eviction takes the lowest first),
+/// so its group goes too and the item is never reopened twice. Any other
+/// removed row may have been evicted, so its group stays (history is kept;
+/// a row the older daemon reopened from the bottom can be reopened once
+/// more, which v1 data cannot prevent). Sequences compare only among
+/// ledger rows: v1 restarts at 1 only after its table empties, and then no
+/// older ledger row is present. The ledger forgets every removed row.
 fn reconcile_v1(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let removed = {
         let mut statement = transaction.prepare(
-            "SELECT closed_id, closed_at_ms FROM closed_v1_copied
+            "SELECT closed_id, v1_sequence FROM closed_v1_copied
              WHERE closed_id NOT IN (SELECT closed_id FROM closed_history)",
         )?;
         statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)))?
             .collect::<Result<Vec<_>, _>>()?
     };
     if removed.is_empty() {
         return Ok(());
     }
-    let (present, oldest): (i64, Option<i64>) = transaction.query_row(
-        "SELECT COUNT(*), MIN(closed_at_ms) FROM closed_history",
+    let lowest_present: Option<i64> = transaction.query_row(
+        "SELECT MIN(c.v1_sequence) FROM closed_v1_copied AS c
+         JOIN closed_history AS h ON h.closed_id = c.closed_id",
         [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| row.get(0),
     )?;
-    let never_overflowed = usize::try_from(present)? + removed.len() <= V1_MAX_ITEMS;
-    for (closed_id, closed_at_ms) in removed {
-        if never_overflowed || oldest.is_none_or(|oldest| closed_at_ms >= oldest) {
+    for (closed_id, sequence) in removed {
+        if let (Some(sequence), Some(lowest)) = (sequence, lowest_present)
+            && sequence > lowest
+        {
             transaction.execute("DELETE FROM closed_groups WHERE closed_id = ?1", [&closed_id])?;
         }
         transaction.execute("DELETE FROM closed_v1_copied WHERE closed_id = ?1", [&closed_id])?;

@@ -150,12 +150,25 @@ pub(crate) fn closed_record(
     record.map(|record| Ok(serde_json::from_str(&record)?)).transpose()
 }
 
-/// Remove a fully reopened group. Returns whether it existed.
+/// Remove a fully reopened or deleted group. Returns whether it existed.
+/// A group copied from `closed-history-v1` also leaves the v1 table and the
+/// copy ledger, so a downgraded daemon cannot reopen the item again.
 pub(crate) fn remove_closed(
     transaction: &Transaction<'_>,
     closed_id: &str,
 ) -> anyhow::Result<bool> {
-    Ok(transaction.execute("DELETE FROM closed_groups WHERE closed_id = ?1", [closed_id])? > 0)
+    let removed =
+        transaction.execute("DELETE FROM closed_groups WHERE closed_id = ?1", [closed_id])? > 0;
+    let copied: bool = transaction.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'closed_v1_copied')",
+        [],
+        |row| row.get(0),
+    )?;
+    if copied {
+        transaction.execute("DELETE FROM closed_v1_copied WHERE closed_id = ?1", [closed_id])?;
+        transaction.execute("DELETE FROM closed_history WHERE closed_id = ?1", [closed_id])?;
+    }
+    Ok(removed)
 }
 
 /// Keep only `members` of a partly reopened group; returns its new public
