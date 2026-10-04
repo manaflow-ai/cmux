@@ -228,3 +228,28 @@ test("locator reads, allTextContents and page.content: an oversized element stop
     await servers.close();
   }
 });
+
+// The text and HTML formats read the page node by node under the budget,
+// never through a getter that walks the whole DOM first: a page of more
+// nodes than the budget (each tiny, so the string itself would fit) is cut
+// at the node budget.
+test("tabs.content: text and HTML stop at the node budget, not after serializing the whole DOM", async () => {
+  const page = "<!doctype html><title>Many</title><body>" + "<i>x</i>".repeat(270000) + "</body>";
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(page);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  try {
+    await withLoggedRepl(async (run) => {
+      for (const format of ["text", "html"]) {
+        const r = await run(`const [row] = await tabs.content(${JSON.stringify(url)}, { format: ${JSON.stringify(format)} }); console.log("@@" + JSON.stringify({ length: row.content.length, truncated: row.truncated || null }));`);
+        const row = JSON.parse(r.value);
+        assert.match(row.truncated || "", /stopped after 250,000 nodes/, `${format}: ${JSON.stringify(row)}`);
+      }
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
