@@ -20,11 +20,13 @@
 
 mod declaration;
 mod links;
+pub(crate) mod relay;
 pub(crate) mod wire;
 
 pub(crate) use cmux_terminal_iface::*;
 pub(crate) use declaration::Declaration;
 pub(crate) use links::{LinkAnswer, LinkEvent, LinkOpen, LinkRegistry, OpenTokenGate};
+pub(crate) use relay::RelaySet;
 
 #[cfg(test)]
 mod tests;

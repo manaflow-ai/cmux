@@ -48,6 +48,8 @@ mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
 #[cfg(unix)]
+mod terminal_links;
+#[cfg(unix)]
 mod terminal_ops;
 #[cfg(unix)]
 mod timer;

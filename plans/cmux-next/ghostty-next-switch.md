@@ -278,6 +278,35 @@ consumes it):
    with `lost`. A reconnect needs a new user run (v1: "disconnected, click
    to connect" after a daemon restart; no link grant).
 
+Link relay (decided 2026-10-04): link bytes are the far session host's
+v12 protocol, and the local daemon does not parse them. Each open link gets
+one owner-only socket `<daemon state dir>/tl/<n>.sock` (directory 0700,
+socket 0600; a per-user temporary directory when the path is too long). The
+daemon checks the peer uid on accept. Its clients find it with
+`apps-terminal-links` and the `apps-terminal-link {channel, id, target,
+state, socket?, end?}` event, and open their normal daemon connection on it.
+The path never goes to an app. Limit for v1: one client per link (a v12
+stream has per-connection state). A second client is refused, and the link
+closes when its client leaves; each client (Mac, iOS) needs its own link,
+so its own user run. Two relay threads wait on the registry's condition
+variable: bytes become credit for the app only after the client has them,
+and client bytes go to the app only within its credit.
+
+Host-owned SSH transport (open decision, its own owner): `connection.channel.open`
+runs its checks in the daemon behind an `SshTransport` trait; production
+answers `unavailable {retryable: false}` until this is decided. Options:
+(a) `russh` in the daemon (pure Rust, async on tokio; the daemon core has no
+runtime, so it needs a small runtime thread), with host key pins in the
+daemon state dir and the user key reached through the credential relay
+(the Mac app signs with the Keychain key, so the key never leaves the
+Keychain; the signature request is bound to the session id the daemon's
+transport computed, so it is not a signing oracle for the app);
+(b) the system `ssh` binary as a child with `-o StrictHostKeyChecking=yes`
+and a per-handle known_hosts file, the daemon owning the PTY (no new crate;
+an agent socket from the Mac app for the key); (c) `libssh2` bindings (C
+dependency, sync API). Recommendation to check: (b) first for speed, (a)
+when headless servers need it without a Mac.
+
 Snapshots: a backend never needs a VT parser; the local session host owns
 snapshots and journal. A connector serves GHOSTSNP from the far host; a
 version mismatch falls back to byte replay as `terminal-snapshot-v1` does

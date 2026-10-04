@@ -75,6 +75,10 @@ enum Command {
         #[serde(default)]
         gesture: Option<String>,
     },
+    /// Open terminal connector links and their local sockets (for this
+    /// daemon's clients; apps never get a socket path).
+    #[serde(rename = "apps-terminal-links")]
+    TerminalLinks,
     #[serde(rename = "apps-logs")]
     Logs {
         app: String,
@@ -201,6 +205,7 @@ pub(super) fn try_handle(
     let user = origin == crate::apps::Origin::User;
     let result = match command {
         Command::List => Ok(supervisor.list()),
+        Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
         Command::Set {
             idempotency_key,
             app,

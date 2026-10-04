@@ -199,7 +199,7 @@ pub struct Supervisor {
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
-    pub(super) terminals: crate::terminal_backend::LinkRegistry,
+    pub(super) terminals: super::terminal_links::Terminals,
     transactions: AtomicU64,
 }
 

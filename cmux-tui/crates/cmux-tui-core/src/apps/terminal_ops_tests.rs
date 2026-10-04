@@ -205,3 +205,96 @@ fn revoking_the_grant_or_disabling_the_app_ends_its_links() {
     c.f.set("off", "cmux/cloudy", Origin::User, |o| o.enabled = Some(false)).unwrap();
     assert!(c.f.supervisor.terminal_links().link("link-2").is_none(), "disable ends the link");
 }
+
+/// The socket of `channel` from `apps-terminal-links`.
+fn link_socket(c: &Connectors, channel: &str) -> PathBuf {
+    let list = c.f.supervisor.terminal_links_list();
+    let link = list["links"].as_array().unwrap().iter().find(|l| l["channel"] == channel);
+    PathBuf::from(link.expect("listed")["socket"].as_str().expect("a socket"))
+}
+
+/// Waits until a line the server received matches.
+fn server_line(marker: &Path, what: &str, pred: impl Fn(&Value) -> bool) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let text =
+            std::fs::read_to_string(marker.with_extension("marker.lines")).unwrap_or_default();
+        if let Some(line) =
+            text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).find(|l| pred(l))
+        {
+            return line;
+        }
+        assert!(Instant::now() < deadline, "no {what} in {text:?}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn read_exact_timeout(stream: &mut std::os::unix::net::UnixStream, len: usize) -> Vec<u8> {
+    use std::io::Read;
+    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let mut buf = vec![0u8; len];
+    stream.read_exact(&mut buf).unwrap();
+    buf
+}
+
+#[test]
+fn a_link_relays_bytes_both_ways_through_its_owner_only_socket() {
+    use std::io::{Read, Write};
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::net::UnixStream;
+    let c = connectors(&["cloudy"]);
+    let token = &c.tokens(0, "cloudy", 1)[0];
+    assert_eq!(c.open("cmux/cloudy", token, "vm-1")["t"], "host.result");
+    let socket = link_socket(&c, "link-1");
+    let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!((mode(socket.parent().unwrap()), mode(&socket)), (0o700, 0o600));
+    let mut client = UnixStream::connect(&socket).unwrap();
+    // App to client, then credit back to the app once the client has it.
+    let data = json!({ "t": "data", "channel": "link-1", "offset": 3, "bytes": "YWJj" });
+    assert!(c.f.supervisor.terminal_line("cmux/cloudy", &data).is_empty());
+    assert_eq!(read_exact_timeout(&mut client, 3), b"abc");
+    server_line(&c.markers[0], "credit", |l| {
+        l["t"] == "credit" && l["direction"] == "out" && l["bytes"] == 3
+    });
+    // Client to app.
+    client.write_all(b"hi").unwrap();
+    server_line(&c.markers[0], "data", |l| {
+        l == &json!({ "t": "data", "channel": "link-1", "offset": 2, "bytes": "aGk=" })
+    });
+    // A second client is refused while one is attached.
+    let mut second = UnixStream::connect(&socket).unwrap();
+    second.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    assert_eq!(second.read(&mut [0u8; 8]).unwrap(), 0, "refused");
+    // The client leaving closes the link and removes the socket.
+    drop(client);
+    server_line(&c.markers[0], "close", |l| l["op"] == "cmux.terminal.connector.close");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while socket.exists() || c.f.supervisor.terminal_links().link("link-1").is_some() {
+        assert!(Instant::now() < deadline, "the link and socket stay");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // No line the app received names the socket.
+    let lines = std::fs::read_to_string(c.markers[0].with_extension("marker.lines")).unwrap();
+    assert!(!lines.contains(socket.to_str().unwrap()) && !lines.contains("/tl/"), "{lines}");
+}
+
+#[test]
+fn an_app_end_shuts_the_client_and_removes_the_socket() {
+    use std::io::Read;
+    use std::os::unix::net::UnixStream;
+    let c = connectors(&["cloudy"]);
+    let token = &c.tokens(0, "cloudy", 1)[0];
+    assert_eq!(c.open("cmux/cloudy", token, "vm-1")["t"], "host.result");
+    let socket = link_socket(&c, "link-1");
+    let mut client = UnixStream::connect(&socket).unwrap();
+    client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    // Wait until the relay attached the client, so the end reaches it.
+    let data = json!({ "t": "data", "channel": "link-1", "offset": 1, "bytes": "eA==" });
+    c.f.supervisor.terminal_line("cmux/cloudy", &data);
+    assert_eq!(read_exact_timeout(&mut client, 1), b"x");
+    let end = json!({ "t": "end", "channel": "link-1", "lost": { "reason": "vm stopped", "retryable": true } });
+    assert!(c.f.supervisor.terminal_line("cmux/cloudy", &end).is_empty());
+    assert_eq!(client.read(&mut [0u8; 8]).unwrap(), 0, "the client sees the end");
+    assert!(!socket.exists());
+    assert_eq!(c.f.supervisor.terminal_links_list()["links"], json!([]));
+}

@@ -47,11 +47,10 @@ impl OpenTokenGate for GateAt<'_> {
 }
 
 impl Supervisor {
-    /// The registry of connector links on this machine (the session host's
-    /// relay reads it; no relay exists yet).
+    /// The registry of connector links on this machine.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn terminal_links(&self) -> &LinkRegistry {
-        &self.terminals
+        &self.terminals.links
     }
 
     /// True for a server line of the terminal interfaces: a frame, or a
@@ -97,10 +96,11 @@ impl Supervisor {
             }
         };
         let is_end = matches!(frame.body, FrameBody::End(_));
-        match self.terminals.receive_from_app(app, frame) {
+        match self.terminals.links.receive_from_app(app, frame) {
             Ok(outcome) => {
                 if let Some(ended) = &outcome.ended {
-                    self.log_link_ends(app, std::slice::from_ref(ended));
+                    self.log_terminal(app, "info", link_end_message(ended));
+                    self.emit(vec![self.link_ended(ended)]);
                 }
                 outcome.to_app.iter().map(wire::frame_to_json).collect()
             }
@@ -121,7 +121,9 @@ impl Supervisor {
     ) -> Result<LinkAnswer, BackendError> {
         let request = wire::link_open_from_params(params);
         let declaration = self.terminal_declaration(app, CONNECTOR_INTERFACE);
-        self.terminals.open(app, declaration, request, gate)
+        let answer = self.terminals.links.open(app, declaration, request, gate)?;
+        self.start_link_relay(app, &answer);
+        Ok(answer)
     }
 
     /// What `app` declares for `interface`, when it may serve it at all: an
@@ -147,27 +149,27 @@ impl Supervisor {
 
     /// The host closes a link: the registry ends it now and the app's server
     /// gets `cmux.terminal.connector.close {channel}`; its later `end` frame
-    /// finds no link and is dropped.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// finds no link and is dropped. The relay's client leaving calls this.
     pub(crate) fn close_terminal_link(&self, channel: &str) -> Result<LinkEvent, BackendError> {
-        let event = self.terminals.close(channel)?;
-        let inner = self.inner.lock().unwrap();
-        if let Some(server) = inner.servers.get(&event.app) {
-            let mut line = wire::close_event(channel).to_string().into_bytes();
-            line.push(b'\n');
-            server.process.send(line);
+        let event = self.terminals.links.close(channel)?;
+        let ended = self.link_ended(&event);
+        {
+            let inner = self.inner.lock().unwrap();
+            if let Some(server) = inner.servers.get(&event.app) {
+                let mut line = wire::close_event(channel).to_string().into_bytes();
+                line.push(b'\n');
+                server.process.send(line);
+            }
         }
+        self.emit(vec![ended]);
         Ok(event)
     }
 
     /// `app`'s server stopped or exited: every link it held ends, and the
     /// far ends see `lost` (a new user run reconnects).
     pub(super) fn terminal_server_gone_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
-        let ended = self.terminals.end_app(app, &Lost::new("the app server stopped", true));
-        ended
-            .iter()
-            .flat_map(|e| self.log_locked(inner, app, "info", link_end_message(e)))
-            .collect()
+        let ended = self.terminals.links.end_app(app, &Lost::new("the app server stopped", true));
+        self.links_ended_locked(inner, app, &ended)
     }
 
     /// After a disable, uninstall or grant change: when `app` may no longer
@@ -179,20 +181,20 @@ impl Supervisor {
         if enabled && Self::grant_for(inner, &key).scopes.contains(TERMINAL_SCOPE) {
             return vec![];
         }
-        let ended = self.terminals.end_app(app, &Lost::new("access to the app ended", false));
-        ended
-            .iter()
-            .flat_map(|e| self.log_locked(inner, app, "info", link_end_message(e)))
-            .collect()
+        let ended = self.terminals.links.end_app(app, &Lost::new("access to the app ended", false));
+        self.links_ended_locked(inner, app, &ended)
     }
 
-    fn log_link_ends(&self, app: &str, ended: &[LinkEvent]) {
+    fn links_ended_locked(&self, inner: &mut Inner, app: &str, ended: &[LinkEvent]) -> Vec<Out> {
+        let mut outs = Vec::new();
         for event in ended {
-            self.log_terminal(app, "info", link_end_message(event));
+            outs.extend(self.log_locked(inner, app, "info", link_end_message(event)));
+            outs.push(self.link_ended(event));
         }
+        outs
     }
 
-    fn log_terminal(&self, app: &str, level: &str, message: String) {
+    pub(super) fn log_terminal(&self, app: &str, level: &str, message: String) {
         let outs = self.log_locked(&mut self.inner.lock().unwrap(), app, level, message);
         self.emit(outs);
     }
