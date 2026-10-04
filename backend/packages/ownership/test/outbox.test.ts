@@ -81,7 +81,8 @@ describe("outbox channels (review fix for E4)", () => {
     e.outbox.deadLetter(up!.id, now)
     e.outbox.markSent([del!.id], now)
     now += 25 * 3600_000
-    expect(e.outbox.replayDead(now)).toBe(1)
+    // The delete went out, so the dead upsert was dropped with it: nothing comes back.
+    expect(e.outbox.replayDead(now)).toBe(0)
     expect(e.outbox.pending("")).toEqual([])
     expect(e.outbox.deadCount()).toBe(0)
   })

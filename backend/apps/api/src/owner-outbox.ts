@@ -56,6 +56,8 @@ export const drainOutboxChannels = async <S>(engine: OwnerEngine<S>, env: Env, t
         console.error(JSON.stringify({ msg: "outbox delivery failed", stream: engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
       }
     }
-    const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })
+    // Rows an older build marked sent instead of deleting go away a batch per alarm.
+  outbox.pruneSent(1000)
+  const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })
     if (replayed > 0) console.warn(JSON.stringify({ msg: "outbox dead letters replayed", stream: engine.stream, count: replayed }))
 }
