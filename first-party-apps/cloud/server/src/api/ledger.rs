@@ -100,8 +100,10 @@ impl Ledger {
             self.entries.remove(&oldest);
         }
         self.order.push_back(key.to_owned());
-        self.entries
-            .insert(key.to_owned(), Entry { op: op.to_owned(), args: digest(args), result: None, answered: false });
+        self.entries.insert(
+            key.to_owned(),
+            Entry { op: op.to_owned(), args: digest(args), result: None, answered: false },
+        );
     }
 
     /// Drops an attempt that changed nothing (refused arguments).
