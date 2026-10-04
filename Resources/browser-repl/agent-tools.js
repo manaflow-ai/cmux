@@ -378,11 +378,18 @@
   // ---------------------------------------------------------------------------
   // Page functions (agent world: closed shadow roots are open to it).
 
-  // The frame as Markdown blocks. Iframes become placeholders "\u0000F<i>\u0000"
-  // with their handles, so the host stitches each frame's Markdown in place.
+  // The frame as Markdown blocks. Iframes become placeholders
+  // "\u0000F<mark>:<i>\u0000" with their handles, so the host stitches each
+  // frame's Markdown in place. <mark> is random per call and made in this
+  // world, which page script cannot read, so page text cannot spell a
+  // placeholder (the host also turns the page's own NULs into U+FFFD).
   function markdownOfFrame(opts) {
     const A = globalThis[Symbol.for("cmux.browserRepl.agent")];
     const frames = [];
+    const words = new Uint32Array(4);
+    if (globalThis.crypto && crypto.getRandomValues) crypto.getRandomValues(words);
+    else for (let i = 0; i < words.length; i++) words[i] = Math.floor(Math.random() * 0x100000000);
+    const mark = [...words].map((w) => w.toString(36)).join("");
     const SKIP = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD", "META", "LINK", "TITLE", "SVG", "CANVAS", "VIDEO", "AUDIO", "OBJECT", "EMBED", "MAP", "DIALOG"]);
     const OUTSIDE_MAIN = new Set(["navigation", "banner", "contentinfo", "complementary", "search"]);
     const styles = new Map();
@@ -571,7 +578,7 @@
       if (t === "IFRAME" || t === "FRAME") {
         if (ctx.hidden) return [];
         frames.push(A.handleFor(el));
-        return [`\u0000F${frames.length - 1}\u0000`];
+        return [`\u0000F${mark}:${frames.length - 1}\u0000`];
       }
       if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT" || t === "IMG") {
         const s = tidy(inline(el, ctx));
@@ -591,7 +598,7 @@
       else main = true;
     }
     const out = rootEl ? blocks(rootEl, { hidden: false, main }) : [];
-    return { blocks: out, frames };
+    return { blocks: out, frames, mark };
   }
 
   // Structured data by selectors (Playwright syntax: CSS, text=, role=, ...;
@@ -1323,8 +1330,10 @@
 
   async function frameMarkdown(page, frame, opts, depth, budget) {
     const r = await agentCall(frame, markdownOfFrame, opts);
-    let text = r.blocks.join("\n\n");
-    if (!r.frames.length) return text;
+    const text = r.blocks.join("\n\n");
+    // Page text keeps no NUL, so only the agent's placeholders have one.
+    const pageText = (s) => s.replace(/\u0000/g, "\uFFFD");
+    if (!r.frames.length) return pageText(text);
     let children = null;
     try {
       const found = await page._session.call("frame.contentFrames", { targetId: page._targetId, frameId: frame._id || undefined, elements: r.frames });
@@ -1335,7 +1344,15 @@
       for (const h of r.frames) children.push(await frame._contentFrame(h).catch(() => null));
     }
     const parts = await Promise.all(children.map((child) => (child && depth < 6 && budget.frames-- > 0 ? frameMarkdown(page, child, { ...opts, main: false }, depth + 1, budget).catch(() => "") : "")));
-    return text.replace(/\u0000F(\d+)\u0000/g, (_, i) => parts[Number(i)] || "").replace(/\n{3,}/g, "\n\n").trim();
+    const placeholder = new RegExp(`\u0000F${String(r.mark).replace(/[^0-9a-z]/g, "")}:(\\d+)\u0000`, "g");
+    let out = "";
+    let last = 0;
+    for (const m of text.matchAll(placeholder)) {
+      out += pageText(text.slice(last, m.index)) + (parts[Number(m[1])] || "");
+      last = m.index + m[0].length;
+    }
+    out += pageText(text.slice(last));
+    return out.replace(/\n{3,}/g, "\n\n").trim();
   }
 
   // The page as Markdown: headings, paragraphs, lists, tables, code, links,
