@@ -338,7 +338,12 @@ export class MockCloudProvider implements PageClient {
         only(p, ["domain"]);
         const domain = a.domains.find((d) => d.hostname === p.domain);
         if (!domain) throw pageError("cmux.cloud.not_found", `no domain ${String(p.domain)}`);
-        const verified = { ...domain, verificationState: "verified", certificateState: "active", dnsInstructions: null };
+        const verified = {
+          ...domain,
+          verificationState: "verified",
+          certificateState: "active",
+          dnsInstructions: null,
+        };
         a.domains = a.domains.map((d) => (d.id === domain.id ? verified : d));
         return { domain: verified };
       }

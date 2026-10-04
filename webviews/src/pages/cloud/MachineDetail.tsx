@@ -1,11 +1,15 @@
 // The selected machine: header (rename, connect, pause or resume, fork, delete), overview (size from
 // the stats with a memory resize from the plan's options, idle policy) and stats, then the sections
-// in DetailSections.tsx. Delete asks the host's native confirmation. Rename is page view state
-// until the user saves it. An op the owner does not serve yet shows "Not available yet".
+// in DetailSections.tsx, PortsSection.tsx, FilesSection.tsx and NetworkSection.tsx. Delete asks the
+// host's native confirmation. Rename is page view state until the user saves it. An op the owner
+// does not serve yet shows "Not available yet".
 import { useState, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import type { MachineDetail } from "./detail";
-import { DomainsSection, NetworkSection, PublicationsSection, SnapshotsSection } from "./DetailSections";
+import { DomainsSection, PublicationsSection, SnapshotsSection } from "./DetailSections";
+import { FilesSection } from "./FilesSection";
+import { NetworkSection } from "./NetworkSection";
+import { PortsSection } from "./PortsSection";
 import {
   canPause,
   canResume,
@@ -243,6 +247,8 @@ export function MachineDetailView({ store, row, detail, plan, unavailable, strin
         strings={strings}
       />
       <DomainsSection store={store} detail={detail} unavailable={unavailable} strings={strings} />
+      <PortsSection store={store} machine={machine.id} detail={detail} unavailable={unavailable} strings={strings} />
+      <FilesSection store={store} detail={detail} unavailable={unavailable} strings={strings} />
       <NetworkSection store={store} machine={machine.id} detail={detail} unavailable={unavailable} strings={strings} />
     </section>
   );

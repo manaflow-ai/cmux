@@ -76,7 +76,9 @@ describe("Cloud detail on the network ops (C6)", () => {
         args: { machine: running().id, port: 8080, accessMode: "public", confirmPublic: true, idempotency_key: "k2" },
       },
     ]);
-    expect(store.getSnapshot().detail!.publications!.map((publication) => publication.port)).toEqual([3000, 5173, 8080]);
+    expect(store.getSnapshot().detail!.publications!.map((publication) => publication.port)).toEqual([
+      3000, 5173, 8080,
+    ]);
     expect(store.getSnapshot().error).toBeUndefined();
   });
 
@@ -89,7 +91,10 @@ describe("Cloud detail on the network ops (C6)", () => {
     };
     await store.detail.createFirewallRule(rule);
     expect(ops(provider, CloudOps.firewallCreate)).toEqual([]);
-    expect(runs(provider).at(-1)).toEqual({ action: CloudOps.firewallCreate, args: { ...rule, idempotency_key: "k1" } });
+    expect(runs(provider).at(-1)).toEqual({
+      action: CloudOps.firewallCreate,
+      args: { ...rule, idempotency_key: "k1" },
+    });
     expect(store.getSnapshot().detail!.firewall!.some((r) => r.description === "office ssh")).toBe(true);
     expect(store.getSnapshot().error).toBeUndefined();
   });
@@ -143,7 +148,11 @@ describe("Cloud detail on ports and the browser route (C5)", () => {
     const { provider, store } = await selected();
     await store.detail.forwardPort(running().id, 3000);
     await store.detail.closePort(running().id, 3000);
-    expect(ops(provider, CloudOps.portClose)[0].params).toEqual({ machine: running().id, port: 3000, idempotency_key: "k2" });
+    expect(ops(provider, CloudOps.portClose)[0].params).toEqual({
+      machine: running().id,
+      port: 3000,
+      idempotency_key: "k2",
+    });
     expect(store.getSnapshot().detail!.ports).toEqual([]);
   });
 
