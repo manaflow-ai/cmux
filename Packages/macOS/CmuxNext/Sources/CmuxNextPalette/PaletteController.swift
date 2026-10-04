@@ -367,7 +367,10 @@ public final class PaletteController {
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
-            registry: registry
+            registry: registry,
+            hierarchical: model.currentPageIsHierarchical,
+            caretAtEnd: Self.caret(in: event.window).atEnd,
+            caretAtStart: Self.caret(in: event.window).atStart
         ) else { return false }
         return model.handle(command)
     }

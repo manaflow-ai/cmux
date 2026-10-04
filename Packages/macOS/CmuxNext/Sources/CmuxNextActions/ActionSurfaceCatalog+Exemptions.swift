@@ -133,8 +133,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
-            "palette.openDirectoryDiffViewer",
-            "openDiffViewer",
             "palette.disableBrowser",
             "palette.enableBrowser",
             "disconnectRemoteTab",

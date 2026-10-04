@@ -59,8 +59,10 @@ final class PageState {
 
     /// The page's empty-query row (Search Tabs: the previous tab).
     var emptyQuerySelection: Int? {
-        guard case .list(let page) = kind, page.emptyQuerySelection > 0 else { return nil }
-        return page.emptyQuerySelection
+        guard case .list(let page) = kind else { return nil }
+        if let id = page.emptyQuerySelectionID,
+           let index = lastSections?.flatMap(\.rows).firstIndex(where: { $0.id == id }) { return index }
+        return page.emptyQuerySelection > 0 ? page.emptyQuerySelection : nil
     }
 
     var sectionOrders: [Int] { sections.map(\.order) }
@@ -84,7 +86,8 @@ final class PageState {
                     sections.append(item.section)
                 }
                 items.append(item)
-                entries.append(PaletteSearchEntry(item, visible: provider.showsItemsForEmptyQuery, sectionIndex: sectionIndex))
+                entries.append(PaletteSearchEntry(item, visible: provider.showsItemsForEmptyQuery && item.queryPrefix == nil,
+                                                  sectionIndex: sectionIndex))
             }
         }
         self.items = items

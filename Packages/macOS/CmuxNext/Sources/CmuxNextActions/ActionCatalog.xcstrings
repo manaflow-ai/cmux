@@ -38259,127 +38259,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Directory Diff Viewer"
+            "value": "Open Diff Viewer in Folder…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح عارض الفروقات في مجلد…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori preglednik razlika u mapi…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn diff-fremviser i mappe…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diff-Ansicht in Ordner öffnen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir visor de diferencias en carpeta…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir la visionneuse de diff dans un dossier…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri visualizzatore diff nella cartella…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ディレクトリの差分ビューアを開く"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "فتح عارض اختلافات المجلد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Otvori preglednik razlika direktorija"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Åbn diffvisning for mappe"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verzeichnis-Diff-Ansicht öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abrir visor de diferencias del directorio"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ouvrir le visualiseur de diff du répertoire"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Apri visualizzatore diff directory"
+            "value": "フォルダで差分ビューアを開く…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "បើកកម្មវិធីមើលភាពខុសគ្នារបស់ថត"
+            "state": "needs_review",
+            "value": "បើកកម្មវិធីមើលភាពខុសគ្នាក្នុងថត…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "디렉터리 차이 뷰어 열기"
+            "state": "needs_review",
+            "value": "폴더에서 diff 뷰어 열기…"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Åpne differansevisning for mappe"
+            "state": "needs_review",
+            "value": "Åpne diff-visning i mappe …"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Otwórz podgląd różnic katalogu"
+            "state": "needs_review",
+            "value": "Otwórz przeglądarkę różnic w folderze…"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Abrir visualizador de diff do diretório"
+            "state": "needs_review",
+            "value": "Abrir visualizador de diff na pasta…"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Открыть просмотр различий каталога"
+            "state": "needs_review",
+            "value": "Открыть просмотр изменений в папке…"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เปิดตัวดูส่วนต่างของไดเรกทอรี"
+            "state": "needs_review",
+            "value": "เปิดตัวดู diff ในโฟลเดอร์…"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dizin fark görüntüleyicisini aç"
+            "state": "needs_review",
+            "value": "Klasörde Fark Görüntüleyiciyi Aç…"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Відкрити перегляд відмінностей каталогу"
+            "state": "needs_review",
+            "value": "Відкрити переглядач змін у папці…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mở trình xem diff thư mục"
+            "value": "Mở trình xem diff trong thư mục…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "打开目录差异查看器"
+            "state": "needs_review",
+            "value": "在文件夹中打开差异查看器…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "開啟目錄差異檢視器"
+            "state": "needs_review",
+            "value": "在檔案夾中打開差異檢視器…"
           }
         }
       }
@@ -62222,6 +62222,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "顯示當機記錄"
+          }
+        }
+      }
+    },
+    "action.openMarkdownFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Markdown File…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح ملف Markdown…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori Markdown datoteku…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn Markdown-fil…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown-Datei öffnen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir archivo Markdown…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir un fichier Markdown…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri file Markdown…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdownファイルを開く…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកឯកសារ Markdown…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown 파일 열기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne Markdown-fil …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz plik Markdown…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir arquivo Markdown…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть файл Markdown…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดไฟล์ Markdown…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markdown Dosyası Aç…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити файл Markdown…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở tệp Markdown…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开 Markdown 文件…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開 Markdown 檔案…"
           }
         }
       }
