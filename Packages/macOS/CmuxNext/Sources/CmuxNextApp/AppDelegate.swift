@@ -97,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                  importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
             .deletingLastPathComponent())
+        // cmux-page:// first-party pages for Chromium, before any window can start it.
+        FirstPartyPageSchemes.install()
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only

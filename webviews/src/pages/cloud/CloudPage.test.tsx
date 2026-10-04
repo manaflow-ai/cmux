@@ -278,6 +278,47 @@ describe("CloudPage", () => {
     expect(provider.calls.some((call) => call.op === CloudOps.fsRemove)).toBe(false);
   });
 
+  test("files: a bare 404 on the list shows Not available yet and no rows (R71 C11)", async () => {
+    const provider = new MockCloudProvider({ routeMissing: [CloudOps.fsList] });
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => $(".cloud-files-browse")!.click());
+    expect($$(".cloud-file-name").length).toBe(0);
+    expect($$(".cloud-detail .cloud-unavailable").map((node) => node.textContent)).toEqual(["Not available yet"]);
+    expect($(".cloud-error")).toBeNull();
+  });
+
+  test("files: an upload shows running then done; a busy refusal shows Retry", async () => {
+    const provider = new MockCloudProvider({ holdTransfers: true });
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => $(".cloud-files-browse")!.click());
+    await act(async () => $(".cloud-files-upload")!.click());
+    expect($$(".cloud-transfer-state").map((node) => node.textContent)).toEqual(["Copying…"]);
+    await act(async () => {
+      provider.finishTransfers();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect($$(".cloud-transfer-state").map((node) => node.textContent)).toEqual(["Copied"]);
+    for (let i = 0; i < 4; i += 1) await act(async () => $(".cloud-file-download")!.click());
+    await act(async () => $(".cloud-files-upload")!.click());
+    expect($(".cloud-transfer-busy")?.textContent).toContain("Too many file transfers are running.");
+    expect($(".cloud-error")).toBeNull();
+    await act(async () => {
+      provider.finishTransfers();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => $(".cloud-transfer-retry")!.click());
+    expect($(".cloud-transfer-busy")).toBeNull();
+    expect($$(".cloud-transfer-state").filter((node) => node.textContent === "Copying…").length).toBe(1);
+  });
+
   test("a typed refusal of the proxied browser tab shows the localized message once", async () => {
     const provider = new MockCloudProvider({ unsupported: [] });
     provider.tabError = "cmux.browser.engine_unavailable";

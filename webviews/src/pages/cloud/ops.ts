@@ -58,6 +58,8 @@ export const CloudOps = {
   fsRemove: "cmux.cloud.fs.remove",
   filePush: "cmux.cloud.file.push",
   filePull: "cmux.cloud.file.pull",
+  /** Event stream: one file transfer ended (`done` with `bytes`, or `failed` with a typed error). */
+  fileTransferChanged: "cmux.cloud.file.transfer.changed",
   portList: "cmux.cloud.port.list",
   portForward: "cmux.cloud.port.forward",
   portClose: "cmux.cloud.port.close",
@@ -118,15 +120,116 @@ const UNSUPPORTED_CODES = new Set([
   "operation.unsupported",
 ]);
 
+/**
+ * The Cloud API's not-found code of each kind of resource (the `error` field or `x-cmux-vm-error` of
+ * its 404; first-party-apps/cloud/server/src/ops/delete_retry.rs `gone_code`). A 404 with this code
+ * means the route is there and the resource is not. Keyed by the op's kind (`cmux.cloud.<kind>.`).
+ */
+export const NOT_FOUND_CODES: Readonly<Record<string, string>> = {
+  machine: "vm_not_found",
+  snapshot: "vm_snapshot_not_found",
+  firewall: "vm_firewall_rule_not_found",
+  fs: "vm_file_not_found",
+  file: "vm_file_not_found",
+  publication: "vm_publication_not_found",
+};
+
+/** The own not-found code of `op`'s kind, if the kind has one. */
+export function notFoundCode(op: string): string | undefined {
+  const kind = op.startsWith("cmux.cloud.") ? op.slice("cmux.cloud.".length).split(".")[0] : "";
+  return Object.hasOwn(NOT_FOUND_CODES, kind) ? NOT_FOUND_CODES[kind] : undefined;
+}
+
 export function isUnsupported(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" && UNSUPPORTED_CODES.has(code);
+}
+
+/**
+ * The HTTP status and Cloud API code of a `cmux.cloud.not_found`. The server's error carries them as
+ * `status` and `upstream_code` (first-party-apps/cloud/server/src/api/error.rs); the page reads them
+ * from the page error's `details`, where the host puts the owner's extra error fields.
+ */
+function upstreamOf(error: unknown): { status?: number; code?: string } {
+  const details = (error as { details?: unknown } | null)?.details;
+  if (!details || typeof details !== "object") return {};
+  const { status, upstream_code: code } = details as { status?: unknown; upstream_code?: unknown };
+  return {
+    ...(typeof status === "number" ? { status } : {}),
+    ...(typeof code === "string" && code ? { code } : {}),
+  };
+}
+
+function isNotFound(error: unknown): boolean {
+  if ((error as { code?: unknown } | null)?.code !== "cmux.cloud.not_found") return false;
+  const { status } = upstreamOf(error);
+  return status === undefined || status === 404;
+}
+
+/**
+ * The Cloud API has no route for `op` yet: a 404 with no code (Next.js answers a missing route with
+ * a bare 404), or with a code that is none of the Cloud API's not-found codes (NOT_FOUND_CODES). Production has no
+ * `/api/vm/:id/fs/*`, firewall, network or tunnel routes today. The page shows "Not available yet",
+ * never "gone". A `not_found` without details counts as bare: the page cannot tell more.
+ */
+export function isRouteMissing(op: string, error: unknown): boolean {
+  if (!isNotFound(error)) return false;
+  const { code } = upstreamOf(error);
+  // Any of the Cloud API's resource codes (`vm_not_found` for the machine of a sub-resource op, for
+  // example) means the route answered: that is an error to show, not a missing route.
+  return code === undefined || (code !== notFoundCode(op) && !RESOURCE_CODES.has(code));
+}
+
+const RESOURCE_CODES = new Set(Object.values(NOT_FOUND_CODES));
+
+/** The host forwarded none of the server's error details: the page cannot tell gone from missing. */
+export function hasNoDetails(error: unknown): boolean {
+  const details = (error as { details?: unknown } | null)?.details;
+  return !details || typeof details !== "object";
+}
+
+/** The route answered that the item of `op` is not there (its kind's own 404 code): it is gone. */
+export function isGone(op: string, error: unknown): boolean {
+  const own = notFoundCode(op);
+  return own !== undefined && isNotFound(error) && upstreamOf(error).code === own;
+}
+
+/** The owner does not serve `op` yet (an unsupported op, or a missing Cloud API route). */
+export function isNotServed(op: string, error: unknown): boolean {
+  return isUnsupported(error) || isRouteMissing(op, error);
 }
 
 /** The host's answer to a confirmation action. A declined sheet answers `confirmed: false`. */
 export interface ActionRunResult {
   confirmed?: boolean;
 }
+
+/** `cloud.file.push` and `cloud.file.pull` answer at once: the copy runs on after the answer. */
+export interface TransferStarted {
+  transfer: string;
+  state: "running";
+  machine: string;
+  path: string;
+  localPath?: string;
+}
+
+/** The host's answer to a push or pull action: the op's answer, or a declined sheet. */
+export type TransferActionResult = ActionRunResult & Partial<TransferStarted>;
+
+/** One event of `cmux.cloud.file.transfer.changed`: the end of one transfer. */
+export interface TransferChanged {
+  transfer: string;
+  machine: string;
+  direction: "push" | "pull";
+  path: string;
+  localPath?: string;
+  state: "done" | "failed";
+  bytes?: number;
+  error?: { code: string; message?: string; retryable?: boolean };
+}
+
+/** More than 4 transfers at once: nothing ran, the same action may run again later. */
+export const TRANSFER_BUSY = "cmux.cloud.transfer_busy";
 
 export type MachineStatus = "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown";
 
