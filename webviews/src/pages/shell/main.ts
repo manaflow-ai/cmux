@@ -21,7 +21,20 @@ for (const css of [pageBase, shellStyles]) {
 const root = document.getElementById("root");
 const client = createPageClient();
 if (root && client) {
-  const shell = new PageShell({ client, root, pages: SHELL_PAGES, win: window });
+  // A claim mounts in the same document, so the host's document-end paint probe does not run
+  // again: the shell sends the same message after the page's first frame (PagePaintProbe.swift).
+  const painted = () =>
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        const t = Math.round(performance.now());
+        document.documentElement.dataset.cmuxPainted = String(t);
+        const handler = (
+          globalThis as { webkit?: { messageHandlers?: Record<string, { postMessage(v: unknown): void }> } }
+        ).webkit?.messageHandlers?.cmuxPagePainted;
+        handler?.postMessage(t);
+      }, 0),
+    );
+  const shell = new PageShell({ client, root, pages: SHELL_PAGES, win: window, painted });
   (globalThis as { cmuxShell?: PageShell }).cmuxShell = shell;
   shell.keepCurrentGlobals();
   // The host may ask before this module ran (a load can finish first): it waits on this hook.

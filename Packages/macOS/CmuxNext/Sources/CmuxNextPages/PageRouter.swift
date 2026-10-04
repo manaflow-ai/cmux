@@ -96,6 +96,8 @@ public final class PageRouter {
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
+            // A late call from an unbound page (a pooled host between pages) reaches nothing.
+            guard bound else { throw PageError.unknownOp(op) }
             titleBarDoubleClick?()
             return .object([:])
         }
@@ -232,6 +234,12 @@ public final class PageRouter {
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
         bound = true
         closed = false
+    }
+
+    /// Serves later calls and streams with `routes`; open subscriptions stay as they are (a
+    /// prepared shell page that its claim resumes).
+    public func replaceRoutes(_ routes: [PageRoute]) {
+        self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
 
     /// Admits nothing until the next ``bind(_:routes:)``: a late call from the old page gets

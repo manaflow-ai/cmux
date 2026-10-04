@@ -48,6 +48,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The pooled host was used: a user event reached its web view, or its page sent an op (any
     /// message but a reply to a host call). Owned by Swift; it never goes back to false.
     public internal(set) var touched = false
+    /// False while a pooled host is a spare: the ops of a page mounted ahead of its claim (a
+    /// prepared spare) are not the user's. The pool sets it at the claim.
+    public internal(set) var countsTouches = true
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
@@ -94,33 +97,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         let handler = PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources)
-        self.init(descriptor: descriptor, handler: handler, routes: routes, route: route,
-                  documentAttributes: documentAttributes, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false)
+        let configuration = Self.configuration(handler: handler, documentAttributes: documentAttributes, options: options)
+        self.init(descriptor: descriptor, configuration: configuration, routes: routes, route: route, surface: surface,
+                  dynamicResources: dynamicResources, pooled: false, load: true)
     }
 
-    /// A pooled host (``PageHostPool``) that shows `served` (default the page shell): one scheme
-    /// handler for every first-party page (``PageServedHosts``), its own non-persistent website
-    /// data store, so no host sees another host's storage. Nil when `served` has no root.
-    public convenience init?(pooledHost served: PageDescriptor = .shell, routes: [PageRoute] = [],
-                             options: PageEngineOptions = .standard) {
-        guard PageID.isFirstParty(served.id), Self.servedRoot(for: served) != nil else { return nil }
-        let owner = PageServedOwner()
-        let handler = PageSchemeHandler { host in owner.view?.servedHost(host) }
-        self.init(descriptor: served, handler: handler, routes: routes, route: nil, documentAttributes: [:],
-                  options: options, surface: nil, dynamicResources: nil, pooled: true)
-        owner.view = self
-    }
-
-    private init(descriptor: PageDescriptor, handler: PageSchemeHandler, routes: [PageRoute], route: String?,
-                 documentAttributes: [String: String], options: PageEngineOptions, surface: SurfaceKind?,
-                 dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool) {
-        self.descriptor = descriptor
-        servedDescriptor = descriptor
-        isPooled = pooled
-        themeSurface = surface
-        self.dynamicResources = dynamicResources
-        router = PageRouter(descriptor: descriptor, routes: routes)
+    /// A page's WebKit configuration: its own non-persistent data store, the app's one process
+    /// pool, the scheme handler and the theme and attribute scripts.
+    static func configuration(handler: PageSchemeHandler, documentAttributes: [String: String],
+                              options: PageEngineOptions) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.processPool = PageProcessPool.forNewView
@@ -128,7 +113,19 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             configuration.preferences.setWebKitFeature(PageEngineOptions.near60FPSFeature, enabled: false)
         }
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
-        Self.installUserScripts(configuration.userContentController, documentAttributes: documentAttributes)
+        installUserScripts(configuration.userContentController, documentAttributes: documentAttributes)
+        return configuration
+    }
+
+    /// `load` false leaves the view empty until ``startLoading()`` (a pooled host's split build).
+    init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration, routes: [PageRoute], route: String?,
+         surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool) {
+        self.descriptor = descriptor
+        servedDescriptor = descriptor
+        isPooled = pooled
+        themeSurface = surface
+        self.dynamicResources = dynamicResources
+        router = PageRouter(descriptor: descriptor, routes: routes)
         webView = PageWKWebView(frame: .zero, configuration: configuration)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
@@ -146,7 +143,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.isInspectable = true
         #endif
         webView.navigationDelegate = self
-        webView.onUserEvent = { [weak self] in self?.touched = true }
+        webView.onUserEvent = { [weak self] in self?.noteTouch() }
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
         PageRegistry.add(self)
@@ -161,12 +158,24 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         #endif
         PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
             self?.paintedUptime = ProcessInfo.processInfo.systemUptime
+            self?.onPaint?()
         }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
-        webView.load(URLRequest(url: descriptor.url(route: route)))
+        if load { webView.load(URLRequest(url: descriptor.url(route: route))) }
+    }
+
+    /// Starts loading the served page (a pooled host built without loading).
+    public func startLoading() {
+        guard !loaded, webView.url == nil else { return }
+        webView.load(URLRequest(url: servedDescriptor.url(route: nil)))
+    }
+
+    /// Marks the host used, while touches count (a pooled host's spare phase does not count).
+    func noteTouch() {
+        if countsTouches { touched = true }
     }
 
     @available(*, unavailable)
@@ -239,7 +248,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// mounted its claimed page, in `ProcessInfo.systemUptime` seconds; nil until it has.
     public internal(set) var paintedUptime: TimeInterval?
     public var hasPainted: Bool { paintedUptime != nil }
-    /// Called when the page reports its first frame (stub: not called yet).
+    /// Called when the page reports its first frame (preflights and the claim bench wait on it).
     public var onPaint: (() -> Void)?
 
     func receive(_ message: PageHostMessage) async -> Any? {
@@ -250,7 +259,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
         guard let body = JSONValue(foundation: message.body) else { return nil }
         // Any op of the page marks the host used; replies to the host's own calls do not.
-        if let type = body["t"]?.stringValue, type != "ok", type != "err" { touched = true }
+        if let type = body["t"]?.stringValue, type != "ok", type != "err" { noteTouch() }
         let reply = await router.handle(body)
         return reply.isNull ? nil : reply.foundationObject
     }
@@ -322,11 +331,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         resumeLoadWaiters()
     }
 
+    // crash-allow: WebKit's delegate signature; the navigation parameter is never read.
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
         logger.error("page \(self.servedDescriptor.id, privacy: .public) failed to load")
         resumeLoadWaiters()
     }
 
+    // crash-allow: WebKit's delegate signature; the navigation parameter is never read.
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         logger.error("page \(self.servedDescriptor.id, privacy: .public) failed to load")
         resumeLoadWaiters()
