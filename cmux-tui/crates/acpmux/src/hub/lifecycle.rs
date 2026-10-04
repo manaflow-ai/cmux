@@ -74,7 +74,7 @@ impl Hub {
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         // Harness discovery and launcher checks finish in the background.
         self.wait_startup().await;
-        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt } = req;
+        let NewRequest { harness, preset, name, cwd, policy, model, effort, adopt, remote } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -112,6 +112,12 @@ impl Hub {
             let profile = cfg.harnesses[&resolved].clone();
             let mut d = cfg.defaults_for(&resolved);
             if let Some(p) = &preset_cfg {
+                if remote && p.shapes_command() {
+                    return Err(RpcError::invalid_params(format!(
+                        "preset {:?} carries harness args or a system prompt, which a remote-origin session never starts with (remote chains build their settings from scratch)",
+                        preset.as_deref().unwrap_or_default()
+                    )));
+                }
                 check_preset_args(profile.kind, &p.args).map_err(RpcError::invalid_params)?;
                 d.overlay(&crate::config::SessionDefaults {
                     model: p.model.clone(),
@@ -175,6 +181,7 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             last_turn: None,
+            remote_origin: remote,
         };
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
@@ -210,8 +217,11 @@ impl Hub {
         if let Some(a) = &adopt {
             self.append(&session, "mux", "adopted", json!({"agentSessionId": a.agent_session_id}));
         }
-        let spawn = self.spawn_profile(&session, &profile, &defaults.env).await;
-        if let Err(e) = self.ensure_child(&session, &spawn).await {
+        let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
+            Ok(spawn) => self.ensure_child(&session, &spawn).await,
+            Err(e) => Err(e),
+        };
+        if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
             let _ = self.kill(&session, true).await;
@@ -887,32 +897,61 @@ impl Hub {
                 .ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
             (profile, cfg.defaults_for(&agent))
         };
-        let spawn = self.spawn_profile(session, &profile, &defaults.env).await;
+        let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
         self.ensure_child(session, &spawn).await
     }
 
     /// The profile as it is spawned for this session: family and profile
     /// default env underneath the profile's own, the preset's env on top,
     /// then `${cwd}`, `${home}`, `${model}` and a leading `~/` expanded in
-    /// every env value and argv word.
+    /// every env value and argv word. The preset's args (checked against the
+    /// allowlist again) and its system prompt file (checked against its
+    /// recorded sha256) are appended here, at every spawn; a remote-origin
+    /// session never gets either.
     pub(super) async fn spawn_profile(
         &self,
         session: &Session,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
-    ) -> HarnessProfile {
+    ) -> Result<HarnessProfile, RpcError> {
         let meta = session.meta();
         let mut p = profile.clone();
         for (k, v) in defaults_env {
             p.env.entry(k.clone()).or_insert_with(|| v.clone());
         }
-        if let Some(name) = &meta.preset
-            && let Some(preset) = self.config.read().await.presets.get(name)
+        let mut prompt_file = None;
         {
-            for (k, v) in &preset.env {
-                p.env.insert(k.clone(), v.clone());
+            let cfg = self.config.read().await;
+            if let Some(name) = &meta.preset
+                && let Some(preset) = cfg.presets.get(name)
+            {
+                if meta.remote_origin && preset.shapes_command() {
+                    return Err(RpcError::invalid_params(format!(
+                        "preset {name:?} now carries harness args or a system prompt, which a remote-origin session never starts with"
+                    )));
+                }
+                check_preset_args(profile.kind, &preset.args).map_err(RpcError::invalid_params)?;
+                for (k, v) in &preset.env {
+                    p.env.insert(k.clone(), v.clone());
+                }
+                p.argv.extend(preset.args.iter().cloned());
+                if let Some(sha) = &preset.system_prompt_sha256 {
+                    if profile.kind != crate::config::HarnessKind::ClaudeStdio {
+                        return Err(RpcError::invalid_params(format!(
+                            "preset {name:?} has a system prompt, which only Claude Code harnesses take"
+                        )));
+                    }
+                    let dir = cfg.presets_dir().ok_or_else(|| {
+                        RpcError::invalid_params(format!(
+                            "preset {name:?} has a system prompt, but this daemon has no state directory"
+                        ))
+                    })?;
+                    prompt_file = Some(
+                        crate::config::checked_system_prompt(&dir, name, sha)
+                            .map_err(RpcError::invalid_params)?,
+                    );
+                }
             }
-            p.argv.extend(preset.args.iter().cloned());
         }
         let home = dirs::home_dir().unwrap_or_default();
         let model = meta.model_request.clone().unwrap_or_default();
@@ -922,7 +961,12 @@ impl Hub {
         for a in p.argv.iter_mut() {
             *a = expand_env_value(a, &meta.cwd, &home, &model);
         }
-        p
+        // After expansion: the path is acpmux's own, never expanded.
+        if let Some(file) = prompt_file {
+            p.argv.push("--system-prompt-file".into());
+            p.argv.push(file.to_string_lossy().into_owned());
+        }
+        Ok(p)
     }
 }
 
@@ -957,6 +1001,8 @@ pub struct NewRequest {
     pub policy: Option<PermissionPolicy>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    /// Requested over a remote-origin connection (the WebSocket listener).
+    pub remote: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
 }

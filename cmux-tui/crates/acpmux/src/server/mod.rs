@@ -30,6 +30,8 @@ pub struct SubOpts {
 
 pub struct Conn {
     pub id: String,
+    /// The listener this connection came in on.
+    pub origin: Origin,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
@@ -317,7 +319,7 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                     }
                 }
             });
-            serve_connection(hub, in_rx, out_tx).await;
+            serve_connection_with(hub, in_rx, out_tx, Origin::Web).await;
         });
     }
 }
@@ -452,10 +454,11 @@ pub async fn serve_connection_with(
     hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
-    _origin: Origin,
+    origin: Origin,
 ) {
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
+        origin,
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),

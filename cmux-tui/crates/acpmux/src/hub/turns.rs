@@ -786,6 +786,8 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             last_turn: None,
+            // A fork of a remote-origin session stays remote-origin.
+            remote_origin: parent_meta.remote_origin,
         };
         let new = self.make_session(meta);
         if is_claude {

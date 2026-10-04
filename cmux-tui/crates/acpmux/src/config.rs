@@ -156,8 +156,21 @@ pub struct Preset {
     /// through a shell; expanded like `env` (`config/preset_args.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub args: Vec<String>,
+    /// The sha256 of the preset's system prompt file, which acpmux wrote into
+    /// its own preset directory when `systemPrompt` was set
+    /// (`config/preset_args.rs`); checked at every session start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+impl Preset {
+    /// Whether the preset changes the harness command line (args or a system
+    /// prompt): never for a remote-origin session.
+    pub fn shapes_command(&self) -> bool {
+        !self.args.is_empty() || self.system_prompt_sha256.is_some()
+    }
 }
 
 /// Session defaults for a family or a single profile (`defaults` in
@@ -615,6 +628,12 @@ impl Config {
         Ok(cfg)
     }
 
+    /// Where preset directories live (`presets/` next to config.json); None
+    /// for an in-code config, which then takes no `systemPrompt`.
+    pub fn presets_dir(&self) -> Option<PathBuf> {
+        self.path.as_ref().and_then(|p| p.parent()).map(|d| d.join("presets"))
+    }
+
     /// Write back to the file this config came from. No-op for in-code configs.
     pub fn save(&self) -> Result<()> {
         let Some(path) = &self.path else {
@@ -981,7 +1000,10 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 mod codex_adapter;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, codex_through_adapter_package};
 mod preset_args;
-pub use preset_args::{check_preset_args, parse_preset_args};
+pub use preset_args::{
+    SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
+    parse_preset_args, remove_preset_dir, write_system_prompt,
+};
 
 #[cfg(test)]
 mod tests;

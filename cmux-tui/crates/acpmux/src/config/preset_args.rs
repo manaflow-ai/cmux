@@ -1,38 +1,33 @@
-//! A preset's `args`: extra words appended to the harness command line.
+//! A preset's `args` and `systemPrompt`.
 //!
-//! Each entry is one argv word handed to the process as it is (no shell, so
-//! quoting, globs and `$(…)` stay literal and an empty string is a real empty
-//! argument). On a Claude stdio command line acpmux already passes the flags
-//! that carry its protocol and its session state; a preset that sets one of
-//! them again would break the session, so those are refused.
+//! `args` are extra words appended to the harness command line. Each entry
+//! is one argv word handed to the process as it is (no shell, so quoting,
+//! globs and `$(…)` stay literal and an empty string is a real empty
+//! argument). They are an allowlist: on a Claude stdio command line only
+//! `--tools ""` (no tools), `--strict-mcp-config` (no MCP servers, as no
+//! `--mcp-config` may be given) and `--no-session-persistence`; on any other
+//! harness none. Every other word is refused, `=` forms and short aliases
+//! included, so a preset can only take capabilities away, never widen the
+//! permission policy or reach outside the session.
+//!
+//! `systemPrompt` is text, not a path: acpmux writes it into its own preset
+//! directory (`<state>/presets/<name>/system.md`, read-only, never the
+//! session's cwd, which the agent can write), records its sha256 in the
+//! preset, checks the file against that hash at every session start and
+//! passes `--system-prompt-file` itself (Claude stdio harnesses only).
+
+use std::io;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
 use super::HarnessKind;
 
-/// Claude Code flags acpmux sets itself (`claude_stdio::spawn_plan`), plus
-/// the ones that would resume another conversation or bypass the
-/// permission policy.
-const CLAUDE_OWNED: [&str; 18] = [
-    "-p",
-    "--print",
-    "--input-format",
-    "--output-format",
-    "--include-partial-messages",
-    "--permission-prompt-tool",
-    "--permission-mode",
-    "--dangerously-skip-permissions",
-    "--allow-dangerously-skip-permissions",
-    "-r",
-    "--resume",
-    "-c",
-    "--continue",
-    "--fork-session",
-    "--session-id",
-    "--model",
-    "--effort",
-    "--replay-user-messages",
-];
+/// The Claude Code flags a preset may pass.
+const CLAUDE_ALLOWED: [&str; 3] = ["--tools", "--strict-mcp-config", "--no-session-persistence"];
+
+/// The system prompt file's name in a preset's directory.
+pub const SYSTEM_PROMPT_FILE: &str = "system.md";
 
 /// `args` from a JSON value: a list of strings, each a valid argv word.
 pub fn parse_preset_args(value: &Value) -> Result<Vec<String>, String> {
@@ -47,20 +42,107 @@ pub fn parse_preset_args(value: &Value) -> Result<Vec<String>, String> {
 
 /// Whether `args` may be appended to a `kind` harness command line.
 pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), String> {
-    for arg in args {
-        if arg.contains('\0') {
-            return Err(format!("args: {arg:?} contains a NUL byte"));
-        }
-        if kind == HarnessKind::ClaudeStdio {
-            let flag = arg.split_once('=').map_or(arg.as_str(), |(f, _)| f);
-            if CLAUDE_OWNED.contains(&flag) {
+    if let Some(arg) = args.iter().find(|a| a.contains('\0')) {
+        return Err(format!("args: {arg:?} contains a NUL byte"));
+    }
+    if args.is_empty() {
+        return Ok(());
+    }
+    if kind != HarnessKind::ClaudeStdio {
+        return Err("args: only Claude Code harnesses take preset args; this harness takes none"
+            .to_owned());
+    }
+    let mut words = args.iter();
+    while let Some(arg) = words.next() {
+        match arg.as_str() {
+            "--tools" => match words.next().map(String::as_str) {
+                Some("") => {}
+                _ => {
+                    return Err("args: --tools takes only an empty value (\"\": no tools)"
+                        .to_owned());
+                }
+            },
+            "--strict-mcp-config" | "--no-session-persistence" => {}
+            other => {
                 return Err(format!(
-                    "args: acpmux sets {flag} on a Claude command line itself; a preset may not"
+                    "args: {other:?} is not allowed; a preset may pass only {} (\"--tools\" with an empty value); set systemPrompt for a system prompt file",
+                    CLAUDE_ALLOWED.join(", ")
                 ));
             }
         }
     }
     Ok(())
+}
+
+/// A preset name that can name a directory: ASCII letters, digits, `-`,
+/// `_` and `.`, not starting with `.`, at most 128 bytes.
+pub fn check_preset_dir_name(name: &str) -> Result<(), String> {
+    let plain = !name.is_empty()
+        && name.len() <= 128
+        && !name.starts_with('.')
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b));
+    if plain {
+        Ok(())
+    } else {
+        Err(format!(
+            "preset name {name:?} cannot carry a systemPrompt: use ASCII letters, digits, '-', '_' and '.', not starting with '.'"
+        ))
+    }
+}
+
+/// The directory of preset `name` under the daemon's `presets` directory.
+pub fn preset_dir(presets: &Path, name: &str) -> PathBuf {
+    presets.join(name)
+}
+
+/// Writes `text` as preset `name`'s system prompt file (directory 0700, file
+/// 0400, replaced atomically); returns the file's sha256.
+pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
+    use std::io::Write;
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    let dir = preset_dir(presets, name);
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    let tmp = dir.join(format!(".{SYSTEM_PROMPT_FILE}.{}", uuid::Uuid::now_v7()));
+    let written = (|| {
+        let mut file =
+            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o400).open(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, dir.join(SYSTEM_PROMPT_FILE))
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written?;
+    Ok(crate::sha256::sha256_hex(text.as_bytes()))
+}
+
+/// Removes preset `name`'s directory (its system prompt file).
+pub fn remove_preset_dir(presets: &Path, name: &str) -> io::Result<()> {
+    if check_preset_dir_name(name).is_err() {
+        return Ok(());
+    }
+    match std::fs::remove_dir_all(preset_dir(presets, name)) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// The system prompt file of preset `name`, by its real path, when its
+/// bytes still hash to `sha256` (the hash recorded when the preset was set).
+pub fn checked_system_prompt(presets: &Path, name: &str, sha256: &str) -> Result<PathBuf, String> {
+    check_preset_dir_name(name)?;
+    let file = preset_dir(presets, name).join(SYSTEM_PROMPT_FILE);
+    let bytes = std::fs::read(&file)
+        .map_err(|e| format!("the system prompt file of preset {name:?} cannot be read ({e}); set the preset's systemPrompt again"))?;
+    let got = crate::sha256::sha256_hex(&bytes);
+    if got != sha256 {
+        return Err(format!(
+            "the system prompt file of preset {name:?} changed since the preset was set (sha256 {got}, recorded {sha256}); no session starts with it until the preset is set again"
+        ));
+    }
+    std::fs::canonicalize(&file).map_err(|e| format!("system prompt file of preset {name:?}: {e}"))
 }
 
 #[cfg(test)]

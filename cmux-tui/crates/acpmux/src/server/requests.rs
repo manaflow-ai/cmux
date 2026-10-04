@@ -184,6 +184,7 @@ pub(super) async fn handle_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
+                remote: conn.origin == Origin::Web,
             };
             let s = hub.new_session(req).await?;
             attach(hub, conn, &s.id);
@@ -546,8 +547,31 @@ pub(super) async fn handle_request(
                     RpcError::invalid_params("name is required to change a preset")
                 })?;
                 let mut cfg = hub.config.write().await;
+                // REMOTE-FLOOR v3: a remote-origin client builds its settings
+                // from scratch, so it never sets, changes or clears a preset
+                // that shapes the harness command line (args, systemPrompt).
+                let remote = conn.origin == Origin::Web;
+                if remote
+                    && (cfg.presets.get(&name).is_some_and(|p| p.shapes_command())
+                        || set.is_some_and(|s| {
+                            ["args", "systemPrompt"]
+                                .iter()
+                                .any(|k| s.get(*k).is_some_and(|v| !v.is_null()))
+                        }))
+                {
+                    return Err(RpcError::invalid_params(format!(
+                        "preset {name:?}: args and systemPrompt are set only over the local socket; a remote-origin connection builds its settings from scratch"
+                    )));
+                }
+                let presets_dir = cfg.presets_dir();
+                // The new system prompt text, written once the set is valid.
+                let mut new_prompt: Option<Option<String>> = None;
                 if clear {
                     cfg.presets.remove(&name);
+                    if let Some(dir) = &presets_dir {
+                        crate::config::remove_preset_dir(dir, &name)
+                            .map_err(|e| RpcError::internal(format!("remove preset directory: {e}")))?;
+                    }
                 } else if let Some(set) = set {
                     let obj = set.as_object().unwrap();
                     let mut merged = cfg.presets.get(&name).cloned();
@@ -567,6 +591,7 @@ pub(super) async fn handle_request(
                         policy: None,
                         env: std::collections::BTreeMap::new(),
                         args: Vec::new(),
+                        system_prompt_sha256: None,
                         description: None,
                     });
                     p.harness = harness;
@@ -586,6 +611,15 @@ pub(super) async fn handle_request(
                             }
                             ("description", Value::Null) => p.description = None,
                             ("description", Value::String(d)) => p.description = Some(d.clone()),
+                            ("systemPrompt", Value::Null) => new_prompt = Some(None),
+                            ("systemPrompt", Value::String(text)) => {
+                                new_prompt = Some(Some(text.clone()))
+                            }
+                            ("systemPrompt", _) => {
+                                return Err(RpcError::invalid_params(
+                                    "systemPrompt must be the prompt's text (a string) or null",
+                                ));
+                            }
                             ("args", Value::Null) => p.args.clear(),
                             ("args", v) => {
                                 p.args = crate::config::parse_preset_args(v)
@@ -611,17 +645,52 @@ pub(super) async fn handle_request(
                             }
                             (other, _) => {
                                 return Err(RpcError::invalid_params(format!(
-                                    "unknown preset key {other:?}; use harness, model, effort, policy, env, args, description"
+                                    "unknown preset key {other:?}; use harness, model, effort, policy, env, args, systemPrompt, description"
                                 )));
                             }
                         }
                     }
-                    let p = merged.unwrap();
+                    let mut p = merged.unwrap();
                     // Checked against the profile the preset resolves to now.
                     let profile =
                         cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
-                    crate::config::check_preset_args(cfg.harnesses[&profile].kind, &p.args)
+                    let kind = cfg.harnesses[&profile].kind;
+                    crate::config::check_preset_args(kind, &p.args)
                         .map_err(RpcError::invalid_params)?;
+                    let keeps_prompt = p.system_prompt_sha256.is_some()
+                        && !matches!(new_prompt, Some(None));
+                    if (matches!(new_prompt, Some(Some(_))) || keeps_prompt)
+                        && kind != crate::config::HarnessKind::ClaudeStdio
+                    {
+                        return Err(RpcError::invalid_params(
+                            "systemPrompt: only Claude Code harnesses take a system prompt file",
+                        ));
+                    }
+                    match new_prompt {
+                        Some(Some(text)) => {
+                            crate::config::check_preset_dir_name(&name)
+                                .map_err(RpcError::invalid_params)?;
+                            let dir = presets_dir.as_ref().ok_or_else(|| {
+                                RpcError::invalid_params(
+                                    "systemPrompt: this daemon has no state directory for preset files",
+                                )
+                            })?;
+                            let sha = crate::config::write_system_prompt(dir, &name, &text)
+                                .map_err(|e| {
+                                    RpcError::internal(format!("write the system prompt file: {e}"))
+                                })?;
+                            p.system_prompt_sha256 = Some(sha);
+                        }
+                        Some(None) => {
+                            p.system_prompt_sha256 = None;
+                            if let Some(dir) = &presets_dir {
+                                crate::config::remove_preset_dir(dir, &name).map_err(|e| {
+                                    RpcError::internal(format!("remove preset directory: {e}"))
+                                })?;
+                            }
+                        }
+                        None => {}
+                    }
                     cfg.presets.insert(name.clone(), p);
                 }
                 if let Err(e) = cfg.save() {
@@ -634,7 +703,7 @@ pub(super) async fn handle_request(
                     Ok(x) => (Some(x), None),
                     Err(e) => (None, Some(e)),
                 };
-                json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "description": p.description})
+                json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description})
             };
             match name {
                 Some(n) if !clear => cfg

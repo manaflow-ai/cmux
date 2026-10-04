@@ -90,6 +90,7 @@ fn families_are_derived_and_resolved() {
             policy: None,
             env: BTreeMap::new(),
             args: Vec::new(),
+            system_prompt_sha256: None,
             description: None,
         },
     );
