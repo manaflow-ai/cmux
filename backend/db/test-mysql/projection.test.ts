@@ -142,6 +142,14 @@ run("projection statements on MySQL", () => {
     expect(rows[0]).toMatchObject({ email: "new@example.com", display_name: "New", personal_team: "team_g1", source_seq: 10 })
   })
 
+  it("a newer seq moves every guarded column, whatever order Drizzle renders the SET list in", async () => {
+    await apply("home.invite.upsert", { id: "inv_O", conversation_id: "c", invited_by: "u", address_id: "a", channel: "email", status: "pending", delivery_state: "queued", copy_variant: "A", created_at: iso(T0), expires_at: iso(T0), accepted_by: null, accepted_at: null }, "s:o", 1)
+    await db.query("UPDATE home_invites SET updated_at = '2000-01-01 00:00:00.000' WHERE id = 'inv_O'")
+    await apply("home.invite.upsert", { id: "inv_O", conversation_id: "c", invited_by: "u", address_id: "a", channel: "email", status: "accepted", delivery_state: "sent", copy_variant: "A", created_at: iso(T0), expires_at: iso(T0 + 1), accepted_by: "u2", accepted_at: iso(T0 + 2) }, "s:o2", 2)
+    const [rows] = (await db.query("SELECT status, delivery_state, accepted_by, source_stream, source_seq, updated_at > '2001-01-01' AS moved FROM home_invites WHERE id = 'inv_O'")) as unknown as [Array<Record<string, unknown>>]
+    expect(rows[0]).toMatchObject({ status: "accepted", delivery_state: "sent", accepted_by: "u2", source_stream: "s:o2", source_seq: 2, moved: 1 })
+  })
+
   it("deletes honor the source_seq guard (automation, host, message, delete_through)", async () => {
     await apply("automation.delete", { id: "auto_p1" }, "s:1", 6)
     expect(await one("SELECT deleted_at IS NULL AS f FROM automations WHERE id = 'auto_p1'", "f")).toBe(1)
