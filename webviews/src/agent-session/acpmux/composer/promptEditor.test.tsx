@@ -142,12 +142,12 @@ describe("PromptEditor", () => {
   test("focus asked before the editor exists is applied when it is ready", async () => {
     const ref = createRef<Handle>();
     const root = createRoot(document.getElementById("root")!);
-    await act(async () => {
-      root.render(<PromptEditor ref={ref} value="" onChange={() => {}} features={{}} />);
-      ref.current?.focus();
-    });
+    // A synchronous render commits the component; the editor itself is made asynchronously.
+    act(() => root.render(<PromptEditor ref={ref} value="" onChange={() => {}} features={{}} />));
+    expect(document.querySelector(".acpmux-md")).toBeNull();
+    ref.current!.focus();
     await settle();
-    expect(ref.current!.focused()).toBe(true);
+    expect(document.activeElement).toBe(document.querySelector(".acpmux-md"));
     await act(async () => root.unmount());
   });
 });
