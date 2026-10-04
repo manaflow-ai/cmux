@@ -1,10 +1,11 @@
 import Foundation
 import GhosttyNextKit
 import Synchronization
+import os
 
 /// Serial, non-main lane for every call that must be serialized with
 /// `ghostty_surface_process_output` (ghostty.h:1373-1380, :1589):
-/// output, Kitty replay restore, theme updates.
+/// output, grid locks and GHOSTSNP snapshot restores.
 ///
 /// `process_output` takes the renderer-state mutex synchronously, so it runs
 /// off the main thread (cmux-tui-contract.md 3.2).
@@ -17,6 +18,7 @@ import Synchronization
 /// skipped from then on, so the fence waits for at most one chunk.
 nonisolated final class TerminalOutputLane: @unchecked Sendable {
     let highWater: Int
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
     private let queue: DispatchQueue
     /// Touched only on `queue`.
     private var surface: ghostty_surface_t?
@@ -47,6 +49,26 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             data.withUnsafeBytes { buffer in
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
+            }
+        }
+    }
+
+    /// Restores GHOSTSNP bytes (`ghostty_surface_restore_snapshot`) in
+    /// stream order. Counted as backlog like output, so history pages push
+    /// back on the IO the same way. A failed READY leaves the terminal as it
+    /// was (logged); a failed history chunk keeps the pages applied so far.
+    func restoreSnapshot(_ data: Data, phase: ghostty_surface_snapshot_phase_e) {
+        guard !data.isEmpty else { return }
+        backlog.withLock { $0.bytes += data.count }
+        queue.async { [self] in
+            defer { parsed(data.count) }
+            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            let restored = data.withUnsafeBytes { buffer -> Bool in
+                guard let base = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return false }
+                return ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
+            }
+            if !restored {
+                Self.logger.error("snapshot restore failed (phase \(phase.rawValue), \(data.count) bytes)")
             }
         }
     }

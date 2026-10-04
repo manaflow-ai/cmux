@@ -32,7 +32,8 @@ public final class TerminalSession {
     public let find = TerminalFindController()
     public weak var delegate: (any TerminalSessionDelegate)?
 
-    /// The live surface. Replaced when a later replay arrives.
+    /// The live surface. Replaced when a later VT replay arrives; a GHOSTSNP
+    /// snapshot restores in place.
     public private(set) var surfaceView: TerminalSurfaceView
 
     public var ownsGeometry: Bool {
@@ -191,9 +192,12 @@ public final class TerminalSession {
             surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
             TerminalTimings.contentApplied()
-        case .snapshot:
-            // In-place restore lands in S2b slice 3.
-            break
+        case .snapshot(let data, let phase):
+            // The same surface takes the owner's state: no swap.
+            await restoreSnapshot(data, phase: phase)
+            guard phase == .ready else { return }
+            surfaceHasContent = true
+            TerminalTimings.contentApplied()
         case .output(let data):
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
