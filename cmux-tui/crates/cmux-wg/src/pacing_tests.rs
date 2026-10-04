@@ -132,7 +132,9 @@ fn classes_leave_in_strict_priority() {
     while let Ok(Some(packet)) = pacer.pop(now) {
         order.push(if segment(&packet).is_some() { 0 } else { packet[1] });
     }
-    assert_eq!(order, vec![1, 2, 0, 0, 0, 0, 0, 0, 3], "interactive, media, connection, bulk");
+    // The bulk class is shared by bytes: after one segment the connection is
+    // ahead, so the bulk datagram goes next.
+    assert_eq!(order, vec![1, 2, 0, 3, 0, 0, 0, 0, 0], "interactive, media, then bulk shared");
 }
 
 #[test]
@@ -156,4 +158,44 @@ fn a_datagram_flood_never_blocks_the_tcp_stack() {
     assert!(pacer.has_room(), "datagrams do not count toward the stack's limit");
     assert_eq!(pacer.bulk.len(), MAX_DATAGRAMS);
     assert_eq!(pacer.media.len(), MAX_DATAGRAMS);
+}
+
+/// A bulk upload and bulk datagrams share the bulk class by bytes, so a
+/// backlog in the driver never starves the datagrams behind the upload.
+#[test]
+fn bulk_connections_and_bulk_datagrams_share_the_bulk_class_by_bytes() {
+    let mut pacer = Pacer::default();
+    let now = Instant::now();
+    for index in 0..200u32 {
+        pacer.push(out(50000, 1160 * index, 1160), now);
+    }
+    for _ in 0..100 {
+        pacer.push_datagram(vec![0x45; 600], Priority::Bulk, now);
+    }
+    let (mut upload, mut datagrams) = (0usize, 0usize);
+    for _ in 0..90 {
+        let packet = pacer.pop(now).unwrap().unwrap();
+        if segment(&packet).is_some() {
+            upload += packet.len();
+        } else {
+            datagrams += packet.len();
+        }
+    }
+    assert!(datagrams > 0, "bulk datagrams starved behind the upload");
+    assert!(upload.abs_diff(datagrams) <= 1200, "upload {upload} B, datagrams {datagrams} B");
+
+    // A class with nothing queued banks no credit: once the datagrams are
+    // gone the upload takes the whole class, and new datagrams start even.
+    while !pacer.bulk.is_empty() {
+        pacer.pop(now).unwrap().unwrap();
+    }
+    for _ in 0..20 {
+        assert!(segment(&pacer.pop(now).unwrap().unwrap()).is_some());
+    }
+    pacer.push_datagram(vec![0x45; 600], Priority::Bulk, now);
+    let mut next = Vec::new();
+    for _ in 0..3 {
+        next.push(segment(&pacer.pop(now).unwrap().unwrap()).is_some());
+    }
+    assert!(next.contains(&false), "a new bulk datagram waits at most one segment: {next:?}");
 }

@@ -27,7 +27,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/diffs open-changes",
+        "path": "open-changes",
         "visible": true
       },
       "mcp": {
@@ -73,7 +73,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/diffs open-diff",
+        "path": "open-diff",
         "visible": true
       },
       "mcp": {
@@ -112,7 +112,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/diffs review",
+        "path": "review",
         "visible": true
       },
       "mcp": {
@@ -139,7 +139,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/diffs review-latest",
+        "path": "review-latest",
         "visible": true
       },
       "mcp": {
@@ -168,7 +168,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/diffs toggle-layout",
+        "path": "toggle-layout",
         "visible": true
       },
       "mcp": {
@@ -197,7 +197,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/diffs cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

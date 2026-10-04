@@ -112,6 +112,11 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
+        case .conversation(let pane, let tab):
+            // Home's primary input, its message box (spec/app-screens.md 3).
+            guard case .conversation(let view)? = presented(pane: pane, tab: tab) else { return }
+            blurChildWindowPage()
+            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.

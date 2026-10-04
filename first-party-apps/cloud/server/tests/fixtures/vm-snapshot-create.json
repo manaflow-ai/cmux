@@ -1,0 +1,14 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/snapshot/route.ts (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/vm-alpha01/snapshot"
+  },
+  "status": 200,
+  "body": {
+    "snapshotId": "snap-three",
+    "id": "snap-three",
+    "name": "nightly",
+    "createdAt": 1790000300000
+  }
+}

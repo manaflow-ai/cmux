@@ -1,0 +1,37 @@
+{
+  "name": "cmux.terminal.connector/1",
+  "version": 1,
+  "docs": "Host mode (ghostty-next-switch.md, cloud-app.md): the far end runs its own session host; the local host relays the viewer protocol (GHOSTSNP snapshot plus bytes, size state, input, presence) and does not parse. An app connector runs as the app's server (implements with server: true) and needs the restricted scope terminal:backend. Rust trait TerminalConnector.",
+  "props": {
+    "kind": "string (one of options.kinds)",
+    "target": "string (a connector-defined id)"
+  },
+  "methods": {
+    "connect": "({kind, target}) -> {channel} (a viewer-protocol byte stream the local host relays)",
+    "close": "({channel}) -> void"
+  },
+  "events": [
+    "lost"
+  ],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "kinds"
+    ],
+    "properties": {
+      "kinds": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 16,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9-]{0,63}$"
+        },
+        "description": "Target kinds this implementation serves; the registry ids are app:<app>/<kind>. Default deny: a kind not listed is never routed here."
+      }
+    }
+  },
+  "status": "draft: shapes chosen by the ghostty-next lead (2026-10-04); refined with the first connector before the interface is public"
+}

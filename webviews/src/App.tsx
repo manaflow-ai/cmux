@@ -1,11 +1,5 @@
 import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
-import {
-  getFiletypeFromFileName,
-  parsePatchFiles,
-  preloadHighlighter,
-  processFile,
-  registerCustomTheme,
-} from "@pierre/diffs";
+import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
@@ -45,6 +39,8 @@ import {
   streamPatch,
 } from "./diff-stream";
 import { DiffHeaderMetadata } from "./diff-metadata";
+import { collapsedFileKey, withCollapsedFile } from "./collapsed-files";
+import { FileIcon } from "./file-icons";
 import {
   allDiffFileStatuses,
   defaultDiffFileFilter,
@@ -65,8 +61,18 @@ import {
   type DiffViewerOptions,
 } from "./pierre-options";
 import { applyDiffViewerStatusToDocument, createDiffViewerStatus } from "./status";
-import { resolveToolbarOverflow } from "./toolbar-overflow";
-import { useToolbarWidth } from "./useToolbarWidth";
+import { FloatingToolbar, JumpToFilePalette, SourceMenu, ViewMenuButton } from "./DiffToolbar";
+import {
+  diffLineTotals,
+  NO_HOST_CAPABILITIES,
+  overflowMenuItems,
+  sourceMenuModel,
+  toolbarPillButtons,
+  UNCOMMITTED_BASE_REF,
+  type OverflowMenuItemId,
+  type PillButtonId,
+  type SourceTarget,
+} from "./toolbar-model";
 import {
   type ViewedChange,
   type ViewedFileEntry,
@@ -83,6 +89,7 @@ import {
   viewedProgress,
   viewedScopeFor,
   viewedScopeKey,
+  viewedScopeKeyRepoRoot,
   viewedStateOfItem,
 } from "./viewed-files";
 import { buildHunkAnchors, nextHunkIndex } from "./viewer-hunks";
@@ -102,6 +109,7 @@ import { useDiffFind, type DiffFindController } from "./find/useDiffFind";
 import { useFindKeyboard } from "./find/useFindKeyboard";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
+import { diffLanguages } from "./diff-languages/registry";
 
 const statusIconName: Record<DiffFileStatus, IconName> = {
   added: "diffAdded",
@@ -126,6 +134,8 @@ const pendingSessionID = "00000000-0000-0000-0000-000000000000";
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
+  /** Files collapsed from their header caret, as `collapsedFileKey`s (persisted). */
+  collapsedFiles: string[];
   comments: DiffCommentRecord[];
   copyFeedback: string;
   draft: CommentDraft | null;
@@ -158,10 +168,12 @@ type AppState = {
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "relanguage-items" }
   | { type: "apply-persisted-options"; prefs: ViewerPrefs; allowLayout: boolean }
   | { type: "apply-viewed"; items: DiffItem[]; change: ViewedChange }
   | { type: "begin-viewed-load"; scopeKey: string }
   | { type: "expand-item"; itemId: string }
+  | { type: "set-item-collapsed"; itemId: string; collapsed: boolean; collapsedFiles: string[] }
   | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
   | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
   | { type: "set-generated-paths"; paths: string[] }
@@ -196,10 +208,15 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
   // Display toggles persisted by previous sessions are baked into the payload
   // by the CLI so first paint matches; the viewerPrefs bridge re-syncs them
   // live after boot. Layout is owned by payload.layout/layoutSource.
-  const { layout: _seededLayout, ...seededOptions } = sanitizeViewerPrefs(payload.viewerOptions);
+  const {
+    layout: _seededLayout,
+    collapsedFiles: seededCollapsedFiles,
+    ...seededOptions
+  } = sanitizeViewerPrefs(payload.viewerOptions);
   return {
     activeItemId: "",
     activeTreePath: "",
+    collapsedFiles: seededCollapsedFiles ?? readLocalViewerPrefs().collapsedFiles ?? [],
     comments: [],
     copyFeedback: "",
     draft: null,
@@ -239,7 +256,8 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
 /**
  * Generated and large files start collapsed (GitHub "Load diff" behavior),
  * and a file whose stored viewed fingerprint still matches starts collapsed
- * too. `collapsed` is otherwise the session-wide collapse-all toggle.
+ * too, as does a file the user collapsed from its header caret.
+ * `collapsed` is otherwise the session-wide collapse-all toggle.
  */
 function prepareAppendedItem(item: DiffItem, state: AppState, generatedPaths: ReadonlySet<string>): DiffItem {
   const diff = item.fileDiff ?? {};
@@ -254,7 +272,18 @@ function prepareAppendedItem(item: DiffItem, state: AppState, generatedPaths: Re
     diff.cmuxDeferredReason = reason;
   }
   const viewed = viewedStateOfItem(item, state.viewedByPath) === "viewed";
-  return state.options.collapsed || reason != null || viewed ? { ...item, collapsed: true } : item;
+  const userCollapsed = isUserCollapsed(item, state);
+  return state.options.collapsed || reason != null || viewed || userCollapsed ? { ...item, collapsed: true } : item;
+}
+
+function itemCollapsedFileKey(item: DiffItem, scopeKey: string): string {
+  return collapsedFileKey(viewedScopeKeyRepoRoot(scopeKey), fileName(item.fileDiff ?? {}, ""));
+}
+
+function isUserCollapsed(item: DiffItem, state: Pick<AppState, "collapsedFiles" | "viewedScopeKey">): boolean {
+  return (
+    state.collapsedFiles.length > 0 && state.collapsedFiles.includes(itemCollapsedFileKey(item, state.viewedScopeKey))
+  );
 }
 
 function viewedSessionOf(state: AppState): ViewedSession {
@@ -274,13 +303,30 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
     case "begin-viewed-load": {
       const session = beginViewedLoad(action.scopeKey);
+      const scoped = { ...state, viewedScopeKey: session.scopeKey };
       return {
-        ...state,
+        ...scoped,
+        // The repository is known now, so caret-collapsed files already
+        // streamed for it collapse.
+        items: state.items.map((item) =>
+          !item.collapsed && isUserCollapsed(item, scoped)
+            ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 }
+            : item,
+        ),
         viewedByPath: session.viewedByPath,
         viewedLocalEdits: session.localEdits,
-        viewedScopeKey: session.scopeKey,
       };
     }
+    case "set-item-collapsed":
+      return {
+        ...state,
+        collapsedFiles: action.collapsedFiles,
+        items: state.items.map((item) =>
+          item.id === action.itemId && Boolean(item.collapsed) !== action.collapsed
+            ? { ...item, collapsed: action.collapsed, version: (item.version ?? 0) + 1 }
+            : item,
+        ),
+      };
     case "expand-item":
       return {
         ...state,
@@ -307,9 +353,16 @@ function reducer(state: AppState, action: AppAction): AppState {
     case "set-generated-paths":
       return { ...state, generatedPaths: action.paths };
     case "apply-persisted-options": {
-      const { layout, ...prefs } = action.prefs;
+      const { layout, collapsedFiles, ...prefs } = action.prefs;
+      const withCollapsed = { ...state, collapsedFiles: collapsedFiles ?? state.collapsedFiles };
       return {
-        ...state,
+        ...withCollapsed,
+        // Files streamed before the stored preferences arrived collapse now.
+        items: state.items.map((item) =>
+          !item.collapsed && isUserCollapsed(item, withCollapsed)
+            ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 }
+            : item,
+        ),
         options: {
           ...state.options,
           ...prefs,
@@ -346,6 +399,12 @@ function reducer(state: AppState, action: AppAction): AppState {
         languages,
         status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
       };
+    }
+    case "relanguage-items": {
+      const items = relanguagedItems(state.items);
+      return items.every((item, index) => item === state.items[index])
+        ? state
+        : { ...state, items, languages: mergeLanguages(state.languages, items.flatMap(diffItemPreloadLanguages)) };
     }
     case "reset-diff":
       return {
@@ -475,7 +534,11 @@ export function App({ config, initialStatus }: ConfigProps) {
   );
   const [resolvedSessionSource, setResolvedSessionSource] = useState<DiffSource | null>(activeSessionSource);
   const branchSourceByRepoRef = useRef(new Map<string, Extract<DiffSource, { kind: "branch" }>>());
-  if (activeSessionSource?.kind === "branch" && !branchSourceByRepoRef.current.has(activeSessionSource.repoRoot)) {
+  if (
+    activeSessionSource?.kind === "branch" &&
+    activeSessionSource.baseRef !== UNCOMMITTED_BASE_REF &&
+    !branchSourceByRepoRef.current.has(activeSessionSource.repoRoot)
+  ) {
     branchSourceByRepoRef.current.set(activeSessionSource.repoRoot, activeSessionSource);
   }
   const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
@@ -486,6 +549,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
+  useDiffLanguageChanges(dispatch);
   const workerPoolOptions = createDiffWorkerPoolOptions();
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
@@ -547,7 +611,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       });
   }, [payload.capabilityToken, transport]);
   const rememberResolvedSessionSource = useCallback((source: DiffSource) => {
-    if (source.kind === "branch") {
+    if (source.kind === "branch" && source.baseRef !== UNCOMMITTED_BASE_REF) {
       branchSourceByRepoRef.current.set(source.repoRoot, source);
     }
     setResolvedSessionSource(source);
@@ -589,6 +653,27 @@ export function App({ config, initialStatus }: ConfigProps) {
       }
     },
     [latestState, toggleViewed],
+  );
+
+  // A header caret collapses or expands one file and remembers it with the
+  // other viewer preferences.
+  const toggleItemCollapsed = useCallback(
+    (itemId: string) => {
+      const current = latestState.current;
+      const item = current.items.find((candidate) => candidate.id === itemId);
+      if (item == null) {
+        return;
+      }
+      const collapsed = !item.collapsed;
+      const collapsedFiles = withCollapsedFile(
+        current.collapsedFiles,
+        itemCollapsedFileKey(item, current.viewedScopeKey),
+        collapsed,
+      );
+      dispatch({ type: "set-item-collapsed", itemId, collapsed, collapsedFiles });
+      saveViewerPrefs({ collapsedFiles });
+    },
+    [latestState],
   );
 
   usePageDataAttributes(state);
@@ -795,14 +880,6 @@ export function App({ config, initialStatus }: ConfigProps) {
         config={config}
         transport={transport}
         label={label}
-        onCopyGitApply={async () => {
-          try {
-            const message = await copyGitApplyCommand(activePatchURL, label, copyFallbackRef.current);
-            dispatch({ type: "set-copy-feedback", message });
-          } catch {
-            dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
-          }
-        }}
         onJump={scrollToItem}
         onNavigate={(url) => {
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
@@ -815,11 +892,17 @@ export function App({ config, initialStatus }: ConfigProps) {
         activeSessionSource={resolvedSessionSource ?? activeSessionSource}
         onSelectSessionSource={(source) => {
           const currentSource = resolvedSessionSource ?? activeSessionSource;
+          // Branch reopens the base last used in this repository; Uncommitted
+          // (a branch session against HEAD) is always exactly that.
           const selectedSource =
-            source.kind === "branch" && (currentSource?.kind !== "branch" || source.baseRef == null)
+            source.kind === "branch" &&
+            source.baseRef !== UNCOMMITTED_BASE_REF &&
+            (currentSource?.kind !== "branch" ||
+              currentSource.baseRef === UNCOMMITTED_BASE_REF ||
+              source.baseRef == null)
               ? (branchSourceByRepoRef.current.get(source.repoRoot) ?? source)
               : source;
-          if (selectedSource.kind === "branch") {
+          if (selectedSource.kind === "branch" && selectedSource.baseRef !== UNCOMMITTED_BASE_REF) {
             branchSourceByRepoRef.current.set(selectedSource.repoRoot, selectedSource);
           }
           const status = createDiffViewerStatus(label("loadingDiff"), { pending: true });
@@ -830,10 +913,10 @@ export function App({ config, initialStatus }: ConfigProps) {
           setResolvedSessionSource(selectedSource);
           setActiveSessionSource(selectedSource);
         }}
-        onReload={refresh}
-        onSetLayout={setLayout}
-        onSetOption={setOption}
-        dispatch={dispatch}
+        rememberedBranch={(() => {
+          const repo = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource);
+          return repo ? (branchSourceByRepoRef.current.get(repo) ?? null) : null;
+        })()}
         state={state}
         visibleItems={visibleItems}
       />
@@ -869,17 +952,15 @@ export function App({ config, initialStatus }: ConfigProps) {
                 items={visibleItems}
                 onScroll={handleCodeViewScroll}
                 options={renderedCodeViewOptions}
-                renderHeaderMetadata={(item) => (
-                  <>
-                    <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
-                    <FileReviewControls
-                      item={item as DiffItem}
-                      label={label}
-                      onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
-                      onToggleViewed={() => toggleViewed(item.id)}
-                      viewedState={viewedStateOf(item as DiffItem)}
-                    />
-                  </>
+                renderCustomHeader={(item) => (
+                  <FileHeader
+                    item={item as DiffItem}
+                    label={label}
+                    onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
+                    onToggleCollapsed={() => toggleItemCollapsed(item.id)}
+                    onToggleViewed={() => toggleViewed(item.id)}
+                    viewedState={viewedStateOf(item as DiffItem)}
+                  />
                 )}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)
@@ -888,6 +969,25 @@ export function App({ config, initialStatus }: ConfigProps) {
             </WorkerPoolContextProvider>
           ) : null}
         </main>
+        <DiffPill
+          dispatch={dispatch}
+          externalURL={
+            typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null
+          }
+          label={label}
+          onCopyGitApply={async () => {
+            try {
+              const message = await copyGitApplyCommand(activePatchURL, label, copyFallbackRef.current);
+              dispatch({ type: "set-copy-feedback", message });
+            } catch {
+              dispatch({ type: "set-copy-feedback", message: label("copyFailedGitApplyCommand") });
+            }
+          }}
+          onReload={refresh}
+          onSetLayout={setLayout}
+          onSetOption={setOption}
+          state={state}
+        />
         <LoadingLayer label={label} status={state.status} />
       </section>
       <textarea ref={copyFallbackRef} aria-hidden="true" readOnly tabIndex={-1} className="copy-fallback-textarea" />
@@ -1092,10 +1192,91 @@ function useViewedFilesBootstrap(scope: ViewedScope | null, dispatch: React.Disp
 }
 
 /**
- * Per-file review controls rendered into Pierre's header metadata slot: the
+ * One file's header row, rendered into Pierre's custom header slot (the row
+ * itself is Pierre's opaque sticky header): the language icon, the dim
+ * directory and bright file name, the collapse caret, then the change counts
+ * and the review controls.
+ */
+export function FileHeader({
+  item,
+  label,
+  onLoadDiff,
+  onToggleCollapsed,
+  onToggleViewed,
+  viewedState,
+}: {
+  item: DiffItem;
+  label: DiffViewerLabelResolver;
+  onLoadDiff: () => void;
+  onToggleCollapsed: () => void;
+  onToggleViewed: () => void;
+  viewedState: ViewedFileState;
+}) {
+  const fileDiff = item.fileDiff ?? {};
+  const path = fileName(fileDiff, label("untitled"));
+  const slash = path.lastIndexOf("/");
+  const directory = slash >= 0 ? path.slice(0, slash + 1) : "";
+  const baseName = path.slice(slash + 1);
+  const previousPath = typeof fileDiff.prevName === "string" && fileDiff.prevName !== path ? fileDiff.prevName : null;
+  const stats = fileStats(fileDiff);
+  const collapsed = Boolean(item.collapsed);
+  const caretLabel = (collapsed ? label("expandFile") : label("collapseFile")).replace("{file}", baseName);
+  return (
+    <div className="file-header" data-collapsed={collapsed} data-change-type={fileDiff.type}>
+      <FileIcon path={path} />
+      <span className="file-header-path" title={previousPath == null ? path : `${previousPath} → ${path}`}>
+        {previousPath != null ? (
+          <span className="file-header-previous">
+            <bdi>{previousPath}</bdi>
+            <span aria-hidden="true"> → </span>
+          </span>
+        ) : null}
+        {directory !== "" ? (
+          <span className="file-header-directory">
+            <bdi>{directory}</bdi>
+          </span>
+        ) : null}
+        <span className="file-header-name">{baseName}</span>
+      </span>
+      <button
+        type="button"
+        className="file-header-caret"
+        aria-expanded={!collapsed}
+        aria-label={caretLabel}
+        title={caretLabel}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleCollapsed();
+        }}
+      >
+        <Icon name="chevronDown" />
+      </button>
+      <span className="file-header-spacer" />
+      <DiffHeaderMetadata fileDiff={fileDiff} label={label} />
+      <span className="file-header-stats" aria-label={label("diffStats")}>
+        <span className="file-header-additions" title={label("additions")}>
+          +{stats.added}
+        </span>
+        <span className="file-header-deletions" title={label("deletions")}>
+          -{stats.deleted}
+        </span>
+      </span>
+      <FileReviewControls
+        item={item}
+        label={label}
+        onLoadDiff={onLoadDiff}
+        onToggleViewed={onToggleViewed}
+        viewedState={viewedState}
+      />
+    </div>
+  );
+}
+
+/**
+ * Per-file review controls rendered at the end of the file header: the
  * "Viewed" checkbox with its "changed since viewed" badge, and the generated /
  * large badge with a "Load diff" button while such a file is still collapsed.
- * Clicks stop propagating so Pierre's own header collapse toggle stays put.
+ * Clicks stop propagating so they never reach the header row's own handlers.
  */
 function FileReviewControls({
   item,
@@ -1231,213 +1412,244 @@ function WorkerRenderOptionsSync({
 function Toolbar({
   activeSessionSource,
   config,
-  dispatch,
   label,
-  onCopyGitApply,
   onJump,
   onNavigate,
   onSelectSessionSource,
-  onReload,
-  onSetLayout,
-  onSetOption,
+  rememberedBranch,
   state,
   transport,
   visibleItems,
 }: {
   activeSessionSource: DiffSource | null;
   config: DiffViewerConfig;
-  dispatch: React.Dispatch<AppAction>;
   label: DiffViewerLabelResolver;
-  onCopyGitApply: () => void;
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
   onSelectSessionSource: (source: DiffSource) => void;
-  onReload: () => void;
-  onSetLayout: (layout: DiffViewerLayout) => void;
-  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
+  rememberedBranch: Extract<DiffSource, { kind: "branch" }> | null;
   state: AppState;
   transport: DiffTransport | null;
   visibleItems: DiffItem[];
 }) {
   const payload = config.payload ?? {};
-  const externalURL =
-    typeof payload.externalURL === "string" && payload.externalURL.length > 0 ? payload.externalURL : null;
-  const toolbarRef = useRef<HTMLElement>(null);
-  const toolbarWidth = useToolbarWidth(toolbarRef);
-  // Optional ACCESSORY controls, HIGH priority first (last = first to overflow).
-  // Drop order at narrowing: external link -> layout toggle -> files toggle. Each
-  // has a canonical copy in the "..." menu, so overflowing one only hides its
-  // duplicate bar icon and it stays reachable from the menu. The source select,
-  // repo select, and Base picker are NOT in this list: they are always rendered
-  // in the bar (a native <select> has no menu equivalent, so the repo select must
-  // never be dropped — it shrinks/ellipsizes in place instead). Estimated widths
-  // include each control's ~4px inter-item gap.
-  const overflowItems = [
-    { id: "files-toggle" as const, width: TOOLBAR_ICON_SLOT },
-    { id: "layout-toggle" as const, width: TOOLBAR_ICON_SLOT },
-    ...(externalURL ? [{ id: "external-link" as const, width: TOOLBAR_ICON_SLOT }] : []),
-  ];
-  const overflow =
-    toolbarWidth == null
-      ? new Set<string>()
-      : new Set(
-          resolveToolbarOverflow({
-            available: toolbarWidth,
-            // Always-present zone: source select + repo select + Base picker +
-            // "..." button + horizontal padding. Generous so we shed before, not
-            // after, overlap; the CSS clip covers any residual under-estimate. The
-            // repo select is always in the bar now, so reserve its slot too (it
-            // shrinks in place rather than overflowing).
-            reserved: TOOLBAR_ALWAYS_PRESENT_WIDTH + (hasRepoSelect(payload) ? TOOLBAR_REPO_SELECT_MIN : 0),
-            items: overflowItems,
-          }).overflow,
-        );
-  const showFilesToggle = !overflow.has("files-toggle");
-  const showLayoutToggle = !overflow.has("layout-toggle");
-  const showExternalLink = externalURL != null && !overflow.has("external-link");
   return (
-    <header id="toolbar" ref={toolbarRef}>
+    <header id="toolbar">
       <SourceControls
         activeSessionSource={activeSessionSource}
+        items={state.items}
         label={label}
         onNavigate={onNavigate}
         onSelectSessionSource={onSelectSessionSource}
         payload={payload}
+        rememberedBranch={rememberedBranch}
         transport={transport}
-      />
-      {/* Small diffs use a native jump select. Large diffs route this control to
-          the virtualized file-tree search so the toolbar never creates one DOM
-          option per file. */}
-      <div className="toolbar-middle flex min-w-0 flex-1 items-center justify-center gap-1.5">
-        <JumpSelect
-          items={visibleItems}
-          label={label}
-          onJump={onJump}
-          onOpenSearch={() => dispatch({ type: "set-file-search-open", open: true })}
-          searchOpen={state.fileSearchOpen}
-          selectedItemId={state.activeItemId}
-        />
-      </div>
-      <div className="toolbar-actions flex items-center gap-1.5">
-        {showExternalLink ? (
-          <a
-            id="external-link"
-            className="toolbar-icon"
-            href={externalURL ?? undefined}
-            target="_blank"
-            rel="noreferrer"
-            title={label("openSourceURL")}
-            aria-label={label("openSourceURL")}
-          >
-            <Icon name="external" />
-          </a>
-        ) : null}
-        {showLayoutToggle ? (
-          <button
-            id="layout-toggle"
-            className="toolbar-icon"
-            type="button"
-            title={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-            aria-label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-            onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
-          >
-            <Icon name={state.options.layout} />
-          </button>
-        ) : null}
-        <button
-          id="options-button"
-          className="toolbar-icon"
-          type="button"
-          title={label("options")}
-          aria-label={label("options")}
-          aria-expanded={state.optionsOpen}
-          aria-controls="options-menu"
-          onClick={() => dispatch({ type: "set-options-open", open: !state.optionsOpen })}
-        >
-          <Icon name="dots" />
-        </button>
-        {showFilesToggle ? (
-          <button
-            id="files-toggle"
-            className="toolbar-icon"
-            type="button"
-            title={state.filesVisible ? label("hideFiles") : label("showFiles")}
-            aria-label={state.filesVisible ? label("hideFiles") : label("showFiles")}
-            aria-pressed={state.filesVisible}
-            onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
-          >
-            <Icon name="files" />
-          </button>
-        ) : null}
-        <span id="copy-feedback" className="visually-hidden" aria-live="polite">
-          {state.copyFeedback}
-        </span>
-      </div>
-      {state.optionsOpen ? (
-        <OptionsMenu
-          dispatch={dispatch}
-          externalURL={externalURL}
-          label={label}
-          onCopyGitApply={onCopyGitApply}
-          onReload={onReload}
-          onSetLayout={onSetLayout}
-          onSetOption={onSetOption}
-          state={state}
-        />
-      ) : null}
+      >
+        <JumpToFilePalette items={visibleItems} label={label} onJump={onJump} />
+      </SourceControls>
+      <span id="copy-feedback" className="visually-hidden" aria-live="polite">
+        {state.copyFeedback}
+      </span>
     </header>
   );
 }
 
-// Pixel slot for one toolbar-actions icon button: 20px control + ~8px gap. The
-// resolver only uses these as relative estimates; the CSS `overflow: clip` on
-// the toolbar cells is the hard no-overlap guarantee, so exactness is not load
-// bearing.
-const TOOLBAR_ICON_SLOT = 28;
-// Width reserved for the always-present zone (source select + Base picker + the
-// "..." button + horizontal padding/gaps). Deliberately generous: the optional
-// controls shed early rather than allowing the always-present zone to overflow.
-const TOOLBAR_ALWAYS_PRESENT_WIDTH = 248;
-// Min width the always-present repo select can shrink to (its CSS `min-width`
-// floor of 56px + ~4px gap). It ellipsizes in place down to this floor rather
-// than overflowing, so reserve only the floor, not its full natural width.
-const TOOLBAR_REPO_SELECT_MIN = 60;
+/**
+ * The floating toolbar pill (bottom-right of the diff) and its "..." menu: the
+ * menu rows the reference viewer has, then the remaining view options.
+ */
+function DiffPill({
+  dispatch,
+  externalURL,
+  label,
+  onCopyGitApply,
+  onReload,
+  onSetLayout,
+  onSetOption,
+  state,
+}: {
+  dispatch: React.Dispatch<AppAction>;
+  externalURL: string | null;
+  label: DiffViewerLabelResolver;
+  onCopyGitApply: () => void;
+  onReload: () => void;
+  onSetLayout: (layout: DiffViewerLayout) => void;
+  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
+  state: AppState;
+}) {
+  const onButton = (id: PillButtonId) => {
+    switch (id) {
+      case "options":
+        dispatch({ type: "set-options-open", open: !state.optionsOpen });
+        return;
+      case "find":
+        dispatch(state.findOpen ? { type: "set-find-open", open: false } : { type: "request-find" });
+        return;
+      case "refresh":
+        onReload();
+        return;
+      case "wrap":
+        onSetOption("wordWrap", !state.options.wordWrap);
+        return;
+      case "expand":
+        onSetOption("collapsed", !state.options.collapsed);
+        return;
+      case "layout":
+        onSetLayout(state.options.layout === "split" ? "unified" : "split");
+        return;
+      case "files":
+        dispatch({ type: "set-files-visible", visible: !state.filesVisible });
+        return;
+    }
+  };
+  const onMenuItem = (id: OverflowMenuItemId) => {
+    switch (id) {
+      case "load-full-files":
+        onSetOption("expandUnchanged", !state.options.expandUnchanged);
+        return;
+      case "word-diffs":
+        onSetOption("wordDiffs", !state.options.wordDiffs);
+        return;
+      case "copy-git-apply":
+        onCopyGitApply();
+        return;
+      default:
+        // Rich preview, Hide white space and Hide imports have nothing the viewer
+        // can apply yet; their rows are unavailable (NO_HOST_CAPABILITIES).
+        return;
+    }
+  };
+  return (
+    <FloatingToolbar
+      buttons={toolbarPillButtons(state)}
+      label={label}
+      menuItems={overflowMenuItems(state.options, NO_HOST_CAPABILITIES)}
+      menuOpen={state.optionsOpen}
+      onButton={onButton}
+      onCloseMenu={() => dispatch({ type: "set-options-open", open: false })}
+      onMenuItem={onMenuItem}
+      viewMenu={<ViewOptionsMenuRows externalURL={externalURL} label={label} onSetOption={onSetOption} state={state} />}
+    />
+  );
+}
 
-function hasRepoSelect(payload: any): boolean {
-  return Array.isArray(payload?.repoOptions) && payload.repoOptions.length >= 2;
+/** View options the reference menu does not list, kept under a separator. */
+function ViewOptionsMenuRows({
+  externalURL,
+  label,
+  onSetOption,
+  state,
+}: {
+  externalURL: string | null;
+  label: DiffViewerLabelResolver;
+  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
+  state: AppState;
+}) {
+  return (
+    <>
+      <hr className="menu-separator" />
+      {externalURL ? (
+        <ViewMenuButton
+          icon="external"
+          label={label("openSourceURL")}
+          onClick={() => window.open(externalURL, "_blank", "noreferrer")}
+        />
+      ) : null}
+      <ViewMenuButton
+        checked={state.options.showBackgrounds}
+        icon="background"
+        label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")}
+        onClick={() => onSetOption("showBackgrounds", !state.options.showBackgrounds)}
+      />
+      <ViewMenuButton
+        checked={state.options.lineNumbers}
+        icon="numbers"
+        label={state.options.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers")}
+        onClick={() => onSetOption("lineNumbers", !state.options.lineNumbers)}
+      />
+      <div className="menu-item menu-segment">
+        <Icon name="bars" />
+        <span className="menu-label">{label("indicatorStyle")}</span>
+        <span className="menu-segment-controls">
+          {[
+            { value: "bars", icon: "bars", label: label("bars") },
+            { value: "classic", icon: "classic", label: label("classic") },
+            { value: "none", icon: "none", label: label("none") },
+          ].map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className="segment-button"
+              title={option.label}
+              aria-label={option.label}
+              aria-pressed={state.options.diffIndicators === option.value}
+              onClick={() => onSetOption("diffIndicators", option.value)}
+            >
+              <Icon name={option.icon as IconName} />
+            </button>
+          ))}
+        </span>
+      </div>
+    </>
+  );
 }
 
 function SourceControls({
   activeSessionSource,
+  children,
+  items,
   label,
   onNavigate,
   onSelectSessionSource,
   payload,
+  rememberedBranch,
   transport,
 }: {
   activeSessionSource: DiffSource | null;
+  /** Controls after the source and base pills (the jump-to-file button). */
+  children?: React.ReactNode;
+  items: DiffItem[];
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
   onSelectSessionSource: (source: DiffSource) => void;
   payload: any;
+  rememberedBranch: Extract<DiffSource, { kind: "branch" }> | null;
   transport: DiffTransport | null;
 }) {
+  const repoRoot =
+    diffSourceRepoRoot(activeSessionSource) ??
+    (typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null);
+  const sourceModel = sourceMenuModel({
+    sourceOptions: payload.sourceOptions,
+    repoRoot,
+    activeSource: activeSessionSource,
+    rememberedBranch,
+    branchBaseRef: typeof payload.branchBaseRef === "string" ? payload.branchBaseRef : null,
+    typedTransport: transport != null && activeSessionSource != null,
+    isValidSource: validDiffSource,
+  });
+  const showSourceMenu = sourceModel.selected != null || sourceModel.sections.flat().some((entry) => entry.target);
+  const totals = diffLineTotals(items);
+  const selectSource = (target: SourceTarget) => {
+    if (target.kind === "url") {
+      onNavigate(target.url);
+      return;
+    }
+    onSelectSessionSource(sourceSelectionWithActiveRepo(target.source, activeSessionSource));
+  };
   return (
     <div className="toolbar-left flex min-w-0 items-center gap-1.5">
-      <NavigationSelect
-        ariaLabel={label("diffTarget")}
-        fallbackValue=""
-        id="source-select"
-        options={payload.sourceOptions}
-        onNavigate={onNavigate}
-        onSelectSessionSource={(source) =>
-          onSelectSessionSource(sourceSelectionWithActiveRepo(source, activeSessionSource))
-        }
-        selectedValue={diffSourceKind(activeSessionSource)}
-      />
-      {/* The repo select is ALWAYS rendered (a native <select> has no "..." menu
-          equivalent, so dropping it would strand multi-repo users). It shrinks
-          and ellipsizes in place via field-sizing + the .toolbar-left clip. */}
+      {showSourceMenu ? (
+        <SourceMenu
+          additions={totals.additions}
+          deletions={totals.deletions}
+          label={label}
+          model={sourceModel}
+          onSelect={selectSource}
+        />
+      ) : null}
+      {/* The repo select is ALWAYS rendered when the host lists several
+          repositories. It shrinks and ellipsizes in place. */}
       {activeSessionSource?.kind !== "patch" ? (
         <NavigationSelect
           ariaLabel={label("repoPath")}
@@ -1452,14 +1664,17 @@ function SourceControls({
           selectedValue={diffSourceRepoRoot(activeSessionSource)}
         />
       ) : null}
-      <BaseControl
-        activeSessionSource={activeSessionSource}
-        label={label}
-        onNavigate={onNavigate}
-        onSelectSessionSource={onSelectSessionSource}
-        payload={payload}
-        transport={transport}
-      />
+      {sourceModel.selected?.id === "uncommitted" ? null : (
+        <BaseControl
+          activeSessionSource={activeSessionSource}
+          label={label}
+          onNavigate={onNavigate}
+          onSelectSessionSource={onSelectSessionSource}
+          payload={payload}
+          transport={transport}
+        />
+      )}
+      {children}
     </div>
   );
 }
@@ -1488,7 +1703,9 @@ function BaseControl({
     const typedPicker: BranchPickerPayload = {
       repoRoot: activeSessionSource.repoRoot,
       capabilityToken: payload.capabilityToken,
-      headRef: "HEAD",
+      // The sidecar does not report the checked-out branch name; a host that
+      // knows it can send `payload.headRef`.
+      headRef: typeof payload.headRef === "string" && payload.headRef !== "" ? payload.headRef : "HEAD",
       currentRef: activeSessionSource.baseRef ?? "",
       currentReason: "",
       confidence: "high",
@@ -1688,187 +1905,6 @@ function NavigationSelect({
         </option>
       ))}
     </select>
-  );
-}
-
-export function JumpSelect({
-  items,
-  label,
-  onJump,
-  onOpenSearch,
-  searchOpen,
-  selectedItemId,
-}: {
-  items: DiffItem[];
-  label: DiffViewerLabelResolver;
-  onJump: (itemId: string) => void;
-  onOpenSearch: () => void;
-  searchOpen: boolean;
-  selectedItemId: string;
-}) {
-  if (items.length === 0) {
-    return null;
-  }
-  if (items.length > 500) {
-    return (
-      <button
-        id="jump-search-button"
-        type="button"
-        aria-controls="files-sidebar"
-        aria-expanded={searchOpen}
-        aria-label={label("jumpToFile")}
-        title={label("jumpToFile")}
-        onClick={onOpenSearch}
-      >
-        {label("jumpToFile")}
-      </button>
-    );
-  }
-  return (
-    <select
-      id="jump-select"
-      aria-label={label("jumpToFile")}
-      value={selectedItemId}
-      onChange={(event) => onJump(event.currentTarget.value)}
-    >
-      <option value="">{label("jumpToFile")}</option>
-      {items.map((item) => (
-        <option key={item.id} value={item.id}>
-          {fileName(item.fileDiff, label("untitled"))}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function OptionsMenu({
-  dispatch,
-  externalURL,
-  label,
-  onCopyGitApply,
-  onReload,
-  onSetLayout,
-  onSetOption,
-  state,
-}: {
-  dispatch: React.Dispatch<AppAction>;
-  externalURL: string | null;
-  label: DiffViewerLabelResolver;
-  onCopyGitApply: () => void;
-  onReload: () => void;
-  onSetLayout: (layout: DiffViewerLayout) => void;
-  onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
-  state: AppState;
-}) {
-  const toggle = (key: keyof DiffViewerOptions) => onSetOption(key, !state.options[key]);
-  return (
-    <div id="options-menu" aria-label={label("options")}>
-      <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
-      <MenuButton
-        checked={state.options.wordWrap}
-        icon="wrap"
-        label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")}
-        onClick={() => toggle("wordWrap")}
-      />
-      <MenuButton
-        checked={state.options.collapsed}
-        icon={state.options.collapsed ? "expand" : "collapse"}
-        label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")}
-        onClick={() => toggle("collapsed")}
-      />
-      <div className="menu-separator" />
-      {/* Secondary actions that can overflow from the bar at narrow widths are
-          always listed here so they stay reachable regardless of what the bar
-          decided to drop. The bar hides its duplicate icon button when it
-          overflows; the menu copy is the canonical fallback. */}
-      <MenuButton
-        icon={state.options.layout}
-        label={state.options.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff")}
-        onClick={() => onSetLayout(state.options.layout === "split" ? "unified" : "split")}
-      />
-      {externalURL ? (
-        <MenuButton
-          icon="external"
-          label={label("openSourceURL")}
-          onClick={() => window.open(externalURL, "_blank", "noreferrer")}
-        />
-      ) : null}
-      <MenuButton
-        checked={state.filesVisible}
-        icon="files"
-        label={state.filesVisible ? label("hideFiles") : label("showFiles")}
-        onClick={() => dispatch({ type: "set-files-visible", visible: !state.filesVisible })}
-      />
-      <MenuButton
-        checked={state.options.expandUnchanged}
-        icon="document"
-        label={state.options.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext")}
-        onClick={() => toggle("expandUnchanged")}
-      />
-      <MenuButton
-        checked={state.options.showBackgrounds}
-        icon="background"
-        label={state.options.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds")}
-        onClick={() => toggle("showBackgrounds")}
-      />
-      <MenuButton
-        checked={state.options.lineNumbers}
-        icon="numbers"
-        label={state.options.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers")}
-        onClick={() => toggle("lineNumbers")}
-      />
-      <MenuButton
-        checked={state.options.wordDiffs}
-        icon="word"
-        label={state.options.wordDiffs ? label("disableWordDiffs") : label("enableWordDiffs")}
-        onClick={() => toggle("wordDiffs")}
-      />
-      <div className="menu-item menu-segment">
-        <Icon name="bars" />
-        <span className="menu-label">{label("indicatorStyle")}</span>
-        <span className="menu-segment-controls">
-          {[
-            { value: "bars", icon: "bars", label: label("bars") },
-            { value: "classic", icon: "classic", label: label("classic") },
-            { value: "none", icon: "none", label: label("none") },
-          ].map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className="segment-button"
-              title={option.label}
-              aria-label={option.label}
-              aria-pressed={state.options.diffIndicators === option.value}
-              onClick={() => onSetOption("diffIndicators", option.value)}
-            >
-              <Icon name={option.icon as IconName} />
-            </button>
-          ))}
-        </span>
-      </div>
-      <div className="menu-separator" />
-      <MenuButton icon="clipboard" label={label("copyGitApplyCommand")} onClick={onCopyGitApply} />
-    </div>
-  );
-}
-
-function MenuButton({
-  checked,
-  icon,
-  label,
-  onClick,
-}: {
-  checked?: boolean;
-  icon: Parameters<typeof Icon>[0]["name"];
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" className="menu-item" aria-pressed={checked == null ? undefined : checked} onClick={onClick}>
-      <Icon name={icon} />
-      <span className="menu-label">{label}</span>
-      <span className="menu-check">{checked ? <Icon name="check" /> : null}</span>
-    </button>
   );
 }
 
@@ -2101,12 +2137,16 @@ function PierreFileTree({
   const latest = useSyncedRef({ label, onSelectItem, source, viewedStateByPath });
   const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
   const { model } = useFileTree({
-    flattenEmptyDirectories: false,
+    // Single-child folder chains render as one row ("infra / tsadmin").
+    flattenEmptyDirectories: true,
     id: "cmux-diff-file-tree",
     initialExpansion: "open",
     initialSelectedPaths: selectedPath ? [selectedPath] : [],
     initialVisibleRowCount: getInitialFileTreeRowCount(),
-    itemHeight: 24,
+    // Compact preset spacing on a 22px row (screenshot parity with the
+    // classic viewer's file list).
+    density: "compact",
+    itemHeight: FILE_TREE_ITEM_HEIGHT,
     overscan: 12,
     preparedInput: initialPreparedInput,
     search: true,
@@ -2117,17 +2157,15 @@ function PierreFileTree({
     unsafeCSS: fileTreeUnsafeCSS(),
     composition: { contextMenu: { enabled: true, triggerMode: "right-click" } },
     // Pierre tree rows accept a text/icon decoration, not custom children, so
-    // the "Viewed" checkmark is a decoration and the toggle lives in the row's
-    // context menu (the header checkbox and `v` are the primary controls).
+    // a file's "+N -N" counts and its "Viewed" mark share one text decoration;
+    // the toggle lives in the row's context menu (the header checkbox and `v`
+    // are the primary controls).
     renderRowDecoration({ item }) {
-      const state = latest.current.viewedStateByPath.get(item.path);
-      if (state === "viewed") {
-        return { text: "✓", title: latest.current.label("viewed") };
-      }
-      if (state === "changed") {
-        return { text: "↻", title: latest.current.label("changedSinceViewed") };
-      }
-      return null;
+      return fileTreeRowDecoration(
+        latest.current.source.statsByPath.get(item.path),
+        latest.current.viewedStateByPath.get(item.path),
+        latest.current.label,
+      );
     },
     onSelectionChange(paths: readonly string[]) {
       const path = paths[paths.length - 1];
@@ -2239,6 +2277,11 @@ function useSyncedRef<T>(value: T): React.MutableRefObject<T> {
   return ref;
 }
 
+/// Re-detects every file's language when the host installs new user languages or overrides.
+function useDiffLanguageChanges(dispatch: React.Dispatch<AppAction>): void {
+  useEffect(() => diffLanguages.subscribe(() => dispatch({ type: "relanguage-items" })), [dispatch]);
+}
+
 function useWorkerRenderOptionsSync(
   highlighterOptions: ReturnType<typeof workerHighlighterOptions>,
   codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
@@ -2270,24 +2313,15 @@ function sameWorkerHighlighterOptions(
   next: ReturnType<typeof workerHighlighterOptions>,
 ): boolean {
   return (
+    // `langs` only seed the pool at creation; the pool loads each file's grammar with its task,
+    // so a newly seen language must not force a full re-render.
     previous?.lineDiffType === next.lineDiffType &&
-    sameStringArray(previous?.langs, next.langs) &&
     previous?.maxLineDiffLength === next.maxLineDiffLength &&
     previous?.preferredHighlighter === next.preferredHighlighter &&
     sameThemeOption(previous?.theme, next.theme) &&
     previous?.tokenizeMaxLineLength === next.tokenizeMaxLineLength &&
     previous?.useTokenTransformer === next.useTokenTransformer
   );
-}
-
-function sameStringArray(previous: readonly string[] | undefined, next: readonly string[] | undefined): boolean {
-  if (previous === next) {
-    return true;
-  }
-  if (previous == null || next == null || previous.length !== next.length) {
-    return false;
-  }
-  return previous.every((value, index) => value === next[index]);
 }
 
 function sameThemeOption(
@@ -2453,7 +2487,7 @@ function useRenderDiff(
               new Set(
                 items.flatMap((item) => {
                   const diff = item.fileDiff ?? {};
-                  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+                  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff);
                 }),
               ),
             );
@@ -2562,10 +2596,6 @@ function validDiffSource(value: unknown): value is DiffSource {
   );
 }
 
-function diffSourceKind(source: DiffSource | null): string | null {
-  return source?.kind ?? null;
-}
-
 function diffSourceRepoRoot(source: DiffSource | null): string | null {
   return source && "repoRoot" in source ? source.repoRoot : null;
 }
@@ -2597,13 +2627,36 @@ function repoSelectionWithActiveSource(source: DiffSource, active: DiffSource | 
   return { ...active, repoRoot };
 }
 
+/// Sets `fileDiff.lang` to the detected language. The language the parser chose and the
+/// worker cache key are kept beside it, so a later language change (the host pushed new user
+/// languages) detects from the same input and never reads a cached render of the old language.
 function resolveDiffItemLanguage(item: DiffItem): void {
   const diff = item.fileDiff;
   if (diff == null) {
     return;
   }
-  const lang = resolveDiffFileLanguage(fileName(diff, ""), diff.lang, getFiletypeFromFileName);
+  if (!("cmuxParsedLanguage" in diff)) {
+    diff.cmuxParsedLanguage = diff.lang;
+    diff.cmuxBaseCacheKey = diff.cacheKey;
+  }
+  const lang = resolveDiffFileLanguage(fileName(diff, ""), diff.cmuxParsedLanguage, diff);
   diff.lang = lang;
+  if (typeof diff.cmuxBaseCacheKey === "string") {
+    diff.cacheKey = `${diff.cmuxBaseCacheKey}:${lang}`;
+  }
+}
+
+/// The items whose language changed under the current language registry, as new objects.
+function relanguagedItems(items: DiffItem[]): DiffItem[] {
+  return items.map((item) => {
+    const diff = item.fileDiff;
+    if (diff == null) {
+      return item;
+    }
+    const next = { ...item, fileDiff: { ...diff } };
+    resolveDiffItemLanguage(next);
+    return next.fileDiff.lang === diff.lang ? item : { ...next, version: (item.version ?? 0) + 1 };
+  });
 }
 
 function diffItemPreloadLanguages(item: DiffItem): string[] {
@@ -2611,7 +2664,7 @@ function diffItemPreloadLanguages(item: DiffItem): string[] {
   if (diff == null) {
     return [];
   }
-  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff, getFiletypeFromFileName);
+  return resolveDiffPreloadLanguages(fileName(diff, ""), diff.lang, diff);
 }
 
 function mergeLanguages(current: string[], next: string[]): string[] {
@@ -2793,7 +2846,7 @@ function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAct
       return;
     }
     const closeOnOutsideClick = (event: MouseEvent) => {
-      if (event.target instanceof Element && event.target.closest("#toolbar")) {
+      if (event.target instanceof Element && event.target.closest("#diff-pill")) {
         return;
       }
       dispatch({ type: "set-options-open", open: false });
@@ -2890,10 +2943,43 @@ export function visibleItemId(
   return visibleIndex >= 0 ? items[visibleIndex].id : "";
 }
 
+const FILE_TREE_ITEM_HEIGHT = 22;
+
 function getInitialFileTreeRowCount(): number {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
     return 25;
   }
-  return Math.min(96, Math.max(25, Math.ceil(viewportHeight / 24)));
+  return Math.min(96, Math.max(25, Math.ceil(viewportHeight / FILE_TREE_ITEM_HEIGHT)));
+}
+
+/**
+ * A file row's decoration: its viewed mark, then the nonzero "+N" and "-N"
+ * counts (screenshot parity: "+75 -10", "-1", "+18"). Folders get none.
+ */
+export function fileTreeRowDecoration(
+  stats: { added: number; deleted: number } | undefined,
+  viewedState: ViewedFileState | undefined,
+  label: DiffViewerLabelResolver,
+): { text: string; title: string } | null {
+  const parts: string[] = [];
+  const titles: string[] = [];
+  if (viewedState === "viewed") {
+    parts.push("✓");
+    titles.push(label("viewed"));
+  } else if (viewedState === "changed") {
+    parts.push("↻");
+    titles.push(label("changedSinceViewed"));
+  }
+  if (stats != null) {
+    if (stats.added > 0) {
+      parts.push(`+${stats.added}`);
+      titles.push(`${label("additions")} ${stats.added}`);
+    }
+    if (stats.deleted > 0) {
+      parts.push(`-${stats.deleted}`);
+      titles.push(`${label("deletions")} ${stats.deleted}`);
+    }
+  }
+  return parts.length === 0 ? null : { text: parts.join(" "), title: titles.join(", ") };
 }

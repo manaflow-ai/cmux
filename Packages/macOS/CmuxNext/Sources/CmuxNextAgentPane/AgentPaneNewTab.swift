@@ -28,10 +28,18 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// What Cmd-T opens (`tabs.newTabKind`: "same-kind", "terminal",
     /// "browser", "agent", "page" or "auto"), for the "default: X" toggle.
     public var defaultKind: String?
+    /// The design to show; nil is the page's default (B).
+    public var layout: AgentPaneNewTabLayout?
+    /// Search | Ask as the user last left it, and the agent last picked.
+    public var mode: AgentPaneNewTabMode?
+    public var lastAgent: String?
+    /// The home folder, so the field reads `~/path` as a folder.
+    public var home: String?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
-                defaultKind: String? = nil) {
+                defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil, mode: AgentPaneNewTabMode? = nil,
+                lastAgent: String? = nil, home: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -41,6 +49,10 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         // validation after the Codable handshake crosses the bridge.
         self.projects = projects
         self.defaultKind = defaultKind
+        self.layout = layout
+        self.mode = mode
+        self.lastAgent = lastAgent
+        self.home = home
     }
 }
 

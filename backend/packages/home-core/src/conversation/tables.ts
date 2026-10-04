@@ -6,6 +6,8 @@ export const TABLE_MSG = "msg"
 export const TABLE_MSGKEY = "msgkey"
 export const TABLE_INV = "inv"
 export const TABLE_INVHASH = "invhash"
+/** Per-user unread and mention counts (key = user id), kept by the owner for inbox bumps; private. */
+export const TABLE_UNREAD = "unread"
 
 export const msgKey = (author: string, clientMsgId: string) => `${author}:${clientMsgId}`
 

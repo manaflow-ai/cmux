@@ -14784,7 +14784,7 @@
         "title_key" : "category.settings",
         "title_table" : "Localizable"
       },
-      "title" : "Open cmux.json",
+      "title" : "Open cmux-next.json",
       "title_key" : "action.palette.openCmuxSettingsFile",
       "title_table" : "ActionCatalog"
     },
@@ -17298,6 +17298,29 @@
       },
       "title" : "Reopen Last Closed Item",
       "title_key" : "action.history.reopen",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "history open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "history.open",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open History Entry",
+      "title_key" : "action.history.open",
       "title_table" : "HistoryActions"
     },
     {

@@ -3,6 +3,8 @@
 //
 //   bun scripts/agent-pane/bundle.mjs <entry> <shiki alias dir> <outfile> [--report <file>]
 //
+// Pass `-` as the shiki alias for a page that does not use shiki (the Settings page).
+//
 // Each first-party .ts/.tsx file under src/ goes through babel-plugin-react-compiler
 // (TypeScript and JSX are only parsed there, so esbuild still strips the types), then
 // esbuild bundles and minifies as before. Components the compiler skips or bails out on
@@ -79,7 +81,7 @@ await build({
   define: { "process.env.NODE_ENV": '"production"' },
   minify: true,
   legalComments: "none",
-  alias: { shiki: path.resolve(shikiAlias) },
+  alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
   outfile,
   plugins: [reactCompiler],

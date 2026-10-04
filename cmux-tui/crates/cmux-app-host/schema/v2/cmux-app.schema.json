@@ -160,6 +160,22 @@
       "$ref": "#/$defs/path",
       "description": "Catalog fragment (operation-catalog format): the app's ops, events and their surfaces (V1)."
     },
+    "cli": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "description": "The app's short CLI name: `cmux <name> <verb>` runs the op whose catalog `cli.path` is <verb>. `cmux apps run <id> <verb>` always works. Built-in and reserved words (cli-reserved.json) are refused.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24,
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+        }
+      }
+    },
     "implements": {
       "type": "object",
       "maxProperties": 32,
@@ -223,6 +239,123 @@
       },
       "additionalProperties": {
         "$ref": "#/$defs/handleRequest"
+      }
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "How the app appears in the shell (app-screens.md 4). Built-in apps (Home, App Store, CodeRouter) use the same fields; nothing has a special code path.",
+      "properties": {
+        "sidebarItem": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "section"
+          ],
+          "description": "A sidebar item that opens the app. The user may hide or move it.",
+          "properties": {
+            "section": {
+              "enum": [
+                "top",
+                "middle",
+                "bottom"
+              ]
+            },
+            "title": {
+              "$ref": "#/$defs/text",
+              "description": "Default: the app name."
+            },
+            "icon": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/path"
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "symbol"
+                  ],
+                  "properties": {
+                    "symbol": {
+                      "$ref": "#/$defs/symbol"
+                    }
+                  }
+                }
+              ],
+              "description": "Default: the app icon."
+            },
+            "order": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000,
+              "description": "Lower first. 0-99 is reserved for first-party apps, so no app places itself above Home."
+            }
+          }
+        },
+        "screen": {
+          "enum": [
+            "app",
+            "appColumn"
+          ],
+          "description": "app: the app fills the screen. appColumn: a sticky app column next to the normal columns (Home)."
+        },
+        "tab": {
+          "type": "boolean",
+          "description": "The app may also open as a page tab (Open as Tab, drag into a workspace)."
+        },
+        "primaryInput": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Where typing goes when nothing has focus: a CSS selector in a web page, or a scene node id."
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "url"
+          ],
+          "description": "A web app: the URL shown in the browser engine with the app's own profile and the browser's network policy. The install confirmation lists url and origins.",
+          "properties": {
+            "url": {
+              "type": "string",
+              "pattern": "^https://[^/\\s]+(/\\S*)?$",
+              "maxLength": 2048
+            },
+            "profile": {
+              "enum": [
+                "app"
+              ],
+              "description": "app: a browser profile of this app only (cookies stay per app). Default app."
+            },
+            "origins": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^https://(\\*\\.)?[a-z0-9.-]{1,253}$"
+              },
+              "description": "Origins the app may navigate to besides the url's own."
+            }
+          }
+        }
+      }
+    },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Shell contributions that are placements, not interfaces (app-platform.md 17).",
+      "properties": {
+        "toolbarItems": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/toolbarItem"
+          },
+          "description": "At most 4 per app; the shell shows a few and puts the rest in the overflow menu."
+        }
       }
     },
     "server": {
@@ -533,7 +666,7 @@
       "type": "object",
       "maxProperties": 64,
       "propertyNames": {
-        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|mcp:expose)$"
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|terminal:backend|clipboard:write|mcp:expose)$"
       },
       "additionalProperties": {
         "type": "string",
@@ -545,7 +678,7 @@
     "implementation": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One interface implementation: exactly one of export (scene, QuickJS), web (a page under runtime.web.root) or native (a view built into cmux, first-party only).",
+      "description": "One interface implementation: exactly one of export (scene, QuickJS), web (a page under runtime.web.root), native (a view built into cmux, first-party only) or server (the app's top-level server block implements the interface's methods over the provider channel).",
       "properties": {
         "export": {
           "$ref": "#/$defs/exportName"
@@ -556,6 +689,10 @@
         "native": {
           "type": "string",
           "pattern": "^[a-z][a-zA-Z0-9.-]{0,63}$"
+        },
+        "server": {
+          "const": true,
+          "description": "The top-level server block (kind native or js) implements this interface's methods over the provider channel."
         },
         "title": {
           "$ref": "#/$defs/text"
@@ -599,6 +736,11 @@
         {
           "required": [
             "native"
+          ]
+        },
+        {
+          "required": [
+            "server"
           ]
         }
       ]
@@ -730,7 +872,7 @@
       "maxProperties": 64,
       "description": "The server principal's own scopes: app scopes plus the server-only process:spawn:<binary> and op:<op name>.",
       "propertyNames": {
-        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|mcp:expose|process:spawn:[a-z0-9][a-z0-9-]{0,63}|op:[a-z][a-zA-Z0-9_.-]{0,95})$"
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|terminal:backend|clipboard:write|mcp:expose|process:spawn:[a-z0-9][a-z0-9-]{0,63}|op:[a-z][a-zA-Z0-9_.-]{0,95})$"
       },
       "additionalProperties": {
         "type": "string",
@@ -821,6 +963,157 @@
     "hostCapability": {
       "type": "string",
       "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*/[1-9][0-9]*$"
+    },
+    "toolbarAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op"
+      ],
+      "description": "What the item runs: one of the app's own catalog ops, or a catalog action id.",
+      "properties": {
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_-]*)+$",
+          "maxLength": 96
+        },
+        "args": {
+          "type": "object"
+        }
+      }
+    },
+    "toolbarItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/localId"
+        },
+        "kind": {
+          "enum": [
+            "button",
+            "menu",
+            "view"
+          ],
+          "description": "button: runs action. menu: a button with a menu of items. view: a fixed-size slot rendered by the app's page at cmux-page://<app>/toolbar/<id>."
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "icon": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/path"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "symbol"
+              ],
+              "properties": {
+                "symbol": {
+                  "$ref": "#/$defs/symbol"
+                }
+              }
+            }
+          ]
+        },
+        "action": {
+          "$ref": "#/$defs/toolbarAction"
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "action"
+            ],
+            "properties": {
+              "title": {
+                "$ref": "#/$defs/text"
+              },
+              "action": {
+                "$ref": "#/$defs/toolbarAction"
+              }
+            }
+          }
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 160,
+          "description": "view only: the slot width in points."
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Order among app items. App items always follow the built-in items; nothing goes left of the sidebar toggle."
+        },
+        "when": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "overrides": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9_.-]{0,63}$",
+          "description": "A built-in item this item can replace when the user picks it in Settings; never applied silently. The sidebar toggle cannot be overridden."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "button"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "action"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "menu"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "items"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "view"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "width"
+            ]
+          }
+        }
+      ]
     }
   }
 }

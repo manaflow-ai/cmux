@@ -2,8 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 // Sticky item sections above and below the workspace list
-// (plans/cmux-next/sidebar-sections.md), or none while `window.rail` shows
-// them as the rail.
+// (plans/cmux-next/sidebar-sections.md).
 extension SidebarView {
     func buildBands() {
         for (scroll, region) in [(aboveScroll, aboveRegion), (belowScroll, belowRegion)] {
@@ -19,6 +18,7 @@ extension SidebarView {
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
+            region.onAccessory = { [weak self] id in self?.model.send(.activateItemAccessory(id)) }
         }
         aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)
         belowFade = ScrollEdgeFadeView(scrollView: belowScroll)
@@ -39,10 +39,7 @@ extension SidebarView {
         // its share of the height (then it scrolls inside).
         let available = max(0, b.height - y - footerHeight)
         let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)
-        // `window.rail` draws the sticky sections in the rail instead; the
-        // sidebar keeps only its workspace list.
-        let (above, below) = DesignSettings.shared.rail == .off
-            ? model.layout.bands(room: model.activeProfileID?.rawValue) : ([], [])
+        let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
         let bands = (above: above.presenting(hidingItems: hidden, apps: apps), below: below.presenting(hidingItems: hidden, apps: apps))
         let look = SidebarSectionTunables.currentLook

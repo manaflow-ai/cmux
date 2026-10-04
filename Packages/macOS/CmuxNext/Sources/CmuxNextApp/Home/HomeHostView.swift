@@ -52,7 +52,8 @@ final class HomeHostView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            layer?.backgroundColor = Palette.pageBackground.cgColor
+            // The pane paints under Home (`Palette.paneFill`).
+            layer?.backgroundColor = nil
             message.textColor = Palette.textSecondary
         }
     }
@@ -65,5 +66,7 @@ final class HomeHostView: NSView {
     }
 
     /// The view that takes the keyboard when the tab's pane is focused.
-    var focusTarget: NSView { transcript }
+    /// Home's primary input: the message box itself. Focusing the transcript
+    /// view would leave it the responder after it forwards to the box.
+    var focusTarget: NSView { transcript.primaryInput }
 }

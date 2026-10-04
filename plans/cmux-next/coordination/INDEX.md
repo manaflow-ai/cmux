@@ -21,6 +21,7 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [layout](layout.md)
 - [misc](misc.md)
 - [ownership](ownership.md)
+- [react-pages](react-pages.md)
 - [remote-desktop](remote-desktop.md)
 - [rust-cli](rust-cli.md)
 - [server](server.md)

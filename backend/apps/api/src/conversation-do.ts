@@ -59,7 +59,9 @@ export class ConversationDO extends OwnerDO<Head> {
     })
     super(ctx, env, withAdmit("cloud:ConversationDO", domain as Domain<Head>), "conv", publicActor, {
       rowMode: { snapshotTable: conversation.TABLE_MSG, snapshotTail: 50 },
-      redact: { ...conversation.conversationRedact, privateTables: conversation.PRIVATE_TABLES }
+      redact: { ...conversation.conversationRedact, privateTables: conversation.PRIVATE_TABLES },
+      // DO audit F-3: 7 days, at most 10,000 events and 256 MB, never fewer than the newest 1,000.
+      eventWindow: { retentionMs: 7 * 24 * 3600_000, maxEvents: 10_000, maxBytes: 256 * 1024 * 1024, floor: 1_000 }
     })
   }
 
@@ -246,6 +248,10 @@ export class ConversationDO extends OwnerDO<Head> {
    * a link cannot be guessed by retrying; failures are kept in a private table, never in events.
    */
   async acceptInvite(entity: string, principal: Principal, proof: string, idempotencyKey: string): Promise<SubmitResult> {
+    // An invite code for a conversation that does not exist: refused with no write (no lock table either).
+    if (!this.existingState(entity)) {
+      return { frames: [{ t: "reject", tx: "", idempotency_key: idempotencyKey, code: "unknown_invite", message: "the invite link is not valid", retryable: false, replayed: false } as OwnerFrame] }
+    }
     const who = principal.user ?? principal.identity
     const sql = this.sqlStore
     sql.exec(`CREATE TABLE IF NOT EXISTS home_accept_failures (who TEXT NOT NULL, at INTEGER NOT NULL)`)
@@ -259,6 +265,17 @@ export class ConversationDO extends OwnerDO<Head> {
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (reply?.t === "reject" && ACCEPT_FAILURES.has(reply.code)) sql.exec(`INSERT INTO home_accept_failures (who, at) VALUES (?, ?)`, who, now)
     return res
+  }
+
+  /**
+   * Whether `principal` is a current participant of an existing conversation. The Worker asks
+   * before invite.create stashes a secret and a raw address in an AddressDO, so a stranger can
+   * never make AddressDOs for conversations it is not in (security review P2). Never writes.
+   */
+  async mayInvite(entity: string, principal: Principal): Promise<boolean> {
+    const state = this.existingState(entity)
+    const actor = conversation.actorOf(principal)
+    return !!state && actor !== undefined && state.participants.some((p) => p.id === actor && p.left_at === undefined)
   }
 
   /** Anonymous, by secret: who invited the holder. The secret is hashed twice, as the domain stores it. */
@@ -281,7 +298,7 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** State of an object that already serves this conversation; never creates storage for unknown ids. */
   private existingState(entity: string): Head | undefined {
-    const row = this.sqlStore.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
+    const row = this.boundRow()
     if (!row || row.entity !== entity) return undefined
     return this.bind(entity).currentState ?? undefined
   }

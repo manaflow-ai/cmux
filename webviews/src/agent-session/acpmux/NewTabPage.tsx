@@ -81,6 +81,14 @@ export type NewTabHost = {
   projects?: string[];
   omnibar?: OmnibarContext;
   defaultKind?: DefaultKind;
+  /// Which design (Debug Settings `newTab.layout`): "b" the Search | Ask screen (default),
+  /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
+  layout: "a" | "b";
+  /// Search | Ask as the user last left it, and the agent last picked (decision Q3).
+  mode?: "search" | "ask";
+  lastAgent?: string;
+  /// The home folder, so `~/path` reads as a folder.
+  home?: string;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -115,6 +123,10 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(DEFAULT_KINDS.includes(object.defaultKind as DefaultKind)
       ? { defaultKind: object.defaultKind as DefaultKind }
       : {}),
+    layout: object.layout === "a" ? "a" : "b",
+    ...(object.mode === "search" || object.mode === "ask" ? { mode: object.mode } : {}),
+    ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
+    ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
   };
 }
 

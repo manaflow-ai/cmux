@@ -19,6 +19,7 @@ path = "src/main.rs"
 [dependencies]
 cmux-local-auth.workspace = true
 anyhow = "1"
+cmux-unix-socket.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 dirs = "6"
@@ -42,3 +43,6 @@ wait-timeout.workspace = true
 regex = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+
+[dev-dependencies]
+cmux-unix-socket = { workspace = true, features = ["test-support"] }

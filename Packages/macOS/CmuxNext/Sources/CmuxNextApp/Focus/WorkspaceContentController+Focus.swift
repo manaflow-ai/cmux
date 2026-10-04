@@ -67,6 +67,7 @@ extension FocusTopology.Kind {
         switch tab.kind {
         case .pty, .remoteTerminal: .terminal
         case .browser where tab.isFrontendOwned: .browser
+        case .conversation: .conversation
         default: .other
         }
     }

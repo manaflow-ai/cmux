@@ -112,15 +112,16 @@ import Testing
         #expect(service.mirror.revision == 1)
     }
 
-    /// A stored layout that still equals the pre-rail default is moved to
-    /// the rail default through the owner (ordinary intents, applied by
-    /// its reducer), once; a customized layout is never touched.
-    @Test func aStoredPreRailLayoutMigratesThroughTheOwner() async throws {
+    /// A stored layout that still equals the window rail's default (removed
+    /// by R52) is moved back to the sections default through the owner
+    /// (ordinary intents, applied by its reducer), once; a customized
+    /// layout is never touched.
+    @Test func aStoredRailLayoutMigratesBackThroughTheOwner() async throws {
         let owner = FakeOwner()
-        owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.preRailDefaults.sections)
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, railShown: { true })
+        owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.railDefaults.sections)
+        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
         service.start()
-        let expected = owner.stored.railMigrationOps
+        let expected = owner.stored.sectionsMigrationOps
         #expect(!expected.isEmpty)
         await settled { owner.calls.count == expected.count }
         #expect(owner.calls.map(\.op) == expected)
@@ -135,23 +136,9 @@ import Testing
         #expect(owner.calls.count == expected.count)
     }
 
-    /// With the rail turned off the sidebar shows its sections itself, so
-    /// a pre-rail layout stays: the rail default would scroll Settings out
-    /// of the top band and leave the account alone at the bottom.
-    @Test func aPreRailLayoutStaysWhileTheRailIsOff() async throws {
-        let owner = FakeOwner()
-        owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.preRailDefaults.sections)
-        let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false }, railShown: { false })
-        service.start()
-        await settled { service.mirror.revision == 3 }
-        await settled { false }
-        #expect(owner.calls.isEmpty)
-        #expect(service.document.sections == SidebarLayoutDocument.preRailDefaults.sections)
-    }
-
     @Test func aCustomizedStoredLayoutIsNotMigrated() async throws {
         let owner = FakeOwner()
-        owner.stored = try SidebarLayoutReducer.reduce(SidebarLayoutDocument.preRailDefaults, .itemRemove(LayoutItemID("itm_home"))).get()
+        owner.stored = try SidebarLayoutReducer.reduce(SidebarLayoutDocument.railDefaults, .itemRemove(LayoutItemID("itm_home"))).get()
         let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
         service.start()
         await settled { service.mirror.revision == 1 }

@@ -55,6 +55,7 @@ export type Body = {
 } | {
   readonly type: "code"
   readonly ref: CodeRef
+  readonly egress?: ReadonlyArray<EgressHost>
 }
 
 export type Budget = {
@@ -133,6 +134,8 @@ export type DeviceStatus = {
   readonly conflicts: ReadonlyArray<string>
   readonly reported_at: number
 }
+
+export type EgressHost = string
 
 export type EmailAddress = string
 
@@ -589,6 +592,9 @@ export type Run = {
     readonly type: string
     readonly scheduled_at?: number
     readonly delivery_id?: string
+    readonly parent_run?: RunId
+    readonly root_run?: RunId
+    readonly depth?: number
   }
   readonly state: RunState
   readonly step: number
@@ -653,6 +659,10 @@ export type Step = {
 } | {
   readonly type: "note"
   readonly text: string
+} | {
+  readonly type: "op"
+  readonly op: "automation.list" | "automation.get" | "automation.runs.list" | "automation.run" | "usage.summary"
+  readonly params: unknown
 }
 
 export type TargetPolicy = {
@@ -1262,6 +1272,16 @@ export interface CloudOps {
     }
     readonly result: {
       readonly item: FeedItem
+    }
+  }
+  /** Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item. */
+  readonly "feed.adopt.cancel": {
+    readonly params: {
+      readonly key: string
+    }
+    readonly result: {
+      readonly cancelled: boolean
+      readonly item?: FeedItem
     }
   }
   /** Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed. */
@@ -2558,6 +2578,7 @@ export const cloudOpMeta = {
   "domain.release": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "domain.verify": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "feed.adopt": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.adopt.cancel": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.answer": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.archive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.cancel": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },

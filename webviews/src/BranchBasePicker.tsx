@@ -412,11 +412,12 @@ export function BranchBasePicker({
               render grouped rows with secondaries, pills, and matched bolding. */}
               {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
               <div id={listboxId} className="base-picker-list" role="listbox" aria-label={label("branchPickerOpen")}>
+                {loadState === "error" ? (
+                  <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
+                ) : null}
                 {loadState === "loading" ? (
                   <div className="base-picker-status">{label("branchPickerLoading")}</div>
-                ) : loadState === "error" ? (
-                  <div className="base-picker-status base-picker-status-error">{label("branchPickerLoadFailed")}</div>
-                ) : flat.length === 0 ? (
+                ) : loadState === "error" && flat.length === 0 ? null : flat.length === 0 ? (
                   <div className="base-picker-status">{label("branchPickerNoMatches")}</div>
                 ) : (
                   flat.map((entry, index) => (
@@ -427,6 +428,7 @@ export function BranchBasePicker({
                       // key survives filter rebuilds (no array-index key).
                       key={`${entry.groupId}:${entry.row.ref}`}
                       domId={rowDomId(listboxId, index)}
+                      current={entry.row.current === true || entry.row.ref === picker.currentRef}
                       entry={entry}
                       label={label}
                       selected={index === clampedHighlight}
@@ -490,12 +492,13 @@ function BranchBaseButtonLabel({ picker }: { picker: BranchPickerPayload }) {
           ) : null}
         </span>
       ) : null}
-      <Icon name="expand" />
+      <Icon name="chevronDown" />
     </span>
   );
 }
 
 function BranchPickerRowView({
+  current,
   domId,
   entry,
   label,
@@ -503,6 +506,8 @@ function BranchPickerRowView({
   onSelect,
   selected,
 }: {
+  /** The active base: marked with a check, as the reference picker does. */
+  current: boolean;
   domId: string;
   entry: FlatRow;
   label: DiffViewerLabelResolver;
@@ -531,6 +536,7 @@ function BranchPickerRowView({
         role="option"
         tabIndex={-1}
         aria-selected={selected}
+        aria-current={current || undefined}
         className={selected ? "base-picker-row base-picker-row-selected" : "base-picker-row"}
         onMouseMove={onHover}
         onMouseDown={(event) => {
@@ -539,11 +545,16 @@ function BranchPickerRowView({
           onSelect();
         }}
       >
+        <span className="base-picker-row-icon">
+          <Icon name="branch" />
+        </span>
         <span className="base-picker-row-primary">
           {entry.raw ? label("branchPickerUseRaw").replace("{ref}", row.ref) : renderMatched(row.label, entry.match)}
         </span>
-        {row.current ? <span className="base-picker-pill">{label("branchPickerCurrent")}</span> : null}
         {secondary ? <span className="base-picker-row-secondary">{secondary}</span> : null}
+        <span className="base-picker-row-check" title={current ? label("branchPickerCurrent") : undefined}>
+          {current ? <Icon name="check" /> : null}
+        </span>
       </div>
       {entry.moreCount > 0 ? (
         <div className="base-picker-more" role="presentation">

@@ -36,6 +36,7 @@
     "main": "dist/main.js"
   },
   "catalog": "catalog/diffs-catalog.json",
+  "cli": { "name": "diffs" },
   "implements": {
     "cmux.section/1": {
       "export": "renderChanges",

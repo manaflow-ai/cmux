@@ -12,7 +12,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | --- | --- | --- | --- | --- |
 | `history.terminalCommands` | boolean | `false` |  | Record Terminal Commands. Lists finished shell commands in History. Command lines can contain secrets. |
 | `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
-| `window.rail` | string | `"leading"` | `off`, `leading`, `afterSidebar` | Action Rail. Shows the sidebar's pinned sections as a column of icons beside it. |
 | `tabs.newTabKind` | string | `"same-kind"` | `same-kind`, `terminal`, `browser`, `agent`, `page`, `auto` | New Tab Opens. What Cmd-T and the + button open. Auto picks the kind you last opened in that folder. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
 | `app.quitBehavior` | string | `"ask"` | `ask`, `keep`, `end-keep-layout`, `end-everything` | When Quitting. Terminals run in cmux-tui and keep running after cmux quits unless you end them. |
@@ -59,6 +58,24 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.surfaces.sidebar.color` | string |  |  | Sidebar Color |
+| `appearance.surfaces.sidebar.opacity` | real |  | 0 to 1 | Sidebar Opacity |
+| `appearance.surfaces.tabBar.color` | string |  |  | Tab Bar Color |
+| `appearance.surfaces.tabBar.opacity` | real |  | 0 to 1 | Tab Bar Opacity |
+| `appearance.surfaces.terminal.color` | string |  |  | Terminal Color |
+| `appearance.surfaces.terminal.opacity` | real |  | 0 to 1 | Terminal Opacity |
+| `appearance.surfaces.agentPane.color` | string |  |  | Agent Chat Color |
+| `appearance.surfaces.agentPane.opacity` | real |  | 0 to 1 | Agent Chat Opacity |
+| `appearance.surfaces.settings.color` | string |  |  | Settings Color |
+| `appearance.surfaces.settings.opacity` | real |  | 0 to 1 | Settings Opacity |
+| `appearance.surfaces.newTabPage.color` | string |  |  | New Tab Page Color |
+| `appearance.surfaces.newTabPage.opacity` | real |  | 0 to 1 | New Tab Page Opacity |
+| `appearance.surfaces.home.color` | string |  |  | Home Color |
+| `appearance.surfaces.home.opacity` | real |  | 0 to 1 | Home Opacity |
+| `appearance.surfaces.browserChrome.color` | string |  |  | Browser Toolbar Color |
+| `appearance.surfaces.browserChrome.opacity` | real |  | 0 to 1 | Browser Toolbar Opacity |
+| `appearance.surfaces.docks.color` | string |  |  | Docked Columns Color |
+| `appearance.surfaces.docks.opacity` | real |  | 0 to 1 | Docked Columns Opacity |
 | `appearance.statusIndicator.style` | string | `"arc"` | `arc`, `native`, `dot`, `braille`, `none` | Style. How sidebar rows, tabs and panes show work in progress. |
 | `appearance.statusIndicator.size` | real | `1` | 0.5 to 1.5 | Size |
 | `appearance.statusIndicator.thickness` | real | `1.5` | 0.5 to 4 | Line Width |
@@ -73,6 +90,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.bottomBandMaxShare` | real | `0.25` | 0.1 to 0.9 | Bottom Sections Height. The share of the sidebar the bottom sections fill before they scroll. |
 | `sidebar.stickyBandsScroll` | boolean | `true` |  | Scroll Tall Sections. Off: the top and bottom sections never scroll and the workspace list gets smaller. |
 | `sidebar.showWorkspaceTabs` | boolean | `false` |  | Show Workspace Tabs. Lists tabs beneath each workspace in the sidebar. |
+| `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Minimal Mode. Hides the chosen sections until the pointer is over the sidebar. |
 | `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Default Engine. New browser tabs open in this engine. |
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |

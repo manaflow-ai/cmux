@@ -8,6 +8,8 @@ import CmuxNextDesign
 /// visible message is an explicit `NSAccessibilityElement` in a list.
 final class HomeRowHostView: NSView {
     weak var controller: HomeController?
+    /// A click on no bubble (and no drag): the host focuses its message box.
+    var onEmptyClick: () -> Void = {}
     /// False while the owner is unreachable: nothing queues, so no tapback
     /// picker and no reaction actions (the parent mirrors `isSendEnabled`).
     var reactionsEnabled = true {
@@ -52,8 +54,14 @@ final class HomeRowHostView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        let start = dragStart
         dragStart = nil
-        if !selection.isEmpty { window?.makeFirstResponder(self) }
+        if !selection.isEmpty { window?.makeFirstResponder(self); return }
+        let point = convert(event.locationInWindow, from: nil)
+        if let start, abs(point.y - start.y) <= Self.dragThreshold, abs(point.x - start.x) <= Self.dragThreshold,
+           controller?.hit(at: point) == nil {
+            onEmptyClick()
+        }
     }
 
     /// Selects every message whose bubble the vertical span from `a` to `b`

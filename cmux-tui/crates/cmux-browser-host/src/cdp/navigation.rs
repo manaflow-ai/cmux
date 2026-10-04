@@ -39,13 +39,17 @@ impl Inner {
         // Any document committed after this call counts, so a client redirect
         // continues the navigation instead of stranding the wait.
         let what = format!("navigation to {url}");
-        self.wait_for(&session.target_id, deadline, &what, |tab| {
+        let landed = self.wait_for(&session.target_id, deadline, &what, |tab| {
             if tab.download_seq > downloads {
                 return Some(Err(DriverError::invalid(format!("Download is starting: {url}"))));
             }
             (tab.nav_seq > before && !tab.last_nav_same_document && reached(tab, wait_until))
                 .then(|| Ok(json!({"url": tab.url})))
-        })
+        })?;
+        if self.shows_browser_page(&session.target_id) {
+            return Err(self.leave_browser_page(&session, deadline));
+        }
+        Ok(landed)
     }
 
     /// Clears a crash (navigation starts a new renderer) and returns the
@@ -105,6 +109,12 @@ impl Inner {
         if index == 0 && delta < 0 && entry["url"].as_str() == Some("about:blank") {
             return Ok(Value::Null);
         }
+        if let Some(url) = entry["url"].as_str().filter(|url| crate::policy::is_browser_page(url)) {
+            return Err(DriverError::new(
+                crate::protocol::ErrorCode::Forbidden,
+                format!("tab.history: {url} is a browser page, not available to agents"),
+            ));
+        }
         let entry_id =
             entry["id"].as_i64().ok_or_else(|| DriverError::invalid("history entry has no id"))?;
         let (before, _) = self.begin_navigation(&session.target_id);
@@ -144,7 +154,8 @@ impl Inner {
                 }
             }
         }
-        if !dialog_open {
+        // The driver's own title read does not run in a browser page.
+        if !dialog_open && !self.shows_browser_page(&session.target_id) {
             self.refresh_title(&session);
         }
         let state = self.lock();

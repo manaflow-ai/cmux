@@ -16,11 +16,6 @@ import Observation
 /// terminal read as one sheet with no panel edges or seams. In a
 /// translucent window that sheet is one material with one theme tint
 /// (`backdropView`, the bottom subview) and everything above it is clear.
-/// `window.rail` moves the sidebar's sticky sections into an icon rail
-/// (`WindowRail`) before the sidebar (the default) or between the sidebar
-/// and the content column. At the leading edge the sidebar becomes an
-/// inset panel beside the rail (`WindowSidebarPanelView`, Leo 2026-10-03):
-/// the one designed tonal step over the backdrop.
 final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
@@ -32,32 +27,25 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     private let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
     let contentHost = NSView()
     private let sidebar: SidebarContainerView
-    let rail: WindowRailView
-    /// The sidebar's inset panel while the rail is at the leading edge.
-    let sidebarPanel = WindowSidebarPanelView()
     private var titleHeight: NSLayoutConstraint?
-    /// The panel's top: below the top row.
-    private var panelTop: NSLayoutConstraint?
-    /// The horizontal chain (rail, sidebar, content column) for the current `window.rail`.
-    private var placementConstraints: [NSLayoutConstraint] = []
     private var tokenObservation: Task<Void, Never>?
-    private var railObservation: Task<Void, Never>?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
     /// `TitlebarDragPolicy` (`ShellWindow.sendEvent`).
     let titlebarBandBlocker = TitlebarDragBlocker(frame: .zero)
+    /// The top-left toolbar band (R68): the static sidebar toggle, above
+    /// the sidebar so it takes clicks while the sidebar animates.
+    let toolbarBand = TitlebarToolbarBand(frame: .zero)
 
     /// - Parameter sidebar: The window's sidebar.
-    /// - Parameter rail: The window's icon rail.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
     ///   setting, read on every theme and display-options change.
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
-    init(sidebar: SidebarContainerView, rail: WindowRailView,
+    init(sidebar: SidebarContainerView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) }) {
         self.sidebar = sidebar
-        self.rail = rail
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
@@ -71,8 +59,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         addSubview(sidebar)
         addSubview(titlebarBandBlocker)
+        addSubview(toolbarBand)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
+            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
             sidebar.topAnchor.constraint(equalTo: topAnchor),
             sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
             titlebar.topAnchor.constraint(equalTo: topAnchor),
@@ -82,20 +72,19 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             // lights while the content below reaches the window edge.
             titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
             contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
+            contentHost.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
             contentHost.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        // Below required, so it yields to the traffic-light inset.
+        let titleFollowsSidebar = titlebar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)
+        titleFollowsSidebar.priority = .required - 1
+        titleFollowsSidebar.isActive = true
         self.titleHeight = titleHeight
-        applyRail()
         applyTokens()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0] }) {
                 self?.applyTokens()
-            }
-        }
-        railObservation = Task { [weak self] in
-            for await _ in Observations({ DesignSettings.shared.rail }) {
-                self?.applyRail()
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
@@ -112,7 +101,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     isolated deinit {
         tokenObservation?.cancel()
-        railObservation?.cancel()
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }
@@ -124,79 +112,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
         titlebar.isHidden = minimal
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
-        rail.topInset = topRowHeight
-        panelTop?.constant = topRowHeight
-        needsLayout = true
-    }
-
-    /// The top row's height (the sidebar header, beside the traffic lights).
-    private var topRowHeight: CGFloat {
-        titlebarStyle == .minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
-    }
-
-    /// Builds the horizontal chain for `window.rail`: "off" keeps the rail
-    /// out of the window (the layout before the rail existed), "leading"
-    /// (the default) puts it at the window's leading edge with the sidebar
-    /// after it as an inset panel, "afterSidebar" between the sidebar and
-    /// the content column. The titlebar strip and the content column follow
-    /// whichever comes last.
-    func applyRail() {
-        NSLayoutConstraint.deactivate(placementConstraints)
-        panelTop = nil
-        let placement = DesignSettings.shared.rail
-        if placement == .off {
-            rail.removeFromSuperview()
-        } else if rail.superview !== self {
-            // Under the sidebar, so its resize handle keeps the shared edge.
-            addSubview(rail, positioned: .below, relativeTo: sidebar)
-        }
-        if placement != .leading {
-            sidebarPanel.removeFromSuperview()
-        } else if sidebarPanel.superview !== self {
-            // On the backdrop, under everything else.
-            addSubview(sidebarPanel, positioned: .above, relativeTo: backdropView)
-        }
-        var constraints: [NSLayoutConstraint] = []
-        let column: NSLayoutXAxisAnchor
-        switch placement {
-        case .off:
-            constraints.append(sidebar.leadingAnchor.constraint(equalTo: leadingAnchor))
-            column = sidebar.trailingAnchor
-        case .leading:
-            constraints += [rail.leadingAnchor.constraint(equalTo: leadingAnchor), sidebar.leadingAnchor.constraint(equalTo: rail.trailingAnchor)]
-            column = sidebar.trailingAnchor
-        case .afterSidebar:
-            constraints += [sidebar.leadingAnchor.constraint(equalTo: leadingAnchor), rail.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)]
-            column = rail.trailingAnchor
-        }
-        if placement != .off {
-            constraints += [
-                rail.topAnchor.constraint(equalTo: topAnchor),
-                rail.bottomAnchor.constraint(equalTo: bottomAnchor),
-                rail.widthAnchor.constraint(equalToConstant: WindowRail.width),
-            ]
-        }
-        if placement == .leading {
-            // The panel follows the sidebar's (animated) width, from below
-            // the top row to the bottom edge.
-            let top = sidebarPanel.topAnchor.constraint(equalTo: topAnchor, constant: topRowHeight)
-            constraints += [
-                top,
-                sidebarPanel.bottomAnchor.constraint(equalTo: bottomAnchor),
-                sidebarPanel.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
-                sidebarPanel.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            ]
-            panelTop = top
-            sidebarPanel.paint()
-        }
-        // Below required, so it yields to the traffic-light inset.
-        let titleFollowsColumn = titlebar.leadingAnchor.constraint(equalTo: column)
-        titleFollowsColumn.priority = .required - 1
-        constraints += [titleFollowsColumn, contentHost.leadingAnchor.constraint(equalTo: column)]
-        NSLayoutConstraint.activate(constraints)
-        placementConstraints = constraints
-        // The sidebar shows its sticky sections only without the rail.
-        sidebar.sidebarView.needsLayout = true
         needsLayout = true
     }
 
@@ -219,19 +134,34 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet { if oldValue != showsTitlebarBadge { needsLayout = true } }
     }
 
+    /// The static sidebar toggle (R68).
+    var sidebarToggleButton: NSButton? { toolbarBand.sidebarToggle }
+    /// The toggle's frame in window coordinates.
+    var sidebarToggleFrame: CGRect? {
+        let toggle = toolbarBand.sidebarToggle
+        return toggle.convert(toggle.bounds, to: nil)
+    }
+    /// A click on the toggle (tests).
+    func pressSidebarToggle() { toolbarBand.toggle() }
+
     /// The badge's frame in window coordinates while it shows.
     var titlebarBadgeFrame: CGRect? {
         guard let badge = titlebarBadge, !badge.isHidden else { return nil }
         return badge.convert(badge.bounds, to: nil)
     }
 
+    /// What strips under the top row keep clear (window coordinates): the
+    /// toolbar band and, while it shows, the badge after it.
+    var titlebarAccessoryFrame: CGRect {
+        let band = toolbarBand.convert(toolbarBand.bounds, to: nil)
+        return titlebarBadgeFrame.map { band.union($0) } ?? band
+    }
+
     override func layout() {
         super.layout()
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
-        guard let badge = titlebarBadge else { return }
-        badge.isHidden = !showsTitlebarBadge
-        guard showsTitlebarBadge else { return }
-        let size = badge.fittingSize
+        // The band depends only on the window's traffic lights and top row,
+        // never on the sidebar, so the toggle keeps one frame (R68).
         let rowHeight = titlebarStyle == .minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         var x = Metrics.space3
         var midY = bounds.maxY - rowHeight / 2
@@ -240,7 +170,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             x = local.maxX + Metrics.space3
             midY = local.midY
         }
-        badge.frame = CGRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)
+        let bandHeight = TitlebarBandButton.side
+        toolbarBand.frame = CGRect(x: x, y: (midY - bandHeight / 2).rounded(), width: TitlebarToolbarBand.width, height: bandHeight)
+        sidebar.sidebarView.titlebarLeadingReserve = toolbarBand.frame.maxX + Metrics.space2
+        guard let badge = titlebarBadge else { return }
+        badge.isHidden = !showsTitlebarBadge
+        guard showsTitlebarBadge else { return }
+        let size = badge.fittingSize
+        badge.frame = CGRect(x: toolbarBand.frame.maxX + Metrics.space2, y: (midY - size.height / 2).rounded(),
+                             width: size.width, height: size.height)
     }
 
     /// Replaces the workspace layout view.
@@ -265,7 +203,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
-        if sidebarPanel.superview != nil { sidebarPanel.paint() }
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -280,7 +217,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (`WindowBackdrop`). Re-run on theme and Reduce Transparency changes.
     func themeDidChange() {
         paintBackground()
-        if sidebarPanel.superview != nil { sidebarPanel.paint() }
         if let window { applyBackdrop(to: window) }
     }
 

@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 fn manifest(extra: Value) -> Value {
-    let mut m = json!({ "manifestVersion": 2, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" } });
+    let mut m = json!({ "manifestVersion": 2, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" }, "icon": "assets/icon.png" });
     for (k, v) in extra.as_object().expect("object") {
         m[k] = v.clone();
     }
@@ -157,4 +157,87 @@ fn every_first_party_app_package_validates() {
         checked += 1;
     }
     assert!(checked >= 14, "only {checked} first-party apps have a v2 manifest");
+}
+
+#[test]
+fn a_manifest_without_an_image_icon_warns() {
+    let symbol = manifest(json!({ "icon": { "symbol": "star" } }));
+    assert_eq!(codes(&validate_manifest(&symbol)), vec![("icon.noImage", Severity::Warning)]);
+    let mut none = manifest(json!({}));
+    none.as_object_mut().expect("object").remove("icon");
+    assert_eq!(codes(&validate_manifest(&none)), vec![("icon.noImage", Severity::Warning)]);
+}
+
+#[test]
+fn presentation_rules() {
+    let page = json!({ "runtime": { "main": "m.js" }, "implements": { "cmux.pane/1": { "export": "p" } } });
+    let mut both = manifest(page.clone());
+    both["presentation"] = json!({ "screen": "app", "web": { "url": "https://example.com" } });
+    assert_eq!(
+        codes(&validate_manifest(&both)),
+        vec![("presentation.twoContents", Severity::Error)]
+    );
+    let mut first = manifest(page);
+    first["id"] = json!("cmux/x");
+    first["repository"] = json!("https://github.com/manaflow-ai/cmux");
+    first["presentation"] = json!({ "sidebarItem": { "section": "top", "order": 0 }, "screen": "appColumn", "tab": true });
+    assert!(validate_manifest(&first).is_empty());
+}
+
+#[test]
+fn home_app_store_and_coderouter_use_the_same_presentation_fields() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../first-party-apps");
+    let mut orders = Vec::new();
+    for (name, screen) in [("home", "appColumn"), ("app-store", "app"), ("coderouter", "app")] {
+        let m: Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(name).join("cmux-app.v2.json")).expect("read"),
+        )
+        .expect("json");
+        assert_eq!(
+            m.pointer("/presentation/screen").and_then(Value::as_str),
+            Some(screen),
+            "{name}"
+        );
+        assert_eq!(m.pointer("/presentation/tab").and_then(Value::as_bool), Some(true), "{name}");
+        assert_eq!(
+            m.pointer("/presentation/sidebarItem/section").and_then(Value::as_str),
+            Some("top"),
+            "{name}"
+        );
+        orders.push(
+            m.pointer("/presentation/sidebarItem/order").and_then(Value::as_i64).expect("order"),
+        );
+    }
+    assert_eq!(orders, vec![0, 10, 20], "Home first, then App Store, then CodeRouter");
+}
+
+#[test]
+fn a_server_implements_an_interface_through_the_top_level_server() {
+    let imp = json!({ "implements": { "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] } } });
+    let mut with = manifest(imp.clone());
+    with["id"] = json!("cmux/cloud");
+    with["repository"] = json!("https://github.com/manaflow-ai/cmux");
+    with["server"] = json!({ "kind": "native", "binaries": { "linux-x64": "cmux-cloud" }, "instances": "user", "hosts": ["local"] });
+    assert!(validate_manifest(&with).is_empty(), "{:?}", validate_manifest(&with));
+    assert_eq!(
+        codes(&validate_manifest(&manifest(imp))),
+        vec![("implements.serverMissing", Severity::Error)]
+    );
+    let two =
+        manifest(json!({ "implements": { "cmux.pane/1": { "server": true, "export": "x" } } }));
+    assert!(validate_manifest(&two).iter().any(|i| i.code == "schema"));
+}
+
+#[test]
+fn terminal_backends_are_a_known_interface_and_a_restricted_scope() {
+    assert_eq!(scope_info("terminal:backend").map(|i| i.class), Some(ScopeClass::Restricted));
+    let third = manifest(json!({ "id": "octo/x", "repository": "https://github.com/octo/x",
+        "server": { "kind": "js", "instances": "user", "hosts": ["local"] },
+        "implements": { "cmux.terminal.backend/1": { "server": true, "options": { "kinds": ["octo-vm"] } } },
+        "scopes": { "terminal:backend": "Run your Octo Cloud terminals." } }));
+    assert_eq!(codes(&validate_manifest(&third)), vec![("scope.restricted", Severity::Warning)]);
+    let mut no_kinds = third;
+    no_kinds["implements"] =
+        json!({ "cmux.terminal.connector/1": { "server": true, "options": {} } });
+    assert!(codes(&validate_manifest(&no_kinds)).contains(&("interface.options", Severity::Error)));
 }

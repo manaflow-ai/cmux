@@ -66,6 +66,10 @@ public final class HomeNativeTranscriptView: NSView {
             self.field.text = text
         }
         field.onSend = { [weak self] in self?.send() }
+        rowHost.onEmptyClick = { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self.field.textView)
+        }
         field.onHeightChange = { [weak self] in self?.needsLayout = true }
         followTextSize()
     }
@@ -94,6 +98,10 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
+
+    /// The primary input (spec/app-screens.md section 3): the message box's
+    /// text view. Hosts focus this view, not the transcript.
+    public var primaryInput: NSView { field.textView }
 
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(field.textView) ?? false
