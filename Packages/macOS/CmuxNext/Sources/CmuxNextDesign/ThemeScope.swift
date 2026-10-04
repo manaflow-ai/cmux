@@ -61,9 +61,16 @@ public final class ThemeScope {
 
     /// Sets optional per-surface colors; nil entries inherit the theme ground.
     public func setSurfaceBackgroundOverrides(_ overrides: SurfaceBackgroundOverrides?) {
-        guard selectedSurfaceBackgroundOverrides != overrides else { return }
+        guard !sameSurfaceOverrides(selectedSurfaceBackgroundOverrides, overrides) else { return }
         selectedSurfaceBackgroundOverrides = overrides
         repaintBackdropArt()
+    }
+
+    private func sameSurfaceOverrides(_ lhs: SurfaceBackgroundOverrides?, _ rhs: SurfaceBackgroundOverrides?) -> Bool {
+        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+        return lhs.sidebar == rhs.sidebar && lhs.tabStrip == rhs.tabStrip && lhs.terminal == rhs.terminal
+            && lhs.browser == rhs.browser && lhs.internalPage == rhs.internalPage && lhs.agentPane == rhs.agentPane
+            && lhs.splitDivider == rhs.splitDivider && lhs.settings == rhs.settings
     }
 
     private func repaintBackdropArt() {

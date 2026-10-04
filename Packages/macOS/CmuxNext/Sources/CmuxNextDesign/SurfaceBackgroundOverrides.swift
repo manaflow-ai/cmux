@@ -3,7 +3,7 @@ public import CmuxTheme
 /// Optional per-surface colors. An unset entry always resolves to the
 /// theme's single surface background, so customization never creates a
 /// second implicit palette.
-public struct SurfaceBackgroundOverrides: Equatable, Sendable {
+public struct SurfaceBackgroundOverrides: Sendable {
     public nonisolated var sidebar: ThemeRGB?
     public nonisolated var tabStrip: ThemeRGB?
     public nonisolated var terminal: ThemeRGB?
