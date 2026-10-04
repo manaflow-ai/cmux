@@ -340,6 +340,16 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     assert_eq!(frames(&unscoped, 1).len(), 1);
 }
 
+/// Makes the server app `cmux/<dir>` a terminal connector whose user runs of
+/// `open_ops` get an open token.
+fn with_open_ops(root: &Path, dir: &str, open_ops: &[&str]) {
+    let path = root.join(dir).join("cmux-app.v2.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest["implements"] = json!({ "cmux.terminal.connector/1": {
+        "server": true, "options": { "kinds": ["vm"], "openOps": open_ops } } });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+}
+
 /// Every line the fake server with `marker` received, once `count` arrived.
 fn op_lines(marker: &Path, count: usize) -> Vec<Value> {
     frames(&marker.with_extension("marker.lines"), count)
@@ -366,6 +376,7 @@ fn client_open_tokens_never_reach_a_server_and_only_user_runs_get_one() {
     let marker = root.0.join("tok.marker");
     write_fake_server(&root.0.join("servers"));
     write_server_app(&root.0.join("bundled"), "tok", native_server(&marker, json!({})));
+    with_open_ops(&root.0.join("bundled"), "tok", &["tok.ping"]);
     let f = fixture_with(&[], Duration::from_secs(60), root);
     f.install("cmux/tok");
     let forged = json!({ "open_token": "forged", "x": 1 });
@@ -393,6 +404,7 @@ fn open_tokens_are_single_use_bound_to_the_app_and_expire() {
     let marker = root.0.join("use.marker");
     write_fake_server(&root.0.join("servers"));
     write_server_app(&root.0.join("bundled"), "use", native_server(&marker, json!({})));
+    with_open_ops(&root.0.join("bundled"), "use", &["use.ping"]);
     let f = fixture_with(&[], Duration::from_secs(60), root);
     f.install("cmux/use");
     for key in ["k1", "k2", "k3"] {
@@ -414,4 +426,28 @@ fn open_tokens_are_single_use_bound_to_the_app_and_expire() {
     let late = now + Duration::from_secs(61);
     assert!(f.supervisor.consume_open_token_at(&third, "cmux/use", late).is_none(), "expired");
     assert!(f.supervisor.consume_open_token("not-a-token", "cmux/use").is_none());
+}
+
+#[test]
+fn only_user_runs_of_open_ops_get_an_open_token() {
+    let root = temp_dir();
+    let marker = root.0.join("opn.marker");
+    write_fake_server(&root.0.join("servers"));
+    write_server_app(&root.0.join("bundled"), "opn", native_server(&marker, json!({})));
+    with_open_ops(&root.0.join("bundled"), "opn", &["opn.ping"]);
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    f.install("cmux/opn");
+    f.set("w", "cmux/opn", Origin::User, |o| o.grant = Some(("opn:write".into(), true))).unwrap();
+    // An op listed in openOps, run by the user: a token.
+    run_with(&f, "cmux/opn", "opn.ping", json!({}), Origin::User, Some("k1")).unwrap();
+    // Another op of the same app, run by the user: none (like machine.list).
+    run_with(&f, "cmux/opn", "opn.write", json!({}), Origin::User, Some("k2")).unwrap();
+    // The open op from any other origin: none.
+    run_with(&f, "cmux/opn", "opn.ping", json!({}), Origin::Cli, Some("k3")).unwrap();
+    let lines = op_lines(&marker, 3);
+    let token = |i: usize| lines[i].get("open_token").and_then(Value::as_str).map(str::to_string);
+    let first = token(0).expect("a user run of an open op gets a token");
+    assert_eq!((token(1), token(2)), (None, None), "{lines:?}");
+    let used = f.supervisor.consume_open_token(&first, "cmux/opn").expect("valid");
+    assert_eq!(used.op, "opn.ping");
 }
