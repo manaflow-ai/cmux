@@ -47,7 +47,8 @@ fn is_request(line: &Value) -> bool {
 /// The first line: the one `link.get` request, read exactly.
 fn link_get(host: &mut Host) -> Value {
     let line = host.next();
-    let expected = json!({ "t": "host.request", "id": 1, "op": "cmux.host.link.get", "params": {} });
+    let expected =
+        json!({ "t": "host.request", "id": 1, "op": "cmux.host.link.get", "params": {} });
     assert_eq!(line.as_ref(), Some(&expected), "the first line asks for the link details");
     line.unwrap_or(expected)
 }
@@ -75,7 +76,9 @@ fn the_host_frames_have_one_shape_for_request_result_error_and_event() {
     assert_eq!(up["ok"], true, "{up}");
     // An answer to no waiting request and a frame of unknown kind get no line.
     host.send(&json!({ "t": "host.result", "id": 99, "value": {} }));
-    host.send(&json!({ "t": "host.error", "id": 98, "code": "x", "message": "y", "retryable": true }));
+    host.send(
+        &json!({ "t": "host.error", "id": 98, "code": "x", "message": "y", "retryable": true }),
+    );
     let read = host.result("r-1", "cloud.port.list", json!({}), None);
     assert_eq!(read["ok"], true, "the loop still serves ops: {read}");
 }
@@ -134,7 +137,9 @@ fn link_changed_respawns_the_live_link_with_the_new_details() {
         "data": details("/opt/cmux/v2/cmux-tui") }));
     let down = host.next();
     let new_up = host.next();
-    let state = |line: &Option<Value>| (line.as_ref().map(|l| l["state"].clone()), line.as_ref().map(|l| l["generation"].clone()));
+    let state = |line: &Option<Value>| {
+        (line.as_ref().map(|l| l["state"].clone()), line.as_ref().map(|l| l["generation"].clone()))
+    };
     assert_eq!(state(&down), (Some(json!("down")), Some(json!(1))), "{down:?}");
     assert_eq!(state(&new_up), (Some(json!("up")), Some(json!(2))), "{new_up:?}");
     let log = host.spawner.log();
@@ -154,7 +159,8 @@ fn a_retryable_host_error_is_retried_once_on_the_next_connect() {
     assert_eq!(first["error"]["code"], "cmux.cloud.link_unavailable", "{first}");
     assert_eq!(first["error"]["retryable"], true, "{first}");
     let retry = host.next();
-    let expected = json!({ "t": "host.request", "id": 2, "op": "cmux.host.link.get", "params": {} });
+    let expected =
+        json!({ "t": "host.request", "id": 2, "op": "cmux.host.link.get", "params": {} });
     assert_eq!(retry, Some(expected), "one new request after that connect");
     // While the retry waits, a connect sends no third request.
     let (second, around) = connect_lines(&mut host, "c-2");

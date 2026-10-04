@@ -215,7 +215,10 @@ fn rescue_open_focuses_only_for_a_person_or_an_explicit_ask() {
         if let Some(f) = focus {
             args["focus"] = json!(f);
         }
-        Request::new("cloud.rescue.open", args).origin(origin).key(key).open_token("open-token-test")
+        Request::new("cloud.rescue.open", args)
+            .origin(origin)
+            .key(key)
+            .open_token("open-token-test")
     };
     let by_user = s.handle(&open(Origin::User, None, "r-1")).expect("user");
     assert_eq!(by_user["focus"], true);

@@ -123,6 +123,52 @@ impl LinkSupervisor {
         if let Some(carrier) = self.carrier(machine) {
             return Ok(carrier.clone());
         }
+        // A link that already connects (a respawn) is waited for, not
+        // replaced.
+        let generation = match self.links.get(machine) {
+            Some(Link { state: LinkState::Connecting, process: Some(_), generation }) => {
+                *generation
+            }
+            _ => self.start(machine, command)?,
+        };
+        self.wait_ready(machine, generation)
+    }
+
+    /// Ends the live (up or connecting) link of `machine` and starts a new
+    /// generation with `command` without waiting for it: its `up` or
+    /// `down` arrives as an event. The old link's channel ends with
+    /// `down` (reason: the link details changed).
+    pub fn respawn(&mut self, machine: &str, command: &LinkCommand) -> Result<u64, LinkFailure> {
+        let Some(link) = self.links.get(machine) else {
+            return Err(LinkFailure::Down { retryable: true, reason: "no live link".into() });
+        };
+        if !matches!(link.state, LinkState::Connecting | LinkState::Up(_)) {
+            return Err(LinkFailure::Down { retryable: true, reason: "no live link".into() });
+        }
+        let opened = matches!(link.state, LinkState::Up(_));
+        let generation = link.generation;
+        self.stop_process(machine);
+        self.events.push(CarrierEvent::Down {
+            target: machine.to_owned(),
+            generation,
+            retryable: true,
+            reason: "the link details changed".into(),
+            opened,
+        });
+        self.start(machine, command)
+    }
+
+    /// Machines whose link is up or connecting.
+    pub fn live_machines(&self) -> Vec<String> {
+        self.links
+            .iter()
+            .filter(|(_, l)| matches!(l.state, LinkState::Connecting | LinkState::Up(_)))
+            .map(|(m, _)| m.clone())
+            .collect()
+    }
+
+    /// Starts a new link generation in state `Connecting`.
+    fn start(&mut self, machine: &str, command: &LinkCommand) -> Result<u64, LinkFailure> {
         self.stop_process(machine);
         self.next_generation += 1;
         let tag = LinkTag { machine: machine.to_owned(), generation: self.next_generation };
@@ -139,6 +185,12 @@ impl LinkSupervisor {
                 process: Some(process),
             },
         );
+        Ok(tag.generation)
+    }
+
+    /// Blocks until link `generation` of `machine` is up or ended.
+    fn wait_ready(&mut self, machine: &str, generation: u64) -> Result<Carrier, LinkFailure> {
+        let tag = LinkTag { machine: machine.to_owned(), generation };
         loop {
             match self.links.get(machine) {
                 Some(link) if link.generation == tag.generation => match &link.state {

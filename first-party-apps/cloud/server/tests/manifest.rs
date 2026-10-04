@@ -18,6 +18,11 @@ fn manifest_and_catalog_fragment_validate() {
     let manifest = report.manifest.expect("manifest parsed");
     assert_eq!(manifest["id"], "cmux/cloud");
     assert!(manifest["server"]["scopes"].is_object(), "server.scopes is scope -> reason");
+    // Every host-only op the server sends is a declared server scope.
+    for op in [cmux_cloud::api::host::LINK_GET] {
+        let reason = &manifest["server"]["scopes"][format!("op:{op}")];
+        assert!(reason.as_str().is_some_and(|r| !r.is_empty()), "op:{op} is declared");
+    }
 }
 
 #[test]

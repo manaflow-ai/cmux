@@ -16,8 +16,9 @@ use std::sync::Arc;
 
 /// Serves ops until the host closes the channel.
 pub fn serve<R: BufRead + Send + 'static, W: Write>(relay: HostRelay<R, W>) -> io::Result<()> {
-    // Attach settings come from the host's environment (crate::link::Attach::from_env).
-    serve_with(relay, Attach::from_env(), Edge::real())
+    // Link details come from the host (`cmux.host.link.get`), never from
+    // the environment.
+    serve_with(relay, Attach::real(), Edge::real())
 }
 
 /// [`serve`] with the attach state and the files and ports edge given
@@ -32,6 +33,10 @@ pub fn serve_with<R: BufRead + Send + 'static, W: Write>(
     let mut server = Server::with_parts(relay, attach, edge);
     let link_waker = waker.clone();
     server.attach_mut().supervisor_mut().set_wake(Arc::new(move || link_waker.wake()));
+    // Ask the host for the link details before the first op; connect
+    // answers `link_unavailable` until they come.
+    server.request_link_details();
+    send_events(&mut server, &waker)?;
     while let Some(next) = server.control_plane_mut().next_step()? {
         if let Next::Message(message) = next
             && let Some(answer) = answer(&mut server, message)
@@ -48,6 +53,11 @@ fn answer<R: BufRead, W: Write>(
     server: &mut Server<HostRelay<R, W>>,
     message: Value,
 ) -> Option<Value> {
+    if super::host::is_host_frame(&message) {
+        // A host answer or event: it changes state, it gets no line.
+        server.host_frame(&message);
+        return None;
+    }
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     Some(match message.get("type").and_then(Value::as_str) {
         Some("op") => match serde_json::from_value::<Request>(message) {
@@ -76,6 +86,10 @@ fn send_events<R: BufRead, W: Write>(
     // Before the events are taken: a link event queued after this wakes
     // the loop again, so none waits for the next op.
     waker.taken();
+    // Host-only requests (a link.get, or its one retry) first.
+    for frame in server.take_host_frames() {
+        server.control_plane_mut().send(&frame)?;
+    }
     // `data` is the stream item (`{type: upsert|removed, revision, ...}`);
     // it is nested because `type` names the line kind here.
     for event in server.take_events() {
