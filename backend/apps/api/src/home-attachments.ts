@@ -308,8 +308,8 @@ export const handleAttachmentDerived = async (request: Request, env: Env, varian
   if (!id || !kid || !sig || extra !== undefined || !verify(env, kid, derivedPurpose(variant), [conversation, id], sig)) return invalid
   const conv = conversationOf(env, conversation)
   const slot = await conv.derivedSlot(conversation, id)
-  // The token's purpose names the variant, and only a slot of that variant's class declares one.
-  if (!slot?.derived) return invalid
+  // The token's purpose names the variant; the slot's own type must name it too (a second check behind the token).
+  if (!slot?.derived || homeConversation.derivedVariantOf(slot.mime_type) !== variant) return invalid
   const key = homeConversation.attachmentDerivedKey(slot.object_key, variant)
   const put = await streamInto(env.HOME_ATTACHMENTS!, key, request, slot.derived.byte_count, slot.derived.hash, slot.derived.mime_type)
   await conv.settleDerived(conversation, slot.id, put.ok ? (put.etag ?? "") : null)
