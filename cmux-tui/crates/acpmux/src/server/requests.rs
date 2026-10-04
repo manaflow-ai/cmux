@@ -913,7 +913,8 @@ pub(super) async fn handle_request(
             }
             hub.shutdown.notify_waiters();
             hub.shutdown.notify_one();
-            Ok(json!({"endAgents": end_agents, "keptSessions": keep.len()}))
+            let kept = if end_agents { keep.iter().filter(|id| hub.resolve(id).is_ok()).count() } else { 0 };
+            Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
         }
         method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),

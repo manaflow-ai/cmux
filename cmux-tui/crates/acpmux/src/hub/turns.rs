@@ -363,6 +363,10 @@ impl Hub {
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
         *session.turn.lock().unwrap() = None;
+        // Quit Everything already recorded this turn as cancelled.
+        if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
+            return result;
+        }
         // A process that died without answering: say what it printed last.
         if let Err(e) = &mut result {
             let bare = e.message == "agent process closed"

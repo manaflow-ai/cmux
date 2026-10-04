@@ -350,12 +350,11 @@ async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_t
         gone_within(host_pid, Duration::from_secs(10)),
         "the agent host outlived Quit Everything"
     );
-    let cancelled = daemon
-        .events(&session)
-        .into_iter()
-        .find(|e| e["kind"] == "turn_cancelled")
-        .unwrap_or_else(|| panic!("no turn_cancelled record: {:#?}", daemon.events(&session)));
-    assert_eq!(cancelled["msg"]["reason"], "quit", "{cancelled}");
+    let results: Vec<Value> =
+        daemon.events(&session).into_iter().filter(|e| e["kind"] == "turn_result").collect();
+    assert_eq!(results.len(), 1, "one result for the cancelled turn: {results:#?}");
+    assert_eq!(results[0]["msg"]["status"], "cancelled", "{results:#?}");
+    assert_eq!(results[0]["msg"]["detail"], "quit", "{results:#?}");
 
     daemon.start();
     let summary = daemon.rpc().await.call("_acpmux/sessions", json!({})).await;
@@ -370,6 +369,11 @@ async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_t
     assert!(
         !daemon.events(&session).iter().any(|e| e["kind"] == "host_adopted"),
         "a host survived Quit Everything and was adopted"
+    );
+    assert_eq!(
+        daemon.events(&session).iter().filter(|e| e["kind"] == "turn_result").count(),
+        1,
+        "the restart settled the cancelled turn again"
     );
 }
 
@@ -387,8 +391,8 @@ async fn shutdown_without_end_agents_keeps_hosted_agents_running() {
     drop(client);
     assert!(alive(harness_pid), "a plain shutdown ended the agent");
     assert!(
-        !daemon.events(&session).iter().any(|e| e["kind"] == "turn_cancelled"),
-        "a plain shutdown cancelled the turn"
+        !daemon.events(&session).iter().any(|e| e["kind"] == "turn_result"),
+        "a plain shutdown settled the turn"
     );
 }
 
@@ -414,8 +418,8 @@ async fn shutdown_with_end_agents_keeps_the_named_sessions_running() {
         "the other agent outlived Quit Everything"
     );
     assert!(
-        !daemon.events(&chief).iter().any(|e| e["kind"] == "turn_cancelled"),
-        "the kept session's turn was cancelled"
+        !daemon.events(&chief).iter().any(|e| e["kind"] == "turn_result"),
+        "the kept session's turn was settled"
     );
-    assert!(daemon.events(&other).iter().any(|e| e["kind"] == "turn_cancelled"));
+    assert!(daemon.events(&other).iter().any(|e| e["kind"] == "turn_result" && e["msg"]["detail"] == "quit"));
 }

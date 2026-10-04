@@ -250,6 +250,9 @@ pub struct Hub {
     /// Sessions whose hosted agents a shutdown with `endAgents` still keeps
     /// (`keepSessions`: the app's Home Chief).
     pub(super) keep_on_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
+    /// futures must not write a second result when the agent ends.
+    pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -310,6 +313,7 @@ impl Hub {
             agent_hosts: AtomicBool::new(false),
             end_agents_on_shutdown: AtomicBool::new(false),
             keep_on_shutdown: StdMutex::new(Default::default()),
+            settled_by_shutdown: StdMutex::new(Default::default()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
