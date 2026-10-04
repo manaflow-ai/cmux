@@ -261,30 +261,35 @@ impl Driver for ProviderEngine {
             "frame.observe" => Some(crate::observe::evaluate_params(params)?),
             _ => None,
         };
-        // The automation lease: reads pass, any other call acts (and takes
-        // the lease when the tab has none).
-        let target = target_id.to_owned();
-        let op = if OBSERVE_METHODS.contains(&method) {
-            LeaseOp::Observe { target }
-        } else {
-            LeaseOp::Act { target }
-        };
-        self.provider.lease(&op, &self.lease).map_err(|error| lease_refusal(method, error))?;
-        // A close that ran between the check at the top and this lease call
-        // must not leave a lease that nothing ends.
-        if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
-            let release = LeaseOp::Release { target: target_id.to_owned() };
-            let _ = self.provider.lease(&release, &self.lease);
-            return Err(DriverError::closed("the session was closed"));
+        // The automation lease: any call that is not a read acts (and takes
+        // the lease when the tab has none) before it runs.
+        let reads = OBSERVE_METHODS.contains(&method);
+        if !reads {
+            let act = LeaseOp::Act { target: target_id.to_owned() };
+            self.provider.lease(&act, &self.lease).map_err(|error| lease_refusal(method, error))?;
+            // A close that ran between the check at the top and this lease
+            // call must not leave a lease that nothing ends.
+            if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
+                let release = LeaseOp::Release { target: target_id.to_owned() };
+                let _ = self.provider.lease(&release, &self.lease);
+                return Err(DriverError::closed("the session was closed"));
+            }
         }
-        if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
+        let result = if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
             self.call_cef(method, target_id, params)
         } else if let Some(evaluate) = observe {
             // The app's WebKit driver runs it as its agent-world evaluate.
             self.provider.call("frame.evaluate", &evaluate)
         } else {
             self.provider.call(method, params)
+        };
+        // A read is never blocked; only a read that succeeded is the fresh
+        // observe after a hand back.
+        if reads && result.is_ok() {
+            let observe = LeaseOp::Observe { target: target_id.to_owned() };
+            let _ = self.provider.lease(&observe, &self.lease);
         }
+        result
     }
 
     fn end_session(&self) {
