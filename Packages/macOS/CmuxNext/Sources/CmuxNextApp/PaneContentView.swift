@@ -27,6 +27,10 @@ final class PaneContentView: NSView, PaneContentChrome {
         didSet { if barPosition != oldValue { needsLayout = true } }
     }
     private var placementObservation: Task<Void, Never>?
+    /// A browser's tab bar above or below its toolbar (`tabs.barOrder`, R109).
+    var barOrder: TabBarOrder = .aboveToolbar
+    /// Whether the strip is pinned to a browser's header band.
+    var isBandActive: Bool { false }
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and

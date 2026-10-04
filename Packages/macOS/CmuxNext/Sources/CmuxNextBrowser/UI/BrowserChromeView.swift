@@ -57,6 +57,8 @@ public final class BrowserChromeView: NSView {
     let contentContainer = NSView()
     public var onPaneHeaderHeightChange: (() -> Void)?
     private var reportedHeader: CGFloat = -1
+    /// The band under the toolbar rows for the pane's tab strip (R109).
+    let headerBand = BrowserHeaderBand()
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()

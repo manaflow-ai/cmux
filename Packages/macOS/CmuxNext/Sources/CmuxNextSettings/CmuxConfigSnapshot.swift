@@ -135,6 +135,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var spacesPosition: SpacesPosition = .bottom
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
+    /// `tabs.barOrder` (R109).
+    public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
