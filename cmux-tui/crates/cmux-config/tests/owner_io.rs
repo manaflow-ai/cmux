@@ -43,9 +43,13 @@ fn writes_create_the_file_and_keep_its_mode() {
         store.apply(set("ui.animationSpeed", json!("fast"))).result.unwrap();
         assert_eq!(std::fs::metadata(&config).unwrap().permissions().mode() & 0o777, 0o600);
     }
-    let leftovers: Vec<_> =
-        std::fs::read_dir(config.parent().unwrap()).unwrap().filter_map(Result::ok).collect();
-    assert_eq!(leftovers.len(), 1, "no temp files remain");
+    let names: Vec<String> = std::fs::read_dir(config.parent().unwrap())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(names.iter().all(|name| !name.ends_with(".tmp")), "no temp files remain: {names:?}");
+    assert!(names.contains(&".cmux.json.lock".to_string()), "writes take the advisory lock");
 }
 
 #[cfg(unix)]
@@ -179,4 +183,34 @@ fn the_watcher_reloads_on_edits_including_a_missing_directory() {
     }
     assert_eq!(seen.origin, Origin::File);
     drop(watcher);
+}
+
+#[test]
+fn the_team_policy_survives_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("cmux.json");
+    let layer = cmux_config::TeamPolicyLayer {
+        team_name: "Acme".into(),
+        team_id: "team_1".into(),
+        version: 3,
+        enforced: [("ui.animationSpeed".to_string(), json!("off"))].into_iter().collect(),
+        ..Default::default()
+    };
+    let mut store = open(&config, dir.path(), Default::default());
+    store.apply(cmux_config::Op::TeamPolicySet { layer: layer.clone() }).result.unwrap();
+    drop(store);
+    // A restarted owner enforces the saved layer before the app sends it again.
+    let mut restarted = open(&config, dir.path(), Default::default());
+    assert_eq!(restarted.state().team(), &layer);
+    assert_eq!(cache(dir.path())["effective"]["ui"]["animationSpeed"], json!("off"));
+    let refusal = restarted.apply(set("ui.animationSpeed", json!("fast"))).result.unwrap_err();
+    assert_eq!(refusal.code(), "managed");
+    // Clearing the layer removes the saved file.
+    restarted
+        .apply(cmux_config::Op::TeamPolicySet { layer: Default::default() })
+        .result
+        .unwrap();
+    drop(restarted);
+    let cleared = open(&config, dir.path(), Default::default());
+    assert_eq!(cleared.state().team(), &cmux_config::TeamPolicyLayer::default());
 }

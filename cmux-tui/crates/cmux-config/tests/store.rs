@@ -148,6 +148,19 @@ fn non_schema_paths_are_raw_but_guarded() {
 }
 
 #[test]
+fn writes_that_overlap_a_row_are_refused() {
+    let start = state("{\"appearance\": {\"backgroundOpacity\": 0.5} // keep\n}", Default::default());
+    // An ancestor object would replace rows without validating them.
+    let ancestor = apply(&start, set("appearance", json!({"backgroundOpacity": "garbage"})));
+    assert_eq!(ancestor.unwrap_err().code(), "invalid_params");
+    // A path below a row would turn the row's value into an object.
+    let below = apply(&start, set("appearance.backgroundOpacity.x", json!(1)));
+    assert_eq!(below.unwrap_err().code(), "invalid_params");
+    // Paths with no row above or below stay writable.
+    assert!(apply(&start, set("actions.hello", json!({"command": "echo hi"}))).is_ok());
+}
+
+#[test]
 fn an_unreadable_file_refuses_writes_and_keeps_forced_values() {
     let good = state(
         "{\"layout\": {\"stripScrollbar\": \"always\"}}",
