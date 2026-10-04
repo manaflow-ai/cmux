@@ -404,7 +404,10 @@ fn eval_without_a_session_is_one_shot() {
     };
     let page = "await page.goto('data:text/html,<button>A</button>'); console.log(String(await snapshot()).includes('[ref=e1]'));";
     assert_eq!(eval(&[], &format!("var carried = 1; {page}")).trim(), "true");
-    assert_eq!(eval(&[], &format!("console.log(typeof carried); {page}")).trim(), "undefined\ntrue");
+    assert_eq!(
+        eval(&[], &format!("console.log(typeof carried); {page}")).trim(),
+        "undefined\ntrue"
+    );
     // A named session keeps its state.
     eval(&["--session", "kept"], "var carried = 2;");
     assert_eq!(eval(&["--session", "kept"], "console.log(carried);").trim(), "2");
