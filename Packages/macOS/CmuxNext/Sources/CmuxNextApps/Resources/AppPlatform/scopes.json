@@ -1433,6 +1433,10 @@
       "scope": "terminal:execute",
       "class": "mutation"
     },
+    "terminal.input.send_kept": {
+      "scope": "terminal:execute",
+      "class": "mutation"
+    },
     "terminal.input.write": {
       "scope": "terminal:execute",
       "class": "mutation"
@@ -1454,6 +1458,10 @@
       "class": "read"
     },
     "terminal.project": {
+      "scope": "terminal:execute",
+      "class": "mutation"
+    },
+    "terminal.relaunch": {
       "scope": "terminal:execute",
       "class": "mutation"
     },

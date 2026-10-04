@@ -196,7 +196,7 @@ public:
     [[nodiscard]] Result<EmptyResult> select_screen(const SelectScreenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> select_tab(const SelectTabRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> select_workspace(const SelectWorkspaceRequest& request = {}, RequestOptions options = {});
-    [[nodiscard]] Result<EmptyResult> send(const SendRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<SendResult> send(const SendRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> send_key(const SendKeyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ServerStatsResult> server_stats(const ServerStatsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetCellPixelsResult> set_cell_pixels(const SetCellPixelsRequest& request, RequestOptions options = {});

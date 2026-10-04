@@ -1,22 +1,11 @@
 //! Parallel terminal starts and reaps.
 //!
-//! Creating a terminal commits its topology under the creation lock, and a
-//! host launch (process spawn, bootstrap, PTY launch, first snapshot) is
-//! most of its cost. [`Mux::prelaunch_tab_terminal`] launches the host for a
-//! `new-tab` on the shared [`TerminalWorkPool`] before the creation
-//! transaction, under a fresh terminal id; the transaction then reserves
-//! that id in the registry exactly as before (every commit still syncs) and
-//! adopts the running host instead of launching one while it holds the lock.
-//! The host's recovery-record workspace key is written there too, so that
-//! synced write also leaves the lock.
-//!
-//! A prelaunched host has no registry row until its creation commits. That
-//! is safe: a protocol v4 host starts its child only after activation, which
-//! follows the durable topology commit; a live owner exact-kills an
-//! unclaimed host when its [`PrelaunchedTerminal`] drops; and a restarted
-//! owner ends every host whose terminal id the registry does not know.
-//!
-//! The reaper uses the same pool to end several due terminals at once.
+//! A host launch (process spawn, bootstrap, PTY launch, first snapshot) is
+//! most of a terminal create's cost. The shared [`TerminalWorkPool`] runs
+//! those launches off the request path: `tab_launch` starts the host of a
+//! new tab when its request arrives and adopts it after the creation's
+//! accept commit. The reaper uses the same pool to end several due terminals
+//! at once.
 
 use super::*;
 
@@ -87,6 +76,18 @@ impl TerminalWorkPool {
         Err(state.queue.pop_back().expect("the job just queued is still queued"))
     }
 
+    /// The spare host process, when one is ready (R81).
+    #[cfg(unix)]
+    pub(crate) fn take_standby(&self) -> Option<crate::terminal_host_runtime::StandbyTerminalHost> {
+        self.standby.take()
+    }
+
+    /// Start the next spare host in the background.
+    #[cfg(unix)]
+    pub(crate) fn refill_standby(&self) {
+        self.standby.refill(self);
+    }
+
     fn work(state: &Mutex<TerminalWorkState>) {
         loop {
             let job = {
@@ -135,26 +136,6 @@ impl TerminalWorkPool {
     }
 }
 
-/// A host launched for a creation that has not committed yet.
-#[cfg(unix)]
-pub(crate) struct PrelaunchedTerminal {
-    /// Spawn options before the surface identity environment, which the
-    /// registry records as the launch spec.
-    launch_opts: SurfaceOptions,
-    host: crate::surface::PrelaunchedHost,
-}
-
-#[cfg(unix)]
-impl PrelaunchedTerminal {
-    pub(crate) fn launch_opts(&self) -> &SurfaceOptions {
-        &self.launch_opts
-    }
-
-    pub(crate) fn into_host(self) -> crate::surface::PrelaunchedHost {
-        self.host
-    }
-}
-
 impl Mux {
     /// Queue `job` on the terminal work pool. Returns it when the pool is
     /// saturated, so the caller runs it inline.
@@ -165,121 +146,10 @@ impl Mux {
         self.terminal_work.try_submit(job)
     }
 
-    /// Launch the host of a `new-tab` into `pane` (the active pane when
-    /// `None`) before its creation transaction. Returns the terminal id the
-    /// create must reserve (`new-tab` `terminal_id`) so that it adopts this
-    /// host, or `None` when this owner does not host terminals or has no
-    /// such pane; the create then launches its host itself.
-    ///
-    /// The caller must finish with [`Mux::discard_prelaunched_terminal`],
-    /// which ends the host when the create did not adopt it.
-    pub(crate) fn prelaunch_tab_terminal(
-        self: &Arc<Self>,
-        pane: Option<PaneId>,
-        terminal_id: Option<TerminalId>,
-        cwd: Option<String>,
-        command: Option<Vec<String>>,
-        env: Vec<(String, String)>,
-        size: Option<(u16, u16)>,
-    ) -> anyhow::Result<Option<String>> {
-        #[cfg(unix)]
-        {
-            if !self.uses_terminal_host_runtime() {
-                return Ok(None);
-            }
-            let target = {
-                let state = self.state.lock().unwrap();
-                match pane {
-                    Some(pane) => state.panes.contains_key(&pane).then_some(pane),
-                    None => state.active_pane(),
-                }
-            };
-            let Some(target) = target else { return Ok(None) };
-            crate::debug_spans::mark("prelaunch.target");
-            let cwd = cwd.or_else(|| self.pane_cwd(target));
-            let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
-            if launch_opts.terminal_host_root.is_none() {
-                return Ok(None);
-            }
-            let workspace_key = self.workspace_key_for_pane(target);
-            let terminal_id = match terminal_id {
-                Some(terminal_id) => terminal_id,
-                None => TerminalId::random()?,
-            };
-            // The spare host process, when one is ready (R81); the next one
-            // starts in the background after this launch.
-            let standby = self.terminal_work.standby.take();
-            let used_spare = standby.is_some();
-            crate::debug_spans::mark(if used_spare { "spare.taken" } else { "spare.none" });
-            let launch = |standby| {
-                Surface::prelaunch_hosted(
-                    self.next_id(),
-                    launch_opts.clone(),
-                    Arc::downgrade(self),
-                    terminal_id,
-                    cell_pixels,
-                    standby,
-                )
-            };
-            let mut launched = launch(standby);
-            // A spare that died after its liveness check fails before
-            // bootstrap: launch on a fresh process, so the tab never fails
-            // or slows down because of the spare.
-            if launched.is_err() && used_spare {
-                launched = launch(None);
-            }
-            crate::debug_spans::mark("host.launched");
-            self.terminal_work.standby.refill(&self.terminal_work);
-            let mut host = launched?;
-            debug_assert!(host.terminal_id() == terminal_id);
-            // The deprecated recovery mirror syncs a file twice; do it here,
-            // in parallel, instead of under the creation lock. A tab that
-            // lands in another workspace rewrites it there.
-            if let Some(workspace_key) = workspace_key.as_deref() {
-                let _ = host.persist_workspace(workspace_key);
-                crate::debug_spans::mark("host.workspace_persisted");
-            }
-            let terminal_hex = terminal_id.to_hex();
-            self.prelaunched_terminals
-                .lock()
-                .unwrap()
-                .insert(terminal_hex.clone(), PrelaunchedTerminal { launch_opts, host });
-            Ok(Some(terminal_hex))
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = (pane, terminal_id, cwd, env, size);
-            Ok(None)
-        }
-    }
-
-    /// The prelaunched host reserved under `terminal_hex`, for the creation
-    /// that reserves the same id.
-    #[cfg(unix)]
-    pub(crate) fn take_prelaunched_terminal(
-        &self,
-        terminal_hex: &str,
-    ) -> Option<PrelaunchedTerminal> {
-        self.prelaunched_terminals.lock().unwrap().remove(terminal_hex)
-    }
-
-    /// End the prelaunched host under `terminal_hex` unless its creation
-    /// adopted it.
-    pub(crate) fn discard_prelaunched_terminal(&self, terminal_hex: &str) {
-        #[cfg(unix)]
-        {
-            // Drop outside the lock: dropping kills and waits the host.
-            let unclaimed = self.prelaunched_terminals.lock().unwrap().remove(terminal_hex);
-            drop(unclaimed);
-        }
-        #[cfg(not(unix))]
-        let _ = terminal_hex;
-    }
-
     /// Whether new terminals run in durable host processes (tests may use
     /// in-process surfaces).
     #[cfg(unix)]
-    fn uses_terminal_host_runtime(&self) -> bool {
+    pub(super) fn uses_terminal_host_runtime(&self) -> bool {
         #[cfg(test)]
         return !self.test_surface_runtime;
         #[cfg(not(test))]
@@ -328,6 +198,37 @@ impl Mux {
             cell_pixels
         };
         (opts, cell_pixels)
+    }
+}
+
+/// Hosts that outlive their owner exist only on Unix; elsewhere every
+/// create launches its terminal itself.
+#[cfg(not(unix))]
+impl Mux {
+    pub(crate) fn begin_tab_launch(
+        self: &Arc<Self>,
+        _pane: Option<PaneId>,
+        _terminal_id: Option<TerminalId>,
+        _cwd: Option<String>,
+        _command: Option<Vec<String>>,
+        _env: Vec<(String, String)>,
+        _size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+
+    pub(crate) fn discard_pending_launch(&self, _terminal_hex: &str) {}
+
+    pub(crate) fn wait_for_launched_surface(&self, surface: Arc<Surface>) -> Arc<Surface> {
+        surface
+    }
+
+    pub(crate) fn kept_terminal_input_len(&self, _terminal_hex: &str) -> usize {
+        0
+    }
+
+    pub(crate) fn take_kept_terminal_input(&self, _terminal_hex: &str) -> Option<Vec<u8>> {
+        None
     }
 }
 

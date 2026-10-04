@@ -129,7 +129,7 @@ mod rows;
 mod screen_json;
 mod session_stream;
 mod split_kind;
-mod split_respawn;
+pub(crate) mod split_respawn;
 mod tab_column;
 mod websocket_listener;
 #[cfg(unix)]
@@ -13271,23 +13271,19 @@ fn handle_command_with_cancellation(
         Command::Send { surface, text, bytes, paste } => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
-            if paste {
-                let mut payload = text.unwrap_or_default().into_bytes();
-                if let Some(b64) = bytes {
-                    payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
-                }
-                surface.write_paste(&payload)?;
-            } else {
-                if let Some(text) = text {
-                    surface.write_bytes(text.as_bytes())?;
-                }
-                if let Some(b64) = bytes {
-                    let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-                    surface.write_bytes(&raw)?;
-                }
+            let mut payload = text.unwrap_or_default().into_bytes();
+            if let Some(b64) = bytes {
+                payload.extend(base64::engine::general_purpose::STANDARD.decode(b64)?);
             }
+            // A launching terminal queues the write whole or refuses it (R4).
+            let queued = match surface.launch_input(&payload, paste) {
+                Some(queued) => queued?,
+                None if paste => surface.write_paste(&payload).map(|()| false)?,
+                None if payload.is_empty() => false,
+                None => surface.write_bytes(&payload).map(|()| false)?,
+            };
             mux.note_terminal_input(surface.id, client);
-            Ok(json!({}))
+            Ok(if queued { json!({"delivery": "queued"}) } else { json!({}) })
         }
         Command::ReadScreen { surface } => {
             let surface = get_surface(mux, surface)?;
@@ -13549,6 +13545,7 @@ fn handle_command_with_cancellation(
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
                 "surface": resolution.surface,
+                "kept_input_bytes": mux.kept_terminal_input_len(&resolution.terminal.terminal_id),
                 "terminal_id": resolution.terminal.terminal_id,
                 "terminal_incarnation": resolution.terminal.incarnation,
                 "workspace_key": resolution.terminal.workspace_key,
@@ -15356,7 +15353,8 @@ fn handle_command_with_cancellation(
                         .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
                 }
             };
-            let surface = get_surface(mux, surface_id)?;
+            // An attach to a launching terminal waits for its host.
+            let surface = mux.wait_for_launched_surface(get_surface(mux, surface_id)?);
             anyhow::ensure!(
                 !mux.is_frontend_browser_surface(&surface),
                 "surface {surface_id} is a frontend-rendered browser and has no daemon stream"
@@ -15848,10 +15846,18 @@ fn placed_terminal_result(
     if keep {
         keep_created_terminal(mux, identity.as_ref().map(|i| i.terminal_id.as_str()))?;
     }
+    // A launching terminal has no incarnation yet (G1); its
+    // `terminal-lifecycle` event carries it once the terminal runs.
+    let launching = surface.is_launching();
     Ok(json!({
         "surface": surface.id,
+        "tab_id": surface.resource_identity().map(|identity| &identity.tab_id),
         "terminal_id": identity.as_ref().map(|identity| &identity.terminal_id),
-        "terminal_incarnation": identity.as_ref().map(|identity| &identity.incarnation),
+        "terminal_incarnation": identity
+            .as_ref()
+            .filter(|_| !launching)
+            .map(|identity| &identity.incarnation),
+        "lifecycle": if launching { "launching" } else { "running" },
     }))
 }
 
@@ -16008,6 +16014,16 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "terminal_id": terminal_id,
             "terminal": terminal,
             "grace_ms": grace_ms,
+        }),
+        MuxEvent::TerminalLifecycle(change) => json!({
+            "event": "terminal-lifecycle",
+            "terminal_id": change.terminal_id,
+            "terminal": change.terminal,
+            "from": change.from,
+            "to": change.to,
+            "elapsed_ms": change.elapsed_ms,
+            "cause": change.cause,
+            "terminal_incarnation": change.terminal_incarnation,
         }),
         MuxEvent::LayoutChanged(screen) => json!({"event": "layout-changed", "screen": screen}),
         MuxEvent::ClientAttached { client, transport, name, kind } => json!({

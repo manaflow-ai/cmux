@@ -29,7 +29,7 @@ interface Op {
 const SCOPE_FAMILY: Record<string, string> = { tab: "workspace", pane: "workspace", screen: "workspace", window: "workspace", session: "session", frontend_projection: "client" }
 /** Families apps never reach in phase 1 (grants, installs, accounts, pairing, raw client plumbing, origin confirmations). */
 const NEVER_FAMILIES = new Set(["install", "grant", "host", "pairing_request", "client", "request", "stream", "frontend_projection", "user", "app", "origin"])
-const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attach|project)$|^browser\.input\.|^session\.journal\.hook\.put$)/
+const EXECUTE = /(^terminal\.input\.(write|keys|mouse|send_kept)$|\.run$|^terminal\.(attach|project|relaunch)$|^browser\.input\.|^session\.journal\.hook\.put$)/
 const NEVER = /(\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$)/
 
 const readJSON = (p: string) => JSON.parse(readFileSync(join(repo, p), "utf8"))

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
+/* cmux-tui mux protocol 12, IR 5e6d233efee8a5ab1e730978f2d8e644cc681ccf2e2b62b9aa390f2a943b1536. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -672,6 +672,7 @@ export type ResizeSurfaceResult = {
 export type ResolveTerminalResult = {
   "exit": (TerminalExit) | null;
   "generation": string;
+  "kept_input_bytes"?: bigint;
   "launch_spec": JsonValue;
   "lifecycle": TerminalLifecycle;
   "registry_id": string;
@@ -733,6 +734,10 @@ export type Screen = {
   "panes": Array<Pane>;
   "short_id"?: string;
   "zoomed_pane": (Id) | null;
+};
+
+export type SendResult = {
+  "delivery"?: "queued";
 };
 
 export type ServerStatsConnections = {
@@ -926,8 +931,12 @@ export type SplitRespawn = {
   "url"?: (string) | null;
 };
 
+export type SurfaceLifecycle = "launching" | "running";
+
 export type SurfaceResult = {
+  "lifecycle"?: SurfaceLifecycle;
   "surface": Id;
+  "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
 };

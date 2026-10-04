@@ -94,6 +94,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::TerminalMove
         | ResourceOperation::TerminalProject
         | ResourceOperation::TerminalClose
+        | ResourceOperation::TerminalRelaunch
+        | ResourceOperation::TerminalInputSendKept
         | ResourceOperation::BrowserNavigate
         | ResourceOperation::BrowserBack
         | ResourceOperation::BrowserForward

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
+pub const ir_sha256 = "5e6d233efee8a5ab1e730978f2d8e644cc681ccf2e2b62b9aa390f2a943b1536";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1238,6 +1238,7 @@ pub const ResizeSurfaceResult = struct {
 pub const ResolveTerminalResult = struct {
     exit: wire.Nullable(TerminalExit),
     generation: []const u8,
+    kept_input_bytes: ?u64 = null,
     launch_spec: JsonValue,
     lifecycle: TerminalLifecycle,
     registry_id: []const u8,
@@ -1246,6 +1247,10 @@ pub const ResolveTerminalResult = struct {
     terminal_incarnation: wire.Nullable([]const u8),
     terminal_revision: u64,
     workspace_key: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "kept_input_bytes",
+    };
 };
 
 pub const ResourceSelectors = struct {
@@ -1302,6 +1307,14 @@ pub const Screen = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "short_id",
+    };
+};
+
+pub const SendResult = struct {
+    delivery: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "delivery",
     };
 };
 
@@ -1650,10 +1663,34 @@ pub const SplitRespawn = struct {
     url: wire.Field([]const u8) = .absent,
 };
 
+pub const SurfaceLifecycle = enum {
+    launching,
+    running,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "launching")) return .launching;
+        if (std.mem.eql(u8, value, "running")) return .running;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .launching => "launching",
+            .running => "running",
+        };
+    }
+};
+
 pub const SurfaceResult = struct {
+    lifecycle: ?SurfaceLifecycle = null,
     surface: Id,
+    tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "lifecycle",
+    };
 };
 
 pub const TabBrowserSource = enum {
@@ -6061,8 +6098,6 @@ pub const SendRequest = struct {
     };
 };
 
-pub const SendResult = EmptyResult;
-
 pub fn send(client: anytype, request: SendRequest) !wire.Decoded(SendResult) {
     return client.callTyped(
         SendResult,
@@ -7874,6 +7909,35 @@ pub const TabRenamedEvent = struct {
     workspace: Id,
 };
 
+pub const TerminalLifecycleEventTo = enum {
+    running,
+    exited,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "running")) return .running;
+        if (std.mem.eql(u8, value, "exited")) return .exited;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .running => "running",
+            .exited => "exited",
+        };
+    }
+};
+
+pub const TerminalLifecycleEvent = struct {
+    cause: wire.Nullable([]const u8),
+    elapsed_ms: u64,
+    event: []const u8,
+    from: []const u8,
+    terminal: wire.Nullable([]const u8),
+    terminal_id: []const u8,
+    terminal_incarnation: wire.Nullable([]const u8),
+    to: TerminalLifecycleEventTo,
+};
+
 pub const TerminalReapedEvent = struct {
     event: []const u8,
     grace_ms: u64,
@@ -8068,6 +8132,7 @@ pub const Event = union(enum) {
     tab_changed: TabChangedEvent,
     tab_closed: TabClosedEvent,
     tab_renamed: TabRenamedEvent,
+    terminal_lifecycle: TerminalLifecycleEvent,
     terminal_reaped: TerminalReapedEvent,
     terminal_registry_changed: TerminalRegistryChangedEvent,
     title_changed: TitleChangedEvent,
@@ -8131,6 +8196,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .tab_changed => "tab-changed",
         .tab_closed => "tab-closed",
         .tab_renamed => "tab-renamed",
+        .terminal_lifecycle => "terminal-lifecycle",
         .terminal_reaped => "terminal-reaped",
         .terminal_registry_changed => "terminal-registry-changed",
         .title_changed => "title-changed",
@@ -8344,6 +8410,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
     if (std.mem.eql(u8, name, "tab-renamed")) {
         const decoded = try wire.decodeLeaky(TabRenamedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tab_renamed = decoded } };
+    }
+    if (std.mem.eql(u8, name, "terminal-lifecycle")) {
+        const decoded = try wire.decodeLeaky(TerminalLifecycleEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .terminal_lifecycle = decoded } };
     }
     if (std.mem.eql(u8, name, "terminal-reaped")) {
         const decoded = try wire.decodeLeaky(TerminalReapedEvent, arena.allocator(), value);
@@ -8692,16 +8762,17 @@ const event_streams_46 = [_][]const u8{"subscribe"};
 const event_streams_47 = [_][]const u8{"subscribe"};
 const event_streams_48 = [_][]const u8{"subscribe"};
 const event_streams_49 = [_][]const u8{"subscribe"};
-const event_streams_50 = [_][]const u8{"control"};
-const event_streams_51 = [_][]const u8{"attach-byte"};
-const event_streams_52 = [_][]const u8{"subscribe"};
-const event_streams_53 = [_][]const u8{"subscribe-deltas"};
+const event_streams_50 = [_][]const u8{"subscribe"};
+const event_streams_51 = [_][]const u8{"control"};
+const event_streams_52 = [_][]const u8{"attach-byte"};
+const event_streams_53 = [_][]const u8{"subscribe"};
 const event_streams_54 = [_][]const u8{"subscribe-deltas"};
 const event_streams_55 = [_][]const u8{"subscribe-deltas"};
 const event_streams_56 = [_][]const u8{"subscribe-deltas"};
 const event_streams_57 = [_][]const u8{"subscribe-deltas"};
+const event_streams_58 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 58;
+pub const event_count: usize = 59;
 pub const events = [_]EventDescriptor{
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_0 },
     .{ .name = "bell", .since = 5, .capability = null, .streams = &event_streams_1 },
@@ -8749,16 +8820,17 @@ pub const events = [_]EventDescriptor{
     .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_43 },
     .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_44 },
     .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_45 },
-    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_46 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_47 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_48 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_49 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_50 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_51 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_52 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_53 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_54 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_55 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_56 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_57 },
+    .{ .name = "terminal-lifecycle", .since = 12, .capability = null, .streams = &event_streams_46 },
+    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_47 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_48 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_49 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_50 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_51 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_52 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_53 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_54 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_55 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_56 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_57 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_58 },
 };

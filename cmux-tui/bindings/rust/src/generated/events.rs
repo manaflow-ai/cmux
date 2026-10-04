@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5.
+// cmux-tui mux protocol 12, IR 5e6d233efee8a5ab1e730978f2d8e644cc681ccf2e2b62b9aa390f2a943b1536.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -495,6 +495,27 @@ pub struct TabRenamedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalLifecycleEventTo {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "exited")]
+    Exited,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalLifecycleEvent {
+    pub cause: Nullable<String>,
+    pub elapsed_ms: u64,
+    pub from: String,
+    pub terminal: Nullable<String>,
+    pub terminal_id: String,
+    pub terminal_incarnation: Nullable<String>,
+    pub to: TerminalLifecycleEventTo,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalReapedEvent {
     pub grace_ms: u64,
@@ -686,6 +707,7 @@ pub enum Event {
     TabChanged(TabChangedEvent),
     TabClosed(TabClosedEvent),
     TabRenamed(TabRenamedEvent),
+    TerminalLifecycle(TerminalLifecycleEvent),
     TerminalReaped(TerminalReapedEvent),
     TerminalRegistryChanged(TerminalRegistryChangedEvent),
     TitleChanged(TitleChangedEvent),
@@ -751,6 +773,7 @@ impl Event {
             Self::TabChanged(_) => Some("tab-changed"),
             Self::TabClosed(_) => Some("tab-closed"),
             Self::TabRenamed(_) => Some("tab-renamed"),
+            Self::TerminalLifecycle(_) => Some("terminal-lifecycle"),
             Self::TerminalReaped(_) => Some("terminal-reaped"),
             Self::TerminalRegistryChanged(_) => Some("terminal-registry-changed"),
             Self::TitleChanged(_) => Some("title-changed"),
@@ -815,6 +838,7 @@ impl Event {
             Self::TabChanged(_) => Some(&TAB_CHANGED_EVENT_METADATA),
             Self::TabClosed(_) => Some(&TAB_CLOSED_EVENT_METADATA),
             Self::TabRenamed(_) => Some(&TAB_RENAMED_EVENT_METADATA),
+            Self::TerminalLifecycle(_) => Some(&TERMINAL_LIFECYCLE_EVENT_METADATA),
             Self::TerminalReaped(_) => Some(&TERMINAL_REAPED_EVENT_METADATA),
             Self::TerminalRegistryChanged(_) => Some(&TERMINAL_REGISTRY_CHANGED_EVENT_METADATA),
             Self::TitleChanged(_) => Some(&TITLE_CHANGED_EVENT_METADATA),
@@ -1198,6 +1222,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("tab-renamed") => match serde_json::from_value::<TabRenamedEvent>(raw.clone()) {
             Ok(event) => Event::TabRenamed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("terminal-lifecycle") => match serde_json::from_value::<TerminalLifecycleEvent>(raw.clone()) {
+            Ok(event) => Event::TerminalLifecycle(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

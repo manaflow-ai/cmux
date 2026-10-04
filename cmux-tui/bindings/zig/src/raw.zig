@@ -64,5 +64,5 @@ test {
         }
         try std.testing.expect(found);
     }
-    try std.testing.expectEqual(@as(usize, 58), protocol.event_count);
+    try std.testing.expectEqual(@as(usize, 59), protocol.event_count);
 }

@@ -103,14 +103,16 @@ fn test_mux() -> Arc<Mux> {
 #[test]
 fn every_catalog_operation_has_one_concrete_owner() {
     let operations = operation_catalog()["operations"].as_object().unwrap();
-    assert_eq!(operations.len(), 193);
+    assert_eq!(operations.len(), 195);
     for name in operations.keys() {
         let operation: ResourceOperation =
             serde_json::from_value(Value::String(name.clone())).unwrap();
         assert_eq!(operation_name(operation), *name);
         match operation_owner(operation) {
             OperationOwner::Session => assert!(session::handles(operation)),
-            OperationOwner::Content => assert!(content::handles(operation)),
+            OperationOwner::Content => {
+                assert!(content::handles(operation) || terminal_relaunch::handles(operation));
+            }
             OperationOwner::Topology => assert!(topology::handles(operation)),
             OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
             OperationOwner::State => assert!(crate::state::router::handles(operation)),
@@ -123,7 +125,7 @@ fn every_catalog_operation_has_one_concrete_owner() {
 #[test]
 fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
     let operations = operation_catalog()["operations"].as_object().unwrap();
-    assert_eq!(operations.len(), 193);
+    assert_eq!(operations.len(), 195);
     for (name, descriptor) in operations {
         let operation: ResourceOperation =
             serde_json::from_value(Value::String(name.clone())).unwrap();

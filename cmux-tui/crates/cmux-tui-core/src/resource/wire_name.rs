@@ -115,6 +115,8 @@ impl ResourceOperation {
             Self::TerminalProject => "terminal.project",
             Self::TerminalAttach => "terminal.attach",
             Self::TerminalClose => "terminal.close",
+            Self::TerminalRelaunch => "terminal.relaunch",
+            Self::TerminalInputSendKept => "terminal.input.send_kept",
             Self::BrowserList => "browser.list",
             Self::BrowserGet => "browser.get",
             Self::BrowserNavigate => "browser.navigate",

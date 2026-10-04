@@ -6,7 +6,8 @@ impl Surface {
     /// Launch the durable host of a new session-owned terminal without
     /// building its surface, so a caller can launch several hosts in
     /// parallel outside the creation transaction and finish each one with
-    /// [`Surface::spawn_prelaunched`] inside it. Dropping the result before
+    /// [`Surface::spawn_prelaunched`] after it. The caller picks the surface
+    /// id and tab identity, so a launching placeholder can carry them first. Dropping the result before
     /// then exact-kills the host (the attachment's launch guard); a protocol
     /// v4 host also never starts its child before activation. The host starts
     /// with Kitty graphics disabled; its share of the image budget is applied
@@ -17,6 +18,7 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: crate::terminal_host::TerminalId,
+        resource_identity: TabResourceIdentity,
         cell_pixels: (u16, u16),
         standby: Option<crate::terminal_host_runtime::StandbyTerminalHost>,
     ) -> anyhow::Result<PrelaunchedHost> {
@@ -24,7 +26,6 @@ impl Surface {
             .terminal_host_root
             .clone()
             .ok_or_else(|| anyhow::anyhow!("prelaunch needs a terminal host root"))?;
-        let resource_identity = TabResourceIdentity::terminal(None)?;
         let (opts, terminal_public_id, kitty_reservation) =
             Self::spawn_prelude(id, opts, &mux, Some(&resource_identity), KittyQuota::AfterCommit)?;
         let initial_kitty_limits = kitty_reservation
@@ -43,7 +44,6 @@ impl Surface {
         )?;
         Ok(PrelaunchedHost {
             id,
-            terminal_id,
             opts,
             attachment,
             kitty_reservation,

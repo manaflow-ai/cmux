@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
+inline constexpr std::string_view kProtocolIrSha256 = "5e6d233efee8a5ab1e730978f2d8e644cc681ccf2e2b62b9aa390f2a943b1536";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -122,6 +122,7 @@ struct RowHeight;
 struct RowMarkerPoint;
 struct RunResult;
 struct Screen;
+struct SendResult;
 struct ServerStatsConnections;
 struct ServerStatsHistogram;
 struct ServerStatsJournalWriter;
@@ -151,6 +152,7 @@ struct SnapshotRequestHave;
 struct SnapshotRequestResult;
 enum class SplitDirection;
 struct SplitRespawn;
+enum class SurfaceLifecycle;
 struct SurfaceResult;
 struct Tab;
 struct TabRef;
@@ -455,6 +457,7 @@ struct TabAddedEvent;
 struct TabChangedEvent;
 struct TabClosedEvent;
 struct TabRenamedEvent;
+struct TerminalLifecycleEvent;
 struct TerminalReapedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
@@ -496,6 +499,7 @@ enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class TerminalLifecycleEventTo;
 
 struct Id {
     std::uint64_t value{};
@@ -3211,6 +3215,7 @@ struct ResolveTerminalRequest {
 struct ResolveTerminalResult {
     std::optional<TerminalExit> exit{};
     std::string generation{};
+    std::optional<std::uint64_t> kept_input_bytes{};
     JsonValue launch_spec{};
     TerminalLifecycle lifecycle{};
     std::string registry_id{};
@@ -3358,6 +3363,11 @@ struct SendRequest {
     Id surface{};
     Field<std::string> text{};
     friend bool operator==(const SendRequest&, const SendRequest&) = default;
+};
+
+struct SendResult {
+    std::optional<std::string> delivery{};
+    friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
 struct ServerStatsConnections {
@@ -3761,6 +3771,11 @@ struct SurfaceExitedEvent {
     friend bool operator==(const SurfaceExitedEvent&, const SurfaceExitedEvent&) = default;
 };
 
+enum class SurfaceLifecycle {
+    launching,
+    running,
+};
+
 struct SurfaceOutputEvent {
     Id surface{};
     friend bool operator==(const SurfaceOutputEvent&, const SurfaceOutputEvent&) = default;
@@ -3785,7 +3800,9 @@ struct SurfaceResizedEvent {
 };
 
 struct SurfaceResult {
+    std::optional<SurfaceLifecycle> lifecycle{};
     Id surface{};
+    Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     friend bool operator==(const SurfaceResult&, const SurfaceResult&) = default;
@@ -3890,6 +3907,21 @@ struct TerminalHistoryRequest {
     Field<std::uint64_t> max_bytes{};
     Id surface{};
     friend bool operator==(const TerminalHistoryRequest&, const TerminalHistoryRequest&) = default;
+};
+
+enum class TerminalLifecycleEventTo {
+    running,
+    exited,
+};
+
+struct TerminalLifecycleEvent {
+    std::optional<std::string> cause{};
+    std::uint64_t elapsed_ms{};
+    std::optional<std::string> terminal{};
+    std::string terminal_id{};
+    std::optional<std::string> terminal_incarnation{};
+    TerminalLifecycleEventTo to{};
+    friend bool operator==(const TerminalLifecycleEvent&, const TerminalLifecycleEvent&) = default;
 };
 
 struct TerminalPlacement {
@@ -4918,6 +4950,12 @@ struct Codec<Screen> {
 };
 
 template <>
+struct Codec<SendResult> {
+    static Result<Json> encode(const SendResult& value);
+    static Result<SendResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsConnections> {
     static Result<Json> encode(const ServerStatsConnections& value);
     static Result<ServerStatsConnections> decode(const Json& value);
@@ -5089,6 +5127,12 @@ template <>
 struct Codec<SplitRespawn> {
     static Result<Json> encode(const SplitRespawn& value);
     static Result<SplitRespawn> decode(const Json& value);
+};
+
+template <>
+struct Codec<SurfaceLifecycle> {
+    static Result<Json> encode(const SurfaceLifecycle& value);
+    static Result<SurfaceLifecycle> decode(const Json& value);
 };
 
 template <>
@@ -6916,6 +6960,12 @@ struct Codec<TabRenamedEvent> {
 };
 
 template <>
+struct Codec<TerminalLifecycleEvent> {
+    static Result<Json> encode(const TerminalLifecycleEvent& value);
+    static Result<TerminalLifecycleEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalReapedEvent> {
     static Result<Json> encode(const TerminalReapedEvent& value);
     static Result<TerminalReapedEvent> decode(const Json& value);
@@ -7159,6 +7209,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLifecycleEventTo> {
+    static Result<Json> encode(const TerminalLifecycleEventTo& value);
+    static Result<TerminalLifecycleEventTo> decode(const Json& value);
 };
 
 }  // namespace cmux::raw

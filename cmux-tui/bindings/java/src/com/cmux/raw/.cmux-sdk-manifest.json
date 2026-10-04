@@ -697,8 +697,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "63277913e57a865b3d815a7225fb126230c82737270f39244376aa585d944319",
-      "size": 11505
+      "sha256": "b856d5e1d63d850f5025c6e18ad62e09adbdfa421d77a48f742a35d78e4a6b50",
+      "size": 11705
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -777,8 +777,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "39567fdbb3593758aeed03bddfb7db775198a151fdc14dc83c6abacc8e491f5d",
-      "size": 49807
+      "sha256": "4e507be663cfe64fecbff2086b4afcc345ed9842541ed9776a8c486a356840d4",
+      "size": 49805
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1367,8 +1367,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "0f08eb665005947c675499d58b1be1a03d514bd9999c38285bd314689e32c8eb",
-      "size": 4943
+      "sha256": "a8f539dc2f917dfe1a40594c6900b7d0959136049f0f47d2850f8ff1bdd40074",
+      "size": 5024
     },
     {
       "path": "ProtocolEvent.java",
@@ -1597,8 +1597,8 @@
     },
     {
       "path": "ResolveTerminalResult.java",
-      "sha256": "d7e0f9a05a7d4380161584ff5087ac986138486801fcc47da4f98d7e46ea4439",
-      "size": 9198
+      "sha256": "c2088ff344ecf216f0026cf38b229e51325f1336facc4d7d437315293310e6b5",
+      "size": 9954
     },
     {
       "path": "ResourceSelectors.java",
@@ -1694,6 +1694,11 @@
       "path": "SendRequest.java",
       "sha256": "9e59a67aa3147e0781978aae9c23c79c2c8cc79171eb0c1ec246a96d9a77d6d7",
       "size": 3717
+    },
+    {
+      "path": "SendResult.java",
+      "sha256": "d2cc3f169238da81afc035b913d071367471f61fcd2cd8efd3637f1d6dc59647",
+      "size": 1927
     },
     {
       "path": "ServerStatsConnections.java",
@@ -2021,6 +2026,11 @@
       "size": 2308
     },
     {
+      "path": "SurfaceLifecycle.java",
+      "sha256": "0be36f4a6737d96389aaf2ca089774e5990203a8444a45914ab48326ffd2e16d",
+      "size": 912
+    },
+    {
       "path": "SurfaceOutputEvent.java",
       "sha256": "6822c7d400ca937e714e015b6c20cdf4252eefaff18f0076017490d44f210215",
       "size": 2308
@@ -2037,8 +2047,8 @@
     },
     {
       "path": "SurfaceResult.java",
-      "sha256": "7c810072ef76e279ca3ca9d025b321765318c9e0b49773821d127889a16c1c8a",
-      "size": 3515
+      "sha256": "982184a415f74e9db038954a603d8275b1c9de6241474862b965762dcdeb6d1e",
+      "size": 4797
     },
     {
       "path": "SwapPaneRequest.java",
@@ -2169,6 +2179,16 @@
       "path": "TerminalLifecycle.java",
       "sha256": "96a416b9f56b3e6cd7a0a1505083485f1bc10a2c6a42639e79d1ed308514fd9f",
       "size": 995
+    },
+    {
+      "path": "TerminalLifecycleEvent.java",
+      "sha256": "34251be9423af390d4b74491d37c8008d580ccbd17e072234590452ad4ab3df1",
+      "size": 6465
+    },
+    {
+      "path": "TerminalLifecycleEventTo.java",
+      "sha256": "522b9ede91f330243c293fccb6070cbbd1a08a2a45456ed544158053b317abb6",
+      "size": 946
     },
     {
       "path": "TerminalModifiers.java",
@@ -2442,7 +2462,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5",
+  "ir_sha256": "5e6d233efee8a5ab1e730978f2d8e644cc681ccf2e2b62b9aa390f2a943b1536",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -113,7 +113,7 @@ pub(super) fn placement_spawn_options(
 /// `SHELL` in `env`, the frontend resolved the integration for that shell,
 /// so the shell is always explicit and the host adds nothing; without a
 /// `SHELL` the frontend resolved nothing, and the host integrates as before.
-pub(super) fn shell_argv(
+pub(crate) fn shell_argv(
     env: &[(String, String)],
     shell_args: Option<Vec<String>>,
     frontend_shell: bool,

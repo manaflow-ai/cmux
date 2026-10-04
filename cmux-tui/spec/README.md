@@ -57,6 +57,7 @@ documented for cmux frontends and compatibility adapters:
 | [`frontends.md`](frontends.md) | Private frontend synchronization |
 | [`programmability.md`](programmability.md) | Implementation inventory and ownership |
 | [`native-frontend.md`](native-frontend.md) | Native TUI integration boundaries |
+| [`interaction-lifecycle.md`](interaction-lifecycle.md) | Lifecycle states of objects created before they are ready, and the input rule |
 | [`session-journal.md`](session-journal.md) | Canonical event storage, hooks, agent ownership, and restoration |
 
 The private protocol is not a second public API. High-level SDK packages expose

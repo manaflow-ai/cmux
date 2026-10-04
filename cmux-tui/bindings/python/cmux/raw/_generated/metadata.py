@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5'
+IR_SHA256 = '5e6d233efee8a5ab1e730978f2d8e644cc681ccf2e2b62b9aa390f2a943b1536'
 
 
 @dataclass(frozen=True)
@@ -2950,6 +2950,7 @@ EVENTS = {
     'tab-changed': EventMetadata('tab-changed', 12, 'tab-metadata-v1', ('subscribe-deltas',), 'emitted'),
     'tab-closed': EventMetadata('tab-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'tab-renamed': EventMetadata('tab-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
+    'terminal-lifecycle': EventMetadata('terminal-lifecycle', 12, None, ('subscribe',), 'emitted'),
     'terminal-reaped': EventMetadata('terminal-reaped', 12, 'terminal-reap-v1', ('subscribe',), 'emitted'),
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),

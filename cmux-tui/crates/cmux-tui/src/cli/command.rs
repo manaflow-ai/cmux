@@ -16,6 +16,8 @@ use flags::BOOLEAN_FLAGS;
 pub(in crate::cli) mod cases;
 mod flags;
 mod git;
+mod projection;
+use projection::parse_projection;
 mod screen;
 mod server_ensure;
 mod state;
@@ -1143,6 +1145,21 @@ fn parse_terminal(
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalClose, selectors, flags, Map::new())
         }
+        // A terminal whose launch failed keeps its tab and its typed input
+        // (R81): `relaunch` starts a clean shell, `send-kept` sends the
+        // kept input to it once.
+        [selector, "relaunch"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(cwd) = flags.take("cwd") {
+                params.insert("cwd".into(), Value::String(cwd));
+            }
+            request(ResourceOperation::TerminalRelaunch, selectors, flags, params)
+        }
+        [selector, "send-kept"] => {
+            selectors.insert("terminal", "term", selector)?;
+            request(ResourceOperation::TerminalInputSendKept, selectors, flags, Map::new())
+        }
         [selector, "keep", state] => {
             // `set-terminal-keep` resolves only exact terminal identities, so
             // the relative selectors other terminal verbs accept are refused.
@@ -1720,63 +1737,6 @@ fn parse_pairing(
         }
         _ => usage("pairing request action"),
     }
-}
-
-fn parse_projection(
-    words: &[String],
-    selectors: &mut Selectors,
-    flags: &mut Flags,
-) -> Result<CommandPlan, UsageError> {
-    match strs(words).as_slice() {
-        ["show"] => {
-            insert_selector_or_current(
-                selectors,
-                flags,
-                "projection-id",
-                "frontend_projection",
-                "projection",
-            )?;
-            request(ResourceOperation::FrontendProjectionGet, selectors, flags, Map::new())
-        }
-        [selector, "show"] => {
-            selectors.insert("frontend_projection", "projection", selector)?;
-            request(ResourceOperation::FrontendProjectionGet, selectors, flags, Map::new())
-        }
-        ["put"] => {
-            insert_selector_or_current(
-                selectors,
-                flags,
-                "projection-id",
-                "frontend_projection",
-                "projection",
-            )?;
-            let params = projection_put_fields(flags)?;
-            request(ResourceOperation::FrontendProjectionPut, selectors, flags, params)
-        }
-        [selector, "put"] => {
-            selectors.insert("frontend_projection", "projection", selector)?;
-            let params = projection_put_fields(flags)?;
-            request(ResourceOperation::FrontendProjectionPut, selectors, flags, params)
-        }
-        _ => usage("projection action"),
-    }
-}
-
-fn projection_put_fields(flags: &mut Flags) -> Result<Map<String, Value>, UsageError> {
-    let mut params = Map::new();
-    params.insert("projection".into(), parse_json_flag(flags, "projection")?);
-    for (flag, field) in
-        [("frontend-id", "frontend_id"), ("window-id", "window_id"), ("generation", "generation")]
-    {
-        let value = flags.required(flag)?;
-        validate_bounded_text(&format!("--{flag}"), &value)?;
-        params.insert(field.into(), Value::String(value));
-    }
-    if let Some(revision) = flags.take("expected-projection-revision") {
-        validate_decimal("--expected-projection-revision", &revision)?;
-        params.insert("expected_projection_revision".into(), Value::String(revision));
-    }
-    Ok(params)
 }
 
 fn parse_provider(

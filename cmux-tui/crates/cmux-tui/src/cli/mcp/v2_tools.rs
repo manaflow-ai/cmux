@@ -538,6 +538,10 @@ fn summary(wire: &str, target: &str) -> String {
         "copy" => "Copy text from a terminal's screen or history".into(),
         "viewport scroll" => "Scroll a terminal's viewport".into(),
         "project" => "Show a terminal in another tab".into(),
+        "relaunch" => "Start a clean shell in a terminal whose launch failed".into(),
+        "input send kept" => {
+            "Send the input kept from a failed launch to the new shell once".into()
+        }
         "layout apply" => "Replace a workspace's layout".into(),
         "layout export" => "Export a screen's layout".into(),
         "layout undo" => "Undo the last layout change of a screen".into(),

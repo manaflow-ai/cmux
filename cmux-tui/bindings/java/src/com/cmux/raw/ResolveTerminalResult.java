@@ -13,6 +13,7 @@ import java.util.Objects;
 public final class ResolveTerminalResult implements WireValue {
     private final TerminalExit exit;
     private final String generation;
+    private final Field<UInt64> keptInputBytes;
     private final Object launchSpec;
     private final TerminalLifecycle lifecycle;
     private final String registryId;
@@ -27,6 +28,7 @@ public final class ResolveTerminalResult implements WireValue {
         this.exit = builder.exit;
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
+        this.keptInputBytes = builder.keptInputBytes;
         if (!builder.launchSpecSet) throw new IllegalArgumentException("launch_spec is required");
         this.launchSpec = Wire.immutableJson(Wire.nonNull(builder.launchSpec, "launch_spec"));
         if (!builder.lifecycleSet) throw new IllegalArgumentException("lifecycle is required");
@@ -49,6 +51,7 @@ public final class ResolveTerminalResult implements WireValue {
 
     public TerminalExit exit() { return exit; }
     public String generation() { return generation; }
+    public Field<UInt64> keptInputBytes() { return keptInputBytes; }
     public Object launchSpec() { return launchSpec; }
     public TerminalLifecycle lifecycle() { return lifecycle; }
     public String registryId() { return registryId; }
@@ -65,6 +68,10 @@ public final class ResolveTerminalResult implements WireValue {
         builder.exit(rawExit == null ? null : TerminalExit.fromWire(rawExit));
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "ResolveTerminalResult.generation"));
+        Object rawKeptInputBytes = Wire.optional(object, "kept_input_bytes");
+        if (!Wire.isMissing(rawKeptInputBytes)) {
+            builder.keptInputBytes(Wire.uint64(rawKeptInputBytes, "ResolveTerminalResult.kept_input_bytes"));
+        }
         Object rawLaunchSpec = Wire.required(object, "launch_spec");
         builder.launchSpec(Wire.immutableJson(rawLaunchSpec));
         Object rawLifecycle = Wire.required(object, "lifecycle");
@@ -89,6 +96,7 @@ public final class ResolveTerminalResult implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "exit", exit);
         Wire.put(object, "generation", generation);
+        Wire.put(object, "kept_input_bytes", keptInputBytes);
         Wire.put(object, "launch_spec", launchSpec);
         Wire.put(object, "lifecycle", lifecycle);
         Wire.put(object, "registry_id", registryId);
@@ -103,11 +111,11 @@ public final class ResolveTerminalResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ResolveTerminalResult that)) return false;
-        return Objects.equals(exit, that.exit) && Objects.equals(generation, that.generation) && Objects.equals(launchSpec, that.launchSpec) && Objects.equals(lifecycle, that.lifecycle) && Objects.equals(registryId, that.registryId) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(workspaceKey, that.workspaceKey);
+        return Objects.equals(exit, that.exit) && Objects.equals(generation, that.generation) && Objects.equals(keptInputBytes, that.keptInputBytes) && Objects.equals(launchSpec, that.launchSpec) && Objects.equals(lifecycle, that.lifecycle) && Objects.equals(registryId, that.registryId) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(workspaceKey, that.workspaceKey);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(exit, generation, launchSpec, lifecycle, registryId, surface, terminalId, terminalIncarnation, terminalRevision, workspaceKey); }
+    public int hashCode() { return Objects.hash(exit, generation, keptInputBytes, launchSpec, lifecycle, registryId, surface, terminalId, terminalIncarnation, terminalRevision, workspaceKey); }
 
     @Override
     public String toString() { return "ResolveTerminalResult" + toWire(); }
@@ -117,6 +125,7 @@ public final class ResolveTerminalResult implements WireValue {
         private boolean exitSet;
         private String generation;
         private boolean generationSet;
+        private Field<UInt64> keptInputBytes = Field.omitted();
         private Object launchSpec;
         private boolean launchSpecSet;
         private TerminalLifecycle lifecycle;
@@ -142,6 +151,10 @@ public final class ResolveTerminalResult implements WireValue {
         public Builder generation(String value) {
             this.generation = value;
             this.generationSet = true;
+            return this;
+        }
+        public Builder keptInputBytes(UInt64 value) {
+            this.keptInputBytes = Field.of(value);
             return this;
         }
         public Builder launchSpec(Object value) {

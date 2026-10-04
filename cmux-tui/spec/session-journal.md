@@ -600,6 +600,30 @@ writer instead of waiting without a limit. The transaction continues to own the
 registry and its atomic idempotency receipt until SQLite returns; a later retry
 therefore observes the committed receipt or performs the request once.
 
+Every accepted terminal create is reconciled after a daemon restart, never
+cancelled (R81 stage A). A create's accept commits the terminal row as
+`launching` before its reply, and its host starts its child only after the
+`running` commit and Activate. A restarted owner applies these rules:
+
+- A host record with no terminal row and no creation intent belongs to a
+  create that never committed its accept. The owner exact-kills the host and
+  deletes its record and endpoint. The host published the record without a
+  workspace key, so the legacy import path never adopts it.
+- A `launching` row with no host record: the child never started. The owner
+  launches a host under the same terminal id in the same placement and adopts
+  it; it runs a new incarnation, so a client that holds an older incarnation
+  cannot drive it. The registry keeps no argv, cwd or environment (they can
+  hold credentials), so the relaunched terminal runs the owner's default shell
+  in the default directory. A failed relaunch commits `exited` with its cause.
+- A `launching` row with a host record: the owner adopts the host through the
+  `adopting` path.
+- A `running` row whose host still waits for Activate (its Hello carries the
+  launch-activation flag): the owner adopts the host and sends Activate.
+
+Input queued for a launching terminal lives only in daemon memory and is lost
+with the process. Those bytes never reached a shell, so no command runs twice.
+Input kept from a failed launch is also in memory only.
+
 Live restoration will consume this inert complete model. Process adoption,
 fresh process spawning, browser reconnect, and agent resume are explicit
 post-replay actions with their own journal outcomes. A partially supported

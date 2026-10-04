@@ -272,6 +272,7 @@ impl SurfaceSessionScope {
             | MuxEvent::Conversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
             | MuxEvent::TerminalReaped { .. }
+            | MuxEvent::TerminalLifecycle(_)
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5.
+// cmux-tui mux protocol 12, IR 5e6d233efee8a5ab1e730978f2d8e644cc681ccf2e2b62b9aa390f2a943b1536.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2150,9 +2150,6 @@ pub struct SendRequest {
 }
 
 #[rustfmt::skip]
-pub type SendResult = T::EmptyResult;
-
-#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SendKeyRequest {
     pub keys: Vec<String>,
@@ -3747,7 +3744,7 @@ impl CmuxClient {
         self.execute(&SELECT_WORKSPACE_METADATA, &request)
     }
 
-    pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
+    pub fn send(&mut self, request: SendRequest) -> Result<T::SendResult> {
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
         }

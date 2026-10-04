@@ -10,6 +10,7 @@ mod mouse;
 mod owner;
 mod revision_conflict;
 mod session;
+mod terminal_relaunch;
 mod topology;
 
 pub(crate) use owner::requires_connection_context;
@@ -176,6 +177,9 @@ fn dispatch_resource_request(
     let operation = request.envelope.operation;
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
+        OperationOwner::Content if terminal_relaunch::handles(operation) => {
+            terminal_relaunch::dispatch(mux, request)
+        }
         OperationOwner::Content => content::dispatch(mux, request),
         OperationOwner::Topology => topology::dispatch(mux, request),
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),

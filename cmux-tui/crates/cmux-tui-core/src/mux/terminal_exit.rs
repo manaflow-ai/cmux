@@ -161,6 +161,19 @@ impl Mux {
         incarnation: Option<&str>,
         end: &TerminalEnd,
     ) -> anyhow::Result<bool> {
+        self.persist_terminal_exit_with(terminal_id, incarnation, end, false)
+    }
+
+    /// [`Self::persist_terminal_exit`] that keeps the terminal's views when
+    /// `keep_views` holds: a launch that fails after its accept leaves its
+    /// tab in place with the cause and the kept input (R81 stage A, R5).
+    pub(super) fn persist_terminal_exit_with(
+        &self,
+        terminal_id: &str,
+        incarnation: Option<&str>,
+        end: &TerminalEnd,
+        keep_views: bool,
+    ) -> anyhow::Result<bool> {
         // A signal exit during a session shutdown is a host loss. A live
         // signal exit within the shutdown lead is not final yet: it commits
         // without a detach, which waits out the lead (logout race).
@@ -226,6 +239,7 @@ impl Mux {
             None => false,
         };
         let keep_live_views = kept_by_store
+            || keep_views
             || (terminal.on_exit == TerminalOnExit::Keep
                 && public_terminal_id
                     .as_ref()

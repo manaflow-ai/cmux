@@ -293,7 +293,9 @@ declare namespace Cmux {
   type TerminalHistoryResult = { start: string; next?: string | null; rows: Array<Cmux.RenderRow> }
   type TerminalLifecycle = "launching" | "running" | "exited"
   type TerminalOutputReadResult = { text: string; start_offset: string; next_offset: string; complete: boolean }
+  type TerminalRelaunchResult = { terminal: string /* terminal_… */ }
   type TerminalScreenResult = { text: string; revision?: string | null; osc_progress?: string | null; cols: number; rows: number; cursor_row: number; cursor_col: number; cursor_visible: boolean; extra?: Record<string, Cmux.JsonValue> }
+  type TerminalSendKeptResult = { terminal: string /* terminal_… */; bytes: number }
   type TerminalSnapshot = { id: string /* terminal_… */; tab_id: string /* tab_… */ | null; tab_ids: Array<string /* tab_… */>; title: string; cwd?: string; cols: number; rows: number; running: boolean; lifecycle: Cmux.TerminalLifecycle; stream_revision?: string; exit?: Cmux.TerminalExit; extra?: Record<string, Cmux.JsonValue> }
   type TerminalStateResult = { state_base64: string; cols: number; rows: number }
   type TerminalWaitExitExited = { state: "exited"; terminal_id: string /* terminal_… */; lifecycle: "exited"; outcome: Cmux.TerminalExitOutcome; exited_at: string; revision: string }
@@ -1277,6 +1279,8 @@ interface CmuxGlobal {
       keys: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; keys: Array<string>; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
       /** `terminal.input.mouse` (mutation, scope `terminal:execute`) */
       mouse: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; kind: "down" | "up" | "move" | "wheel"; row: number; column: number; button?: "left" | "middle" | "right"; delta_rows?: number; modifiers?: Array<Cmux.InputModifier>; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
+      /** `terminal.input.send_kept` (mutation, scope `terminal:execute`) */
+      send_kept: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.MutationResult<Cmux.TerminalSendKeptResult>>
       /** `terminal.input.write` (mutation, scope `terminal:execute`) */
       write: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; text?: string; bytes_base64?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.EmptyResult>>
     }
@@ -1292,6 +1296,8 @@ interface CmuxGlobal {
     }
     /** `terminal.project` (mutation, scope `terminal:execute`) */
     project: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; destination_workspace: unknown; destination_screen: unknown; destination_pane: unknown; index: number; name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
+    /** `terminal.relaunch` (mutation, scope `terminal:execute`) */
+    relaunch: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; env?: Record<string, string>; shell_args?: Array<string>; cwd?: string }, Cmux.MutationResult<Cmux.TerminalRelaunchResult>>
     screen: {
       /** `terminal.screen.read` (read, scope `terminal:read`) */
       read: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string }, Cmux.TerminalScreenResult>

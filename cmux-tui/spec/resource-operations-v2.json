@@ -1153,6 +1153,39 @@
       },
       "extra": false
     },
+    "TerminalRelaunchResult": {
+      "kind": "object",
+      "fields": {
+        "terminal": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "TerminalSendKeptResult": {
+      "kind": "object",
+      "fields": {
+        "terminal": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "terminal"
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
     "EmptyResult": {
       "kind": "object",
       "fields": {},
@@ -17255,6 +17288,55 @@
         "validation.invalid"
       ]
     },
+    "terminal.input.send_kept": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Sends the input kept from a failed launch to the running shell once, through the normal input path. Refused when nothing is kept."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TerminalSendKeptResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "mutation.indeterminate",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
     "terminal.input.write": {
       "class": "mutation",
       "idempotency": "required",
@@ -17662,6 +17744,90 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "terminal.relaunch": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "terminal",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane",
+        "tab"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "required"
+        },
+        "fields": {
+          "env": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "sensitive": true,
+            "description": "Extra environment for the new shell only. Not stored durably."
+          },
+          "shell_args": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "sensitive": true,
+            "description": "Run env.SHELL (or the default shell) with these arguments, as new-tab shell_args do."
+          },
+          "cwd": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "sensitive": true,
+            "description": "Directory of the new shell."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only an exited terminal whose launch failed after its accept can be relaunched. It keeps its terminal id and its tab and runs a new host process.",
+          "The kept input is not replayed; terminal.input.send_kept sends it."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TerminalRelaunchResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "mutation.indeterminate",
+        "operation.failed",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

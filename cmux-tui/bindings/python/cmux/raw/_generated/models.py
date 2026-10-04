@@ -146,6 +146,10 @@ class SplitDirection(str, Enum):
     RIGHT = 'right'
     DOWN = 'down'
 
+class SurfaceLifecycle(str, Enum):
+    LAUNCHING = 'launching'
+    RUNNING = 'running'
+
 class TerminalKey(str, Enum):
     UNIDENTIFIED = 'unidentified'
     BACKQUOTE = 'backquote'
@@ -1074,6 +1078,7 @@ class ResolveTerminalResult:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     workspace_key: str
+    kept_input_bytes: Union[int, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1137,6 +1142,12 @@ class Screen:
     panes: List[Pane]
     zoomed_pane: Union[Id, None]
     short_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SendResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SendResult'
+    delivery: Union[Literal['queued'], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1373,6 +1384,8 @@ class SurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SurfaceResult'
     surface: Id
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    lifecycle: Union[SurfaceLifecycle, MissingType] = field(default=MISSING)
+    tab_id: Union[str, None, MissingType] = field(default=MISSING)
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4069,6 +4082,20 @@ class TabRenamedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class TerminalLifecycleEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/terminal-lifecycle/payload'
+    terminal_id: str
+    cause: Union[str, None]
+    elapsed_ms: int
+    event: Literal['terminal-lifecycle']
+    from_: Literal['launching'] = field(metadata={'wire_name': 'from'})
+    terminal: Union[str, None]
+    terminal_incarnation: Union[str, None]
+    to: Literal['running', 'exited']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class TerminalReapedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/terminal-reaped/payload'
     terminal_id: str
@@ -4226,7 +4253,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalLifecycleEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -4255,6 +4282,7 @@ __all__ = [
     'SizeMode',
     'SizeReason',
     'SplitDirection',
+    'SurfaceLifecycle',
     'TerminalKey',
     'TerminalKeyAction',
     'TerminalLifecycle',
@@ -4349,6 +4377,7 @@ __all__ = [
     'RowMarkerPoint',
     'RunResult',
     'Screen',
+    'SendResult',
     'ServerStatsConnections',
     'ServerStatsHistogram',
     'ServerStatsJournalWriter',
@@ -4673,6 +4702,7 @@ __all__ = [
     'TabChangedEvent',
     'TabClosedEvent',
     'TabRenamedEvent',
+    'TerminalLifecycleEvent',
     'TerminalReapedEvent',
     'TerminalRegistryChangedEvent',
     'TitleChangedEvent',

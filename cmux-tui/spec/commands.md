@@ -1167,8 +1167,17 @@ Params:
 Result:
 
 ```text
-object{}
+object{delivery?:"queued"}
 ```
+
+A send to a launching terminal (see [new-tab](#new-tab)) is held in the
+terminal's launch queue and reaches the PTY after the shell starts, before any
+later input; the reply then carries `delivery:"queued"`. The queue holds at
+most 64 KiB. A write that does not fit is refused whole, never cut, with
+`error_code:"terminal.launch_input_budget"`; the message names the budget and
+the bytes already queued. Queued input is in memory only: a daemon crash loses
+it, even after its `queued` reply. A send to a terminal whose launch failed is
+dropped, as for an exited terminal.
 
 Errors:
 
@@ -1178,6 +1187,7 @@ Errors:
 | `browser surface does not support PTY/VT socket commands` | Surface is a browser |
 | base64 decode error | `bytes` is not valid standard base64 |
 | IO error string | PTY write fails |
+| `terminal.launch_input_budget` | The launch queue of a launching terminal cannot take the whole write |
 | `bad request: ...` | Missing `surface` or wrong JSON type |
 
 CLI mapping:
@@ -1453,8 +1463,35 @@ If only one of `cols` or `rows` is present, the server ignores both because it u
 Result:
 
 ```text
-object{surface:Id}
+object{surface:Id, tab_id?:string|null, terminal_id?:string|null,
+       terminal_incarnation?:string|null, lifecycle?:"launching"|"running"}
 ```
+
+On an owner that runs terminal hosts, `new-tab` replies after its durable
+accept commit and before the host is ready (R81 stage A). The tab is in the tree
+and attachable at the reply, with `lifecycle:"launching"` and
+`terminal_incarnation:null`; the host picks the incarnation at bootstrap. One
+`terminal-lifecycle` event follows when the shell runs (it carries the
+incarnation) or the launch fails (it carries the cause). While a terminal is
+launching:
+
+| Operation | Result while `launching` |
+| --- | --- |
+| attach | waits for the host (bounded), then streams the running terminal |
+| resize | recorded; applied after the host is adopted |
+| `send`, `terminal.input.*` | queued, see [send](#send) |
+| `read-screen`, scrollback | an empty screen |
+| move, rename, focus | placement and metadata only |
+| `close-surface`, tab and workspace closes | cancel the launch; the host is exact-killed and the terminal ends |
+| `close-terminal` with a `terminal_incarnation` | refused: a launching terminal has no incarnation yet |
+| `resolve-terminal`, `terminal.list` | `lifecycle:"launching"`, `running:false` |
+
+A launch that fails after the accept leaves the tab in place: the terminal
+commits `exited` with a `launch-failed: <reason>` cause, and the typed input it
+queued is kept (`resolve-terminal` reports `kept_input_bytes`). Nothing replays
+it. `terminal.relaunch` starts a clean shell in the same tab under the same
+terminal id; `terminal.input.send_kept` sends the kept input once, when the user
+chooses.
 
 Errors:
 

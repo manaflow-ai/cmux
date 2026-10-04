@@ -12,6 +12,8 @@ use spawn::{LocalLaunch, LocalSpawn};
 #[cfg(unix)]
 mod host_frames;
 #[cfg(unix)]
+pub(crate) mod launching;
+#[cfg(unix)]
 mod prelaunch;
 use directory::PublishedDirectory;
 
@@ -1465,6 +1467,9 @@ enum PtyRuntime {
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
     #[cfg(unix)]
     ExitedHosted,
+    /// The tab's host is not adopted yet (R81 stage A); input is queued.
+    #[cfg(unix)]
+    Launching(Arc<launching::LaunchControl>),
 }
 
 /// Owns a freshly spawned PTY child until the child reaper has taken over.
@@ -1525,31 +1530,27 @@ enum KittyQuota {
     AfterCommit,
 }
 
+/// The machine-readable code of a launching terminal's input refusal.
+pub(crate) fn launch_error_code(error: &anyhow::Error) -> Option<String> {
+    #[cfg(unix)]
+    return launching::error_code(error);
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        None
+    }
+}
+
 /// A launched terminal host whose surface is not built yet
 /// ([`Surface::prelaunch_hosted`]).
 #[cfg(unix)]
 pub(crate) struct PrelaunchedHost {
     id: SurfaceId,
-    terminal_id: crate::terminal_host::TerminalId,
     opts: SurfaceOptions,
     attachment: crate::terminal_host_runtime::HostAttachment,
     kitty_reservation: Option<crate::mux::KittyImageBudgetReservation>,
     terminal_public_id: Option<TerminalPublicId>,
     resource_identity: TabResourceIdentity,
-}
-
-#[cfg(unix)]
-impl PrelaunchedHost {
-    pub(crate) fn terminal_id(&self) -> crate::terminal_host::TerminalId {
-        self.terminal_id
-    }
-
-    /// Write the workspace key into the host's recovery record now, so the
-    /// creation transaction finds it current and skips the synced write
-    /// (`Surface::persist_host_workspace`).
-    pub(crate) fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
-        self.attachment.persist_workspace(workspace_key)
-    }
 }
 
 #[cfg(unix)]
@@ -1937,7 +1938,7 @@ fn mark_hosted_runtime_exited(
     let mut runtime = pty.runtime.lock().unwrap();
     let matches = match &*runtime {
         PtyRuntime::Hosted(host) => host.identity() == *identity,
-        PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => false,
+        PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } | PtyRuntime::Launching(_) => false,
     };
     if matches {
         if let PtyRuntime::Hosted(host) = &*runtime {
@@ -2202,7 +2203,6 @@ impl Surface {
     ) -> anyhow::Result<Arc<Surface>> {
         let PrelaunchedHost {
             id,
-            terminal_id: _,
             opts,
             attachment,
             kitty_reservation,
@@ -3179,7 +3179,9 @@ impl Surface {
                             let runtime = pty.runtime.lock().unwrap();
                             match &*runtime {
                                 PtyRuntime::Hosted(host) => Some(host.discovery_record()),
-                                PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
+                                PtyRuntime::ExitedHosted
+                                | PtyRuntime::Local { .. }
+                                | PtyRuntime::Launching(_) => None,
                             }
                         };
                         let Some((record, record_path)) = discovery else { return };
@@ -3261,6 +3263,7 @@ impl Surface {
                                 }
                                 PtyRuntime::Hosted(_)
                                 | PtyRuntime::ExitedHosted
+                                | PtyRuntime::Launching(_)
                                 | PtyRuntime::Local { .. } => return,
                             };
                             let defaults =
@@ -3708,130 +3711,6 @@ impl Surface {
         )
     }
 
-    #[cfg(all(unix, test))]
-    fn exited_terminal_placeholder_with_identities(
-        id: SurfaceId,
-        opts: SurfaceOptions,
-        mux: Weak<Mux>,
-        identity: crate::terminal_host_runtime::TerminalHostIdentity,
-        terminal_public_id: TerminalPublicId,
-        resource_identity: Option<TabResourceIdentity>,
-    ) -> anyhow::Result<Arc<Surface>> {
-        let journal_generation = Arc::from(identity.incarnation.clone());
-        let initial_kitty_limits = KittyGraphicsLimits::disabled();
-        let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
-        let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
-        let cell_pixels =
-            mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
-        let mut term = Terminal::new(cols, rows, opts.scrollback, callbacks)?;
-        term.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
-        term.set_kitty_graphics_limits(initial_kitty_limits)?;
-        if let Some(mux) = mux.upgrade() {
-            let colors = mux.default_colors();
-            term.replace_default_colors(colors.fg, colors.bg, colors.cursor);
-            term.set_default_palette(&colors.palette);
-            replace_ghostty_cursor_defaults(&mut term, colors);
-        }
-        let mut mouse_encoders = MouseEncoders::new()?;
-        mouse_encoders.sync_from_terminal(&term);
-        let render_state = RenderState::new()?;
-        let (frame_requests, frame_rx) = sync_channel(1);
-        #[cfg(test)]
-        let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
-        let command = opts
-            .command
-            .clone()
-            .filter(|command| !command.is_empty())
-            .unwrap_or_else(|| vec![platform::default_shell()]);
-        let surface = Arc::new(Surface::Pty(PtySurface {
-            meta: SurfaceMeta {
-                id,
-                resource_identity,
-                name: Mutex::new(None),
-                selection: Mutex::new(None),
-            },
-            terminal: Arc::new(PtyTerminalRuntime {
-                event_surface_id: id,
-                terminal_public_id: Some(Arc::new(terminal_public_id)),
-                journal_generation,
-                journal_capture_supported: true,
-                journal_capture_epoch: AtomicU64::new(0),
-                journal_capture_gate: Mutex::new(()),
-                journal_capture_idle: Condvar::new(),
-                journal_capture_open: AtomicBool::new(true),
-                journal_capture_reserved: AtomicBool::new(false),
-                journal_capture_active: AtomicBool::new(false),
-                reader_thread: Mutex::new(None),
-                reader_completion: Arc::new(ReaderCompletion::default()),
-                reaper_thread: Mutex::new(None),
-                reaper_completion: Arc::new(ReaderCompletion::default()),
-                term: Mutex::new(Box::new(term)),
-                stream_progress: Box::new(TerminalStreamProgress::default()),
-                terminal_metadata: Mutex::new(Default::default()),
-                command_tracker: Mutex::new(Default::default()),
-                mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
-                runtime: Mutex::new(PtyRuntime::ExitedHosted),
-                lifetime: PtyLifetime::SessionOwned,
-                supports_clear_history_key_fallback: AtomicBool::new(false),
-                host_identity: Some(identity),
-                pending_host_binding: Mutex::new(None),
-                host_exit_record_path: None,
-                pid: None,
-                command,
-                cwd: opts.cwd,
-                exit: Mutex::new(None),
-                local_pty_drained: AtomicBool::new(true),
-                exit_notified: AtomicBool::new(true),
-                dead: AtomicBool::new(true),
-                owner_detaching: AtomicBool::new(false),
-                host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
-                dirty: AtomicBool::new(true),
-                title: Mutex::new(String::new()),
-                pwd: Mutex::new(None),
-                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
-                directory_pending: AtomicBool::new(true),
-                directory_reported: AtomicBool::new(false),
-                geometry: Mutex::new(PtyGeometry {
-                    cols,
-                    rows,
-                    cell_width: cell_pixels.0,
-                    cell_height: cell_pixels.1,
-                }),
-                kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
-                #[cfg(test)]
-                geometry_test_hook: Mutex::new(None),
-                #[cfg(test)]
-                deferred_cell_pixel_ack_test_hook: Mutex::new(None),
-                #[cfg(test)]
-                test_master_control: None,
-                #[cfg(test)]
-                vt_replay_builds: AtomicUsize::new(0),
-                mux,
-                taps: Mutex::new(Vec::new()),
-                attach_colors_pending: AtomicBool::new(false),
-                attach_colors_force_pending: AtomicBool::new(false),
-                snapshot_position: Default::default(),
-                last_attach_colors: Mutex::new(None),
-                render: Arc::new(Mutex::new(RenderHub {
-                    state: Box::new(render_state),
-                    built_generation: 0,
-                    latest: None,
-                    initial_graphics: None,
-                    final_initial: None,
-                    taps: Vec::new(),
-                })),
-                render_generation: AtomicU64::new(1),
-                frame_requests,
-                #[cfg(test)]
-                frame_producer_before_upgrade,
-            }),
-            viewport: Mutex::new(TerminalViewportState::default()),
-        }));
-        spawn_frame_producer(&surface, frame_rx)?;
-        Ok(surface)
-    }
-
     #[cfg(test)]
     pub(crate) fn spawn_for_test(
         id: SurfaceId,
@@ -4230,6 +4109,10 @@ impl Surface {
             // instead of failing every keystroke on the final screen.
             #[cfg(unix)]
             PtyRuntime::ExitedHosted => Ok(()),
+            #[cfg(unix)]
+            PtyRuntime::Launching(control) => {
+                control.enqueue(bytes, false).map(drop).map_err(Into::into)
+            }
         }
     }
 
@@ -4268,6 +4151,19 @@ impl Surface {
                 std::io::ErrorKind::NotConnected,
                 "terminal has no live PTY owner for receipted input",
             ))),
+            // A launching terminal queues the write whole (R4); the receipt
+            // confirms the queue, which is not durable.
+            #[cfg(unix)]
+            PtyRuntime::Launching(control) => {
+                control.enqueue(bytes, false).map(drop).map_err(|error| match error {
+                    launching::LaunchEnqueueError::Budget(budget) => {
+                        ConfirmedInputFailure::Known(std::io::Error::other(budget))
+                    }
+                    launching::LaunchEnqueueError::Io(error) => {
+                        ConfirmedInputFailure::Indeterminate(error)
+                    }
+                })
+            }
         }
     }
 
@@ -4311,6 +4207,9 @@ impl Surface {
             // way as keystrokes: the final screen is read-only, not broken.
             if matches!(&*runtime, PtyRuntime::ExitedHosted) {
                 return Ok(());
+            }
+            if let PtyRuntime::Launching(control) = &*runtime {
+                return control.enqueue(bytes, true).map(drop).map_err(Into::into);
             }
         }
         let bracketed = {
@@ -4920,9 +4819,9 @@ impl Surface {
                             "terminal host does not support clear-history"
                         )));
                     }
-                    PtyRuntime::ExitedHosted => {
+                    PtyRuntime::ExitedHosted | PtyRuntime::Launching(_) => {
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
-                            "terminal host has exited"
+                            "terminal host has exited or is launching"
                         )));
                     }
                     PtyRuntime::Local { .. } => {}
@@ -5461,6 +5360,32 @@ impl Surface {
         anyhow::bail!("surface is not backed by a terminal host")
     }
 
+    /// Whether this is a launching terminal's placeholder (R81 stage A).
+    pub(crate) fn is_launching(&self) -> bool {
+        #[cfg(unix)]
+        return self.launch_control().is_some();
+        #[cfg(not(unix))]
+        false
+    }
+
+    /// Write input to a launching terminal: `Some(Ok(true))` when it was
+    /// queued, `Some(Ok(false))` when the terminal runs or its launch ended,
+    /// `None` when this surface is not launching.
+    pub(crate) fn launch_input(&self, bytes: &[u8], paste: bool) -> Option<anyhow::Result<bool>> {
+        #[cfg(unix)]
+        return self.launch_control().map(|control| {
+            control
+                .enqueue(bytes, paste)
+                .map(|delivery| delivery == launching::LaunchInputDelivery::Queued)
+                .map_err(Into::into)
+        });
+        #[cfg(not(unix))]
+        {
+            let _ = (bytes, paste);
+            None
+        }
+    }
+
     pub fn is_dead(&self) -> bool {
         match self {
             Surface::Pty(pty) => pty.dead.load(Ordering::Acquire),
@@ -5614,6 +5539,14 @@ impl Surface {
                         }
                         #[cfg(unix)]
                         PtyRuntime::ExitedHosted => {}
+                        // A close of a launching tab cancels its launch job,
+                        // which exact-kills the prelaunched host.
+                        #[cfg(unix)]
+                        PtyRuntime::Launching(control) => {
+                            if let Some(hosted) = control.cancel() {
+                                hosted.kill();
+                            }
+                        }
                     }
                 }
                 if let Some(mux) = pty.mux.upgrade() {
@@ -5641,6 +5574,11 @@ impl Surface {
                     return;
                 }
                 if matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::ExitedHosted) {
+                    return;
+                }
+                // Shutdown cancels a launch; it never ends an adopted host.
+                if let Some(control) = self.launch_control() {
+                    control.cancel();
                     return;
                 }
                 self.kill();
@@ -5704,6 +5642,10 @@ impl Surface {
         {
             let Some(pty) = self.as_pty() else { return Ok(false) };
             let mut runtime = pty.runtime.lock().unwrap();
+            if let PtyRuntime::Launching(control) = &*runtime {
+                // The topology is durable: the launch job may now activate.
+                control.mark_accepted();
+            }
             let PtyRuntime::Hosted(host) = &mut *runtime else { return Ok(false) };
             host.activate_launched_host().map_err(anyhow::Error::new)
         }
@@ -6663,7 +6605,7 @@ impl PtySurface {
                     return Ok(true);
                 }
                 PtyRuntime::ExitedHosted => return Ok(false),
-                PtyRuntime::Local { .. } => {}
+                PtyRuntime::Local { .. } | PtyRuntime::Launching(_) => {}
             }
         }
         let mut geometry = self.geometry.lock().unwrap();
@@ -6721,6 +6663,9 @@ impl PtySurface {
             Some(PtyRuntime::Hosted(_)) => None,
             #[cfg(unix)]
             Some(PtyRuntime::ExitedHosted) => return Ok(false),
+            // A launching grid records the size; the launch applies it.
+            #[cfg(unix)]
+            Some(PtyRuntime::Launching(_)) => None,
             None => None,
         };
         // Replay viewers need a replay of the new grid; snapshot viewers get

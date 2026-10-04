@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `bookmarks-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `bookmarks-changed`, `terminal-registry-changed`, `terminal-reaped`, `terminal-lifecycle`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -70,6 +70,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `size-state` | subscribe, byte/render attach | `surface` | protocol 12 additive; client capability `shared-sizing-v1` |
 | `terminal-registry-changed` | subscribe | terminal registry | protocol 9 |
 | `terminal-reaped` | subscribe | `terminal_id` | protocol 12 additive extension; capability `terminal-reap-v1` |
+| `terminal-lifecycle` | subscribe | `terminal_id` | protocol 12 additive extension |
 | `pairing-requested` | trusted Unix subscribe | `request` | protocol 7 |
 | `pairing-resolved` | trusted Unix subscribe | `request` | protocol 7 |
 | `status` | subscribe | session | protocol 5 internal status line |
@@ -451,6 +452,38 @@ object{
 
 This event is a durable commit barrier. Fetch `terminal-events` from the last applied revision or replace state from `list-terminals`.
 
+
+### terminal-lifecycle
+
+| Field | Value |
+| --- | --- |
+| event | `terminal-lifecycle` |
+| status | implemented |
+| since | protocol 12 additive extension |
+
+Payload:
+
+```text
+object{event:"terminal-lifecycle",terminal_id:string,terminal:string|null,
+       from:"launching",to:"running"|"exited",elapsed_ms:uint64,
+       cause:string|null,terminal_incarnation:string|null}
+```
+
+Meaning: a terminal that a create accepted before its host was ready (see
+`new-tab`) left `launching`. Exactly one event is sent per transition, so no
+client polls. `to:"running"` carries the incarnation that now runs; a client
+that holds the tab's surface rebinds to it without a refetch. This includes a
+relaunch after a daemon restart, which runs a new incarnation under the same
+terminal id and placement. `to:"exited"` carries the launch failure in `cause`
+and a null incarnation. `elapsed_ms` counts from the accept. The durable
+transition already committed, so the terminal registry and resource events
+report it too.
+
+Example:
+
+```json
+{"event":"terminal-lifecycle","terminal_id":"0f1e...","terminal":"term_5a...","from":"launching","to":"running","elapsed_ms":41,"cause":null,"terminal_incarnation":"7c2d..."}
+```
 
 ### terminal-reaped
 

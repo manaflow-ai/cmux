@@ -537,6 +537,8 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "terminal.attach",
         ),
         (vec!["terminal", TERMINAL, "close"], "terminal.close"),
+        (vec!["terminal", TERMINAL, "relaunch", "--cwd", "/tmp"], "terminal.relaunch"),
+        (vec!["terminal", TERMINAL, "send-kept"], "terminal.input.send_kept"),
         (vec!["browser", "list"], "browser.list"),
         (vec!["browser", BROWSER, "show"], "browser.get"),
         (vec!["browser", BROWSER, "navigate", "--url", "https://example.com"], "browser.navigate"),

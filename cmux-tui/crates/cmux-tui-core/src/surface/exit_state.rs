@@ -54,7 +54,7 @@ impl Surface {
                     false
                 }
                 PtyRuntime::ExitedHosted => true,
-                PtyRuntime::Local { .. } => return Ok(None),
+                PtyRuntime::Local { .. } | PtyRuntime::Launching(_) => return Ok(None),
             }
         };
         Ok(Some(HostTermination { identity, path, observed, already_exited }))

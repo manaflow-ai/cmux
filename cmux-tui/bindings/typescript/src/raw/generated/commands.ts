@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5. */
+/* cmux-tui mux protocol 12, IR 5e6d233efee8a5ab1e730978f2d8e644cc681ccf2e2b62b9aa390f2a943b1536. */
 
 
 import type * as T from "./types.js";
@@ -1510,7 +1510,6 @@ export interface SendRequest extends CmuxRequestBase {
   "surface": T.Id;
   "text"?: (string) | null;
 }
-export type SendResult = T.EmptyResult;
 
 /** Protocol v6; authority: control. */
 export interface SendKeyRequest extends CmuxRequestBase {
@@ -3493,7 +3492,7 @@ export interface CmuxCommandDefinitionMap {
   };
   "send": {
     request: SendRequest;
-    result: SendResult;
+    result: T.SendResult;
     authority: "control";
     since: 5;
     capability: null;

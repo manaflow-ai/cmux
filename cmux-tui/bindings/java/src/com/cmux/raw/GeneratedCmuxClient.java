@@ -788,9 +788,9 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
-    public final EmptyResult send(SendRequest request) throws CmuxException {
+    public final SendResult send(SendRequest request) throws CmuxException {
         Object result = execute(Commands.SEND, request.toWire());
-        return EmptyResult.fromWire(result);
+        return SendResult.fromWire(result);
     }
 
     public final EmptyResult sendKey(SendKeyRequest request) throws CmuxException {

@@ -153,12 +153,14 @@
     "terminal.input.focus",
     "terminal.input.keys",
     "terminal.input.mouse",
+    "terminal.input.send_kept",
     "terminal.input.write",
     "terminal.list",
     "terminal.move",
     "terminal.output_read",
     "terminal.process.get",
     "terminal.project",
+    "terminal.relaunch",
     "terminal.renderer_grant.create",
     "terminal.screen.read",
     "terminal.state.read",
@@ -714,6 +716,12 @@
       "name": "tab-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "terminal-lifecycle",
+      "streams": [
+        "subscribe"
       ]
     },
     {

@@ -238,6 +238,7 @@ fn snapshot_free_result_operation(operation: &str) -> bool {
 /// without turning the durable registry into an input log.
 fn sensitive_input_operation(operation: &str) -> bool {
     operation.starts_with("terminal.input.")
+        || operation == "terminal.relaunch"
         || operation.starts_with("browser.input.")
         || operation == "sidebar_view.input"
 }

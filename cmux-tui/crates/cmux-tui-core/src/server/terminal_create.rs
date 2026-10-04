@@ -1,12 +1,13 @@
 //! Terminal-creating requests run off the connection's dispatcher.
 //!
-//! A terminal create waits for its host to launch, which can take a large
+//! A terminal create can wait for its host to launch, which can take a large
 //! fraction of a second. Run inline, a burst of creates on one connection
 //! held every later request on that connection behind them and started the
 //! hosts one at a time. Now the dispatcher hands each create to the owner's
 //! bounded terminal work pool and moves on, so later requests on the
-//! connection are answered meanwhile. A `new-tab` launches its host on the
-//! pool in parallel with the other creates (`Mux::prelaunch_tab_terminal`).
+//! connection are answered meanwhile. A `new-tab` starts its host launch when
+//! it arrives (`Mux::begin_tab_launch`) and replies after its accept commit,
+//! before the host is ready (R81 stage A, `mux::tab_launch`).
 //!
 //! Creates of one connection still commit, and reply, in request order:
 //! each create commits only after every earlier create of its connection
@@ -95,19 +96,12 @@ impl PrelaunchRequest {
         })
     }
 
-    fn launch(self, mux: &Arc<Mux>) -> Option<String> {
-        // A failed prelaunch falls back to the create's own launch, which
-        // reports the failure through the usual creation error path.
-        mux.prelaunch_tab_terminal(
-            self.pane,
-            self.terminal_id,
-            self.cwd,
-            self.argv,
-            self.env,
-            self.size,
-        )
-        .ok()
-        .flatten()
+    fn begin(self, mux: &Arc<Mux>) -> Option<String> {
+        // A launch that cannot start falls back to the create's own launch,
+        // which reports the failure through the usual creation error path.
+        mux.begin_tab_launch(self.pane, self.terminal_id, self.cwd, self.argv, self.env, self.size)
+            .ok()
+            .flatten()
     }
 }
 
@@ -137,7 +131,7 @@ impl ConnectionSurfaceScheduler {
         let job: Box<dyn FnOnce() + Send> = Box::new(move || {
             crate::debug_spans::install(trace);
             crate::debug_spans::mark("job.start");
-            let launched = prelaunch.and_then(|prelaunch| prelaunch.launch(&job_mux));
+            let launched = prelaunch.and_then(|prelaunch| prelaunch.begin(&job_mux));
             crate::debug_spans::mark("prelaunch.done");
             let trace = crate::debug_spans::take();
             *slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = trace;
@@ -211,7 +205,7 @@ impl ConnectionSurfaceScheduler {
         crate::debug_spans::mark("reply.queued");
         crate::debug_spans::finish(crate::debug_spans::take());
         if let Some(terminal_hex) = launched {
-            mux.discard_prelaunched_terminal(&terminal_hex);
+            mux.discard_pending_launch(&terminal_hex);
         }
         keep_open
     }

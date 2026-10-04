@@ -3244,6 +3244,46 @@
      "presence": "optional",
      "nullable": true,
      "since": 9
+    },
+    "tab_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
+    "lifecycle": {
+     "type": {
+      "kind": "ref",
+      "name": "SurfaceLifecycle"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    }
+   },
+   "additional_properties": false
+  },
+  "SurfaceLifecycle": {
+   "kind": "enum",
+   "values": [
+    "launching",
+    "running"
+   ]
+  },
+  "SendResult": {
+   "kind": "object",
+   "fields": {
+    "delivery": {
+     "type": {
+      "kind": "literal",
+      "value": "queued"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
     }
    },
    "additional_properties": false
@@ -4182,6 +4222,15 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "kept_input_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
     }
    },
    "additional_properties": false
@@ -7861,10 +7910,12 @@
    },
    "result": {
     "kind": "ref",
-    "name": "EmptyResult"
+    "name": "SendResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "A send to a launching terminal is queued whole and reported as delivery:\"queued\"; queued input is not durable. A write that does not fit the 64 KiB launch queue is refused whole with error code terminal.launch_input_budget."
+   ]
   },
   "read-screen": {
    "authority": "control",
@@ -8930,7 +8981,8 @@
    "stream": null,
    "constraints": [
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
-    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+    "The reply comes after the durable accept commit and before the host is ready: lifecycle is \"launching\" and terminal_incarnation is null until the terminal-lifecycle event reports the running incarnation."
    ]
   },
   "new-browser-tab": {
@@ -20723,6 +20775,87 @@
       },
       "presence": "required",
       "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "terminal-lifecycle": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "terminal-lifecycle"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "from": {
+      "type": {
+       "kind": "literal",
+       "value": "launching"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "to": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "running",
+        "exited"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "elapsed_ms": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "terminal_incarnation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
      }
     },
     "additional_properties": false
