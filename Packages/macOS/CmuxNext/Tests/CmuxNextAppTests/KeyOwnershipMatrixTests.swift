@@ -73,9 +73,9 @@ struct KeyOwnershipMatrixTests {
             Surface(name: "terminal find field", focus: focused(.terminal, tab: "t1", target: .textField)),
             Surface(name: "palette open", focus: palette, window: .textPanel),
         ]
-        // Diff and Markdown: cmux-next has no diff or Markdown viewer yet
-        // (MiscHandlerStrings.diffViewer, .markdownViewer); their rows land
-        // with the viewers.
+        // Markdown: cmux-next has no Markdown viewer yet
+        // (MiscHandlerStrings.markdownViewer); its row lands with the viewer.
+        // The diff tab's context keys: DiffPageTabTests.
     }
 
     // MARK: Keys

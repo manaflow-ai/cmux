@@ -358,10 +358,11 @@ final class FocusEffectApplier: FocusEffectApplying {
             services.agentTabs.setCheckpointFocus(nil)
         }
         var next = registry.context
-        next.subtract([.terminalFocused, .browserFocused, .agentPaneFocused])
+        next.subtract(ActionContext.focusBits)
         if context.terminal { next.insert(.terminalFocused) }
         if context.browser { next.insert(.browserFocused) }
         if context.agent { next.insert(.agentPaneFocused) }
+        if context.diff { next.insert(.diffViewerFocused) }
         if registry.context != next { registry.context = next }
     }
 

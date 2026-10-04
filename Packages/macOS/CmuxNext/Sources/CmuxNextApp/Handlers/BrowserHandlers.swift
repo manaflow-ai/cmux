@@ -5,8 +5,8 @@ import CmuxNextDaemon
 
 /// Browser-category actions that act on the focused page or create browser
 /// panes. Back, forward, reload, zoom, and the address bar are bound in
-/// `AppActions.bindBrowser`; viewer families without a surface yet
-/// (diff, Markdown, file preview) are unavailable here.
+/// `AppActions.bindBrowser`; the diff viewer in `DiffHandlers`; viewer
+/// families without a surface yet (Markdown, file preview) are unavailable here.
 enum BrowserHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindPage(into: registry, context: context)
@@ -150,11 +150,5 @@ enum BrowserHandlers {
         unavailable(["saveFilePreview", "toggleFileEditorWordWrap"], MiscHandlerStrings.filePreview)
         unavailable(["markdownZoomIn", "markdownZoomOut", "markdownZoomReset"], MiscHandlerStrings.markdownViewer)
         unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)
-        unavailable([
-            "openDiffViewer", "palette.openDirectoryDiffViewer",
-            "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp",
-            "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop",
-            "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile",
-        ], MiscHandlerStrings.diffViewer)
     }
 }

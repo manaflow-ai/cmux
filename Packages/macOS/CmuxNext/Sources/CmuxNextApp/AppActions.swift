@@ -48,6 +48,7 @@ enum AppActions {
         FindInDirectoryHandlers.bind(into: registry, context: context)
         GlobalSearchHandlers.bind(into: registry, context: context)
         BrowserHandlers.bind(into: registry, context: context)
+        DiffHandlers.bind(into: registry, context: context)
         AgentExtensionHandlers.bind(into: registry, context: context)
         PageInfoHandlers.bind(into: registry, context: context)
         ExtensionHandlers.bind(into: registry, context: context)
