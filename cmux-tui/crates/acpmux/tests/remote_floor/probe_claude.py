@@ -145,6 +145,14 @@ def scenarios(root):
         ("managed-allow-default", "INFO", "Bash", {"managed": True, "inject": remote_settings(ask=[])}),
         ("managed-allow-empty-sources", "INFO", "Bash", {"managed": True, "inject": remote_settings(),
                                                          "args": ["--setting-sources", ""]}),
+        ("webfetch-ask", "FLOOR-ASK", "WebFetch", {"inject": remote_settings(ask=["*"]), "args": ["--setting-sources", ""]}),
+        ("websearch-ask", "FLOOR-ASK", "WebSearch", {"inject": remote_settings(ask=["*"]), "args": ["--setting-sources", ""]}),
+        ("plugin-default-sources", "INFO", "Bash", {"plugin": True, "inject": remote_settings(ask=["*"])}),
+        ("plugin-empty-sources", "FLOOR", "Bash", {"plugin": True, "inject": remote_settings(ask=["*"]),
+                                                   "args": ["--setting-sources", ""]}),
+        ("managed-mcp-default", "INFO", "Bash", {"managed_mcp": True}),
+        ("managed-mcp-strict", "FLOOR", "Bash", {"managed_mcp": True, "inject": remote_settings(ask=["*"]),
+                                                 "args": ["--setting-sources", ""]}),
         ("slash-clear-prefixed", "INFO", "Bash", {"inject": remote_settings(), "prompt": "Message from phone: /clear"}),
         ("slash-clear-as-text", "INFO", "Bash", {"inject": remote_settings(), "prompt": "/clear"}),
         ("bang-as-text", "INFO", "Bash", {"inject": remote_settings(), "prompt": "!touch MARKER"}),
@@ -152,6 +160,7 @@ def scenarios(root):
 
 
 SENTINELS = {
+    "plugin_agent": "probe-sentinel-plugin-agent",
     "user_memory": "probe-sentinel-user-claude-md",
     "user_import": "probe-sentinel-user-import",
     "project_memory": "probe-sentinel-project-claude-md",
@@ -189,6 +198,31 @@ def plant_memory(home, project):
     write_text(os.path.join(project, "CLAUDE.md"), SENTINELS["project_memory"] + "\n")
 
 
+PLUGIN_SENTINEL = "probe-sentinel-plugin-agent"
+
+
+def plant_plugin(claude, home, project, marker, env):
+    """A directory marketplace with one plugin that has a PreToolUse hook, an
+    MCP server and an agent; installed into the isolated HOME with the CLI."""
+    market = os.path.join(home, "market")
+    plugin = os.path.join(market, "probe-plugin")
+    write_json(os.path.join(market, ".claude-plugin", "marketplace.json"), {
+        "name": "probe-market", "owner": {"name": "probe"},
+        "plugins": [{"name": "probe-plugin", "source": "./probe-plugin", "description": "probe"}]})
+    write_json(os.path.join(plugin, ".claude-plugin", "plugin.json"), {"name": "probe-plugin", "version": "0.0.1"})
+    write_json(os.path.join(plugin, "hooks", "hooks.json"), {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
+        {"type": "command", "command": f"touch {marker}.plugin-hook"}]}]}})
+    write_json(os.path.join(plugin, ".mcp.json"), {"mcpServers": {"probe": {
+        "command": "sh", "args": ["-c", f"touch {marker}.plugin-mcp; cat"]}}})
+    write_text(os.path.join(plugin, "agents", "probe.md"),
+               f"---\nname: plugin-probe-agent\ndescription: {PLUGIN_SENTINEL}\n---\nhi\n")
+    log = []
+    for args in (["plugin", "marketplace", "add", market], ["plugin", "install", "probe-plugin@probe-market"]):
+        done = subprocess.run([claude] + args, cwd=project, env=env, capture_output=True, text=True, timeout=60)
+        log.append(f"{' '.join(args[:2])}: exit {done.returncode} {(done.stdout + done.stderr).strip()[:160]}")
+    return log
+
+
 def write_json(path, value):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
@@ -206,6 +240,8 @@ def tool_input_for(tool, marker, secret_path, project):
         "Glob": {"pattern": "**/*", "path": project},
         "Grep": {"pattern": "probe", "path": project},
         "TodoWrite": {"todos": [{"content": "probe", "status": "pending", "activeForm": "probing"}]},
+        "WebFetch": {"url": "http://127.0.0.1:9/probe", "prompt": "probe"},
+        "WebSearch": {"query": "probe"},
         "Agent": {"description": "probe", "prompt": "subagent-probe-go", "subagent_type": "general-purpose"},
     }[tool]
 
@@ -266,12 +302,18 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
         subprocess.run(["sudo", "-n", "mkdir", "-p", managed_dir], check=True)
         subprocess.run(["sudo", "-n", "tee", f"{managed_dir}/managed-settings.json"], input=json.dumps(managed),
                        text=True, stdout=subprocess.DEVNULL, check=True)
+    if opts.get("managed_mcp"):
+        subprocess.run(["sudo", "-n", "mkdir", "-p", managed_dir], check=True)
+        subprocess.run(["sudo", "-n", "tee", f"{managed_dir}/managed-mcp.json"], text=True, stdout=subprocess.DEVNULL,
+                       check=True, input=json.dumps({"mcpServers": {"managed-probe": {
+                           "command": "sh", "args": ["-c", f"touch {marker}.managed-mcp; cat"]}}}))
     if opts.get("memory"):
         plant_memory(home, project)
     fake, port = start_fake(tool, marker, os.path.join(case, "model.log"), secret_path, project, opts.get("sub"))
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ANTHROPIC_", "CLAUDE_"))}
     env.update(HOME=home, ANTHROPIC_BASE_URL=f"http://127.0.0.1:{port}", ANTHROPIC_API_KEY="sk-ant-probe-fake",
                CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1", DISABLE_AUTOUPDATER="1")
+    plugin_log = plant_plugin(claude, home, project, marker, env) if opts.get("plugin") else []
     result = {"name": name, "kind": kind, "tool": tool, "asked": 0, "ran": False, "exit": None,
               "set_mode_reply": None, "stderr": "", "result": None}
     proc = subprocess.Popen(args, cwd=project, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -333,9 +375,13 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
             proc.wait()
         fake.kill()
         fake.wait()
-    if opts.get("managed"):
+    if opts.get("managed") or opts.get("managed_mcp"):
         subprocess.run(["sudo", "-n", "rm", "-rf", managed_dir], check=False)
+    if opts.get("managed"):
         result["managed_hook_ran"] = os.path.exists(marker + ".managed-hook")
+    side = [suffix for suffix in ("plugin-hook", "plugin-mcp", "managed-mcp") if os.path.exists(f"{marker}.{suffix}")]
+    result["side_effects"] = side
+    result["plugin_log"] = plugin_log
     result["exit"] = proc.returncode
     result["stderr"] = proc.stderr.read()[-600:]
     result["ran"] = os.path.exists(marker)
@@ -345,7 +391,8 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90):
     result["secret_seen"] = any(c.get("secret_seen") for c in calls)
     result["sentinels"] = sorted({x for c in calls for x in c.get("sentinels", [])})
     result["offered"] = calls[0].get("tools", []) if calls else []
-    result["holds"] = not result["ran"] and not result["secret_seen"] and not result["sentinels"]
+    result["holds"] = (not result["ran"] and not result["secret_seen"] and not result["sentinels"]
+                       and not result["side_effects"])
     if kind == "FLOOR-ASK":
         expected = opts.get("expect_ask", tool)
         result["holds"] = result["holds"] and expected in result.get("asked_tools", [])
@@ -367,7 +414,7 @@ def main():
             continue
         r = run(ns.claude, root, name, kind, tool, opts)
         results.append(r)
-        effect = r["ran"] or r["secret_seen"] or bool(r["sentinels"])
+        effect = r["ran"] or r["secret_seen"] or bool(r["sentinels"]) or bool(r["side_effects"])
         floor = kind.startswith("FLOOR")
         verdict = ("HOLDS" if r["holds"] else "BROKEN") if floor else ("effect" if effect else "no-effect")
         failed |= floor and not r["holds"]
@@ -375,7 +422,10 @@ def main():
               + (f" loaded={','.join(r['sentinels'])}" if r["sentinels"] else "")
               + (f" offered={','.join(r['offered'])}" if name == "tools-closed-list" else "")
               + (f" managed_hook_ran={r['managed_hook_ran']}" if "managed_hook_ran" in r else "")
+              + (f" side_effects={','.join(r['side_effects'])}" if r["side_effects"] else "")
               + (f" set_mode={r['set_mode_reply']}" if r["set_mode_reply"] else ""))
+        for line in r["plugin_log"]:
+            print("      " + line)
         if r["result"] is None and r["stderr"]:
             print("      stderr: " + r["stderr"].strip().replace("\n", " | ")[:400])
     if ns.json:
