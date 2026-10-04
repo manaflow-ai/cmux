@@ -124,6 +124,12 @@ public extension PageDescriptor {
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                   "browserProfile.manageExtensions", "browserProfile.delete"])
 
+    /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
+    /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page
+    /// runs no registry action yet.
+    static let apps = PageDescriptor(
+        id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun])
+
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", namespaces: ["cmux.history."],

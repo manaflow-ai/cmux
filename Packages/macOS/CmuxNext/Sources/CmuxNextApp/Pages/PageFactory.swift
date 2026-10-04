@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 /// Builds the app's React pages with their routes (its own type, not an `AppServices` member:
@@ -12,6 +13,28 @@ struct PageFactory {
     func historyWebPage() -> PageWebView? {
         guard PageTunables.history.value == .web,
               let page = PageWebView(descriptor: .history, routes: pageRoutes(for: .history)) else { return nil }
+        PageConnectionWatch(page: page, store: services.machines.local.store).start()
+        return page
+    }
+
+    /// The React App Store page (react-pages.md 3) on `route` (`#/discover?app=<id>`,
+    /// `#/installed`) when Debug Settings `apps.store.surface` is `web`, else nil (the Swift
+    /// store). `cmux.apps.` goes to the daemon relay behind the native sheet of
+    /// ``AppsPageConfirmations``; the sheet reads the listing first so it can name the scopes.
+    func appsWebPage(route: String?) -> PageWebView? {
+        guard PageTunables.appStore.value == .web else { return nil }
+        let relay = DaemonPageRelay(services: services)
+        let confirming = ConfirmingPageProvider(inner: relay, presenter: AlertPageConfirmationPresenter()) { op, params in
+            guard AppsPageConfirmations.needsDetail(op), let app = params["app"]?.stringValue else { return nil }
+            let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
+                                               context: PageCallContext(page: PageDescriptor.apps.id))
+            return AppsPageConfirmations.confirmation(op: op, params: params, detail: detail)
+        }
+        let native = AppPageNativeProvider(services: services, page: .apps)
+        let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        guard let page = PageWebView(descriptor: .apps, routes: routes, route: route) else { return nil }
+        confirming.anchor = { [weak page] in page }
+        native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store).start()
         return page
     }
