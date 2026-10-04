@@ -120,6 +120,20 @@ struct CmuxDialogViewTests {
         #expect(host.presentedHandles.isEmpty)
     }
 
+    /// The app host hides while cmux is inactive: an app-scope dialog (quit
+    /// from the Dock with no window) brings the app forward; a window
+    /// dialog never does.
+    @Test func anAppScopeDialogActivatesTheAppAndAWindowDialogDoesNot() throws {
+        var activations = 0
+        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(activate: { activations += 1 }))
+        let windowDialog = center.present(Self.credentials, in: .window(Self.window())) { _ in }
+        #expect(activations == 0)
+        center.dismiss(windowDialog)
+        let appDialog = center.present(Self.credentials, in: .app) { _ in }
+        #expect(activations == (NSApp.isActive ? 0 : 1))
+        center.dismiss(appDialog)
+    }
+
     @Test func closingTheWindowCancelsItsDialog() throws {
         let window = Self.window()
         let center = CmuxDialogCenter()
