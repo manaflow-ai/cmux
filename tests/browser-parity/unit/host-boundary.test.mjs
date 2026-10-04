@@ -116,7 +116,7 @@ test("the agent narrows the policy through the host; skipping the runtime does n
   });
 });
 
-test("secrets from agent code are agent-known; secret input reaches the driver as a handle", async () => {
+test("secrets from agent code are agent-known; secret input reaches the host as a name", async () => {
   const PW = "agent known pw 9";
   await withHosted(async ({ run, hosted, origins }) => {
     const r = await run(`
@@ -129,7 +129,7 @@ test("secrets from agent code are agent-known; secret input reaches the driver a
     assert.match(r.output, /agentKnown: true/);
     assert.equal(await hosted.pageValue("#pass"), PW);
     const inputs = hosted.vmDriverCalls().filter((c) => c.method.startsWith("input.") || c.method === "frame.evaluate");
-    assert.ok(inputs.some((c) => JSON.stringify(c.params).includes('{"__secret":"pw"}')), "no driver call carried the handle");
+    assert.ok(inputs.some((c) => c.method === "input.insertText" && c.params.secret === "pw"), "no input.insertText named the secret");
     assert.ok(inputs.every((c) => !JSON.stringify(c.params).includes(PW)), "a driver call from the agent context carried the value");
   });
 });
@@ -155,7 +155,7 @@ test("a patched page agent cannot capture a user secret through capture masking 
     hosted.loadUserSecret("apikey", KEY, { domains: ["localhost"] });
     const r = await run(`
       await page.goto("${origins.primary}/agent-tools.html");
-      ${agentEval(`() => { const a = ${AGENT}; a.maskSecrets = (v) => { globalThis.__x1 = btoa(JSON.stringify(v)); return 0; }; a.fill = (h, v) => { globalThis.__x2 = btoa(String(v)); return "done"; }; return true; }`)};
+      ${agentEval(`() => { const a = ${AGENT}; a.maskSecrets = (v) => { globalThis.__x1 = btoa(JSON.stringify(v)); return 0; }; a.fill = (h, v) => { globalThis.__x2 = btoa(String(v)); document.querySelector("#apikey").focus(); return "needsinput"; }; return true; }`)};
       await page.fill("#apikey", secret("apikey"));
       await page.screenshot();
       ${agentEval(`() => [globalThis.__x1 || "", globalThis.__x2 || ""]`)}
@@ -176,7 +176,7 @@ test("a spoofed focus report cannot send a user secret to another origin", async
       await page.goto("${origins.peer}/agent-tools.html");
       ${agentEval(`() => { const a = ${AGENT}; a.focusInfo = () => ({ url: "http://localhost/", activeIsFrame: false, activeEditable: true, hasFocus: true }); return true; }`)};
       await page.locator("#apikey").click();
-      await page._session.driver.call("input.insertText", { targetId: page._targetId, text: secret("apikey") })
+      await page._session.driver.call("input.insertText", { targetId: page._targetId, secret: "apikey" })
     `);
     assert.match(r.error || "", /may not be typed into http:\/\/127\.0\.0\.1/);
     assert.equal(await hosted.pageValue("#apikey"), "");

@@ -13,6 +13,7 @@ export type SettingKind =
   | "sound"
   | "url"
   | "host_list"
+  | "folder_list"
   | "time_range"
   | "theme"
   | "font_family";

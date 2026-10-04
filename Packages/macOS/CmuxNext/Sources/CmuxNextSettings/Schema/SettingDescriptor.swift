@@ -83,6 +83,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case url
     /// A list of host names.
     case hostList
+    /// A list of folder paths, each absolute or `~/...` (`picker.pinned`).
+    case folderList
     /// `{"start": "HH:MM", "end": "HH:MM"}`; absent means off.
     case timeRange
     /// A Ghostty theme: one theme name or `light:A,dark:B` (`AppThemeSetting`).

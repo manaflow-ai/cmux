@@ -1006,6 +1006,17 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "picker.pinned" : {
+      "default" : [
+
+      ],
+      "description" : "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Folders",
+      "type" : "array"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",

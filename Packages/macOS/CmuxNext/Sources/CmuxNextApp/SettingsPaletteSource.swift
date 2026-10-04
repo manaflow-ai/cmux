@@ -103,7 +103,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private static func customInput(for descriptor: SettingDescriptor) -> PaletteSettingCustomInput? {
         switch descriptor.kind {
         case .toggle, .choice: nil
-        case .hostList, .timeRange: nil
+        case .hostList, .folderList, .timeRange: nil
         case .color:
             PaletteSettingCustomInput(placeholder: "#RRGGBB") { parse($0, for: descriptor) != nil }
         case .number(let number), .choiceOrNumber(_, let number):

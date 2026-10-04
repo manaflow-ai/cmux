@@ -1,4 +1,5 @@
-//! `cmux link dial --host ID [--service daemon|ssh]`: a stdio bridge to a
+//! `cmux link dial --host ID [--service daemon|ssh] [--socket PATH]`: a
+//! stdio bridge to a
 //! service of a paired install or a Cloud host, for callers that cannot use
 //! the link socket themselves (cmux-cloud's carrier, an ssh ProxyCommand).
 //!
@@ -74,15 +75,26 @@ pub(super) fn connected_line(stream: &OverlayStream) -> String {
     }))
 }
 
-/// `--host ID [--service daemon|ssh]`, each once, nothing else.
-pub(super) fn parse(args: &[String]) -> Result<(String, Service), Failure> {
-    let (mut host, mut service) = (None, None);
+/// One `cmux link dial` invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DialArgs {
+    pub host: String,
+    pub service: Service,
+    /// `--socket`: dial exactly this link socket (an absolute path).
+    pub socket: Option<PathBuf>,
+}
+
+/// `--host ID [--service daemon|ssh] [--socket ABSOLUTE_PATH]`, each once,
+/// nothing else.
+pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
+    let (mut host, mut service, mut socket) = (None, None, None);
     let mut index = 0;
     while index < args.len() {
         let value = args.get(index + 1).ok_or(Failure::BadUsage)?;
         let slot = match args[index].as_str() {
             "--host" => &mut host,
             "--service" => &mut service,
+            "--socket" => &mut socket,
             _ => return Err(Failure::BadUsage),
         };
         if slot.replace(value.clone()).is_some() {
@@ -96,7 +108,23 @@ pub(super) fn parse(args: &[String]) -> Result<(String, Service), Failure> {
         Some("ssh") => Service::Ssh,
         Some(_) => return Err(Failure::BadUsage),
     };
-    Ok((host, service))
+    let socket = socket.map(PathBuf::from);
+    if socket.as_deref().is_some_and(|path| !path.is_absolute()) {
+        return Err(Failure::BadUsage);
+    }
+    Ok(DialArgs { host, service, socket })
+}
+
+/// The socket to dial: `--socket` exactly (it must be a socket; a missing
+/// path means the link is not running), else the registered link.
+pub(super) fn chosen_socket(explicit: Option<&Path>) -> Result<PathBuf, Failure> {
+    use std::os::unix::fs::FileTypeExt;
+    let Some(path) = explicit else { return Ok(link_socket()) };
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.file_type().is_socket() => Ok(path.to_path_buf()),
+        Ok(_) => Err(Failure::BadUsage),
+        Err(_) => Err(Failure::LinkUnavailable),
+    }
 }
 
 /// Dial through the link at `socket`.
@@ -123,13 +151,17 @@ fn link_socket() -> PathBuf {
 
 /// `cmux link dial ...`: the exit code.
 pub(super) fn run(args: &[String]) -> i32 {
-    let (host, service) = match parse(args) {
+    let DialArgs { host, service, socket } = match parse(args) {
         Ok(parsed) => parsed,
+        Err(failure) => return report(failure),
+    };
+    let socket = match chosen_socket(socket.as_deref()) {
+        Ok(socket) => socket,
         Err(failure) => return report(failure),
     };
     let Ok(runtime) = super::tokio_runtime() else { return report(Failure::LinkUnavailable) };
     runtime.block_on(async {
-        let stream = match connect(&link_socket(), &host, service).await {
+        let stream = match connect(&socket, &host, service).await {
             Ok(stream) => stream,
             Err(failure) => return report(failure),
         };

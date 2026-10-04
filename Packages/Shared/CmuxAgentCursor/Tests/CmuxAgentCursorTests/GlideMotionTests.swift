@@ -3,15 +3,9 @@ import Testing
 @testable import CmuxAgentCursor
 
 /// The same file the Rust cursor-overlay test replays against the real
-/// macOS renderer (libs/cmux-cua/rust/crates/cursor-overlay/tests).
+/// macOS renderer (it includes this resource by path).
 private func glideVectors() throws -> [String: Any] {
-    let url = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent() // CmuxAgentCursorTests
-        .deletingLastPathComponent() // Tests
-        .deletingLastPathComponent() // CmuxAgentCursor
-        .deletingLastPathComponent() // swift
-        .deletingLastPathComponent() // cmux-cua
-        .appendingPathComponent("rust/crates/cursor-overlay/tests/glide_vectors.json")
+    let url = try #require(Bundle.module.url(forResource: "glide_vectors", withExtension: "json", subdirectory: "Resources"))
     return try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
 }
 

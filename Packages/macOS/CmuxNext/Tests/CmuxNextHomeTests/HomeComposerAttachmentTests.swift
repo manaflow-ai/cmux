@@ -88,6 +88,32 @@ import Testing
         #expect(!view.field.attachButton.isHidden, "a bound Home offers the file picker too")
     }
 
+    /// The DEBUG socket verb (`debug.home.attach`) drives the composer
+    /// through the same intake as a real drop, paste or pick, so a
+    /// preflight proves the user's path, not a side path.
+    @Test func theDebugAttachVerbMakesTheSameChipAsADrop() async throws {
+        let notes = try Self.file("notes.pdf")
+        let (w1, dropped, _) = host()
+        defer { w1.close() }
+        #expect(dropped.handleDrop(FakePasteboard(fileURLs: [notes])))
+        await dropped.attachmentsReady()
+        for mode in HomeAttachVia.allCases {
+            let (window, view, preparer) = host()
+            defer { window.close() }
+            let result = view.attachFiles(paths: [notes.path], via: mode)
+            #expect(result == .accepted, "\(mode)")
+            await view.attachmentsReady()
+            #expect(view.field.draftAttachments.map(\.ref) == dropped.field.draftAttachments.map(\.ref), "\(mode) makes the drop's chip")
+            #expect(preparer.inputs == [.file(notes)], "\(mode) goes through the preparer like a drop")
+        }
+        let (window, view, preparer) = host()
+        defer { window.close() }
+        #expect(view.attachFiles(paths: ["/no/such/file.pdf"], via: .drop) == .missingFile)
+        view.attachmentPreparer = nil
+        #expect(view.attachFiles(paths: [notes.path], via: .paste) == .notConnected, "an unconnected composer says so")
+        #expect(preparer.inputs.isEmpty)
+    }
+
     @Test func plainTextPasteStaysText() {
         let (window, view, _) = host()
         defer { window.close() }
