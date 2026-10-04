@@ -45,6 +45,8 @@ export interface CloudState {
 export interface MachineRow extends Omit<CloudMachineView, "revision"> {
   readonly revision: string
   readonly provider_name: string
+  /** N2: a delete failed for good; the VM may still run, so the machine counts in max_active again. */
+  readonly delete_failed?: boolean
 }
 
 export interface LedgerRow {
@@ -78,9 +80,11 @@ export const ledgerKey = (identity: string, idempotencyKey: string) => `${identi
 /** Statuses that count against the plan's max_active. */
 const COUNTED: ReadonlySet<string> = new Set(["provisioning", "starting", "running", "pausing"])
 const counted = (status: string) => (COUNTED.has(status) ? 1 : 0)
+/** What a machine row counts against max_active: its status, or 1 after a failed delete (N2). */
+const countedRow = (row: MachineRow) => (row.delete_failed ? 1 : counted(row.status))
 
 export const publicMachine = (row: MachineRow): CloudMachineView => {
-  const { provider_name: _hidden, ...machine } = row
+  const { provider_name: _hidden, delete_failed: _failed, ...machine } = row
   return machine
 }
 
@@ -231,9 +235,11 @@ const remove = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
   writes.push(upsertLedger({ key, op: "delete", machine: stored.row.id, provider_name: stored.row.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now }, rev))
-  const row: MachineRow = { ...stored.row, status: "deleting", revision: String(rev) }
+  // A new delete takes the machine out of the quota again (a failed delete's count goes with its flag).
+  const { delete_failed: _failed, ...base } = stored.row
+  const row: MachineRow = { ...base, status: "deleting", revision: String(rev) }
   writes.push(upsertMachine(row, stored.n))
-  const s = next(state, { active: state.active - counted(stored.row.status), pending: { ...pending, [key]: { machine: row.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: row.id, removed: false })
+  const s = next(state, { active: state.active - countedRow(stored.row), pending: { ...pending, [key]: { machine: row.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: row.id, removed: false })
   return { ok: true, state: s, value: { deleted: true }, writes }
 }
 
@@ -260,9 +266,11 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
     if (l.cancel) return { ok: true, state: next(state, { pending }), value: { applied: true, final: true }, writes: [upsertLedger({ ...l, state: "cancelled", attempts, error, updated_at: ctx.now }, stored.n)] }
     const writes: Array<RowWrite> = [upsertLedger({ ...l, state: "failed", attempts, error, updated_at: ctx.now }, stored.n)]
     if (!machine) return { ok: true, state: next(state, { pending }), value: { applied: true, final: true }, writes }
-    const row: MachineRow = { ...machine.row, status: "failed", error: { ...error, at: ctx.now }, revision: String(rev) }
+    const failedDelete = l.op === "delete"
+    const row: MachineRow = { ...machine.row, status: "failed", error: { ...error, at: ctx.now }, revision: String(rev), ...(failedDelete ? { delete_failed: true } : {}) }
     writes.push(upsertMachine(row, machine.n))
-    return { ok: true, state: next(state, { pending, active: state.active - counted(machine.row.status) }, { machine: row.id, removed: false }), value: { applied: true, final: true }, writes }
+    const active = state.active - countedRow(machine.row) + countedRow(row)
+    return { ok: true, state: next(state, { pending, active }, { machine: row.id, removed: false }), value: { applied: true, final: true }, writes }
   }
   const done = upsertLedger({ ...l, state: "done", provider_id: r.provider_id ?? l.provider_id, error: null, updated_at: ctx.now }, stored.n)
   // The VM exists; the machine stays provisioning until its bind agent binds it (5.8).
@@ -270,7 +278,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   const tomb: TombstoneRow = { machine: l.machine, deleted_at: ctx.now, revision: String(rev) }
   const writes: Array<RowWrite> = [done, { table: TABLE_MACHINE, op: "delete", key: l.machine }, { table: TABLE_TOMBSTONE, op: "upsert", key: l.machine, n: rev, row: tomb }]
   // Other deletes of the same machine still run (by name, so they find nothing and succeed).
-  return { ok: true, state: next(state, { pending, active: state.active - counted(machine.row.status) }, { machine: l.machine, removed: true }), value: { applied: true }, writes }
+  return { ok: true, state: next(state, { pending, active: state.active - countedRow(machine.row) }, { machine: l.machine, removed: true }), value: { applied: true }, writes }
 }
 
 const prune = (state: CloudState, params: unknown, ctx: ReduceContext): ReduceResult<CloudState> => {
