@@ -59,7 +59,12 @@ export interface ChildRecord {
   messageId?: string;
   /** How many work-part edits this child has had (each edit's idempotency key is unique). */
   edits: number;
+  /** When it was recorded, among children (prune order; absent reads as 0, ties by id). */
+  order?: number;
 }
+
+/** Most children host.json keeps; past it the oldest finished child with no queued op is pruned. */
+export const MAX_CHILDREN = 100;
 
 /** Most answered prompt ids kept. */
 export const MAX_ANSWERED = 2_000;

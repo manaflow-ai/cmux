@@ -16,7 +16,7 @@ import {
   workPart,
   workStatus,
 } from "./rules.ts";
-import { type ChildRecord, type HostStateData, isAnswered, loadState, markAnswered, plainState } from "./state.ts";
+import { type ChildRecord, type HostStateData, isAnswered, loadState, MAX_CHILDREN, markAnswered, plainState } from "./state.ts";
 import { compareCodePoints as compare, plain } from "./text.ts";
 
 // The sans-I/O brain host (plans/cmux-next/chief-mac.md section 3):
@@ -41,6 +41,20 @@ import { compareCodePoints as compare, plain } from "./text.ts";
 
 /** The timer key of the one-shot outbox retry. */
 export const OUTBOX_TIMER = "outbox";
+/** Most message authors the core remembers for the reply-to-Chief wake rule. */
+export const MAX_AUTHORS = 10_000;
+
+/** Sets `key` in an insertion-ordered map of at most `max` entries; a new key past the cap drops the oldest. */
+export function rememberBounded<V>(map: Map<string, V>, key: string, value: V, max: number): void {
+  const known = map.has(key);
+  map.set(key, value);
+  if (known) return;
+  while (map.size > max) {
+    const oldest = map.keys().next().value as string;
+    map.delete(oldest);
+  }
+}
+
 /** The timer key prefix of a rejected prompt's retry (`prompt:<prompt id>`). */
 export const PROMPT_TIMER_PREFIX = "prompt:";
 /** The timer key of the session-list retry. */
@@ -327,7 +341,7 @@ export class Core {
   private remember(summary: Summary): void {
     this.summaries.set(summary.id, summary);
     if (!this.handled.has(summary.id)) this.handled.set(summary.id, summary.read_cursors[AGENT_MUX] ?? 0);
-    if (summary.last_message) this.authors.set(summary.last_message.id, summary.last_message.author);
+    if (summary.last_message) rememberBounded(this.authors, summary.last_message.id, summary.last_message.author, MAX_AUTHORS);
   }
 
   private changed(conversation: string, change: Change): void {
@@ -338,7 +352,7 @@ export class Core {
       if (summary)
         summary.read_cursors[change.participant] = Math.max(summary.read_cursors[change.participant] ?? 0, change.seq);
     } else if (change.kind === "message") {
-      this.authors.set(change.message.id, change.message.author);
+      rememberBounded(this.authors, change.message.id, change.message.author, MAX_AUTHORS);
       if (this.daemonUp && this.acpmuxUp) this.inbox.push({ type: "live", message: change.message });
     }
   }
@@ -448,7 +462,7 @@ export class Core {
     this.summaries.set(summary.id, summary);
     const from = Math.max(this.handled.get(summary.id) ?? 0, summary.read_cursors[AGENT_MUX] ?? 0);
     this.handled.set(summary.id, from);
-    for (const message of messages) this.authors.set(message.id, message.author);
+    for (const message of messages) rememberBounded(this.authors, message.id, message.author, MAX_AUTHORS);
     // The paging task keeps its own copy: later summary events change only the cache.
     this.page(
       plain(summary),
@@ -507,7 +521,7 @@ export class Core {
         return;
       }
       const summary = task.summary;
-      this.authors.set(message.id, message.author);
+      rememberBounded(this.authors, message.id, message.author, MAX_AUTHORS);
       if (message.seq <= (this.handled.get(summary.id) ?? 0)) continue;
       const wake =
         !isAnswered(this.state, message.id) &&
@@ -841,8 +855,10 @@ export class Core {
     const conversation = this.conversationFor(this.folder.running?.promptId) ?? "";
     // A child first seen ready or idle gets a done card (closed: failed, waiting: waiting).
     const status = workStatus(session.status);
-    const child: ChildRecord = { conversation, name: session.name, status, edits: 0 };
+    const order = Math.max(0, ...Object.values(this.state.children).map((c) => c.order ?? 0)) + 1;
+    const child: ChildRecord = { conversation, name: session.name, status, edits: 0, order };
     this.state.children[session.sessionId] = child;
+    this.pruneChildren();
     if (conversation) {
       const key = `work:${session.sessionId}`;
       this.state.outbox.push({
@@ -855,6 +871,21 @@ export class Core {
     this.dirty = true;
     this.log(`child ${session.name} started (${session.sessionId})`);
     return { ...child };
+  }
+
+  /** Past MAX_CHILDREN: drops the oldest finished children that no queued op names. */
+  private pruneChildren(): void {
+    const ids = Object.keys(this.state.children);
+    if (ids.length <= MAX_CHILDREN) return;
+    const queued = new Set(this.state.outbox.map((entry) => entry.child).filter((id) => id !== undefined));
+    const order = (id: string) => this.state.children[id].order ?? 0;
+    const prunable = ids
+      .filter((id) => (this.state.children[id].status === "done" || this.state.children[id].status === "failed") && !queued.has(id))
+      .sort((a, b) => order(a) - order(b) || compare(a, b));
+    for (const id of prunable.slice(0, ids.length - MAX_CHILDREN)) {
+      delete this.state.children[id];
+      this.log(`pruned child ${id} (more than ${MAX_CHILDREN} children)`);
+    }
   }
 
   private editWork(sessionId: string, name: string, status: WorkStatus, preview?: string | null): void {
