@@ -36,8 +36,14 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     }
 
     private var shown: [ObjectIdentifier: Shown] = [:]
+    /// Brings the app forward for an app-scope dialog: the app host hides
+    /// while cmux is inactive, so a dialog with no window (quit from the
+    /// Dock) would not be seen. Never in a no-activate launch.
+    private let activate: () -> Void
 
-    public init() {}
+    public init(activate: @escaping () -> Void = { if !WindowPlacement.noActivate { NSApp.activate() } }) {
+        self.activate = activate
+    }
 
     /// The overlay options for `scope`.
     public static func options(for scope: CmuxDialogScope) -> OverlayOptions {
@@ -87,7 +93,9 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         switch entry.scope {
         case .tab(let view): host = entry.watcher?.isShowing == true ? view.window.map(WindowOverlayHost.host(for:)) : nil
         case .window(let window): host = WindowOverlayHost.host(for: window)
-        case .app: host = WindowOverlayHost.appHost()
+        case .app:
+            host = WindowOverlayHost.appHost()
+            if entry.handle == nil, !NSApp.isActive { activate() }
         }
         guard let host else { return detach(entry) }
         if let handle = entry.handle, !handle.isDismissed, handle.host === host { return }
