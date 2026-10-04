@@ -190,6 +190,53 @@ class MainFixEvidenceTests(unittest.TestCase):
 
 
 class InstalledHelperRegression(unittest.TestCase):
+    def run_helper(self, directory, marker, *, workflow_present, check_name="ci-status"):
+        gh = Path(directory) / "gh"
+        workflow_probe = "HTTP/2.0 200 OK\n{}" if workflow_present else "HTTP/2.0 404 Not Found\n{}"
+        workflow_exit = "exit 0" if workflow_present else "exit 1"
+        gh.write_text(
+            "#!/bin/sh\n"
+            "if [ \"$1 $2\" = 'pr view' ]; then "
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\"}'; exit 0; fi\n"
+            "if [ \"$1 $2\" = 'pr merge' ]; then touch \"$MERGE_MARKER\"; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/merge-gate.yml'; then "
+            "printf '%s\\n' '" + workflow_probe + "'; " + workflow_exit + "; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
+            "printf '%s\\n' '[{\"check_runs\":[{\"id\":1,\"name\":\"" + check_name + "\",\"status\":\"completed\",\"conclusion\":\"success\"}]}]'; exit 0; fi\n"
+            "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
+            "exit 2\n"
+        )
+        gh.chmod(0o755)
+        return subprocess.run(
+            [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
+            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker)},
+            capture_output=True,
+            text=True,
+        )
+
+    def test_pre_workflow_falls_back_to_ci_status(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, workflow_present=False)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_workflow_on_base_requires_merge_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, workflow_present=True, check_name="merge-gate")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_refusal_prints_repair_guidance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, workflow_present=False, check_name="other-check")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("fix:", result.stderr)
+            self.assertIn("see cmuxterm-hq REPAIR.md", result.stderr)
+
     def test_main_fix_without_any_compile_evidence_refuses_to_merge(self):
         with tempfile.TemporaryDirectory() as directory:
             gh = Path(directory) / "gh"

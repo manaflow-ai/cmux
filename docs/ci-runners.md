@@ -15,21 +15,23 @@
 
 ## Merge-gate rollout
 
-`merge-gate` is a required-in-practice check for `gh-merge-green`, but the
-workflow and evaluator must be on `main` before the local helper can require
-it. Roll out the change in this order:
+`merge-gate` is a required-in-practice check for `gh-merge-green` after the
+workflow reaches the base branch. The checked-in helper detects whether
+`.github/workflows/merge-gate.yml` exists on that branch and keeps requiring
+`ci-status` until it does, so the rollout cannot deadlock merges.
+
+Roll out the change in this order:
 
 1. Land the merge-gate workflow, evaluator, and tests on `main`. Until that
-   happens, a helper that already requires `merge-gate` will refuse every merge
-   because the check is absent; do not edit or bypass the helper to work around
-   that transition.
+   happens, `scripts/gh-merge-green` falls back to the existing `ci-status`
+   check; do not edit or bypass the helper to work around that transition.
 2. After the workflow is live on `main`, use a same-repository pull request or
    a new push to produce a gate run. Wait for a **successful `merge-gate` check
    on the exact current head SHA**. A missing, queued, stale, or successful
    check for another SHA is not rollout evidence.
-3. Only after that exact-head success is visible should the local
-   `gh-merge-green` update that requires `merge-gate` be used for merges. The
-   helper still checks the other required-in-practice jobs and the current head.
+3. Once the workflow is on the base branch, the helper automatically switches
+   from `ci-status` to `merge-gate`. It still checks the other
+   required-in-practice jobs and the current head.
 4. For a red-`main` fix, use the `--main-fix` evidence path after the gate is
    live: it records the exact-head merge-gate result and validates the required
    Release, Debug, Swift, and matching main-failure evidence before merging.

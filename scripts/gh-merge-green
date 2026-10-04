@@ -2,8 +2,36 @@
 # gh-merge-green REPO#PR [--main-fix] [gh pr merge flags...]
 # Merges only when the PR head's required-in-practice checks are green.
 # main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
-set -euo pipefail
-ref="${1:?usage: gh-merge-green OWNER/REPO#NUMBER [--squash|--merge] }"; shift
+set -Eeuo pipefail
+
+repair_note='see cmuxterm-hq REPAIR.md'
+refusal_reported=0
+
+print_repair() {
+  printf 'fix: %s\n%s\n' "$1" "$repair_note" >&2
+}
+
+on_error() {
+  local status=$?
+  if [ "$refusal_reported" -eq 0 ]; then
+    print_repair "inspect the failed GitHub query or command, then retry after it is healthy"
+  fi
+  exit "$status"
+}
+
+refuse() {
+  refusal_reported=1
+  printf '%s\n' "$1" >&2
+  print_repair "$2"
+  exit 1
+}
+
+trap on_error ERR
+
+[ "$#" -gt 0 ] || refuse \
+  'not green: missing OWNER/REPO#NUMBER' \
+  'pass the pull request reference, for example OWNER/REPO#123'
+ref="$1"; shift
 repo="${ref%#*}"; num="${ref#*#}"
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
@@ -26,46 +54,89 @@ if [ "$fix" -eq 1 ]; then
     validator="${repo_root:+$repo_root/scripts/ci/main_fix_evidence.py}"
   fi
   if [ -z "$validator" ] || [ ! -f "$validator" ]; then
-    echo "not green: --main-fix validator is unavailable; set CMUX_REPO_ROOT to a cmux checkout" >&2
-    exit 1
+    refuse \
+      'not green: --main-fix validator is unavailable' \
+      'set CMUX_REPO_ROOT to a cmux checkout containing scripts/ci/main_fix_evidence.py'
   fi
-  exec python3 "$validator" "$ref" "$@"
+  if ! python3 "$validator" "$ref" "$@"; then
+    refuse \
+      "not green: --main-fix evidence refused $ref" \
+      'read the validator evidence and repair the failing or missing exact-head checks'
+  fi
+  exit 0
 fi
-read -r sha base < <(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName -q '.headRefOid+" "+.baseRefName')
-# merge-gate is the authority for ci-status: a reviewed override can make the
-# gate successful while ci-status remains red. Missing counts as not green.
-must=("merge-gate")
+
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName 2>/dev/null); then
+  refuse \
+    "not green: cannot read $ref" \
+    'check the repository, pull request number, GitHub login, and network access'
+fi
+if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
+  refuse \
+    "not green: GitHub returned invalid metadata for $ref" \
+    'retry after GitHub returns headRefOid and baseRefName'
+fi
+IFS=$'\t' read -r sha base <<<"$fields"
+if [ -z "$sha" ] || [ -z "$base" ]; then
+  refuse \
+    "not green: GitHub metadata for $ref has no head SHA or base branch" \
+    'refresh the pull request metadata and retry'
+fi
+
+# Before the workflow reaches main, merge-gate cannot publish a check. Keep the
+# old ci-status requirement during that transition, then switch to merge-gate
+# as soon as the workflow file exists on the base branch.
+workflow_response=''
+if workflow_response=$(gh api --include "repos/$repo/contents/.github/workflows/merge-gate.yml?ref=$base" 2>/dev/null); then
+  must=("merge-gate")
+elif grep -Eq 'HTTP/[0-9.]+ 404' <<<"$workflow_response"; then
+  must=("ci-status")
+else
+  refuse \
+    "not green: cannot determine whether merge-gate is on base branch $base" \
+    'restore GitHub API access, then retry so the helper can choose ci-status or merge-gate safely'
+fi
+
 # Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
 # Require it only if it was scheduled or the diff touches app code.
 if [ "$base" = main ]; then
   # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
-  files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename') || { echo "not green: cannot list changed files" >&2; exit 1; }
+  if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+    refuse \
+      "not green: cannot list changed files for $ref" \
+      'restore GitHub API access, then retry the exact-head check'
+  fi
   if printf '%s\n' "$files" | grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$'; then
     must+=("macos / macOS compile admission")
   fi
 fi
-check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp)
-runs=$(jq -r '
+if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
+  refuse \
+    "not green: cannot read checks for $sha" \
+    'restore GitHub API access, then retry the exact-head check'
+fi
+if ! runs=$(jq -r '
   (map(.check_runs) | add)
   | sort_by(.name, (.id // 0))
   | group_by(.name)[]
   | last
   | [.name,.status,(.conclusion // "")]
   | @tsv
-' <<<"$check_runs_json")
+' <<<"$check_runs_json" 2>/dev/null); then
+  refuse \
+    "not green: cannot parse checks for $sha" \
+    'retry after GitHub returns valid check-run metadata'
+fi
 if [ "$base" = main ] && printf '%s\n' "$runs" | grep -q '^macos / macOS compile admission'$'\t' && ! printf '%s\n' "${must[@]}" | grep -qx 'macos / macOS compile admission'; then
   must+=("macos / macOS compile admission")
 fi
-bad=0
 for name in "${must[@]+"${must[@]}"}"; do
   line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n')
   if [ -z "$line" ]; then
-    echo "not green: '$name' has not run on $sha" >&2
-    if [ "$name" = merge-gate ]; then
-      echo "reason: merge-gate has not reported for the current head" >&2
-    fi
-    bad=1
-    continue
+    fix="run the pull request checks for $sha"
+    [ "$name" = merge-gate ] && fix='land the workflow on the base branch, then produce a successful exact-head merge-gate run'
+    [ "$name" = ci-status ] && fix='run CI for the pull request head, then retry the exact-head check'
+    refuse "not green: '$name' has not run on $sha" "$fix"
   fi
   st=$(cut -f2 <<<"$line"); co=$(cut -f3 <<<"$line")
   gate_bad=0
@@ -75,10 +146,9 @@ for name in "${must[@]+"${must[@]}"}"; do
     gate_bad=1
   fi
   if [ "$st" != completed ] || [ "$gate_bad" -eq 1 ]; then
-    echo "not green: '$name' is $st/$co on $sha" >&2
+    fix="repair '$name' on the exact head, then retry"
+    reason=''
     if [ "$name" = merge-gate ]; then
-      # The gate check carries the actionable missing-requirements text in its
-      # output. Keep it on one line so this command remains easy to scan.
       reason=$(jq -r '
         (map(.check_runs) | add)
         | map(select(.name == "merge-gate"))
@@ -89,13 +159,27 @@ for name in "${must[@]+"${must[@]}"}"; do
         | gsub("[\\r\\n\\t]+"; " ")
       ' <<<"$check_runs_json" 2>/dev/null || true)
       [ -n "$reason" ] && echo "reason: $reason" >&2
+      fix='resolve the gate requirements or post a fresh valid merge-override, then rerun merge-gate'
+    elif [ "$name" = ci-status ]; then
+      fix='repair CI for the pull request head, then retry the exact-head check'
     fi
-    bad=1
+    refuse "not green: '$name' is $st/$co on $sha" "$fix"
   fi
 done
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
-if [ -n "$failing" ]; then echo "note: other failing checks on $sha (merge-gate decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
-patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty') || { echo "not green: cannot read the diff" >&2; bad=1; }
-if printf '%s\n' "$patches" | grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)'; then echo "not green: conflict markers in the diff" >&2; bad=1; fi
-[ "$bad" -eq 0 ] || { echo "refusing to merge $ref; wait with: glaeda-gh wait pr $ref" >&2; exit 1; }
-exec gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"
+if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty' 2>/dev/null); then
+  refuse \
+    "not green: cannot read the diff for $ref" \
+    'restore GitHub API access, then retry the exact-head check'
+fi
+if printf '%s\n' "$patches" | grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)'; then
+  refuse \
+    "not green: conflict markers are present in $ref" \
+    'resolve the conflict markers, push the repaired head, and rerun the checks'
+fi
+if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"; then
+  refuse \
+    "not green: GitHub refused to merge $ref" \
+    'read the GitHub refusal, repair the named issue, and retry the exact head'
+fi
