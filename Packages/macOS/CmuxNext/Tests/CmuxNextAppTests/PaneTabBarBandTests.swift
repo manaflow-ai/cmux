@@ -55,6 +55,21 @@ import Testing
         #expect(f.pane.stripView.frame.minY == 0)
     }
 
+    @Test func reAddingTheBrowserToItsPaneRePinsOnce() {
+        // Renderer crash recovery: the browser leaves its pane host and
+        // comes back to the same one in the same window.
+        let f = fixture()
+        f.chrome.removeFromSuperview()
+        #expect(!f.pane.isBandActive)
+        f.pane.contentHost.addSubview(f.chrome)
+        #expect(f.pane.isBandActive && f.pane.bandPins.count == 4)
+        let pinned = f.pane.constraints.filter { $0.firstItem === f.pane.stripView || $0.secondItem === f.pane.stripView }
+        #expect(pinned.count == 4, "no double constraints")
+        f.pane.layoutSubtreeIfNeeded()
+        let band = f.chrome.convert(f.chrome.paneHeaderBandRect, to: f.pane)
+        #expect(band.height == f.pane.stripHeight && abs(f.pane.stripView.frame.minY - band.minY) < 0.5)
+    }
+
     @Test func aTabSwitchReleasesThePinsAndClosesTheBand() {
         let f = fixture()
         f.pane.show(NSView())
