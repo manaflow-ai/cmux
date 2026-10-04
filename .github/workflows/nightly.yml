@@ -65,22 +65,18 @@ on:
         required: false
         default: false
         type: boolean
-      tag_permission_probe:
-        description: Run the scratch-tag permission probe without building or publishing a channel.
-        required: false
-        default: false
-        type: boolean
       probe_target_sha:
         description: Full SHA that directly changes a workflow file for the scratch-tag probe.
         required: false
         default: ''
         type: string
       probe_mode:
-        description: Credential path for the scratch-tag probe; run github-token first, then app-token.
+        description: Scratch-tag permission probe. `off` runs the normal workflow; any other value runs only the probe (no build or publish) with that credential path; run github-token first, then app-token.
         required: false
-        default: both
+        default: 'off'
         type: choice
         options:
+          - 'off'
           - both
           - github-token
           - app-token
@@ -110,7 +106,7 @@ env:
 
 jobs:
   decide:
-    if: github.event_name != 'workflow_dispatch' || (inputs.tag_permission_probe != true && inputs.promote_nightly_next_sha == '')
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -467,7 +463,7 @@ jobs:
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     environment: release
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -579,11 +575,11 @@ jobs:
             core.notice(`Promoted ${target} to ${sha}; its push run publishes it.`);
 
   probe-nightly-tag-permission:
-    if: github.event_name == 'workflow_dispatch' && inputs.tag_permission_probe == true
+    if: github.event_name == 'workflow_dispatch' && (inputs.probe_mode || 'off') != 'off'
     uses: ./.github/workflows/nightly-tag-permission-probe.yml
     with:
       target_sha: ${{ inputs.probe_target_sha || github.sha }}
-      mode: ${{ inputs.probe_mode || 'both' }}
+      mode: ${{ inputs.probe_mode }}
     secrets: inherit
 
   refresh-compilation-cache:
