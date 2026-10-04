@@ -33,3 +33,49 @@ fn another_tasks_append_failure_does_not_unlog_this_entry() {
     drop(held);
     assert!(entry.join().unwrap(), "a failure of another record marked this stored entry unlogged");
 }
+
+/// A store that refuses records of the method `fail/me`.
+#[derive(Default)]
+struct RefusingStore(MemoryStore);
+
+impl Store for RefusingStore {
+    fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+        if record.kind == "fail/me" {
+            anyhow::bail!("refused");
+        }
+        self.0.append(id, record)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.0.delete(id)
+    }
+}
+
+/// The entry's own record not stored: unlogged (the link must not ack it).
+/// A purged session keeps nothing, so its entries count as handled.
+#[test]
+fn the_entrys_own_store_result_decides_and_a_purged_session_counts_as_stored() {
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let _guard = rt.enter();
+    let hub = Hub::new(Config::default(), Box::new(RefusingStore::default()));
+    let session = session(&hub);
+    let tap = hub.session_tap(&session);
+    let entry = |method: &str| {
+        tap(Direction::In, &Message::Notification { method: method.into(), params: None }, Some(1))
+    };
+    assert!(!entry("fail/me"), "a refused record was reported stored");
+    assert!(entry("x/y"), "a stored record was reported unlogged");
+    session.purged.store(true, Ordering::SeqCst);
+    assert!(entry("fail/me"), "a purged session's entry was reported unlogged");
+}
