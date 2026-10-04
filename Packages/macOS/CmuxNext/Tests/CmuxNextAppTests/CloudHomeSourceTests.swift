@@ -649,6 +649,23 @@ import Testing
         #expect(daemon.ops.count == 1)
     }
 
+    /// Revoked keys are kept per account and pruned when that account
+    /// signs in again: its own keys never commit as another account, and
+    /// the set does not only grow.
+    @Test func anAccountsOwnKeysAreNoLongerRevokedWhenItSignsInAgain() async throws {
+        let dm = dm
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm)], op: { _ in throw F.unavailable() }))
+        #expect(await signedIn(tape))
+        let invite = HomeIntent(key: IdempotencyKey("cmk_back"), op: .invite(contact: .email("z@y.com")))
+        await #expect(throws: HomeRejection.indeterminate) { try await source.submit(invite) }
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: Self.other)
+        await #expect(throws: HomeRejection.notAuthorized) { try await source.submit(invite) }
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: F.identity)
+        daemon.script.withLock { $0.op = { _ in CloudConversationOpResult(conversation: F.head(dm, rev: 1, lastSeq: 0)) } }
+        _ = try await source.submit(invite)
+        #expect(daemon.ops.count == 2, "the account's own key stayed revoked: \(daemon.calls)")
+    }
+
     func listed(_ source: CloudHomeSource, _ id: String) -> Bool {
         source.currentInbox().conversations.contains { $0.id.rawValue == id }
     }

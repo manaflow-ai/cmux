@@ -256,6 +256,31 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         store.stop()
     }
 
+    /// The cloud owners the router remembers belong to one account: a new
+    /// account drops the previous one's that its inbox does not list.
+    @Test func aNewCloudAccountPrunesThePreviousAccountsOwners() async throws {
+        let opened = "conv_dm_01J0000000000000000000000P"
+        let local = FakeLocalHomeSource()
+        let daemon = FakeCloudDaemon(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm), opened: F.head(opened)]))
+        let cloud = CloudHomeSource(me: local.me)
+        let router = HomeSourceRouter(local: local, cloud: cloud)
+        let tape = await EventTape(router)
+        cloud.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: F.identity)
+        // Opened from a deep link on the cloud source; its stream names the owner.
+        _ = try await cloud.snapshot(of: ConversationID(opened), tail: 10)
+        cloud.handle(.changed(CloudConversationChanged(conversation: opened, rev: 5, seq: 9, change: .conversation(F.head(opened, rev: 5)),
+                                                       account: "stack-me")))
+        #expect(await tape.wait { $0.contains { if case .conversationChanged(let summary, _, _) = $0 { summary.id.rawValue == opened } else { false } } })
+        #expect(await router.owner(of: ConversationID(opened)) == .cloud)
+        let mark = tape.all.count
+        daemon.script.withLock { $0.entries = [] }
+        cloud.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: CloudHomeSourceTests.other)
+        #expect(await tape.wait { events in
+            events.dropFirst(mark).contains { if case .conversationRemoved(let id, _) = $0 { id.rawValue == dm } else { false } }
+        })
+        #expect(await router.owner(of: ConversationID(opened)) == .local, "the previous account's owner was kept")
+    }
+
     /// Yields until `condition` holds; the suite's time limit bounds it.
     @MainActor func until(_ condition: () -> Bool) async -> Bool {
         for _ in 0..<100_000 {
