@@ -96,7 +96,7 @@ fn a_failed_run_restarts_after_backoff() {
         &format!("if [ -e '{0}' ]; then exec sleep 600; fi\ntouch '{0}'\nexit 3", marker.display()),
     );
     std::fs::create_dir_all(&fx.paths.state).unwrap();
-    let sup = Supervisor::start(fx.paths.clone()).unwrap();
+    let sup = Supervisor::start(fx.paths).unwrap();
     sup.apply(set(serde_json::json!({"flaky": {"program": "flaky"}})));
     let health = wait_for(&sup, "restart", |h| {
         h.first().is_some_and(|f| f.restarts == 1 && f.state == RoleState::Ready)
@@ -109,7 +109,7 @@ fn config_changes_replace_remove_and_report_invalid_entries() {
     let fx = Fixture::new();
     fx.script("a", "exec sleep 600");
     fx.script("b", "exec sleep 600");
-    let sup = Supervisor::start(fx.paths.clone()).unwrap();
+    let sup = Supervisor::start(fx.paths).unwrap();
     sup.apply(set(serde_json::json!({
         "a": {"program": "a"},
         "b": {"program": "b"},
@@ -139,7 +139,7 @@ fn config_changes_replace_remove_and_report_invalid_entries() {
 #[test]
 fn a_missing_program_backs_off_with_the_reason() {
     let fx = Fixture::new();
-    let sup = Supervisor::start(fx.paths.clone()).unwrap();
+    let sup = Supervisor::start(fx.paths).unwrap();
     sup.apply(set(serde_json::json!({"ghost": {"program": "ghost"}})));
     let health = wait_for(&sup, "backoff", |h| state_of(h, "ghost") == Some(RoleState::Backoff));
     assert!(health[0].last_error.as_deref().unwrap().contains("ghost"));
