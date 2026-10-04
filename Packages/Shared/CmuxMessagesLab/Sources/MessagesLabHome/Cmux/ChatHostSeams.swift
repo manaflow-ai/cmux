@@ -11,6 +11,9 @@ protocol ChatIntents: AnyObject {
     func react(_ ref: PartRef, _ kind: Reaction.Kind)
     /// Tapbacks are offered (false offline: H17).
     var canReact: Bool { get }
+    /// The owner can take a reply (MessagesLab's `.reply`: swipe-to-reply,
+    /// Reply in the menu). False until HomeOp has a reply operation.
+    var canReply: Bool { get }
     /// The "+" button, a paste or a drop of an image. Lane 16 seam: the
     /// attachment intake (blob upload, chips, image bubble) lands there.
     func attach()

@@ -159,6 +159,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: Projection -> HomeStore (intents)
 
     var canReact: Bool { isSendEnabled }
+    /// HomeOp has no reply (no reply_to on message.send, no thread
+    /// rendering from HomeStore): swipe-to-reply stays off.
+    var canReply: Bool { false }
 
     func send() {
         guard isSendEnabled, homeStore.isOnline, let store = controller.store else { return }

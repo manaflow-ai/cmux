@@ -15,7 +15,8 @@ and render-server field animation, blurred header and native scrolling.
     Shapes, Fixture, Header, WindowView, Replay; `Resources/springs.json`.
   - appkit-port shim: UIKitNames, RoundedRect, LayerViews.
   - appkit-native: Compose, Materials, NativeScroll, HeaderBar,
-    HeaderBackdrop, TranscriptAccess.
+    HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
+    owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one).
   - Not vendored (MessagesLab test drivers or app shell): App, Host, Bench,
     SelfTest, FlashCheck, AttachCheck, ResolutionAudit, LiveRecord,
     tools/diff-harness, PagedSource, Pager.
@@ -41,6 +42,7 @@ and render-server field animation, blurred header and native scrolling.
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
 | Layout, Localizable.xcstrings | the placeholder says Message, not iMessage |
 | Engine, Materials | Xcode 26.6 compile fixes (`self.` capture; a macOS 27 SDK property by key) |
+| SwipeReply | the pane controller's window is optional |
 
 ## Updating
 

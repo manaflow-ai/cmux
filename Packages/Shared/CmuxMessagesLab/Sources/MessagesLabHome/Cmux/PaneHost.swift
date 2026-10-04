@@ -216,6 +216,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var start: CFTimeInterval = CACurrentMediaTime()
     private(set) var picker: TapbackPickerView?
     private(set) lazy var selection = TranscriptSelection(controller: self)
+    /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
+    /// the owner can honor `.reply` (`intents.canReply`); HomeOp has no
+    /// reply operation yet, so a swipe would open a thread nothing can send to.
+    private(set) lazy var swipe = SwipeReply(controller: self)
     static let args = ProcessInfo.processInfo.arguments
     /// Test modes never take focus.
     static let noFocus = args.contains("--bench") || args.contains("--audit-resolution") || args.contains("--scroll-trace")
@@ -269,6 +273,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
+        if intents?.canReply == true { swipe.install() }
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
     }
