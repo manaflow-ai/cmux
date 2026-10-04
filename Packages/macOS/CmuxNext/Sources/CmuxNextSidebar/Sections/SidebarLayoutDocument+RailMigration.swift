@@ -35,7 +35,7 @@ extension SidebarLayoutDocument {
 
     /// The window rail's default layout as it was stored (Leo, 2026-10-03,
     /// #17153), only to recognize it.
-    public static let railDefaults = SidebarLayoutDocument(sections: [
+    public nonisolated static let railDefaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn, maxRows: 4,
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
                               LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
