@@ -446,17 +446,21 @@ export class MuxHost {
     acpmux
       .prompt(session, text, { promptId, delivery: "turn" })
       .then(
-        () => ({ rejected: false }),
+        (): { refusal?: string } => ({}),
         (error) => {
           const rejected = error instanceof AcpmuxError && !(error instanceof AcpmuxClosedError);
           const next = rejected ? "the core retries it" : "resent on the next acpmux connect";
           this.log(`prompt ${promptId} failed: ${String(error)}; ${next}`);
-          return { rejected };
+          return rejected ? { refusal: (error as AcpmuxError).rpcMessage } : {};
         },
       )
-      .then(({ rejected }) => {
+      .then(({ refusal }) => {
         this.acknowledged(promptId, acpmux);
-        this.feed({ kind: "prompt_settled", prompt_id: promptId, ...(rejected ? { rejected: true } : {}) });
+        this.feed({
+          kind: "prompt_settled",
+          prompt_id: promptId,
+          ...(refusal === undefined ? {} : { rejected: true, error: refusal }),
+        });
       });
   }
 

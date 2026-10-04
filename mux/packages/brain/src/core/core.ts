@@ -62,6 +62,8 @@ export const SESSIONS_TIMER = "sessions";
 /** Retry backoff of a failed session list or a rejected prompt: 1 s, doubling to 30 s. */
 export const RETRY_INITIAL_MS = 1_000;
 export const RETRY_MAX_MS = 30_000;
+/** Retries of a refused prompt before it stops (answered, with the error posted). */
+export const MAX_PROMPT_RETRIES = 10;
 
 /** The delay of retry `attempt` (1-based). */
 export function retryDelay(attempt: number): number {
@@ -116,10 +118,11 @@ export type Input =
   /**
    * A `prompt` request returned. `rejected`: acpmux answered it with an error;
    * the core sends it again on the clock (`arm_timer prompt:<id>`, 1 s
-   * doubling to 30 s). A prompt lost with its connection is sent again on the
-   * next acpmux connect.
+   * doubling to 30 s), at most MAX_PROMPT_RETRIES times; then the prompt is
+   * answered and `error` is posted in its conversation. A prompt lost with
+   * its connection is sent again on the next acpmux connect.
    */
-  | { kind: "prompt_settled"; prompt_id: string; rejected?: boolean }
+  | { kind: "prompt_settled"; prompt_id: string; rejected?: boolean; error?: string }
   | { kind: "timer"; key: string }
   | { kind: "disconnected"; port: Port };
 
@@ -284,6 +287,10 @@ export class Core {
         this.accept(input.prompt_id);
         if (input.rejected === true && this.state.prompts[input.prompt_id]) {
           const rejections = (this.promptRejections.get(input.prompt_id) ?? 0) + 1;
+          if (rejections > MAX_PROMPT_RETRIES) {
+            this.stopRefusedPrompt(input.prompt_id, input.error ?? "refused");
+            break;
+          }
           this.promptRejections.set(input.prompt_id, rejections);
           const delay = retryDelay(rejections);
           this.log(`prompt ${input.prompt_id} rejected; sending again in ${delay} ms`);
@@ -564,6 +571,23 @@ export class Core {
     if (!entry || !this.acpmuxUp || !this.muxSession) return false;
     this.emit({ kind: "prompt", prompt_id: promptId, text: entry.text });
     return true;
+  }
+
+  /** A prompt refused past its retries: answered (never sent again), its error posted in its conversation. */
+  private stopRefusedPrompt(promptId: string, error: string): void {
+    const conversation = this.conversationFor(promptId);
+    this.promptRejections.delete(promptId);
+    markAnswered(this.state, promptId);
+    this.dirty = true;
+    this.log(`prompt ${promptId} refused ${MAX_PROMPT_RETRIES + 1} times; giving up: ${error}`);
+    if (!conversation) return;
+    const key = `failed:${promptId}`;
+    this.state.outbox.push({
+      conversation,
+      idempotency_key: key,
+      op: { kind: "message.send", client_msg_id: key, parts: [{ type: "text", text: `(turn failed: ${error})` }] },
+    });
+    this.flushOutbox();
   }
 
   /** acpmux holds the prompt (or answered its request): the inbox moves on. */
