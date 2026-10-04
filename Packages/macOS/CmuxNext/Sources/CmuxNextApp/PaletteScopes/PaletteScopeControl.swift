@@ -64,8 +64,6 @@ enum PaletteScopeControl {
         }
     }
 
-    nonisolated static let headlessOrigins: Set<String> = ["cli", "mcp", "script", "remote"]
-
     nonisolated static func scopeUnknown(_ scope: String) -> ControlError {
         ControlError(code: "palette.scope_unknown", message: PaletteOpenRefusal.unknownScope(scope).message, data: ["scope": .string(scope)])
     }
@@ -80,9 +78,8 @@ enum PaletteScopeControl {
         }
         // A headless run is never the in-app user: only a user in this app
         // may change its view without `focus: true` (OWNERSHIP-PRINCIPLES).
-        if let origin = params["origin"], !origin.isNull, !headlessOrigins.contains(origin.stringValue ?? "") {
-            throw ControlError.invalidParams("origin must be cli, mcp, script or remote")
-        }
+        // The same rule as `action.run` from the socket (ControlOrigin).
+        _ = try ControlOrigin.validated(params["origin"], allowsUser: false)
         return (scope, item, params["action"]?.stringValue)
     }
 

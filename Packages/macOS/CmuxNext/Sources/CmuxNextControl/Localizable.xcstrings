@@ -21223,6 +21223,137 @@
         }
       }
     },
+    "control.error.originHeadless": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "origin must be cli, mcp, script or remote"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن تكون origin إحدى القيم cli أو mcp أو script أو remote"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin mora biti cli, mcp, script ili remote"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin skal være cli, mcp, script eller remote"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin muss cli, mcp, script oder remote sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin debe ser cli, mcp, script o remote"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin doit valoir cli, mcp, script ou remote"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin deve essere cli, mcp, script o remote"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin は cli、mcp、script、remote のいずれかです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin ត្រូវតែជា cli, mcp, script ឬ remote"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin은 cli, mcp, script, remote 중 하나여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin må være cli, mcp, script eller remote"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin musi mieć wartość cli, mcp, script lub remote"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin deve ser cli, mcp, script ou remote"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin должен быть cli, mcp, script или remote"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin ต้องเป็น cli, mcp, script หรือ remote"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin cli, mcp, script veya remote olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin має бути cli, mcp, script або remote"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin phải là cli, mcp, script hoặc remote"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin 必须是 cli、mcp、script 或 remote"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "origin 必須是 cli、mcp、script 或 remote"
+          }
+        }
+      }
+    },
     "control.error.focusShape": {
       "extractionState": "manual",
       "localizations": {
