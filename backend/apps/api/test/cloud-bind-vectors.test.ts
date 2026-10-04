@@ -14,12 +14,13 @@ interface VectorCase {
   readonly op: string
   readonly responses: ReadonlyArray<{ readonly http: { readonly path: string; readonly status: number }; readonly body: Record<string, any> }>
 }
-const cases = (vectors as unknown as { cases: ReadonlyArray<VectorCase> }).cases
+const doc = vectors as unknown as { cases: ReadonlyArray<VectorCase>; backend_only: ReadonlyArray<VectorCase> }
+const cases = [...doc.cases, ...doc.backend_only]
 const keys = (o: object) => Object.keys(o).sort()
-const like = (name: string, got: { status: number; body: any }) => {
+const like = (name: string, got: { status: number; body: any }, attempt = 0) => {
   const c = cases.find((x) => x.name === name)
   if (!c) throw new Error(`no vector ${name}`)
-  const v = c.responses[0]!
+  const v = c.responses[attempt]!
   expect(got.status, `${name}: ${JSON.stringify(got.body)}`).toBe(v.http.status)
   expect(keys(got.body), name).toEqual(keys(v.body))
   if (v.body.value && typeof v.body.value === "object") {
@@ -42,7 +43,7 @@ describe("bind, connect_info and link_token vector shapes through the Worker", {
     like("machine.bind.invalid", await post("/v1/cloud/bind", undefined, { team: a.team, machine }))
     const bound = await post("/v1/cloud/bind", undefined, body)
     like("machine.bind", bound)
-    like("machine.bind.spent", await post("/v1/cloud/bind", undefined, body))
+    like("machine.bind", await post("/v1/cloud/bind", undefined, body), 1)
     const host = bound.body.value.host as string
     like("machine.connect_info", await post("/v1/read", a.installToken, { op: "cloud.machine.connect_info", params: { machine } }))
     like("machine.connect_info.by_host", await post("/v1/read", a.installToken, { op: "cloud.machine.connect_info", params: { host } }))
@@ -50,7 +51,7 @@ describe("bind, connect_info and link_token vector shapes through the Worker", {
     const unbound = (await post("/v1/ops", a.session, { op: "cloud.machine.create", params: { size: SIZE }, idempotency_key: crypto.randomUUID(), origin: "user" })).body.value.machine.id
     like("machine.connect_info.not_bound", await post("/v1/read", a.installToken, { op: "cloud.machine.connect_info", params: { machine: unbound } }))
     like("machine.link_token", await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host, services: ["daemon", "ssh"] }, origin: "cli" }))
-    like("machine.link_token.key_refused", await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host, services: ["ssh"] }, idempotency_key: "k", origin: "cli" }))
+    like("machine.link_token.key_refused", await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host, services: ["daemon"] }, idempotency_key: "k", origin: "cli" }))
     like("machine.link_token.session_forbidden", await post("/v1/ops", a.session, { op: "cloud.machine.link_token", params: { host, services: ["ssh"] }, origin: "cli" }))
     like("machine.link_token.not_found", await post("/v1/ops", a.installToken, { op: "cloud.machine.link_token", params: { host: "host_h0000000000000000009", services: ["ssh"] }, origin: "cli" }))
   })

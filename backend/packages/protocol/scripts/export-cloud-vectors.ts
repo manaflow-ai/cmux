@@ -10,6 +10,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import { overlayAddress } from "../src/overlay.ts"
 
 type Json = null | boolean | number | string | Array<Json> | { [k: string]: Json }
 type Obj = { [k: string]: Json }
@@ -111,6 +112,11 @@ const PERSON_OPS = new Set(["cloud.machine.create", "cloud.machine.delete", "clo
 const CUT = "the provider call was cut off; retry with the same key"
 
 const cases: Array<Obj> = []
+/**
+ * Requests a correct client never sends (both selectors, a key on link_token) and the VM bind agent's
+ * POST /v1/cloud/bind (not a catalog op): kept out of `cases`, so op-driven client checks never see them.
+ */
+const backendOnly: Array<Obj> = []
 const kase = (name: string, op: string, params: Obj, responses: Array<Obj>, opts: { key?: string; mutation?: boolean; principal?: Obj; note?: string } = {}) => {
   const c: Obj = { name, op, class: opts.key || opts.mutation ? "mutation" : "read", principal: opts.principal ?? (PERSON_OPS.has(op) ? SESSION_P : INSTALL_P), params }
   if (opts.key) c.idempotency_key = opts.key
@@ -271,12 +277,15 @@ kase(
 )
 
 // ---- connect_info (contract 1.7): no credential in a read
+/** transport.md 3.1: the real derivation (fd7c:6d78::/32 + 96 bits of sha256(host id)). */
+const overlay = new Map<number, string>()
+for (const n of [1, 2, 4]) overlay.set(n, await overlayAddress(host(n)))
 const connectInfo = (n: number, state: string, rev: number): Obj => ({
   machine: vm(n),
   host: host(n),
   epoch: 1,
   state,
-  peer: { wg_public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", overlay_address: `fd7c:6d78:0:0:0:0:0:${n}`, vpc_endpoint: null, public_ipv6: null },
+  peer: { wg_public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", overlay_address: overlay.get(n)!, vpc_endpoint: null, public_ipv6: null },
   gateway: null,
   services: ["daemon", "ssh"],
   daemon: { version: "0.40.0", capabilities: ["terminal", "files", "ports"] },
@@ -305,12 +314,62 @@ kase(
   [mintOk(linkToken(1)), mintOk(linkToken(2))],
   { mutation: true, note: "Two calls, two fresh tokens: no key, no replay." }
 )
+/** A refused mint: no stream, no key, no sequence (nothing was committed). */
+const mintErr = (code: string, message: string): Obj => ({
+  http: { path: "/v1/ops", status: 200 },
+  body: { ok: false, op: "cloud.machine.link_token", error: { code, message, retryable: false }, transaction: tx(), idempotency_key: "", replayed: false, stream: "", sequence: 0 }
+})
+kase("machine.link_token.not_bound", "cloud.machine.link_token", { host: host(4), services: ["ssh"] }, [mintErr("cloud.machine.not_bound", "the machine is still provisioning")], { mutation: true })
+kase("machine.link_token.not_found", "cloud.machine.link_token", { host: host(9), services: ["ssh"] }, [mintErr("cloud.machine.not_found", "no such machine in this team")], { mutation: true })
 kase(
-  "machine.link_token.not_bound",
+  "machine.link_token.session_forbidden",
   "cloud.machine.link_token",
-  { host: host(4), services: ["daemon"] },
-  [opErr("cloud.machine.link_token", "", "cloud.machine.not_bound", "the machine is still provisioning")],
-  { mutation: true }
+  { host: host(1), services: ["ssh"] },
+  [mintErr("auth.forbidden", "link tokens are minted only for an install's cmux link")],
+  { mutation: true, principal: SESSION_P, note: "Install principals only (LINK-RESOLVE): an app or page caller never holds a link token." }
+)
+backendOnly.push({
+  name: "machine.link_token.key_refused",
+  op: "cloud.machine.link_token",
+  class: "mutation",
+  principal: INSTALL_P,
+  params: { host: host(1), services: ["daemon"] },
+  request_idempotency_key: "client-key",
+  responses: [{ http: { path: "/v1/ops", status: 400 }, body: { _tag: "BadRequest", code: "validation.invalid", message: "cloud.machine.link_token takes no idempotency_key" } }],
+  note: "The request carried idempotency_key (request_idempotency_key): refused, so a stored answer can never hand a credential out twice."
+})
+
+// ---- bind (state-placement.md 5.8 item 2): POST /v1/cloud/bind with the VM's bind file, no bearer;
+// the one-time bind token is the credential. Not a catalog op (internal cloud.machine.bind).
+const BIND_PARAMS = { team: TEAM, machine: vm(4), bind_token: "bt_vector_one_time_token_000000000000000000", wg_public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", daemon: { version: "0.40.0", capabilities: ["terminal", "files"] } }
+const BIND_P = { kind: "bind_token" }
+const KEYSET = { version: "0123456789abcdef", keys: { "vector-k1": { kty: "OKP", crv: "Ed25519", x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo", kid: "vector-k1", alg: "EdDSA", use: "sig" } } }
+const bindReply = (status: number, body: Obj): Obj => ({ http: { path: "/v1/cloud/bind", status }, body })
+backendOnly.push({
+  name: "machine.connect_info.both_selectors",
+  op: "cloud.machine.connect_info",
+  class: "read",
+  principal: INSTALL_P,
+  params: { machine: vm(1), host: host(1) },
+  responses: [readErr(400, "BadRequest", "validation.invalid", "give exactly one of machine and host")],
+  note: "Exactly one of machine and host; the client refuses both or neither before sending, and the server refuses them too."
+})
+backendOnly.push(
+  {
+    name: "machine.bind",
+    op: "cloud.machine.bind",
+    principal: BIND_P,
+    params: BIND_PARAMS,
+    responses: [bindReply(200, { ok: true, value: { machine: vm(4), host: host(4), epoch: 1, keyset: KEYSET } }), bindReply(403, { ok: false, error: { code: "auth.forbidden", message: "bind refused" } })],
+    note: "responses[0]: the answer carries the public link keyset (at most 2 kids, no private part) and the machine becomes running with its host (cloud.machine.upsert). responses[1]: a second bind with the spent token; any wrong, expired or unknown token is the same auth.forbidden."
+  },
+  {
+    name: "machine.bind.invalid",
+    op: "cloud.machine.bind",
+    principal: BIND_P,
+    params: { team: TEAM, machine: vm(4) },
+    responses: [bindReply(400, { ok: false, error: { code: "validation.invalid", message: "invalid bind request" } })]
+  }
 )
 
 // ---- snapshots
@@ -428,7 +487,7 @@ const doc = {
   version: 1,
   identities: { team: TEAM, user: USER, install: INSTALL, agent: AGENT },
   conventions: {
-    request: "POST http.path with {op, params, idempotency_key?}; reads have no key.",
+    request: "POST http.path with {op, params, idempotency_key?}; reads have no key. `backend_only` bind cases POST params as the whole body to /v1/cloud/bind with no bearer (the one-time bind token is the credential).",
     responses: "One entry per attempt with the same (principal, op, params, idempotency_key): attempt i gets responses[i], later attempts the last entry.",
     read_error: "A read error is the HTTP error body {_tag, code, message} at http.status.",
     principal: "kind install or session; agent set = a chief token (claim agt).",
@@ -436,7 +495,8 @@ const doc = {
       "Decimal string: the team owner's (CloudDO) event sequence at the entity's last change, so entity and list revisions compare. A client drops an event or answer older than what it holds."
   },
   cases,
-  events
+  events,
+  backend_only: backendOnly
 }
 
 const out = fileURLToPath(new URL("../../../catalog/cloud-vectors.json", import.meta.url))
