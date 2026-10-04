@@ -342,8 +342,14 @@ async fn shutdown_with_end_agents_ends_hosted_agents_and_records_the_cancelled_t
     assert_eq!(reply["endAgents"], true, "{reply}");
     daemon.wait_exit();
     drop(client);
-    assert!(gone_within(harness_pid, Duration::from_secs(10)), "the agent outlived Quit Everything");
-    assert!(gone_within(host_pid, Duration::from_secs(10)), "the agent host outlived Quit Everything");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "the agent outlived Quit Everything"
+    );
+    assert!(
+        gone_within(host_pid, Duration::from_secs(10)),
+        "the agent host outlived Quit Everything"
+    );
     let cancelled = daemon
         .events(&session)
         .into_iter()
