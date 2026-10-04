@@ -20,8 +20,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
-#[cfg(unix)]
-use std::mem::{offset_of, size_of};
 #[cfg(test)]
 use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
@@ -184,6 +182,10 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
+/// `error_code` of a request refused while the daemon's shutdown handoff is
+/// reserved and not yet announced. The [`DAEMON_SHUTDOWN_EVENT`] follows
+/// unless the shutdown is cancelled.
+pub const DAEMON_SHUTDOWN_PENDING_CODE: &str = "daemon_shutdown_pending";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// The daemon reads the host's listening TCP sockets for an authenticated
@@ -866,13 +868,7 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
 
 #[cfg(unix)]
 fn unix_socket_path_fits(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-
-    // Filesystem Unix sockets require a trailing NUL in sun_path, so the
-    // encoded pathname itself must be strictly shorter than the field.
-    const SUN_PATH_CAPACITY: usize =
-        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
-    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
+    cmux_unix_socket::fits(path)
 }
 
 #[derive(Deserialize)]
@@ -6722,6 +6718,8 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         Some(path) => (path, false),
         None => (try_default_socket_path(&mux.session)?, true),
     };
+    // Refuse a path longer than sun_path before creating its parent or lock.
+    cmux_unix_socket::check_path(&path)?;
     // Only harden directories selected by the daemon. An explicit socket path
     // is authoritative, so its parent may be a shared or pre-configured path
     // such as /tmp and must not be chmod'ed or ownership-checked.
@@ -10680,11 +10678,19 @@ fn reject_message_during_pending_handoff(message: &str, writer: &MessageWriter) 
     match serde_json::from_str::<Request>(message) {
         Ok(request) => {
             let is_clear_history = request.cmd.is_clear_history();
-            send_request_error_with_delivery(
+            // The stable code lets a client wait for the shutdown notice
+            // that follows instead of treating the refusal as a failure.
+            send_response(
                 writer,
-                request.id,
-                PENDING_HANDOFF_ERROR,
-                is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
+                Response {
+                    id: request.id,
+                    ok: false,
+                    data: None,
+                    error: Some(PENDING_HANDOFF_ERROR.to_string()),
+                    error_code: Some(DAEMON_SHUTDOWN_PENDING_CODE.to_string()),
+                    error_delivery: is_clear_history
+                        .then_some(ResponseErrorDelivery::KnownNotDelivered),
+                },
             )
         }
         Err(error) => send_bad_request(writer, message, &error),
@@ -16158,8 +16164,6 @@ mod tests {
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
-    static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
-
     #[test]
     fn json_line_limit_excludes_the_newline_delimiter() {
         let exact_payload = "x".repeat(MAX_JSON_LINE_BYTES);
@@ -16177,27 +16181,18 @@ mod tests {
         assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
     }
 
-    struct TestSocketDir(PathBuf);
+    /// A test socket directory: a short directory under the canonical
+    /// `/tmp` from the shared helper, so socket paths fit sun_path whatever
+    /// `$TMPDIR` is (cmux_unix_socket::short_test_dir).
+    struct TestSocketDir(cmux_unix_socket::TestDir);
 
     impl TestSocketDir {
         fn create(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "cmux-tui-server-{name}-{}-{}",
-                std::process::id(),
-                NEXT_TEST_SOCKET_DIR.fetch_add(1, Ordering::Relaxed)
-            ));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
+            Self(cmux_unix_socket::short_test_dir(&format!("cts-{name}")))
         }
 
         fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TestSocketDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+            self.0.path()
         }
     }
 
@@ -16514,6 +16509,23 @@ mod tests {
         assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o755);
     }
 
+    /// A configured socket path longer than sun_path is refused with the
+    /// path and the limit, never a bare bind error.
+    #[cfg(unix)]
+    #[test]
+    fn serve_paused_names_a_socket_path_longer_than_sun_path() {
+        let root = TestSocketDir::create("long");
+        let directory = root.path().join("d".repeat(cmux_unix_socket::MAX_PATH_BYTES));
+        let socket = directory.join("mux.sock");
+        let Err(error) = serve_paused(test_mux(), Some(socket.clone())) else {
+            panic!("a socket path longer than sun_path must be refused");
+        };
+        let message = format!("{error:#}");
+        assert!(message.contains(&socket.display().to_string()), "{message}");
+        assert!(message.contains("Unix socket limit"), "{message}");
+        assert!(!directory.exists(), "nothing is created for a refused path");
+    }
+
     #[test]
     fn serve_paused_creates_missing_explicit_socket_parent() {
         let root = TestSocketDir::create("explicit-runtime-directory-missing");
@@ -16555,8 +16567,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unix_socket_path_reserves_trailing_nul() {
-        const SUN_PATH_CAPACITY: usize =
-            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        const SUN_PATH_CAPACITY: usize = cmux_unix_socket::SUN_PATH_CAPACITY;
         assert!(unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY - 1))));
         assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
     }

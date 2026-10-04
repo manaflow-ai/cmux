@@ -109,13 +109,10 @@ fn busy_is_retried_only_when_the_app_says_nothing_ran() {
 /// next canned response and records what it received, per connection.
 fn fake_app(responses: Vec<Value>) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<Value>>>) {
     use std::os::unix::net::UnixListener;
-    let dir = std::env::temp_dir().join(format!(
-        "cmux-app-cli-{}-{}",
-        std::process::id(),
-        super::super::command::random_prefixed("t").unwrap()
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    let socket = dir.join("app.sock");
+    // The shared helper keeps the socket path under sun_path whatever
+    // $TMPDIR is; the guard moves into the server thread.
+    let dir = cmux_unix_socket::short_test_dir("cmux-app");
+    let socket = dir.path().join("app.sock");
     let listener = UnixListener::bind(&socket).unwrap();
     listener.set_nonblocking(false).unwrap();
     let handle = std::thread::spawn(move || {
@@ -140,7 +137,7 @@ fn fake_app(responses: Vec<Value>) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<
             let _ = BufReader::new(stream).read_line(&mut extra);
             connections.push(vec![json!(extra)]);
         }
-        let _ = std::fs::remove_dir_all(dir);
+        drop(dir);
         connections
     });
     (socket, handle)
