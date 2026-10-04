@@ -117,6 +117,7 @@ mod conversations;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
+mod new_screen;
 mod personal;
 mod raw_tab;
 #[cfg(unix)]
@@ -125,7 +126,6 @@ mod remote_relay;
 #[cfg(test)]
 use remote_relay::handle_connection_message;
 mod responses;
-mod new_screen;
 mod rows;
 mod screen_json;
 mod session_stream;
