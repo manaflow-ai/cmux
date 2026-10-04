@@ -47,6 +47,12 @@ public final class BrowserReplSession: @unchecked Sendable {
     private let driver: any BrowserReplDriver
     /// The session's JavaScript thread (internal for tests).
     let thread: BrowserReplJSThread
+    /// Where page events are masked before they go to `thread`, in the
+    /// order they arrived, so a large event's redaction never holds the
+    /// JavaScript thread. Driver call results pass through it on their way
+    /// to `thread` too, so an event the driver sent before a call returned
+    /// still reaches the runtime before that call's result.
+    private let eventQueue: DispatchQueue
     private let fetcher: BrowserReplFetcher
     /// Secrets, the domain policy and redaction (see BrowserReplBoundary).
     private let boundary: BrowserReplBoundary
@@ -140,6 +146,11 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// dropped where it arrives, before it is queued.
     static let maxQueuedEvents = 10_000
     static let maxQueuedEventBytes = 64 << 20
+
+    /// The most bytes one page event's payload may have; a larger one
+    /// arrives withheld (`{ targetId, withheld }`), without its content, so
+    /// masking secrets in an event never reads more than this.
+    static let maxEventPayloadBytes = 1 << 20
 
     /// Page events queued or held, their bytes, and those dropped where
     /// they arrived since the last cell's notice; guarded by `eventLock`.
@@ -447,6 +458,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.boundary = BrowserReplBoundary(typedSecrets: { driver.typedSecretRedaction() })
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
+        self.eventQueue = DispatchQueue(label: "com.cmux.browser-repl.events.\(id)", qos: .userInitiated)
         let watchdog = BrowserReplWatchdog(callbackTimeLimit: callbackTimeLimit, supported: executionTimeLimitSupported)
         self.watchdog = watchdog
         self.fetcher = BrowserReplFetcher(driver: driver)
@@ -771,7 +783,11 @@ public final class BrowserReplSession: @unchecked Sendable {
         let task = Task { [weak self] in
             let result = boundary.redact(method: call.method, await driver.call(method: call.method, paramsJSON: call.paramsJSON))
             guard let self else { return }
-            self.thread.perform { [weak self] in self?.resolveCall(call.callID, result) }
+            // Behind the events the driver sent before it returned.
+            self.eventQueue.async { [weak self] in
+                guard let self else { return }
+                self.thread.perform { [weak self] in self?.resolveCall(call.callID, result) }
+            }
             self.driverCallFinished(taskID)
         }
         inFlight[taskID] = InFlightWork(task: task, evalID: call.evalID, isFetch: false)
@@ -1442,7 +1458,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Queues a page event for the session's thread. Past
     /// `maxQueuedEvents` events or `maxQueuedEventBytes` bytes queued or
     /// held, it is dropped here, before anything holds it, and the next
-    /// cell says so; a finished download still becomes readable.
+    /// cell says so; a finished download still becomes readable. Secrets
+    /// are masked on `eventQueue`, off the JavaScript thread, and an event
+    /// past `maxEventPayloadBytes` is withheld instead.
     private func deliverEvent(name: String, payloadJSON: String) {
         let reserved = name.utf8.count + payloadJSON.utf8.count
         let admitted: Bool = eventLock.withLock {
@@ -1463,24 +1481,46 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             return
         }
-        let queued = thread.perform { [weak self] in
+        eventQueue.async { [weak self] in
             guard let self else { return }
-            if let downloadPath { self.fileSystem.sandbox.allowReading(downloadPath) }
-            guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else {
+            let payload = self.eventPayloadForJavaScript(name: name, payloadJSON)
+            let queued = self.thread.perform { [weak self] in
+                guard let self else { return }
+                if let downloadPath { self.fileSystem.sandbox.allowReading(downloadPath) }
+                guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else {
+                    self.releaseEvent(reserved)
+                    return
+                }
+                if self.mustHoldCallback {
+                    self.hold(.event(name: name, payload: payload, reserved: reserved))
+                    return
+                }
                 self.releaseEvent(reserved)
-                return
+                self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
             }
-            // An event masking would grow past the limit arrives without its payload.
-            let payload = (try? self.boundary.redactJSON(payloadJSON))
-                ?? (JSONSerialization.browserReplString(["withheld": BrowserReplSecretStore.limitMessage(payloadJSON.utf8.count)]) ?? "{}")
-            if self.mustHoldCallback {
-                self.hold(.event(name: name, payload: payload, reserved: reserved))
-                return
-            }
-            self.releaseEvent(reserved)
-            self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
+            if !queued { self.releaseEvent(reserved) }
         }
-        if !queued { releaseEvent(reserved) }
+    }
+
+    /// A page event's payload as JavaScript may see it, with secrets
+    /// masked. One past `maxEventPayloadBytes`, or that masking would grow
+    /// past the redaction limit, arrives as `{ targetId, withheld }`: the
+    /// tab it names (masked too), and why its content is not there.
+    private func eventPayloadForJavaScript(name: String, _ payloadJSON: String) -> String {
+        let size = payloadJSON.utf8.count
+        let reason: String
+        if size > Self.maxEventPayloadBytes {
+            reason = "this \(name) event is \(size) bytes, past the \(Self.maxEventPayloadBytes >> 20) MiB a page event may carry, so its content was withheld"
+        } else if let redacted = try? boundary.redactJSON(payloadJSON) {
+            return redacted
+        } else {
+            reason = BrowserReplSecretStore.limitMessage(size)
+        }
+        var withheld: [String: Any] = ["withheld": reason]
+        if let targetId = JSONSerialization.browserReplObject(payloadJSON)["targetId"] as? String, targetId.utf8.count <= 256 {
+            withheld["targetId"] = boundary.redact(targetId)
+        }
+        return JSONSerialization.browserReplString(withheld) ?? "{}"
     }
 
     /// An event left the queue (delivered or dropped): its budget is free.

@@ -163,7 +163,7 @@ final class SlowRedactionDriver: BrowserReplDriver, @unchecked Sendable {
     private let lock = NSLock()
     private var sink: BrowserReplDriverEventSink?
     private var armed = false
-    private var blockedWaiter: CheckedContinuation<Void, Never>?
+    private var blockedWaiters: [CheckedContinuation<Void, Never>] = []
     private var isBlocked = false
     private let release = DispatchSemaphore(value: 0)
     private(set) var blockedThreadName: String?
@@ -172,7 +172,11 @@ final class SlowRedactionDriver: BrowserReplDriver, @unchecked Sendable {
 
     func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         if method == "emitThenReturn" {
+            // The event's redaction blocks, so a result that did not wait
+            // for the events before it would arrive first.
+            armBlockingRedaction()
             emit("console", #"{"targetId":"t1","type":"log","text":"before the result"}"#)
+            await waitUntilBlocked()
         }
         return .success("null")
     }
@@ -196,7 +200,7 @@ final class SlowRedactionDriver: BrowserReplDriver, @unchecked Sendable {
         await withCheckedContinuation { continuation in
             let resumeNow: Bool = lock.withLock {
                 if isBlocked { return true }
-                blockedWaiter = continuation
+                blockedWaiters.append(continuation)
                 return false
             }
             if resumeNow { continuation.resume() }
@@ -204,16 +208,16 @@ final class SlowRedactionDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     func typedSecretRedaction() -> BrowserReplSecretStore? {
-        let waiter: CheckedContinuation<Void, Never>?? = lock.withLock {
+        let waiters: [CheckedContinuation<Void, Never>]? = lock.withLock {
             guard armed else { return nil }
             armed = false
             isBlocked = true
             blockedThreadName = Thread.current.name
-            defer { blockedWaiter = nil }
-            return .some(blockedWaiter)
+            defer { blockedWaiters = [] }
+            return blockedWaiters
         }
-        guard let waiter else { return nil }
-        waiter?.resume()
+        guard let waiters else { return nil }
+        for waiter in waiters { waiter.resume() }
         release.wait()
         return nil
     }
@@ -368,7 +372,8 @@ struct BrowserReplSessionResourceTests {
         for _ in 0..<100 { driver.emit("console", payload) }
         busy.signal()
 
-        let result = await session.evaluate(code: "console.log(globalThis.eventCount);")
+        // A driver call's result follows the events that arrived before it.
+        let result = await session.evaluate(code: "await driverOnce('tabs.list'); console.log(globalThis.eventCount);")
         let texts = result.lines.map(\.text)
         let delivered = Int(texts.last ?? "") ?? -1
         #expect(delivered >= 1 && delivered <= 64, "\(delivered) of 100 one-MiB events were queued: \(texts)")
@@ -397,6 +402,41 @@ struct BrowserReplSessionResourceTests {
         #expect(result.error == nil, "\(result.error ?? "")")
         #expect(result.lines.map(\.text) == ["2"])
         #expect(driver.blockedThreadName != "com.cmux.browser-repl.\(session.id)", "the event was masked on the session's thread")
+    }
+
+    /// Events are masked off the session's thread, but an event the driver
+    /// sent before a call returned still reaches the runtime first: the
+    /// runtime acts on it (a cancelled navigation fails the action that
+    /// caused it) when the call's result arrives.
+    @Test("An event sent before a driver call returns reaches the runtime before the call's result")
+    func eventsStayAheadOfLaterResults() async throws {
+        let driver = SlowRedactionDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.events = [];
+        globalThis.__cmuxHostOnEvent = (name, payload) => { globalThis.events.push(JSON.parse(payload).text); };
+        """#
+        let session = BrowserReplSession(
+            id: "ordered-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "ordered.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            driver.releaseRedaction()
+            session.close()
+        }
+        #expect(await session.evaluate(code: "globalThis.events = [];").error == nil)
+
+        async let evaluated = session.evaluate(
+            code: "await driverOnce('emitThenReturn'); console.log(JSON.stringify(globalThis.events));",
+            timeout: .seconds(30)
+        )
+        await driver.waitUntilBlocked()
+        driver.releaseRedaction()
+        let result = await evaluated
+
+        #expect(result.error == nil, "\(result.error ?? "")")
+        #expect(result.lines.map(\.text) == [#"["before the result"]"#])
     }
 
     /// An event larger than the per-event limit arrives without its

@@ -706,6 +706,12 @@ Entry points the runtime defines, called by the app:
   (`cmux browser repl reset`, idle expiry) every script is terminated and
   the app makes no further call into the context.
 - `__cmuxHostOnEvent(name, payloadJSON)` delivers every driver event.
+  The session masks secrets in each on a queue of its own, off the
+  session's thread, in the order events arrived, and a driver call's
+  result goes through that queue too, so an event sent before a call
+  returned is delivered before its result. A payload past 1 MiB, or one
+  masking would grow past the redaction limit, arrives as
+  `{ targetId, withheld }`: the tab and why its content was left out.
 - `__cmuxHostOnTimer(id)`, `__cmuxHostOnResult(callId, errorJSON, resultJSON)`.
 
 Script load order: `manifest.json` in `Resources/browser-repl/`,
