@@ -1,26 +1,22 @@
 import AppKit
 import CmuxHomeCore
-import CmuxHomeRender
 import CmuxNextDesign
 import CmuxNextHome
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
-/// native AppKit transcript (lane 16's `HomeNativeTranscriptView` on the
-/// shared render core, home-mac.md) bound to the shared `HomeStore` over the
-/// local conversation owner, or why it cannot show (the local daemon does
-/// not serve conversations).
+/// native AppKit transcript (`HomeNativeTranscriptView`, MessagesLab's code,
+/// home-mac.md) over the shared `HomeStore` of the local conversation owner,
+/// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
 final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
-    private let binding: HomeStoreBinding
     private let message = NSTextField(labelWithString: "")
     private var availability: Task<Void, Never>?
 
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
-        transcript = HomeNativeTranscriptView(conversation: id, me: service.homeSource.me.id)
-        binding = HomeStoreBinding(store: service.homeStore, controller: transcript.controller)
+        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         super.init(frame: .zero)
         wantsLayer = true
         message.alignment = .center
@@ -45,7 +41,7 @@ final class HomeHostView: NSView {
 
     isolated deinit {
         availability?.cancel()
-        binding.stop()
+        transcript.stop()
     }
 
     override var wantsUpdateLayer: Bool { true }
