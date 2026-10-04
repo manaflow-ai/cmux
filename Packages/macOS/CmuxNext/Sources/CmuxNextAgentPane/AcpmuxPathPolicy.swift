@@ -8,8 +8,10 @@ public import Foundation
 /// what the daemon receives. Anything else is refused with a typed error. The daemon checks again
 /// (an existing canonical directory; a preset's pinned cwd wins), in its own lane.
 public nonisolated enum AcpmuxPathPolicy {
-    /// The params a page frame may name a path in.
-    public static let keys = ["cwd", "path"]
+    /// The params a page frame may name a folder in, at any depth (C1): each value is a path or a
+    /// list of paths. Every one of them must be a directory, except `path`, which may be a file.
+    public static let keys = ["cwd", "path", "additionalDirectories", "directory", "directories", "workingDirectory",
+                              "folder", "folders", "root", "roots", "worktree", "worktreePath"]
 
     /// Why a path was refused, and the refused request's id (raw JSON) to answer it.
     public nonisolated struct Refusal: Error, Equatable, Sendable {
@@ -31,27 +33,51 @@ public nonisolated enum AcpmuxPathPolicy {
     static func checkNow(_ text: String, roots: [String]) -> Result<String, Refusal> {
         guard mayNamePath(text),
               var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-              var params = object["params"] as? [String: Any],
-              keys.contains(where: { params[$0] != nil }) else { return .success(text) }
+              let params = object["params"] else { return .success(text) }
         let method = object["method"] as? String
         let id = object["id"].flatMap(AcpmuxPaneMethods.rawID)
         let canonicalRoots = roots.compactMap(canonical).filter { $0 != "/" }
-        for key in keys {
-            guard let value = params[key] else { continue }
-            guard let path = value as? String, let resolved = canonical(path),
-                  key != "cwd" || isDirectory(resolved) else {
-                return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
-            }
-            guard canonicalRoots.contains(where: { contains(root: $0, path: resolved) }) else {
-                return .failure(Refusal(error: .pathOutsideRoots, requestID: id, method: method))
-            }
-            params[key] = resolved
+        var changed = false
+        let checked: Any
+        do {
+            checked = try rewrite(params, roots: canonicalRoots, changed: &changed)
+        } catch let error as AgentPaneTransportError {
+            return .failure(Refusal(error: error, requestID: id, method: method))
+        } catch {
+            return .failure(Refusal(error: .invalidFrame, requestID: id, method: method))
         }
-        object["params"] = params
+        guard changed else { return .success(text) }
+        object["params"] = checked
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]) else {
             return .failure(Refusal(error: .invalidFrame, requestID: id, method: method))
         }
         return .success(String(decoding: data, as: UTF8.self))
+    }
+
+    /// `value` with every folder field made canonical; throws the refusal of the first bad one.
+    static func rewrite(_ value: Any, roots: [String], changed: inout Bool) throws -> Any {
+        if var object = value as? [String: Any] {
+            for (key, inner) in object {
+                if keys.contains(key) {
+                    object[key] = try folder(inner, key: key, roots: roots)
+                    changed = true
+                } else {
+                    object[key] = try rewrite(inner, roots: roots, changed: &changed)
+                }
+            }
+            return object
+        }
+        if let list = value as? [Any] { return try list.map { try rewrite($0, roots: roots, changed: &changed) } }
+        return value
+    }
+
+    /// One folder field's value (a path, or a list of paths), canonical and inside a root.
+    static func folder(_ value: Any, key: String, roots: [String]) throws -> Any {
+        if let list = value as? [Any] { return try list.map { try folder($0, key: key, roots: roots) } }
+        guard let path = value as? String, let resolved = canonical(path),
+              key == "path" || isDirectory(resolved) else { throw AgentPaneTransportError.pathInvalid }
+        guard roots.contains(where: { contains(root: $0, path: resolved) }) else { throw AgentPaneTransportError.pathOutsideRoots }
+        return resolved
     }
 
     /// The canonical form of an absolute path that exists; nil otherwise.

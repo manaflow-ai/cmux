@@ -56,6 +56,10 @@ public nonisolated enum AcpmuxPaneMethods {
         }
         let id = object["id"].flatMap(rawID)
         guard let method = object["method"] as? String else { return .refuse(.methodRefused, method: nil, requestID: nil) }
+        // C1: no page frame may make the harness spawn a command.
+        if let params = object["params"], carriesServers(params) {
+            return .refuse(.mcpServersRefused, method: method, requestID: id)
+        }
         if isFirst {
             guard method == initialize, id != nil else { return .refuse(.firstFrameNotInitialize, method: method, requestID: id) }
             guard let localAppToken else { return .send(text) }
@@ -82,6 +86,25 @@ public nonisolated enum AcpmuxPaneMethods {
         let body: [String: Any] = ["code": -32601, "message": "Refused by the cmux host", "data": data]
         let encoded = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         return #"{"jsonrpc":"2.0","id":"# + requestID + #","error":"# + encoded + "}"
+    }
+
+    /// The key whose entries ({command, args, env}) a harness spawns.
+    public static let serversKey = "mcpServers"
+
+    /// Whether `value` holds a non-empty `mcpServers` (or one that is not a list) at any depth.
+    static func carriesServers(_ value: Any) -> Bool {
+        if let object = value as? [String: Any] {
+            for (key, inner) in object {
+                if key == serversKey {
+                    guard let list = inner as? [Any], list.isEmpty else { return true }
+                } else if carriesServers(inner) {
+                    return true
+                }
+            }
+        } else if let list = value as? [Any] {
+            return list.contains(where: carriesServers)
+        }
+        return false
     }
 
     /// A JSON-RPC id (number or string) as raw JSON.
