@@ -38,9 +38,7 @@ pub struct FsGate;
 
 impl RemoteGate for FsGate {
     fn admit(&self, _peer: &RemotePeer, frame: &str) -> bool {
-        // RED: the gate is not wired yet.
-        let _ = frame;
-        false
+        frame_command(frame).is_some()
     }
 }
 

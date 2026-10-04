@@ -17,9 +17,7 @@ use cmux_tui_core::fs_ops::{FsService, Roots};
 
 /// True when this daemon serves `fs-v1`.
 pub(super) fn is_cloud_host(linux: bool, model_plane_identity: bool) -> bool {
-    // RED: every host serves file ops.
-    let _ = (linux, model_plane_identity);
-    true
+    linux && model_plane_identity
 }
 
 /// Installs the file owner over `home` when this is a Cloud host. Returns
