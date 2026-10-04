@@ -136,7 +136,8 @@ export function folded<T>(
 
 /// One harness choice: the current one checked, another as a new chat. One acpmux cannot start
 /// (`unavailable`) says so and opens its reason with Try again instead of starting a chat that
-/// fails seconds later.
+/// fails seconds later; one whose switch just failed says so (`harnessNotes`). Resting on an
+/// available one sends the prewarm hint; picking it switches.
 export function harnessNode(
   harness: { id: string; name: string; unavailable?: string },
   props: ModelPickerProps,
@@ -161,7 +162,8 @@ export function harnessNode(
     };
   return {
     ...node,
-    detail: harness.id === props.harness ? undefined : t("picker.newChat"),
+    detail: props.harnessNotes?.[harness.id] ?? (harness.id === props.harness ? undefined : t("picker.newChat")),
+    rest: () => props.onHarnessHint?.(harness.id),
     run: () => {
       if (harness.id !== props.harness) props.onHarness?.(harness.id);
     },

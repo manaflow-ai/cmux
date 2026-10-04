@@ -77,6 +77,9 @@ type Reply = {
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
 
+/// A hint that a harness is likely next, so acpmux can warm its adapter (cmux-tui acpmux lane).
+export const PREWARM_METHOD = "_acpmux/prewarm";
+
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
@@ -391,6 +394,8 @@ export class AcpmuxDirectClient {
   /// acpmux lists `acp.session.fork` among the operations it serves.
   private canFork = false;
   private handoffSupported = false;
+  /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
+  private extensions: readonly string[] = [];
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -515,6 +520,8 @@ export class AcpmuxDirectClient {
         clientCapabilities: {},
       });
       this.canFork = servesOperation(initialized, FORK_OP);
+      const extensions = initialized?._meta?.acpmux?.extensions;
+      this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.handoffSupported = supportsHandoff(initialized);
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
@@ -1299,7 +1306,13 @@ export class AcpmuxDirectClient {
     if (!ids.length) return;
     await this.request("_acpmux/warm", { sessionIds: ids, limit }).catch(() => undefined);
   }
-  async send(input: string, attachments: ComposerAttachment[] = []): Promise<string | undefined> {
+  /// Sends a prompt. `promptId` keys its optimistic row (`local-<promptId>`), so a prompt the
+  /// pane drew while a harness started keeps its row once it goes out (harnessSwitch.ts).
+  async send(
+    input: string,
+    attachments: ComposerAttachment[] = [],
+    promptId: string = crypto.randomUUID(),
+  ): Promise<string | undefined> {
     const record = this.handoff.state.record;
     if (
       this.handoffSupported &&
@@ -1311,10 +1324,12 @@ export class AcpmuxDirectClient {
           !this.handoff.state.receipt))
     )
       throw new Error("Review the continuation before sending a prompt.");
-    const sessionId = await this.ensureSession();
+    // A shown session takes the prompt in this task, so its row draws in the frame of the send;
+    // while a new chat starts, the prompt waits for it (ensureSession).
+    const shown = this.creating ? undefined : this.selectedSessionId;
+    const sessionId = shown ?? (await this.ensureSession());
     if (!sessionId) return undefined;
     const text = promptText(input, attachments);
-    const promptId = crypto.randomUUID();
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
@@ -1398,11 +1413,8 @@ export class AcpmuxDirectClient {
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   create(harness?: string, cwd?: string): Promise<string | undefined> {
     const started = (async () => {
-      const result = await this.request("session/new", newSessionParams(cwd ? { cwd } : this.host, harness));
-      // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
-      if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
-      if (result?.sessionId) return this.select(String(result.sessionId));
-      return undefined;
+      const sessionId = await this.startSession(harness, cwd);
+      return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
       if (this.creating === tracked) this.creating = undefined;
@@ -1411,6 +1423,58 @@ export class AcpmuxDirectClient {
     tracked.catch(() => undefined);
     this.creating = tracked;
     return started;
+  }
+  /// `session/new` without showing it: a harness switch starts the session behind the pane's
+  /// new chat and shows it once it is ready (harnessSwitch.ts).
+  async startSession(harness?: string, cwd?: string): Promise<string | undefined> {
+    const result = await this.request("session/new", newSessionParams(cwd ? { cwd } : this.host, harness));
+    // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
+    if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
+    return result?.sessionId ? String(result.sessionId) : undefined;
+  }
+  /// The shown session, for a harness switch: whether it has nothing in it yet (a pick back to
+  /// its harness reuses it), its harness, and its folder when it runs on this machine (the new
+  /// chat starts there; a cloud or peer session's folder is not one acpmux can start in here).
+  shownSession(): { sessionId: string; harness?: string; empty: boolean; cwd?: string } | undefined {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) return undefined;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const turns = Number(summary?.turnCount ?? 0);
+    const local = hostKind(summary?.hostKind) !== "cloud" && !text(summary?.host);
+    return {
+      sessionId,
+      harness: typeof summary?.harness === "string" ? summary.harness : undefined,
+      empty: this.rows.size === 0 && this.queue.length === 0 && turns === 0 && !this.turnOpen,
+      ...(local && typeof summary?.cwd === "string" && summary.cwd ? { cwd: summary.cwd } : {}),
+    };
+  }
+  /// A turn is running in the shown session.
+  turnRunning(): boolean {
+    return this.turnOpen || this.summary?.status === "running";
+  }
+  /// Stops showing the selected session: a harness switch draws its new chat meanwhile. The
+  /// session keeps running in acpmux; only this client's attach ends.
+  leave(): void {
+    const previous = this.selectedSessionId;
+    if (!previous) return;
+    this.selectedSessionId = undefined;
+    this.selectionGeneration += 1;
+    this.resetSessionState();
+    this.emit();
+    void this.request("_acpmux/detach", { sessionId: previous }).catch(() => undefined);
+  }
+  /// Ends a session a superseded harness switch started and nobody used.
+  discard(sessionId: string): void {
+    if (sessionId === this.selectedSessionId) return;
+    void this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
+  }
+  /// acpmux serves `_acpmux/prewarm`: a hint that `harness` is likely next.
+  get prewarmSupported(): boolean {
+    return this.extensions.includes(PREWARM_METHOD);
+  }
+  /// Hints acpmux to warm `harness`'s adapter. Older daemons do not list the method and are not asked.
+  prewarm(harness: string): void {
+    if (this.prewarmSupported) void this.request(PREWARM_METHOD, { harness }).catch(() => undefined);
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
@@ -1436,6 +1500,12 @@ export class AcpmuxDirectClient {
     }
     if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
     this.adoptFailed(": this acpmux can't resume chats");
+  }
+  /// A line in the shown transcript (a pick the agent refused).
+  notice(text: string): void {
+    const at = Date.now();
+    this.rows.set(`notice-${at}`, { id: `notice-${at}`, version: 1, at, kind: "notice", text });
+    this.emit();
   }
   private adoptFailed(reason: string): void {
     const at = Date.now();

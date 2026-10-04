@@ -22,7 +22,8 @@ export function projectName(cwd: string | undefined): string | undefined {
 /// that doesn't count turns still has older history to page in for an old session.
 export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
   const summary = snapshot.summary;
-  if (!summary || summary.sessionId !== snapshot.sessionId) return false;
+  // A harness switch's new chat has no session yet; its summary is the one the switch draws.
+  if (!summary || (summary.sessionId !== snapshot.sessionId && !snapshot.switching)) return false;
   if (/^(connecting|disconnected|failed)/.test(snapshot.connection)) return false;
   const turns = summary.turnCount ?? (snapshot.canLoadOlder ? 1 : 0);
   return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0 && turns === 0;

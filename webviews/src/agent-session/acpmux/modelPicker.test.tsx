@@ -92,6 +92,7 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
   describe(`model picker: ${layout}`, () => {
     let root: ReturnType<typeof createRoot>;
     let calls: string[];
+    let hints: (string | undefined)[] = [];
     const store = new Map<string, string>();
     const render = async (value: AcpmuxSnapshot) =>
       act(async () =>
@@ -109,6 +110,9 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
             },
             onHarness: (id: string) => {
               calls.push(`harness ${id}`);
+            },
+            onHarnessHint: (id: string | undefined) => {
+              hints.push(id);
             },
           }),
         ),
@@ -261,6 +265,20 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       expect(row("API key is missing")).toBeDefined();
       await press(row("Try again")!);
       expect(calls).toEqual(["harness gemini"]);
+    });
+
+    test("resting on another harness sends a prewarm hint; closing the menu drops it", async () => {
+      hints = [];
+      await render(snapshot());
+      await open();
+      if (layout === "cascade") await press(row("Claude Code")!);
+      await enter(row("Codex")!);
+      expect(hints).toContain("codex");
+      await key("Escape");
+      await key("Escape");
+      await key("Escape");
+      expect(menu()).toBeNull();
+      expect(hints.at(-1)).toBeUndefined();
     });
 
     test("typing filters this harness's models; Return picks the best match, Escape clears then closes", async () => {

@@ -31,6 +31,8 @@ export type AcpmuxRow = {
   settled?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
+  /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
+  queued?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
@@ -94,6 +96,9 @@ export type AcpmuxSnapshot = {
     name?: string;
     harness?: string;
     model?: string;
+    /// The model the agent last reported, when the pane draws a pick (`model`) it has not
+    /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
+    confirmedModel?: string;
     effort?: string;
     promptCapabilities?: { image?: boolean };
     status?: string;
@@ -128,6 +133,9 @@ export type AcpmuxSnapshot = {
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
+  /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
+   * the next turn while one streams (deferred), or failed with acpmux's reason. */
+  switching?: { harness: string; name: string; phase: "starting" | "deferred" | "failed"; error?: string };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
@@ -160,7 +168,10 @@ const MEASURE_FONT = "14px system-ui";
 const MESSAGE_LINE_HEIGHT = 22.75;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 20;
-const chromeHeight = (row: AcpmuxRow) => (row.kind === "user" ? USER_BUBBLE_PADDING : 0);
+/// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
+const USER_STATUS_HEIGHT = 20;
+const chromeHeight = (row: AcpmuxRow) =>
+  row.kind === "user" ? USER_BUBBLE_PADDING + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
 const USER_BUBBLE_SIDES = 32;

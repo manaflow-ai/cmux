@@ -932,7 +932,7 @@ describe("acpmux host handshake", () => {
     }
   }
 
-  /// plans/cmux-next/acp-switch.md: the pick draws in its own frame, a prompt sent before the
+  /// A harness switch (harnessSwitch.ts): the pick draws in its own frame, a prompt sent before the
   /// harness has started waits on the new chat with "Starting Codex…", and goes to its session.
   test("a harness pick draws the new harness at once and the first prompt waits for its session", async () => {
     const sent: { method: string; params: any }[] = [];
@@ -1008,7 +1008,8 @@ describe("acpmux host handshake", () => {
         void actions()["chat.send"]!({ text: "which harness?" }).catch(() => undefined);
       });
       expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
-      expect(doc.querySelector(".cv-user__status")?.textContent).toBe("Starting Codex…");
+      expect(doc.querySelector(".cv-user__status span")?.textContent).toBe("Starting Codex…");
+      expect(doc.querySelector(".cv-user__cancel")?.textContent).toBe("Cancel");
       expect(sent.some((request) => request.method === "session/prompt")).toBe(false);
       await act(async () => heldNew.splice(0).forEach((reply) => reply()));
       await waitFor(() => sent.some((request) => request.method === "session/prompt"));

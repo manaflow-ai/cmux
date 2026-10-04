@@ -891,6 +891,43 @@ describe("direct client session state", () => {
     expect(await sent).toBe("b");
   });
 
+  test("a prewarm hint goes out only to an acpmux that lists _acpmux/prewarm", async () => {
+    const client = await connect();
+    client.prewarm("codex");
+    await settle();
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/prewarm")).toBe(false);
+    client.close();
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "initialize") return { _meta: { acpmux: { extensions: ["_acpmux/prewarm"] } } };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    const warm = await connect();
+    warm.prewarm("codex");
+    await settle();
+    expect(ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/prewarm")?.params).toEqual({
+      harness: "codex",
+    });
+    warm.close();
+  });
+
+  test("leaving the shown session detaches it and draws no session; a started one is not shown", async () => {
+    const client = await connect();
+    expect(client.shownSession()).toMatchObject({ sessionId: "a", empty: false });
+    client.leave();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().rows).toEqual([]);
+    await settle();
+    expect(ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/detach")?.params).toEqual({
+      sessionId: "a",
+    });
+    ScriptedSocket.respond = ({ method }) => (method === "session/new" ? { sessionId: "c" } : {});
+    expect(await client.startSession("codex")).toBe("c");
+    expect(client.selectedSession).toBeUndefined();
+    client.close();
+  });
+
   test("lag recovery keeps the live summary, queue and permission", async () => {
     await connect();
     ScriptedSocket.current.notify("_acpmux/permission_pending", {
