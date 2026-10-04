@@ -512,6 +512,40 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d.bin"))
     }
 
+    /// Empty files, directories, renames and removals write no bytes, but
+    /// each changes the file system: a session makes at most 100,000 such
+    /// changes, so a loop of them cannot exhaust the volume's entries.
+    @Test("Entry changes (empty writes, mkdir, rename, rm) count against the session's budget")
+    func entryChangesAreBudgeted() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget())
+        #expect(fs.perform("writeFile", arguments: ["path": "a", "base64": ""]).failureCode == "ok")
+        var renamed = 1
+        var refused: String?
+        // Renames add no entry, so the loop leaves the scratch tree small.
+        while renamed <= 100_000 {
+            let (from, to) = renamed % 2 == 1 ? ("a", "b") : ("b", "a")
+            let code = fs.perform("rename", arguments: ["from": from, "to": to]).failureCode
+            if code != "ok" {
+                refused = code
+                break
+            }
+            renamed += 1
+        }
+        #expect(refused == "EDQUOT", "\(renamed) changes were made without a limit")
+        #expect(renamed <= 100_000)
+        for (op, arguments) in [
+            ("writeFile", ["path": "c", "base64": ""] as [String: Any]),
+            ("mkdir", ["path": "d"]),
+            ("rm", ["path": renamed % 2 == 1 ? "a" : "b"]),
+        ] {
+            #expect(fs.perform(op, arguments: arguments).failureCode == "EDQUOT", "\(op) was not counted")
+        }
+        #expect(!FileManager.default.fileExists(atPath: scratch.root + "/c"))
+        #expect(!FileManager.default.fileExists(atPath: scratch.root + "/d"))
+    }
+
     @Test("A cancelled copy or write stops between chunks and a copy leaves no file")
     func cancelledCopyStops() throws {
         let scratch = try Scratch()
