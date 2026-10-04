@@ -293,3 +293,28 @@ test("snapshot: names and values read within the budget, and deep nesting is cut
     await servers.close();
   }
 });
+
+test("page.searchText: the text it scans and the contexts it returns stop at the page-read budget with a note", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<p id="a"></p><p id="b"></p><p>needle at the end</p>';
+          document.getElementById("a").textContent = "A".repeat(3000000);
+          document.getElementById("b").textContent = "B".repeat(3000000);
+        });`);
+      const r = await run(`const s = await page.searchText("A", { context: 100000000, limit: 5 }); console.log("@@" + JSON.stringify({ total: s.total, longest: Math.max(...s.matches.map((m) => m.context.length)), chars: s.matches.reduce((n, m) => n + m.context.length + m.match.length, 0) }));`);
+      const v = JSON.parse(r.value);
+      assert.ok(v.longest <= 2010, `a context ran ${v.longest} characters`);
+      assert.ok(largestRead(r.log) < 100000, `the page agent returned ${largestRead(r.log)} characters`);
+      const end = await run(`const e = await page.searchText("needle"); console.log("@@" + JSON.stringify(e.total));`);
+      assert.equal(end.value, "0", "text past the budget was scanned");
+      assert.match(end.output, /# page\.searchText: the page is too large to read whole: it stopped after 2,000,000 characters/);
+      const regex = await run(`const g = await page.searchText("A+", { regex: true, limit: 2 }); console.log("@@" + JSON.stringify(Math.max(...g.matches.map((m) => m.match.length))));`);
+      assert.ok(Number(regex.value) <= 1010, `a match ran ${regex.value} characters`);
+    });
+  } finally {
+    await servers.close();
+  }
+});
