@@ -122,8 +122,10 @@ const participantIds = (list: unknown): Array<unknown> => (Array.isArray(list) ?
 export const conversationMutate = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult> => {
   const params = (frame.params ?? {}) as Record<string, unknown>
   const key = frame.idempotency_key
-  if (isHomeRateOp(frame.op)) {
-    const gate = await takeHomeRate(env, principal, actorOf(principal), frame.op)
+  // dm.open with a user peer may create a conversation and resolves reach: it spends the conversation.create budget.
+  const rateOp = isHomeRateOp(frame.op) ? frame.op : frame.op === "dm.open" && typeof params.peer === "string" && !params.peer.startsWith("agent_") ? "conversation.create" : null
+  if (rateOp) {
+    const gate = await takeHomeRate(env, principal, actorOf(principal), rateOp)
     if (!gate.ok) {
       const message = `too many ${frame.op} requests; retry in ${Math.ceil(gate.retry_after_ms / 1000)} s`
       return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: HOME_RATE_LIMITED, message, retryable: true, replayed: false, details: { retry_after_ms: gate.retry_after_ms } } as OwnerFrame] }

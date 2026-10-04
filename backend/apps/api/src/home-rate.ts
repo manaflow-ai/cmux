@@ -7,6 +7,7 @@ import type { Env } from "./env.ts"
  * RPCs per target and up to 64 targets), so the Worker asks the caller's UserDO first and stops
  * there when the hour's budget is spent. The count is per acting principal (a user, or one of
  * the user's chiefs) in the user's UserDO, and every attempt counts, also a refused one.
+ * dm.open with a user peer spends the conversation.create budget (home-routes.ts).
  */
 export const HOME_RATE_LIMITS = { "conversation.create": 60, "participants.add": 120 } as const
 export type HomeRateOp = keyof typeof HOME_RATE_LIMITS
