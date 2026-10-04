@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/automation-input/v1",
+  "title": "automation.input",
+  "description": "One agent input, published by a driver (browser host CDP/WebKit drivers, CUA host) before it dispatches the input. The cmux app draws the agent cursor from these events (plans/cmux-next/agent-cursor.md section 2). Coordinates are never screen points.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "session_id", "target_id", "seq", "kind", "space", "t_ms"],
+  "properties": {
+    "v": { "const": 1 },
+    "session_id": { "type": "string", "minLength": 1, "description": "The lease session (automation-lease.md)." },
+    "target_id": { "type": "string", "minLength": 1, "description": "Browser tab id, or cua:<pid>:<window_id> for a desktop window." },
+    "seq": { "type": "integer", "minimum": 0, "description": "Per session, gap-free, starts at 0." },
+    "kind": { "enum": ["move", "click", "double_click", "right_click", "drag", "type", "key", "scroll"] },
+    "space": { "enum": ["viewport", "window"], "description": "viewport: CSS px of the top-level document viewport (after scroll, iframe offsets resolved). window: window-local points of the desktop target window." },
+    "point": { "$ref": "#/$defs/point", "description": "Where the input lands. Required for move, click, double_click, right_click, drag (start) and scroll (wheel position)." },
+    "rect": { "$ref": "#/$defs/rect", "description": "Target element rect in the same space, when known." },
+    "to": { "$ref": "#/$defs/point", "description": "drag: end point. scroll: wheel delta {x, y}." },
+    "t_ms": { "type": "number", "minimum": 0, "description": "Host monotonic time in ms." }
+  },
+  "allOf": [
+    { "if": { "properties": { "kind": { "enum": ["move", "click", "double_click", "right_click", "drag", "scroll"] } } }, "then": { "required": ["point"] } },
+    { "if": { "properties": { "kind": { "enum": ["drag", "scroll"] } } }, "then": { "required": ["to"] } },
+    { "if": { "properties": { "target_id": { "pattern": "^cua:" } } }, "then": { "properties": { "space": { "const": "window" } } }, "else": { "properties": { "space": { "const": "viewport" } } } }
+  ],
+  "$defs": {
+    "point": { "type": "object", "additionalProperties": false, "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } } },
+    "rect": { "type": "object", "additionalProperties": false, "required": ["x", "y", "w", "h"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "w": { "type": "number", "minimum": 0 }, "h": { "type": "number", "minimum": 0 } } }
+  }
+}
