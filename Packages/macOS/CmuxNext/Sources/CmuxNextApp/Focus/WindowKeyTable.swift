@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import os
 
 /// What a user run of an action does while a window of a kind is key
 /// (plans/cmux-next/windows.md, "One keyboard table").
@@ -73,7 +74,7 @@ struct WindowKeyTable {
         guard close == .window else { return .run }
         if Self.isClose(id) { return overRoot ? .consume : .closeWindow }
         if Self.appLevel.contains(id) { return .run }
-        if destroysContent(id) { return .disabled(reason: MiscHandlerStrings.noPane) }
+        if destroysContent(id) { return .disabled(reason: MiscHandlerStrings.notInThisWindow) }
         return .run
     }
 
@@ -110,8 +111,13 @@ extension AppServices {
     ///
     /// The kind comes from the window kit (`NSWindow.windowKindRoot`). A
     /// window no owner installed acts as a main window when a main window
-    /// owns it (palette, sheets), else as a window of its own when its
-    /// root is titled and closable.
+    /// owns it (palette, sheets). Any other kind-less window (a system
+    /// panel, a window a new owner forgot to install) is a window of its
+    /// own, the safe default: close actions close it when it has a close
+    /// button and do nothing when it has none, and destructive content
+    /// actions are off. It never falls through to the main window behind
+    /// it. Debug builds log a fault once per such window (the owner must
+    /// call `install(kind:content:scope:)`).
     var keyWindowRole: (root: NSWindow, close: WindowCloseSemantics, overRoot: Bool)? {
         guard let key = keyWindowSource() else { return nil }
         let root = key.windowKindRoot
@@ -121,13 +127,33 @@ extension AppServices {
         if let kind = root.windowKind { return (root, kind.traits.close, !inside) }
         if windows.owner(of: key) != nil { return (root, .contentFirst, !inside) }
         if root === key, Self.isChromiumPageWindow(key) { return nil }
-        guard root.styleMask.isSuperset(of: [.titled, .closable]) else { return nil }
-        return (root, .window, !inside)
+        KindlessWindowAudit.note(root)
+        let closable = root.styleMask.isSuperset(of: [.titled, .closable])
+        return (root, .window, !inside || !closable)
     }
 
     /// `CefNSWindow`: a Chromium page window.
     private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
         guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
         return window.isKind(of: pageClass)
+    }
+}
+
+/// Logs (a fault in debug builds, never a crash) the first time each
+/// kind-less window acts as the key window (plans/cmux-next/windows.md).
+@MainActor
+enum KindlessWindowAudit {
+    private static let seen = NSHashTable<NSWindow>.weakObjects()
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.windows")
+
+    static func note(_ window: NSWindow) {
+        guard !seen.contains(window) else { return }
+        seen.add(window)
+        let name = String(describing: type(of: window))
+        #if DEBUG
+        logger.fault("window without a kind is key: \(name, privacy: .public)")
+        #else
+        logger.error("window without a kind is key: \(name, privacy: .public)")
+        #endif
     }
 }
