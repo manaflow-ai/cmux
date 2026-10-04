@@ -48,6 +48,8 @@ mod servers;
 #[cfg(unix)]
 mod storage;
 #[cfg(unix)]
+mod store;
+#[cfg(unix)]
 mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;

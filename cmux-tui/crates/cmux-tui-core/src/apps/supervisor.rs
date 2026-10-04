@@ -393,7 +393,7 @@ impl Supervisor {
             outs.extend(self.sync_server_locked(inner, &app));
         }
         if outcome.changed {
-            outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction })));
+            outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction, "app": app })));
         }
         Ok(())
     }
