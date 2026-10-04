@@ -519,6 +519,9 @@ extension CMUXCLI {
 /// Reads newline-delimited lines from a file descriptor (stdin by default)
 /// with a byte cap: a line past the cap is reported as ``Line/tooLong`` and
 /// the rest of it is read and dropped, so memory stays bounded by the cap.
+/// Each byte is searched for a newline once, so a long line arriving in
+/// small reads (a terminal hands over about a kilobyte at a time) costs
+/// time linear in its length.
 struct BrowserReplMCPLineReader {
     enum Line {
         case text(String)
@@ -527,7 +530,11 @@ struct BrowserReplMCPLineReader {
 
     let maximumLineBytes: Int
     private let fileDescriptor: Int32
-    private var pending = Data()
+    private var pending: [UInt8] = []
+    /// How many bytes at the start of `pending` hold no newline.
+    private var searched = 0
+    /// Whether the current line passed the cap; its bytes are dropped.
+    private var discarding = false
     private var chunk = [UInt8](repeating: 0, count: 1 << 16)
     private var atEnd = false
 
@@ -539,23 +546,41 @@ struct BrowserReplMCPLineReader {
     /// The next line without its newline, `.tooLong` for one past the cap,
     /// or `nil` at end of input.
     mutating func nextLine() -> Line? {
-        var discarding = false
         while true {
-            if let newline = pending.firstIndex(of: 0x0A) {
-                let line = pending[pending.startIndex..<newline]
-                pending.removeSubrange(pending.startIndex...newline)
-                if discarding || line.count > maximumLineBytes { return .tooLong }
-                return .text(String(decoding: line, as: UTF8.self))
+            let from = searched
+            let newline: Int? = pending.withUnsafeBufferPointer { buffer in
+                guard from < buffer.count, let base = buffer.baseAddress,
+                      let hit = memchr(base + from, 0x0A, buffer.count - from) else { return nil }
+                return base.distance(to: hit.assumingMemoryBound(to: UInt8.self))
             }
+            if let newline {
+                let tooLong = discarding || newline > maximumLineBytes
+                let text = tooLong ? nil : String(decoding: pending[..<newline], as: UTF8.self)
+                pending.removeSubrange(...newline)
+                searched = 0
+                discarding = false
+                return text.map(Line.text) ?? .tooLong
+            }
+            searched = pending.count
             if pending.count > maximumLineBytes {
                 // Past the cap with no newline yet: keep none of it.
                 pending.removeAll(keepingCapacity: true)
+                searched = 0
                 discarding = true
             }
             if atEnd {
-                if discarding { return .tooLong }
+                if discarding {
+                    // The rest of the long line ended with the input.
+                    discarding = false
+                    pending.removeAll()
+                    searched = 0
+                    return .tooLong
+                }
                 guard !pending.isEmpty else { return nil }
-                defer { pending.removeAll() }
+                defer {
+                    pending.removeAll()
+                    searched = 0
+                }
                 return .text(String(decoding: pending, as: UTF8.self))
             }
             let descriptor = fileDescriptor
