@@ -17,8 +17,14 @@ const CAPACITY: usize = 512;
 
 struct Entry {
     op: String,
-    args: Value,
+    /// SHA-256 of the canonical args: a file write's data can be 16 MiB, so
+    /// the ledger keeps a digest, not the args.
+    args: [u8; 32],
     result: Option<Value>,
+}
+
+fn digest(args: &Value) -> [u8; 32] {
+    Sha256::digest(args.to_string().as_bytes()).into()
 }
 
 #[derive(Default)]
@@ -48,7 +54,7 @@ impl Ledger {
         args: &Value,
     ) -> Result<Option<Value>, CloudError> {
         let Some(entry) = self.entries.get(key) else { return Ok(None) };
-        if entry.op != op || entry.args != *args {
+        if entry.op != op || entry.args != digest(args) {
             return Err(CloudError::new(
                 codes::IDEMPOTENCY_CONFLICT,
                 format!("this idempotency key was already used for {}", entry.op),
@@ -69,7 +75,7 @@ impl Ledger {
         }
         self.order.push_back(key.to_owned());
         self.entries
-            .insert(key.to_owned(), Entry { op: op.to_owned(), args: args.clone(), result: None });
+            .insert(key.to_owned(), Entry { op: op.to_owned(), args: digest(args), result: None });
     }
 
     /// Drops an attempt that changed nothing (refused arguments).

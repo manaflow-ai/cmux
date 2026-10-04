@@ -42,11 +42,13 @@
       "native": "cloud",
       "title": { "en": "Cloud", "ja": "クラウド" },
       "symbol": "cloud"
-    }
+    },
+    "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] }
   },
   "scopes": {
     "cloud:read": "See your Cloud machines, their status and stats, snapshots, plan and usage.",
-    "cloud:write": "Create, rename, start, pause, resize and delete Cloud machines and snapshots when you or an allowed agent asks. Deletes always need you."
+    "cloud:write": "Create, start, pause, resize and delete Cloud machines and snapshots, and forward their ports to this Mac, when you or an allowed agent asks. Deletes always need you.",
+    "fs:write": "Write, make and copy files on your Cloud machines, and copy files from them to this Mac. Removing a file always needs you."
   },
   "files": ["catalog/"]
 }

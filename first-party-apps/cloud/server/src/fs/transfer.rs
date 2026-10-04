@@ -1,0 +1,136 @@
+//! `cloud.file.push` and `cloud.file.pull` (cloud-app.md 3.5): file transfer
+//! over SSH to the machine with a key made for this one transfer.
+//!
+//! 1. The server makes a fresh Ed25519 key in memory ([`TransferKey`]).
+//! 2. `POST /api/vm/:id/scp-endpoint {publicKey}` authorizes its public half
+//!    for 15 minutes (`restrict`, no PTY) and answers the guest's host key.
+//! 3. The bytes go through the machine's link: a one-shot forward on
+//!    127.0.0.1 to the guest's SSH port (the same path as `cloud.port.*`), so
+//!    no private-network route is needed on this Mac.
+//! 4. [`Transfer`] runs the copy with the host key pinned. The real one is
+//!    [`OpenSshTransfer`]; tests use a fake.
+
+use super::key::TransferKey;
+use super::path::{guest_arg, local_arg};
+use crate::api::{CloudError, ControlPlane, Origin, args, codes};
+use crate::ops::Server;
+use crate::ports::listener::Listener;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::net::SocketAddr;
+use std::path::PathBuf;
+
+pub use super::openssh::OpenSshTransfer;
+
+pub const TRANSFER_FAILED: &str = "cmux.cloud.transfer_failed";
+pub const LOCAL_EXISTS: &str = "cmux.cloud.local_exists";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// This Mac to the machine.
+    Push,
+    /// The machine to this Mac.
+    Pull,
+}
+
+/// The `scp-endpoint` answer, checked (shapes from
+/// `web/services/vms/drivers/types.ts` `SCPEndpoint`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScpEndpoint {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    /// `ssh-ed25519 <base64>`: the only host key the transfer accepts.
+    pub host_public_key: String,
+    pub expires_at_unix: i64,
+}
+
+impl ScpEndpoint {
+    /// Refuses anything but user `cmux` with one valid Ed25519 host key and
+    /// an expiry in the future (`now` is Unix seconds).
+    pub fn decode(answer: Value, now: i64) -> Result<Self, CloudError> {
+        todo!("C5 red: not built yet")
+    }
+}
+
+fn valid_host_key(text: &str) -> bool {
+    let Some(encoded) = text.strip_prefix("ssh-ed25519 ") else { return false };
+    let Ok(blob) = STANDARD.decode(encoded) else { return false };
+    blob.len() == 51
+        && blob[..4] == [0, 0, 0, 11]
+        && &blob[4..15] == b"ssh-ed25519"
+        && blob[15..19] == [0, 0, 0, 32]
+}
+
+/// One transfer, ready to run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransferJob {
+    pub machine: String,
+    pub direction: Direction,
+    pub local: PathBuf,
+    /// Absolute guest path without glob characters.
+    pub guest: String,
+    pub endpoint: ScpEndpoint,
+    /// Where the guest's SSH port is reachable from here (127.0.0.1).
+    pub route: SocketAddr,
+}
+
+/// A failed transfer. `message` never holds key material.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransferError {
+    pub message: String,
+    pub retryable: bool,
+}
+
+pub trait Transfer: Send {
+    /// Copies one file. The key is the one whose public half the endpoint
+    /// authorized; the implementation must not store it.
+    fn run(&mut self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError>;
+}
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+}
+
+/// The ops `cloud.file.push` and `cloud.file.pull`.
+pub(crate) fn run<C: ControlPlane>(
+    server: &mut Server<C>,
+    name: &str,
+    raw: &Value,
+    origin: Origin,
+    key: Option<&str>,
+) -> Result<Value, CloudError> {
+        todo!("C5 red: not built yet")
+    }
+
+/// Push: the local file exists and is a regular file. Pull: nothing exists
+/// at the local path (no overwrite) and its directory exists.
+fn check_local(local: &std::path::Path, direction: Direction) -> Result<(), CloudError> {
+    let meta = std::fs::symlink_metadata(local);
+    match direction {
+        Direction::Push => match meta {
+            Ok(m) if m.is_file() => Ok(()),
+            _ => Err(CloudError::invalid(format!("{} is not a local file", local.display()))),
+        },
+        Direction::Pull => {
+            if meta.is_ok() {
+                return Err(CloudError::new(
+                    LOCAL_EXISTS,
+                    format!("{} already exists; pull never overwrites", local.display()),
+                ));
+            }
+            match local.parent().map(std::fs::metadata) {
+                Some(Ok(m)) if m.is_dir() => Ok(()),
+                _ => Err(CloudError::invalid(format!(
+                    "the folder of {} does not exist",
+                    local.display()
+                ))),
+            }
+        }
+    }
+}
