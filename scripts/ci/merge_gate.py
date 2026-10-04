@@ -23,6 +23,7 @@ from typing import Any
 API = "https://api.github.com"
 MARKER = "merge-override:"
 BOT_MARKER = "<!-- merge-gate -->"
+REPAIR_NOTE = "see cmuxterm-hq REPAIR.md#merging"
 _SUCCESS = {"success"}
 _WRITE_PERMISSIONS = {"admin", "maintain", "write", "push"}
 _RUN_LINK = re.compile(r"https?://github\.com/[^/\s]+/[^/\s]+/actions/runs/(\d+)")
@@ -474,7 +475,7 @@ def _publish_diagnostic(
         else:
             gh.request(f"/repos/{repo}/issues/{pr_number}/comments", "POST", {"body": body})
     except RuntimeError as error:
-        return f"diagnostic comment unavailable for PR #{pr_number}: {error}"
+        return f"diagnostic comment unavailable for PR #{pr_number}: {error}; {REPAIR_NOTE}"
     return None
 
 
@@ -501,7 +502,7 @@ def run() -> int:
         except RuntimeError:
             pass
     if not pr_number:
-        print("merge-gate: event has no unambiguous pull request", file=sys.stderr)
+        print(f"merge-gate: event has no unambiguous pull request; {REPAIR_NOTE}", file=sys.stderr)
         return 0
     gh = GitHub(repo, token)
     pr = gh.request(f"/repos/{repo}/pulls/{int(pr_number)}")

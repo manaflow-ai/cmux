@@ -94,6 +94,7 @@ class MergeGateDecisionTests(unittest.TestCase):
         )
         self.assertIn("PR #17241", error or "")
         self.assertIn("403", error or "")
+        self.assertIn("REPAIR.md#merging", error or "")
 
     def test_opened_event_seeds_freshness_for_current_head(self) -> None:
         event = {
