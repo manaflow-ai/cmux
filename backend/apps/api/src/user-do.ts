@@ -1,5 +1,5 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
-import { inbox as homeInbox } from "@cmux/home-core"
+import { conversation as homeConversation, inbox as homeInbox } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
@@ -309,6 +309,24 @@ export class UserDO extends OwnerDO<UserState> {
     const res = this.submitSystem("install.revoke_by_team", { install, team, by }, idempotencyKey, `system:team:${team}`)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     return reply && reply.t === "result" ? { ok: true } : { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
+  }
+
+  /**
+   * Home attachment byte quota (home-scale.md B9 owner counter): rolling day and month windows of
+   * declared upload bytes. `key` = conversation and hash, so a repeated intent counts once.
+   */
+  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<homeConversation.QuotaResult | { ok: false; window: "none"; retry_after_ms: 0 }> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return { ok: false, window: "none", retry_after_ms: 0 }
+    const sql = this.ctx.storage.sql
+    const now = Date.now()
+    sql.exec(`CREATE TABLE IF NOT EXISTS home_attachment_usage (key TEXT PRIMARY KEY, bytes INTEGER NOT NULL, at INTEGER NOT NULL)`)
+    sql.exec(`DELETE FROM home_attachment_usage WHERE at <= ?`, now - homeConversation.ATTACHMENT_LIMITS.quota.monthMs)
+    if (sql.exec(`SELECT 1 FROM home_attachment_usage WHERE key = ? AND at > ?`, key, now - homeConversation.ATTACHMENT_LIMITS.quota.dayMs).toArray().length) return { ok: true }
+    const used = sql.exec<{ bytes: number; at: number }>(`SELECT bytes, at FROM home_attachment_usage`).toArray().map((r) => ({ bytes: Number(r.bytes), at: Number(r.at) }))
+    const decision = homeConversation.attachmentQuota(used, bytes, now)
+    if (decision.ok) sql.exec(`INSERT INTO home_attachment_usage (key, bytes, at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET bytes = excluded.bytes, at = excluded.at`, key, bytes, now)
+    return decision
   }
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */

@@ -6,6 +6,7 @@ import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
+import { handleAttachmentDownload, handleAttachmentIntent, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
 import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts"
 import { handleOutboxReplay } from "./admin-outbox.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
@@ -108,6 +109,13 @@ export default {
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
     if (url.pathname === "/v1/invites/preview") return handleInvitePreview(request, env)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
+    // Home attachments (home-attachments.ts): intent and URL mint need a bearer; the upload slot and the signed URL are the credential.
+    if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env)
+    if (url.pathname === "/v1/home/attachments/url" && request.method === "POST") return handleAttachmentUrl(request, env)
+    const upload = url.pathname.match(/^\/v1\/home\/attachments\/upload\/([A-Za-z0-9_.-]{1,2048})$/)
+    if (upload && request.method === "PUT") return handleAttachmentUpload(request, env, upload[1]!)
+    const file = url.pathname.match(/^\/v1\/home\/attachments\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})\/([0-9a-f]{64})$/)
+    if (file && (request.method === "GET" || request.method === "HEAD")) return handleAttachmentDownload(request, env, file[1]!, file[2]!)
     // Invite texts (stage C part 2): the hosted contact card and SendBlue status webhooks.
     if (url.pathname === CARD_PATH && request.method === "GET") return handleContactCard(env)
     if (url.pathname === "/v1/hooks/sendblue") return handleSendblueHook(request, env)

@@ -63,6 +63,8 @@ export const TextRun = Schema.Struct({
   link: Schema.optionalKey(Schema.String)
 }).annotate({ identifier: "HomeTextRun", description: "A styled range of a text part, in UTF-16 code units." })
 
+const Sha256 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
+
 export const Part = Schema.Union([
   Schema.Struct({ type: Schema.Literal("text"), text: Schema.String, runs: Schema.optionalKey(Schema.Array(TextRun)) }),
   Schema.Struct({
@@ -71,7 +73,18 @@ export const Part = Schema.Union([
     host: Schema.optionalKey(Schema.String),
     status: Schema.Literals(["running", "done", "failed", "waiting"]),
     preview: Schema.optionalKey(Schema.String)
-  })
+  }),
+  Schema.Struct({
+    type: Schema.Literal("attachment"),
+    hash: Sha256,
+    name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(255)),
+    mime_type: Schema.String.check(Schema.isMaxLength(255)),
+    byte_count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+    width: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
+    height: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
+    duration_ms: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+    poster_hash: Schema.optionalKey(Sha256)
+  }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." })
 ]).annotate({ identifier: "HomePart" })
 export const Parts = Schema.Array(Part).check(Schema.isMinLength(1), Schema.isMaxLength(16))
 

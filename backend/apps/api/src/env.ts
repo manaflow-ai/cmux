@@ -120,6 +120,12 @@ export interface Env {
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
   readonly HOME_ADDRESS_KEY?: string
+  /** Private R2 bucket of Home attachments (objects `home/v1/<conversation>/<sha256>/<upload id>`); no public access. */
+  readonly HOME_ATTACHMENTS?: R2Bucket
+  /** Secret: HMAC key of attachment upload slots and download URLs (at least 32 characters); unset = attachments off. */
+  readonly HOME_ATTACHMENT_KEY?: string
+  /** Burst limit per user on attachment intents and download URL mints. */
+  readonly HOME_ATTACHMENT_LIMIT?: RateLimit
   /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
   readonly IOS_APP_ID?: string
   /** "true" accepts App Attest development keys (appattestdevelop); staging and development only. */

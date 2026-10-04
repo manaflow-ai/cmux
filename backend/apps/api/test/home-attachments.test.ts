@@ -151,6 +151,12 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
     const good = await put(r.json.value.upload_url, declared)
     expect(good.status).toBe(200)
     expect(((await good.json()) as any).value.state).toBe("stored")
+    // Replaying the slot with other bytes is refused and leaves the recorded object intact.
+    expect((await put(r.json.value.upload_url, forged)).status).toBe(400)
+    expect((await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects).toHaveLength(1)
+    expect((await op(alice.token, "message.send", { conversation: id, client_msg_id: "m2", parts: [attachmentPart(sha(declared), declared)] }, "m2")).json.ok).toBe(true)
+    const got = await worker.fetch((await urlFor(alice, id, sha(declared))).json.value.url)
+    expect(new Uint8Array(await got.arrayBuffer())).toEqual(declared)
     expect((await put("https://api.test/v1/home/attachments/upload/not-a-token", declared)).status).toBe(403)
   })
 
@@ -245,5 +251,30 @@ describe("Home attachments: message.send and downloads", { timeout: 60_000 }, ()
     const hash2 = await upload(alice, g.id, after)
     expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m2", parts: [attachmentPart(hash2, after)] }, "m2")).json.ok).toBe(true)
     expect((await urlFor(bob, g.id, hash2)).status).toBe(200)
+  })
+})
+
+describe("Home attachments: retention", { timeout: 60_000 }, () => {
+  it("collection deletes only unreferenced uploads past the grace period; a retracted message releases its object", async () => {
+    const alice = await signIn("att-gc-alice")
+    const g = await group(alice)
+    const kept = bytesOf("referenced")
+    const orphan = bytesOf("never sent")
+    const keptHash = await upload(alice, g.id, kept)
+    await upload(alice, g.id, orphan)
+    const sent = await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [attachmentPart(keptHash, kept)] }, "m1")
+    expect(sent.json.ok).toBe(true)
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id)) as unknown as { collectAttachments(e: string, now?: number): Promise<Array<string>> }
+    const objects = async () => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${g.id}/` })).objects.map((o) => o.key.split("/")[3])
+    // Inside the grace period nothing goes.
+    expect(await conv.collectAttachments(g.id)).toEqual([])
+    const later = Date.now() + 25 * 3_600_000
+    expect(await conv.collectAttachments(g.id, later)).toHaveLength(1)
+    expect(await objects()).toEqual([keptHash])
+    // The orphan's hash is no longer referenceable.
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m2", parts: [attachmentPart(sha(orphan), orphan)] }, "m2")).json.error.code).toBe("unknown_attachment")
+    expect((await op(alice.token, "message.retract", { conversation: g.id, message_id: sent.json.value.message_id }, "r1")).json.ok).toBe(true)
+    expect(await conv.collectAttachments(g.id, later)).toHaveLength(1)
+    expect(await objects()).toEqual([])
   })
 })

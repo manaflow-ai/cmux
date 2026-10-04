@@ -416,6 +416,16 @@ export type HomePart = {
   readonly host?: string
   readonly status: "running" | "done" | "failed" | "waiting"
   readonly preview?: string
+} | {
+  readonly type: "attachment"
+  readonly hash: HomeSha256
+  readonly name: string
+  readonly mime_type: string
+  readonly byte_count: number
+  readonly width?: number
+  readonly height?: number
+  readonly duration_ms?: number
+  readonly poster_hash?: HomeSha256
 }
 
 export type HomeParticipant = {
@@ -456,6 +466,9 @@ export type HomeReactionKind = {
 } | {
   readonly emoji: string
 }
+
+/** SHA-256 of the bytes, lowercase hex. */
+export type HomeSha256 = string
 
 /** A styled range of a text part, in UTF-16 code units. */
 export type HomeTextRun = {

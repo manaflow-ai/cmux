@@ -7,6 +7,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
+import { attachmentRecord, commitRecord, forgetUnreferenced, visibleRecord } from "./home-attachment-store.ts"
 
 type Head = conversation.ConversationState
 const MAX_HISTORY_PAGE = 200
@@ -35,6 +36,11 @@ const firstName = (name: string | undefined): string | null => {
   return first.length > 0 && first.length <= 40 && !first.includes("@") ? first : null
 }
 
+/** What the Worker learns about an attachment hash for one caller (never whether another conversation holds it). */
+export type AttachmentAccess =
+  | { readonly ok: false; readonly code: "auth.forbidden"; readonly message: string }
+  | { readonly ok: true; readonly open: boolean; readonly record: conversation.AttachmentRecord | null }
+
 export type InvitePreviewResult =
   | { readonly state: "ok"; readonly inviter: string; readonly kind: "dm" | "group"; readonly title?: string }
   | { readonly state: "invalid" | "expired" }
@@ -46,8 +52,11 @@ export type InvitePreviewResult =
  */
 export class ConversationDO extends OwnerDO<Head> {
   constructor(ctx: DurableObjectState, env: Env) {
+    const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
     const domain = conversation.makeConversationDomain({
       participantPolicy: ownerRecordPolicy,
+      // Verified uploads only (home-attachment-store.ts); a read inside the reducer, no write.
+      attachmentFor: (hash) => attachmentRecord(sql, hash),
       // The caller's verified address ids (HMAC with HOME_ADDRESS_KEY), for binding an email invite on accept.
       addressIdsFor: (p) => {
         if (p.email_verified !== true || !p.email || !env.HOME_ADDRESS_KEY) return []
@@ -205,6 +214,43 @@ export class ConversationDO extends OwnerDO<Head> {
       kind: state.kind === "dm" ? "dm" : "group",
       ...(state.kind === "group" && state.title ? { title: state.title } : {})
     }
+  }
+
+  /**
+   * The Worker's attachment check for `actor` (a current participant only): whether the
+   * conversation takes new uploads, and the record of `hash` when this actor may see it (an
+   * uploader, or referenced by a message after the actor's history floor). Never writes.
+   */
+  async attachmentAccess(entity: string, actor: string, hash: string): Promise<AttachmentAccess> {
+    const state = this.existingState(entity)
+    const me = state?.participants.find((p) => p.id === actor && p.left_at === undefined && p.kind !== "address")
+    if (!state || !me) return { ok: false, code: "auth.forbidden", message: "not a participant of this conversation" }
+    const open = state.state !== "archived" && state.state !== "importing"
+    return { ok: true, open, record: visibleRecord(this.sqlStore, hash, actor, this.floor(state, me)) }
+  }
+
+  /** After the Worker verified the bytes: records the upload for a still-current participant. */
+  async commitAttachment(
+    entity: string,
+    actor: string,
+    rec: { hash: string; object_key: string; mime_type: string; byte_count: number; name: string }
+  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string } | { ok: false; code: "auth.forbidden" }> {
+    const state = this.existingState(entity)
+    if (!state || !state.participants.some((p) => p.id === actor && p.left_at === undefined && p.kind !== "address")) return { ok: false, code: "auth.forbidden" }
+    const r = commitRecord(this.sqlStore, { ...rec, uploader: actor, created_at: Date.now() })
+    return { ok: true, state: r.state, object_key: r.record.object_key }
+  }
+
+  /**
+   * Retention (minimal safe version): forgets uploads older than the grace period that no
+   * message references (never sent, retracted, or edited away), then deletes their objects.
+   * Not yet scheduled: the backend lead wires it to the retention alarm (follow-up).
+   */
+  async collectAttachments(entity: string, now = Date.now(), limit = 100): Promise<Array<string>> {
+    if (!this.existingState(entity) || !this.env.HOME_ATTACHMENTS) return []
+    const keys = forgetUnreferenced(this.sqlStore, now - conversation.ATTACHMENT_LIMITS.unreferencedGraceMs, limit)
+    if (keys.length) await this.env.HOME_ATTACHMENTS.delete(keys)
+    return keys
   }
 
   /** State of an object that already serves this conversation; never creates storage for unknown ids. */

@@ -2456,6 +2456,79 @@
               }
             }
           }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "attachment"
+                ]
+              }
+            },
+            "hash": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "HomeSha256"
+              }
+            },
+            "name": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 255
+              }
+            },
+            "mime_type": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 255
+              }
+            },
+            "byte_count": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "width": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "height": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "duration_ms": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            },
+            "poster_hash": {
+              "required": false,
+              "type": {
+                "kind": "ref",
+                "name": "HomeSha256"
+              }
+            }
+          }
         }
       ]
     },
@@ -2681,6 +2754,12 @@
           }
         }
       ]
+    },
+    "HomeSha256": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 of the bytes, lowercase hex."
     },
     "HomeTextRun": {
       "kind": "object",
@@ -13938,6 +14017,11 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -13999,6 +14083,57 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster_hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -14604,6 +14739,11 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -14665,6 +14805,57 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster_hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -15711,6 +15902,11 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -15772,6 +15968,57 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster_hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -16456,6 +16703,11 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -16517,6 +16769,57 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster_hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },
@@ -33237,6 +33540,11 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -33298,6 +33606,57 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster_hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           }
@@ -33654,6 +34013,11 @@
             "additionalProperties": true,
             "description": "A styled range of a text part, in UTF-16 code units."
           },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -33715,6 +34079,57 @@
                   "status"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster_hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
               }
             ]
           },

@@ -11,7 +11,7 @@ import {
   type Principal
 } from "../src/conversation/index.ts"
 import { CoreHost, DomainHost, human, text } from "./support/harness.ts"
-import { ALICE, BOB } from "./support/cloud.ts"
+import { ALICE } from "./support/cloud.ts"
 
 /** Home attachments (home-messaging.md section 2, attachment part): metadata rules, quota and the owner's hash check. */
 const session = (user: string, name: string): Principal => ({ identity: `${user}:s`, user, kind: "session", display_name: name })
@@ -71,7 +71,7 @@ describe("message.send with attachment parts (the owner checks the hash)", () =>
   const part = (over: Record<string, unknown> = {}) => ({ type: "attachment", hash: HASH, name: "photo.png", mime_type: "image/png", byte_count: 1000, width: 10, height: 20, ...over })
   const group = () => {
     const host = new DomainHost<ConversationState, ConversationParams>(domain)
-    expect(host.run(session(ALICE, "Alice"), "conversation.create", { id: "conv_GROUP", kind: "group", title: "T", participants: [human(ALICE, "Alice"), human(BOB, "Bob")] }, "c").ok).toBe(true)
+    expect(host.run(session(ALICE, "Alice"), "conversation.create", { id: "conv_GROUP", kind: "group", title: "T", participants: [human(ALICE, "Alice")] }, "c").ok).toBe(true)
     return host
   }
   const send = (host: DomainHost<ConversationState, ConversationParams>, parts: unknown, key: string) => host.run(session(ALICE, "Alice"), "message.send", { client_msg_id: key, parts }, key)
@@ -92,7 +92,7 @@ describe("message.send with attachment parts (the owner checks the hash)", () =>
     expect(send(host, [part({ hash: "c".repeat(64) })], "m1")).toMatchObject({ ok: false, code: "unknown_attachment" })
     expect(send(host, [part({ byte_count: 999 })], "m2")).toMatchObject({ ok: false, code: "attachment_mismatch" })
     expect(send(host, [part({ mime_type: "image/jpeg" })], "m3")).toMatchObject({ ok: false, code: "attachment_mismatch" })
-    expect(send(host, [part({ mime_type: "video/mp4", name: "v.mp4", poster_hash: "d".repeat(64), duration_ms: 10 })], "m4")).toMatchObject({ ok: false, code: "unknown_attachment" })
+    expect(send(host, [part({ poster_hash: "d".repeat(64) })], "m4")).toMatchObject({ ok: false, code: "unknown_attachment" })
     expect(send(host, [part({ name: "photo.exe" })], "m5")).toMatchObject({ ok: false, code: "invalid_parts" })
   })
 

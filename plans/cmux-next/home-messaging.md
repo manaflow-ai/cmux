@@ -34,7 +34,7 @@ from `cmux-conversation::encode_id` unless stated).
 | --- | --- | --- |
 | Conversation head | `conv_<26>` (group, chief); `conv_dm_<26>` = base32(sha256("dm\0" + lo + "\0" + hi))[0..26] where lo/hi are the two sorted participant ids (a user id or an address id) | `kind`, `title`, `team?` (the team whose policy applies; null for personal), `created_by`, `created_at`, `updated_at`, `last_seq`, `rev`, `participants[]`, `invites[]`, `settings {wake_policy, agent_budget {turns, gap_ms}, history_visible: "all"|"since_join"}`, `retention_days?` (from team policy), `state: "active"|"archived"` |
 | Participant | `user_<id>`, `agent_<id>`, `addr_<26>` | `kind: human|agent|address`, `display_name`, `agent_class?: mux|agent`, `owner_user?` (agents), `role: owner|member`, `joined_seq` (last_seq when added), `added_by`, `left_at?` |
-| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, mime, size, name}`, refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
+| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, name, mime_type, byte_count, width?, height?, duration_ms?, poster_hash?}` (cloud heads only; see section 10.1), refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
 | Read cursor | (conversation, participant) | `last_read_seq` (monotonic, written only by that participant) |
 | Invite | `inv_<26>` inside its conversation | `address` (`addr_<26>`), `channel: email|sms`, `display_name`, `invited_by`, `created_at`, `expires_at` (14 days), `token_hash` (sha256 of sha256 of the 128-bit secret), `status: pending|accepted|revoked|expired`, `accepted_by?`, `accepted_at?`, `delivery {state: queued|sent|delivered|bounced|complained|failed|suppressed|refused_env, provider_id?, at}`, `copy_variant`, `locale` |
 | Inbox entry | (user, conversation) | owner-projected (from ConversationDO, guarded by conversation `rev`): `kind`, `title`, `last_seq`, `last_at`, `preview` (240 chars, author + text), `unread` (count after the user's cursor, excluding own messages), `mentions` (unread mentions of the user), `dm_peer?`, `rev`; user-owned: `pinned`, `pin_position`, `muted_until?`, `archived`, `marked_unread` |
@@ -320,6 +320,25 @@ new body. No raw address, token or token hash is ever projected.
 - Addresses: suppression is kept forever (a suppressed address must stay suppressed); the raw
   address is deleted after 180 days without an invite unless suppressed.
 - A conversation with no human participant for 30 days deletes its DO storage.
+
+### 10.1 Attachments (implemented on feat-cmux-next-home-attachments, 2026-10-03)
+
+- Flow: `POST /v1/home/attachments/intent` (participant, type allow list, size cap, per-user byte
+  quota) answers `exists` or a signed upload slot; `PUT /v1/home/attachments/upload/<slot>`
+  streams the bytes to R2 while the Worker hashes them; only a matching SHA-256 and length records
+  the object in the ConversationDO; `message.send` and `message.edit` accept an attachment part only
+  for a recorded hash with the same type and size. `POST /v1/home/attachments/url` mints a 10-minute
+  signed GET; the GET re-checks participation and `history_visible` at the owner.
+- Storage: private R2 bucket `HOME_ATTACHMENTS`, keys `home/v1/<conversation>/<sha256>/<upload id>`;
+  records per conversation, so dedupe never crosses conversations, and `exists` is answered only
+  for hashes the caller can already see. Limits in `home-core/src/conversation/attachments.ts`
+  (`ATTACHMENT_LIMITS`): 25 MB images, audio and files, 100 MB video; 1 GB per day and 10 GB per
+  30 days per user.
+- Retention: reference rows (`attref`, private) are written in each message's commit; retraction
+  and edits release them. `ConversationDO.collectAttachments` forgets unreferenced uploads older
+  than 24 h and then deletes their objects. Follow-ups: schedule it from the retention alarm; delete
+  `home/v1/<conversation>/` when a conversation's storage is deleted; delete `attref` rows when the
+  message retention alarm deletes messages; attachments in `conversation.import` (C-13).
 
 ## 11. Self-hosted implementation (cmux server, team VM)
 
