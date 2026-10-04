@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers"
-import type { OwnerFrame, Principal } from "@cmux/ownership"
+import { MemoryRows, type OwnerFrame, type Principal } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { CloudMachine, CloudPlan } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
@@ -12,6 +12,7 @@ import { fireAlarm } from "./setup/alarm.ts"
 import { ALLOWED_USERS, cloudTestUser } from "./setup/cloud-teams.ts"
 import { cloudConfig } from "../src/cloud-driver.ts"
 import { planFor } from "../src/domains/cloud-plan.ts"
+import { cloudDomain, TABLE_MACHINE, TABLE_TOMBSTONE } from "../src/domains/cloud.ts"
 
 /**
  * CloudDO skeleton (plans/cmux-next/state-placement.md 5.2 and 5.3): the provider-call ledger,
@@ -205,6 +206,73 @@ describe("CloudDO provider-call ledger", { timeout: 60_000 }, () => {
     expect(plan.ok).toBe(true)
     expect(decodes(CloudPlan, plan.value)).toBe(true)
     expect(plan.value).toMatchObject({ plan_id: STUB_PLAN.plan_id, limits: { max_active: STUB_PLAN.max_active }, usage: { active: 1, saved: 0 } })
+  })
+})
+
+describe("CloudDO review fixes (P2-3, P2-4, P3-8, P3-9)", { timeout: 60_000 }, () => {
+  it("P2-3: a create whose machine id already has a row or a tombstone (a key re-sent after the ledger window) is refused, never upserted", () => {
+    const { team, alice } = people()
+    const id = "vm_0123456789abcdef0123"
+    const config = { environment: "test", allowedTeams: new Set([team]), prefix: "cmuxnp-test-cld-", image: "cmuxnp-test-vmimg-fake" }
+    const domain = cloudDomain(config)
+    const ctx = (rows: MemoryRows) => ({ principal: alice, now: 1_000, tx: "tx-resent", newId: () => id, rows, idempotencyKey: "resent" })
+    const live = new MemoryRows()
+    live.apply([{ table: TABLE_MACHINE, op: "upsert", key: id, n: 1, row: { id, creator: alice.user } }])
+    expect(domain.reduce({ ...domain.initial(), team }, "cloud.machine.create", { size: SIZE }, ctx(live))).toMatchObject({ ok: false, code: "idempotency.conflict" })
+    const tomb = new MemoryRows()
+    tomb.apply([{ table: TABLE_TOMBSTONE, op: "upsert", key: id, n: 2, row: { machine: id, deleted_at: 1, revision: "2" } }])
+    expect(domain.reduce({ ...domain.initial(), team }, "cloud.machine.create", { size: SIZE }, ctx(tomb))).toMatchObject({ ok: false, code: "idempotency.conflict" })
+  })
+
+  it("P2-4: a delete while one is pending answers {deleted: true} and adds no ledger row", async () => {
+    const { team, alice, stub } = people()
+    const m = (await create(stub, team, alice)).value.machine
+    await stub.fakeControl({ fail_next: 1 })
+    expect(reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: m.id }, "d-1")))).toMatchObject({ t: "reject", code: "mutation.indeterminate" })
+    expect(await stub.fakeControl({})).toMatchObject({ pending: 1 })
+    const second = await stub.submit(team, alice, frame("cloud.machine.delete", { machine: m.id }, "d-2"))
+    expect(reply(second)).toMatchObject({ t: "result", value: { deleted: true } })
+    expect(second.frames.find((f) => f.t === "request-settled")).toMatchObject({ sequence: 0 })
+    expect(await stub.fakeControl({})).toMatchObject({ pending: 1 })
+  })
+
+  it("P2-4: create and delete are rate limited per team (cloud.rate_limited); a decided key still replays", async () => {
+    const { team, alice, stub } = people()
+    const first = reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: "vm_00000000000000000009" }, "rl-0")))
+    expect(first).toMatchObject({ t: "reject", code: "cloud.machine.not_found" })
+    let limited: ReturnType<typeof reply> | undefined
+    for (let i = 1; i <= 40 && !limited; i++) {
+      const r = reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: "vm_00000000000000000009" }, `rl-${i}`)))
+      if (r.code === "cloud.rate_limited") limited = r
+    }
+    expect(limited).toMatchObject({ t: "reject", code: "cloud.rate_limited", retryable: true })
+    expect(reply(await stub.submit(team, alice, frame("cloud.machine.create", { size: SIZE })))).toMatchObject({ code: "cloud.rate_limited" })
+    expect(reply(await stub.submit(team, alice, frame("cloud.machine.delete", { machine: "vm_00000000000000000009" }, "rl-0")))).toMatchObject({ code: "cloud.machine.not_found", replayed: true })
+    // Reads and renames are not limited.
+    expect(await stub.readOp(team, alice, "cloud.machine.list", {})).toMatchObject({ ok: true })
+  })
+
+  it("P3-8: an object bound while state.team is null still refuses another team, also before it is bound", async () => {
+    const { team, alice, stub } = people()
+    const stranger = people().alice
+    expect(await stub.readOp(team, stranger, "cloud.machine.list", {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const res = await (stub as unknown as { fetch(r: Request): Promise<Response> }).fetch(
+      new Request("https://cloud.test/wire", { headers: { Upgrade: "websocket", "x-cmux-entity": team, "x-cmux-principal": JSON.stringify(alice) } })
+    )
+    expect(res.status).toBe(101)
+    res.webSocket?.accept()
+    res.webSocket?.close()
+    expect(await stub.readOp(team, stranger, "cloud.machine.list", {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(reply(await stub.submit(team, stranger, frame("cloud.machine.rename", { machine: "vm_00000000000000000009", name: "x" })))).toMatchObject({ code: "auth.forbidden" })
+  })
+
+  it("P3-9: a read needs an install grant that includes read", async () => {
+    const { team, alice, stub } = people()
+    const inst = "inst_0000000000000000009a"
+    const noRead: Principal = { identity: `install:${inst}`, user: alice.user, team, kind: "install", install: inst, grant_classes: ["mutate-own"] }
+    expect(await stub.readOp(team, noRead, "cloud.machine.list", {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await stub.readOp(team, noRead, "cloud.plan.get", {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await stub.readOp(team, { ...noRead, grant_classes: ["read"] }, "cloud.plan.get", {})).toMatchObject({ ok: true })
   })
 })
 
