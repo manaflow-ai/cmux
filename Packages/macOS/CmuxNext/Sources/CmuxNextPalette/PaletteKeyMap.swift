@@ -6,7 +6,10 @@ import Foundation
 /// registry's (user-editable) Palette Next/Previous shortcuts.
 public struct PaletteKeyMap {
     public init() {}
-    public static func command(for event: NSEvent, actionsMenuOpen: Bool, queryIsEmpty: Bool, registry: ActionRegistry) -> PaletteKeyCommand? {
+    /// `selectedTogglesInPlace`: the selected row's primary command keeps
+    /// the palette open (a toggle), so Space with an empty query toggles it.
+    public static func command(for event: NSEvent, actionsMenuOpen: Bool, queryIsEmpty: Bool, registry: ActionRegistry,
+                               selectedTogglesInPlace: Bool = false) -> PaletteKeyCommand? {
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let pressed = Shortcut(key, modifiers: flags)
@@ -15,6 +18,8 @@ public struct PaletteKeyMap {
         // List navigation (R85): the list.next / list.previous bindings (Ctrl-J / Ctrl-K by default).
         if listKeys(for: "list.next", in: registry).contains(pressed) { return .moveDown }
         if listKeys(for: "list.previous", in: registry).contains(pressed) { return .moveUp }
+
+        if event.keyCode == 49, flags.isEmpty, queryIsEmpty, selectedTogglesInPlace, !actionsMenuOpen { return .submit }
 
         switch event.keyCode {
         case 126: return flags.contains(.command) ? .moveToFirst : .moveUp

@@ -366,7 +366,8 @@ public final class PaletteController {
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
-            registry: registry
+            registry: registry,
+            selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)
     }
