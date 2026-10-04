@@ -99,4 +99,17 @@ import Testing
         #expect(!store.transcript(for: conversation).contains { $0.key == intent.key }, "a cancelled send leaves the transcript")
         await source.setUploadsPaused(false)
     }
+
+    @Test func anUnansweredOpReachesTheHostOfItsConversation() async throws {
+        let (store, _, _, binding) = try await bound()
+        defer { binding.stop() }
+        var unanswered: [IdempotencyKey] = []
+        binding.onUnanswered = { unanswered.append($0.key) }
+        let report = try #require(store.onUnanswered, "the binding listens for ops that ran out of resends")
+        let mine = HomeIntent(op: .setReadCursor(conversation: conversation, seq: 3))
+        let other = HomeIntent(op: .setReadCursor(conversation: ConversationID("conv_other"), seq: 3))
+        report(mine)
+        report(other)
+        #expect(unanswered == [mine.key], "only this conversation's ops")
+    }
 }
