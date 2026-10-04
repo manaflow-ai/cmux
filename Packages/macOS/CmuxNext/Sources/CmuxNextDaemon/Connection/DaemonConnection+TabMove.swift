@@ -44,8 +44,7 @@ extension DaemonConnection {
     public func moveTabToNewWorkspace(_ surface: SurfaceID, group: WorkspaceGroupID? = nil, index: Int? = nil, name: String? = nil,
                                       transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
         do {
-            let request = MoveTabToNewWorkspaceRequest(surface: surface, group: group, index: index, name: name, transaction: transaction)
-            return try await requestNew(request)
+            return try await requestNew(MoveTabToNewWorkspaceRequest(surface: surface, group: group, index: index, name: name, transaction: transaction))
         } catch DaemonError.missingCapabilities {
             return try await moveTab(surface, toWorkspace: nil, transaction: transaction)
         }
