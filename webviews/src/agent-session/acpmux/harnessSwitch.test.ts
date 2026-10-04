@@ -67,6 +67,7 @@ class FakePort implements SwitchPort {
     this.calls.push(`discard ${sessionId}`);
   };
   prewarmCwds: (string | undefined)[] = [];
+  prewarmSupported = true;
   prewarm = (harness: string, cwd?: string) => {
     this.calls.push(`prewarm ${harness}`);
     this.prewarmCwds.push(cwd);
@@ -484,5 +485,16 @@ describe("harness switch: prewarm hints", () => {
     }
     expect(port.calls).toEqual(["prewarm codex", "prewarm opencode", "prewarm codex"]);
     expect(port.prewarmCwds).toEqual(["/work/app", "/work/app", "/work/app"]);
+  });
+
+  // A remote-origin or pool-off connection cannot prewarm: a hover there starts no debounce timer.
+  test("a connection that cannot prewarm starts no timer for a hint", () => {
+    const { store, port, clock } = setup();
+    port.prewarmSupported = false;
+    store.hint("codex");
+    store.hint("opencode");
+    expect(clock.timers).toEqual([]);
+    clock.advance(PREWARM_DEBOUNCE_MS);
+    expect(port.calls).toEqual([]);
   });
 });
