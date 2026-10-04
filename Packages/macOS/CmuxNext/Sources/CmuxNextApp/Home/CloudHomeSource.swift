@@ -906,9 +906,10 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// after sign-out or an account switch is refused (`notAuthorized`), so
     /// no page of the previous account reaches the store. A failure that
     /// leaves intents unconfirmed marks the source degraded; a good reply
-    /// recovers it. A refusal for a missing lease (`cloud_signed_out`:
-    /// another trusted local client cleared it) means nothing was sent: the
-    /// source holds the account unleased and asks the link for a lease.
+    /// recovers it. A refusal for a missing or expired lease
+    /// (`cloud_signed_out`: another trusted local client cleared it;
+    /// `cloud_session_expired`) means nothing was sent: the source holds
+    /// the account unleased and asks the link for a lease.
     private func reply<T>(for identity: CloudIdentity, _ body: () async throws -> T) async throws -> T {
         let epoch = state.withLock { $0.leaseEpoch }
         let value: T
@@ -939,8 +940,12 @@ nonisolated final class CloudHomeSource: HomeSource {
         missing?()
     }
 
+    /// The daemon holds no usable lease: none (`cloud_signed_out`), or one
+    /// that expired (`cloud_session_expired`, possibly one another trusted
+    /// local client set).
     private static func isNoLease(_ error: any Error) -> Bool {
-        if case .command(_, _, "cloud_signed_out", _, _) = error as? DaemonError { true } else { false }
+        guard case .command(_, _, let code, _, _) = error as? DaemonError else { return false }
+        return code == "cloud_signed_out" || code == "cloud_session_expired"
     }
 
     /// Ends subscriptions of conversations the inbox no longer lists.

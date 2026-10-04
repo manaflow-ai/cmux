@@ -39,10 +39,20 @@ final class HomeCloudLink {
     /// The pending retry; cancelled by a new link, a lease that holds, or
     /// this link ending.
     private let retry: DemandTimer
-    /// The expiry of the lease this link set last. A daemon request that
-    /// names another expiry is about a lease already replaced, which the
-    /// newer lease answers.
-    private var leasedExpiry: UInt64?
+    /// The expiry of the lease this link set last.
+    private var leasedExpiry: UInt64? {
+        didSet {
+            guard let oldValue, oldValue != leasedExpiry else { return }
+            answered(oldValue)
+        }
+    }
+    /// Expiries a lease this link set replaced: its own earlier leases, and
+    /// the leases a renewal answered (one another local client set
+    /// included). A daemon request that names one of them is already
+    /// answered. Any other expiry (a lease another trusted local client set
+    /// and nothing replaced yet) is renewed. The newest few are kept.
+    private var replacedExpiries: [UInt64] = []
+    static let replacedExpiryLimit = 8
     /// How long a forced renewal waits after a forced renewal that
     /// succeeded. Zero until one succeeds; each doubles it up to
     /// `maxRetry`, and only a reply or a live socket on a lease (not the
@@ -103,6 +113,7 @@ final class HomeCloudLink {
         pendingForced = nil
         forcedWait = .zero
         leasedExpiry = nil
+        replacedExpiries = []
         guard let endpoint = link.endpoint else {
             // No transport, so no lease and nothing goes out: offline.
             source.configure(commands: nil, link: nil, identity: identity(link.userID, link), leased: false)
@@ -134,13 +145,19 @@ final class HomeCloudLink {
     /// forced renewal asked for soon after one succeeded waits
     /// (`forcedWait`).
     func sessionNeeded(reason: String, expiresAt: UInt64? = nil) {
-        if let expiresAt, let leasedExpiry, expiresAt != leasedExpiry { return }
+        if let expiresAt, replacedExpiries.contains(expiresAt) { return }
         guard leasing == 0 else { return }
         if Self.isForced(reason), cooldown.isScheduled {
             pendingForced = reason
             return
         }
-        renew(reason: reason)
+        renew(reason: reason, answering: expiresAt)
+    }
+
+    private func answered(_ expiry: UInt64) {
+        replacedExpiries.removeAll { $0 == expiry }
+        replacedExpiries.append(expiry)
+        if replacedExpiries.count > Self.replacedExpiryLimit { replacedExpiries.removeFirst() }
     }
 
     /// The source refused an op or a read because the daemon holds no lease
@@ -160,11 +177,14 @@ final class HomeCloudLink {
     /// `missing` takes the current token; the others refresh it.
     private static func isForced(_ reason: String) -> Bool { reason != "missing" }
 
-    private func renew(reason: String) {
+    /// `answering`: the expiry the daemon's request named; once a new lease
+    /// holds, a late request naming it needs nothing more.
+    private func renew(reason: String, answering expiry: UInt64? = nil) {
         guard let endpoint = last?.endpoint else { return }
         leasing += 1
         lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
             if case .leased(let subject, let expiresAt) = outcome {
+                if let expiry, expiry != expiresAt { self?.answered(expiry) }
                 self?.leasedExpiry = expiresAt
                 source.leaseRenewed(subject: subject)
             }
