@@ -265,7 +265,15 @@ kept, keeps what an agent needs to act, and says at each cut how to get the
 rest. Measurements: [performance.md](performance.md).
 
 - **The value is complete, the print is budgeted.** `.tree` and `.diff`
-  always hold everything, so code can search them for free. Printing a
+  always hold everything read, so code can search them for free. Reading
+  is bounded too, because a hostile page can hold millions of nodes and the
+  walk runs on the page's main thread: one snapshot reads at most 250,000
+  nodes over all its frames (frames inside a frame split what it left, and
+  one past the budget prints `[not read: the snapshot's node budget is used
+  up]`), and a frame's walk stops after 8 s. A cut snapshot ends with
+  `# the page is too large to read whole: the snapshot stopped after
+  250,000 nodes; …`; snapshot a part of the page (`snapshot(ref)`, a
+  locator) to read further. Printing a
   snapshot (the REPL's auto-print, `String(s)`, `console.log(s)`) shows at
   most `maxChars` characters, 20,000 by default (about 6,000 tokens; five
   of the nine frozen corpus pages, median 16,616 characters, print whole).

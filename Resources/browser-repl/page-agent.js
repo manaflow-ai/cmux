@@ -589,8 +589,31 @@
     if (ctx.focus === el) node.focused = true;
   }
 
+  // The walk's bounds: a hostile page can hold millions of nodes (or make
+  // each one slow to read), and the walk runs on the page's main thread
+  // before any output limit applies. Past MAX_NODES visited nodes, or
+  // MAX_WALK_MS of reading (under the host's 10 s frame timeout, so an
+  // inner frame answers cut instead of timing out), the walk stops and the
+  // host prints a note. The host can lower the node budget, never raise it.
+  const MAX_NODES = 250000;
+  const MAX_WALK_MS = 8000;
+  // Reading the clock every node costs; every 256th is enough.
+  function spend(ctx, count) {
+    if (ctx.truncated) return false;
+    if (ctx.left < count) {
+      ctx.truncated = "nodes";
+      return false;
+    }
+    ctx.left -= count;
+    if (++ctx.ticks % 256 === 0 && now() > ctx.deadline) {
+      ctx.truncated = "time";
+      return false;
+    }
+    return true;
+  }
+
   function visitNode(n, out, ctx, parentVisible, parentAriaHidden, skipText) {
-    if (ctx.visited.has(n)) return;
+    if (ctx.visited.has(n) || !spend(ctx, 1)) return;
     ctx.visited.add(n);
     if (n.nodeType === 3) {
       if ((parentVisible || ctx.showHidden) && !skipText && n.nodeValue) out.push(n.nodeValue);
@@ -603,16 +626,20 @@
     if (visible && !skipText) out.push(pseudoText(el, "::before"));
     const assigned = tagOf(el) === "slot" ? el.assignedNodes() : [];
     if (assigned.length) {
-      for (const child of assigned) visitNode(child, out, ctx, visible, ariaHidden, skipText);
+      for (const child of assigned) {
+        if (ctx.truncated) break;
+        visitNode(child, out, ctx, visible, ariaHidden, skipText);
+      }
     } else {
-      for (let child = el.firstChild; child; child = child.nextSibling) {
+      for (let child = el.firstChild; child && !ctx.truncated; child = child.nextSibling) {
         if (!child.assignedSlot) visitNode(child, out, ctx, visible, ariaHidden, skipText);
       }
       if (el.shadowRoot) {
-        for (let child = el.shadowRoot.firstChild; child; child = child.nextSibling) visitNode(child, out, ctx, visible, ariaHidden, skipText);
+        for (let child = el.shadowRoot.firstChild; child && !ctx.truncated; child = child.nextSibling) visitNode(child, out, ctx, visible, ariaHidden, skipText);
       }
     }
     for (const id of (el.getAttribute("aria-owns") || "").split(/\s+/).filter(Boolean)) {
+      if (ctx.truncated) break;
       const owned = el.ownerDocument.getElementById(id);
       if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
     }
@@ -756,8 +783,16 @@
       // A list box shows its options; a drop-down shows them on request. A
       // closed drop-down prints its first INLINE_OPTIONS and a count, so only
       // those cross to the host.
-      if (el.multiple || el.size > 1) node.children = [...el.options].map((o) => Object.assign({ role: "option" }, option(o)));
-      else if (ctx.allOptions || node.expanded === true) node.options = [...el.options].map(option);
+      // Options listed whole count toward the node budget; past it the
+      // list stops.
+      const listed = (map) => {
+        const all = el.options;
+        const list = [];
+        for (let i = 0; i < all.length && spend(ctx, 1); i++) list.push(map(all[i]));
+        return list;
+      };
+      if (el.multiple || el.size > 1) node.children = listed((o) => Object.assign({ role: "option" }, option(o)));
+      else if (ctx.allOptions || node.expanded === true) node.options = listed(option);
       else {
         const all = el.options;
         node.options = [];
@@ -812,7 +847,8 @@
     return out.flatMap((c) => (typeof c === "string" ? c.split("\u0000").map(normalize).filter(Boolean) : [c]));
   }
 
-  // opts: { root: handle | null, showHidden, base } -> { nodes, max }
+  // opts: { root: handle | null, showHidden, base, maxNodes } ->
+  // { nodes, max, offscreen, ms, visited, truncated: "nodes" | "time" | undefined }
   const now = () => (global.performance && global.performance.now ? global.performance.now() : Date.now());
   function snapshot(opts) {
     return withReadCaches(() => readSnapshot(opts || {}));
@@ -836,12 +872,17 @@
       screen: { left: 0, top: 0, right: global.innerWidth, bottom: global.innerHeight },
       allOptions: !!opts.options,
       offscreen: 0,
+      left: Math.min(MAX_NODES, opts.maxNodes > 0 ? Math.floor(opts.maxNodes) : MAX_NODES),
+      deadline: started + MAX_WALK_MS,
+      ticks: 0,
+      truncated: undefined,
     };
+    const budget = ctx.left;
     const out = [];
-    visitElement(root, out, ctx, false, false);
+    if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     const nodes = normalizeChildren(out);
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { nodes, max: refCounter, offscreen: ctx.offscreen, ms: now() - started };
+    return { nodes, max: refCounter, offscreen: ctx.offscreen, ms: now() - started, visited: budget - ctx.left, truncated: ctx.truncated };
   }
 
   // Table sizes, for leak checks (tests/browser-parity/perf).
