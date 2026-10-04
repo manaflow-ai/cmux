@@ -15,6 +15,7 @@ import {
   type DiffPageConfig,
 } from "./page";
 import { type DiffNavigationPerform, startPageDiffCommands } from "./pageCommands";
+import { installPageDiffStore } from "./pageStore";
 
 /** Renders the viewer with its config and initial language pack, and installs the language API. */
 export type DiffSurfaceRender = (config: DiffViewerConfig, languages: unknown) => void;
@@ -37,6 +38,8 @@ export async function bootPageDiff(
   // Comments, viewed files and prefs go to the host only when it serves the op; otherwise comments
   // stay hidden and the rest is local.
   installPageDiffComments(diffPageServes(config, DIFF_PAGE_COMMENTS_OP) ? page : null);
+  // Prefs and viewed marks go to the host's stores when it serves them (never web storage).
+  installPageDiffStore(page, config.ops);
   const early: unknown[] = [];
   let api: DiffLanguageHostAPI | undefined;
   const pack = await startPageDiffLanguages(
