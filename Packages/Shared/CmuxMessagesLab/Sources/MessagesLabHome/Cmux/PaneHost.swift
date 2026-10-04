@@ -263,7 +263,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
             let s = self.demo.compose.textView.view.string
             if s != self.store.state.ui.draft.text { self.dispatch(.setDraft(s)) }
         }
-        demo.onScrollPosition = { [weak self] in self?.intents?.scrolled() }
+        demo.onScrollPosition = { [weak self] in
+            ScaleKeeper.shared.setNeedsApply()
+            self?.intents?.scrolled()
+        }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
         host.needsLayout = true
@@ -273,6 +276,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the host moved to a window (or left one): key-state palette and
     /// display scale follow it (the controller does not own the window).
     func windowChanged() {
+        ScaleKeeper.shared.setNeedsApply()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         guard let window, let demo else { return }
@@ -315,6 +319,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     /// After any engine change: the native views follow the shared geometry.
     func afterEngine() {
+        ScaleKeeper.shared.setNeedsApply()
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         host.fieldChrome.follow(field: demo.compose.fieldRect)
@@ -330,6 +335,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         func walk(_ l: CALayer) { if l.delegate is NSView { return }; l.contentsScale = s; l.sublayers?.forEach(walk); l.mask.map(walk) }
         [host.below.root, host.morphHost.root, host.composeHost.root, host.above.root].forEach(walk)
         CATransaction.commit()
+        ScaleKeeper.shared.setNeedsApply()
         demo.setRenderScale(s)
         demo.moveToWindowRecursively()
         picker?.rescale()
@@ -575,11 +581,18 @@ final class ScaleKeeper {
     var roots: [CALayer] { rootTable.allObjects }
     func add(_ layers: [CALayer]) { layers.forEach { rootTable.add($0) } }
     private var observer: CFRunLoopObserver?
+    /// cmux: walk only after something could have added layers (an engine
+    /// change, a scroll, a window or display change). Host.swift walked on
+    /// every main run loop pass: 7% of the main thread in the tab-switch
+    /// bench, with Home hidden too.
+    private var dirty = true
+    func setNeedsApply() { dirty = true }
 
     func start() {
         guard observer == nil else { return }
         let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 0) { [weak self] _, _ in
-            self?.apply()
+            guard let self, self.dirty else { return }
+            self.apply()
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
         observer = o
@@ -587,6 +600,7 @@ final class ScaleKeeper {
     }
 
     func apply() {
+        dirty = false
         let s = DisplayScale.current
         var changed = false
         func walk(_ l: CALayer) {

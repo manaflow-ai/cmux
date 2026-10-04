@@ -66,11 +66,13 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func layout() {
         super.layout()
+        // Showing the tab again re-attaches the same views: nothing to do
+        // unless the size changed (no layout, bitmap or backdrop rebuild).
+        guard transcript.frame != bounds else { return }
         transcript.frame = bounds
         transcript.layoutSubtreeIfNeeded()
         let top = transcript.headerHeight
         firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
-        updateFirstRun()
     }
 
     /// The first-run panel shows only in an empty Chief conversation.
@@ -91,6 +93,8 @@ public final class HomeNativeTranscriptView: NSView {
             })
         }
         windowStateChanged()
+        // A theme change while the tab was hidden (equal palettes return early).
+        applyTheme()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -100,7 +104,6 @@ public final class HomeNativeTranscriptView: NSView {
 
     private func windowStateChanged() {
         transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
-        applyTheme()
     }
 
     /// The theme's palettes (key and non-key window) for the MessagesLab
