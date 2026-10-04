@@ -69,8 +69,28 @@ struct NewMachineSheet: View {
                 case .grouped: groupedLayout
                 }
             }
+            poolStatus
             if let errorText = model.errorText {
                 errorBox(errorText)
+            }
+            if model.planIsLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "machines.new.plan.loading", defaultValue: "Loading your Cloud machine plan…"))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("NewMachineSheet.plan.loading")
+            } else if let planLoadError = model.planLoadError {
+                HStack(spacing: 8) {
+                    Text(planLoadError)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Button(String(localized: "machines.new.plan.retry", defaultValue: "Retry")) {
+                        model.onPlanRetry?()
+                    }
+                }
+                .accessibilityIdentifier("NewMachineSheet.plan.error")
             }
             footer
         }
@@ -569,6 +589,31 @@ struct NewMachineSheet: View {
         }
     }
 
+    // MARK: Resource pool
+
+    /// The shared pool: a warning when the selected size does not fit what is
+    /// free, otherwise the pool's usage. Nothing for plans without a pool.
+    @ViewBuilder
+    private var poolStatus: some View {
+        if let shortfall = model.selectedSizePoolShortfallText {
+            Label {
+                Text(shortfall)
+                    .cmuxFont(size: 11)
+                    .fixedSize(horizontal: false, vertical: true)
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("NewMachineSheet.pool.shortfall")
+        } else if let usage = model.poolUsageText {
+            Text(usage)
+                .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("NewMachineSheet.pool.usage")
+        }
+    }
+
     // MARK: Error and footer
 
     private func errorBox(_ text: String) -> some View {
@@ -626,7 +671,7 @@ struct NewMachineSheet: View {
             Button(createTitle) {
                 model.create()
             }
-            .disabled(model.hasNoAllowedMemoryOptions)
+            .disabled(model.planIsLoading || model.planLoadError != nil || model.hasNoAllowedMemoryOptions)
             .keyboardShortcut(.defaultAction)
             .help(model.isBaseSetup
                 ? String(localized: "machines.new.background.note.base", defaultValue: "Setup continues in the Machines panel.")

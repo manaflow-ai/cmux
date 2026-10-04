@@ -1,0 +1,292 @@
+#!/bin/bash
+# gh-merge-green REPO#PR [--main-fix] [--override "reason"] [gh pr merge flags...]
+# Merges only when the PR head's required-in-practice checks are green.
+# main has no required status checks, so `gh pr merge --auto` merges at once; agents use this instead.
+set -Eeuo pipefail
+
+repair_note='see cmuxterm-hq REPAIR.md#merging'
+refusal_reported=0
+
+print_repair() {
+  printf 'fix: %s\n%s\n' "$1" "$repair_note" >&2
+}
+
+on_error() {
+  local status=$?
+  if [ "$refusal_reported" -eq 0 ]; then
+    print_repair "inspect the failed GitHub query or command, then retry after it is healthy"
+  fi
+  exit "$status"
+}
+
+refuse() {
+  refusal_reported=1
+  printf '%s\n' "$1" >&2
+  print_repair "$2"
+  exit 1
+}
+
+trap on_error ERR
+
+[ "$#" -gt 0 ] || refuse \
+  'not green: missing OWNER/REPO#NUMBER' \
+  'pass the pull request reference, for example OWNER/REPO#123'
+ref="$1"; shift
+repo="${ref%#*}"; num="${ref#*#}"
+
+# Resolve the checked-in script before locating scripts/ci. The installed
+# ~/.local/bin symlink must keep --main-fix pointing at the reviewed checkout,
+# even when the caller is outside that checkout.
+script_path="${BASH_SOURCE[0]}"
+while [ -L "$script_path" ]; do
+  script_link_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
+  script_path="$(readlink "$script_path")"
+  case "$script_path" in
+    /*) ;;
+    *) script_path="$script_link_dir/$script_path" ;;
+  esac
+done
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
+
+# --main-fix delegates to the existing compile/test evidence validator. That
+# path posts the required audit comment before merging a red-main fix-forward.
+fix=0
+override_reason=''
+args=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --main-fix)
+      fix=1
+      ;;
+    --override)
+      [ "$#" -ge 2 ] || refuse \
+        'not green: --override requires a reason' \
+        'pass --override followed by a concrete reason of at least 8 words'
+      override_reason="$2"
+      shift
+      ;;
+    *)
+      args+=("$1")
+      ;;
+  esac
+  shift
+done
+set -- "${args[@]+"${args[@]}"}"
+if [ -n "$override_reason" ]; then
+  override_words=$(wc -w <<<"$override_reason")
+  if [ "$override_words" -lt 8 ]; then
+    refuse \
+      'not green: --override reason must contain at least 8 words' \
+      'explain the concrete red check and why this exact head is safe to merge'
+  fi
+fi
+if [ "$fix" -eq 1 ] && [ -n "$override_reason" ]; then
+  refuse \
+    'not green: --override cannot be combined with --main-fix' \
+    'use --main-fix for its evidence path, or run the normal exact-head merge with --override'
+fi
+[ $# -gt 0 ] || set -- --squash
+if [ "$fix" -eq 1 ]; then
+  validator="$script_dir/ci/main_fix_evidence.py"
+  if [ ! -f "$validator" ]; then
+    repo_root="${CMUX_REPO_ROOT:-}"
+    if [ -z "$repo_root" ]; then
+      repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    fi
+    origin=""
+    [ -n "$repo_root" ] && origin=$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)
+    case "$origin" in
+      https://github.com/manaflow-ai/cmux.git|git@github.com:manaflow-ai/cmux.git) ;;
+      *) repo_root="" ;;
+    esac
+    validator="${repo_root:+$repo_root/scripts/ci/main_fix_evidence.py}"
+  fi
+  if [ -z "$validator" ] || [ ! -f "$validator" ]; then
+    refuse \
+      'not green: --main-fix validator is unavailable' \
+      'set CMUX_REPO_ROOT to a cmux checkout containing scripts/ci/main_fix_evidence.py'
+  fi
+  if ! python3 "$validator" "$ref" "$@"; then
+    refuse \
+      "not green: --main-fix evidence refused $ref" \
+      'read the validator evidence and repair the failing or missing exact-head checks'
+  fi
+  exit 0
+fi
+
+if ! pr_json=$(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName 2>/dev/null); then
+  refuse \
+    "not green: cannot read $ref" \
+    'check the repository, pull request number, GitHub login, and network access'
+fi
+if ! fields=$(jq -r '[.headRefOid // "", .baseRefName // ""] | @tsv' <<<"$pr_json" 2>/dev/null); then
+  refuse \
+    "not green: GitHub returned invalid metadata for $ref" \
+    'retry after GitHub returns headRefOid and baseRefName'
+fi
+IFS=$'\t' read -r sha base <<<"$fields"
+if [ -z "$sha" ] || [ -z "$base" ]; then
+  refuse \
+    "not green: GitHub metadata for $ref has no head SHA or base branch" \
+    'refresh the pull request metadata and retry'
+fi
+
+# Require aggregate checks only when their workflow exists on the base. Otherwise
+# every reported exact-head check and status context must be completed successfully.
+workflow_on_base() {
+  local file="$1" response
+  if response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null); then
+    return 0
+  fi
+  if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
+    return 1
+  fi
+  refuse \
+    "not green: cannot probe $file on $repo base $base" \
+    'restore GitHub contents API access; only HTTP 404 means the workflow is absent'
+}
+
+has_ci=0
+has_app_compile=0
+if workflow_on_base ci.yml; then has_ci=1; fi
+if workflow_on_base ci-macos.yml; then has_app_compile=1; fi
+must=()
+if [ "$has_ci" -eq 1 ]; then must+=("ci-status"); fi
+
+# Compile admission only runs when the PR touches the app; docs/web-only routes never schedule it.
+# Require it only if it was scheduled or the diff touches app code.
+if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
+  # The files API paginates, unlike `gh pr diff` (HTTP 406 past 20000 lines); fail closed if it errors.
+  if ! files=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].filename' 2>/dev/null); then
+    refuse \
+      "not green: cannot list changed files for $ref" \
+      'restore GitHub API access, then retry the exact-head check'
+  fi
+  if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
+    must+=("macos / macOS compile admission")
+  fi
+fi
+if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp 2>/dev/null); then
+  refuse \
+    "not green: cannot read checks for $sha" \
+    'restore GitHub API access, then retry the exact-head check'
+fi
+if ! runs=$(jq -r '
+  (map(.check_runs) | add)
+  | sort_by(.name, (.id // 0))
+  | group_by(.name)[]
+  | last
+  | [.name,.status,(.conclusion // "")]
+  | @tsv
+' <<<"$check_runs_json" 2>/dev/null); then
+  refuse \
+    "not green: cannot parse checks for $sha" \
+    'retry after GitHub returns valid check-run metadata'
+fi
+if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
+  has_admission=0
+  for required in "${must[@]}"; do
+    [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
+  done
+  [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
+fi
+if [ "$has_ci" -eq 0 ]; then
+  # Include legacy commit status contexts (for example review services), not
+  # only Actions check runs. Both endpoints are pinned to the evaluated head.
+  if ! statuses_json=$(gh api "repos/$repo/commits/$sha/statuses?per_page=100" --paginate --slurp 2>/dev/null); then
+    refuse "not green: cannot read status contexts for $sha" 'restore GitHub status API access and retry'
+  fi
+  if ! statuses=$(jq -r '
+    (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
+    | [.context, (if .state == "pending" then "in_progress" else "completed" end), .state] | @tsv
+  ' <<<"$statuses_json" 2>/dev/null); then
+    refuse "not green: cannot parse status contexts for $sha" 'retry after GitHub returns valid status metadata'
+  fi
+  all_verdicts="$runs"$'\n'"$statuses"
+  reported=0
+  while IFS=$'\t' read -r name st co; do
+    [ -n "$name" ] || continue
+    reported=$((reported + 1))
+    if [ "$st" != completed ] || [ "$co" != success ]; then
+      refuse \
+        "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
+        "wait for or repair '$name'; every reported exact-head check must succeed without the aggregate workflow"
+    fi
+  done <<<"$all_verdicts"
+  [ "$reported" -gt 0 ] || refuse \
+    "not green: no checks have reported on $sha" \
+    'run the repository pull request checks before merging'
+fi
+
+bad_required=()
+for name in "${must[@]+"${must[@]}"}"; do
+  line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n')
+  if [ -z "$line" ]; then
+    fix="run the pull request checks for $sha"
+    [ "$name" = ci-status ] && fix='run CI for the pull request head, then retry the exact-head check'
+    refuse "not green: '$name' has not run on $sha" "$fix"
+  fi
+  st=$(cut -f2 <<<"$line"); co=$(cut -f3 <<<"$line")
+  if [ "$st" != completed ]; then
+    fix="wait for '$name' to complete on the exact head, then retry"
+    [ "$name" = ci-status ] && fix='wait for CI to complete on the pull request head, then retry the exact-head check'
+    refuse "not green: '$name' is $st/$co on $sha" "$fix"
+  fi
+  if [ "$co" != success ]; then
+    case "$co" in
+      failure|timed_out|cancelled|action_required|startup_failure|stale)
+        bad_required+=("$name")
+        ;;
+      *)
+        refuse \
+          "not green: '$name' has non-verdict conclusion $co on $sha" \
+          'rerun CI until the required check reports success or a completed red verdict'
+        ;;
+    esac
+  fi
+done
+if [ "${#bad_required[@]}" -gt 0 ] && [ -z "$override_reason" ]; then
+  for name in "${bad_required[@]}"; do
+    fix="repair '$name' on the exact head, then retry"
+    if [ "$name" = ci-status ]; then
+      fix='repair CI for the pull request head, then retry the exact-head check'
+    fi
+    refuse "not green: '$name' is not successful on $sha" "$fix"
+  done
+fi
+failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
+if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty' 2>/dev/null); then
+  refuse \
+    "not green: cannot read the diff for $ref" \
+    'restore GitHub API access, then retry the exact-head check'
+fi
+if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
+  refuse \
+    "not green: conflict markers are present in $ref" \
+    'resolve the conflict markers, push the repaired head, and rerun the checks'
+fi
+if [ -n "$override_reason" ]; then
+  if ! gh pr comment "$num" --repo "$repo" --body "merge-override: $override_reason" >/dev/null; then
+    refuse \
+      "not green: could not post the --override reason on $ref" \
+      'restore GitHub comment permission or network access, then retry without changing the head'
+  fi
+  if ! posted=$(gh pr view "$num" --repo "$repo" --json headRefOid,state 2>/dev/null); then
+    refuse \
+      "not green: could not verify $ref after posting --override" \
+      'check the pull request is still open at the same head, then retry'
+  fi
+  posted_sha=$(jq -r '.headRefOid // ""' <<<"$posted")
+  posted_state=$(jq -r '.state // ""' <<<"$posted" | tr '[:upper:]' '[:lower:]')
+  if [ "$posted_sha" != "$sha" ] || [ "$posted_state" != open ]; then
+    refuse \
+      "not green: pull request head moved while posting --override on $ref" \
+      'retry the exact current head with a fresh reason'
+  fi
+fi
+if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@"; then
+  refuse \
+    "not green: GitHub refused to merge $ref" \
+    'read the GitHub refusal, repair the named issue, and retry the exact head'
+fi

@@ -34,6 +34,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
+    /// Set when `treeErrorDescription` is trusted, user-facing guidance rather
+    /// than an upstream failure; only that copy is shown verbatim.
+    @Published private(set) var treeHint: String?
     /// In-flight and failed creates appear above the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
@@ -75,7 +78,13 @@ final class MachinesPanelViewModel: ObservableObject {
         // prior dismissal so repeating the same ownership hint remains
         // visible on the next invalid attempt.
         AppDelegate.shared?.cloudBannerDismissalStore.clear(id: "machines.tree-error")
+        treeHint = nil
         treeErrorDescription = description
+    }
+
+    func noteTreeHint(_ hint: String) {
+        noteTreeFailure(hint)
+        treeHint = hint
     }
 
     /// Projects the coordinator's typed reachability event into this panel's
@@ -448,8 +457,8 @@ final class MachinesPanelViewModel: ObservableObject {
         awaitingCatalogScope = true
     }
 
-    /// Re-enables catalog rows only after the shared provider registry has
-    /// finished retiring the old team and resuming the new one.
+    /// Re-enables catalog rows once the registry has discovered the new team.
+    /// Remote workspace details continue refreshing independently.
     private func finishTeamScopeTransition() {
         awaitingCatalogScope = false
         readCatalog()

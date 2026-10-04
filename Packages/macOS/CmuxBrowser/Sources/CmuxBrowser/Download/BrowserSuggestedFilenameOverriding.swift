@@ -10,3 +10,11 @@ public protocol BrowserSuggestedFilenameOverriding: AnyObject {
     /// Blank names are ignored.
     func setSuggestedFilenameOverride(_ suggestedFilename: String?, for download: WKDownload)
 }
+
+/// A download delegate that wants scripted `data:` downloads (a page's
+/// `<a download>` links) as WebKit downloads it receives, rather than saved
+/// directly by the web view. The browser REPL uses this so a driven tab
+/// reports those downloads to its session. Read on the main thread.
+public protocol BrowserScriptedDownloadRouting: AnyObject {
+    var routesScriptedDownloadsThroughWebKit: Bool { get }
+}
