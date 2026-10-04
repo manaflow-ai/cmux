@@ -249,7 +249,8 @@ pub mod vectors {
         let token = t.resume_token().expect("token");
         drop(t);
         let resume = |far: &mut dyn FarEnd| {
-            let request = ResumeRequest { resume_token: token.clone(), open_token: far.open_token() };
+            let request =
+                ResumeRequest { resume_token: token.clone(), open_token: far.open_token() };
             far.backend().resume(request)
         };
         let resumed = resume(far).expect("resume");
