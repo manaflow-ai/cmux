@@ -60,6 +60,8 @@ extension CmuxWebView {
 
     private static let sharedLinkFocusCaptureMessageHandler = LinkFocusCaptureMessageHandler()
 
+    /// Adds the link focus hook and its message handler to this web view's
+    /// user content controller, once per controller.
     func installLinkFocusCapture() {
         let userContentController = configuration.userContentController
         if objc_getAssociatedObject(

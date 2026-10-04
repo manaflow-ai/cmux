@@ -53,6 +53,7 @@ final class LinkHoverIndicatorView: NSView {
     /// The link currently under the pointer, or `nil` when no link is hovered.
     private(set) var url: String?
 
+    /// Shows `url`, or hides the indicator when `url` is `nil` or empty.
     func setURL(_ url: String?) {
         let url = url?.isEmpty == false ? url : nil
         self.url = url
