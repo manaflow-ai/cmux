@@ -294,9 +294,11 @@ fn a_token_is_consumed_only_on_its_relay_connection() {
 #[test]
 fn a_page_relay_is_never_the_hosting_app_for_apps_v1() {
     let mux = mux("relay-apps-v1");
-    let install = json!({
-        "id": 1, "cmd": "apps-set", "origin": "user", "idempotency_key": "k1",
-        "app": "cmux/demo", "installed": true,
+    // apps-run with origin user (a gesture) is the hosting-app check that
+    // remains after apps-set needs a verified app.
+    let run = json!({
+        "id": 1, "cmd": "apps-run", "origin": "user", "app": "cmux/demo", "op": "demo.go",
+        "args": {},
     });
     let declare_app = |conn: &Conn| {
         let mut state = mux.control_clients.state.lock().unwrap();
@@ -304,12 +306,12 @@ fn a_page_relay_is_never_the_hosting_app_for_apps_v1() {
     };
     let relay = relay(&mux, "token:10.1");
     declare_app(&relay);
-    assert_eq!(send(&mux, &relay, &install)["error_code"], "apps.origin_forbidden");
+    assert_eq!(send(&mux, &relay, &run)["error_code"], "apps.origin_forbidden");
     // The same declaration on a connection without a hello passes this gate
     // (unchanged apps-v1 behavior until P8).
     let plain = connect(&mux);
     declare_app(&plain);
-    assert_ne!(send(&mux, &plain, &install)["error_code"], "apps.origin_forbidden");
+    assert_ne!(send(&mux, &plain, &run)["error_code"], "apps.origin_forbidden");
 }
 
 const HOUR_MS: i64 = 3_600_000;

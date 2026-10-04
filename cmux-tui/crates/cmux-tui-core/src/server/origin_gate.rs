@@ -58,7 +58,7 @@ fn check(mux: &Mux, client: u64, message: &str) -> Option<Value> {
             return Some(refusal(id, operation, error));
         }
     };
-    let now_ms = mux.control_clients.origin_clock.now_ms();
+    let now_ms = mux.control_clients.origin_clock.monotonic_ms();
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let record = state.clients.get_mut(&client)?;
@@ -77,6 +77,24 @@ fn refusal(id: ResourceRequestId, operation: &str, error: ResourceError) -> Valu
         Err(_) => error,
     };
     serde_json::to_value(ResourceResponseEnvelope::failure(id, error)).unwrap_or(Value::Null)
+}
+
+#[cfg(unix)]
+/// Gate A2 on the legacy `apps-*` door: `Err` unless `client` derives
+/// origin `user` (a verified cmux app connection).
+pub(super) fn require_user(mux: &Mux, client: u64) -> Result<(), crate::apps::ApiError> {
+    let derived = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
+    };
+    if derived == RequestOrigin::User {
+        return Ok(());
+    }
+    let refusal = needs_user(derived);
+    let mut error = crate::apps::ApiError::new(&refusal.code, refusal.message);
+    error.details = Some(refusal.details);
+    Err(error)
 }
 
 fn role(mux: &Mux, client: u64) -> HelloRole {
@@ -134,8 +152,11 @@ fn issue(
         )
     })?;
     let token = mint_token()?;
-    let now_ms = mux.control_clients.origin_clock.now_ms();
-    let expires_at_ms = now_ms.saturating_add(CONFIRMATION_TTL_MS);
+    // Validity uses the monotonic deadline; expires_at is for display.
+    let now_ms = mux.control_clients.origin_clock.monotonic_ms();
+    let deadline_ms = now_ms.saturating_add(CONFIRMATION_TTL_MS);
+    let expires_at_ms =
+        mux.control_clients.origin_clock.wall_ms().saturating_add(CONFIRMATION_TTL_MS);
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let caller = state.clients.get(&client).map(|record| &record.origin);
@@ -167,7 +188,7 @@ fn issue(
         token.clone(),
         operation,
         params_sha256,
-        expires_at_ms,
+        deadline_ms,
         now_ms,
     );
     Ok(json!({"token": token, "expires_at": expires_at_ms.to_string()}))

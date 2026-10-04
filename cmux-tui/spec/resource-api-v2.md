@@ -280,7 +280,19 @@ returns `{token, expires_at}` to the verified app for a page relay connection
 of the same peer: 32 random bytes in base64url, single use, valid 60 s, bound
 to the operation, to `params_sha256` (SHA-256 of the request params in
 canonical JSON: keys sorted by code point at every depth, no whitespace, UTF-8,
-no escaping of `/` or non-ASCII) and to that relay connection.
+no escaping of `/` or non-ASCII) and to that relay connection. The digest is
+over serde_json's compact re-serialization of the received params; a client
+must hash the exact encoding it sends. Floats whose shortest form differs
+between encoders (for example exponent notation) make the digest differ, and
+the claim fails closed with `origin.forbidden`; confirmed page operations carry
+integer params. Validity uses a monotonic clock: a wall clock step neither
+extends nor cuts the 60 s; `expires_at` is wall-clock milliseconds for display.
+
+The legacy `apps-set` command (install, uninstall, enable, disable, hide,
+sandbox and grant changes, whatever `origin` it claims) needs origin `user`
+too, with the same refusal in the raw envelope: `error_code`
+`origin.forbidden`, `error` "needs a verified cmux app connection" and
+`error_details {"required": "user", "derived": <origin>}`.
 
 Completed pure mutations retain the newest 4096 ordinary replay records. A
 running registry may retain at most 127 additional ordinary records between

@@ -142,3 +142,16 @@ fn install_ids_and_roles_have_one_shape() {
     assert_eq!(HelloRole::declared("legacy"), None);
     assert_eq!(HelloRole::declared("user"), None);
 }
+
+#[test]
+fn the_token_clock_is_monotonic_and_the_wall_reading_is_separate() {
+    let clock = OriginClock::default();
+    clock.advance(0);
+    let (monotonic, wall) = (clock.monotonic_ms(), clock.wall_ms());
+    clock.jump_wall(-7_200_000);
+    assert_eq!(clock.monotonic_ms(), monotonic);
+    assert_eq!(clock.wall_ms(), wall.saturating_sub(7_200_000));
+    clock.advance(CONFIRMATION_TTL_MS);
+    assert_eq!(clock.monotonic_ms(), monotonic + CONFIRMATION_TTL_MS);
+    assert_eq!(clock.wall_ms(), wall.saturating_sub(7_200_000) + CONFIRMATION_TTL_MS);
+}

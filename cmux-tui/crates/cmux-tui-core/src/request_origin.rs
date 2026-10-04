@@ -16,8 +16,7 @@
 //! (`origin.confirmation.issue`). Gate A2: `apps.install`, `apps.uninstall`
 //! and `apps.enable` need origin `user`.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -115,7 +114,8 @@ struct Confirmation {
     token: String,
     operation: String,
     params_sha256: String,
-    expires_at_ms: u64,
+    /// Monotonic deadline ([`OriginClock::monotonic_ms`]).
+    deadline_ms: u64,
 }
 
 impl ConnectionOrigin {
@@ -127,20 +127,21 @@ impl ConnectionOrigin {
         }
     }
 
-    /// Stores a token minted for this relay connection.
+    /// Stores a token minted for this relay connection. `deadline_ms` and
+    /// `now_ms` are monotonic readings.
     pub(crate) fn store_confirmation(
         &mut self,
         token: String,
         operation: String,
         params_sha256: String,
-        expires_at_ms: u64,
+        deadline_ms: u64,
         now_ms: u64,
     ) {
-        self.confirmations.retain(|confirmation| confirmation.expires_at_ms > now_ms);
+        self.confirmations.retain(|confirmation| confirmation.deadline_ms > now_ms);
         if self.confirmations.len() >= MAX_CONFIRMATIONS_PER_RELAY {
             self.confirmations.remove(0);
         }
-        self.confirmations.push(Confirmation { token, operation, params_sha256, expires_at_ms });
+        self.confirmations.push(Confirmation { token, operation, params_sha256, deadline_ms });
     }
 
     /// Consumes `token` whatever the outcome (single use), and says whether
@@ -160,7 +161,7 @@ impl ConnectionOrigin {
             return false;
         };
         let confirmation = self.confirmations.remove(index);
-        confirmation.expires_at_ms > now_ms
+        confirmation.deadline_ms > now_ms
             && confirmation.operation == operation
             && cmux_local_auth::tokens_match(&params_sha256(params), &confirmation.params_sha256)
     }
@@ -291,34 +292,94 @@ pub(crate) fn write_canonical_json(value: &Value, out: &mut String) {
     }
 }
 
-/// Wall-clock milliseconds for token expiry. Tests move it forward instead
-/// of waiting.
-#[derive(Default)]
+/// Time for confirmation tokens. Validity uses only the monotonic reading
+/// (milliseconds since the clock started, built on `Instant`), so a wall
+/// clock step neither extends nor cuts the TTL; the wall reading only
+/// labels `expires_at` for display. Tests freeze it and move each reading.
 pub(crate) struct OriginClock {
-    offset_ms: AtomicU64,
+    base: Instant,
+    #[cfg(test)]
+    manual: std::sync::Mutex<Option<ManualTime>>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+struct ManualTime {
+    monotonic_ms: u64,
+    wall_ms: u64,
+}
+
+impl Default for OriginClock {
+    fn default() -> Self {
+        Self {
+            base: Instant::now(),
+            #[cfg(test)]
+            manual: std::sync::Mutex::new(None),
+        }
+    }
 }
 
 impl OriginClock {
-    pub(crate) fn now_ms(&self) -> u64 {
-        let wall = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX));
-        wall.saturating_add(self.offset_ms.load(Ordering::Relaxed))
+    /// Monotonic milliseconds since this clock started.
+    pub(crate) fn monotonic_ms(&self) -> u64 {
+        #[cfg(test)]
+        if let Some(time) = self.manual_time() {
+            return time.monotonic_ms;
+        }
+        self.real_monotonic_ms()
     }
 
+    /// Wall-clock milliseconds since the Unix epoch (display only).
+    pub(crate) fn wall_ms(&self) -> u64 {
+        #[cfg(test)]
+        if let Some(time) = self.manual_time() {
+            return time.wall_ms;
+        }
+        real_wall_ms()
+    }
+
+    fn real_monotonic_ms(&self) -> u64 {
+        u64::try_from(self.base.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    #[cfg(test)]
+    fn manual_time(&self) -> Option<ManualTime> {
+        *self.manual.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Freezes the clock at its current readings (first call), then
+    /// applies `change`.
+    #[cfg(test)]
+    fn change_manual(&self, change: impl FnOnce(&mut ManualTime)) {
+        let mut manual = self.manual.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut time = manual.unwrap_or(ManualTime {
+            monotonic_ms: self.real_monotonic_ms(),
+            wall_ms: real_wall_ms(),
+        });
+        change(&mut time);
+        *manual = Some(time);
+    }
+
+    /// Moves both readings forward by `ms` (time passes).
     #[cfg(test)]
     pub(crate) fn advance(&self, ms: u64) {
-        self.offset_ms.fetch_add(ms, Ordering::Relaxed);
+        self.change_manual(|time| {
+            time.monotonic_ms = time.monotonic_ms.saturating_add(ms);
+            time.wall_ms = time.wall_ms.saturating_add(ms);
+        });
     }
 
-    /// Red-commit stand-in: this clock has only the wall clock, so a forward
-    /// wall jump moves token validity; a backward jump is not representable.
+    /// Moves only the wall reading (an NTP step or a user change).
     #[cfg(test)]
     pub(crate) fn jump_wall(&self, delta_ms: i64) {
-        if let Ok(forward) = u64::try_from(delta_ms) {
-            self.advance(forward);
-        }
+        self.change_manual(|time| time.wall_ms = time.wall_ms.saturating_add_signed(delta_ms));
     }
+}
+
+fn real_wall_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
 #[cfg(test)]

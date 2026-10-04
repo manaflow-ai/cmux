@@ -11231,7 +11231,7 @@
           },
           "params_sha256": {
             "required": true,
-            "description": "64 lowercase hex digits: SHA-256 of the exact request params in canonical JSON (object keys sorted by code point at every depth, no whitespace, UTF-8, no escaping of / or non-ASCII).",
+            "description": "64 lowercase hex digits: SHA-256 of the exact request params in canonical JSON (object keys sorted by code point at every depth, no whitespace, UTF-8, no escaping of / or non-ASCII). The digest is over serde_json's compact re-serialization of the received params; a client must hash the exact encoding it sends. Floats whose shortest form differs between encoders (for example exponent notation) make the digest differ, and the claim fails closed with origin.forbidden; confirmed page operations carry integer params.",
             "type": {
               "kind": "primitive",
               "name": "string",
@@ -11266,7 +11266,7 @@
         "Only a verified cmux app connection (client-hello role main plus a proof) may call it; every other connection gets origin.forbidden. No connection is verified before peer verification ships, so until then it is refused everywhere.",
         "A page relay connection may never call it.",
         "relay_connection_id must name a live page relay connection of the same peer as the caller (peer key install:<id> when proven, else token:<pid>.<pid version>).",
-        "The token is 32 random bytes in base64url without padding, valid for 60 seconds and single use: the relay presents it once as origin {claim: user, confirmation: <token>} on a request with exactly this operation and params; any other presentation consumes it and is refused.",
+        "The token is 32 random bytes in base64url without padding, valid for 60 seconds of monotonic time (a wall clock step neither extends nor cuts it; expires_at is wall-clock time for display only) and single use: the relay presents it once as origin {claim: user, confirmation: <token>} on a request with exactly this operation and params; any other presentation consumes it and is refused.",
         "The token is a host-to-daemon value; page JavaScript never sees it."
       ]
     },

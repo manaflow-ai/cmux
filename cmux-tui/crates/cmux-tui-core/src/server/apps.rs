@@ -3,7 +3,10 @@
 //! Requests: `{id, cmd: "apps-…", origin?, …params}`; `origin` is
 //! `user|cli|mcp|script|remote`, absent = cli. Replies use the normal
 //! envelope: `{id, ok: true, data}` or `{id, ok: false, error, error_code}`.
-//! Only local (Unix socket) connections may use apps commands, and only the
+//! Only local (Unix socket) connections may use apps commands. `apps-set`
+//! changes apps, so it needs a verified cmux app connection whatever origin
+//! it claims (Gate A2, plans/cmux-next/request-origin.md; `origin.forbidden`
+//! otherwise). Only the
 //! hosting app connection may send origin `user` (`apps.origin_forbidden`
 //! otherwise; see `apps::provider::hosting_app_connection`). A connection
 //! receives `apps-changed` and `apps-host` events after its first apps
@@ -173,11 +176,13 @@ fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
             .unwrap()
             .clients
             .get(&client)
-            // A page relay connection is never the hosting app, whatever
-            // kind it declares (request-origin.md: its requests are page).
+            // The verified app is the hosting app. A page relay connection
+            // never is, whatever kind it declares (request-origin.md: its
+            // requests are page); until P8 a declared kind app still counts.
             .is_some_and(|record| {
-                record.kind.as_deref() == Some("app")
-                    && record.origin.role != crate::request_origin::HelloRole::PageRelay
+                let declared = record.kind.as_deref() == Some("app")
+                    && record.origin.role != crate::request_origin::HelloRole::PageRelay;
+                declared || record.origin.derive() == crate::request_origin::RequestOrigin::User
             }),
     }
 }
@@ -213,6 +218,14 @@ pub(super) fn try_handle(
             request.id,
             Err(crate::apps::ApiError::new("apps.local", "apps commands need a local connection")),
         ));
+    }
+    // Gate A2 on the legacy door (request-origin.md): every apps-set change
+    // (install, uninstall, enable, disable, hide, sandbox, grant) needs a
+    // verified cmux app connection, whatever origin the request claims.
+    if matches!(request.command, Command::Set { .. })
+        && let Err(e) = super::origin_gate::require_user(mux, client)
+    {
+        return Some(reply(writer, request.id, Err(e)));
     }
     // Origin `user` installs apps, grants scopes and mints gestures: only the
     // hosting app connection may claim it (A2). Checked before anything else
@@ -331,39 +344,69 @@ mod tests {
     }
 
     const FORBIDDEN: Option<&str> = Some("apps.origin_forbidden");
+    /// Gate A2 on apps-set (request-origin.md): not a verified app.
+    const NOT_VERIFIED: Option<&str> = Some("origin.forbidden");
+
+    /// Makes `client` a verified cmux app connection (what P8's proof sets).
+    fn verify(mux: &Arc<Mux>, client: u64) {
+        crate::server::origin_gate::set_role_for_test(mux, client, "main");
+        crate::server::origin_gate::set_verified_app_for_test(mux, client, true);
+    }
 
     #[test]
-    fn origin_user_needs_the_hosting_app_connection() {
+    fn apps_set_needs_the_verified_app_and_origin_user_needs_no_agent() {
         let mux = Mux::new_for_test("apps-origin-gate", SurfaceOptions::default());
         // An agent connection is refused even when it declared kind app.
         let (agent, agent_out) = connection(&mux, Some("app"), true);
         for request in [install("user"), grant("user")] {
-            assert_eq!(error_code(&mux, agent, &agent_out, request).as_deref(), FORBIDDEN);
+            assert_eq!(error_code(&mux, agent, &agent_out, request).as_deref(), NOT_VERIFIED);
         }
         // A local client that is not the app is refused too.
         let (cli, cli_out) = connection(&mux, Some("cli"), false);
         for request in [install("user"), grant("user")] {
-            assert_eq!(error_code(&mux, cli, &cli_out, request).as_deref(), FORBIDDEN);
+            assert_eq!(error_code(&mux, cli, &cli_out, request).as_deref(), NOT_VERIFIED);
         }
-        // The hosting app passes the gate (the request then reaches the
+        // A self-declared kind app is not the verified app.
+        let (declared, declared_out) = connection(&mux, Some("app"), false);
+        for request in [install("user"), grant("user")] {
+            assert_eq!(error_code(&mux, declared, &declared_out, request).as_deref(), NOT_VERIFIED);
+        }
+        // The verified app passes both gates (the request then reaches the
         // supervisor, or apps.unavailable in a daemon without an app host).
         let (app, app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
         for request in [install("user"), grant("user")] {
-            assert_ne!(error_code(&mux, app, &app_out, request).as_deref(), FORBIDDEN);
+            let code = error_code(&mux, app, &app_out, request);
+            assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
+        }
+        // A verified connection that is bound to an agent still cannot act
+        // with origin user.
+        let (agent_app, agent_app_out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent_app);
+        for request in [install("user"), grant("user")] {
+            assert_eq!(error_code(&mux, agent_app, &agent_app_out, request).as_deref(), FORBIDDEN);
         }
     }
 
     #[test]
-    fn other_origins_pass_from_any_local_connection() {
+    fn hiding_needs_the_verified_app_and_listing_does_not() {
         let mux = Mux::new_for_test("apps-origin-other", SurfaceOptions::default());
+        let hide = |origin: &str| json!({ "id": 3, "cmd": "apps-set", "origin": origin, "idempotency_key": format!("h-{origin}"), "app": "cmux/demo", "hidden": true });
+        // apps-set changes apps, so an agent connection cannot hide either
+        // (Gate A2 on every apps-set change).
         let (agent, out) = connection(&mux, None, true);
-        // Hiding works from any origin (D55); cli and script are unchanged.
         for origin in ["cli", "script", "mcp"] {
-            let hide = json!({ "id": 3, "cmd": "apps-set", "origin": origin, "idempotency_key": format!("h-{origin}"), "app": "cmux/demo", "hidden": true });
-            assert_ne!(error_code(&mux, agent, &out, hide).as_deref(), FORBIDDEN);
+            assert_eq!(error_code(&mux, agent, &out, hide(origin)).as_deref(), NOT_VERIFIED);
         }
         let list = json!({ "id": 4, "cmd": "apps-list" });
-        assert_ne!(error_code(&mux, agent, &out, list).as_deref(), FORBIDDEN);
+        assert_ne!(error_code(&mux, agent, &out, list).as_deref(), NOT_VERIFIED);
+        // The verified app hides with any origin.
+        let (app, app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
+        for origin in ["cli", "script", "mcp"] {
+            let code = error_code(&mux, app, &app_out, hide(origin));
+            assert!(code.as_deref() != FORBIDDEN && code.as_deref() != NOT_VERIFIED, "{code:?}");
+        }
     }
 
     fn parse(value: Value) -> Request {
