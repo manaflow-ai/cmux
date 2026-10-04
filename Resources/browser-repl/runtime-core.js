@@ -907,8 +907,10 @@
       this.emitTabCreated(page, p);
     }
     emitTabCreated() {}
-    async newPage(url, { background } = {}) {
-      const { targetId } = await this.call("tabs.open", { url, background: !!background });
+    // `dataStore` (from `tabs.dataStore` or `tabs.list`) opens the tab in
+    // that data store instead of the session's default one.
+    async newPage(url, { background, dataStore } = {}) {
+      const { targetId } = await this.call("tabs.open", { url, background: !!background, ...(dataStore === undefined ? {} : { dataStore }) });
       const page = this._page(targetId);
       if (url) page._url = url;
       return page;

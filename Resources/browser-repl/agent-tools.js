@@ -1107,9 +1107,11 @@
       const inScope = (hostname) => site === null || siteOf(hostname) === site;
       // The cookies of the page's own data store (cookieScope).
       const cookies = (await session.call("cookies.get", { ...cookieScope(page), ...(urls ? { urls } : {}) })).filter((c) => inScope(String(c.domain || "")));
+      // localStorage only from the open tabs in that store (storeTabs).
+      const { targetIds } = await storeTabs(page);
       const origins = new Map();
       for (const page of [...session.pages.values()]) {
-        if (page._closed || String(page._targetId).startsWith("lazy:")) continue;
+        if (page._closed || !targetIds.has(page._targetId)) continue;
         for (const frame of [page._mainFrame, ...page._frames.values()]) {
           if (frame._detached) continue;
           const r = await frame._call("agent", "() => { try { return { origin: location.origin, items: Object.entries(localStorage) }; } catch (e) { return null; } }", []).catch(() => null);
@@ -1128,22 +1130,43 @@
     function cookieScope(page) {
       return page && !page._closed && typeof page._cookieScope === "function" ? page._cookieScope() : {};
     }
+    // The data store the page's cookie calls use (`tabs.dataStore`), and the
+    // open tabs in it. localStorage belongs to a store too, so storage state
+    // reads and writes it only through those tabs, never through a tab on
+    // the same origin in another store. A driver without `tabs.dataStore`
+    // gets the page's own tab only.
+    async function storeTabs(page) {
+      const scope = cookieScope(page);
+      let dataStore;
+      try {
+        ({ dataStore } = await session.call("tabs.dataStore", scope));
+      } catch (e) {
+        if (errCode(e) !== "unsupported") throw e;
+        return { dataStore: undefined, targetIds: new Set(scope.targetId ? [scope.targetId] : []) };
+      }
+      const list = await session.call("tabs.list", { all: true });
+      return { dataStore, targetIds: new Set(list.filter((t) => t.dataStore === dataStore).map((t) => t.targetId)) };
+    }
     async function setStorageState(source, fromPage) {
       const state = typeof source === "string" ? JSON.parse(fs.readFileSync(source, "utf8")) : source;
       if (!state || typeof state !== "object" || (!Array.isArray(state.cookies) && !Array.isArray(state.origins))) {
         throw new Error("session.setStorageState: expected { cookies, origins } (Playwright's storage state) or a path to one");
       }
-      if (state.cookies && state.cookies.length) await session.call("cookies.set", { ...cookieScope(fromPage || currentPage()), cookies: state.cookies });
+      const target = fromPage || currentPage();
+      if (state.cookies && state.cookies.length) await session.call("cookies.set", { ...cookieScope(target), cookies: state.cookies });
       let restored = 0;
+      let store = null;
       for (const { origin, localStorage } of state.origins || []) {
         if (!localStorage || !localStorage.length) continue;
         checkURL("session.setStorageState", origin);
-        // An open tab on the origin takes the items; otherwise a background
-        // tab loads the origin, takes them and closes.
-        let page = [...session.pages.values()].find((p) => !p._closed && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === origin);
+        // An open tab on the origin in the page's data store takes the
+        // items; otherwise a background tab of that store loads the origin,
+        // takes them and closes.
+        if (!store) store = await storeTabs(target);
+        let page = [...session.pages.values()].find((p) => !p._closed && store.targetIds.has(p._targetId) && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === origin);
         const temp = !page;
         if (temp) {
-          page = await session.newPage(undefined, { background: true });
+          page = await session.newPage(undefined, { background: true, dataStore: store.dataStore });
           await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
         }
         try {

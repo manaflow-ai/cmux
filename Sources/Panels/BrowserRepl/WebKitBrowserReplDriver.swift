@@ -241,6 +241,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         switch method {
         case "tabs.list": return try listTabs(all: params["all"] as? Bool == true)
         case "history.search": return try searchHistory(params)
+        case "tabs.dataStore": return ["dataStore": Self.dataStoreID(try cookieTab(params).store)]
         case "tabs.open": return try await openTab(params)
         case "tabs.close": return try closeTab(params)
         case "tabs.activate", "tab.bringToFront": return try activateTab(params)
@@ -569,6 +570,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                         "url": entry.panel.webView.url?.absoluteString ?? entry.panel.currentURL?.absoluteString ?? "",
                         "active": false,
                         "windowId": entry.workspace.id.uuidString,
+                        "dataStore": Self.dataStoreID(entry.panel.webView.configuration.websiteDataStore),
                     ]
                 }
             return own + others
@@ -582,6 +584,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "url": panel.webView.url?.absoluteString ?? panel.currentURL?.absoluteString ?? "",
                 "active": panel.id == active?.id,
                 "windowId": workspace.id.uuidString,
+                "dataStore": Self.dataStoreID(panel.webView.configuration.websiteDataStore),
             ]
             if let opener = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.openerTargetID {
                 entry["openerTargetId"] = opener
@@ -606,6 +609,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             BrowserReplTabAttachments.shared.pageClipboard = BrowserReplPageClipboard(shim: shim)
         }
         let rawURL = params["url"] as? String
+        // `dataStore` (an id from tabs.list or tabs.dataStore) opens the tab
+        // in that store and its tab's profile, as storage state restores
+        // localStorage into the store of the page it names.
+        let (store, profileID) = try dataStoreForNewTab(params["dataStore"])
         // Open blank and attach first, then navigate like tab.navigate, so the
         // first navigation already sees the REPL session (for example, it skips
         // the insecure-HTTP prompt that nobody can answer).
@@ -617,8 +624,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                   inPane: paneID,
                   url: url,
                   focus: false,
+                  preferredProfileID: profileID,
                   creationPolicy: .automationPreload,
-                  websiteDataStore: proxyDataStore
+                  websiteDataStore: store
               ) else {
             throw Self.error("invalid", "Could not open a browser tab")
         }
@@ -640,6 +648,31 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             ])
         }
         return ["targetId": panel.id.uuidString]
+    }
+
+    /// An opaque id for `store`, equal for tabs that share cookies and
+    /// storage (`tabs.list`, `tabs.dataStore`), for the life of the store.
+    @MainActor
+    static func dataStoreID(_ store: WKWebsiteDataStore) -> String {
+        String(UInt(bitPattern: ObjectIdentifier(store).hashValue), radix: 16)
+    }
+
+    /// The store and profile `tabs.open` uses: the session's proxy store
+    /// (or the default profile's) without `dataStore`, else the store a
+    /// session-reachable tab with that id uses, and that tab's profile.
+    @MainActor
+    private func dataStoreForNewTab(_ raw: Any?) throws -> (WKWebsiteDataStore?, UUID?) {
+        guard let raw else { return (proxyDataStore, nil) }
+        guard let id = raw as? String else {
+            throw Self.error("invalid", "tabs.open: dataStore must be a string from tabs.list or tabs.dataStore")
+        }
+        if let proxyDataStore, Self.dataStoreID(proxyDataStore) == id { return (proxyDataStore, nil) }
+        if let panel = allBrowserPanels().map(\.panel).first(where: { Self.dataStoreID($0.webView.configuration.websiteDataStore) == id }) {
+            return (panel.webView.configuration.websiteDataStore, panel.profileID)
+        }
+        let defaultStore = try cookieTab([:]).store
+        if Self.dataStoreID(defaultStore) == id { return (defaultStore, nil) }
+        throw Self.error("invalid", "tabs.open: no open tab uses data store \(id)")
     }
 
     @MainActor

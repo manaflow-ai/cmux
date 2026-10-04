@@ -106,6 +106,9 @@ function textPdf(text) {
 
 // `setupContext(context)` runs once on the Playwright context before any tab
 // opens (site-tool tests route real hostnames to local mock sites with it).
+// The id `tabs.list` and `tabs.dataStore` report for the context's one store.
+const DATA_STORE = "default";
+
 export async function createDevBrowser({ headless = true, viewport = { width: 1280, height: 800 }, setupContext } = {}) {
   const { webkit } = loadPlaywright();
   const installSource = agentInstallSource();
@@ -542,9 +545,16 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         url: t.page.url(),
         active: t.targetId === activeTarget,
         windowId: 1,
+        dataStore: DATA_STORE,
         ...(t.openerTargetId ? { openerTargetId: t.openerTargetId } : {}),
       }))),
-    "tabs.open": async ({ url, background }, driver) => {
+    // One Playwright context, so one data store for every tab.
+    "tabs.dataStore": async ({ targetId } = {}) => {
+      if (targetId !== undefined) tabFor(targetId);
+      return { dataStore: DATA_STORE };
+    },
+    "tabs.open": async ({ url, background, dataStore }, driver) => {
+      if (dataStore !== undefined && dataStore !== DATA_STORE) throw new DriverError("invalid", `tabs.open: no open tab uses data store ${JSON.stringify(dataStore)}`);
       const page = await context.newPage();
       const tab = register(page);
       tab.blankStart = !url;
