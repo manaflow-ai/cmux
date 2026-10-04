@@ -134,6 +134,22 @@ describe("message.send with attachment parts (the owner checks the hash)", () =>
     expect(send(host, [part({ name: "photo.exe" })], "m5")).toMatchObject({ ok: false, code: "invalid_parts" })
   })
 
+  it("an image part may claim only the preview its record holds; a video part never claims a preview", () => {
+    const host = group()
+    const PREVIEWED = "d".repeat(63) + "e"
+    const preview = { hash: POSTER, mime_type: "image/webp", byte_count: 50 }
+    records.set(PREVIEWED, { ...record(PREVIEWED), preview: { ...preview, etag: "p" } })
+    const img = part({ hash: PREVIEWED })
+    expect(send(host, [{ ...img, preview }], "p1").ok).toBe(true)
+    expect(send(host, [{ ...img, preview: { ...preview, byte_count: 51 } }], "p2")).toMatchObject({ ok: false, code: "attachment_mismatch" })
+    // The plain image record holds no preview.
+    expect(send(host, [part({ preview })], "p3")).toMatchObject({ ok: false, code: "attachment_mismatch" })
+    expect(send(host, [{ ...img, preview: { ...preview, mime_type: "image/png" } }], "p4")).toMatchObject({ ok: false, code: "invalid_parts" })
+    expect(send(host, [{ ...img, preview: { ...preview, byte_count: 512_001 } }], "p5")).toMatchObject({ ok: false, code: "invalid_parts" })
+    const video = part({ hash: VIDEO, name: "clip.mp4", mime_type: "video/mp4", byte_count: 5000 })
+    expect(send(host, [{ ...video, preview }], "p6")).toMatchObject({ ok: false, code: "invalid_parts" })
+  })
+
   it("an edit moves references: new hashes are checked, dropped ones are released", () => {
     const host = group()
     const sent = send(host, [part()], "m1")
