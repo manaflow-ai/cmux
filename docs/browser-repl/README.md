@@ -372,6 +372,10 @@ rest. Measurements: [performance.md](performance.md).
   server process gets its own session (`mcp-<pid>-<random>`), reset when
   the server exits, so two MCP clients never share variables or tabs; give
   them the same `--session` to share one.
+- A session runs one cell at a time; cells sent meanwhile (callers that
+  share a named session) wait in order. At most 64 wait, holding at most
+  64 MiB of source together; one more fails at once with an error that
+  says so.
 - A session made without `--session` (a one-shot run, the interactive
   REPL's `cli-<pid>-<random>`, `mcp`'s) is its client's alone: the client
   sends a random owner token with every call, and without that token no
