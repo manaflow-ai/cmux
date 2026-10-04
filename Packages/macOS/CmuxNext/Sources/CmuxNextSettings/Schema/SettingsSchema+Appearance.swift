@@ -14,11 +14,12 @@ nonisolated enum AppearanceSettingsSchema {
         let appTheme = SettingsText.keyed("settings.group.appTheme", "App Theme")
         let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
         let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.title) }
-        let surfaceBackgrounds: [SettingDescriptor] = [
+        let surfaceNames: [(String, String)] = [
             ("sidebar", "Sidebar"), ("tabStrip", "Tab Strip"), ("terminal", "Terminal"),
             ("browser", "Browser"), ("internalPage", "Internal Pages"), ("agentPane", "Agent Pane"),
             ("splitDivider", "Split Dividers"), ("settings", "Settings")
-        ].map { name, label in
+        ]
+        let surfaceBackgrounds: [SettingDescriptor] = surfaceNames.map { name, label in
             SettingDescriptor(
                 ["appearance", "surfaceBackgrounds", name], section: .appearance, group: window,
                 title: SettingsText.keyed("settings.layout.paneBorderColor", label),
