@@ -1277,6 +1277,19 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self.resolveCall(Int(callID), .failure(boundary.redact(error)))
                 return
             }
+            // A file chooser answer's files are staged on disk until the
+            // session ends, so they count against its write budget.
+            if methodName == "filechooser.respond" {
+                do {
+                    try self.writeBudget.takeFileChooserAnswer(JSONSerialization.browserReplObject(paramsJSON))
+                } catch let error as BrowserReplFileSystemError {
+                    self.resolveCall(Int(callID), .failure(BrowserReplDriverError(code: "invalid", message: "filechooser: \(error.message)")))
+                    return
+                } catch {
+                    self.resolveCall(Int(callID), .failure(BrowserReplDriverError(code: "invalid", message: "filechooser: \(error)")))
+                    return
+                }
+            }
             if let refusal = self.startOrQueueDriverCall(callID: Int(callID), method: methodName, paramsJSON: paramsJSON) {
                 self.resolveCall(Int(callID), .failure(refusal))
             }
