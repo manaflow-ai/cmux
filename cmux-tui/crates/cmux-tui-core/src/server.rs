@@ -101,6 +101,8 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[cfg(unix)]
+mod fs_wire;
 mod line_connection;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
@@ -126,6 +128,8 @@ mod split_kind;
 mod split_respawn;
 mod tab_column;
 mod websocket_listener;
+#[cfg(unix)]
+pub use fs_wire::FsGate;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -515,6 +519,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
     capabilities.extend(crate::apps::advertised());
+    #[cfg(unix)]
+    capabilities.extend(crate::fs_ops::advertised());
     capabilities
 }
 
@@ -10561,6 +10567,10 @@ fn handle_connection_frame(
     }
     #[cfg(unix)]
     if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     let request = match serde_json::from_str::<Request>(message) {

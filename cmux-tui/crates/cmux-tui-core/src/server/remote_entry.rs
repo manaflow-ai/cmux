@@ -11,8 +11,9 @@
 //!    anything else and only here, never on the local socket;
 //! 3. every later line passes the [`RemoteGate`] before anything parses or
 //!    dispatches it. The default gate, [`DenyAllGate`], refuses everything
-//!    with `error_code: remote_denied`; lane 10's conversation gate replaces
-//!    it with an explicit allowlist.
+//!    with `error_code: remote_denied`; [`super::FsGate`] admits only the
+//!    seven `fs-v1` ops, and lane 10's conversation gate will add its own
+//!    explicit allowlist.
 //!
 //! A remote client is registered as [`ClientTransport::Remote`], so checks
 //! for a trusted local connection (`is_unix`) refuse it, and its
@@ -183,10 +184,16 @@ fn serve_remote_connection(
         let _ = stream.shutdown(Shutdown::Both);
         return;
     };
+    // A dial whose first line asks for an `fs.*` byte stream is served raw
+    // (fs_wire.rs); any other dial reaches the line connection unchanged.
+    let Some(stream) = fs_wire::route_first_line(stream, &*gate, &peer, crate::fs_ops::installed())
+    else {
+        return;
+    };
     let admission = RemoteAdmission { peer, gate };
     serve_line_connection(
         mux,
-        Box::new(stream),
+        stream,
         render_service,
         Some(permit),
         ClientTransport::Remote,

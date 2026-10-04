@@ -18,6 +18,8 @@ mod conversation_store;
 mod debug_spans;
 pub mod diagnostics;
 mod event_bus;
+#[cfg(unix)]
+pub mod fs_ops;
 mod git_ops;
 #[cfg(unix)]
 mod image_paste;

@@ -3,6 +3,7 @@
 //! to paired peers only, no relay.
 
 mod cloud;
+mod cloud_fs;
 mod control;
 mod dial;
 mod dial_cli;
@@ -53,14 +54,17 @@ fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// Start the session daemon's remote entry next to `session_socket` when
-/// `enabled` (`--link-entry`): only the link may connect, and every frame is
-/// denied until lane 10's conversation gate replaces [`DenyAllGate`].
+/// `enabled` (`--link-entry`): only the link may connect, and its gate
+/// ([`link_entry_gate`]) admits only the seven `fs-v1` ops. On a Cloud host
+/// this also installs the daemon's file owner (`cloud_fs`); elsewhere the
+/// admitted fs ops answer `fs.unavailable`.
 pub(crate) fn start_link_entry(
     enabled: bool,
     mux: &Arc<cmux_tui_core::Mux>,
     session_socket: &Path,
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
-    use cmux_tui_core::server::{DenyAllGate, LinkVerifier, serve_remote_entry};
+    use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
+    cloud_fs::install_if_cloud_host();
     if !enabled {
         return Ok(None);
     }
@@ -68,7 +72,13 @@ pub(crate) fn start_link_entry(
         cmux_link::caller::verify(stream).map_err(std::io::Error::from)
     });
     let path = cmux_link::entry_path::remote_entry_socket_path(session_socket);
-    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, Arc::new(DenyAllGate))?))
+    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate())?))
+}
+
+/// The gate of the remote entry: exactly the seven `fs-v1` ops, every
+/// other frame denied (`remote_denied`).
+fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
+    Arc::new(cmux_tui_core::server::FsGate)
 }
 
 /// `cmux link ...` from `main`: the exit code, with any error on stderr.
