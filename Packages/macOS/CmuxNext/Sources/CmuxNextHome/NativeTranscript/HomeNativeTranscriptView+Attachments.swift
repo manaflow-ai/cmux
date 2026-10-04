@@ -104,6 +104,12 @@ extension HomeNativeTranscriptView {
         field.showNotice(HomeStrings.rejection(rejection))
     }
 
+    /// One of my sends was refused after it was logged (its row says "Not
+    /// Delivered", `HomeStoreBinding.onSendNotDelivered`): say why.
+    public func showNotDelivered(_ rejection: HomeRejection) {
+        field.showNotice(HomeStrings.notDeliveredReason(rejection))
+    }
+
     /// An op (a tapback, a read cursor) ran out of resends unanswered
     /// (`HomeStoreBinding.onUnanswered`): it may not have gone through.
     public func showUnanswered(_ intent: HomeIntent) {
