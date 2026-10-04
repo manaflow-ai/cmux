@@ -17963,6 +17963,11 @@ Result<Json> Codec<NewScreenRequest>::encode(const NewScreenRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("cwd", std::move(encoded).value());
     }
+    if (!value.env.is_absent()) {
+        auto encoded = encode_value(value.env);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("env", std::move(encoded).value());
+    }
     if (!value.group.is_absent()) {
         auto encoded = encode_value(value.group);
         if (!encoded) return std::move(encoded).error();
@@ -17992,6 +17997,16 @@ Result<Json> Codec<NewScreenRequest>::encode(const NewScreenRequest& value) {
         auto encoded = encode_value(value.screen_name);
         if (!encoded) return std::move(encoded).error();
         object.emplace("screen_name", std::move(encoded).value());
+    }
+    if (!value.shell_args.is_absent()) {
+        auto encoded = encode_value(value.shell_args);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("shell_args", std::move(encoded).value());
+    }
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
     }
     if (!value.workspace.is_absent()) {
         auto encoded = encode_value(value.workspace);
@@ -18033,6 +18048,16 @@ Result<NewScreenRequest> Codec<NewScreenRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_cwd);
             if (!decoded) return std::move(decoded).error();
             result.cwd = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_env = value.find("env");
+    if (field_env) {
+        if (field_env->is_null()) {
+            result.env = Field<std::map<std::string, std::string, std::less<>>>::null();
+        } else {
+            auto decoded = decode_value<std::map<std::string, std::string, std::less<>>>(*field_env);
+            if (!decoded) return std::move(decoded).error();
+            result.env = Field<std::map<std::string, std::string, std::less<>>>(std::move(decoded).value());
         }
     }
     const Json* field_group = value.find("group");
@@ -18093,6 +18118,26 @@ Result<NewScreenRequest> Codec<NewScreenRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_screen_name);
             if (!decoded) return std::move(decoded).error();
             result.screen_name = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_shell_args = value.find("shell_args");
+    if (field_shell_args) {
+        if (field_shell_args->is_null()) {
+            result.shell_args = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_shell_args);
+            if (!decoded) return std::move(decoded).error();
+            result.shell_args = Field<std::vector<std::string>>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_workspace = value.find("workspace");
@@ -29730,6 +29775,11 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand112FieldRequirements{{
     {"terminal_id", 12U, "terminal-placement-env-v1"},
     {"url", 12U, "pane-browser-kind-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 3> kCommand114FieldRequirements{{
+    {"env", 12U, "screen-terminal-env-v1"},
+    {"shell_args", 12U, "screen-terminal-env-v1"},
+    {"terminal_id", 12U, "screen-terminal-env-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 4> kCommand115FieldRequirements{{
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
@@ -29918,7 +29968,7 @@ constexpr std::array<CommandMetadata, 213> kCommands{{
     {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand111FieldRequirements)},
     {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand112FieldRequirements)},
     {"new-row", "control", 12U, "rows-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"new-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"new-screen", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand114FieldRequirements)},
     {"new-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand115FieldRequirements)},
     {"new-workspace", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"note-size-activity", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

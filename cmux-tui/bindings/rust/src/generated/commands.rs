@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5.
+// cmux-tui mux protocol 12, IR 54e506a22a7bca7cab61d9e3bdc93ffbc49fe52f897fc3826f348478ba21c65c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1635,6 +1635,8 @@ pub struct NewScreenRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub group: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
@@ -1646,6 +1648,10 @@ pub struct NewScreenRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -3533,6 +3539,18 @@ impl CmuxClient {
     }
 
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
         self.execute(&NEW_SCREEN_METADATA, &request)
     }
 

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
+pub const ir_sha256 = "54e506a22a7bca7cab61d9e3bdc93ffbc49fe52f897fc3826f348478ba21c65c";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -5163,12 +5163,15 @@ pub const NewScreenRequest = struct {
     color: wire.Field([]const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     cwd: wire.Field([]const u8) = .absent,
+    env: wire.Field(wire.Map([]const u8)) = .absent,
     group: wire.Field([]const u8) = .absent,
     icon: wire.Field([]const u8) = .absent,
     index: wire.Field(u64) = .absent,
     pinned: wire.Field(bool) = .absent,
     rows: wire.Field(u16) = .absent,
     screen_name: wire.Field([]const u8) = .absent,
+    shell_args: wire.Field([]const []const u8) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
 };
 
@@ -5182,6 +5185,11 @@ pub fn newScreen(client: anytype, request: NewScreenRequest) !wire.Decoded(NewSc
             .authority = "control",
             .since = 5,
             .capability = null,
+            .fields = &.{
+                .{ .name = "env", .since = 12, .capability = "screen-terminal-env-v1" },
+                .{ .name = "shell_args", .since = 12, .capability = "screen-terminal-env-v1" },
+                .{ .name = "terminal_id", .since = 12, .capability = "screen-terminal-env-v1" },
+            },
         },
         request,
     );
