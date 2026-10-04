@@ -167,6 +167,25 @@ def scenarios(root):
         ("sb-control-tmp-write", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                   "args": ["--setting-sources", ""], "effects": ["{tmpdir}/ok"],
                                                   "input": {"command": "touch {tmpdir}/ok; echo TMPDIR=$TMPDIR"}}),
+        # Negative controls: the same action without the sandbox (or without denyWrite) has its effect,
+        # so a HOLDS above is the sandbox's doing.
+        ("ctl-write-cwd-without-denywrite", "INFO", "Bash", {"sandbox": True, "no_deny_write": True, "macos": True,
+                                                             "allow_tools": ["Bash"], "args": ["--setting-sources", ""],
+                                                             "input": {"command": "touch {marker}"}}),
+        ("ctl-unix-socket-no-sandbox", "INFO", "Bash", {"sandbox": True, "sandbox_off": True, "macos": True,
+                                                        "allow_tools": ["Bash"], "listen": True,
+                                                        "args": ["--setting-sources", ""],
+                                                        "input": {"command": "python3 -c \"import socket; s=socket.socket(socket.AF_UNIX); s.connect('{sock}')\""}}),
+        ("ctl-loopback-no-sandbox", "INFO", "Bash", {"sandbox": True, "sandbox_off": True, "macos": True,
+                                                     "allow_tools": ["Bash"], "listen": True, "args": ["--setting-sources", ""],
+                                                     "input": {"command": "nc -z -w 3 127.0.0.1 {port}"}}),
+        ("ctl-launchctl-no-sandbox", "INFO", "Bash", {"sandbox": True, "sandbox_off": True, "macos": True,
+                                                      "allow_tools": ["Bash"], "args": ["--setting-sources", ""],
+                                                      "launchctl_cleanup": True, "effects": ["{tmpdir}/launchd-ran"],
+                                                      "input": {"command": "launchctl submit -l {label} -- /usr/bin/touch {tmpdir}/launchd-ran; sleep 3; launchctl list | grep -c {label}"}}),
+        ("ctl-tmp-write-no-sandbox", "INFO", "Bash", {"sandbox": True, "sandbox_off": True, "macos": True,
+                                                      "allow_tools": ["Bash"], "args": ["--setting-sources", ""],
+                                                      "effects": ["{tmpdir}/ok"], "input": {"command": "touch {tmpdir}/ok"}}),
         ("sb-read-acpmux-home", "FLOOR", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                   "args": ["--setting-sources", ""],
                                                   "input": {"command": "cat {acpmux}/agent.token"}}),
@@ -187,8 +206,8 @@ def scenarios(root):
                                             "input": {"command": "python3 -c \"import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); s.listen(1); open('{scratch}/bound','w')\""}}),
         ("sb-launchctl-submit", "FLOOR", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                   "args": ["--setting-sources", ""], "launchctl_cleanup": True,
-                                                  "effects": ["{scratch}/launchd-ran"],
-                                                  "input": {"command": "launchctl submit -l {label} -- /usr/bin/touch {scratch}/launchd-ran; sleep 3"}}),
+                                                  "effects": ["{tmpdir}/launchd-ran"],
+                                                  "input": {"command": "launchctl submit -l {label} -- /usr/bin/touch {tmpdir}/launchd-ran; sleep 3"}}),
         ("sb-unix-socket-double-fork", "FLOOR", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                          "listen": True, "args": ["--setting-sources", ""],
                                                          "input": {"command": "( ( nohup python3 -c \"import os,socket; os.setsid(); s=socket.socket(socket.AF_UNIX); s.connect('{sock}')\" & ) & ); sleep 3"}}),
@@ -412,6 +431,10 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
         opts = dict(opts)
         inject = json.loads(json.dumps(opts.get("inject") or remote_settings(ask=["*"])))
         inject["sandbox"] = sandbox_settings(project, acpmux_home, scratch)
+        if opts.get("sandbox_off"):
+            inject["sandbox"] = {"enabled": False}
+        elif opts.get("no_deny_write"):
+            inject["sandbox"]["filesystem"]["denyWrite"] = []
         inject["permissions"]["deny"] = inject["permissions"].get("deny", []) + opts.get("extra_deny", [])
         opts["inject"] = json.loads(json.dumps(inject).replace("{home}", home).replace("{project}", project))
     if "user" in opts:
