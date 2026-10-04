@@ -371,7 +371,9 @@ test("the project pill changes the cwd used by a new agent chat", async () => {
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setValue.call(field, "fix the build");
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    edited(field);
+  });
+  await act(async () => {
     container.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
   });
   expect(submitted).toEqual([["agent", "fix the build", "/src/web"]]);

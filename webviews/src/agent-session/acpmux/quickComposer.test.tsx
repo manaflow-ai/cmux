@@ -170,7 +170,7 @@ test("⌘Return sends the prompt, then asks to open the chat in a window", async
   await type("summarize the diff");
   await key("Enter", { metaKey: true });
   expect(calls).toEqual([
-    ["chat.send", { text: "summarize the diff" }],
+    ["chat.send", { text: "summarize the diff", attachments: [] }],
     ["quick.openInWindow", { sessionId: "s1" }],
   ]);
   expect(prompt().value).toBe("");
@@ -187,7 +187,7 @@ test("⌘Return on a first prompt opens the window once its session has started"
     ),
   );
   expect(calls).toEqual([
-    ["chat.send", { text: "start something" }],
+    ["chat.send", { text: "start something", attachments: [] }],
     ["quick.openInWindow", { sessionId: "s2" }],
   ]);
 });

@@ -95,6 +95,7 @@ export type AcpmuxSnapshot = {
     harness?: string;
     model?: string;
     effort?: string;
+    promptCapabilities?: { image?: boolean };
     status?: string;
     enforcement?: Enforcement;
     modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string };
