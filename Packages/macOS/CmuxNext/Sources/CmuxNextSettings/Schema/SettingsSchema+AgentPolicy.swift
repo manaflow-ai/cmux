@@ -141,6 +141,7 @@ extension SettingsSchema {
         "updates.checkAutomatically": .network,
         "updates.checkIntervalSeconds": .network,
         "updates.downloadAutomatically": .network,
+        "updates.meteredNetwork": .network,
         "updates.installOnQuit": .destructive,
         "updates.keepPreviousVersions": .destructive,
     ]

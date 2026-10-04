@@ -1,3 +1,10 @@
+/// What automatic downloads do on a metered link (`updates.meteredNetwork`).
+public nonisolated enum UpdatesMeteredSetting: String, Sendable, Hashable, CaseIterable {
+    case deferLowData = "defer-low-data"
+    case deferExpensive = "defer-expensive"
+    case download
+}
+
 /// How a ready update makes itself known (`updates.notify`).
 public nonisolated enum UpdatesNotifySetting: String, Sendable, Hashable, CaseIterable {
     case card, badge, silent
@@ -18,6 +25,8 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// Previous builds kept for rollback (`cmux update rollback`).
     public var keepPreviousVersions = 1
     public static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
+    public var meteredNetwork: UpdatesMeteredSetting = .deferLowData
+    public static let meteredNetworkPath = ["updates", "meteredNetwork"]
 
     public init() {}
 
@@ -37,6 +46,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         if let value = reader.bool("downloadAutomatically") { settings.downloadAutomatically = value }
         if let value = reader.bool("installOnQuit") { settings.installOnQuit = value }
         if let value = reader.choice("notify", UpdatesNotifySetting.self) { settings.notify = value }
+        if let value = reader.choice("meteredNetwork", UpdatesMeteredSetting.self) { settings.meteredNetwork = value }
         if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
         diagnostics = reader.diagnostics
         settings.quietHours = quietHours(root, diagnostics: &diagnostics)

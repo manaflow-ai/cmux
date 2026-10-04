@@ -15,6 +15,11 @@ nonisolated public enum UpdateMeteredMode: String, Sendable, CaseIterable {
 /// downloads it.
 nonisolated public enum UpdateNetworkPolicy {
     public static func downloadsAutomatically(setting: Bool, mode: UpdateMeteredMode, constrained: Bool, expensive: Bool) -> Bool {
-        setting
+        guard setting else { return false }
+        switch mode {
+        case .download: return true
+        case .deferLowData: return !constrained
+        case .deferExpensive: return !constrained && !expensive
+        }
     }
 }

@@ -1,4 +1,5 @@
 import CmuxNextWakeups
+import Network
 public import Foundation
 
 /// The R114 gate (``UpdateFlow``) wired to Sparkle and the App: the card
@@ -138,11 +139,40 @@ extension UpdaterService {
 }
 
 extension UpdaterService {
-    /// Applies `updates.checkAutomatically`, `checkIntervalSeconds` and
-    /// `downloadAutomatically` to Sparkle. No-op without a driver.
-    public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool) {
+    /// Applies `updates.checkAutomatically`, `checkIntervalSeconds`,
+    /// `downloadAutomatically` and `meteredNetwork` to Sparkle. No-op
+    /// without a driver.
+    public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool,
+                          metered: UpdateMeteredMode = .deferLowData) {
+        downloadSetting = (downloadAutomatically, metered)
         guard let controller else { return }
-        controller.downloadsUpdatesInBackground = downloadAutomatically
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
+        followNetwork()
+        applyDownloadPolicy()
+    }
+
+    /// Recomputes whether found updates download by themselves.
+    func applyDownloadPolicy() {
+        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: downloadSetting.enabled, mode: downloadSetting.metered,
+                                                                   constrained: network.constrained, expensive: network.expensive)
+        guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
+        controller.downloadsUpdatesInBackground = downloads
+        log.append("automatic downloads \(downloads ? "on" : "deferred") (constrained \(network.constrained), expensive \(network.expensive))")
+    }
+
+    /// Follows the link's Low Data Mode and cost (path events, no polling).
+    func followNetwork() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let state = (constrained: path.isConstrained, expensive: path.isExpensive)
+            Task { @MainActor in
+                guard let self, self.network != state else { return }
+                self.network = state
+                self.applyDownloadPolicy()
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "cmux.updates.network"))
+        pathMonitor = monitor
     }
 }
