@@ -224,6 +224,7 @@ pub(crate) fn run<C: ControlPlane>(
         landing,
         route,
         cancel: Cancel::default(),
+        started_at: 0,
     };
     let transfer = edge.transfers.start(worker, job, transfer_key, running)?;
     Ok(json!({
@@ -273,13 +274,15 @@ fn check_local(local: &std::path::Path, direction: Direction) -> Result<(), Clou
     }
 }
 
-/// `cloud.file.transfer.list {}` (STUB).
+/// `cloud.file.transfer.list {}`: the running transfers, then the recent
+/// finished ones (crate::fs::running::Transfers::list).
 pub(crate) fn list<C: ControlPlane>(
-    _server: &mut Server<C>,
+    server: &mut Server<C>,
     raw: &Value,
 ) -> Result<Value, CloudError> {
     args::object(raw, &[])?;
-    Ok(json!({ "transfers": [] }))
+    let (edge, _) = server.edge_parts();
+    Ok(json!({ "transfers": edge.transfers.list() }))
 }
 
 /// `cloud.file.transfer.cancel {transfer}`: `cancelling` for a running

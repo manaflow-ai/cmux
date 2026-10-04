@@ -15,9 +15,11 @@ use super::transfer::{
     Direction, TRANSFER_CANCELLED, TRANSFER_FAILED, Transfer, TransferError, TransferJob,
 };
 use crate::api::{CloudError, codes};
+use crate::clock::{Clock, SystemClock};
 use crate::link::LinkWake;
 use crate::ports::listener::Listener;
-use std::collections::BTreeMap;
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -53,6 +55,21 @@ pub(crate) struct Running {
     pub(crate) route: Listener,
     /// Shared with the worker: a cancel kills its children.
     pub(crate) cancel: Cancel,
+    /// Epoch milliseconds by the transfers' clock (set by `start`).
+    pub(crate) started_at: u64,
+}
+
+/// Finished transfers `cloud.file.transfer.list` keeps at most.
+pub const HISTORY_ENTRIES: usize = 32;
+/// Finished transfers older than this (by the injected clock) are not
+/// listed. Pruned when the history is read or written; no timer.
+pub const HISTORY_MAX_AGE_MS: u64 = 60 * 60 * 1000;
+
+/// One finished transfer in the history.
+struct Finished {
+    event: TransferEvent,
+    started_at: u64,
+    ended_at: u64,
 }
 
 /// What `cloud.file.transfer.cancel` found.
@@ -64,6 +81,18 @@ pub(crate) enum CancelAnswer {
     /// (`done` or `failed`) goes out after this answer when the loop had not
     /// sent it yet; no `cancelled` event follows.
     Ended,
+}
+
+/// The number of a `transfer-<n>` id (ids this server issued).
+fn sequence(id: &str) -> u64 {
+    id.strip_prefix("transfer-").and_then(|n| n.parse().ok()).unwrap_or(u64::MAX)
+}
+
+fn direction(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Push => "push",
+        Direction::Pull => "pull",
+    }
 }
 
 impl Drop for Transfers {
@@ -93,12 +122,67 @@ pub(crate) struct Transfers {
     wake: Option<LinkWake>,
     next: u64,
     events: Vec<TransferEvent>,
+    /// Finished transfers, oldest end first (at most [`HISTORY_ENTRIES`]).
+    history: VecDeque<Finished>,
+    clock: Arc<dyn Clock>,
 }
 
 impl Transfers {
     pub(crate) fn new() -> Self {
         let (sender, receiver) = channel();
-        Self { running: BTreeMap::new(), sender, receiver, wake: None, next: 0, events: Vec::new() }
+        Self {
+            running: BTreeMap::new(),
+            sender,
+            receiver,
+            wake: None,
+            next: 0,
+            events: Vec::new(),
+            history: VecDeque::new(),
+            clock: Arc::new(SystemClock),
+        }
+    }
+
+    /// The time source of `started_at`, `ended_at` and the history bound.
+    pub(crate) fn set_clock(&mut self, clock: Arc<dyn Clock>) {
+        self.clock = clock;
+    }
+
+    /// `cloud.file.transfer.list`: running transfers (oldest start first),
+    /// then finished ones (newest end first). Reads only; prunes old entries.
+    pub(crate) fn list(&mut self) -> Vec<Value> {
+        self.settle();
+        self.prune();
+        let mut running: Vec<(u64, &String, &Running)> =
+            self.running.iter().map(|(id, r)| (sequence(id), id, r)).collect();
+        running.sort_by_key(|(n, _, _)| *n);
+        let mut out: Vec<Value> = running
+            .into_iter()
+            .map(|(_, id, r)| {
+                json!({ "transfer": id, "machine": r.machine, "direction": direction(r.direction),
+                    "state": "running", "started_at": r.started_at })
+            })
+            .collect();
+        for done in self.history.iter().rev() {
+            let mut entry = json!({ "transfer": done.event.transfer,
+                "machine": done.event.machine, "direction": direction(done.event.direction),
+                "started_at": done.started_at, "ended_at": done.ended_at });
+            match &done.event.outcome {
+                Ok(_) => entry["state"] = json!("done"),
+                Err(e) if e.code == TRANSFER_CANCELLED => entry["state"] = json!("cancelled"),
+                Err(e) => {
+                    entry["state"] = json!("failed");
+                    entry["error"] = json!(e);
+                }
+            }
+            out.push(entry);
+        }
+        out
+    }
+
+    /// Drops finished entries older than [`HISTORY_MAX_AGE_MS`].
+    fn prune(&mut self) {
+        let now = self.clock.now_unix_ms();
+        self.history.retain(|f| now.saturating_sub(f.ended_at) <= HISTORY_MAX_AGE_MS);
     }
 
     /// Wakes the serve loop after each completion.
@@ -154,6 +238,8 @@ impl Transfers {
             }
             return Err(CloudError::new(TRANSFER_FAILED, format!("no transfer thread: {e}")));
         }
+        let mut running = running;
+        running.started_at = self.clock.now_unix_ms();
         self.running.insert(id.clone(), running);
         Ok(id)
     }
@@ -247,13 +333,23 @@ impl Transfers {
         if running.direction == Direction::Pull {
             let _ = std::fs::remove_file(&running.landing);
         }
-        self.events.push(TransferEvent {
+        let event = TransferEvent {
             transfer: done.id,
             machine: running.machine,
             direction: running.direction,
             path: running.guest,
             local_path: running.local,
             outcome,
+        };
+        self.history.push_back(Finished {
+            event: event.clone(),
+            started_at: running.started_at,
+            ended_at: self.clock.now_unix_ms(),
         });
+        while self.history.len() > HISTORY_ENTRIES {
+            self.history.pop_front();
+        }
+        self.prune();
+        self.events.push(event);
     }
 }
