@@ -58,4 +58,15 @@ struct BrowserReplContentRuleParityTests {
         expectParity(try policy(allowed: ["example.com"]), Self.urls())
         expectParity(try policy(allowed: ["*"], prohibited: ["https://example.com"]), Self.urls())
     }
+
+    @Test("A pattern's port is the URL's effective port in the content rules too: 443 never admits http, 80 never https")
+    func portIsTheEffectivePort() throws {
+        for pattern in [
+            "example.com:443", "example.com:80", "https://example.com:80", "http://example.com:443",
+            "http*://example.com:443", "http*://example.com:80", "*://example.com:443", "example.com:8443",
+        ] {
+            expectParity(try policy(allowed: [pattern]), Self.urls())
+            expectParity(try policy(allowed: ["*"], prohibited: [pattern]), Self.urls())
+        }
+    }
 }
