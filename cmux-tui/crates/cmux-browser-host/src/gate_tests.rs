@@ -352,11 +352,11 @@ fn policy_ops_answer_get_check_set_and_site() {
 /// the record ends when the tab closes.
 #[test]
 fn a_secret_typed_into_a_tab_is_masked_for_every_session() {
-    let shared = Arc::new(crate::secrets::TabSecrets::default());
+    let shared = Arc::new(TabSecrets::default());
     let (typer, _) = make_gate(json!("https://example.com/login"), false);
     let typer = typer.with_tab_secrets(shared.clone());
     let (reader, _) = make_gate(Value::Null, false);
-    let reader = reader.with_tab_secrets(shared.clone());
+    let reader = reader.with_tab_secrets(shared);
     agent_secret(&typer, "example.com");
     let before = reader.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
     assert_eq!(before["title"], "token s3cret-value here", "nothing typed into T yet");

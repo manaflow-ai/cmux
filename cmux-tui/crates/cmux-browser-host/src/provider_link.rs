@@ -137,10 +137,9 @@ impl TabTable {
                         payload.get("targetId").and_then(Value::as_str),
                         payload.get("url").and_then(Value::as_str),
                     )
+                    && let Some(tab) = self.info.iter_mut().find(|t| t.target_id == target_id)
                 {
-                    if let Some(tab) = self.info.iter_mut().find(|t| t.target_id == target_id) {
-                        tab.url = url.to_owned();
-                    }
+                    tab.url = url.to_owned();
                 }
             }
             "tab.gone" => {

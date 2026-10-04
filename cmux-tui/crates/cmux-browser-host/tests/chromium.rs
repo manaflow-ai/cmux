@@ -414,7 +414,16 @@ fn a_headless_session_lists_no_start_tab() {
     unsafe { std::env::set_var("CMUX_BROWSER_HOST_CHROMIUM", &binary) };
     let engines =
         cmux_browser_host::engines::HostEngines::new(cmux_browser_host::host::agent_bundle());
-    let driver = engines.driver("headless", Arc::new(|_| {})).expect("headless driver");
+    let session = cmux_browser_host::host::SessionContext {
+        name: "start-tab".into(),
+        caller: cmux_browser_host::host::Caller {
+            actor: "test".into(),
+            on_behalf_of: None,
+            origin: "cli".into(),
+        },
+        label: "start-tab".into(),
+    };
+    let driver = engines.driver("headless", Arc::new(|_| {}), &session).expect("headless driver");
     let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");
     assert_eq!(tabs, json!([]), "the start tab is listed");
     let opened = driver.call("tabs.open", &json!({"url": "about:blank"})).expect("tabs.open");
