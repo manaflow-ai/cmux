@@ -85,6 +85,13 @@ final class WindowShortcutHints {
 
     func keyDown() { monitor?.keyDown() }
 
+    #if DEBUG
+    func debugHold(_ flags: NSEvent.ModifierFlags) async -> Bool {
+        guard let monitor, let window = controller?.window else { return false }
+        return await monitor.debugHold(flags, window: window)
+    }
+    #endif
+
     func stop() {
         monitor?.stop()
         settingsTask?.cancel()

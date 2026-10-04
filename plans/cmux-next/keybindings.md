@@ -305,3 +305,10 @@ Hints use the resolved default and user binding table, so a rebind or unbind
 changes the hints too. Typing, releasing the modifier, disabling the setting,
 or leaving the key window hides them immediately. The hints use small rectangles
 and appear without a fade; they never handle clicks or consume terminal input.
+
+DEBUG capture tooling can call `debug.shortcut_hints` with `modifier: "cmd"`
+or `"ctrl"`. This posts a synthetic flagsChanged event through the production
+window monitor and waits for its own intentional-hold callback before returning
+`ready: true`. Capture the real window, then call with `modifier: "release"`.
+Label this evidence **modifier held via debug event injection**. The hook is
+excluded from Release builds and never raises or activates a window.

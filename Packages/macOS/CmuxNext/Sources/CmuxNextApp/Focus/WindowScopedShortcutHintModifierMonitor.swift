@@ -12,6 +12,10 @@ final class WindowScopedShortcutHintModifierMonitor {
     private var observers: [NSObjectProtocol] = []
     private var pending: Task<Void, Never>?
     private var enabled = false
+    private var currentFlags: NSEvent.ModifierFlags = []
+    #if DEBUG
+    private let capture = ShortcutHintCaptureWaiter()
+    #endif
 
     init(window: NSWindow, clock: any Clock<Duration> = ContinuousClock(),
          changed: @escaping (NSEvent.ModifierFlags?) -> Void) {
@@ -30,7 +34,7 @@ final class WindowScopedShortcutHintModifierMonitor {
 
     private func start() {
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.update(event.modifierFlags)
+            self?.receive(event)
             return event
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -46,7 +50,10 @@ final class WindowScopedShortcutHintModifierMonitor {
         }
     }
 
-    private func update(_ flags: NSEvent.ModifierFlags) {
+    func receive(_ event: NSEvent) {
+        guard event.type == .flagsChanged else { return }
+        let flags = event.modifierFlags
+        currentFlags = flags
         hide()
         // Reset suppression when the modifier is released; only bare Cmd/Ctrl arms the delay.
         _ = policy.update(flags: flags, eligible: eligible, elapsed: .zero)
@@ -57,9 +64,12 @@ final class WindowScopedShortcutHintModifierMonitor {
             do { try await clock.sleep(for: ShortcutHintModifierPolicy.intentionalHoldDelay) } catch { return }
             guard !Task.isCancelled, let self else { return }
             pending = nil
-            let current = NSEvent.modifierFlags
+            let current = currentFlags
             if policy.update(flags: current, eligible: eligible, elapsed: ShortcutHintModifierPolicy.intentionalHoldDelay) {
                 changed(current.intersection([.command, .control]))
+                #if DEBUG
+                capture.finish(true)
+                #endif
             }
         }
     }
@@ -69,6 +79,18 @@ final class WindowScopedShortcutHintModifierMonitor {
         hide()
     }
 
+    #if DEBUG
+    func debugHold(_ flags: NSEvent.ModifierFlags, window: NSWindow) async -> Bool {
+        guard eligible, let event = debugEvent(flags, window: window) else { return false }
+        if flags.isEmpty {
+            receive(event)
+            capture.finish(false)
+            return true
+        }
+        return await capture.wait { receive(event) }
+    }
+    #endif
+
     private func hide() {
         pending?.cancel()
         pending = nil
@@ -77,6 +99,9 @@ final class WindowScopedShortcutHintModifierMonitor {
 
     func stop() {
         hide()
+        #if DEBUG
+        capture.finish(false)
+        #endif
         if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         flagsMonitor = nil
