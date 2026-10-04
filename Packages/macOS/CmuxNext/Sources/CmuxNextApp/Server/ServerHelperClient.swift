@@ -55,7 +55,8 @@ enum ServerHelperClient {
     }
 
     /// Applies (or reverts) one allowlisted fix through the helper, after registering it.
-    static func run(_ fix: ServerFix, revert: Bool = false) async throws(Failure) {
+    static func run(_ fix: ServerFix, revert: Bool = false,
+                    willCall: @MainActor () async throws -> Void = {}) async throws(Failure) {
         // Check our own signature first: an ad hoc app must not register a root
         // daemon that can never serve it.
         guard let bundleID = Bundle.main.bundleIdentifier,

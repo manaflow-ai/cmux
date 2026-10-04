@@ -11,13 +11,19 @@ import Testing
 @Suite struct ServerHealthFixTests {
     final class FakeHelper {
         var calls: [(ServerFix, Bool)] = []
+        /// Thrown by the helper after the request went out.
         var failures: [ServerFix: ServerHelperClient.Failure] = [:]
+        /// Thrown before any request (unsigned, not in build, awaiting approval).
+        var preCallFailures: [ServerFix: ServerHelperClient.Failure] = [:]
         let ledger = ServerFixLedger(url: FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-fix-ledger-\(UUID().uuidString)/ledger.json"))
 
         var fixer: ServerHealthFixer {
-            ServerHealthFixer(run: { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in
+            ServerHealthFixer(run: { (fix: ServerFix, revert: Bool, willCall: @escaping @MainActor () async throws -> Void)
+                async throws(ServerHelperClient.Failure) in
                 self.calls.append((fix, revert))
+                if let failure = self.preCallFailures[fix] { throw failure }
+                do { try await willCall() } catch { throw .failed("\(error)") }
                 if let failure = self.failures[fix] { throw failure }
             }, gate: ServerFixGate(), ledger: ledger)
         }
@@ -84,5 +90,34 @@ import Testing
         let texts = [ServerHelperClient.Failure.notInBuild, .unsigned, .timedOut].map(ServerHealthFixer.reject(for:))
         #expect(Set(texts).count == 3)
         #expect(!texts.contains { $0.isEmpty })
+    }
+
+    /// A fix that never reaches the helper writes no entry; one whose request
+    /// went out keeps it even when the call times out.
+    @Test func onlyARequestThatWentOutIsRecorded() async {
+        for failure in [ServerHelperClient.Failure.notInBuild, .unsigned, .requiresApproval] {
+            let helper = FakeHelper()
+            helper.preCallFailures[.autoRestartOn] = failure
+            #expect(await helper.fixer.fix(.noAutoRestart) == ServerHealthFixer.reject(for: failure))
+            #expect(await helper.ledger.load() == .fixes([]), "\(failure) wrote an entry")
+        }
+        let timedOut = FakeHelper()
+        timedOut.failures[.autoRestartOn] = .timedOut
+        _ = await timedOut.fixer.fix(.noAutoRestart)
+        #expect(await timedOut.ledger.load() == .fixes([.autoRestartOn]))
+    }
+
+    /// The real client in this unsigned test process stops at the signature
+    /// (or the missing helper) before any request, so nothing is recorded.
+    @Test func theRealClientRecordsNothingWithoutASignedBuild() async {
+        let ledger = ServerFixLedger(url: FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fix-ledger-\(UUID().uuidString)/ledger.json"))
+        let fixer = ServerHealthFixer(run: { (fix: ServerFix, revert: Bool, willCall: @escaping @MainActor () async throws -> Void)
+            async throws(ServerHelperClient.Failure) in
+            try await ServerHelperClient.run(fix, revert: revert, willCall: willCall)
+        }, gate: ServerFixGate(), ledger: ledger)
+        let reject = await fixer.fix(.noAutoRestart)
+        #expect([ServerHealthFixer.reject(for: .unsigned), ServerHealthFixer.reject(for: .notInBuild)].contains(reject))
+        #expect(await ledger.load() == .fixes([]))
     }
 }

@@ -11,12 +11,13 @@ nonisolated struct ServerFixLedger: Sendable {
     nonisolated enum Contents: Sendable, Equatable {
         case fixes(Set<ServerFix>)
         case unknown
+        case foreign
 
         /// The fixes to revert, in allowlist order; every fix when unknown.
         var toRevert: [ServerFix] {
             switch self {
             case let .fixes(set): ServerFix.allCases.filter(set.contains)
-            case .unknown: ServerFix.allCases
+            case .unknown, .foreign: ServerFix.allCases
             }
         }
     }

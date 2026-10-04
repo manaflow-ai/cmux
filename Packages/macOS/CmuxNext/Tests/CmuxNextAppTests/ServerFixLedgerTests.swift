@@ -28,7 +28,7 @@ import Testing
         #expect(await ledger.load().toRevert == [.systemSleepOffOnAC])
     }
 
-    @Test func anUnreadableOrForeignLedgerIsUnknownAndStaysUnknown() async throws {
+    @Test func anUnreadableOrForeignLedgerFailsSafe() async throws {
         let ledger = ledger()
         try FileManager.default.createDirectory(at: ledger.url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("garbage".utf8).write(to: ledger.url)
@@ -38,7 +38,8 @@ import Testing
         #expect(ServerFixLedger.Contents.unknown.toRevert == ServerFix.allCases)
 
         try Data(#"{"version": 1, "fixes": {"pmset.future.fix": 1}}"#.utf8).write(to: ledger.url)
-        #expect(await ledger.load() == .unknown, "a fix id this build does not know fails safe")
+        #expect(await ledger.load() == .foreign, "a fix id this build does not know fails safe")
+        #expect(ServerFixLedger.Contents.foreign.toRevert == ServerFix.allCases)
         try await ledger.reset()
         #expect(await ledger.load() == .fixes([]))
     }

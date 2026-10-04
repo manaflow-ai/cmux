@@ -9,7 +9,8 @@ import Foundation
 /// starts a fix.
 struct ServerHealthFixer {
     /// Applies (`revert` false) or reverts one fix.
-    typealias Run = @MainActor (_ fix: ServerFix, _ revert: Bool) async throws(ServerHelperClient.Failure) -> Void
+    typealias Run = @MainActor (_ fix: ServerFix, _ revert: Bool, _ willCall: @escaping @MainActor () async throws -> Void)
+        async throws(ServerHelperClient.Failure) -> Void
 
     let run: Run
     /// Shared with Stop Serving, so a revert never overtakes an apply.
@@ -18,8 +19,9 @@ struct ServerHealthFixer {
     let ledger: ServerFixLedger
 
     /// The App's fixer: the helper of this build.
-    static let helper = ServerHealthFixer(run: { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in
-        try await ServerHelperClient.run(fix, revert: revert)
+    static let helper = ServerHealthFixer(run: { (fix: ServerFix, revert: Bool, willCall: @escaping @MainActor () async throws -> Void)
+        async throws(ServerHelperClient.Failure) in
+        try await ServerHelperClient.run(fix, revert: revert, willCall: willCall)
     }, ledger: .standard)
 
     /// The Fix button for a check this app fixes itself: app text, never the
@@ -71,7 +73,7 @@ struct ServerHealthFixer {
                 return RefusalStrings.format("refusal.server.fixFailed", "Could not run the fix: %@", String(describing: error))
             }
             do throws(ServerHelperClient.Failure) {
-                try await run(fix, false)
+                try await run(fix, false) {}
             } catch {
                 return Self.reject(for: error)
             }

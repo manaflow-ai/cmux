@@ -140,7 +140,8 @@ import Testing
         let ledger = try await Self.ledger()
         final class Hold { var step: CheckedContinuation<Void, Never>? }
         let hold = Hold()
-        let fixer = ServerHealthFixer(run: { (fix: ServerFix, _: Bool) async throws(ServerHelperClient.Failure) in
+        let fixer = ServerHealthFixer(run: { (fix: ServerFix, _: Bool, willCall: @escaping @MainActor () async throws -> Void) async throws(ServerHelperClient.Failure) in
+            do { try await willCall() } catch { throw .failed("\(error)") }
             log.entries.append("apply \(fix.rawValue)")
             if fix == .systemSleepOffOnAC { await withCheckedContinuation { hold.step = $0 } }
         }, gate: gate, ledger: ledger)
@@ -200,7 +201,8 @@ import Testing
                                         gate: gate, ledger: ledger).run()
         }
         #expect(await eventually { hold.step != nil })
-        let fixer = ServerHealthFixer(run: { (fix: ServerFix, _: Bool) async throws(ServerHelperClient.Failure) in
+        let fixer = ServerHealthFixer(run: { (fix: ServerFix, _: Bool, willCall: @escaping @MainActor () async throws -> Void) async throws(ServerHelperClient.Failure) in
+            do { try await willCall() } catch { throw .failed("\(error)") }
             log.entries.append("apply \(fix.rawValue)")
         }, gate: gate, ledger: ledger)
         let fixing = Task { await fixer.fix(.noAutoRestart) }
@@ -210,6 +212,52 @@ import Testing
         try await stopping.value
         _ = await fixing.value
         #expect(log.entries == ["unregister helper", "apply \(ServerFix.autoRestartOn.rawValue)"])
+    }
+
+    /// A Fix that stops at approval never reached the helper, so it records
+    /// nothing, and stopping then needs no approval.
+    @Test func aFixAwaitingApprovalRecordsNothingAndStopNeedsNoPrompt() async throws {
+        let log = Log()
+        let ledger = try await Self.ledger()
+        let fixer = ServerHealthFixer(run: { (_: ServerFix, _: Bool, _: @escaping @MainActor () async throws -> Void)
+            async throws(ServerHelperClient.Failure) in
+            throw .requiresApproval
+        }, gate: ServerFixGate(), ledger: ledger)
+        #expect(await fixer.fix(.sleepEnabled) == ServerHealthFixer.reject(for: .requiresApproval))
+        #expect(await ledger.load() == .fixes([]))
+        let helper = FakeJob("helper", .requiresApproval, log: log)
+        try await stop(agent: FakeJob("agent", .enabled, log: log), helper: helper, log: log, ledger: ledger).run()
+        #expect(log.entries == ["unregister agent", "unregister helper"])
+    }
+
+    /// Recorded fixes with no helper registered: nothing can restore them now,
+    /// so the entries stay, the agent goes, and the user is told.
+    @Test func recordedFixesWithoutAHelperAreReportedAndKept() async throws {
+        let log = Log()
+        let ledger = try await Self.ledger([.autoRestartOn])
+        let agent = FakeJob("agent", .enabled, log: log)
+        await #expect(throws: ServerStopServing.Failure.notRestored) {
+            try await stop(agent: agent, helper: FakeJob("helper", .notRegistered, log: log), log: log, ledger: ledger).run()
+        }
+        await #expect(throws: ServerStopServing.Failure.notRestored) {
+            try await stop(agent: nil, helper: nil, log: log, ledger: ledger).run()
+        }
+        #expect(log.entries == ["unregister agent"])
+        #expect(await ledger.load() == .fixes([.autoRestartOn]))
+        #expect(!ServerStopServing.Failure.notRestored.message.isEmpty)
+    }
+
+    /// A ledger naming a fix this build does not know is never emptied by it.
+    @Test func aForeignLedgerKeepsTheIdsThisBuildCannotRevert() async throws {
+        let ledger = try await Self.ledger()
+        try FileManager.default.createDirectory(at: ledger.url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"version": 1, "fixes": {"pmset.future.fix": 1, "pmset.autorestart.1": 2}}"#.utf8).write(to: ledger.url)
+        let log = Log()
+        try await stop(agent: nil, helper: FakeJob("helper", .enabled, log: log), log: log, ledger: ledger).run()
+        #expect(log.entries == ServerFix.allCases.map { "revert \($0.rawValue)" } + ["unregister helper"])
+        #expect(await ledger.load() == .foreign)
+        let left = try JSONSerialization.jsonObject(with: Data(contentsOf: ledger.url)) as? [String: Any]
+        #expect((left?["fixes"] as? [String: Any]).map { Set($0.keys) } == ["pmset.future.fix"])
     }
 
     @Test func anUnregisterFailureIsReported() async throws {

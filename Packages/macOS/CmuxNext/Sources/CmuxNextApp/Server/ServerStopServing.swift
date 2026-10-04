@@ -33,9 +33,12 @@ struct ServerStopServing {
     enum Failure: Error, Equatable {
         case revert(String)
         case unregister(String)
+        case notRestored
 
         var message: String {
             switch self {
+            case .notRestored:
+                ""
             case let .revert(reason):
                 RefusalStrings.format("refusal.server.revertFailed", "Could not restore your power settings: %@", reason)
             case let .unregister(reason):
