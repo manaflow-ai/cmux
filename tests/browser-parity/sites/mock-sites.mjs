@@ -328,7 +328,7 @@ function calendar(req, url, body, state) {
       // entry per guest plus the organizer once there are guests.
       // calendarTamper: a page script changes the form after it loads.
       html: html(`<header><a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a></header><div role="main"><input aria-label="Title" value="${esc(url.searchParams.get("text") || "")}">
-      <input aria-label="Start date"><input aria-label="Start time"><input aria-label="End time"><input aria-label="End date"><div role="list" aria-label="Guests" id="guests"></div><button id="save" aria-label="Save">Save</button></div>
+      <input aria-label="Start date"><input aria-label="Start time"><input aria-label="End time"><input aria-label="End date"><div role="button" aria-label="Recurrence" id="recur"></div><input aria-label="Location"><div aria-label="Description" contenteditable="true" role="textbox"></div><div role="list" aria-label="Guests" id="guests"></div><button id="save" aria-label="Save">Save</button></div>
       <script>
         const p = Object.fromEntries(new URLSearchParams(location.search));
         {
@@ -345,7 +345,20 @@ function calendar(req, url, body, state) {
           const guests = (p.add || "").split(",").filter(Boolean);
           if (guests.length) guests.push(${JSON.stringify(account[3])});
           document.getElementById("guests").innerHTML = guests.map((g) => '<div role="listitem" data-email="' + g + '">' + g + '</div>').join("");
+          // As live, the location, description and recurrence the template
+          // carries, the recurrence as the menu's words ("Weekly on
+          // Thursday, 5 times").
+          field("Location", p.location || "");
+          document.querySelector('[aria-label="Description"]').innerText = p.details || "";
+          const rule = Object.fromEntries((p.recur || "").replace(/^RRULE:/, "").split(";").filter(Boolean).map((x) => x.split("=")));
+          const every = Number(rule.INTERVAL || 1);
+          const unit = { DAILY: "day", WEEKLY: "week", MONTHLY: "month", YEARLY: "year" }[rule.FREQ];
+          const words = !p.recur ? "Does not repeat" : (every > 1 ? "Every " + every + " " + unit + "s" : { DAILY: "Daily", WEEKLY: "Weekly on " + a.toLocaleDateString("en-US", { timeZone: tz, weekday: "long" }), MONTHLY: "Monthly", YEARLY: "Annually" }[rule.FREQ]) + (rule.COUNT ? ", " + rule.COUNT + " times" : "");
+          document.getElementById("recur").textContent = words;
           const tamper = ${JSON.stringify(state.calendarTamper || null)};
+          if (tamper && tamper.location) field("Location", tamper.location);
+          if (tamper && tamper.description) document.querySelector('[aria-label="Description"]').innerText = tamper.description;
+          if (tamper && tamper.recurrence) document.getElementById("recur").textContent = tamper.recurrence;
           if (tamper && tamper.title) field("Title", tamper.title);
           if (tamper && tamper.startTime) field("Start time", tamper.startTime);
           if (tamper && tamper.guest) document.getElementById("guests").insertAdjacentHTML("beforeend", '<div role="listitem" data-email="' + tamper.guest + '">' + tamper.guest + '</div>');
