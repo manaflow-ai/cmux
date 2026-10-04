@@ -222,7 +222,7 @@
           "value" : "auto"
         }
       ],
-      "default" : "same-kind",
+      "default" : "page",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -7233,7 +7233,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "9a2b0a1b723df6260478d0a3f3b6c425819835126db4fbb31cbd873de4b231e3",
+  "schema_hash" : "de3d4ccbc727d92d9db549e77670bf342ba5345b4f4ada26acaa83909bd64424",
   "sections" : [
     {
       "id" : "general",
