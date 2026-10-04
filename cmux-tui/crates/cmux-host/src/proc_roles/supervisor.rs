@@ -15,13 +15,26 @@ use super::{RolePaths, spawn};
 /// A fact or a request for the supervisor thread.
 pub enum Msg {
     /// The child exited (not yet reaped).
-    Gone { name: String, pid: u32 },
-    Ready { name: String, pid: u32 },
-    Status { name: String, pid: u32, text: String },
+    Gone {
+        name: String,
+        pid: u32,
+    },
+    Ready {
+        name: String,
+        pid: u32,
+    },
+    Status {
+        name: String,
+        pid: u32,
+        text: String,
+    },
     /// Make the running set match (start, stop, restart changed entries).
     Apply(RoleSet),
     /// Stop every role; reply when all are down or at the deadline.
-    StopAll { deadline: Instant, done: Sender<Vec<String>> },
+    StopAll {
+        deadline: Instant,
+        done: Sender<Vec<String>>,
+    },
     Health(Sender<Vec<RoleHealth>>),
     /// End the thread (after `StopAll`).
     Exit,
@@ -60,9 +73,10 @@ impl Supervisor {
     pub fn start(paths: RolePaths) -> std::io::Result<Supervisor> {
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
-        let thread = std::thread::Builder::new()
-            .name("cmux-host-roles".to_owned())
-            .spawn(move || Loop { paths, entries: BTreeMap::new(), invalid: Vec::new() }.run(&rx, &loop_tx))?;
+        let thread =
+            std::thread::Builder::new().name("cmux-host-roles".to_owned()).spawn(move || {
+                Loop { paths, entries: BTreeMap::new(), invalid: Vec::new() }.run(&rx, &loop_tx)
+            })?;
         Ok(Supervisor { tx, thread: Some(thread) })
     }
 
@@ -265,11 +279,7 @@ impl Loop {
     }
 
     fn health(&self) -> Vec<RoleHealth> {
-        let mut all: Vec<RoleHealth> = self
-            .entries
-            .values()
-            .map(|e| e.proc.health())
-            .collect();
+        let mut all: Vec<RoleHealth> = self.entries.values().map(|e| e.proc.health()).collect();
         all.extend(self.invalid.iter().cloned());
         all
     }
