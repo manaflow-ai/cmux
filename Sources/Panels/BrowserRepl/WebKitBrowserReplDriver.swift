@@ -825,10 +825,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// An opaque id for `store`, equal for tabs that share cookies and
-    /// storage (`tabs.list`, `tabs.dataStore`), for the life of the store.
+    /// storage (`tabs.list`, `tabs.dataStore`), for the life of the store
+    /// and never reused (`WKWebsiteDataStore.browserReplID`).
     @MainActor
     static func dataStoreID(_ store: WKWebsiteDataStore) -> String {
-        String(UInt(bitPattern: ObjectIdentifier(store).hashValue), radix: 16)
+        store.browserReplID
     }
 
     /// `tabs.dataStore`: the store cookie calls with these params use.
