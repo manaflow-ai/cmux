@@ -96,9 +96,25 @@ pub fn settings_json(setup: &SessionSetup, paths: &Paths) -> Value {
         "enableAllProjectMcpServers": true,
         "enabledMcpjsonServers": names,
         "env": env,
-        "permissions": {"deny": ["Task", "Agent"]},
+        "permissions": {"deny": TURN_DENIED_TOOLS},
     })
 }
+
+/// Tools a turn session never offers: Claude Code's own subagents (above),
+/// and the tools that wait for a human (a question, plan mode), which
+/// acpmux keeps for a human under every policy and nobody answers in a
+/// turn, so one call would hang the turn until its limit.
+pub const TURN_DENIED_TOOLS: [&str; 5] = [
+    "Task",
+    "Agent",
+    "AskUserQuestion",
+    "EnterPlanMode",
+    "ExitPlanMode",
+];
+
+/// Days Claude Code keeps a turn session's transcript in the isolated
+/// configuration (the memory is the record; these only help debugging).
+pub const TURN_TRANSCRIPT_DAYS: u64 = 2;
 
 /// `bin/chief`: runs this executable with the host's env baked in, because
 /// the harness runs tools in the acpmux daemon's environment, not the host's.
@@ -114,9 +130,10 @@ pub fn launcher(setup: &SessionSetup) -> String {
 }
 
 /// The isolated Claude Code configuration's user settings: no auto-memory
-/// (continuity is the view alone), no hooks, no extra memory files.
+/// (continuity is the view alone), no hooks, no extra memory files, and a
+/// short transcript retention (each turn's transcript holds the whole view).
 pub fn claude_settings() -> Value {
-    json!({"autoMemoryEnabled": false, "hooks": {}})
+    json!({"autoMemoryEnabled": false, "hooks": {}, "cleanupPeriodDays": TURN_TRANSCRIPT_DAYS})
 }
 
 /// The env of the turn sessions' acpmux preset.
@@ -232,7 +249,13 @@ mod tests {
         // human under every policy, and nobody answers them in a turn.
         assert_eq!(
             settings["permissions"]["deny"],
-            json!(["Task", "Agent", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"])
+            json!([
+                "Task",
+                "Agent",
+                "AskUserQuestion",
+                "EnterPlanMode",
+                "ExitPlanMode"
+            ])
         );
         // Audit round 3, M6: turn transcripts are kept a short while only.
         let user: Value = serde_json::from_slice(

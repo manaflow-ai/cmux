@@ -2,6 +2,7 @@
 //! turn, delivering messages between tool calls (native engine) or
 //! stopping the turn for them (acpmux engine), and the turn's end.
 
+use std::sync::Arc;
 use std::sync::mpsc::channel;
 
 use optchat_core::Kind;
@@ -10,7 +11,7 @@ use super::{Brain, Engine, Input, Phase, Queued, STALL_NOTICE, Source, reply_ent
 use crate::acpmux::SessionSpec;
 use crate::prompt::turn_blocks;
 use crate::state::{Batch, ChildRef, ChildStatus, Item, PendingTurn};
-use crate::turn::{self, TurnOutcome, TurnStart};
+use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 
 impl Brain {
     /// Starts a turn worker when idle with something queued.
@@ -19,12 +20,14 @@ impl Brain {
             return;
         }
         self.phase = Phase::Settling;
-        let (chat, agents, tx, log, engine) = (
+        self.interrupt = Arc::new(Interrupt::new());
+        let (chat, agents, tx, log, engine, interrupt) = (
             self.chat.clone(),
             self.agents.clone(),
             self.tx.clone(),
             self.log.clone(),
             self.settings.engine.clone(),
+            self.interrupt.clone(),
         );
         let spawned = std::thread::Builder::new()
             .name("turn".into())
@@ -79,7 +82,7 @@ impl Brain {
                                 after,
                             });
                         };
-                        turn::run(&*agents, &chat, &start, &*log, &progress)
+                        turn::run(&*agents, &chat, &start, &interrupt, &*log, &progress)
                     }
                     Engine::Native(native) => {
                         let mailbox = || {
@@ -93,7 +96,7 @@ impl Brain {
                             }
                             texts.recv().unwrap_or_default()
                         };
-                        native.run(&chat, &start, &*log, &mailbox)
+                        native.run(&chat, &start, &*log, &mailbox, &|| interrupt.is_set())
                     }
                 };
                 let _ = tx.send(Input::TurnEnded {
@@ -143,7 +146,7 @@ impl Brain {
         let first_id = self.chat.status().messages;
         self.state.turn = Some(PendingTurn {
             conversation: self.state.conversation.clone(),
-            session: format!("optchat-{first_id}"),
+            session: format!("{}-{first_id}", self.settings.turn_prefix),
             first_id: Some(first_id),
             items: items.iter().map(item).collect(),
             ..PendingTurn::default()
@@ -159,17 +162,17 @@ impl Brain {
         self.set_typing(true);
         self.phase = Phase::Running;
         self.stop_wanted = false;
-        self.stop_sent = false;
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
         Some(TurnStart {
             prompt_id: format!("optchat:{first}"),
             session: SessionSpec {
-                name: format!("optchat-{first}"),
+                name: format!("{}-{first}", self.settings.turn_prefix),
                 cwd: self.settings.session_dir.clone(),
                 harness: self.settings.harness.clone(),
                 policy: self.settings.policy.clone(),
                 model: self.settings.model.clone(),
                 effort: None,
+                preset: None,
             },
             blocks: turn_blocks(&view.text, &texts),
             key,
@@ -213,7 +216,12 @@ impl Brain {
     /// delivered at the agent's next tool boundary and logged as `user`").
     pub(super) fn boundary(&mut self, key: &str) -> Vec<String> {
         let current = self.state.turn.as_ref().is_some_and(|t| t.key == key);
-        if self.phase != Phase::Running || !current || self.queue.is_empty() {
+        if self.phase != Phase::Running || !current {
+            return Vec::new();
+        }
+        // Everything queued is delivered now: the interrupt is answered.
+        self.interrupt.clear();
+        if self.queue.is_empty() {
             return Vec::new();
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
@@ -237,44 +245,21 @@ impl Brain {
         items.into_iter().map(|i| i.text).collect()
     }
 
-    /// A human message arrived while an acpmux turn runs: the harness takes
-    /// no message mid-run, so the turn is stopped (its steps are already in
-    /// the log) and the next fresh turn answers with the view of all of it.
-    pub(super) fn stop_for_newer(&mut self) {
-        if self.phase != Phase::Running
-            || !matches!(self.settings.engine, Engine::Acpmux)
-            || self.stop_wanted
-        {
+    /// A human message arrived during a turn (decision 2026-10-04): the
+    /// model is interrupted at once, even mid-thinking, and a running tool
+    /// call finishes first. The native engine aborts its stream and calls
+    /// the model again with the message; the acpmux engine stops the turn
+    /// (`session/cancel`, sent by the turn's runner once no tool runs, and
+    /// again until the turn ends), and the next fresh turn answers with the
+    /// view of everything the stopped turn did. "thanks" interrupts too.
+    pub(super) fn interrupt_for_newer(&mut self) {
+        if self.phase != Phase::Running {
             return;
         }
-        self.stop_wanted = true;
-        self.send_stop();
-    }
-
-    fn send_stop(&mut self) {
-        if self.stop_sent {
-            return;
+        if matches!(self.settings.engine, Engine::Acpmux) {
+            self.stop_wanted = true;
         }
-        let Some(session) = self.state.turn.as_ref().and_then(|t| t.session_id.clone()) else {
-            // The worker has not created the session yet; its first progress sends it.
-            return;
-        };
-        self.stop_sent = true;
-        (self.log)(&format!(
-            "a new message arrived; stopping turn session {session}"
-        ));
-        // Off the brain thread: a slow acpmux must not stall the inbox.
-        let (agents, log) = (self.agents.clone(), self.log.clone());
-        let spawned = std::thread::Builder::new()
-            .name("turn-stop".into())
-            .spawn(move || {
-                if let Err(e) = agents.cancel(&session) {
-                    log(&format!("stopping turn session {session}: {e}"));
-                }
-            });
-        if let Err(e) = spawned {
-            (self.log)(&format!("stopping the turn failed: {e}"));
-        }
+        self.interrupt.request();
     }
 
     /// An acpmux turn's session id and fold position, saved so a host that
@@ -287,9 +272,6 @@ impl Brain {
             turn.session_id = Some(session_id);
             turn.after = after;
             self.save();
-        }
-        if self.stop_wanted {
-            self.send_stop();
         }
     }
 
@@ -331,7 +313,6 @@ impl Brain {
         }
         self.state.turn = None;
         self.stop_wanted = false;
-        self.stop_sent = false;
         self.save();
         self.flush_outbox();
         self.set_typing(false);

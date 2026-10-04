@@ -13,7 +13,10 @@ use optchat_host::{AnthropicModel, CompactModel, Config, OptChat, Report, System
 use crate::acpmux::{Acpmux, AgentEvent, AgentPort, Preset};
 use crate::brain::{Brain, Engine, Input, Settings, parent_tag};
 use crate::cli::{Flags, env};
-use crate::compactor::{AcpmuxCompactor, CompactRoute, CompactorSpec, compact_route};
+use crate::compactor::{
+    AcpmuxCompactor, CompactRoute, Slots, compact_route, compactor_preset, compactor_spec,
+    probe_models,
+};
 use crate::daemon::{self, LinkConfig};
 use crate::lock::{HostLock, LockError};
 use crate::log::log;
@@ -157,13 +160,22 @@ fn start(
     // Turn sessions get their own Claude Code configuration (section 7: a
     // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
     // off, for a harness that needs the user's configuration to sign in.
-    // Compactor sessions start through the same preset.
     let preset = (env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0")).then(|| Preset {
         name: format!("optchat-chief-{}", crate::paths::home_id(home)),
         harness: harness.clone(),
         env: session_dir::isolation_env(paths),
     });
-    let agents = Acpmux::new(acpmux_socket.clone(), preset);
+    // Compactor sessions require their own preset and configuration, which
+    // OPTCHAT_CHIEF_ISOLATE never turns off: without it, every node would
+    // run the user's hooks, MCP servers and auto-memory on the chat's text.
+    let compactor_harness = env("OPTCHAT_COMPACTOR_HARNESS").unwrap_or_else(|| "claude-sr".into());
+    let mut required = Vec::new();
+    if route == CompactRoute::Acpmux {
+        crate::compactor::prepare_config(&paths.compactor_config)
+            .map_err(|e| format!("creating {}: {e}", paths.compactor_config.display()))?;
+        required.push(compactor_preset(paths, home, &compactor_harness));
+    }
+    let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
     let first_link = Arc::new((Mutex::new(false), Condvar::new()));
     {
         let tx = tx.clone();
@@ -198,30 +210,28 @@ fn start(
             ),
         ),
         CompactRoute::Acpmux => {
-            crate::compactor::prepare_dir(&paths.compactor)
-                .map_err(|e| format!("creating {}: {e}", paths.compactor.display()))?;
-            let compactor_harness =
-                env("OPTCHAT_COMPACTOR_HARNESS").unwrap_or_else(|| "claude-sr".into());
             let compactor_model =
                 env("OPTCHAT_COMPACTOR_MODEL").unwrap_or_else(|| config.model.clone());
-            let spec = |model: &str| CompactorSpec {
-                name: format!("optchat-compact-{}", crate::paths::home_id(home)),
-                cwd: paths.compactor.clone(),
-                harness: compactor_harness.clone(),
-                model: Some(model.to_owned()),
-                effort: config.effort.clone(),
-                timeout: crate::compactor::CALL_TIMEOUT,
-                jobs: optchat_core::JOBS,
-            };
             let port: Arc<dyn AgentPort> = agents.clone();
+            // One gate: at most JOBS compactor sessions across both models.
+            let slots = Slots::new(optchat_core::JOBS);
+            let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
+            let build = |model: &str| {
+                Arc::new(
+                    AcpmuxCompactor::new(
+                        port.clone(),
+                        compactor_spec(paths, home, &compactor_harness, model),
+                        slots.clone(),
+                    )
+                    .with_log(compactor_log.clone()),
+                ) as Arc<dyn CompactModel>
+            };
             let text = format!(
                 "{compactor_model} in deny-all {compactor_harness} sessions through acpmux"
             );
             (
-                Arc::new(AcpmuxCompactor::new(port.clone(), spec(&compactor_model))),
-                config.fallback_model.as_deref().map(|m| {
-                    Arc::new(AcpmuxCompactor::new(port.clone(), spec(m))) as Arc<dyn CompactModel>
-                }),
+                build(&compactor_model),
+                config.fallback_model.as_deref().map(build),
                 text,
             )
         }
@@ -244,7 +254,7 @@ fn start(
             &paths.chat,
             config,
             model.clone(),
-            fallback,
+            fallback.clone(),
             Arc::new(SystemClock),
         )
         .map_err(|e| format!("opening the memory: {e}"))?,
@@ -310,6 +320,7 @@ fn start(
         policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
         model: env("OPTCHAT_CHIEF_MODEL"),
         parent: parent_tag(home),
+        turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
         engine,
@@ -327,7 +338,7 @@ fn start(
         brain_log.clone(),
     )
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)));
-    spawn_probe(model, system, route, tx.clone());
+    spawn_probe(model, fallback, system, route, tx.clone());
     daemon::spawn_link(
         LinkConfig {
             socket: daemon_socket.into(),
@@ -344,12 +355,15 @@ fn start(
     Ok(fatal)
 }
 
-/// Builds one tiny node through the compactor's route in the background:
-/// when it cannot (acpmux down, the harness not signed in, a 429), host.log
-/// gets one line and the Chief conversation one notice, instead of every
-/// turn waiting on settle with nothing said.
+/// Builds one tiny node through the compactor's route, with its main and
+/// its fallback model, in the background: when either cannot (acpmux down,
+/// the harness not signed in, a 429, an unserved fallback model, a
+/// compactor session that offers tools), host.log gets one line and the
+/// Chief conversation one notice, instead of every turn waiting on settle
+/// with nothing said.
 fn spawn_probe(
     model: Arc<dyn CompactModel>,
+    fallback: Option<Arc<dyn CompactModel>>,
     system: String,
     route: CompactRoute,
     tx: std::sync::mpsc::Sender<Input>,
@@ -358,10 +372,11 @@ fn spawn_probe(
         .name("optchat-compact-probe".into())
         .spawn(move || {
             let started = std::time::Instant::now();
-            match optchat_host::probe(&*model, &system) {
+            match probe_models(&*model, fallback.as_deref(), &system) {
                 Ok(line) => log(format!(
-                    "compactor probe ({}) built a node in {} ms: {line}",
+                    "compactor probe ({}{}) built a node in {} ms: {line}",
                     route.name(),
+                    if fallback.is_some() { ", fallback too" } else { "" },
                     started.elapsed().as_millis()
                 )),
                 Err(e) => {

@@ -12,9 +12,12 @@ export class OptChat {
      */
     append(): number;
     /**
-     * The compactor call for node (l, i) as JSON `{system, context, marks, step}`:
-     * `marks` are byte offsets into the UTF-8 context where a cached piece ends
-     * (section 8); send each piece as its own block with a breakpoint.
+     * The compactor call for node (l, i) as JSON `{system, context, marks,
+     * step, cut, room}`: `marks` are byte offsets into the UTF-8 context
+     * where a cached piece ends (section 8); send each piece as its own
+     * block with a breakpoint. `cut` is null, or the prefix a too-long
+     * message's line starts with: run the size loop with `sizeCheck(tries,
+     * room)` and store `finishLine(cut, line)`, which adds it.
      * `prompt` is `taelin`, `cmux` or `custom` (then `custom` is its text).
      *
      * When a read fails, the call throws and the node is released (as if
@@ -62,16 +65,24 @@ export class OptChat {
 }
 
 /**
- * The size loop (section 4.3) on the replies so far (JSON array of strings):
- * JSON `{accept: string} | {retry: string} | {fail: true}`.
+ * The node text for an accepted reply of a request whose `cut` is set: the
+ * cut prefix first (once, even when the model already wrote it).
  */
-export function sizeCheck(tries_json: string): string;
+export function finishLine(cut: string, line: string): string;
+
+/**
+ * The size loop (section 4.3) on the replies so far (JSON array of strings):
+ * JSON `{accept: string} | {retry: string} | {fail: true}`. `room` is the
+ * request's `room` (default NODE).
+ */
+export function sizeCheck(tries_json: string, room?: number | null): string;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_optchat_free: (a: number, b: number) => void;
+    readonly finishLine: (a: number, b: number, c: number, d: number) => [number, number];
     readonly optchat_append: (a: number) => number;
     readonly optchat_compactRequest: (a: number, b: any, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
     readonly optchat_complete: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -87,14 +98,14 @@ export interface InitOutput {
     readonly optchat_view: (a: number) => [number, number];
     readonly optchat_viewSize: (a: number) => number;
     readonly optchat_zoom: (a: number, b: any, c: number, d: number) => [number, number, number, number];
-    readonly sizeCheck: (a: number, b: number) => [number, number, number, number];
+    readonly sizeCheck: (a: number, b: number, c: number) => [number, number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
+    readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }
 

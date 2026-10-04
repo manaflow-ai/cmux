@@ -104,6 +104,13 @@ impl TurnFold {
         self.ended.as_ref()
     }
 
+    /// A tool call started and has no result yet. Claude Code's interrupt
+    /// (what `session/cancel` sends) aborts a running tool, so a stop for a
+    /// newer message waits for this to clear.
+    pub fn tool_running(&self) -> bool {
+        self.ended.is_none() && self.tools.values().any(|t| !t.done)
+    }
+
     /// The turn's final assistant text: its last finished reply.
     pub fn final_text(&self) -> Option<&str> {
         self.last_talk.as_deref()

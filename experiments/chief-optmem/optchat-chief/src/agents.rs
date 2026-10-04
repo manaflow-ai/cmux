@@ -170,6 +170,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
                             .unwrap_or_else(|| "approve-all".into()),
                         model: flags.value("model").map(str::to_owned),
                         effort: None,
+                        preset: None,
                     },
                     None,
                 )?,

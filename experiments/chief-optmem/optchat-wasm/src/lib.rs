@@ -297,9 +297,12 @@ impl OptChat {
         Ok(out)
     }
 
-    /// The compactor call for node (l, i) as JSON `{system, context, marks, step}`:
-    /// `marks` are byte offsets into the UTF-8 context where a cached piece ends
-    /// (section 8); send each piece as its own block with a breakpoint.
+    /// The compactor call for node (l, i) as JSON `{system, context, marks,
+    /// step, cut, room}`: `marks` are byte offsets into the UTF-8 context
+    /// where a cached piece ends (section 8); send each piece as its own
+    /// block with a breakpoint. `cut` is null, or the prefix a too-long
+    /// message's line starts with: run the size loop with `sizeCheck(tries,
+    /// room)` and store `finishLine(cut, line)`, which adds it.
     /// `prompt` is `taelin`, `cmux` or `custom` (then `custom` is its text).
     ///
     /// When a read fails, the call throws and the node is released (as if
@@ -323,6 +326,8 @@ impl OptChat {
             context: String,
             marks: Vec<usize>,
             step: String,
+            cut: Option<String>,
+            room: usize,
         }
         let choice = match prompt {
             "cmux" => CompactPrompt::Cmux,
@@ -337,25 +342,41 @@ impl OptChat {
             return Err(e);
         }
         let marks = core::cache_marks(&r.context);
+        let room = r.room();
         Ok(serde_json::to_string(&Out {
             system: r.system,
             context: r.context,
             marks,
             step: r.step,
+            cut: r.cut,
+            room,
         })
         .unwrap_or_default())
     }
 }
 
 /// The size loop (section 4.3) on the replies so far (JSON array of strings):
-/// JSON `{accept: string} | {retry: string} | {fail: true}`.
+/// JSON `{accept: string} | {retry: string} | {fail: true}`. `room` is the
+/// request's `room` (default NODE).
 #[wasm_bindgen(js_name = sizeCheck)]
-pub fn size_check(tries_json: &str) -> Result<String, JsError> {
+pub fn size_check(tries_json: &str, room: Option<u32>) -> Result<String, JsError> {
     let tries: Vec<String> = serde_json::from_str(tries_json)?;
-    let out = match core::size_check(&tries) {
+    let limit = room.map_or(core::NODE, |r| r as usize);
+    let out = match core::size_check_in(&tries, limit) {
         core::SizeCheck::Accept(text) => serde_json::json!({ "accept": text }),
         core::SizeCheck::Retry(text) => serde_json::json!({ "retry": text }),
         core::SizeCheck::Fail => serde_json::json!({ "fail": true }),
     };
     Ok(out.to_string())
+}
+
+/// The node text for an accepted reply of a request whose `cut` is set: the
+/// cut prefix first (once, even when the model already wrote it).
+#[wasm_bindgen(js_name = finishLine)]
+pub fn finish_line(cut: &str, line: &str) -> String {
+    if line.starts_with(cut) {
+        line.to_string()
+    } else {
+        format!("{cut}{line}")
+    }
 }

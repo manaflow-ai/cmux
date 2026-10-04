@@ -142,7 +142,11 @@ fn a_turn_over_the_acpmux_wire() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("acpmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
-    serve(UnixListener::bind(&socket).unwrap(), requests.clone(), false);
+    serve(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        false,
+    );
 
     let acpmux = Acpmux::new(socket, None, Vec::new());
     let (tx, rx) = channel();
@@ -180,7 +184,14 @@ fn a_turn_over_the_acpmux_wire() {
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
     };
-    let outcome = turn::run(&*acpmux, &chat, &start, &Interrupt::new(), &|_| {}, &|_, _| {});
+    let outcome = turn::run(
+        &*acpmux,
+        &chat,
+        &start,
+        &Interrupt::new(),
+        &|_| {},
+        &|_, _| {},
+    );
     assert_eq!(outcome.reply.as_deref(), Some("x is 1."));
     assert_eq!(outcome.error, None);
     let log: Vec<(String, String)> = (0..chat.status().messages)
@@ -236,7 +247,11 @@ fn compactor_preset() -> Preset {
     Preset {
         name: "optchat-compact-1a2b3c4d".into(),
         harness: "claude-sr".into(),
-        env: [("CLAUDE_CONFIG_DIR".to_owned(), "/h/optchat/compactor-claude".to_owned())].into(),
+        env: [(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            "/h/optchat/compactor-claude".to_owned(),
+        )]
+        .into(),
     }
 }
 
@@ -262,10 +277,16 @@ fn a_session_that_requires_a_preset_refuses_to_start_without_it() {
     serve(UnixListener::bind(&socket).unwrap(), requests.clone(), true);
     let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
     connect(&acpmux);
-    let error = acpmux.new_session(&compactor_session(dir.path())).unwrap_err();
+    let error = acpmux
+        .new_session(&compactor_session(dir.path()))
+        .unwrap_err();
     assert!(error.contains("preset"), "{error}");
     assert!(
-        !requests.lock().unwrap().iter().any(|r| r["method"] == "session/new"),
+        !requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r["method"] == "session/new"),
         "no session/new without the preset"
     );
 }
@@ -275,7 +296,11 @@ fn a_required_preset_is_installed_and_named_in_session_new() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("acpmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
-    serve(UnixListener::bind(&socket).unwrap(), requests.clone(), false);
+    serve(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        false,
+    );
     let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
     connect(&acpmux);
     assert_eq!(
@@ -283,13 +308,22 @@ fn a_required_preset_is_installed_and_named_in_session_new() {
         Ok("s-1".into())
     );
     let requests = requests.lock().unwrap();
-    let preset = requests.iter().find(|r| r["method"] == "_acpmux/presets").unwrap();
+    let preset = requests
+        .iter()
+        .find(|r| r["method"] == "_acpmux/presets")
+        .unwrap();
     assert_eq!(preset["params"]["name"], "optchat-compact-1a2b3c4d");
     assert_eq!(
         preset["params"]["set"]["env"]["CLAUDE_CONFIG_DIR"],
         "/h/optchat/compactor-claude"
     );
-    let new = requests.iter().find(|r| r["method"] == "session/new").unwrap();
-    assert_eq!(new["params"]["_meta"]["acpmux"]["preset"], "optchat-compact-1a2b3c4d");
+    let new = requests
+        .iter()
+        .find(|r| r["method"] == "session/new")
+        .unwrap();
+    assert_eq!(
+        new["params"]["_meta"]["acpmux"]["preset"],
+        "optchat-compact-1a2b3c4d"
+    );
     assert!(new["params"]["_meta"]["acpmux"].get("effort").is_none());
 }

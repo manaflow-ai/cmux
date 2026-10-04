@@ -229,6 +229,14 @@ fn cut_middle(text: &str, keep: usize) -> String {
     format!("{head}\n[...]\n{tail}")
 }
 
+impl CompactRequest {
+    /// The bytes the model may write: NODE, less the cut prefix the host
+    /// adds in front of a cut message's line.
+    pub fn room(&self) -> usize {
+        NODE.saturating_sub(self.cut.as_ref().map_or(0, String::len))
+    }
+}
+
 /// The node text for an accepted reply: `request.cut` first, when the call
 /// showed only part of its message.
 pub fn finish_line(request: &CompactRequest, line: &str) -> String {
@@ -251,13 +259,19 @@ pub enum SizeCheck {
 
 /// `tries` holds every reply so far, oldest first; the last one is new.
 pub fn size_check(tries: &[String]) -> SizeCheck {
+    size_check_in(tries, NODE)
+}
+
+/// `size_check` against `limit` bytes: a cut message's reply gets its
+/// request's `room()`, so the line still fits once the prefix is added.
+pub fn size_check_in(tries: &[String], limit: usize) -> SizeCheck {
     let Some(last) = tries.last().map(|t| t.trim()) else {
         return SizeCheck::Fail;
     };
     if last.is_empty() {
         return SizeCheck::Fail;
     }
-    if last.len() <= NODE || tries.len() >= TRIES {
+    if last.len() <= limit || tries.len() >= TRIES {
         let shortest = tries
             .iter()
             .map(|t| t.trim())
@@ -267,9 +281,9 @@ pub fn size_check(tries: &[String]) -> SizeCheck {
         return SizeCheck::Accept(shortest.to_string());
     }
     SizeCheck::Retry(format!(
-        "That line is {} bytes; the limit is {NODE}. It must end where it is cut here:\n{}| ← LIMIT",
+        "That line is {} bytes; the limit is {limit}. It must end where it is cut here:\n{}| ← LIMIT",
         last.len(),
-        cut_at_bytes(last, NODE)
+        cut_at_bytes(last, limit)
     ))
 }
 

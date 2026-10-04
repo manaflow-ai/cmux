@@ -4,7 +4,9 @@
 //! view, rendered it and logged the new messages; this runs on its own thread
 //! so the brain keeps reading the conversation while the turn works.
 
-use std::sync::mpsc::{RecvTimeoutError, TryRecvError, channel};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{RecvTimeoutError, Sender, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
 use optchat_host::OptChat;
@@ -12,6 +14,47 @@ use serde_json::Value;
 
 use crate::acpmux::{AgentPort, SessionSpec, TurnSignal};
 use crate::fold::{Entry, TurnFold, Usage, is_cancelled, stop_error};
+
+/// How often a stop for a newer message is sent again while the turn has
+/// not ended: a `session/cancel` that reaches acpmux before the prompt does
+/// is lost (audit round 2), and nothing acknowledges it but the turn's end.
+pub const CANCEL_RESEND: Duration = Duration::from_secs(1);
+
+/// A human message arrived during the turn (decision 2026-10-04: interrupt
+/// at once, even mid-thinking; a running tool call finishes first). The
+/// brain requests it; the turn's runner acts on it.
+#[derive(Default)]
+pub struct Interrupt {
+    wanted: AtomicBool,
+    /// The running acpmux turn's signals, woken on a request.
+    wake: Mutex<Option<Sender<TurnSignal>>>,
+}
+
+impl Interrupt {
+    pub fn new() -> Interrupt {
+        Interrupt::default()
+    }
+
+    pub fn request(&self) {
+        self.wanted.store(true, Ordering::SeqCst);
+        if let Some(tx) = self.wake.lock().expect("wake").as_ref() {
+            let _ = tx.send(TurnSignal::Changed);
+        }
+    }
+
+    pub fn is_set(&self) -> bool {
+        self.wanted.load(Ordering::SeqCst)
+    }
+
+    /// The queued messages were delivered (native engine).
+    pub fn clear(&self) {
+        self.wanted.store(false, Ordering::SeqCst);
+    }
+
+    fn wake_with(&self, tx: Option<Sender<TurnSignal>>) {
+        *self.wake.lock().expect("wake") = tx;
+    }
+}
 
 /// Everything a turn needs, decided by the brain.
 #[derive(Clone, Debug, PartialEq)]
@@ -56,6 +99,7 @@ pub fn run(
     agents: &dyn AgentPort,
     chat: &OptChat,
     start: &TurnStart,
+    interrupt: &Interrupt,
     log: &dyn Fn(&str),
     progress: &dyn Fn(&str, u64),
 ) -> TurnOutcome {
@@ -88,7 +132,9 @@ pub fn run(
     };
     progress(&session, 0);
     let (tx, rx) = channel();
+    interrupt.wake_with(Some(tx.clone()));
     if let Err(e) = agents.start_prompt(&session, start.blocks.clone(), &start.prompt_id, tx) {
+        interrupt.wake_with(None);
         let _ = agents.end_session(&session);
         return TurnOutcome {
             error: Some(e),
@@ -107,11 +153,44 @@ pub fn run(
     };
     let mut orphan = None;
     let mut totals = None;
+    let mut last_cancel: Option<Instant> = None;
     loop {
-        let signal = match deadline {
+        // A newer human message: stop the model at once, but let a running
+        // tool call finish (Claude Code's interrupt would abort it), and
+        // send the stop again until the turn ends. Read the newest events
+        // first: a tool may have started since the last fetch.
+        if interrupt.is_set()
+            && last_cancel.is_none()
+            && fold.ended().is_none()
+            && let Err(e) = fetch(&mut fold)
+        {
+            log(&format!("turn {}: {e}", start.key));
+        }
+        let stopping = interrupt.is_set() && fold.ended().is_none() && !fold.tool_running();
+        if stopping && last_cancel.is_none_or(|t| t.elapsed() >= CANCEL_RESEND) {
+            if last_cancel.is_none() {
+                log(&format!(
+                    "turn {}: a new message arrived; interrupting session {session}",
+                    start.key
+                ));
+            }
+            if let Err(e) = agents.cancel(&session) {
+                log(&format!("turn {}: interrupting: {e}", start.key));
+            }
+            last_cancel = Some(Instant::now());
+        }
+        let resend = last_cancel.filter(|_| stopping).map(|t| t + CANCEL_RESEND);
+        let wake = match (deadline, resend) {
+            (Some(d), Some(r)) => Some(d.min(r)),
+            (d, r) => d.or(r),
+        };
+        let signal = match wake {
             None => rx.recv().unwrap_or(TurnSignal::Lost),
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(signal) => signal,
+                Err(RecvTimeoutError::Timeout) if deadline.is_none_or(|d| Instant::now() < d) => {
+                    continue;
+                }
                 Err(RecvTimeoutError::Timeout) => {
                     let _ = fetch(&mut fold);
                     let limit = start.limit.unwrap_or_default();
@@ -185,6 +264,7 @@ pub fn run(
             }
         }
     }
+    interrupt.wake_with(None);
     log(&usage_line(&start.key, fold.first_usage(), totals));
     if orphan.is_none()
         && let Err(e) = agents.end_session(&session)

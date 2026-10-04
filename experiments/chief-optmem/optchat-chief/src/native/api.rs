@@ -23,11 +23,33 @@ pub struct CallError {
     pub message: String,
     /// A transport failure, a 429, a 5xx or an overload: worth a retry.
     pub retry: bool,
+    /// The caller's `stop` said so: the stream was dropped mid-response.
+    pub interrupted: bool,
 }
 
-/// One Messages API call: the request body in, the whole response message out.
+impl CallError {
+    pub fn new(message: impl Into<String>, retry: bool) -> CallError {
+        CallError {
+            message: message.into(),
+            retry,
+            interrupted: false,
+        }
+    }
+
+    pub fn interrupted() -> CallError {
+        CallError {
+            message: "interrupted for a newer message".into(),
+            retry: false,
+            interrupted: true,
+        }
+    }
+}
+
+/// One Messages API call: the request body in, the whole response message
+/// out. `stop` is checked after every streamed event; when it says so, the
+/// stream is dropped and the call fails with `CallError::interrupted()`.
 pub trait ChatModel: Send + Sync {
-    fn send(&self, body: &Value) -> Result<Value, CallError>;
+    fn send(&self, body: &Value, stop: &dyn Fn() -> bool) -> Result<Value, CallError>;
 }
 
 pub struct HttpModel {
@@ -53,7 +75,7 @@ impl HttpModel {
 }
 
 impl ChatModel for HttpModel {
-    fn send(&self, body: &Value) -> Result<Value, CallError> {
+    fn send(&self, body: &Value, stop: &dyn Fn() -> bool) -> Result<Value, CallError> {
         let mut request = self
             .agent
             .post(&self.url)
@@ -67,33 +89,30 @@ impl ChatModel for HttpModel {
             Ok(r) => r,
             Err(ureq::Error::Status(code, r)) => {
                 let text = r.into_string().unwrap_or_default();
-                return Err(CallError {
-                    message: format!(
+                return Err(CallError::new(
+                    format!(
                         "HTTP {code}: {}",
                         optchat_core::cut_at_bytes(&text, ERROR_BODY)
                     ),
-                    retry: code == 429 || code >= 500,
-                });
+                    code == 429 || code >= 500,
+                ));
             }
-            Err(e) => {
-                return Err(CallError {
-                    message: e.to_string(),
-                    retry: true,
-                });
-            }
+            Err(e) => return Err(CallError::new(e.to_string(), true)),
         };
         let streamed = response.content_type() == "text/event-stream";
         let reader = BufReader::new(response.into_reader());
         let message = if streamed {
-            super::sse::read(reader)
+            match super::sse::read_until(reader, stop) {
+                Ok(Some(message)) => Ok(message),
+                // Dropping the reader closes the stream: the server stops.
+                Ok(None) => return Err(CallError::interrupted()),
+                Err(e) => Err(e),
+            }
         } else {
             serde_json::from_reader::<_, Value>(reader)
                 .map_err(|e| format!("bad response body: {e}"))
         };
         // A stream cut by the network or an overload event is transient.
-        message.map_err(|message| CallError {
-            retry: true,
-            message,
-        })
+        message.map_err(|message| CallError::new(message, true))
     }
 }

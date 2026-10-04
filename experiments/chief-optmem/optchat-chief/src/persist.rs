@@ -64,13 +64,39 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
+/// What the memory's repository never tracks.
+const IGNORED: [&str; 3] = ["lock", "*.tmp*", "takeover.flock"];
+
 /// Commits everything in `dir` (creating the repository on first use) with
 /// the turn key as the message. A turn that changed nothing commits nothing.
 pub fn snapshot(dir: &Path, key: &str) -> Result<(), String> {
     if !dir.join(".git").exists() {
         git(dir, &["init", "-q"])?;
-        // The chat's single-writer lock is process state, not history.
-        std::fs::write(dir.join(".gitignore"), "lock\n*.tmp*\n").map_err(|e| e.to_string())?;
+    }
+    // The chat's single-writer lock and its takeover flock are process
+    // state, not history; a repository made before takeover.flock was
+    // listed stops tracking it.
+    let ignore = dir.join(".gitignore");
+    let old = std::fs::read_to_string(&ignore).unwrap_or_default();
+    let missing: Vec<&str> = IGNORED
+        .iter()
+        .copied()
+        .filter(|p| !old.lines().any(|l| l == *p))
+        .collect();
+    if !missing.is_empty() {
+        let mut text = old.clone();
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        for p in &missing {
+            text.push_str(p);
+            text.push('\n');
+        }
+        std::fs::write(&ignore, text).map_err(|e| e.to_string())?;
+        git(
+            dir,
+            &["rm", "-q", "--cached", "--ignore-unmatch", "takeover.flock"],
+        )?;
     }
     git(dir, &["add", "-A"])?;
     if git(dir, &["diff", "--cached", "--quiet"]).is_ok() {
@@ -104,7 +130,20 @@ mod tests {
         std::fs::write(dir.path().join(".gitignore"), "lock\n*.tmp*\n").unwrap();
         std::fs::write(dir.path().join("takeover.flock"), "").unwrap();
         git(dir.path(), &["add", "-A"]).unwrap();
-        git(dir.path(), &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "old"]).unwrap();
+        git(
+            dir.path(),
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-m",
+                "old",
+            ],
+        )
+        .unwrap();
         std::fs::write(dir.path().join("a.jsonl"), "{}\n").unwrap();
         snapshot(dir.path(), "turn:optchat:1:2").unwrap();
         let tracked = git(dir.path(), &["ls-files"]).unwrap();

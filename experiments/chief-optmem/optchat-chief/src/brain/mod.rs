@@ -118,6 +118,9 @@ pub struct Settings {
     pub model: Option<String>,
     /// The value of the `mux.parent` tag on the Chief's children.
     pub parent: String,
+    /// Turn session names are `<turn_prefix>-<first id>`; `optchat-<home id>`,
+    /// so two homes on one acpmux daemon never remove each other's turns.
+    pub turn_prefix: String,
     /// The owner's agent gap plus a margin (mux/host: 2.2 s).
     pub agent_gap: Duration,
     /// Longest a turn may run (None: no limit).
@@ -196,10 +199,11 @@ pub struct Brain {
     stale_sessions: Vec<String>,
     outbox_timer: Option<Instant>,
     fatal: Option<String>,
-    /// A human message arrived while an acpmux turn ran: stop that turn.
+    /// A human message arrived while an acpmux turn ran: that turn is
+    /// being stopped, and its end posts nothing.
     stop_wanted: bool,
-    /// The stop was sent to acpmux.
-    stop_sent: bool,
+    /// The running turn's interrupt (a new one per turn).
+    interrupt: Arc<crate::turn::Interrupt>,
     after_turn: Option<TurnHook>,
     /// Notices waiting for the conversation to be known.
     notices: Vec<(String, String)>,
@@ -218,7 +222,11 @@ impl Brain {
     ) -> Brain {
         let mut state = file.load();
         let acpmux = matches!(settings.engine, Engine::Acpmux);
-        let stale_sessions = recover::recover(&chat, &mut state, acpmux);
+        let mut stale_sessions = recover::recover(&chat, &mut state, acpmux);
+        // Only this home's turn sessions: a name without its prefix is a
+        // host before audit round 3's or another home's, never removed.
+        let own = format!("{}-", settings.turn_prefix);
+        stale_sessions.retain(|name| name.starts_with(&own));
         let handled = state.logged_seq;
         let brain = Brain {
             chat,
@@ -241,7 +249,7 @@ impl Brain {
             outbox_timer: None,
             fatal: None,
             stop_wanted: false,
-            stop_sent: false,
+            interrupt: Arc::new(crate::turn::Interrupt::new()),
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
@@ -254,6 +262,11 @@ impl Brain {
     pub fn on_turn_end(mut self, hook: TurnHook) -> Brain {
         self.after_turn = Some(hook);
         self
+    }
+
+    /// acpmux sessions the brain keeps a summary of (its children only).
+    pub fn known_sessions(&self) -> usize {
+        self.sessions.len()
     }
 
     pub fn state(&self) -> &HostState {
@@ -399,7 +412,7 @@ impl Brain {
         let human = matches!(source, Source::Message { .. });
         self.queue.push_back(Queued { text, source });
         if human {
-            self.stop_for_newer();
+            self.interrupt_for_newer();
         }
         self.maybe_start_turn();
     }

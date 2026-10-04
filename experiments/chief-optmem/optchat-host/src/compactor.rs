@@ -9,7 +9,7 @@ use std::thread;
 use std::time::Duration;
 
 use optchat_core::{
-    compact_request, finish_line, size_check, CompactRequest, Memory, NodeId, SizeCheck, Work,
+    compact_request, finish_line, size_check_in, CompactRequest, Memory, NodeId, SizeCheck, Work,
 };
 
 use crate::clock::Clock;
@@ -186,10 +186,22 @@ pub fn run_node(model: &dyn CompactModel, request: &CompactRequest) -> Result<St
 fn size_loop(model: &dyn CompactModel, request: &CompactRequest) -> Result<String, ModelError> {
     let mut followups: Vec<Followup> = Vec::new();
     let mut tries: Vec<String> = Vec::new();
+    // A cut message's line gets the cut prefix in front (`finish_line`), so
+    // the reply is measured against what is left of NODE; a reply that
+    // already starts with the prefix is measured without it.
+    let room = request.room();
     loop {
         let reply = model.call(request, &followups)?;
-        tries.push(reply.text.clone());
-        match size_check(&tries) {
+        let text = match &request.cut {
+            Some(prefix) => reply
+                .text
+                .trim()
+                .strip_prefix(prefix.trim_end())
+                .unwrap_or(&reply.text),
+            None => &reply.text,
+        };
+        tries.push(text.to_string());
+        match size_check_in(&tries, room) {
             SizeCheck::Accept(text) => return Ok(text),
             SizeCheck::Fail => return Err(ModelError::new("empty reply")),
             SizeCheck::Retry(retry) => followups.push(Followup { reply, retry }),

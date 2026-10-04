@@ -133,7 +133,17 @@ fn append(block: &mut Value, key: &str, text: &str) {
 }
 
 /// Reads an SSE body line by line into an assembler.
+#[cfg(test)]
 pub fn read(body: impl std::io::BufRead) -> Result<Value, String> {
+    read_until(body, &|| false).map(|m| m.expect("never stopped"))
+}
+
+/// `read`, checking `stop` after every event: Ok(None) when it said so (the
+/// partial message is dropped; nothing of it is logged or resent).
+pub fn read_until(
+    body: impl std::io::BufRead,
+    stop: &dyn Fn() -> bool,
+) -> Result<Option<Value>, String> {
     let mut assembler = Assembler::default();
     for line in body.lines() {
         let line = line.map_err(|e| format!("reading the response stream: {e}"))?;
@@ -141,9 +151,12 @@ pub fn read(body: impl std::io::BufRead) -> Result<Value, String> {
             let data: Value = serde_json::from_str(data.trim())
                 .map_err(|e| format!("a response event is not JSON: {e}"))?;
             assembler.feed(&data);
+            if stop() {
+                return Ok(None);
+            }
         }
     }
-    assembler.finish()
+    assembler.finish().map(Some)
 }
 
 #[cfg(test)]
@@ -184,6 +197,25 @@ mod tests {
                 {"type": "tool_use", "id": "t1", "name": "bash", "input": {"command": "ls"}},
             ])
         );
+    }
+
+    #[test]
+    fn a_stop_drops_the_stream_at_the_next_event() {
+        let body = (0..10)
+            .map(|i| {
+                format!(
+                    "data: {}\n\n",
+                    json!({"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": format!("{i}")}})
+                )
+            })
+            .collect::<String>();
+        let seen = std::cell::Cell::new(0);
+        let stop = || {
+            seen.set(seen.get() + 1);
+            seen.get() >= 3
+        };
+        assert_eq!(read_until(body.as_bytes(), &stop), Ok(None));
+        assert_eq!(seen.get(), 3, "checked after every event, stopped at once");
     }
 
     #[test]

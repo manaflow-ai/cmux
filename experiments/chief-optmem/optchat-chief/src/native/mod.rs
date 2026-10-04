@@ -8,8 +8,12 @@
 //!   breakpoint on each of the first three pieces, then the new messages;
 //!   the top-level automatic `cache_control` is the fourth breakpoint, at the
 //!   end of each request, so every step reads what the previous one wrote.
-//! - Messages sent while the turn works are delivered between tool calls
-//!   and logged as `user` (section 7), as MASTER says.
+//! - A human message sent while the turn works interrupts it at once
+//!   (decision 2026-10-04): a streaming step (thinking or text) is dropped
+//!   at the next streamed event and the model is called again with the
+//!   message; a running tool call finishes first and its result goes with
+//!   the message. Delivered messages are logged as `user` (section 7).
+//!   Children's reports are delivered between tool calls without one.
 //! - Model outputs go back verbatim (thinking blocks and signatures).
 //! - Every tool result is capped at CAP before it is logged and before it is
 //!   sent back (section 7).
@@ -26,6 +30,7 @@ mod sse;
 pub use api::{CallError, ChatModel, HttpModel};
 pub use shell::Shell;
 pub use sse::Assembler;
+pub use sse::read_until;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -153,13 +158,19 @@ impl Native {
         body
     }
 
-    fn call(&self, body: &Value, key: &str, log: &dyn Fn(&str)) -> Result<Value, String> {
+    fn call(
+        &self,
+        body: &Value,
+        key: &str,
+        log: &dyn Fn(&str),
+        stop: &dyn Fn() -> bool,
+    ) -> Result<Value, CallError> {
         let mut tries = 0;
         loop {
             tries += 1;
-            match self.model.send(body) {
+            match self.model.send(body, stop) {
                 Ok(message) => return Ok(message),
-                Err(e) if e.retry && tries < TRIES => {
+                Err(e) if e.retry && tries < TRIES && !stop() => {
                     log(&format!(
                         "turn {key}: model call failed ({}); retrying in {} s",
                         e.message,
@@ -167,19 +178,23 @@ impl Native {
                     ));
                     std::thread::sleep(self.retry);
                 }
-                Err(e) => return Err(e.message),
+                Err(e) if e.retry && stop() => return Err(CallError::interrupted()),
+                Err(e) => return Err(e),
             }
         }
     }
 
     /// Runs one turn to its end. `mailbox` is called between tool calls and
-    /// returns the messages the brain logged for delivery.
+    /// after an interrupt, and returns the messages the brain logged for
+    /// delivery; `interrupted` says a human message waits (checked after
+    /// every streamed event).
     pub fn run(
         &self,
         chat: &OptChat,
         start: &TurnStart,
         log: &dyn Fn(&str),
         mailbox: &dyn Fn() -> Vec<String>,
+        interrupted: &dyn Fn() -> bool,
     ) -> TurnOutcome {
         let deadline = start.limit.map(|limit| Instant::now() + limit);
         let shell = Shell::new(
@@ -200,9 +215,23 @@ impl Native {
             if deadline.is_some_and(|d| Instant::now() >= d) {
                 break Some(limit_text(start.limit));
             }
-            let message = match self.call(&self.body(&messages), &start.key, log) {
+            // A message that arrived since the last call goes with this one.
+            if interrupted() {
+                deliver(&mut messages, mailbox());
+            }
+            let message = match self.call(&self.body(&messages), &start.key, log, interrupted) {
                 Ok(m) => m,
-                Err(e) => break Some(e),
+                Err(e) if e.interrupted => {
+                    // The step is dropped whole: its thinking is never
+                    // logged, and its unfinished text is not a reply.
+                    log(&format!(
+                        "turn {}: a new message arrived; the model was interrupted",
+                        start.key
+                    ));
+                    deliver(&mut messages, mailbox());
+                    continue;
+                }
+                Err(e) => break Some(e.message),
             };
             if let Some(usage) = message.get("usage").and_then(Usage::parse) {
                 first_usage.get_or_insert(usage);
@@ -260,12 +289,9 @@ impl Native {
                         }
                         results.push(result);
                     }
-                    // Messages sent meanwhile, already logged as `user` by the brain.
-                    let delivered = mailbox();
-                    if !delivered.is_empty() {
-                        results.push(json!({"type": "text", "text": delivered.join("\n\n")}));
-                    }
                     messages.push(json!({"role": "user", "content": results}));
+                    // Messages sent meanwhile, already logged as `user` by the brain.
+                    deliver(&mut messages, mailbox());
                 }
                 // A paused server turn: send it back as it is to continue.
                 "pause_turn" => {}
@@ -321,6 +347,23 @@ impl Native {
             Err(text) => (text, true),
         }
     }
+}
+
+/// Adds delivered messages (already logged as `user` by the brain) to the
+/// request: at the end of the last user message, else as a new one.
+fn deliver(messages: &mut Vec<Value>, delivered: Vec<String>) {
+    if delivered.is_empty() {
+        return;
+    }
+    let block = json!({"type": "text", "text": delivered.join("\n\n")});
+    if let Some(last) = messages.last_mut()
+        && last["role"] == "user"
+        && let Some(content) = last["content"].as_array_mut()
+    {
+        content.push(block);
+        return;
+    }
+    messages.push(json!({"role": "user", "content": [block]}));
 }
 
 fn limit_text(limit: Option<Duration>) -> String {

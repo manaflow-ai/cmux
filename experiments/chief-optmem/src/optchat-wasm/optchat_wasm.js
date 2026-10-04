@@ -29,9 +29,12 @@ export class OptChat {
         return ret;
     }
     /**
-     * The compactor call for node (l, i) as JSON `{system, context, marks, step}`:
-     * `marks` are byte offsets into the UTF-8 context where a cached piece ends
-     * (section 8); send each piece as its own block with a breakpoint.
+     * The compactor call for node (l, i) as JSON `{system, context, marks,
+     * step, cut, room}`: `marks` are byte offsets into the UTF-8 context
+     * where a cached piece ends (section 8); send each piece as its own
+     * block with a breakpoint. `cut` is null, or the prefix a too-long
+     * message's line starts with: run the size loop with `sizeCheck(tries,
+     * room)` and store `finishLine(cut, line)`, which adds it.
      * `prompt` is `taelin`, `cmux` or `custom` (then `custom` is its text).
      *
      * When a read fails, the call throws and the node is released (as if
@@ -250,18 +253,44 @@ export class OptChat {
 if (Symbol.dispose) OptChat.prototype[Symbol.dispose] = OptChat.prototype.free;
 
 /**
- * The size loop (section 4.3) on the replies so far (JSON array of strings):
- * JSON `{accept: string} | {retry: string} | {fail: true}`.
- * @param {string} tries_json
+ * The node text for an accepted reply of a request whose `cut` is set: the
+ * cut prefix first (once, even when the model already wrote it).
+ * @param {string} cut
+ * @param {string} line
  * @returns {string}
  */
-export function sizeCheck(tries_json) {
+export function finishLine(cut, line) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(cut, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(line, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.finishLine(ptr0, len0, ptr1, len1);
+        deferred3_0 = ret[0];
+        deferred3_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * The size loop (section 4.3) on the replies so far (JSON array of strings):
+ * JSON `{accept: string} | {retry: string} | {fail: true}`. `room` is the
+ * request's `room` (default NODE).
+ * @param {string} tries_json
+ * @param {number | null} [room]
+ * @returns {string}
+ */
+export function sizeCheck(tries_json, room) {
     let deferred3_0;
     let deferred3_1;
     try {
         const ptr0 = passStringToWasm0(tries_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.sizeCheck(ptr0, len0);
+        const ret = wasm.sizeCheck(ptr0, len0, isLikeNone(room) ? Number.MAX_SAFE_INTEGER : (room) >>> 0);
         var ptr2 = ret[0];
         var len2 = ret[1];
         if (ret[3]) {

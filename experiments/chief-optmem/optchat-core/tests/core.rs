@@ -549,7 +549,10 @@ fn the_size_loop_measures_a_cut_line_against_its_reduced_room() {
         size_check_in(&["y".repeat(450)], room),
         SizeCheck::Accept("y".repeat(450))
     );
-    assert_eq!(size_check(&["z".repeat(480)]), SizeCheck::Accept("z".repeat(480)));
+    assert_eq!(
+        size_check(&["z".repeat(480)]),
+        SizeCheck::Accept("z".repeat(480))
+    );
 }
 
 #[test]
@@ -563,5 +566,9 @@ fn a_cut_request_knows_its_room() {
     let prefix = request.cut.clone().unwrap();
     assert_eq!(request.room(), NODE - prefix.len());
     let line = finish_line(&request, &"w".repeat(request.room()));
-    assert_eq!(line.len(), NODE, "a line that uses all its room fits exactly");
+    assert_eq!(
+        line.len(),
+        NODE,
+        "a line that uses all its room fits exactly"
+    );
 }

@@ -27,8 +27,11 @@ impl Brain {
         match event {
             AgentEvent::Up(sessions) => {
                 self.agents_up = true;
+                // Only the Chief's own children: the compactor and turn
+                // sessions come and go by the thousand.
                 self.sessions = sessions
                     .into_iter()
+                    .filter(|s| self.is_child(s))
                     .map(|s| (s.session_id.clone(), s))
                     .collect();
                 for name in std::mem::take(&mut self.stale_sessions) {
@@ -53,7 +56,9 @@ impl Brain {
                     Some(s) => s,
                     None => match self.agents.session(&session_id) {
                         Ok(Some(s)) => {
-                            self.sessions.insert(s.session_id.clone(), s.clone());
+                            if self.is_child(&s) {
+                                self.sessions.insert(s.session_id.clone(), s.clone());
+                            }
                             s
                         }
                         Ok(None) => return,
@@ -78,13 +83,14 @@ impl Brain {
     }
 
     fn on_session(&mut self, session: SessionSummary) {
+        if !self.is_child(&session) {
+            self.sessions.remove(&session.session_id);
+            return;
+        }
         let before = self
             .sessions
             .insert(session.session_id.clone(), session.clone())
             .map(|s| s.status);
-        if !self.is_child(&session) {
-            return;
-        }
         let id = session.session_id.clone();
         let record = self
             .state

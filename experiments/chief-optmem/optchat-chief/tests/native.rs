@@ -24,13 +24,13 @@ struct Scripted {
 
 impl ChatModel for Scripted {
     fn send(&self, body: &Value, _stop: &dyn Fn() -> bool) -> Result<Value, CallError> {
+        self.bodies.lock().unwrap().push(body.clone());
         {
             let mut gate = self.gate.lock().unwrap();
             while *gate {
                 gate = self.opened.wait(gate).unwrap();
             }
         }
-        self.bodies.lock().unwrap().push(body.clone());
         self.replies
             .lock()
             .unwrap()
@@ -159,6 +159,13 @@ fn a_message_sent_during_a_native_turn_is_delivered_between_tool_calls() {
     h.connect();
     h.say("user_local", "check A");
     h.step(); // settled: the turn starts, its first call waits
+    // This model ignores `stop` (a whole reply arrives at once), so the
+    // message waits for the tool call it asks for, then goes with its result.
+    let deadline = std::time::Instant::now() + WAIT;
+    while model.bodies.lock().unwrap().is_empty() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
     h.say("user_local", "also check B");
     *model.gate.lock().unwrap() = false;
     model.opened.notify_all();
@@ -234,7 +241,12 @@ impl ChatModel for Streaming {
             bodies.push(body.clone());
             bodies.len() == 1
         };
-        let events = self.calls.lock().unwrap().pop_front().expect("a scripted call");
+        let events = self
+            .calls
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("a scripted call");
         let mut assembler = optchat_chief::native::Assembler::default();
         for (i, event) in events.iter().enumerate() {
             assembler.feed(event);
