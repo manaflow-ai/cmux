@@ -455,9 +455,22 @@ touch it.
 - Deletion rule (coordinator): the slice that moves a kind into the daemon also DELETES the Swift
   history of that kind: ClosedTabTracker, ClosedScreenHistory, ClosedWorkspaceTracker and the
   app-only `reopenClosedWindow`, with a test that no Swift closed history remains.
-- S1 (daemon, cmux-tui window, no Cargo.lock change): closed-history-v2 schema, migration, groups,
-  RAM index, `history.closed.list|restore|delete`, window scope, retention, privacy filters,
-  `surface.restore_state.put`, restore_state on close ops. Review subagent before landing.
+- S1 (daemon, cmux-tui window, no Cargo.lock change), AS BUILT: `closed_groups` (INTEGER PRIMARY KEY
+  append, index on window), one group per closing patch, members in restore order, window derived
+  from the window record that lists the workspace, `closed.list {window, limit}` (default 100, max
+  1000), `closed.reopen {closed?, window?, members?}` (newest of the window, else of a closed
+  window; partial reopen; tab back at its index), retention forever, v1 migration, CLI flags.
+  Deviations from section 2, on purpose: (a) members are a JSON array in the group row, not a
+  `closed_members` table: a group is read and rewritten whole, and partial reopen rewrites one row;
+  (b) no separate RAM index: the list is an indexed `ORDER BY seq DESC LIMIT n` read, and SQLite's
+  page cache is the RAM index (a second copy would need rollback-safe sync with every commit);
+  (c) op names stay `closed.list` / `closed.reopen` with new optional fields (no new ops, so no
+  catalog count churn); the `history.closed.*` names are aliases for S1b only if the coordinator
+  wants them.
+- S1b (daemon): `closed.delete {closed | members | all | since}`, retention settings
+  (`history.closed.maxGroups`, `maxAgeDays`), `surface.restore_state.put` and inline restore state
+  on close ops (only for state the daemon cannot own, 3.0), privacy deny-list for env and URL query
+  keys, private browser profiles never recorded, window close as a `window` group.
 - S2 (daemon): `layout.bulk` op with every selector and verb, one group per call.
 - S3 (daemon): terminal provider (scrollback blob, env deny-list, agent session resume offer).
 - S4 (Swift): S4.0 repro of today's Cmd-Shift-T failure on cmux-lawrence-2; `history.reopenClosed`
