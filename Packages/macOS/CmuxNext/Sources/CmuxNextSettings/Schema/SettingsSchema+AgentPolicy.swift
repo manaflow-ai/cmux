@@ -39,6 +39,7 @@ extension SettingsSchema {
         "layout.stickyColumnEdge",
         "layout.stickyColumnMode",
         "layout.frameOrientation",
+        "layout.rows",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
