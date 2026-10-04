@@ -10623,6 +10623,52 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "browser choose-profile",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.profile.choose",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Choose Browser Profile…",
+      "title_key" : "action.browser.profile.choose",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "browser more-actions",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.overflow.menu",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "More Browser Actions…",
+      "title_key" : "action.browser.overflow.menu",
+      "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "browser page-info",
       "context_menu" : "offered",
       "context_menus" : [
@@ -16819,14 +16865,14 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "tab move-to-new-sticky-column",
+      "cli_name" : "tab move-to-new-dock-column",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "tab.moveToNewStickyColumn",
+      "id" : "tab.moveToNewDockColumn",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -16836,8 +16882,8 @@
         "title_key" : "category.tab",
         "title_table" : "Localizable"
       },
-      "title" : "Move Tab to New Sticky Column",
-      "title_key" : "action.tab.moveToNewStickyColumn",
+      "title" : "Move Tab to New Dock Column",
+      "title_key" : "action.tab.moveToNewDockColumn",
       "title_table" : "LayoutActions"
     },
     {

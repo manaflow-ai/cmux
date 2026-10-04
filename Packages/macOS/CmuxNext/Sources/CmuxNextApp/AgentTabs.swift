@@ -33,6 +33,11 @@ final class AgentTabStore {
     /// Chats outside any pane (onboarding's first task), weakly held, so
     /// they get customization changes too.
     private let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
+    /// Takes back a closed, untouched new tab page as the pool's spare
+    /// (NewTabSparePool.recycle); false when the pool already has one.
+    var recycle: ((AgentPaneView) -> Bool)?
+    /// Closed pages leave the view tree at once; their teardown waits (R81).
+    private let retirer = AgentPageRetirer()
     /// Session each tab last showed, kept across a web content crash or a
     /// view rebuilt after the tab was released.
     private var sessions: [String: String] = [:]
@@ -253,9 +258,9 @@ final class AgentTabStore {
             self?.newTabPages[key] = nil
             self?.views[key]?.applyTheme() // now the agent chat surface (R55)
         }
-        model.onOpenTab = { [weak self] request in self?.newTabPages[key]?.handler.open(key, request) }
+        model.onOpenTab = { [weak self] request in BenchSpans.mark("bridge.tab.open"); self?.newTabPages[key]?.handler.open(key, request) }
         model.onTypeAhead = { [weak self] text in self?.newTabPages[key]?.handler.typeAhead(key, text) }
-        model.onRememberNewTab = { [weak self] mode, agent in self?.newTabPages[key]?.handler.remember(mode, agent) }
+        model.onRememberNewTab = { [weak self] agent in self?.newTabPages[key]?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
@@ -312,7 +317,14 @@ final class AgentTabStore {
     func close(_ key: String) {
         for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
-        views.removeValue(forKey: key)?.close()
+        if let view = views.removeValue(forKey: key) {
+            // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81).
+            if newTabPages[key] != nil, recycle?(view) == true {
+                standaloneViews.add(view)
+            } else {
+                retirer.retire(view)
+            }
+        }
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil

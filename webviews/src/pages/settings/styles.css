@@ -629,3 +629,87 @@ mark {
     transition: none !important;
   }
 }
+
+/* Host lists (Spaces & Profiles, Machines): R82 commit 2. */
+.host-active {
+  width: 0;
+  height: 0;
+  border: 3px solid var(--muted-text);
+  border-radius: 50%;
+}
+
+.host-footer,
+.host-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.host-toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  justify-content: flex-start;
+}
+
+.host-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--muted-text);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.host-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0 4px 32px;
+}
+
+.host-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.host-field > .row-help {
+  width: 80px;
+}
+
+.host-field > .field {
+  width: 240px;
+}
+
+.host-swatches {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.host-swatch {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+}
+
+.host-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 1.5px var(--text);
+}
+
+.host-swatch-clear {
+  border: 1px solid var(--border-strong);
+  background: transparent;
+}

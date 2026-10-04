@@ -186,7 +186,7 @@ async function clickTreeRow(page: Page, name: string, approximateRow: number) {
         }
         const list = elements.find((element) => element.getAttribute("data-file-tree-virtualized-scroll") === "true");
         if (list != null) {
-          list.scrollTop = Math.max(0, Number(approximateRow) * 22 - 300);
+          list.scrollTop = Math.max(0, Number(approximateRow) * 29 - 300);
         }
         return null;
       },
@@ -234,7 +234,9 @@ for (const [name, type] of engines) {
       browser = await type.launch({ headless: true });
       page = await browser.newPage({ viewport: VIEWPORT });
       const ready = () =>
-        page.waitForFunction(() => /Files\s*2000/.test(document.body.innerText), null, { timeout: 60_000 });
+        page.waitForFunction(() => document.getElementById("files-sidebar")?.dataset.fileCount === "2000", null, {
+          timeout: 60_000,
+        });
       // A fresh dev server optimizes dependencies on the first load and then
       // reloads the page once; load twice so the cases run on a settled page.
       await page.goto(`${base}/test/browser/diff-virtualization.html`);

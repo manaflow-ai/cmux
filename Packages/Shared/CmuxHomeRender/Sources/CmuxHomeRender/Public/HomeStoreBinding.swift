@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+public import Foundation
 import Observation
 
 /// Connects one `HomeController` to a `HomeStore`: store changes reach
@@ -14,11 +15,21 @@ public final class HomeStoreBinding {
     /// the host can say why (iOS: an alert with `HomeText.explanation(for:)`).
     /// A refused send restores its draft instead.
     public var onRefusal: (HomeIntent, HomeRejection) -> Void = { _, _ in }
+    /// Loads attachment bytes for rows of this conversation
+    /// (`HomeStore.fetchAttachment(_:variant:in:)`): this client's own copy
+    /// when it has one, else the source. The render core
+    /// has no attachment hook yet; lane 16 passes this to the controller
+    /// when it adds one.
+    public var fetchAttachment: @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL
 
     public init(store: HomeStore, controller: HomeController) {
         self.store = store
         self.controller = controller
         let id = controller.conversation
+        self.fetchAttachment = { [weak store] ref, variant in
+            guard let store else { throw CancellationError() }
+            return try await store.fetchAttachment(ref, variant: variant, in: id)
+        }
         controller.onIntent = { [weak self] intent in self?.perform(intent) }
         controller.onNeedsOlder = { [weak store] in
             guard let store else { return }

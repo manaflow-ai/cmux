@@ -1,4 +1,4 @@
-import react from "@vitejs/plugin-react";
+import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -19,5 +19,5 @@ export default defineConfig({
     // The page imports the schema from schemas/settings at the repository root.
     fs: { allow: [webviewsRoot, path.join(repoRoot, "schemas/settings")] },
   },
-  plugins: [react({ babel: { plugins: [["babel-plugin-react-compiler", { target: "19" }]] } })],
+  plugins: [...reactWithCompiler()],
 });

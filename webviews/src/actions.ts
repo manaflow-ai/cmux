@@ -76,6 +76,26 @@ export async function copyGitApplyCommand(
   return label("copiedGitApplyCommand");
 }
 
+/** Copies `text` to the clipboard, through the hidden textarea where the Clipboard API refuses. */
+export async function copyText(text: string, fallbackTextarea: HTMLTextAreaElement | null): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall through to the textarea, as for the git apply command.
+    }
+  }
+  if (!fallbackTextarea) {
+    throw new Error("Clipboard API unavailable");
+  }
+  fallbackTextarea.value = text;
+  fallbackTextarea.select();
+  if (!document.execCommand("copy")) {
+    throw new Error("Clipboard copy failed");
+  }
+}
+
 function safeGitApplyDelimiter(patch: string): string {
   const lines = new Set(patch.split(/\r?\n/));
   let delimiter = "CMUX_DIFF_PATCH";

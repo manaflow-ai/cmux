@@ -45,13 +45,10 @@ fn a_paused_machine_is_started_first() {
     let mut s = server(&["vm-list", "vm-resume", "attach_endpoint_beta"], &spawner);
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     s.handle(&connect("vm-beta02", "c-1")).expect("connect");
+    assert_eq!(s.control_plane().ops(), ["cloud.machine.list", "cloud.machine.start"], "start");
     let calls: Vec<String> =
         s.control_plane().calls.iter().map(|c| format!("{} {}", c.method, c.path)).collect();
-    assert_eq!(
-        calls,
-        ["GET /api/vm", "POST /api/vm/vm-beta02/resume", "POST /api/vm/vm-beta02/attach-endpoint"],
-        "start, then attach"
-    );
+    assert_eq!(calls, ["POST /api/vm/vm-beta02/attach-endpoint"], "then attach");
     assert_eq!(spawner.spawns(), 1);
 }
 
@@ -195,7 +192,7 @@ fn connect_without_link_settings_is_link_unavailable_and_calls_nothing() {
     let mut s = Server::new(FakeControlPlane::with(&["vm-get", "attach_endpoint_alpha"]));
     let err = s.handle(&connect("vm-alpha01", "c-1")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.link_unavailable");
-    assert!(s.control_plane().calls.is_empty());
+    assert!(s.control_plane().no_calls());
 }
 
 #[test]

@@ -35,6 +35,7 @@ on:
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
+      - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
   push:
@@ -70,6 +71,7 @@ on:
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
+      - scripts/ci/reset-stale-submodules.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
   workflow_dispatch:
@@ -296,13 +298,15 @@ jobs:
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       # Behavior tests of the build scripts: pin-cmux-tui.sh fetch on a stale
-      # --ref mirror, embed-cef.sh reaching ensure-cef.sh under set -u, and
-      # ensure-cef.sh's controller artifact store source.
+      # --ref mirror and on a reused runner workspace, embed-cef.sh reaching
+      # ensure-cef.sh under set -u, and ensure-cef.sh's controller artifact
+      # store source.
       - name: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
         id: script-tests
         continue-on-error: true
         run: |
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
+          bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
 
@@ -373,6 +377,11 @@ jobs:
           # The package graph reads no submodule; GhosttyNextKit comes from
           # SwiftPM (Packages/Shared/CmuxGhosttyKit).
           submodules: false
+
+      # A mini reuses its workspace: drop the submodule checkouts a previous
+      # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -509,6 +518,11 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # A mini reuses its workspace: drop the submodule checkouts a previous
+      # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -600,6 +614,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+
+      # A mini reuses its workspace: drop the submodule checkouts a previous
+      # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 // The pointer over the sidebar reveals its titlebar buttons and, in
-// minimal mode (`sidebar.minimalMode`, R54), the chosen sticky bands.
+// minimal mode (`sidebar.minimalMode`, R54), the chosen pinned bands.
 extension SidebarView {
     /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.

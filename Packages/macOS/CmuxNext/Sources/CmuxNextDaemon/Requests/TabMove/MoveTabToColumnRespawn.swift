@@ -1,7 +1,7 @@
 import Foundation
 
 /// `move-tab-to-column` with `respawn` (`tab-column-respawn-v1`): a pane's
-/// only tab moves into a new column (pinned when `column.sticky` is set) and
+/// only tab moves into a new column (pinned when `column.dock` is set) and
 /// a fresh tab of the same kind stays in the pane it left. Dock Column on a
 /// screen with one tab uses it. It can launch a terminal host, so it uses
 /// the spawn deadline.

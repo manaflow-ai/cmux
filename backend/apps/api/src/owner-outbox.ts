@@ -1,7 +1,8 @@
 import type { OutboxFailure, OwnerEngine } from "@cmux/ownership"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
 import type { Env } from "./env.ts"
-import { drainOutbox, isTransientError } from "./projection.ts"
+import { isTransientError } from "./projection.ts"
+import { projectRows } from "./projection-targets.ts"
 
 /** Dead outbox items are replayed this long after they died (automatic replay tool). */
 export const DEAD_REPLAY_MS = 24 * 3600_000
@@ -28,7 +29,7 @@ export const drainOutboxChannels = async <S>(
   env: Env,
   targetNamespace: (className: string) => DurableObjectNamespace | undefined,
   /** The PlanetScale projector (a fake in tests). */
-  project: typeof drainOutbox = drainOutbox
+  project: (env: Env, stream: string, rows: Parameters<typeof projectRows>[2]) => ReturnType<typeof projectRows> = projectRows
 ): Promise<void> => {
     const outbox = engine.outbox
     // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on

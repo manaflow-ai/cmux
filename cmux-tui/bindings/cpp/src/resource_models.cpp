@@ -358,10 +358,32 @@ PixelSize parse_pixel_size(const Json& value) {
 
 LayoutNode parse_layout_node(const Json& value);
 
+/// An omitted or null flag is empty (the column scrolls).
+std::optional<LayoutColumnSticky> parse_layout_column_sticky(
+    const Json::Object& column) {
+    const auto found = column.find("sticky");
+    if (found == column.end() || found->second.is_null()) {
+        return std::nullopt;
+    }
+    const auto& object = exact_object(
+        found->second, {"edge", "mode"}, {"edge", "mode"}, "layout column sticky");
+    auto edge = string_value(
+        field(object, "edge", "layout column sticky"), "layout column sticky edge");
+    auto mode = string_value(
+        field(object, "mode", "layout column sticky"), "layout column sticky mode");
+    if (edge != "left" && edge != "right" && edge != "top" && edge != "bottom") {
+        fail("layout column sticky edge must be left, right, top, or bottom");
+    }
+    if (mode != "docked" && mode != "overlay") {
+        fail("layout column sticky mode must be docked or overlay");
+    }
+    return LayoutColumnSticky{std::move(edge), std::move(mode)};
+}
+
 LayoutColumn parse_layout_column(const Json& value) {
     const auto& object = exact_object(
         value,
-        {"column_id", "width", "root"},
+        {"column_id", "width", "root", "sticky"},
         {"column_id", "width", "root"},
         "layout column");
     auto width = field(object, "width", "layout column").as_double();
@@ -376,6 +398,7 @@ LayoutColumn parse_layout_column(const Json& value) {
         width.value(),
         std::make_shared<LayoutNode>(
             parse_layout_node(field(object, "root", "layout column"))),
+        parse_layout_column_sticky(object),
     };
 }
 

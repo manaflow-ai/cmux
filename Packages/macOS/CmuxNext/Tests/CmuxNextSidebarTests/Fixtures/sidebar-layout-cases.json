@@ -1,10 +1,10 @@
 {
   "about": "Shared cases for sidebar-layout-v1 (plans/cmux-next/sidebar-sections.md 4-5). Each op applies to the default document. The Swift reducer (SidebarLayoutFixtureTests) and the cmux-tui-core state reducer both run every case. expect: accept (with revision and, optionally, the item ids of one section and fields of one section) or reject (with reason).",
   "cases": [
-    {"name": "remove home", "op": {"kind": "item.remove", "id": "itm_home"}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_app_store", "itm_app_coderouter"]},
-    {"name": "remove a ref everywhere", "op": {"kind": "item.remove_ref", "ref": {"kind": "app", "value": "cmux/home"}}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_app_store", "itm_app_coderouter"]},
+    {"name": "remove home", "op": {"kind": "item.remove", "id": "itm_home"}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_app_store"]},
+    {"name": "remove a ref everywhere", "op": {"kind": "item.remove_ref", "ref": {"kind": "app", "value": "cmux/home"}}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_app_store"]},
     {"name": "remove a ref the sidebar does not hold", "op": {"kind": "item.remove_ref", "ref": {"kind": "app", "value": "manaflow-ai/github-prs"}}, "expect": "reject", "reason": "unknown_item"},
-    {"name": "add pins at the end (index clamped)", "op": {"kind": "item.add", "item": {"id": "itm_ws", "ref": {"kind": "workspace", "value": "local:ws_1"}}, "section": "sec_top", "index": 99}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_home", "itm_app_store", "itm_app_coderouter", "itm_ws"]},
+    {"name": "add pins at the end (index clamped)", "op": {"kind": "item.add", "item": {"id": "itm_ws", "ref": {"kind": "workspace", "value": "local:ws_1"}}, "section": "sec_top", "index": 99}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_home", "itm_app_store", "itm_ws"]},
     {"name": "same ref twice in a section is a no-op", "op": {"kind": "item.add", "item": {"id": "itm_h2", "ref": {"kind": "app", "value": "cmux/home"}}, "section": "sec_top", "index": 0}, "expect": "accept", "revision": 0},
     {"name": "move across regions", "op": {"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 1}, "expect": "accept", "revision": 1, "section": "sec_bottom", "items": ["itm_settings", "itm_home", "itm_account"]},
     {"name": "move within excludes itself", "op": {"kind": "item.move", "id": "itm_settings", "section": "sec_bottom", "index": 1}, "expect": "accept", "revision": 1, "section": "sec_bottom", "items": ["itm_account", "itm_settings"]},

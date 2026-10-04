@@ -13,6 +13,8 @@ import {
   wireError,
   type Diagnostic,
   type Domains,
+  type HostLists,
+  type SettingsPageAction,
   type ListRow,
   type ManagedInfo,
   type MutationResult,
@@ -39,6 +41,8 @@ export type SettingsState = {
   managed: ReadonlyMap<string, ManagedInfo>;
   errors: ReadonlyMap<string, RowError>;
   domains: Domains;
+  /** Spaces, machines and browser profiles; null until read, or when the host has none. */
+  host: HostLists | null;
 };
 
 export type WriteResult = { ok: true } | { ok: false; error: WireError };
@@ -61,6 +65,7 @@ export class SettingsStore {
     managed: new Map(),
     errors: new Map(),
     domains: emptyDomains,
+    host: null,
   };
   private readonly listeners = new Set<() => void>();
   private refreshSequence = 0;
@@ -88,11 +93,24 @@ export class SettingsStore {
         this.update(event.connected ? { connected: true, errors: new Map() } : { connected: false });
         if (event.connected) void this.refresh();
       }),
+      this.listen("cmux.settings.host.changed", (host) => this.update({ host })),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
       }),
     ]);
-    await this.refresh();
+    await Promise.all([this.refresh(), this.refreshHost()]);
+  }
+
+  /** Re-reads the host lists (after an action, or when the host has no change stream). */
+  async refreshHost(): Promise<void> {
+    const reply = await this.request("cmux.settings.host.lists", {});
+    if (reply.ok && !this.disposed) this.update({ host: reply.value });
+  }
+
+  /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
+  async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
+    await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
+    await this.refreshHost();
   }
 
   dispose(): void {

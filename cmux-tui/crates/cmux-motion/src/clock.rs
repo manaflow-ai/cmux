@@ -125,4 +125,22 @@ mod tests {
         assert!(!f.advance(5.081, &p));
         assert_eq!(f.value(), 1.);
     }
+
+    #[test]
+    fn animated_position_moves_below_zero_with_its_token() {
+        let p = MotionPolicy::default();
+        let mut a = Animated::new(Spring::position(60., MotionSpring::Move));
+        a.update(0., |s| s.set_target(-60.));
+        let mut t = 0.;
+        let mut frames = 0;
+        while a.advance(t, &p) {
+            assert_eq!(a.active_token(), MotionSpring::Move);
+            t += 1. / 120.;
+            frames += 1;
+            assert!(frames < 100);
+        }
+        assert_eq!(a.value(), -60.);
+        // move rests at ~250 ms (disappear: ~200 ms): 29-31 frames.
+        assert!((28..=32).contains(&frames), "{frames} frames");
+    }
 }

@@ -12,7 +12,7 @@ public nonisolated enum TabDragOutcome: Hashable, Sendable {
     /// New strip column on `screenID` after `afterColumnID`.
     case newColumn(screenID: String, afterColumnID: String)
     /// New top or bottom dock on `screenID` holding the tab
-    /// (move-tab-to-column with `sticky`, edge-docks-v1).
+    /// (move-tab-to-column with `dock`, edge-docks-v1).
     case newDock(screenID: String, edge: String)
     /// New workspace at root `index`, inside `groupID` when non-nil.
     case newWorkspace(groupID: String?, index: Int?)

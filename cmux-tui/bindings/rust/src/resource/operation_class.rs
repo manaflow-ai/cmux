@@ -76,6 +76,8 @@ pub(crate) fn operation_class(operation: &str) -> OperationClass {
             | ops::AGENT_LIST
             | ops::SIDEBAR_VIEW_GET
             | ops::WINDOW_RECORD_LIST
+            | ops::WORKSPACE_GROUP_LIST
+            | ops::WORKSPACE_PLACEMENT_LIST
     ) {
         OperationClass::Read
     } else {

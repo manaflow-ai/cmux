@@ -105,11 +105,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPaneChrome.report(services: services))
             },
-            // Sticky columns, the strip range and its scrollbar; `pane` +
-            // `sticky` changes a column (plans/cmux-next/sticky-column.md).
-            .mainActor("debug.sticky") { [weak services] call in
+            // Docked columns, the strip range and its scrollbar; `pane` +
+            // `dock` changes a column (plans/cmux-next/dock-column.md).
+            .mainActor("debug.dock") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugStickyColumns.handle(call.params, services: services))
+                return .value(DebugDockColumns.handle(call.params, services: services))
             },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -202,6 +202,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
+            .mainActor("debug.sidebar_rows") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarRows.report(services: services))
+            },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
@@ -217,7 +221,7 @@ final class AppControl {
             // Instant new tab: spares, opening times, the field (new-tab.md 2.3).
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
-            },
+            }.withDeadline(.fixed(.seconds(15))),
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
