@@ -135,12 +135,25 @@
         const q = ref.uid !== undefined ? `?authuser=${ref.uid}` : "";
         return `https://docs.google.com/${ref.kind}/d/${ref.id}/edit${q}${ref.gid !== undefined && ref.gid !== null ? `#gid=${ref.gid}` : ""}`;
       },
+      async waitEditor(name, page) {
+        await t.waitIn(page, () => !!document.querySelector(".docs-title-input, #docs-titlebar"), undefined, { signIn: SIGN_IN, name, what: "the editor", timeout: 45000 });
+      },
       // Runs body(page) in the file's editor in a background tab.
       async inEditor(name, ref, body) {
         return t.withTab(editors.editURL(ref), async (page) => {
-          await t.waitIn(page, () => !!document.querySelector(".docs-title-input, #docs-titlebar"), undefined, { signIn: SIGN_IN, name, what: "the editor", timeout: 45000 });
+          await editors.waitEditor(name, page);
           return body(page);
         });
+      },
+      // Reloads the editor and fails (sharing_changed) unless its Share
+      // button still says `expected`: sharing can change after the label
+      // that decided between an immediate edit and a draft, or after a
+      // draft's preview. Each write calls it right before its first input.
+      async recheckSharing(name, page, expected, when) {
+        await page.reload({ waitUntil: "load", timeout: 45000 });
+        await editors.waitEditor(name, page);
+        const now = await editors.sharing(page);
+        if (now !== expected) throw new S.SiteError("sharing_changed", `${name}: the file's sharing is now "${now || "unknown"}", not "${expected || "unknown"}" as ${when}; nothing was changed. Make a new ${when === "previewed" ? "draft and show it to the user again" : "call"}`);
       },
       // The Share button's description: "Share. Private to only me" and the like.
       // The button renders a moment after the editor; wait for it.
@@ -157,19 +170,22 @@
       },
       isPrivate: (label) => /private to only me/i.test(label),
       // A write: at once on a private file, else a draft confirmed later.
-      // spec(page, label) -> { summary, preview, run(page) }.
+      // spec(label, page) (may be async) -> { summary, preview, run(page,
+      // gate) }. run calls gate() right before its first input to the
+      // file: it reloads the editor and requires the sharing label this
+      // decision (or the preview) was made on.
       edit(site, action, name, ref, input, options, spec) {
         if (typeof input === "string" && /^draft-\d+-[0-9a-f]+$/.test(input)) return t.write(site, action, input, options);
         return editors.inEditor(name, ref, async (page) => {
           const label = await editors.sharing(page);
           const title = await page.evaluate(() => { const i = document.querySelector(".docs-title-input"); return i ? i.value : null; });
-          const s = spec(label);
-          if (editors.isPrivate(label)) return s.run(page);
+          const s = await spec(label, page);
+          if (editors.isPrivate(label)) return s.run(page, () => editors.recheckSharing(name, page, label, "when the edit started"));
           return t.write(site, action, { draft: true }, undefined, () => ({
             category: "[9] edit content others can see",
             summary: s.summary,
             preview: { ...s.preview, title, sharing: label || "unknown" },
-            run: () => editors.inEditor(name, ref, (p) => s.run(p)),
+            run: () => editors.inEditor(name, ref, (p) => s.run(p, () => editors.recheckSharing(name, p, label, "previewed"))),
           }));
         });
       },

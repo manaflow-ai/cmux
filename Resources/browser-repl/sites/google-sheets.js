@@ -40,7 +40,8 @@
         return ed.edit("googleSheets", action, name, r, { range: target }, options, () => ({
           summary: `Write ${values.length} row(s) at ${target} in Google Sheet ${r.id}`,
           preview: { file: sheet, range: target, values },
-          run: async (page) => {
+          run: async (page, gate) => {
+            await gate();
             const want = new Map();
             values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
             const check = async () => {
@@ -185,7 +186,8 @@
           return ed.edit("googleSheets", "clear", "googleSheets.clear", r, { range }, options, () => ({
             summary: `Clear ${range} in Google Sheet ${r.id}`,
             preview: { file: sheet, range },
-            run: async (page) => {
+            run: async (page, gate) => {
+              await gate();
               await selectRange(page, range);
               await page.keyboard.press("Delete");
               await ed.saved(page);

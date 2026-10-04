@@ -53,8 +53,9 @@
           return ed.edit("googleDocs", "replace", "googleDocs.replace", r, {}, options, () => ({
             summary: `Replace "${find}" with "${replacement}" in Google Doc ${r.id}`,
             preview: { file: doc, find, replace: replacement },
-            run: async (page) => {
+            run: async (page, gate) => {
               const before = count(await plain(r), find);
+              await gate();
               await ed.findReplace(page, find, replacement);
               const verified = before === 0 || (await ed.verify(async () => { const now = await plain(r); return replacement.includes(find) ? count(now, replacement) >= before : count(now, find) === 0; }));
               return { status: "replaced", count: before, verified };
@@ -72,7 +73,8 @@
           return ed.edit("googleDocs", "insertAfter", "googleDocs.insertAfter", r, {}, options, () => ({
             summary: `Insert text after "${anchor}" in Google Doc ${r.id}`,
             preview: { file: doc, anchor, text },
-            run: async (page) => {
+            run: async (page, gate) => {
+              await gate();
               await ed.findReplace(page, anchor, anchor + text);
               const verified = await ed.verify(async () => (await plain(r)).includes(anchor + text));
               return { status: "inserted", verified };
@@ -87,7 +89,8 @@
           return ed.edit("googleDocs", "append", "googleDocs.append", r, {}, options, () => ({
             summary: `Append a paragraph to Google Doc ${r.id}`,
             preview: { file: doc, text },
-            run: async (page) => {
+            run: async (page, gate) => {
+              await gate();
               await page.locator(".kix-appview-editor").first().click();
               await page.keyboard.press("Meta+ArrowDown");
               await page.keyboard.press("Enter");

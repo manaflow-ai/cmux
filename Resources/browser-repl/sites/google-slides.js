@@ -32,7 +32,8 @@
           return ed.edit("googleSlides", "setNotes", "googleSlides.setNotes", r, {}, options, () => ({
             summary: `Set the speaker notes of slide ${index} in Google Slides ${r.id}`,
             preview: { file: deck, slide: index, notes: text },
-            run: async (page) => {
+            run: async (page, gate) => {
+              await gate();
               // The slide's thumbnail in the filmstrip, then the notes box, with typed keys.
               await page.locator(`[id^="filmstrip-slide-${index - 1}-"]`).first().click();
               await t.sleep(500);
@@ -66,8 +67,9 @@
           return ed.edit("googleSlides", "replace", "googleSlides.replace", r, {}, options, () => ({
             summary: `Replace "${find}" with "${replacement}" in Google Slides ${r.id}`,
             preview: { file: deck, find, replace: replacement },
-            run: async (page) => {
+            run: async (page, gate) => {
               const before = await occurrences();
+              await gate();
               await ed.findReplace(page, find, replacement);
               const verified = before === 0 || replacement.includes(find) || (await ed.verify(async () => (await occurrences()) === 0));
               return { status: "replaced", count: before, verified };
