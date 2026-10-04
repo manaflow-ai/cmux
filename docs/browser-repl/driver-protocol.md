@@ -477,7 +477,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   session created is cancelled (`navigation.blocked`). The policy setters
   (`session.allowedDomains` and the like) return once the native session
   holds the policy, before WebKit compiles it, so the error reaches the
-  agent on the session's next call. The navigation and popup checks use the
+  agent on the session's next call. WebKit compiles one policy at a time,
+  and of the policies set meanwhile only the newest: a burst of updates
+  costs the compilation in progress and the last. The navigation and popup checks use the
   new policy from the moment the setter returns (the driver publishes it
   synchronously to `BrowserReplPolicyBoard`), and until its content rules
   are on the session's tabs, the session's driver calls wait and every

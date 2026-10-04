@@ -28,8 +28,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// The session's domain policy (BrowserReplDomainPolicy). Only the native
     /// session sets it, through `setDomainPolicy`.
     private var domainPolicy = BrowserReplDomainPolicy()
-    /// Applies the latest policy's content rules; calls wait for it.
-    private var policyTask: Task<Void, Never>?
+    /// A policy and the board generation it was published as.
+    private struct PolicyUpdate: Sendable {
+        let policy: BrowserReplDomainPolicy
+        let generation: Int
+    }
+    /// Applies policies' content rules one at a time, the newest only: a
+    /// policy superseded while another compiles is never compiled. Calls
+    /// wait for it.
+    private lazy var policyRunner = BrowserReplLatestValueRunner<PolicyUpdate> { [weak self] update in
+        await self?.applyDomainPolicy(update.policy, generation: update.generation)
+    }
     /// Set while WebKit refuses the latest policy's content rules: every
     /// call fails with it until a policy that compiles replaces it.
     @MainActor private var policyFailure: BrowserReplDriverError?
@@ -97,18 +106,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// session's tabs is judged by it. WebKit compiles its content rules
     /// afterwards; until they are on the tabs, the session's calls wait
     /// (`dispatchAttached`) and its tabs' navigations wait
-    /// (`BrowserReplNavigationGuard.hold`).
+    /// (`BrowserReplNavigationGuard.hold`). Only the newest policy waiting
+    /// is compiled (`policyRunner`), so a burst of updates costs WebKit at
+    /// most the compilation in progress and the last.
     func setDomainPolicy(_ policy: BrowserReplDomainPolicy) {
-        lock.lock()
-        domainPolicy = policy
-        let generation = BrowserReplPolicyBoard.shared.publish(policy, sessionID: sessionID)
-        let previous = policyTask
-        let task = Task { @MainActor [weak self] in
-            await previous?.value
-            await self?.applyDomainPolicy(policy, generation: generation)
+        lock.withLock {
+            domainPolicy = policy
+            let generation = BrowserReplPolicyBoard.shared.publish(policy, sessionID: sessionID)
+            policyRunner.submit(PolicyUpdate(policy: policy, generation: generation))
         }
-        policyTask = task
-        lock.unlock()
     }
 
     /// Puts the policy's content rules on the tabs the session created, then
@@ -180,14 +186,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let pendingPolicy = lock.withLock {
             sink = nil
             isDetached = true
-            return policyTask
+            return policyRunner
         }
         // `sessionID` is this instance's own (never reused for a later
         // session of the same name), so this teardown reaches only state
         // this instance made; it runs after the policy task it would race.
         let sessionID = self.sessionID
         Task { @MainActor in
-            await pendingPolicy?.value
+            await pendingPolicy.idle()
             BrowserReplPolicyBoard.shared.removeSession(sessionID)
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             // The compiled domain-policy list must not outlive the session
@@ -256,7 +262,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func dispatchAttached(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
-        if let pending = lock.withLock({ policyTask }) { await pending.value }
+        await lock.withLock({ policyRunner }).idle()
         if let policyFailure { return .failure(policyFailure) }
         let params = JSONSerialization.browserReplObject(paramsJSON)
         // Every call on a tab first wakes a hibernated tab and waits until
