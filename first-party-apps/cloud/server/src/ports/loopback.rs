@@ -11,7 +11,7 @@
 //! 512 streams still holds.
 
 use super::tunnel::{PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
-use crate::connector::iface::Carrier;
+use crate::link::Carrier;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};

@@ -4,6 +4,7 @@
 
 mod argv;
 pub(crate) mod carrier;
+mod channel;
 pub mod config;
 pub mod dial;
 pub(crate) mod info;
@@ -16,13 +17,14 @@ pub use argv::{
     LinkCommand, LinkLine, LinkPaths, dial_failed_line, link_command, parse_line, ready_line,
 };
 pub use carrier::CarrierSpawner;
+pub use channel::{Carrier, CarrierEvent, channel_id};
 pub use spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake};
 pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor, READY_DEADLINE};
 
 use crate::app_env::AppEnv;
-use crate::connector::iface::{BackendId, CarrierEvent, ConnectorEvent, LocalId, check_kinds};
-use crate::rescue::iface::ByteTerminal;
+use crate::connector::{ConnectorEvent, LinkHandle};
 use crate::rescue::{MissingRescueRoute, RescueBackend, RescueTransport};
+use cmux_terminal_iface::{BackendId, ByteTerminal, LocalId, check_kinds};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Link events each side holds until it takes them. A side that never
@@ -66,6 +68,8 @@ pub struct Attach {
     host_link_events: VecDeque<CarrierEvent>,
     /// `end` events for the connector, not taken yet.
     connector_events: VecDeque<ConnectorEvent>,
+    /// The connector's open link handles by channel (crate::connector).
+    pub(crate) link_handles: BTreeMap<String, LinkHandle>,
     /// The serve loop never waits for a link: a connect parks its op
     /// instead (super::park). Off for direct callers, which wait.
     pub(crate) park_link_waits: bool,
@@ -103,6 +107,7 @@ impl Attach {
             connector_kinds: kinds,
             host_link_events: VecDeque::new(),
             connector_events: VecDeque::new(),
+            link_handles: BTreeMap::new(),
             park_link_waits: false,
             parked: None,
             parked_ops: Vec::new(),
@@ -143,6 +148,7 @@ impl Attach {
     /// sides, the host lines and the connector. Only the loop thread (the
     /// owner of the server) calls it.
     pub(crate) fn drain_link_events(&mut self) {
+        crate::connector::apply_link_closes(self);
         self.supervisor.pump();
         for event in self.supervisor.take_events() {
             // A link that went down or was revoked: its facts may be stale.
@@ -153,6 +159,7 @@ impl Attach {
                 CarrierEvent::Up { .. } => {}
             }
             if let Some(end) = crate::connector::end_event(&event) {
+                crate::connector::end_link_handle(&mut self.link_handles, &end);
                 hold(&mut self.connector_events, end, "connector");
             }
             hold(&mut self.host_link_events, event, "host lines");

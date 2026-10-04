@@ -1,17 +1,20 @@
-//! The rescue shell: `cmux.terminal.backend/1` (mirror) for kind
-//! `cloud-vm-rescue`, against a fake transport, and `cloud.rescue.open`.
+//! The rescue shell: `cmux.terminal.backend/1` (the shared
+//! `cmux-terminal-iface` crate) for kind `cloud-vm-rescue`, against a fake
+//! transport, and `cloud.rescue.open`.
 
 mod attach_common;
 mod common;
+mod frames_common;
 
 use attach_common::{FakeSpawner, FakeTransport, attach};
-use cmux_cloud::rescue::iface::{
-    BackendError, ByteEvent, ByteTerminal, Close, ExitStatus, Grid, Input, LocalId, OpenRequest,
-    OpenToken, ResumeRequest, ResumeToken, Signal, TerminalBackend,
-};
 use cmux_cloud::rescue::{RescueBackend, TransportEvent};
 use cmux_cloud::{Origin, Request, Server};
+use cmux_terminal_iface::{
+    BackendError, ByteTerminal, Close, End, ExitStatus, FrameBody, Grid, LocalId, OpenRequest,
+    OpenToken, ResumeRequest, ResumeToken, Signal, TerminalBackend,
+};
 use common::FakeControlPlane;
+use frames_common::{Host, exit, lost, not_open};
 use serde_json::json;
 
 fn open_request(kind: &str) -> OpenRequest {
@@ -34,27 +37,21 @@ fn open(transport: &FakeTransport) -> (RescueBackend, Box<dyn ByteTerminal>) {
     (backend, terminal)
 }
 
-fn input(seq: u64, text: &str) -> Input {
-    Input { seq, bytes: text.as_bytes().to_vec() }
-}
-
 #[test]
-fn write_order_is_kept_by_seq() {
+fn input_frames_reach_the_transport_in_order() {
     let transport = FakeTransport::default();
     let (_backend, terminal) = open(&transport);
-    terminal.write(input(1, "b")).expect("ahead is held");
-    assert!(transport.written(1).is_empty(), "nothing before seq 0");
-    terminal.write(input(0, "a")).expect("seq 0");
-    terminal.write(input(2, "c")).expect("seq 2");
-    let again = terminal.write(input(1, "b"));
-    assert!(matches!(again, Err(BackendError::Invalid { .. })), "a seq is written once: {again:?}");
+    let mut host = Host::new(terminal);
+    for text in ["a", "b", "c"] {
+        host.write(text.as_bytes()).expect("write");
+    }
     assert_eq!(transport.written(1), b"abc");
 }
 
 #[test]
 fn resize_reaches_the_transport() {
     let transport = FakeTransport::default();
-    let (_backend, terminal) = open(&transport);
+    let (_backend, mut terminal) = open(&transport);
     terminal.resize(Grid::new(132, 43)).expect("resize");
     assert_eq!(transport.log().resizes, [(1, Grid::new(132, 43))]);
     terminal.signal(Signal::Interrupt).expect("signal");
@@ -68,10 +65,10 @@ fn output_reaches_the_terminal() {
     transport.emit(1, TransportEvent::Output(b"root@vm:~# ".to_vec()));
     transport.emit(1, TransportEvent::Output(b"ls".to_vec()));
     assert_eq!(
-        terminal.take_events(),
+        terminal.take_frames(),
         [
-            ByteEvent::Output { offset: 11, bytes: b"root@vm:~# ".to_vec() },
-            ByteEvent::Output { offset: 13, bytes: b"ls".to_vec() },
+            FrameBody::Data { offset: 11, bytes: b"root@vm:~# ".to_vec() },
+            FrameBody::Data { offset: 13, bytes: b"ls".to_vec() },
         ]
     );
 }
@@ -87,23 +84,25 @@ fn transport_close_gives_the_full_exit_status() {
         message: Some("killed".into()),
     };
     transport.emit(1, TransportEvent::Closed(status.clone()));
-    assert_eq!(terminal.take_events(), [ByteEvent::Exit(status)]);
-    assert!(matches!(terminal.write(input(0, "x")), Err(BackendError::Invalid { .. })));
-    assert!(terminal.take_events().is_empty(), "nothing after the end event");
+    assert_eq!(terminal.take_frames(), [exit(status)]);
+    let late = FrameBody::Data { offset: 1, bytes: b"x".to_vec() };
+    assert!(not_open(terminal.push(late)));
+    assert!(terminal.take_frames().is_empty(), "nothing after the end");
 }
 
 #[test]
 fn close_ends_the_terminal_at_once() {
     let transport = FakeTransport::default();
-    let (_backend, mut terminal) = open(&transport);
-    terminal.write(input(1, "held")).expect("held for seq 0");
-    terminal.close(Close::Graceful).expect("close");
+    let (_backend, terminal) = open(&transport);
+    let mut host = Host::new(terminal);
+    host.write(b"a").expect("write");
+    host.terminal.close(Close::Graceful).expect("close");
     assert_eq!(transport.log().closes, [1]);
-    assert!(transport.log().writes.is_empty(), "held input is never sent after close");
-    assert!(matches!(terminal.write(input(0, "a")), Err(BackendError::Invalid { .. })));
-    assert!(matches!(terminal.close(Close::Now), Err(BackendError::Invalid { .. })));
+    assert!(not_open(host.write(b"b")));
+    assert_eq!(transport.written(1), b"a", "nothing is sent after close");
+    assert!(not_open(host.terminal.close(Close::Now)));
     transport.emit(1, TransportEvent::Output(b"late".to_vec()));
-    assert!(terminal.take_events().is_empty(), "no output after close");
+    assert!(host.take().is_empty(), "no output after close");
 }
 
 #[test]
@@ -117,24 +116,21 @@ fn far_end_text_is_bounded() {
         message: Some("m".repeat(10_000)),
     };
     transport.emit(1, TransportEvent::Closed(status));
-    let events = terminal.take_events();
-    let [ByteEvent::Exit(exit)] = events.as_slice() else { panic!("{events:?}") };
-    assert_eq!(exit.message.as_deref().map(str::len), Some(4096));
-    assert_eq!(exit.signal.as_deref().map(str::len), Some(32));
+    let frames = terminal.take_frames();
+    let [FrameBody::End(End::Exit(status))] = frames.as_slice() else { panic!("{frames:?}") };
+    assert_eq!(status.message.as_deref().map(str::len), Some(4096));
+    assert_eq!(status.signal.as_deref().map(str::len), Some(32));
 }
 
 #[test]
 fn transport_drop_gives_lost_and_no_input_queues() {
     let transport = FakeTransport::default();
-    let (_backend, mut terminal) = open(&transport);
-    terminal.write(input(1, "held")).expect("held for seq 0");
+    let (_backend, terminal) = open(&transport);
+    let mut host = Host::new(terminal);
     transport.emit(1, TransportEvent::Dropped { reason: "network".into(), retryable: true });
-    assert_eq!(
-        terminal.take_events(),
-        [ByteEvent::Lost { reason: "network".into(), retryable: true }]
-    );
-    assert!(matches!(terminal.write(input(0, "a")), Err(BackendError::Invalid { .. })));
-    assert!(matches!(terminal.resize(Grid::new(10, 10)), Err(BackendError::Invalid { .. })));
+    assert_eq!(host.take(), [lost("network", true)]);
+    assert!(not_open(host.write(b"a")));
+    assert!(not_open(host.terminal.resize(Grid::new(10, 10))));
     assert!(transport.log().writes.is_empty(), "nothing reached the transport");
 }
 
@@ -150,6 +146,7 @@ fn the_backend_refuses_kind_ssh_and_resume() {
     assert!(!caps.resume);
     assert!(!caps.answers_queries, "the session host answers terminal queries");
     let resume = ResumeRequest {
+        terminal: "t-1".into(),
         resume_token: ResumeToken("rescue:t-1".into()),
         open_token: OpenToken("open-token-test".into()),
     };
@@ -167,29 +164,17 @@ fn local_ids_follow_the_interface_pattern() {
 #[test]
 fn a_transport_failure_is_a_typed_error_and_ends_the_terminal() {
     let transport = FakeTransport::default();
-    let (_backend, mut terminal) = open(&transport);
-    transport.log().fail_writes = true;
-    let err = terminal.write(input(0, "a")).unwrap_err();
-    assert!(matches!(err, BackendError::Unavailable { retryable: true, .. }), "{err:?}");
-    let events = terminal.take_events();
-    assert!(matches!(events.as_slice(), [ByteEvent::Lost { retryable: true, .. }]), "{events:?}");
-    assert_eq!(transport.log().closes, [1], "the lost stream is closed once");
-    drop(terminal);
-    assert_eq!(transport.log().closes, [1], "and not again on drop");
-}
-
-#[test]
-fn held_input_is_bounded() {
-    let transport = FakeTransport::default();
     let (_backend, terminal) = open(&transport);
-    let chunk = vec![b'x'; 64 * 1024];
-    for seq in 1..=16 {
-        terminal.write(Input { seq, bytes: chunk.clone() }).expect("held");
-    }
-    let full = terminal.write(Input { seq: 17, bytes: chunk });
-    assert!(matches!(full, Err(BackendError::Unavailable { retryable: true, .. })), "{full:?}");
-    terminal.write(input(0, "a")).expect("seq 0 releases the held input");
-    assert_eq!(transport.written(1).len(), 1 + 16 * 64 * 1024);
+    let mut host = Host::new(terminal);
+    transport.log().fail_writes = true;
+    let err = host.write(b"a").unwrap_err();
+    assert!(matches!(err, BackendError::Unavailable { retryable: true, .. }), "{err:?}");
+    let frames = host.take();
+    let [FrameBody::End(End::Lost(far))] = frames.as_slice() else { panic!("{frames:?}") };
+    assert!(far.retryable);
+    assert_eq!(transport.log().closes, [1], "the lost stream is closed once");
+    drop(host);
+    assert_eq!(transport.log().closes, [1], "and not again on drop");
 }
 
 #[test]
@@ -231,7 +216,8 @@ fn rescue_open_focuses_only_for_a_person_or_an_explicit_ask() {
     assert_eq!(transport.log().opened[0], ("vm-alpha01".to_owned(), Grid::new(100, 30)));
     let id = by_user["terminal"].as_str().expect("terminal id").to_owned();
     let terminal = s.attach_mut().rescue_terminal(&id).expect("kept for the daemon");
-    terminal.write(input(0, "ls\r")).expect("write");
+    let input = FrameBody::Data { offset: 3, bytes: b"ls\r".to_vec() };
+    terminal.push(input).expect("write");
     assert_eq!(transport.written(1), b"ls\r");
 }
 

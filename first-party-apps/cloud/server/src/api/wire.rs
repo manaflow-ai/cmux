@@ -1,7 +1,7 @@
 //! One op request as the app supervisor sends it (`apps-run`: op, args,
 //! idempotency key; the origin is stamped by the supervisor).
 
-use crate::rescue::iface::OpenToken;
+use cmux_terminal_iface::OpenToken;
 use serde::Deserialize;
 use serde_json::Value;
 

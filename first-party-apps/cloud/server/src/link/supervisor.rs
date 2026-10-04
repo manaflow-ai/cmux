@@ -6,10 +6,10 @@
 //! reconnects by itself, nothing queues).
 
 use super::argv::{LinkCommand, LinkLine, parse_line};
+use super::channel::{Carrier, CarrierEvent, channel_id};
 use super::dial::DialCode;
 use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag, LinkWake};
 use crate::clock::{Clock, SystemClock, Timer};
-use crate::connector::iface::{Carrier, CarrierEvent, channel_id};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};

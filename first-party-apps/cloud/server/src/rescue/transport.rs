@@ -9,7 +9,7 @@
 //! So production uses [`MissingRescueRoute`], which refuses every open with
 //! `unsupported`. Tests use a fake. No route is invented here.
 
-use super::iface::{BackendError, ExitStatus, Grid, Signal};
+use cmux_terminal_iface::{BackendError, ExitStatus, Grid, Signal};
 
 pub type StreamId = u64;
 
