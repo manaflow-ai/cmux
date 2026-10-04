@@ -56,6 +56,12 @@ impl Hub {
     }
 }
 
+/// Test support: pins a session's current model as a `${model}` request would.
+#[cfg(test)]
+pub(crate) fn set_model_for_test(session: &Session, model: &str) {
+    session.meta.lock().unwrap().model_request = Some(model.to_owned());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
