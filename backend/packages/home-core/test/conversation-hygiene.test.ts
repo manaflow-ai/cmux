@@ -18,7 +18,7 @@ import {
 import { TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "../src/conversation/domain.ts"
 import type { UnreadCounts } from "../src/conversation/fanout.ts"
 import { DomainHost, human, text } from "./support/harness.ts"
-import { ADDRESS, ALICE, BOB, INV, inviteOp } from "./support/cloud.ts"
+import { ADDRESS, ALICE, BOB, CAROL, INV, inviteOp } from "./support/cloud.ts"
 
 /**
  * Owner hygiene (home-messaging.md section 10): the ConversationDO alarm runs the system op
@@ -237,6 +237,49 @@ describe("conversation.sweep: retention", () => {
     // Back, Bob's counts come from the remaining messages (m2, m3), not from the stale row with the expired m1.
     const back = bumpsOf(host).find((b) => b.user === BOB)!
     expect([back.unread, back.mentions]).toEqual([2, 0])
+  })
+
+  const sinceJoin = (host: DomainHost<ConversationState, ConversationParams>) =>
+    expect(host.run(session(ALICE, "Alice"), "conversation.settings.set", { history_visible: "since_join" }, "since-join")).toMatchObject({ ok: true })
+
+  it("since_join: expired history from before a member joined never enters that member's lowered counts", () => {
+    const host = new DomainHost<ConversationState, ConversationParams>(makeConversationDomain({ participantPolicy: (_principal, participant) => ({ ok: true, display_name: participant.display_name }) }))
+    expect(host.run(session(ALICE, "Alice"), "conversation.create", { id: "conv_GROUP", kind: "group", title: "Team", participants: [human(ALICE, "Alice"), human(BOB, "Bob")], retention_days: 30 }, "create")).toMatchObject({ ok: true })
+    sinceJoin(host)
+    send(host, "m1")
+    send(host, "m2")
+    host.now += 20 * DAY
+    send(host, "m3")
+    // Carol joins after m3: m1..m3 are history she cannot see.
+    expect(host.run(session(ALICE, "Alice"), "participants.add", { participant: human(CAROL, "Carol") }, "add-carol")).toMatchObject({ ok: true })
+    send(host, "m4")
+    expect(stored(host, CAROL)).toEqual({ unread: 1, mentions: 0 })
+    host.now += 11 * DAY
+    host.outbox.length = 0
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { through_seq: 2, deleted: 2 } } })
+    // m1 and m2 were never in Carol's counts, and the remaining m3 is before her join: her count stays 1, no bump.
+    expect(stored(host, CAROL)).toEqual({ unread: 1, mentions: 0 })
+    expect(bumpsOf(host).map((b) => b.user)).not.toContain(CAROL)
+    // Bob saw everything: he loses m1 and m2.
+    expect(stored(host, BOB)).toEqual({ unread: 2, mentions: 0 })
+  })
+
+  it("since_join: a rejoined member's lowered counts start at the rejoin, not at the old read cursor", () => {
+    const host = group(30)
+    sinceJoin(host)
+    expect(host.run(session(BOB, "Bob"), "participants.remove", { participant: BOB }, "bob-leaves")).toMatchObject({ ok: true })
+    send(host, "m1")
+    host.now += 20 * DAY
+    send(host, "m2")
+    expect(host.run(session(ALICE, "Alice"), "participants.add", { participant: human(BOB, "Bob") }, "bob-back")).toMatchObject({ ok: true })
+    send(host, "m3")
+    // Back after m2, Bob counts only m3; his read cursor is still from before he left.
+    expect(stored(host, BOB)).toEqual({ unread: 1, mentions: 0 })
+    host.now += 11 * DAY
+    host.outbox.length = 0
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { through_seq: seqOf(host, "m2") - 1, deleted: 1 } } })
+    expect(stored(host, BOB)).toEqual({ unread: 1, mentions: 0 })
+    expect(bumpsOf(host).map((b) => b.user)).not.toContain(BOB)
   })
 
   it("only the owner itself runs it: a participant is refused", () => {
