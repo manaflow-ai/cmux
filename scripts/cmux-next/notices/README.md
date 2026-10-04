@@ -18,6 +18,9 @@ stale). Do not edit it by hand.
   and fails on an unmapped binary or a missing notice. Add a map entry in the
   same change that adds a binary to the bundle.
 
+CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
+CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
+
 Planned: Ghostty's Zig packages (replaces part of the hand-written Ghostty
-section), CEF's own LICENSE.txt in the framework, release-time regeneration in
-nightly-next, and the exact `cargo tree` closure where cargo runs.
+section), release-time regeneration in nightly-next, and the exact `cargo tree`
+closure where cargo runs.

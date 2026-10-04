@@ -50,6 +50,11 @@
 #          git tag -a cmux-tui-src-<first 11 of sha> <full sha> -m "source for vendored cmux-tui crates"
 #          git push origin refs/tags/cmux-tui-src-<first 11 of sha>
 #        Never move or delete these tags.
+#     6. Third-party notices: when cmux-tui.pin moves, regenerate them with
+#        ./scripts/cmux-next/generate-third-party-notices.sh and commit
+#        THIRD_PARTY_LICENSES.md (and cmux-tui/build-support/notices/REVIEW.md
+#        when it changes) with the pin. The cmux-tui-src-<first 11 of sha> tag
+#        from step 5 must exist first; the generator refuses without it.
 #
 # App host (cmux-app-host, apps-v1): both modes also fetch the app host the
 #   same build published, cmux-tui-app-host-<target> in the commit-addressed
