@@ -26,7 +26,7 @@ import {
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
 const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete"])
-const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.driver_result", "cloud.watch_result", "cloud.prune"])
+const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
 const forbidden = (entity: string, key: string): SubmitResult => ({
   frames: [
     { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "not this team's machines", retryable: false, replayed: false },
@@ -348,6 +348,28 @@ export class CloudDO extends OwnerDO<CloudState> {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
+  /**
+   * Operator action (route /v1/admin/cloud/abandoned/clear: admin key plus a person's session):
+   * clear one abandoned ledger row. Refused unless a provider lookup of the recorded name, done
+   * now, finds no VM. The clear and its audit row (who, when, why) commit together.
+   */
+  async clearAbandoned(entity: string, machine: string, who: { user: string; email: string | null }, reason: string): Promise<{ ok: true; audit: Record<string, unknown> } | { ok: false; code: string; message: string }> {
+    const engine = this.boundEngine
+    if (!engine || this.boundEntity() !== entity) return { ok: false, code: "not_abandoned", message: "no abandoned ledger row for that machine" }
+    const stored = engine.rows.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }).find((l) => l.row.machine === machine && l.row.state === "abandoned")
+    if (!stored) return { ok: false, code: "not_abandoned", message: "no abandoned ledger row for that machine" }
+    const driver = cloudDriver(this.env, this.sqlStore)
+    if (!driver) return { ok: false, code: "provider_unavailable", message: "no Cloud provider is configured, so the recorded name cannot be checked" }
+    const found = await driver.peek(stored.row.provider_name).catch(() => undefined)
+    if (found === undefined) return { ok: false, code: "provider_unavailable", message: "the provider lookup failed; try again" }
+    if (found !== null) return { ok: false, code: "vm_present", message: "a VM exists under the recorded name; delete or adopt it by hand first" }
+    const r = this.submitSystem("cloud.abandoned_clear", { key: stored.key, by: who.user, by_email: who.email, reason, at: Date.now() }, `abandoned-clear:${stored.key}`)
+    const f = r.frames.find((x: OwnerFrame) => x.t === "result" || x.t === "reject") as { t: string; value?: { audit: Record<string, unknown> }; code?: string; message?: string } | undefined
+    if (!f || f.t !== "result" || !f.value) return { ok: false, code: f?.code ?? "not_abandoned", message: f?.message ?? "not cleared" }
+    console.warn(JSON.stringify({ event: "cloud.abandoned.cleared", team: entity, machine, by: who.user, reason_chars: reason.length }))
+    return { ok: true, audit: f.value.audit }
+  }
+
   async fakeControl(cmd: { fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
