@@ -99,6 +99,20 @@ final class ScriptedPageDriver: BrowserReplDriver, @unchecked Sendable {
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
     func detach() {}
 
+    private var secretCheck: (@Sendable (String, Int) -> Bool)?
+
+    func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool) {
+        lock.withLock { secretCheck = isCurrent }
+    }
+
+    /// What the session's secret check, which the app's driver asks right
+    /// before it types, says of a secret `input.insertText` call; `nil`
+    /// without a check or a secret.
+    func secretIsCurrent(_ params: [String: Any]) -> Bool? {
+        guard let name = params["secretName"] as? String,
+              let check = lock.withLock({ secretCheck }) else { return nil }
+        return check(name, (params["secretRevision"] as? NSNumber)?.intValue ?? -1)
+    }
 }
 
 /// Serves canned HTTP/1.1 responses on 127.0.0.1 for fetch tests.
@@ -332,6 +346,26 @@ struct BrowserReplBoundaryTests {
         #expect(leaked.isEmpty, "\(leaked)")
         // The retry reached the driver with the secret's domains and was refused there.
         #expect(driver.refusedSecrets.contains { $0.contains("evil.test") }, "\(driver.methods())")
+    }
+
+    @Test("A secret deleted or set again after its insert was made is not typed from that call")
+    func revokedSecretIsNotTypedFromAnEarlierCall() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try makeSession(driver)
+        defer { session.close() }
+        _ = await run(session, """
+        secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        await page.goto("https://example.com/login");
+        await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
+        """)
+        let call = try #require(driver.params("input.insertText").last { $0["secretName"] != nil })
+        #expect(driver.secretIsCurrent(call) == true, "the check refused the secret the session holds")
+        _ = await run(session, #"secrets.delete("k");"#)
+        #expect(driver.secretIsCurrent(call) == false, "a secret deleted after the call was made could still be typed")
+        _ = await run(session, """
+        secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        """)
+        #expect(driver.secretIsCurrent(call) == false, "a secret set again after the call was made passed for the earlier one")
     }
 
     @Test("Masking a capture never sends a secret's value to a page script world")

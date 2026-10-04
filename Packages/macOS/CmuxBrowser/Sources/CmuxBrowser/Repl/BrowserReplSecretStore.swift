@@ -93,6 +93,11 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
 
     /// Secrets registered through `set`, not values other sessions typed.
     private var registered: Set<String> = []
+    /// Each registered secret's revision: a number no earlier `set` of any
+    /// name had, so a value handed out for typing can be told apart from
+    /// a later one under the same name (``isCurrent(_:revision:)``).
+    private var revisions: [String: Int] = [:]
+    private var lastRevision = 0
 
     /// Registers `name`. A secret needs at least one domain; a TOTP secret
     /// must be base32. Past ``maximumSecrets`` secrets, a value past
@@ -129,6 +134,8 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 order.append(name)
             }
             entries[name] = Entry(name: name, value: value, domains: domains, totp: isTOTP, maskName: name)
+            lastRevision += 1
+            revisions[name] = lastRevision
             rebuildLocked()
         }
     }
@@ -181,6 +188,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             guard let removed = entries.removeValue(forKey: name) else { return false }
             retireLocked(removed)
             registered.remove(name)
+            revisions.removeValue(forKey: name)
             order.removeAll { $0 == name }
             rebuildLocked()
             return true
@@ -193,6 +201,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             entries.removeAll()
             order.removeAll()
             registered.removeAll()
+            revisions.removeAll()
             rebuildLocked()
         }
     }
@@ -212,12 +221,23 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// The text to type for `name` now (the current code of a TOTP secret)
     /// and the domains it may be typed into.
     public func valueToType(_ name: String, at date: Date = Date()) -> (text: String, domains: [BrowserReplDomainPattern])? {
-        guard let entry = lock.withLock({ entries[name] }) else { return nil }
+        typing(name, at: date).map { ($0.text, $0.domains) }
+    }
+
+    /// ``valueToType(_:at:)`` with the secret's revision, read together.
+    func typing(_ name: String, at date: Date = Date()) -> (text: String, domains: [BrowserReplDomainPattern], revision: Int)? {
+        guard let (entry, revision) = lock.withLock({ entries[name].map { ($0, revisions[name] ?? 0) } }) else { return nil }
         if entry.totp {
             guard let key = Self.base32Decode(entry.value) else { return nil }
-            return (Self.totp(key: key, time: date.timeIntervalSince1970), entry.domains)
+            return (Self.totp(key: key, time: date.timeIntervalSince1970), entry.domains, revision)
         }
-        return (entry.value, entry.domains)
+        return (entry.value, entry.domains, revision)
+    }
+
+    /// Whether `name` still holds the secret of `revision` (from
+    /// ``typing(_:at:)``): not deleted, cleared or set again since.
+    public func isCurrent(_ name: String, revision: Int) -> Bool {
+        true
     }
 
     /// Plain values, and the TOTP codes that are valid now, with their

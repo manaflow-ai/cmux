@@ -72,7 +72,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// masked by the driver instead.
     static let binaryMethods: Set<String> = ["tab.screenshot", "tab.pdf"]
     /// Parameters only the session may set on a driver call.
-    static let reservedParameters = ["secretName", "secretDomains", "secretMasks", "secretMasksTakenAt"]
+    static let reservedParameters = ["secretName", "secretDomains", "secretRevision", "secretMasks", "secretMasksTakenAt"]
 
     var domainPolicy: BrowserReplDomainPolicy { lock.withLock { policy } }
 
@@ -212,13 +212,16 @@ final class BrowserReplBoundary: @unchecked Sendable {
         switch method {
         case "input.insertText":
             if let name = params.removeValue(forKey: "secret") {
-                guard let name = name as? String, let typed = secrets.valueToType(name) else {
+                guard let name = name as? String, let typed = secrets.typing(name) else {
                     let quoted = JSONSerialization.browserReplString(name) ?? "?"
                     return .failure(BrowserReplDriverError(code: "invalid", message: "secret \(quoted) was deleted"))
                 }
                 params["text"] = typed.text
                 params["secretName"] = name
                 params["secretDomains"] = typed.domains.map(\.json)
+                // The driver asks again right before typing
+                // (``secretIsCurrent(name:revision:)``).
+                params["secretRevision"] = typed.revision
             }
         case "tab.navigate", "tabs.open":
             if let url = params["url"] as? String {
@@ -251,6 +254,14 @@ final class BrowserReplBoundary: @unchecked Sendable {
             break
         }
         return .success(JSONSerialization.browserReplString(params) ?? "{}")
+    }
+
+    /// Whether the secret an `input.insertText` call carries (its
+    /// `secretName` and `secretRevision`) is still the one the session
+    /// holds: the driver asks right before it types the value, so a secret
+    /// deleted, cleared or replaced since the call was made is never typed.
+    func secretIsCurrent(name: String, revision: Int) -> Bool {
+        secrets.isCurrent(name, revision: revision)
     }
 
     /// A capture's result, refused (`stale`) when the session could have

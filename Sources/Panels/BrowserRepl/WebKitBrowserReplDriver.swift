@@ -101,6 +101,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         BrowserReplTabAttachments.typedSecrets.redaction(forReader: sessionID)
     }
 
+    /// The session's check that a secret a call carries is still the one it
+    /// holds (``BrowserReplDriver/setSecretCheck(_:)``); `nil` refuses
+    /// every secret.
+    private var secretCheck: (@Sendable (String, Int) -> Bool)?
+
+    func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool) {
+        lock.withLock { secretCheck = isCurrent }
+    }
+
     /// Publishes `policy` to the navigation checks before it returns
     /// (``BrowserReplPolicyBoard``): the next navigation or popup of the
     /// session's tabs is judged by it. WebKit compiles its content rules
@@ -2492,6 +2501,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 webView: panel.webView,
                 frames: frames
             )
+            // The agent may have deleted or set the secret again since the
+            // call was made: the value in `text` is then not one the session
+            // holds under that name, and is not typed. Asked on the commit's
+            // main-actor turn, after the last wait.
+            let revision = (params["secretRevision"] as? NSNumber)?.intValue ?? -1
+            guard self.lock.withLock({ self.secretCheck })?(name, revision) == true else {
+                throw Self.error("invalid", "secret \"\(name)\" was deleted or set again after this call was made, so its earlier value is not typed")
+            }
             // Recorded once the domain check passes and before typing, on
             // the same main-actor turn as the commit: other sessions that
             // read the tab do not hold the secret, so the tab keeps it

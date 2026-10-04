@@ -62,6 +62,15 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
     /// responses, files written and read back, output lines, errors,
     /// results and events). Called from any thread.
     func typedSecretRedaction() -> BrowserReplSecretStore?
+
+    /// Gives the driver the session's check that a secret an
+    /// `input.insertText` call carries (`secretName`, `secretRevision`) is
+    /// still the one the session holds under that name: the session filled
+    /// the value in when the call was made, and the agent may delete or
+    /// replace the secret before the driver types it. The driver asks right
+    /// before it commits the text and refuses a secret that fails. The
+    /// session calls this, never JavaScript.
+    func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool)
 }
 
 extension BrowserReplDriver {
@@ -70,6 +79,8 @@ extension BrowserReplDriver {
     public func setFileRoots(_ roots: [String]) {}
 
     public func typedSecretRedaction() -> BrowserReplSecretStore? { nil }
+
+    public func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool) {}
 }
 
 /// JSON helpers for values crossing the JavaScriptCore bridge.

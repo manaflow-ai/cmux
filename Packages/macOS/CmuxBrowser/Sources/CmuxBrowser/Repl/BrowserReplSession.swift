@@ -481,6 +481,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         fetcher.setBlockReason { url in boundary.blockReason(url) }
         boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
         driver.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
+        driver.setSecretCheck { name, revision in boundary.secretIsCurrent(name: name, revision: revision) }
     }
 
     /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random><suffix>`, a
