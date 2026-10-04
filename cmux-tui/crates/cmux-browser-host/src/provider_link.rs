@@ -387,5 +387,8 @@ pub fn target_payload(target_id: &str) -> Value {
 mod tests;
 
 #[cfg(test)]
+mod input_tests;
+
+#[cfg(test)]
 #[path = "provider_link_table_tests.rs"]
 mod table_tests;
