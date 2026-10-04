@@ -32,18 +32,33 @@ extension AgentTabStore {
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
             let request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key)
             let response = try await connection.request(request)
-            return AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)", surface: response.surface)
+            let created = AgentTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
+                                          surface: response.surface)
+            // Every event the daemon sent before the reply: the provisional tab settles there.
+            return (created, await connection.eventSequence())
         }
-        tabs.bind = { [weak services] key, session in
-            guard let services, let (tab, _) = services.locateTab(key) else { return }
-            let daemon = services.machines.daemon(forTab: tab)
-            let surface = tab.surface
-            services.registry.track(Task {
-                let ok = await daemon.run(BindConversationTabSessionRequest.command) { connection in
-                    _ = try await connection.request(BindConversationTabSessionRequest(surface: surface, session: session))
+        tabs.bind = { [weak services] key, expected, session, done in
+            guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else {
+                return done(.failed)
+            }
+            let request = BindConversationTabSessionRequest(surface: tab.surface, session: session, expectedSession: expected)
+            let logger = services.daemon.logger
+            // task-owner: one compare-and-swap; its answer settles the tab's sent session
+            Task {
+                do {
+                    _ = try await connection.request(request)
+                    done(.taken)
+                } catch {
+                    let text = String(describing: error)
+                    logger.error("bind-conversation-tab-session: \(text, privacy: .public)")
+                    done(text.contains(BindConversationTabSessionRequest.conflictPrefix) ? .conflict : .failed)
                 }
-                return ok ? nil : "bind-conversation-tab-session failed (see the app log)"
-            })
+            }
+        }
+        // task-owner: one read of this Mac's name, shown to Macs that see its tabs
+        Task { [weak tabs] in
+            let name = await MacName.computerName()
+            tabs?.localHostName = name
         }
         services.madeAgentTabs = tabs
         return tabs

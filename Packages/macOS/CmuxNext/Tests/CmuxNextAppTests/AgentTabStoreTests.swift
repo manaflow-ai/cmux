@@ -39,6 +39,74 @@ struct AgentTabStoreTests {
         #expect(fixture.tabs.view(for: "tab_elsewhere") == nil)
     }
 
+    /// The user changes the chat in a tab: a compare-and-swap from the session the store has.
+    /// A change another device made first is refused (the registry says why) and the next
+    /// change expects the store's session again.
+    @Test func changingTheChatInATabIsACompareAndSwap() async throws {
+        let fixture = try AgentTabFixture()
+        let key = try await fixture.open(session: "s-1")
+        let view = try #require(fixture.tabs.view(for: key))
+        _ = await view.model.respond(to: .persistSession("s-2"))
+        #expect(fixture.binds.last?.session == "s-2" && fixture.bindExpectations.last == "s-1")
+        #expect(fixture.tabs.sentSessions[key] == "s-2", "kept until the store's record shows it")
+        fixture.bindAnswer = .conflict
+        _ = await view.model.respond(to: .persistSession("s-3"))
+        #expect(fixture.bindExpectations.last == "s-2", "the next change expects the session the store took")
+        #expect(fixture.tabs.sentSessions[key] == nil, "a refused change leaves nothing in flight")
+    }
+
+    /// A creation the store refuses rolls back visibly: the tab shown at once goes away and its
+    /// view state with it.
+    @Test func aRefusedCreationRemovesTheTabShownAtOnce() async throws {
+        let fixture = try AgentTabFixture()
+        fixture.holdCreate = { }
+        fixture.tabs.create = { _, _, _, _ in throw DaemonError.notConnected }
+        let pending = try fixture.tabs.open(in: 3, of: fixture.service, session: "s-1")
+        #expect(fixture.shownAgentTabs.count == 1, "shown before the store answers")
+        await #expect(throws: DaemonError.self) { _ = try await pending.value() }
+        #expect(fixture.shownAgentTabs.isEmpty, "the refusal removes it")
+        #expect(fixture.tabs.session(of: pending.key) == nil)
+    }
+
+    /// A pane whose daemon is not connected gets no tab: nothing is shown and nothing queues.
+    @Test func aDisconnectedDaemonGetsNoTab() throws {
+        let fixture = try AgentTabFixture()
+        fixture.tabs.reachable = { _ in false }
+        #expect(throws: AgentTabRefusal.self) { _ = try fixture.tabs.open(in: 3, of: fixture.service) }
+        #expect(fixture.shownAgentTabs.isEmpty && fixture.creations.isEmpty)
+    }
+
+    /// Close on a tab the store is still creating closes the store's tab once it answers.
+    @Test func closingATabBeingCreatedClosesItWhenTheStoreAnswers() async throws {
+        let fixture = try AgentTabFixture()
+        let (gate, release) = AsyncStream<Void>.makeStream()
+        fixture.holdCreate = { for await _ in gate { return } }
+        let pending = try fixture.tabs.open(in: 3, of: fixture.service)
+        var closed: [String] = []
+        #expect(fixture.tabs.closeWhenCreated(pending.key) { closed.append($0) })
+        release.yield()
+        let created = try await pending.value()
+        #expect(closed == [created.key])
+        #expect(!fixture.tabs.closeWhenCreated(created.key) { _ in }, "a created tab closes through the daemon")
+    }
+
+    @Test func aHostNameIsCleanedForTheStore() {
+        #expect(AgentTabStore.displayName("Studio\u{0}\n") == "Studio")
+        #expect(AgentTabStore.displayName(String(repeating: "é", count: 200))?.utf8.count ?? 0 <= 255)
+        #expect(AgentTabStore.displayName(" \u{7} ") == nil)
+    }
+
+    /// A tab whose session runs on another Mac says so instead of showing an empty pane.
+    @Test func aTabOfAnotherHostShowsWhereItRuns() throws {
+        let record = AgentSessionRef(host: "install:other-mac", hostName: "Studio", session: "s-7")
+        let fixture = try AgentTabFixture(tree: [AgentTabFixture.tab(50, "tab_elsewhere", record)])
+        let notice = try #require(fixture.tabs.notice(for: "tab_elsewhere"))
+        #expect(notice.message == RemoteStrings.agentTabElsewhere("Studio"))
+        let unnamed = try AgentTabFixture(tree: [AgentTabFixture.tab(51, "tab_far", AgentSessionRef(host: "install:x", session: "s"))])
+        #expect(unnamed.tabs.notice(for: "tab_far")?.message == RemoteStrings.agentTabElsewhereUnknown)
+        #expect(fixture.tabs.notice(for: "tab_a") == nil, "a terminal tab gets no notice")
+    }
+
     /// A new chat's session is written to the store once; the page reporting it again binds
     /// nothing more.
     @Test func aNewChatsSessionIsBoundOnce() async throws {
@@ -58,7 +126,7 @@ struct AgentTabStoreTests {
         let fixture = try AgentTabFixture()
         let chat = AgentPaneAdopt(harness: "claude", agentSessionId: "0a1b2c3d")
         #expect(fixture.tabs.tab(resuming: chat) == nil)
-        let first = try await fixture.tabs.open(in: 3, of: fixture.service, adopt: chat).key
+        let first = try await fixture.tabs.open(in: 3, of: fixture.service, adopt: chat).value().key
         #expect(fixture.tabs.tab(resuming: chat) == first)
         #expect(fixture.creations.last?.record.harness == "claude")
         #expect(fixture.tabs.tab(resuming: AgentPaneAdopt(harness: "codex", agentSessionId: "0a1b2c3d")) == nil, "the id is per harness")

@@ -32,13 +32,24 @@ final class AgentTabStore {
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
-    /// the pane's daemon).
+    /// the pane's daemon). Returns it and the daemon event sequence read after the reply (nil
+    /// when the connection ended: the next snapshot holds the tab).
     var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String) async throws
-        -> AgentTabCreated = { _, _, _, _ in throw DaemonError.notConnected }
+        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _ in throw DaemonError.notConnected }
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
-    /// Records a new chat's session on its store tab (AppServices: `bind-conversation-tab-session`).
-    var bind: @MainActor (_ key: String, _ session: String) -> Void = { _, _ in }
+    /// Sets a tab's session on its store tab by compare-and-swap from `expected` (AppServices:
+    /// `bind-conversation-tab-session`); `done` gets the store's answer.
+    var bind: @MainActor (_ key: String, _ expected: String?, _ session: String, _ done: @escaping @MainActor (AgentSessionBindOutcome) -> Void) -> Void = { _, _, _, done in done(.taken) }
+    /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
+    var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
+    /// Tabs closed while the store was still creating them: closed when it answers.
+    var pendingCloses: [String: @MainActor (String) -> Void] = [:]
+    /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): at most
+    /// 255 bytes, no control characters (the store refuses others).
+    var localHostName: String? {
+        didSet { localHostName = localHostName.flatMap(Self.displayName) }
+    }
     /// Reads this Mac's `install:<id>` (AppServices: the Cloud device id), on need.
     var resolveLocalHost: @MainActor () -> String? = { nil }
     private var resolvedLocalHost: String?
@@ -52,6 +63,16 @@ final class AgentTabStore {
         set { resolvedLocalHost = newValue }
     }
     var views: [String: AgentPaneView] = [:]
+    /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
+    var notices: [String: AgentTabElsewhereView] = [:]
+    /// A provisional tab's id -> the store's id once the creation answered
+    /// (``AgentTabStore/rekey(_:to:)``): a page shown under either id is one page.
+    var aliases: [String: String] = [:]
+    /// Tabs a live tree has listed: only those can be gone from it.
+    var seenLive: Set<String> = []
+    /// The session each tab last sent in a bind, until the store answers it: the next bind
+    /// expects it.
+    var sentSessions: [String: String] = [:]
     /// The tree each opened or shown tab belongs to, so a tab closed out of sight (by the CLI,
     /// another client, its pane closing) lets its view state go once that tree is live without it.
     var tabStores: [String: DaemonStore] = [:]
@@ -82,8 +103,8 @@ final class AgentTabStore {
     /// `labs.previewFeatures`, pushed to every page like the shortcuts.
     private var previewFeatures = false
     private var previewObservation: Task<Void, Never>?
-    private weak var actionRegistry: ActionRegistry?
-    private var checkpointFocusTab: String?
+    weak var actionRegistry: ActionRegistry?
+    var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
     private let linkScheme: String?
     /// Tabs a `cmux://session/<id>` link opened: their page refuses a
@@ -167,22 +188,31 @@ final class AgentTabStore {
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
-    func session(of key: String) -> String? { sessions[key] ?? lookup(key)?.record.session }
+    func session(of key: String) -> String? {
+        let key = resolve(key)
+        return sessions[key] ?? lookup(key)?.record.session
+    }
+
+    /// The store's id of `key` (a provisional id after its creation answered).
+    func resolve(_ key: String) -> String { aliases[key] ?? key }
 
     /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
     /// through its page, or with the handshake of a page not made yet.
     func revealTurn(_ turn: String, in key: String) {
+        let key = resolve(key)
         if let view = views[key] { view.revealTurn(turn) } else { pendingTurns[key] = turn }
     }
 
     /// The link turn tab `key`'s page has not been handed yet.
     func pendingTurn(in key: String) -> String? {
-        views[key]?.model.pendingRevealTurn ?? pendingTurns[key]
+        let key = resolve(key)
+        return views[key]?.model.pendingRevealTurn ?? pendingTurns[key]
     }
 
     /// The tab's pane view, made on first show. Nil for a tab whose session runs on another
     /// machine's acpmux: this Mac does not attach to it.
     func view(for key: String) -> AgentPaneView? {
+        let key = resolve(key)
         if let view = views[key] { return view }
         guard let (record, store) = lookup(key), record.host == localHost else { return nil }
         let model = AgentPaneModel(
@@ -209,23 +239,33 @@ final class AgentTabStore {
     }
 
     /// Tab `key`'s callbacks on its page's model.
-    func wire(_ model: AgentPaneModel, key: String) {
+    /// Tab `key`'s callbacks on its page's model. Each resolves the tab's current id when it
+    /// runs, so a page made under a provisional id keeps working under the store's.
+    func wire(_ model: AgentPaneModel, key provisional: String) {
         model.onSessionChange = { [weak self] session in
             guard let self else { return }
+            let key = resolve(provisional)
             newTabPages[key]?.handler.becameChat()
             newTabPages[key] = nil
             views[key]?.applyTheme() // now the agent chat surface (R55)
-            // The store records the session once, so the tab reopens on it after relaunch.
-            let bound = sessions[key] ?? lookup(key)?.record.session
             sessions[key] = session
-            if bound != session { bind(key, session) }
+            sendSession(session, for: key)
         }
-        model.onOpenTab = { [weak self] request in BenchSpans.mark("bridge.tab.open"); self?.newTabPages[key]?.handler.open(key, request) }
-        model.onTypeAhead = { [weak self] text in self?.newTabPages[key]?.handler.typeAhead(key, text) }
-        model.onRememberNewTab = { [weak self] agent in self?.newTabPages[key]?.handler.remember(agent) }
-        model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
-        model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
-        model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
+        model.onOpenTab = { [weak self] request in
+            BenchSpans.mark("bridge.tab.open")
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.open(key, request)
+        }
+        model.onTypeAhead = { [weak self] text in
+            guard let self else { return }
+            let key = resolve(provisional)
+            newTabPages[key]?.handler.typeAhead(key, text)
+        }
+        model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
+        model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
+        model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
+        model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
         model.onRunAction = { [weak self] id in
             _ = self?.actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
         }
@@ -245,10 +285,12 @@ final class AgentTabStore {
         return view
     }
 
-    func existingView(_ key: String) -> AgentPaneView? { views[key] }
+    func existingView(_ key: String) -> AgentPaneView? { views[resolve(key)] }
+
+    func newTabPage(_ key: String) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? { newTabPages[resolve(key)] }
 
     /// The tab still shows the new tab page (it has not become a chat).
-    func isNewTabPage(_ key: String) -> Bool { newTabPages[key] != nil }
+    func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
 
     /// A new chat outside any pane (onboarding's first task), on the same
     /// daemon and page as the tabs. The caller owns it and closes it.
@@ -268,7 +310,7 @@ final class AgentTabStore {
     }
     private func publishCheckpointAvailability() {
         guard let registry = actionRegistry else { return }
-        let available = checkpointFocusTab.flatMap { views[$0] }?.model.checkpointAvailable == true
+        let available = checkpointFocusTab.flatMap { views[resolve($0)] }?.model.checkpointAvailable == true
         var next = registry.context
         if available { next.insert(.checkpointCaptureAvailable) }
         else { next.remove(.checkpointCaptureAvailable) }
@@ -284,4 +326,26 @@ final class AgentTabStore {
 struct AgentTabCreated: Sendable, Equatable {
     var key: String
     var surface: SurfaceID
+}
+
+/// What the store answered a session bind.
+enum AgentSessionBindOutcome: Equatable {
+    case taken
+    /// Another device changed the tab's chat first (`conversation_tab.session_conflict`).
+    case conflict
+    /// The bind did not reach the store or failed otherwise.
+    case failed
+}
+
+extension AgentTabStore {
+    /// `name` without control characters, cut to 255 bytes on a character boundary; nil when empty.
+    static func displayName(_ name: String) -> String? {
+        var result = ""
+        for character in name where !character.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
+            guard result.utf8.count + String(character).utf8.count <= 255 else { break }
+            result.append(character)
+        }
+        let trimmed = result.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }

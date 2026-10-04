@@ -49,7 +49,7 @@ enum AgentTabImport {
                 guard let session = record.session else { continue } // an empty new chat is not restored
                 do {
                     let created = try await services.agentTabs.open(in: pane.handle, of: daemon, session: session,
-                                                                    idempotencyKey: key(for: record.id))
+                                                                    idempotencyKey: key(for: record.id)).value()
                     renamed[record.id] = created.key
                     // Windows restored before the import showed the old tab: they show the store tab.
                     for controller in services.windows.controllers where controller.state.selection.selection(in: pane.id) == record.id {

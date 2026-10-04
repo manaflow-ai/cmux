@@ -76,8 +76,10 @@ public struct NewConversationTabRequest: DaemonRequest {
     }
 }
 
-/// Sets the acpmux session of an agent chat tab once (`agent-session-tabs-v1`): a new chat
-/// whose page started its session. The same session again replays; another one is refused.
+/// Sets the acpmux session of an agent chat tab by compare-and-swap (`agent-session-tabs-v1`):
+/// it applies only while the tab shows `expectedSession` (nil: no session yet). The same session
+/// again replays; a tab whose session changed elsewhere refuses it with
+/// `conversation_tab.session_conflict:` and its current session.
 public struct BindConversationTabSessionRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var surface: SurfaceID
@@ -86,9 +88,27 @@ public struct BindConversationTabSessionRequest: DaemonRequest {
     public static let command = "bind-conversation-tab-session"
     public var surface: SurfaceID
     public var session: String
+    public var expectedSession: String?
 
-    public init(surface: SurfaceID, session: String) {
+    public init(surface: SurfaceID, session: String, expectedSession: String? = nil) {
         self.surface = surface
         self.session = session
+        self.expectedSession = expectedSession
     }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, session
+        case expectedSession = "expected_session"
+    }
+
+    /// `expected_session` is always sent: null is the expectation "no session yet".
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(surface, forKey: .surface)
+        try c.encode(session, forKey: .session)
+        try c.encode(expectedSession, forKey: .expectedSession)
+    }
+
+    /// The refusal prefix of a compare-and-swap that found another session.
+    public static let conflictPrefix = "conversation_tab.session_conflict"
 }

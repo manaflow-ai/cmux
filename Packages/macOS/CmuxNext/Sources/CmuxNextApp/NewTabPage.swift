@@ -193,17 +193,15 @@ extension PaneController {
             if let self { BenchSpans.measure("newTab.replace") { NewTabPage.replace(key, with: request, cwd: request.cwd ?? cwd, in: self) } }
         }
         let spare = services.newTabSpares.take(for: view.window)
-        // The store places the tab; the adopted page shows once the store reports it.
-        openAgentTab(newTab: (page, handler), spare: spare?.view) { [weak self] _ in
-            guard let self else { return }
-            // The adopted page is alive: show it this frame and give it the keyboard now, so the
-            // first key typed after the open reaches its field (fleet test: it went to the old responder).
-            if spare != nil, services.presentation.showNow(self) {
-                services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
-            }
-            services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
-                                               milliseconds: NewTabSparePool.milliseconds(since: start)))
+        // The tab shows at once (a store intent); the store's tab replaces it when it answers.
+        guard openAgentTab(newTab: (page, handler), spare: spare?.view) else { return }
+        // The adopted page is alive: show it this frame and give it the keyboard now, so the
+        // first key typed after the open reaches its field (fleet test: it went to the old responder).
+        if spare != nil, services.presentation.showNow(self) {
+            services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
         }
+        services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
+                                           milliseconds: NewTabSparePool.milliseconds(since: start)))
     }
 
     /// Focus Location Bar: a browser tab's address bar; the field of a new tab

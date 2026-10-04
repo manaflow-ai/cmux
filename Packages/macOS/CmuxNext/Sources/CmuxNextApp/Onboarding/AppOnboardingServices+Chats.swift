@@ -90,7 +90,7 @@ extension AppOnboardingServices {
             var last: AgentTabCreated?
             for adopt in adopts where tabs.tab(resuming: adopt) == nil {
                 do {
-                    last = try await tabs.open(in: handle, of: daemon, seed: AgentPaneSeedSource(AgentPaneSeed(adopt: adopt)), adopt: adopt)
+                    last = try await tabs.open(in: handle, of: daemon, seed: AgentPaneSeedSource(AgentPaneSeed(adopt: adopt)), adopt: adopt).value()
                 } catch {
                     return "onboarding chats: \(error)"
                 }

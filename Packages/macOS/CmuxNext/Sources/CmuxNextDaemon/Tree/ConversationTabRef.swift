@@ -43,16 +43,24 @@ public struct ConversationTabRef: Sendable, Hashable, Codable {
 public struct AgentSessionRef: Sendable, Hashable, Codable {
     /// `install:<id>` of the machine whose acpmux runs the session. Only that machine attaches.
     public var host: String
-    /// The acpmux session; nil for a new chat until its page starts one
-    /// (`bind-conversation-tab-session` sets it once).
+    /// That machine's name for display ("This chat runs on <name>"), when known.
+    public var hostName: String?
+    /// The acpmux session; nil for a new chat until its page starts one. The
+    /// `bind-conversation-tab-session` compare-and-swap changes it.
     public var session: String?
     /// The agent the chat started with, when known.
     public var harness: String?
 
-    public init(host: String, session: String? = nil, harness: String? = nil) {
+    public init(host: String, hostName: String? = nil, session: String? = nil, harness: String? = nil) {
         self.host = host
+        self.hostName = hostName
         self.session = session
         self.harness = harness
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case host, session, harness
+        case hostName = "host_name"
     }
 
     /// The `host` of this installation's install id.

@@ -16,6 +16,8 @@ enum TabContent {
     case page(InternalPageView)
     /// A remote-terminal tab whose session is not attached (data-model.md 1.4).
     case placeholder(RemoteTerminalPlaceholderView)
+    /// An agent chat tab whose session another Mac's acpmux runs ("This chat runs on <machine>").
+    case notice(AgentTabElsewhereView)
     /// A conversation tab (`conversation-tabs-v1`): the native Home view
     /// of one conversation (plans/cmux-next/home.md 7).
     case conversation(HomeHostView)
@@ -27,6 +29,7 @@ enum TabContent {
         case .agent(let view): view
         case .page(let view): view
         case .placeholder(let view): view
+        case .notice(let view): view
         case .conversation(let view): view
         }
     }
@@ -54,6 +57,7 @@ enum TabContent {
         case .agent(let view): view.webView
         case .page(let view): view.focusTarget
         case .placeholder(let view): view
+        case .notice(let view): view
         case .conversation(let view): view.focusTarget
         }
     }
