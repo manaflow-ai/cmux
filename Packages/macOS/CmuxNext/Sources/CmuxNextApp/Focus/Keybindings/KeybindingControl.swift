@@ -54,6 +54,16 @@ enum KeybindingControl {
 
 /// Errors of the keybinding ops (Keybindings.xcstrings).
 enum KeybindingStrings {
+    static var pageTitle: String {
+        String(localized: "keybinding.page.title", defaultValue: "Keyboard Shortcuts", table: "Keybindings", bundle: .module)
+    }
+
+    static var editingUnsupported: String {
+        String(localized: "keybinding.error.editingUnsupported",
+               defaultValue: "Editing key bindings needs keybindings.json support, which is not ready yet.",
+               table: "Keybindings", bundle: .module)
+    }
+
     static var missingKeys: String {
         String(localized: "keybinding.error.missingKeys", defaultValue: "keybinding.resolve requires params.keys (for example \"ctrl+k s\").",
                table: "Keybindings", bundle: .module)
