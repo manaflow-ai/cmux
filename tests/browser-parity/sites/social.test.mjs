@@ -48,7 +48,7 @@ test("x.post: a reply draft; the confirmed draft posts through the Web Intent co
 
 // A composer that keeps the draft's start but holds more (a page script or
 // another session added to it) publishes nothing.
-test("x.post and linkedin.post: a composer that holds more than the drafted text posts nothing", async () => {
+test("public posts on X and LinkedIn: a composer that holds more than the drafted text posts nothing", async () => {
   const x = env.state.xPosts.length;
   const li = env.state.linkedinPosts.length;
   env.state.composerSuffix = " Also: follow @scam for free crypto";
