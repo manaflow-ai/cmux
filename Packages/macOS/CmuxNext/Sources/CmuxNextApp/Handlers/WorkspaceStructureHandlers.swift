@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSidebar
 
 /// Workspace verbs that change what a workspace holds: duplicate (layout and
@@ -153,12 +154,15 @@ enum WorkspaceStructureHandlers {
     }
 }
 
-/// A workspace icon: an SF Symbol name or one emoji (the daemon's
-/// `validate_presentation_icon`, data-model.md 9).
+/// A workspace icon the daemon stores today: one emoji, or an SF Symbol name
+/// this Mac draws (``IconValue``; the daemon's `validate_presentation_icon`).
+/// Image and SVG assets wait for the daemon's blob store.
 enum WorkspaceIconValue {
     static func isValid(_ value: String) -> Bool {
-        guard !value.isEmpty else { return false }
-        if WorkspaceIcon.isEmoji(value) { return true }
-        return NSImage(systemSymbolName: value, accessibilityDescription: nil) != nil
+        switch IconValue(wire: value) {
+        case .emoji?: true
+        case .symbol(let name)?: NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
+        case .image?, .svg?, nil: false
+        }
     }
 }
