@@ -280,3 +280,68 @@ private final class CookieGateDriver: BrowserReplDriver, @unchecked Sendable {
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
     func detach() {}
 }
+
+/// Agent code runs in the session's JavaScript context and can reach any
+/// object there. Every JavaScript run on the session's thread, not only a
+/// cell, is bounded, and closing (`cmux browser repl reset`) always ends it.
+@Suite("Browser REPL session watchdog")
+struct BrowserReplSessionWatchdogTests {
+    private func makeSession(callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit) throws -> BrowserReplSession {
+        BrowserReplSession(
+            id: "watchdog-\(UUID().uuidString)",
+            cwd: FileManager.default.temporaryDirectory.path,
+            bundle: try browserReplRepositoryBundle(),
+            driver: RecordingReplDriver(),
+            callbackTimeLimit: callbackTimeLimit
+        )
+    }
+
+    @Test("A cell cannot call the app's entry points or reach the runtime's constructors")
+    func entryPointsAreNotInCellScope() async throws {
+        let session = try makeSession()
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: """
+            [typeof __cmuxReplEval, typeof __cmuxReplCancel, typeof __cmuxHostOnResult, typeof __cmuxHostOnTimer,
+             typeof __cmuxHostOnEvent, typeof __cmuxFormatError, typeof __cmuxNative, typeof CmuxBrowserRepl].join(",")
+            """, timeout: .seconds(20))
+        }
+        #expect(result?.error == nil)
+        #expect(result?.lines.map(\.text) == ["'" + Array(repeating: "undefined", count: 8).joined(separator: ",") + "'"])
+    }
+
+    @Test("A timer callback that never returns after its cell ended is stopped, and the next cell runs")
+    func runawayCallbackOutsideACellIsStopped() async throws {
+        let session = try makeSession(callbackTimeLimit: .milliseconds(500))
+        defer { session.close() }
+        let armed = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "setTimeout(() => { for (;;) {} }, 0); 'armed'", timeout: .seconds(20))
+        }
+        #expect(armed?.error == nil)
+        let next = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "1 + 1", timeout: .seconds(8))
+        }
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(next?.lines.map(\.text) == ["2"])
+    }
+
+    @Test("close() ends the session's thread even when agent code loops in the timed-out cell's cleanup")
+    func closeEndsALoopThatStartsAfterTheTimeout() async throws {
+        let session = try makeSession(callbackTimeLimit: .seconds(60))
+        let thread = session.thread
+        // The runtime calls this while it cancels a timed-out cell.
+        let patched = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "page._session._resetPendingState = () => { for (;;) {} }; 'patched'", timeout: .seconds(20))
+        }
+        #expect(patched?.error == nil)
+        // The cell is still running when it times out, so the timeout's
+        // cleanup (which cancels the cell) waits behind it on the thread.
+        let hung = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "const end = Date.now() + 3000; while (Date.now() < end) {} await new Promise(() => {});", timeout: .milliseconds(500))
+        }
+        #expect(hung?.error?.contains("timed out") == true)
+        session.close()
+        let exited = await Task.detached { thread.waitUntilExited(timeout: .seconds(15)) }.value
+        #expect(exited, "the session's JavaScript thread kept running after close()")
+    }
+}

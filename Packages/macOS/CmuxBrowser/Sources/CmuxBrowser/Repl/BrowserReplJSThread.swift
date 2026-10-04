@@ -12,12 +12,17 @@ public final class BrowserReplJSThread: @unchecked Sendable {
     private let lock = NSLock()
     private var runLoop: CFRunLoop?
     private var isStopped = false
+    /// Signalled once the thread's loop has ended.
+    private let exited: DispatchSemaphore
 
     /// Creates and starts the thread.
     /// - Parameter name: Thread name shown in crash reports and samples.
     public init(name: String) {
         let box = RunLoopBox()
+        let exited = DispatchSemaphore(value: 0)
+        self.exited = exited
         thread = Thread {
+            defer { exited.signal() }
             box.set(CFRunLoopGetCurrent())
             // A port keeps `run(mode:before:)` from returning immediately
             // while no block is queued.
@@ -73,6 +78,17 @@ public final class BrowserReplJSThread: @unchecked Sendable {
         guard submitted else { return nil }
         done.wait()
         return box.value
+    }
+
+    /// Blocks until the thread has ended (after `stop()` and the blocks
+    /// queued before it), or `timeout` passes. Must not be called on the
+    /// thread itself.
+    /// - Returns: Whether the thread ended.
+    public func waitUntilExited(timeout: Duration) -> Bool {
+        let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
+        guard exited.wait(timeout: .now() + seconds) == .success else { return false }
+        exited.signal()
+        return true
     }
 
     /// Whether the caller is running on this thread.

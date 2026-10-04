@@ -39,10 +39,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// Default per-evaluation timeout, as in reference A's REPL.
     public static let defaultTimeout: Duration = .seconds(120)
 
+    /// Default limit for JavaScript that runs outside a cell.
+    public static let defaultCallbackTimeLimit: Duration = .seconds(10)
+
     public let id: String
     private let bundle: BrowserReplRuntimeBundle
     private let driver: any BrowserReplDriver
-    private let thread: BrowserReplJSThread
+    /// The session's JavaScript thread (internal for tests).
+    let thread: BrowserReplJSThread
     private let fetcher: BrowserReplFetcher
     /// Secrets, the domain policy and redaction (see BrowserReplBoundary).
     private let boundary = BrowserReplBoundary()
@@ -228,6 +232,9 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///     session creates its private one; `nil` uses `NSTemporaryDirectory()`.
     ///   - homeDirectory: The user's home directory, refused as a root;
     ///     `nil` uses `NSHomeDirectory()`.
+    ///   - callbackTimeLimit: How long JavaScript that runs outside a cell
+    ///     (a timer or event callback after its cell ended) may run before
+    ///     it is terminated.
     public init(
         id: String,
         cwd: String?,
@@ -235,7 +242,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         driver: any BrowserReplDriver,
         sleeper: any BrowserReplSleeping = BrowserReplClockSleeper(clock: ContinuousClock()),
         temporaryDirectory: String? = nil,
-        homeDirectory: String? = nil
+        homeDirectory: String? = nil,
+        callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit
     ) {
         let temporaryRoot = BrowserReplFileSandbox.canonicalize(
             BrowserReplFileSandbox.lexicallyNormalized(temporaryDirectory ?? NSTemporaryDirectory())
