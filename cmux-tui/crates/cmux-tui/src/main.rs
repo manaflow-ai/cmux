@@ -525,6 +525,8 @@ START OPTIONS
   --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
   --ws-allow-origin <origin>  Also accept this browser Origin (repeatable).
   --ws-allow-host <host>      Also accept this Host name, e.g. a tailnet name.
+  --link-entry      Accept paired `cmux link` peers on this session's remote
+                    entry (every command denied until a policy allows it).
   --remote          Run the authenticated remote daemon with this session.
   --remote-ws <addr> Listen for direct remote WebSocket links.
   --remote-ws-insecure-bind  Allow plaintext remote WebSocket off loopback.
@@ -593,6 +595,7 @@ struct Args {
     ws_token: Option<String>,
     ws_insecure_bind: bool,
     ws_access: cmux_tui_core::server::WebSocketAccess,
+    link_entry: bool,
     remote: bool,
     remote_ws: Option<String>,
     remote_ws_insecure_bind: bool,
@@ -642,6 +645,7 @@ impl Args {
             && ws_addr.is_none()
             && ws_token.is_none()
             && !self.ws_insecure_bind
+            && !self.link_entry
             && self.ws_access.origins.is_empty()
             && self.ws_access.hosts.is_empty()
             && !self.remote
@@ -702,6 +706,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         ws_token: None,
         ws_insecure_bind: false,
         ws_access: Default::default(),
+        link_entry: false,
         remote: false,
         remote_ws: None,
         remote_ws_insecure_bind: false,
@@ -815,6 +820,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     Some(args.next().ok_or_else(|| "--ws-token needs a value".to_string())?);
             }
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
+            "--link-entry" => out.link_entry = true,
             "--ws-allow-origin" => {
                 let origin = args.next().ok_or("--ws-allow-origin needs a value")?;
                 let origin = cmux_tui_core::server::parse_websocket_origin(&origin).ok_or(
@@ -1384,6 +1390,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.ws_insecure_bind {
         conflicts.push("--ws-insecure-bind");
     }
+    if args.link_entry {
+        conflicts.push("--link-entry");
+    }
     if !args.ws_access.origins.is_empty() || !args.ws_access.hosts.is_empty() {
         conflicts.push("--ws-allow-origin/--ws-allow-host");
     }
@@ -1551,6 +1560,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--cloud"
             | "--headless"
             | "--ws-insecure-bind"
+            | "--link-entry"
             | "--remote"
             | "--remote-ws-insecure-bind"
             | "--remote-ws-trusted-carrier"
@@ -2438,6 +2448,23 @@ fn run_server(
             crate::client_log::stderr_log!("startup", "cmux-tui: remote route {route}");
         }
         Some(runtime)
+    } else {
+        None
+    };
+
+    // Kept alive until this function returns; dropping it removes the socket.
+    #[cfg(unix)]
+    let _link_entry = if args.link_entry {
+        match remote_cli::start_link_entry(mux.clone(), &socket_path) {
+            Ok(server) => Some(server),
+            Err(error) => {
+                if let Some(runtime) = remote_runtime {
+                    let _ = runtime.shutdown();
+                }
+                mux.shutdown();
+                return Err(error);
+            }
+        }
     } else {
         None
     };

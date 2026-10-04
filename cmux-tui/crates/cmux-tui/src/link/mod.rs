@@ -13,6 +13,8 @@ mod state;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod e2e_tests;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
@@ -36,6 +38,21 @@ use self::dial::Overlay as _;
 use self::mesh::MeshOverlay;
 use self::state::{DIRECT_MTU, LinkConfig, LinkState};
 use crate::localization::catalog;
+
+/// Start the session daemon's remote entry next to `session_socket`
+/// (`--link-entry`): only the link may connect, and every frame is denied
+/// until lane 10's conversation gate replaces [`DenyAllGate`].
+pub(crate) fn start_link_entry(
+    mux: Arc<cmux_tui_core::Mux>,
+    session_socket: &Path,
+) -> anyhow::Result<cmux_tui_core::server::RemoteEntryServer> {
+    use cmux_tui_core::server::{DenyAllGate, LinkVerifier, serve_remote_entry};
+    let verifier: LinkVerifier = Arc::new(|stream: &std::os::unix::net::UnixStream| {
+        cmux_link::caller::verify(stream).map_err(std::io::Error::from)
+    });
+    let path = cmux_link::entry_path::remote_entry_socket_path(session_socket);
+    serve_remote_entry(mux, &path, verifier, Arc::new(DenyAllGate))
+}
 
 /// `cmux link <action> ...`.
 pub(super) fn run_link(args: &[String]) -> anyhow::Result<()> {

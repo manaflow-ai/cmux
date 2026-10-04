@@ -1057,6 +1057,7 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
 
 #[path = "link/mod.rs"]
 mod link;
+pub(crate) use link::start_link_entry;
 #[path = "remote_browser_proxy.rs"]
 mod remote_browser_proxy;
 #[path = "remote_wg_hub.rs"]
