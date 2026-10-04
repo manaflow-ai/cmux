@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { pageError } from "../shared/pageClient";
 import { MockCloudProvider, sampleMachines, type MockOptions } from "./mockProvider";
-import { CloudOps, type CloudMachine } from "./ops";
+import { ACTION_RUN, CloudOps, type CloudMachine } from "./ops";
 import { CloudStore } from "./store";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -65,6 +65,23 @@ describe("Cloud route 404s", () => {
     expect(store.getSnapshot().error).toBeUndefined();
   });
 
+  test("vm_not_found on a sub-resource list is an error, not a missing route", async () => {
+    const provider = new MockCloudProvider({ unsupported: [] });
+    const store = new CloudStore(provider, { newKey: () => "k" });
+    store.subscribe(() => undefined);
+    await store.start();
+    await settle();
+    const call = provider.call.bind(provider);
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === CloudOps.firewallList)
+        throw pageError("cmux.cloud.not_found", "no machine", false, { status: 404, upstream_code: "vm_not_found" });
+      return call<R>(op, params);
+    };
+    await store.select(running().id);
+    expect(store.getSnapshot().unavailable).not.toContain(CloudOps.firewallList);
+    expect(store.getSnapshot().error).toBe("no machine");
+  });
+
   test("a snapshot delete answered with the snapshot's own 404 settles the row as gone", async () => {
     const { provider, store } = await selected();
     const snapshot = store.getSnapshot().detail!.snapshots![0];
@@ -97,6 +114,20 @@ describe("Cloud route 404s", () => {
     expect(pending).toEqual([]);
     expect(unavailable).not.toContain(CloudOps.machineDelete);
     expect(rows.map((row) => row.id)).not.toContain(running().id);
+  });
+
+  test("a machine delete not_found without details keeps the old answer: gone, no error", async () => {
+    const { provider, store } = await selected();
+    const call = provider.call.bind(provider);
+    provider.call = async <R>(op: string, params: unknown): Promise<R> => {
+      if (op === ACTION_RUN) throw pageError("cmux.cloud.not_found", "gone");
+      return call<R>(op, params);
+    };
+    await store.requestDelete(running().id);
+    const { pending, unavailable, error } = store.getSnapshot();
+    expect(error).toBeUndefined();
+    expect(pending).toEqual([]);
+    expect(unavailable).not.toContain(CloudOps.machineDelete);
   });
 
   test("a bare 404 on a machine delete shows not available and keeps the machine", async () => {
