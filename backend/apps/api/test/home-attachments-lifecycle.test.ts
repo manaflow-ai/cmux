@@ -153,3 +153,44 @@ describe("Home attachments: conversation storage deletion catches late presigned
     expect(after).toBeNull()
   })
 })
+
+describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120_000 }, () => {
+  /** Drives one alarm directly; the runtime's own alarm is removed first so it cannot interleave. */
+  const wake = (stub: unknown) =>
+    runInDurableObject(stub, async (i, state) => {
+      await state.storage.deleteAlarm()
+      await i.alarm()
+    })
+  const storedBytes = (user: string) =>
+    runInDurableObject(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)), async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
+  const objects = async (id: string) => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects.length
+
+  it("an R2 delete that fails once is retried by the next alarm: the object goes and the stored bytes reach 0", async () => {
+    const alice = await signIn("att-gc-r2-alice")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    await upload(alice, g.id, bytesOf("orphan, its delete fails once"))
+    expect(await storedBytes(alice.user)).toBeGreaterThan(0)
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_objects SET created_at = ?", Date.now() - 25 * 3_600_000))
+    // The first alarm's R2 delete throws (the alarm catches it and backs off).
+    await runInDurableObject(stub, async (i, state) => {
+      const real = i.env.HOME_ATTACHMENTS as R2Bucket
+      let failed = false
+      const flaky = new Proxy(real, {
+        get: (t, p) => {
+          if (p === "delete" && !failed) return async () => ((failed = true), Promise.reject(new Error("r2 unavailable")))
+          const v = (t as any)[p]
+          return typeof v === "function" ? v.bind(t) : v
+        }
+      })
+      i.env = { ...i.env, HOME_ATTACHMENTS: flaky }
+      await state.storage.deleteAlarm()
+      await i.alarm()
+      i.env = { ...i.env, HOME_ATTACHMENTS: real }
+    })
+    expect(await objects(g.id)).toBe(1)
+    await wake(stub)
+    expect(await objects(g.id)).toBe(0)
+    expect(await storedBytes(alice.user)).toBe(0)
+  })
+})
