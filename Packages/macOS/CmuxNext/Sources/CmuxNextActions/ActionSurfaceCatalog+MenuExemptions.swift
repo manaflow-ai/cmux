@@ -79,6 +79,7 @@ nonisolated extension ActionSurfaceCatalog {
             "checklistAttachImages", "cloudExec",
         ],
         .focusMove: [
+            "history.goTo",
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "tab.focus", "nextSidebarTab", "prevSidebarTab",
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
             "selectWorkspaceByNumber", "workspace.selectFirst",

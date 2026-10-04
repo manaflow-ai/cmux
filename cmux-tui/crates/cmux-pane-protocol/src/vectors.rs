@@ -586,8 +586,9 @@ fn fragment_cases() -> Value {
         plain(),
     );
     let exposed = || Some(json!({ "expose": "default" }));
-    let twin_a = op21("octo.diff_tools.diff.get", exposed(), None, plain());
-    let twin_b = op21("octo.diff_tools.diff-get", exposed(), None, plain());
+    // Both map to the tool name octo_diff_tools_diff_x_get (G7).
+    let twin_a = op21("octo.diff_tools.diff-x.get", exposed(), None, plain());
+    let twin_b = op21("octo.diff_tools.diff.x-get", exposed(), None, plain());
     let nested_secret = json!({
         "type": "object", "properties": { "credential": { "$ref": "#/types/OctoCredential" } },
         "required": ["credential"], "additionalProperties": false
@@ -623,8 +624,10 @@ fn fragment_cases() -> Value {
           "expect": { "op": "octo.diff_tools.file.get", "paths": ["id"] } },
         { "name": "path param that is not a param", "decision": 22, "fragment": fragment21(vec![with_paths(json!(["nope"]))]), "valid": false },
         { "name": "path param that is not a string", "decision": 22, "fragment": fragment21(vec![with_paths(json!(["count"]))]), "valid": false },
+        { "name": "op name with only a verb below its namespace", "decision": 26,
+          "fragment": fragment21(vec![op21("octo.diff_tools.get", None, None, plain())]), "valid": false },
         { "name": "two never-exposed ops with the same MCP tool name", "decision": 23,
-          "fragment": fragment21(vec![op21("octo.diff_tools.diff.get", None, None, plain()), op21("octo.diff_tools.diff-get", None, None, plain())]),
+          "fragment": fragment21(vec![op21("octo.diff_tools.diff-x.get", None, None, plain()), op21("octo.diff_tools.diff.x-get", None, None, plain())]),
           "valid": false }
     ])
 }

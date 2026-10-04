@@ -617,7 +617,7 @@
             "mcp": {
               "expose": "default"
             },
-            "name": "octo.diff_tools.diff.get",
+            "name": "octo.diff_tools.diff-x.get",
             "owner": "app:octo.diff_tools",
             "params": {
               "$ref": "#/types/OctoGetParams"
@@ -633,7 +633,7 @@
             "mcp": {
               "expose": "default"
             },
-            "name": "octo.diff_tools.diff-get",
+            "name": "octo.diff_tools.diff.x-get",
             "owner": "app:octo.diff_tools",
             "params": {
               "$ref": "#/types/OctoGetParams"
@@ -1008,6 +1008,64 @@
       "valid": false
     },
     {
+      "decision": 26,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "op name with only a verb below its namespace",
+      "valid": false
+    },
+    {
       "decision": 23,
       "fragment": {
         "namespaces": [
@@ -1020,7 +1078,7 @@
           {
             "errors": [],
             "kind": "read",
-            "name": "octo.diff_tools.diff.get",
+            "name": "octo.diff_tools.diff-x.get",
             "owner": "app:octo.diff_tools",
             "params": {
               "$ref": "#/types/OctoGetParams"
@@ -1033,7 +1091,7 @@
           {
             "errors": [],
             "kind": "read",
-            "name": "octo.diff_tools.diff-get",
+            "name": "octo.diff_tools.diff.x-get",
             "owner": "app:octo.diff_tools",
             "params": {
               "$ref": "#/types/OctoGetParams"

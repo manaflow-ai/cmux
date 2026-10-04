@@ -22,14 +22,16 @@ import Testing
 
     /// The palette lists every action except palette-internal navigation
     /// and the ones whose surface plan names another reason (New Browser
-    /// Tab on Chromium duplicates the default New Browser Tab row).
+    /// Tab on Chromium duplicates the default New Browser Tab row; Go to
+    /// Location is a row of the titlebar Back / Forward list).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
             #expect(reason != nil, "\(descriptor.id) is hidden from the palette without a reason")
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
-        #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id) == ["commandPaletteNext", "commandPalettePrevious", "openBrowser.chromium"])
+        #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
+            == ["commandPaletteNext", "commandPalettePrevious", "history.goTo", "openBrowser.chromium"])
     }
 
     @Test func shortcutIDsAreUniqueAndDefaultsDoNotCollide() {
