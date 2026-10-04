@@ -79,6 +79,29 @@ import Testing
         }
     }
 
+    /// C1 (ad349): every folder-valued field is checked, not only `cwd` and `path`.
+    @Test func everyFolderFieldIsChecked() throws {
+        let t = try tree()
+        func frame(_ params: [String: Any]) -> String {
+            let object: [String: Any] = ["jsonrpc": "2.0", "id": 4, "method": "session/new", "params": params]
+            return String(decoding: try! JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+        }
+        let refused = AcpmuxPathPolicy.Refusal(error: .pathOutsideRoots, requestID: "4", method: "session/new")
+        #expect(AcpmuxPathPolicy.checkNow(frame(["cwd": t.root, "additionalDirectories": [t.root + "/inside", t.outside]]), roots: [t.root])
+            == .failure(refused))
+        #expect(AcpmuxPathPolicy.checkNow(frame(["cwd": t.root, "_meta": ["acpmux": ["workingDirectory": t.outside]]]), roots: [t.root])
+            == .failure(refused))
+        #expect(AcpmuxPathPolicy.checkNow(frame(["cwd": t.root, "worktree": t.root + "/escape"]), roots: [t.root])
+            == .failure(refused))
+        // Inside, every field comes back canonical.
+        guard case .success(let text) = AcpmuxPathPolicy.checkNow(
+            frame(["cwd": t.root, "additionalDirectories": [t.root + "/inside/.."]]), roots: [t.root]),
+              let object = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else {
+            Issue.record("inside refused"); return
+        }
+        #expect((object["params"] as? [String: Any])?["additionalDirectories"] as? [String] == [t.root])
+    }
+
     @Test func framesWithoutAPathPassUnchanged() {
         let text = #"{"jsonrpc":"2.0","id":1,"method":"session/prompt","params":{"sessionId":"s"}}"#
         #expect(AcpmuxPathPolicy.checkNow(text, roots: []) == .success(text))

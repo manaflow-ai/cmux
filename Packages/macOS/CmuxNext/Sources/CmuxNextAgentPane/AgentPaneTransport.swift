@@ -16,6 +16,9 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case firstFrameNotInitialize = "transport.first_frame"
     /// The method is not on ``AcpmuxPaneMethods``.
     case methodRefused = "transport.method_refused"
+    /// The frame carries `mcpServers` entries ({command, args, env}): the page may not make the
+    /// harness spawn a command (C1).
+    case mcpServersRefused = "transport.mcp_servers_refused"
     /// A `cwd` or `path` param that is not an absolute existing path (a `cwd` must be a directory).
     case pathInvalid = "transport.path_invalid"
     /// A `cwd` or `path` param outside the pane's workspace roots (``AcpmuxPathPolicy``).
