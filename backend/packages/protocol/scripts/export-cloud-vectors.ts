@@ -104,11 +104,15 @@ const replayPair = (op: string, key: string, value: Json, revision: string): Arr
 
 const INSTALL_P = { kind: "install" }
 const AGENT_P = { kind: "install", agent: AGENT }
+/** A signed-in person (session). Money and destructive ops need one (decision: never the default install grants). */
+const SESSION_P = { kind: "session" }
+/** Ops that cost money or destroy data: a user principal, or later an install with a fresh origin.confirmation (ORIGIN). */
+const PERSON_OPS = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore", "cloud.snapshot.delete", "cloud.billing.checkout", "cloud.migration.start"])
 const CUT = "the provider call was cut off; retry with the same key"
 
 const cases: Array<Obj> = []
 const kase = (name: string, op: string, params: Obj, responses: Array<Obj>, opts: { key?: string; mutation?: boolean; principal?: Obj; note?: string } = {}) => {
-  const c: Obj = { name, op, class: opts.key || opts.mutation ? "mutation" : "read", principal: opts.principal ?? INSTALL_P, params }
+  const c: Obj = { name, op, class: opts.key || opts.mutation ? "mutation" : "read", principal: opts.principal ?? (PERSON_OPS.has(op) ? SESSION_P : INSTALL_P), params }
   if (opts.key) c.idempotency_key = opts.key
   c.responses = responses
   if (opts.note) c.note = opts.note
@@ -180,6 +184,24 @@ kase(
   [opErr("cloud.machine.create", "key-create-agent", "auth.forbidden", "an agent cannot create machines")],
   { key: "key-create-agent", principal: AGENT_P }
 )
+kase(
+  "machine.create.install",
+  "cloud.machine.create",
+  { name: "from an install", size: SIZE },
+  [opErr("cloud.machine.create", "key-create-install", "auth.forbidden", "creating a machine needs a signed-in person")],
+  { key: "key-create-install", principal: INSTALL_P, note: "Money and destructive ops never use the default install grants." }
+)
+kase(
+  "machine.create.install_confirmed",
+  "cloud.machine.create",
+  { name: "confirmed on the Mac", size: SIZE },
+  [opErr("cloud.machine.create", "key-create-confirmed", "auth.forbidden", "creating a machine needs a signed-in person")],
+  {
+    key: "key-create-confirmed",
+    principal: { kind: "install", origin_confirmation: "conf_pending_origin" },
+    note: "PENDING ORIGIN: an install with a fresh single-use origin.confirmation token from the native confirmation sheet. Until the origin window lands this is refused like any install; after it, the expected answer is the machine.create success."
+  }
+)
 
 // ---- rename, start, pause, resize, idle policy
 kase("machine.rename", "cloud.machine.rename", { machine: vm(1), name: "renamed box" }, [opOk("cloud.machine.rename", "key-rename-1", { machine: { ...M1, name: "renamed box", revision: "47" } }, "47")], {
@@ -239,6 +261,13 @@ kase(
   { machine: vm(1) },
   [opErr("cloud.machine.delete", "key-delete-agent", "auth.forbidden", "an agent cannot delete machines")],
   { key: "key-delete-agent", principal: AGENT_P }
+)
+kase(
+  "machine.delete.install",
+  "cloud.machine.delete",
+  { machine: vm(1) },
+  [opErr("cloud.machine.delete", "key-delete-install", "auth.forbidden", "deleting a machine needs a signed-in person")],
+  { key: "key-delete-install", principal: INSTALL_P, note: "Money and destructive ops never use the default install grants." }
 )
 
 // ---- connect_info (contract 1.7): no credential in a read
