@@ -10751,6 +10751,7 @@ private enum SidebarFontSizeProvider {
 
 enum CmuxExtensionSidebarSelection {
     static let defaultsKey = "cmuxExtensionSidebar.providerId"
+    static let selectedExtensionBundleIDDefaultsKey = "cmuxExtensionSidebar.selectedExtensionBundleId"
     static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
     static let defaultProviderId = CmuxSidebarProviderDescriptor.defaultWorkspacesID
     static let hostedExtensionsProviderId = "cmux.sidebar.extensions"
@@ -10993,6 +10994,35 @@ enum CmuxExtensionSidebarSelection {
 
     static func setProviderId(_ providerId: String, defaults: UserDefaults = .standard) {
         defaults.set(providerId, forKey: defaultsKey)
+    }
+
+    static func isCortexBundle(_ bundleID: String) -> Bool {
+        bundleID == "fr.yoyaku.cortex.sessions" || bundleID == "fr.yoyaku.cortex.sessions.debug"
+    }
+
+    static func isCortexActive(defaults: UserDefaults = .standard) -> Bool {
+        defaults.string(forKey: defaultsKey) == hostedExtensionsProviderId
+            && isCortexBundle(defaults.string(forKey: selectedExtensionBundleIDDefaultsKey) ?? "")
+    }
+
+    /// Changes only the sidebar provider; workspace, surface and terminal state
+    /// remain owned by their existing native models.
+    @discardableResult
+    static func toggleCortexSidebar(
+        enabledBundleIDs: Set<String>,
+        extensionsEnabled: Bool,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        if isCortexActive(defaults: defaults) {
+            setProviderId(defaultProviderId, defaults: defaults)
+            return true
+        }
+        guard extensionsEnabled,
+              let bundleID = enabledBundleIDs.filter(isCortexBundle).sorted().first else { return false }
+        defaults.set(bundleID, forKey: selectedExtensionBundleIDDefaultsKey)
+        defaults.set("Cortex Sessions", forKey: selectedExtensionNameDefaultsKey)
+        setProviderId(hostedExtensionsProviderId, defaults: defaults)
+        return true
     }
 
     @MainActor
@@ -11253,6 +11283,8 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var anchorCwdRevision: Int = 0
     @AppStorage(CmuxExtensionSidebarSelection.defaultsKey)
     private var selectedExtensionSidebarProviderId = CmuxExtensionSidebarSelection.defaultProviderId
+    @AppStorage(CmuxExtensionSidebarSelection.selectedExtensionBundleIDDefaultsKey)
+    private var retainedSidebarExtensionBundleID = ""
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
     @LiveSetting(\.betaFeatures.customSidebars) private var customSidebarsExperimentalEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
@@ -11732,7 +11764,26 @@ struct VerticalTabsSidebar: View, Equatable {
         )
         let _ = SidebarProfilingSignposts.end(signpost)
         ZStack(alignment: .bottomLeading) {
-            if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
+            if CmuxExtensionSidebarSelection.isCortexBundle(retainedSidebarExtensionBundleID),
+               extensionsExperimentalEnabled,
+               effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.defaultProviderId
+                || effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+                // Keep each sidebar mounted across the eye/brain switch. Their
+                // independent scroll positions and the ExtensionKit connection
+                // survive without touching the selected terminal or browser.
+                let showingClassic = effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.defaultProviderId
+                workspaceScrollArea(renderContext: renderContext)
+                    .opacity(showingClassic ? 1 : 0)
+                    .allowsHitTesting(showingClassic)
+                    .accessibilityHidden(!showingClassic)
+                extensionSidebarScrollArea(
+                    renderContext: renderContext,
+                    providerId: CmuxExtensionSidebarSelection.hostedExtensionsProviderId
+                )
+                    .opacity(showingClassic ? 0 : 1)
+                    .allowsHitTesting(!showingClassic)
+                    .accessibilityHidden(showingClassic)
+            } else if CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(effectiveProviderId: effectiveExtensionSidebarProviderId) {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -12682,8 +12733,8 @@ struct VerticalTabsSidebar: View, Equatable {
         scrollView.applySidebarOverlayScrollerConfiguration()
     }
 
-    private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
-        extensionSidebarScrollAreaContent(renderContext: renderContext)
+    private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext, providerId: String? = nil) -> some View {
+        extensionSidebarScrollAreaContent(renderContext: renderContext, providerId: providerId ?? effectiveExtensionSidebarProviderId)
             .sidebarCloudBindingObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.cloudBindingState)) { refreshExtensionSidebarSnapshot() }
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
@@ -12696,8 +12747,8 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     @ViewBuilder
-    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext) -> some View {
-        if effectiveExtensionSidebarProviderId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
+    private func extensionSidebarScrollAreaContent(renderContext: WorkspaceListRenderContext, providerId: String) -> some View {
+        if providerId == CmuxExtensionSidebarSelection.hostedExtensionsProviderId {
             CMUXInstalledExtensionSidebarHostView(
                 snapshotProvider: { cmuxSidebarSnapshotForCurrentTabs() },
                 snapshotUpdateToken: extensionSidebarUpdateToken,
@@ -12723,8 +12774,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-        } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
-                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
+        } else if providerId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
+                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: providerId) {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.

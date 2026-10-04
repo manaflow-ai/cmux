@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 import CmuxSidebarProviderKit
 
@@ -24,6 +25,34 @@ import CmuxSidebarProviderKit
 @MainActor
 @Suite(.serialized)
 struct SidebarProviderMenuRegressionTests {
+    @Test
+    func cortexToggleRoundTripAndUnavailableFallback() throws {
+        let suite = "cortex-switch-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let selection = CmuxExtensionSidebarSelection.self
+        selection.setProviderId(selection.defaultProviderId, defaults: defaults)
+        #expect(!selection.toggleCortexSidebar(enabledBundleIDs: [], extensionsEnabled: true, defaults: defaults))
+        #expect(defaults.string(forKey: selection.defaultsKey) == selection.defaultProviderId)
+        #expect(!selection.toggleCortexSidebar(enabledBundleIDs: ["fr.yoyaku.cortex.sessions"], extensionsEnabled: false, defaults: defaults))
+        #expect(selection.toggleCortexSidebar(enabledBundleIDs: ["fr.yoyaku.cortex.sessions"], extensionsEnabled: true, defaults: defaults))
+        #expect(selection.isCortexActive(defaults: defaults))
+        #expect(defaults.string(forKey: selection.selectedExtensionBundleIDDefaultsKey) == "fr.yoyaku.cortex.sessions")
+        // Returning to classic still works if the extension disappears.
+        #expect(selection.toggleCortexSidebar(enabledBundleIDs: [], extensionsEnabled: false, defaults: defaults))
+        #expect(!selection.isCortexActive(defaults: defaults))
+    }
+
+    @Test
+    func cortexButtonHasIndependentHitRegion() throws {
+        let config = TitlebarControlsStyle.classic.config
+        let range = try #require(TitlebarControlsHitRegions.buttonXRange(for: .switchCortexSidebar, config: config))
+        let point = NSPoint(x: (range.lowerBound + range.upperBound) / 2, y: 5)
+        #expect(TitlebarControlsHitRegions.sidebarActionSlot(at: point, config: config) == .switchCortexSidebar)
+        let hideRange = try #require(TitlebarControlsHitRegions.buttonXRange(for: .toggleSidebar, config: config))
+        #expect(hideRange.upperBound < range.lowerBound)
+    }
+
     /// Stable ids of the seven built-in sidebar views, in menu order.
     private static let builtInViewIDs: [String] = [
         "cmux.sidebar.default",

@@ -223,9 +223,7 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     @State private var identity: AppExtensionIdentity?
     @State private var enabledIdentities: [AppExtensionIdentity] = []
-    @State private var selectedExtensionBundleID = UserDefaults.standard.string(
-        forKey: Self.selectedExtensionBundleIDDefaultsKey
-    )
+    @AppStorage("cmuxExtensionSidebar.selectedExtensionBundleId") private var selectedExtensionBundleID: String?
     @State private var isLoading = true
     @State private var errorText: String?
     @State private var disabledExtensionCount = 0
@@ -354,6 +352,9 @@ struct CMUXInstalledExtensionSidebarHostView: View {
         .onChange(of: snapshotUpdateToken) { _, _ in
             let snapshot = snapshotCache.replace(with: snapshotProvider())
             xpcHost.sendSnapshotDidChange(snapshot)
+        }
+        .onChange(of: selectedExtensionBundleID) { _, _ in
+            applyEnabledExtensionIdentities(enabledIdentities)
         }
         .onDisappear {
             xpcHost.invalidate()
@@ -1461,5 +1462,38 @@ private final class CMUXSidebarHostXPCObject: NSObject, CMUXSidebarHostXPC {
                 reply(nil, error.localizedDescription as NSString)
             }
         }
+    }
+}
+
+/// One discovery subscription shared by every titlebar. No filesystem or
+/// ExtensionKit discovery runs from a SwiftUI body or a terminal event path.
+@MainActor
+final class CortexSidebarAvailability: ObservableObject {
+    static let shared = CortexSidebarAvailability()
+    @Published private(set) var enabledBundleIDs: Set<String> = []
+    private var observation: Task<Void, Never>?
+
+    func start() {
+        guard observation == nil else { return }
+        observation = Task { [weak self] in
+            do {
+                let updates = try AppExtensionIdentity.matching(
+                    appExtensionPointIDs: CmuxSidebarExtensionPoint.identifier()
+                )
+                for try await identities in updates {
+                    self?.enabledBundleIDs = Set(identities.map(\.bundleIdentifier))
+                }
+            } catch {
+                self?.enabledBundleIDs = []
+            }
+            self?.observation = nil
+        }
+    }
+
+    func toggle() {
+        _ = CmuxExtensionSidebarSelection.toggleCortexSidebar(
+            enabledBundleIDs: enabledBundleIDs,
+            extensionsEnabled: CmuxExtensionSidebarSelection.isEnabled
+        )
     }
 }

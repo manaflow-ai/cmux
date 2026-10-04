@@ -519076,15 +519076,60 @@
     "cloud.operation.failure.placement": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The Cloud terminal placement is unavailable. Refresh the machine, then retry."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Die Cloud-Terminalplatzierung ist nicht verfügbar. Aktualisieren Sie die Maschine und versuchen Sie es erneut."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "L’emplacement du terminal Cloud n’est pas disponible. Actualisez la machine, puis réessayez."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "موضع طرفية Cloud غير متاح. حدّث الجهاز ثم أعد المحاولة."}},
-        "es": {"stringUnit": {"state": "translated", "value": "La ubicación del terminal de Cloud no está disponible. Actualiza la máquina y vuelve a intentarlo."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 終端機位置無法使用。請重新整理機器後再試一次。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 终端位置不可用。请刷新机器后重试。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 터미널 배치를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Cloud ターミナルの配置を利用できません。マシンを更新して、もう一度お試しください。"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud terminal placement is unavailable. Refresh the machine, then retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Terminalplatzierung ist nicht verfügbar. Aktualisieren Sie die Maschine und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’emplacement du terminal Cloud n’est pas disponible. Actualisez la machine, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع طرفية Cloud غير متاح. حدّث الجهاز ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ubicación del terminal de Cloud no está disponible. Actualiza la máquina y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 終端機位置無法使用。請重新整理機器後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 终端位置不可用。请刷新机器后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 터미널 배치를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ターミナルの配置を利用できません。マシンを更新して、もう一度お試しください。"
+          }
+        }
       }
     },
     "cloud.operation.failure.unsupported": {
@@ -527764,6 +527809,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "24 GB メモリ"
+          }
+        }
+      }
+    },
+    "titlebar.cortex.switch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch sidebar view"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleistenansicht wechseln"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer de vue latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل عرض الشريط الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar vista lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換側邊欄檢視"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换侧边栏视图"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 보기 전환"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー表示を切り替え"
+          }
+        }
+      }
+    },
+    "titlebar.cortex.classic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show classic sidebar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassische Seitenleiste anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la sidebar classique"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الشريط الجانبي التقليدي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar barra lateral clásica"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示傳統側邊欄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示经典侧边栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 사이드바 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準サイドバーを表示"
+          }
+        }
+      }
+    },
+    "titlebar.cortex.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Cortex sidebar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortex-Seitenleiste anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la sidebar Cortex"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض شريط Cortex الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar barra lateral Cortex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 Cortex 側邊欄"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 Cortex 侧边栏"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortex 사이드바 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortex サイドバーを表示"
+          }
+        }
+      }
+    },
+    "titlebar.cortex.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Cortex Sessions in Extensions to switch views"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortex Sessions in Erweiterungen aktivieren, um Ansichten zu wechseln"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer Cortex Sessions dans Extensions pour changer de vue"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فعّل Cortex Sessions في الإضافات لتبديل العرض"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa Cortex Sessions en Extensiones para cambiar de vista"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在擴充功能中啟用 Cortex Sessions 以切換檢視"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在扩展中启用 Cortex Sessions 以切换视图"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확장 프로그램에서 Cortex Sessions를 활성화하여 보기 전환"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡張機能で Cortex Sessions を有効にして表示を切り替え"
           }
         }
       }
