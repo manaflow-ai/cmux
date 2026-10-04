@@ -90,6 +90,8 @@ import Testing
         #expect(frames.map(\.minX) == frames.map(\.minX).sorted())
         #expect(frames[0].minX >= omnibar.maxX)
         #expect(abs(report.toolbarBounds.maxX - frames[4].maxX) < 20)
+        // Centered on the omnibar, in comfortable and compact density alike.
+        for frame in frames { #expect(abs(frame.midY - omnibar.midY) < 0.5) }
         for button in BrowserToolbarButton.allCases {
             #expect(chrome.toolbarButtons.button(button)?.accessibilityIdentifier() == button.identifier)
         }
