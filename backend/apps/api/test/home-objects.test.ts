@@ -144,6 +144,45 @@ describe("Home objects: inbox.list pages with a keyset cursor (section 4.2)", ()
       expect(leaked).toBe(0)
     })
   })
+  it("migrates a legacy inbox (no order index) on its first inbox.list, and the migration ends even with an odd entry key", async () => {
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "home-paging-legacy")
+    const userDO = stub(testEnv.USER_DO, user)
+    const me = session(user)
+    const ids = Array.from({ length: 250 }, (_, i) => `conv_${String(i).padStart(26, "0")}`)
+    const bumps = ids.map((conversation, i) => ({
+      id: i,
+      op: "inbox.bump",
+      key: `bump:${conversation}:1`,
+      params: { user, conversation, rev: 1, kind: "group", title: conversation, last_seq: 1, last_at: new Date(Date.UTC(2026, 9, 1) + i * 1000).toISOString(), preview: "" }
+    }))
+    expect((await deliver(userDO, user, bumps)).done).toHaveLength(250)
+    // Rewrite the stored inbox as the code before the order index left it, and restart its engine.
+    await runInDurableObject(userDO, async (instance, state) => {
+      const sql = state.storage.sql
+      sql.exec("DELETE FROM inbox_rows WHERE tbl = 'entry_order'")
+      // A row key the reindex op cannot take (longer than an id); it sorts last, in the done batch.
+      sql.exec("INSERT INTO inbox_rows (tbl, k, n, json) VALUES ('entry', ?, NULL, '{}')", `conv_${"z".repeat(200)}`)
+      const head = JSON.parse(sql.exec("SELECT json FROM inbox_state WHERE id = 1").toArray()[0]!.json as string) as Record<string, unknown>
+      delete head.ordered
+      sql.exec("UPDATE inbox_state SET json = ? WHERE id = 1", JSON.stringify(head))
+      ;(instance as unknown as { inbox: { engine: unknown } }).inbox.engine = undefined
+    })
+
+    const seen: Array<string> = []
+    let cursor: string | null = null
+    do {
+      const page = (await userDO.readInbox(user, me, "inbox.list", { limit: 200, ...(cursor ? { cursor } : {}) })) as Page
+      expect(page.ok).toBe(true)
+      seen.push(...page.value.entries.map((e) => e.conversation))
+      cursor = page.value.next_cursor
+    } while (cursor)
+    expect(seen).toHaveLength(250)
+    expect(seen[0]).toBe(ids[249])
+    await runInDurableObject(userDO, async (_i, state) => {
+      const head = JSON.parse(state.storage.sql.exec("SELECT json FROM inbox_state WHERE id = 1").toArray()[0]!.json as string) as { ordered?: boolean }
+      expect(head.ordered).toBe(true)
+    })
+  })
 })
 
 describe("Home objects: the anonymous invite card (ConversationDO.card)", () => {

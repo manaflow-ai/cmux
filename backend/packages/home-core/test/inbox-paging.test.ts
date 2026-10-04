@@ -11,6 +11,7 @@ import {
   pageInbox,
   TABLE_ENTRY,
   TABLE_ORDER,
+  TABLE_PEER,
   type InboxBumpParams,
   type InboxEntry,
   type InboxHead
@@ -86,6 +87,16 @@ const open = (sql: CountingStore = store()) => {
   return { sql, engine, run }
 }
 
+/** Rewrites stored state as the code before the order index left it: no order rows, no `ordered` flag. */
+const makeLegacy = (sql: CountingStore) => {
+  sql.exec(`DELETE FROM inbox_rows WHERE tbl = ?`, TABLE_ORDER)
+  const head = JSON.parse(sql.exec<{ json: string }>(`SELECT json FROM inbox_state WHERE id = 1`)[0]!.json) as Record<string, unknown>
+  delete head.ordered
+  sql.exec(`UPDATE inbox_state SET json = ? WHERE id = 1`, JSON.stringify(head))
+}
+
+const eventCount = (sql: CountingStore) => sql.exec<{ c: number }>(`SELECT COUNT(*) AS c FROM inbox_events`)[0]!.c
+
 const allPages = (rows: Parameters<typeof pageInbox>[0], query: { include_archived?: boolean; limit?: number } = {}) => {
   const seen: Array<string> = []
   let cursor: string | undefined
@@ -153,6 +164,19 @@ describe("inbox.list paging", () => {
     expect(sql.rowsRead).toBeLessThanOrEqual(4 * 201)
   })
 
+  it("refuses a pin position past the safe integer range, which would sort and count wrongly", () => {
+    const { engine, run } = open()
+    run(SYSTEM, "inbox.bump", bump(conv(1), 1, 1), "bump:1:1")
+    run(SYSTEM, "inbox.bump", bump(conv(2), 1, 2), "bump:2:1")
+    for (const position of [1e20, Number.MAX_SAFE_INTEGER]) {
+      expect(() => run(USER, "inbox.pin", { conversation: conv(1), pinned: true, position }, `pin-${position}`)).toThrow(/invalid_params/)
+    }
+    run(USER, "inbox.pin", { conversation: conv(1), pinned: true, position: Number.MAX_SAFE_INTEGER - 1 }, "pin-max")
+    expect(engine.currentState.next_pin).toBe(Number.MAX_SAFE_INTEGER)
+    // The next automatic position would be past the range too.
+    expect(() => run(USER, "inbox.pin", { conversation: conv(2), pinned: true }, "pin-auto")).toThrow(/invalid_params/)
+  })
+
   it("an unknown or foreign cursor never fails: it is only a position", () => {
     const { engine, run } = open()
     for (let i = 0; i < 5; i++) run(SYSTEM, "inbox.bump", bump(conv(i), 1, i), `bump:${i}:1`)
@@ -208,6 +232,48 @@ describe("inbox order index migration (inbox.reindex)", () => {
     const pages = allPages(restarted.engine.rows)
     expect(pages).toHaveLength(450)
     expect(pages[0]).toBe(conv(449))
+  })
+
+  it("a batch with an id that is not valid skips that id and still records done, so the migration ends", () => {
+    const sql = store()
+    const legacy = open(sql)
+    legacy.run(SYSTEM, "inbox.bump", bump(conv(1), 1, 1), "bump:1:1")
+    makeLegacy(sql)
+    const restarted = open(sql)
+    restarted.run(SYSTEM, "inbox.reindex", { conversations: [conv(1), "x".repeat(200), 7], done: true }, "reindex-mixed")
+    expect(restarted.engine.currentState.ordered).toBe(true)
+    expect(pageInbox(restarted.engine.rows, { limit: 10 }).entries.map((e) => e.conversation)).toEqual([conv(1)])
+    expect(() => restarted.run(SYSTEM, "inbox.reindex", { conversations: "nope", done: true }, "reindex-bad")).toThrow(/invalid_params/)
+  })
+
+  it("repairs a legacy peer row that points at a DM the user left", () => {
+    const sql = store()
+    const legacy = open(sql)
+    const dm = (conversation: string, rev: number, extra: Partial<InboxBumpParams> = {}) => bump(conversation, rev, rev, { kind: "dm", dm_peer: "user_bob", ...extra })
+    legacy.run(SYSTEM, "inbox.bump", dm("conv_dm_FIRST", 1), "a1")
+    legacy.run(SYSTEM, "inbox.bump", dm("conv_dm_SECOND", 1), "b1")
+    legacy.run(SYSTEM, "inbox.bump", dm("conv_dm_FIRST", 2, { removed: true }), "a2")
+    // The code before this change kept the first DM in the peer index for ever.
+    sql.exec(`INSERT OR IGNORE INTO inbox_rows (tbl, k, n, json) VALUES (?, ?, NULL, ?)`, TABLE_PEER, "user_bob", JSON.stringify({ conversation: "conv_dm_FIRST" }))
+    makeLegacy(sql)
+    const restarted = open(sql)
+    expect(dmPeer(restarted.engine.rows, "user_bob")).toBe("conv_dm_FIRST")
+    // The left DM sorts first by key, so it lands in an earlier batch than the live DM.
+    const batches = inboxReindexBatches(restarted.engine.rows.scan(TABLE_ENTRY).map((r) => r.key), 1)
+    for (const b of batches) restarted.run(SYSTEM, "inbox.reindex", b.params, b.key)
+    expect(dmPeer(restarted.engine.rows, "user_bob")).toBe("conv_dm_SECOND")
+  })
+
+  it("a stale or duplicate bump on a legacy entry stays a no-op (no event); the reindex adds its order row", () => {
+    const sql = store()
+    const legacy = open(sql)
+    legacy.run(SYSTEM, "inbox.bump", bump(conv(1), 2, 2), "bump:1:2")
+    makeLegacy(sql)
+    const restarted = open(sql)
+    const before = eventCount(sql)
+    restarted.run(SYSTEM, "inbox.bump", bump(conv(1), 1, 1), "bump:1:1")
+    restarted.run(USER, "inbox.archive", { conversation: conv(1), archived: false }, "unarchive-noop")
+    expect(eventCount(sql)).toBe(before)
   })
 
   it("batch keys name their contents, so a shifted batch never replays an older one", () => {
