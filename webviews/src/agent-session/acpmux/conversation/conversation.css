@@ -892,3 +892,34 @@
     animation: cv-enter-fade 160ms cubic-bezier(0.2, 0, 0, 1) both;
   }
 }
+
+/* R104: the live edge, a soft bar after the newest character while a reply streams. It takes no
+ * width (the bar is absolutely placed), so the text never reflows when it leaves. It pulses only
+ * while the reveal has caught up and waits for more. */
+.cv-caret {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  vertical-align: -0.12em;
+}
+.cv-caret::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.05em;
+  width: 0.5em;
+  height: 0.9em;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cv-text) 55%, transparent);
+}
+@keyframes cv-caret-wait {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-md.is-waiting .cv-caret::after {
+    animation: cv-caret-wait 1s ease-in-out infinite;
+  }
+}
