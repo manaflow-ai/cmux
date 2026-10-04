@@ -2,6 +2,10 @@ import Foundation
 import os
 
 extension CEFTab {
+    /// Stub (slice 1).
+    var passwordFills: Bool { true }
+    public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
+
     public func markAgentDriven() {
         guard !isAgentDriven else { return }
         isAgentDriven = true
