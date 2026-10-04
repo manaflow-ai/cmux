@@ -16,7 +16,7 @@ public nonisolated enum CEFDevToolsRawSend: Hashable, Sendable {
 /// `cmux_shim_devtools_send`. The shim header does not change, so the shim
 /// ABI identity stays the same.
 public final class CEFAgentRelay {
-    private unowned let tab: CEFTab
+    private weak var tab: CEFTab?
     private var sink: ((String) -> Void)?
     private var onEnd: (() -> Void)?
     private var waiters: [OneShot<Bool>] = []
@@ -31,12 +31,12 @@ public final class CEFAgentRelay {
     public func set(onMessage: ((String) -> Void)?, onEnd: (() -> Void)?) {
         sink = onMessage
         self.onEnd = onMessage == nil ? nil : onEnd
-        if let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, onMessage == nil ? 0 : 1) }
+        if let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, onMessage == nil ? 0 : 1) }
     }
 
     /// Sends one raw DevTools message; its "id" must be a raw id (>= 2^30).
     public func send(_ message: String) -> CEFDevToolsRawSend {
-        guard !tab.isClosed, let browser = tab.browserID, let shim = tab.runtime.shim else { return .noBrowser }
+        guard let tab, !tab.isClosed, let browser = tab.browserID, let shim = tab.runtime.shim else { return .noBrowser }
         switch message.withCString({ shim.devToolsSend(browser, $0) }) {
         case 1: return .sent
         case 0: return .noBrowser
@@ -45,19 +45,20 @@ public final class CEFAgentRelay {
     }
 
     /// True once the Chromium browser exists.
-    public var hasBrowser: Bool { tab.browserID != nil }
+    public var hasBrowser: Bool { tab?.browserID != nil }
 
     /// Creates the Chromium browser of a tab that was never shown, in the
     /// background (the pane host's own creation path; nothing is shown and
     /// focus does not move). Agents drive hidden tabs.
     public func createBrowser() {
-        guard !tab.isClosed else { return }
+        guard let tab, !tab.isClosed else { return }
         tab.host.ensureCreated(tab)
     }
 
     /// Resumes with true once the browser exists, false when its creation
     /// failed, the tab closed, or the waiting task was cancelled.
     public func browserCreated() async -> Bool {
+        guard let tab else { return false }
         if tab.browserID != nil { return true }
         if tab.isClosed { return false }
         let waiter = OneShot<Bool>()
@@ -73,7 +74,7 @@ public final class CEFAgentRelay {
 
     func browserAttached() {
         resumeWaiters(true)
-        if sink != nil, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, 1) }
+        if sink != nil, let tab, let browser = tab.browserID { tab.runtime.shim?.devToolsWatchEvents(browser, 1) }
     }
 
     func resumeWaiters(_ created: Bool) {

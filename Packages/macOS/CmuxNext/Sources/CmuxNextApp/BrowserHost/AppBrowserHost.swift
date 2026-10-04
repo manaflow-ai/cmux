@@ -14,13 +14,13 @@ final class AppBrowserHost {
     private let credentials: AppProviderCredentials
     private let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
-    private unowned let services: AppServices
+    private weak var services: AppServices?
 
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
         self.services = services
         let tabs = AppBrowserHostTabs(services: services)
         let relay = AppDevToolsRelay(services: services, marking: tabs)
-        relay.drivable = { [unowned tabs] id in tabs.isDrivable(id) }
+        relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
         let driver = WebKitDriver(provider: tabs)
         let credentials = AppProviderCredentials()
         self.credentials = credentials
@@ -64,7 +64,7 @@ final class AppBrowserHost {
         let synthetic = (NSApp as? CmuxApplication)?.currentEventIsSynthetic ?? false
         guard ProviderUserInput.pausesLease(event, synthetic: synthetic),
               let window = CmuxApplication.accessibilityWindow(for: event.window ?? NSApp.keyWindow),
-              let controller = services.windows.controllers.first(where: { $0.window === window }),
+              let services, let controller = services.windows.controllers.first(where: { $0.window === window }),
               case .browserPage(_, let tab) = controller.focus.state.resolved else { return }
         provider.reportUserInput(event: event, synthetic: synthetic, targetID: tab)
     }

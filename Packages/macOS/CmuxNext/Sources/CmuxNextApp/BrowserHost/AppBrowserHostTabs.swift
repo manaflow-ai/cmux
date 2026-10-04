@@ -13,7 +13,7 @@ import Foundation
 /// and the live pages, which are observable, plus `pageInstalls` (a page was
 /// created); visibility is pushed with `refreshTabs()`.
 final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, AutomationTabProvider, ProviderAgentMarking {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     /// Extension access depends on manifests read from disk: computed again
     /// only when the profile's extension list or the page URL changes.
     private var accessMemo: [String: (extensions: [BrowserExtensionInfo], url: URL?, names: [String])] = [:]
@@ -28,6 +28,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     }
 
     private var localBrowserTabs: [LocalTab] {
+        guard let services else { return [] }
         let cache: TabContentCache = services.cache
         var out: [LocalTab] = []
         for workspace in services.daemon.store.workspaces {
@@ -50,6 +51,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     // MARK: ProviderTabSource
 
     var providerTabs: [ProviderTab] {
+        guard let services else { return [] }
         let cache: TabContentCache = services.cache
         _ = cache.pageInstalls.revision
         return localBrowserTabs.map { entry in
@@ -76,6 +78,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// The interim extension rule (plans/cmux-next/passwords.md, section 3.4),
     /// the same formula as `AppBrowserPage.agentExtensionRefusal`.
     func access(forTab targetID: String) -> ProviderTabAccess {
+        guard let services else { return ProviderTabAccess(extensionHostAccess: false, userOverride: false, extensions: []) }
         let cache: TabContentCache = services.cache
         let override = cache.agentMayUseExtensionTab(targetID)
         let page = cache.existingBrowser(targetID)?.tab
@@ -103,7 +106,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// filled password, so it is rebuilt before any agent message reaches it
     /// (the relay waits for the new page).
     func agentWillDrive(targetID: String) {
-        guard isDrivable(targetID) else { return }
+        guard let services, isDrivable(targetID) else { return }
         if AppBrowserPage.markAgentDriven(targetID, services: services) {
             services.cache.rebuildForAgent(targetID)
         }
@@ -112,6 +115,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     // MARK: AutomationTabProvider (WebKit driver)
 
     func automationTabs(all: Bool) -> [AutomationTab] {
+        guard let services else { return [] }
         let cache: TabContentCache = services.cache
         return localBrowserTabs.compactMap { entry in
             guard let page = cache.existingBrowser(entry.model.id)?.tab as? WebKitTab else { return nil }

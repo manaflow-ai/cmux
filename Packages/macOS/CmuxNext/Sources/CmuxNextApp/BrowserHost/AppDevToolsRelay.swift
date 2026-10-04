@@ -10,7 +10,7 @@ import Observation
 /// it was never shown), then raw messages go through the shim
 /// (`CEFAgentRelay`).
 final class AppDevToolsRelay: ProviderDevToolsRelay {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private weak var marking: (any ProviderAgentMarking)?
     /// Whether the app announces tab `id` to the host (local, not incognito).
     var drivable: ((String) -> Bool)?
@@ -26,7 +26,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     }
 
     func prepareRelay(targetID: String) async -> Bool {
-        guard drivable?(targetID) == true, let (tab, _) = services.locateTab(targetID),
+        guard let services, drivable?(targetID) == true, let (tab, _) = services.locateTab(targetID),
               tab.browserEngine == BrowserEngineTag.cef.rawValue else { return false }
         marking?.agentWillDrive(targetID: targetID)
         guard let page = await agentReadyPage(tab) else { return false }
@@ -37,6 +37,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     /// The tab's live Chromium page once it is agent-driven, starting it
     /// when only a placeholder (hibernated, deferred) or nothing exists.
     private func agentReadyPage(_ tab: TabModel) async -> CEFTab? {
+        guard let services else { return nil }
         let cache: TabContentCache = services.cache
         let key = tab.id
         var installs = 0
@@ -69,6 +70,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     /// Resumes at the next page install anywhere in the app (`pageInstalls`),
     /// or when the waiting task is cancelled (the provider's prepare deadline).
     private func nextPageInstall() async {
+        guard let services else { return }
         let installs = services.cache.pageInstalls
         let installed = OneShot<Bool>()
         withObservationTracking {
@@ -81,7 +83,7 @@ final class AppDevToolsRelay: ProviderDevToolsRelay {
     }
 
     func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool {
-        guard let page = services.cache.existingBrowser(targetID)?.tab as? CEFTab, page.agentRelay.hasBrowser else { return false }
+        guard let services, let page = services.cache.existingBrowser(targetID)?.tab as? CEFTab, page.agentRelay.hasBrowser else { return false }
         page.agentRelay.set(onMessage: onMessage, onEnd: onEnd)
         relayed[targetID] = WeakCEFTab(page: page)
         return true
