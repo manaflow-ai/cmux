@@ -53,7 +53,7 @@ use std::sync::{Arc, OnceLock};
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
-pub(crate) use provider::ProviderClaim;
+pub(crate) use provider::{ProviderClaim, admit_origin};
 #[cfg(unix)]
 pub(crate) use runs::RunRequest;
 #[cfg(unix)]
