@@ -341,6 +341,7 @@ OWNED_LABEL = re.compile(rf"glaeda-(?:aws-)?(?:root-|side-|gui-)?(?:xl|std|light
 ROOT_PREFIX = "glaeda-root-"
 SIDE_PREFIX = "glaeda-side-"
 GUI_PREFIX = "glaeda-gui-"
+ROLE_NAMES = ("root", "side", "gui")
 # Capability labels glaeda puts on some runners of an owned pool, requested
 # beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
 # simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
@@ -499,23 +500,29 @@ def persistent(label: str) -> bool:
     return bool(OWNED_LABEL.fullmatch(label or ""))
 
 
+def _role_name(label: str) -> str:
+    """Return an owned label's role, including an optional fleet namespace."""
+    parts = (label or "").split("-")
+    return next((role for role in ROLE_NAMES if role in parts[1:3]), "")
+
+
 def root_label(label: str) -> str:
     """The root runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
     return _role_label(label, "root")
 
 
 def side_label(label: str) -> str:
     """The side runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
     return _role_label(label, "side")
 
 
 def gui_label(label: str) -> str:
     """The gui runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX, GUI_PREFIX)):
+    if not persistent(label) or _role_name(label):
         return ""
     return _role_label(label, "gui")
 
@@ -996,7 +1003,7 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         label = str(label)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
-        elif label.startswith(("side-", SIDE_PREFIX)):
+        elif label.startswith("side-") or _role_name(label) == "side":
             # Side runners are a pool's machines less its root runners (side_runner()), so a count is a mistake.
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which are counted "
                             "as the pool's machines less its root runners")
@@ -1020,8 +1027,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
     for label, count in list(counted.items()):
         # Each root or gui runner is one of its pool's machines, so a larger count is a typo.
         machines = counted.get(pool_label(label), 0)
-        if label.startswith((ROOT_PREFIX, GUI_PREFIX)) and count > machines:
-            kind = "root" if label.startswith(ROOT_PREFIX) else "gui"
+        role = _role_name(label)
+        if role in ("root", "gui") and count > machines:
+            kind = role
             problems.append(f"{SLOTS_VARIABLE} gives {label} {count} {kind} runners, more than the "
                             f"{machines} machines of {pool_label(label)}")
             del counted[label]
