@@ -4,6 +4,8 @@ Apply this rule to any PR that adds or changes v2 socket methods, adds or change
 
 Background: GHSA-9vmv-3hjw-j28c. The `cmux ssh` reverse relay stores its credential on the remote host, so the remote host must be treated as a compromised client. The legacy app's `RemoteRelayCommandPolicy` (deleted with `CmuxRemoteWorkspace`) was the only authorization boundary between an authenticated relay client and command execution on the developer's Mac. The app in `Packages/macOS/CmuxNext` has no relay policy yet, so no relay path may reach its control socket until one exists. Any relay must deny by default; the allowlist, owned-target scoping, and command-parameter denial are the whole defense.
 
+The same rule covers the cmux-tui daemon's **remote-relay entry** for paired servers (`ClientTransport::RemoteRelay`, the socket that only `cmux link` may connect to; plans/cmux-next/server-remote-conversations.md): its frame-level gate, its command allowlist, the `set-client-info` and `subscribe` reductions, the outbound writer filter and the remote-only serialization structs. A change there needs the same analysis and allow/deny tests.
+
 ## Fail
 
 - A relay path that reaches the app's control socket without a default-deny policy.
