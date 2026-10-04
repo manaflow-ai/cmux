@@ -14,7 +14,7 @@ struct DockColumnCapabilityTests {
         #expect(!services.daemon.supports("dock-columns-v1"))
         let reason = "needs daemon capability dock-columns-v1"
         for id: ActionID in ["column.dock", "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
-                   "column.float", "column.undock"] {
+                   "column.float", "column.undock", "tab.moveToNewDockColumn"] {
             #expect(services.registry.unavailableReason(for: id) == reason, "\(id)")
             #expect(ActionBindingCoverageTests.run(services, id.rawValue) == .refused(reason), "\(id)")
         }

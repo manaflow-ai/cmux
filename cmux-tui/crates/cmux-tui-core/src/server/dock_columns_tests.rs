@@ -558,6 +558,31 @@ fn dock_column_flag_in_a_layout_apply_sets_and_clears_the_flag() {
     assert_eq!(wire.dock(), vec![dock("left", "overlay"), None, None]);
 }
 
+/// DOCK-WIRE (R87): a document from an older client that clears a flag with
+/// `sticky: null` is refused, so the stored flag never stays behind its back.
+#[test]
+fn a_layout_apply_refuses_the_old_sticky_field() {
+    let (mut wire, panes) = Wire::with_columns(3);
+    wire.set_dock(panes[2], "right", "docked");
+    let mut layout = export_layout(&wire.mux);
+    layout["root"]["columns"][2]["sticky"] = Value::Null;
+    let (workspace, _) = public_ids(&wire.mux);
+    let request = json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "old-sticky",
+        "operation": "workspace.layout.apply",
+        "params": {"machine": "current", "session": "current", "workspace": workspace, "layout": layout},
+        "idempotency_key": "old-sticky",
+    });
+    let refused = match crate::resource_router::handle_resource_message(&wire.mux, &request.to_string()) {
+        Err(_) => true,
+        Ok(response) => response.get("error").is_some() || response["ok"] == false,
+    };
+    assert!(refused, "a layout with sticky is refused");
+    assert_eq!(wire.dock(), vec![None, None, dock("right", "docked")]);
+}
+
 #[test]
 fn dock_column_flags_in_a_layout_apply_must_keep_one_scrolling_column() {
     let (wire, _) = Wire::with_columns(2);
@@ -626,6 +651,23 @@ fn move_tab_to_column_pins_the_new_column_in_one_commit() {
     // The new column holds the edge; the old holder scrolls again.
     assert_eq!(columns[2]["dock"], json!({"edge": "bottom", "mode": "overlay"}));
     assert!(columns[1].get("dock").is_none());
+}
+
+/// DOCK-WIRE (R87): an older client's `sticky` is refused with
+/// invalid-argument, never turned into a plain column.
+#[test]
+fn move_tab_to_column_refuses_the_old_sticky_field() {
+    let (mut wire, panes) = Wire::with_columns(2);
+    let second = wire.mux.new_tab(Some(panes[0]), None, Some((38, 22))).unwrap();
+    let response = wire.send(json!({
+        "cmd": "move-tab-to-column",
+        "surface": second.id,
+        "pane": panes[0],
+        "sticky": {"edge": "right", "mode": "docked"},
+    }));
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error_code"], "invalid-argument");
+    assert_eq!(wire.columns().len(), 2);
 }
 
 /// The pin is checked on the layout after the move: moving the only tab of

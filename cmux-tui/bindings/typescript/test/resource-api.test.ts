@@ -4453,6 +4453,13 @@ test("viewport columns decode and re-encode their dock flag", async () => {
   if (layout.root.kind !== "viewport") return;
   assert.deepEqual(layout.root.columns[0]?.dock, { edge: "top", mode: "docked" });
   assert.equal(layout.root.columns[1]?.dock, undefined);
+  // R87: `sticky`, the pre-rename name of `dock`, still decodes.
+  const sticky = document(undefined);
+  Object.assign(sticky.root.columns[0]!, { sticky: { edge: "left", mode: "overlay" } });
+  next = sticky;
+  const legacy = await screen.exportLayout();
+  if (legacy.root.kind !== "viewport") return;
+  assert.deepEqual(legacy.root.columns[0]?.dock, { edge: "left", mode: "overlay" });
   next = document({ edge: "diagonal", mode: "docked" });
   await assert.rejects(() => screen.exportLayout(), /invalid value/);
   client.close();

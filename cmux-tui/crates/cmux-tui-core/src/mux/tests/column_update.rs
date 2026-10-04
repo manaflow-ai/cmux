@@ -253,6 +253,19 @@ fn column_update_rejects_malformed_requests_without_changes() {
     assert_eq!((flags(&mux), widths(&mux), revision(&mux)), before);
 }
 
+/// DOCK-WIRE (R87): an older client's `sticky` is refused, never ignored
+/// (with `width` alone the pin would silently drop).
+#[test]
+fn column_update_refuses_the_old_sticky_field() {
+    let (mux, _) = column_mux(3);
+    let columns = column_ids(&mux);
+    let before = (flags(&mux), widths(&mux), revision(&mux));
+    let fields = serde_json::json!({"column": columns[2], "sticky": true, "width": 0.4});
+    let error = update(&mux, fields, "old-sticky").expect_err("sticky is refused");
+    assert_eq!(error["code"], "validation.invalid", "{error}");
+    assert_eq!((flags(&mux), widths(&mux), revision(&mux)), before);
+}
+
 #[test]
 fn column_update_is_undone_by_undo_layout() {
     let (mux, panes) = column_mux(3);

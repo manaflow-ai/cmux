@@ -166,3 +166,49 @@ pub(super) fn validate_registry_viewport(
     Ok(())
 }
 
+#[cfg(test)]
+mod dock_key_tests {
+    use super::*;
+    use crate::model::{ColumnDock, DockEdge, DockMode};
+
+    fn viewport() -> RegistryViewport {
+        let pane = |n: u128| PanePublicId::parse(format!("pane_{n:032x}")).unwrap();
+        let split = |n: u128| SplitPublicId::parse(format!("split_{n:032x}")).unwrap();
+        let docked = ColumnDock { edge: DockEdge::Left, mode: DockMode::Docked };
+        RegistryViewport {
+            base_width: None,
+            columns: vec![
+                RegistryViewportColumn::new(
+                    split(1),
+                    0.3,
+                    RegistryLayoutNode::Leaf { pane: pane(1) },
+                    None,
+                    Some(docked),
+                ),
+                RegistryViewportColumn::new(
+                    split(2),
+                    0.7,
+                    RegistryLayoutNode::Leaf { pane: pane(2) },
+                    None,
+                    None,
+                ),
+            ],
+        }
+    }
+
+    /// R87 DOCK-WIRE: the stored key stays `sticky` until the release pin
+    /// serves dock-columns-v1, because an older daemon refuses an unknown
+    /// field (`deny_unknown_fields`) and could not open the session. Both
+    /// keys load as the column's dock flag.
+    #[test]
+    fn a_registry_viewport_writes_sticky_and_reads_sticky_or_dock() {
+        let viewport = viewport();
+        let written = serde_json::to_string(&viewport).unwrap();
+        assert!(written.contains("\"sticky\":") && !written.contains("\"dock\""), "{written}");
+        let loaded: RegistryViewport = serde_json::from_str(&written).unwrap();
+        assert_eq!(loaded, viewport);
+        let dock_named = written.replace("\"sticky\":", "\"dock\":");
+        let loaded: RegistryViewport = serde_json::from_str(&dock_named).unwrap();
+        assert_eq!(loaded, viewport);
+    }
+}

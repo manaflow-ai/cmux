@@ -136,6 +136,22 @@ class ResourceApiTests(unittest.TestCase):
         with self.assertRaises(cmux.ProtocolError):
             _layout_node(viewport({"edge": "diagonal", "mode": "docked"}))
 
+    def test_a_legacy_sticky_flag_decodes_as_dock(self) -> None:
+        # R87: `sticky` is the pre-rename name of `dock` (replayed results).
+        node = _layout_node({
+            "kind": "viewport", "base_width": 0.5,
+            "columns": [
+                {"column_id": "split_00000000000000000000000000000008", "width": 0.5,
+                 "root": {"kind": "leaf", "pane_id": "pane_00000000000000000000000000000005",
+                          "tab_ids": []},
+                 "sticky": {"edge": "left", "mode": "overlay"}},
+                {"column_id": "split_00000000000000000000000000000009", "width": 0.5,
+                 "root": {"kind": "leaf", "pane_id": "pane_0000000000000000000000000000000a",
+                          "tab_ids": []}},
+            ],
+        })
+        self.assertEqual(node.columns[0].dock, cmux.LayoutColumnDock("left", "overlay"))
+
     def test_journal_record_subjects_use_the_declared_wire_grammar(self) -> None:
         record = {
             "sequence": "1",

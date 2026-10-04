@@ -429,6 +429,18 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	if _, err := decodeValue[LayoutDocument](viewport(`,"dock":null`), "layout"); err != nil {
 		t.Fatalf("null dock: %v", err)
 	}
+	// R87: `sticky`, the pre-rename name, still decodes (replayed results).
+	legacy, err := decodeValue[LayoutDocument](
+		viewport(`,"sticky":{"edge":"left","mode":"overlay"}`),
+		"layout",
+	)
+	if err != nil {
+		t.Fatalf("viewport with a legacy sticky column: %v", err)
+	}
+	if got := legacy.Root.(LayoutViewport).Columns[0].Dock; got == nil ||
+		*got != (LayoutColumnDock{Edge: "left", Mode: "overlay"}) {
+		t.Fatalf("legacy sticky flag = %#v", got)
+	}
 	if _, err := decodeValue[LayoutDocument](
 		viewport(`,"dock":{"edge":"diagonal","mode":"docked"}`),
 		"layout",
