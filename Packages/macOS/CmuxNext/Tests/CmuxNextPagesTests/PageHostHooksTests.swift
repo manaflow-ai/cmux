@@ -4,7 +4,7 @@ import Testing
 import WebKit
 @testable import CmuxNextPages
 
-/// The page host hooks the agent pane needs (agent pane move, H2 H3 H5 H10 H11): engine options,
+/// The page host hooks the agent pane needs (agent pane move, H2 H3 H5 H10): engine options,
 /// bounded crash reloads with a notice, the navigation policy, first-party roots in other module
 /// bundles. (Per-page CSP sources are PageCSP.)
 @MainActor

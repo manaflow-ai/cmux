@@ -10,8 +10,8 @@ public extension PageDescriptor {
     /// says the same).
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
-        connectSources: ["ws://127.0.0.1:*", "ws://localhost:*"],
-        frameSources: ["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"])
+        csp: PageCSP(connect: ["ws://127.0.0.1:*", "ws://localhost:*"],
+                     frame: ["http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"]))
 }
 
 /// The `cmux.agent.*` ops: one per method of the old `agentSession` bridge, with the same params.
