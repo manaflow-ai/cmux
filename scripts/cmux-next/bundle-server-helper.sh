@@ -31,9 +31,10 @@
 # holds no environment, no secrets and no per-user path (it is sealed in a
 # bundle every user of the Mac shares; launchd does not expand `~`), so it sets
 # no StandardOutPath: `cmux host run` writes its own log under the server
-# state folder. KeepAlive restarts the job when it exits; a CLI without
-# `host run` therefore exits and is restarted (launchd throttles it to once per
-# 10 s) until the server stack ships in the bundled binary.
+# state folder. KeepAlive {SuccessfulExit: false} restarts the job only after
+# a failure, at most once per ThrottleInterval (10 s); a CLI without `host run`
+# fails, so the app registers the agent only behind the Debug Settings switch
+# `server.agent.allowRegister` (off by default) until the server stack ships.
 #
 # The helper is compiled with swiftc from Packages/macOS/CmuxNext/Sources/
 # CmuxNextServerHelper (no package dependencies) and CmuxNextServerHelperDaemon/
@@ -123,7 +124,11 @@ stamp_agent() {
   plutil -insert ProgramArguments -string host -append "$plist.tmp"
   plutil -insert ProgramArguments -string run -append "$plist.tmp"
   plutil -insert RunAtLoad -bool YES "$plist.tmp"
-  plutil -insert KeepAlive -bool YES "$plist.tmp"
+  # Restart only after a failure: a clean exit (the host was disabled) stays
+  # down. ThrottleInterval spaces restarts of a failing binary.
+  plutil -insert KeepAlive -dictionary "$plist.tmp"
+  plutil -insert KeepAlive.SuccessfulExit -bool NO "$plist.tmp"
+  plutil -insert ThrottleInterval -integer 10 "$plist.tmp"
   # Standard, not Background: the job hosts the user's terminals and app
   # servers, which must not run under background CPU and I/O limits. Same as
   # the cmux-server-core launchd golden.
