@@ -3,7 +3,13 @@
 // can end all of them: after `close()` each pending call rejects with `cmux.protocol.closed`, each
 // subscription is unsubscribed and gets no more events, and each handler is removed. A late reply
 // of an old call is ignored.
-import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
+import {
+  pageError,
+  type PageCallOptions,
+  type PageClient,
+  type PageEventMeta,
+  type PageHandler,
+} from "../shared/pageClient";
 
 export class ScopedPageClient implements PageClient {
   private closed = false;
@@ -22,12 +28,12 @@ export class ScopedPageClient implements PageClient {
     return { calls: this.pending.size, subscriptions: this.unsubscribes.size };
   }
 
-  call<R>(op: string, params: unknown): Promise<R> {
+  call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
     if (this.closed) return Promise.reject(closedError());
     return new Promise<R>((resolve, reject) => {
       const fail = (error: Error) => reject(error);
       this.pending.add(fail);
-      this.inner.call<R>(op, params).then(
+      this.inner.call<R>(op, params, options).then(
         (value) => {
           if (!this.pending.delete(fail)) return;
           resolve(value);
@@ -42,15 +48,15 @@ export class ScopedPageClient implements PageClient {
 
   async subscribe<E>(
     stream: string,
-    onEvent: (data: E, seq: number) => void,
+    onEvent: (data: E, seq: number, meta?: PageEventMeta) => void,
     filter?: Record<string, unknown>,
   ): Promise<() => void> {
     if (this.closed) throw closedError();
     // A subscribe in flight when the page resets: the stream is closed as soon as it opens.
     const inner = await this.inner.subscribe<E>(
       stream,
-      (data, seq) => {
-        if (!this.closed) onEvent(data, seq);
+      (data, seq, meta) => {
+        if (!this.closed) onEvent(data, seq, meta);
       },
       filter,
     );
