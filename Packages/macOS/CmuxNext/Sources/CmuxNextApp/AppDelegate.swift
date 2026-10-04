@@ -134,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.settings = settings
         services.settings = settings
         services.history.commands.start(settings: settings)
+        services.locationTrail.watchScope(settings: settings)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor

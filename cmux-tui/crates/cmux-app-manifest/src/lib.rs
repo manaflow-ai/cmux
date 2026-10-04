@@ -57,6 +57,13 @@ pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
     issues
 }
 
+/// The one pane-protocol namespace of an app id (app-platform.md 18):
+/// `<publisher>.<name>` with '-' replaced by '_' (`octo/ssh-terminal` ->
+/// `octo.ssh_terminal`). Third-party op and scope families must use it.
+pub fn app_namespace(id: &str) -> String {
+    id.replace('-', "_").replacen('/', ".", 1)
+}
+
 /// True when no issue is an error.
 pub fn is_valid(issues: &[Issue]) -> bool {
     issues.iter().all(|i| i.severity != Severity::Error)

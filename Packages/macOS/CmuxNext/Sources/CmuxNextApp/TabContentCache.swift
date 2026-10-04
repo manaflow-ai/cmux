@@ -60,9 +60,8 @@ final class TabContentCache {
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
-    /// Tabs an agent drove (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
-    var agentDrivenTabs: Set<String> = []
-    var agentDrivenSurfaces: Set<SurfaceID> = []
+    /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
+    var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
     lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
         try await cef.makeTab($0)
@@ -354,7 +353,7 @@ final class TabContentCache {
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil
         hibernation?.forget(key)
-        agentDrivenTabs.remove(key)
+        agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
         browsers.removeValue(forKey: key)?.close()

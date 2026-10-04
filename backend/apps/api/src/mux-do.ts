@@ -20,6 +20,8 @@ export class MuxDO extends OwnerDO<mux.MuxHead> {
   /** The chief itself (agent token) or its owner. */
   private allowed(head: mux.MuxHead, p: Principal): boolean {
     if (p.kind === "agent") return p.agent !== undefined && p.agent === head.agent
+    // A chief token (install with agent) reaches only its own chief's queue; the owner's other tokens reach all of them.
+    if (p.kind === "install" && p.agent !== undefined) return p.agent === head.agent && p.user === head.owner_user
     return (p.kind === "session" || p.kind === "install") && p.user !== undefined && p.user === head.owner_user
   }
 

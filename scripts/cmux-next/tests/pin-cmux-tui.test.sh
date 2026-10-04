@@ -46,6 +46,20 @@ if grep -q 'on no remote branch' <<<"$out"; then
 fi
 grep -q 'is not published' <<<"$out" || { printf 'fetch did not reach the published-tree check:\n%s\n' "$out" >&2; exit 1; }
 
+# A dirty cmux-tui tree is refused (exit 1), and the refusal explains why an
+# nx-remote warm tree is dirty and which mode gives a clean one.
+echo dirty > "$TMP/job/cmux-tui/a"
+status=0
+out=$(cd "$TMP/job" && env -u GITHUB_ACTIONS -u CI_JOB_DIR -u CMUX_NEXT_TUI_ALLOW_DIRTY \
+  CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 \
+  bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || status=$?
+[[ "$status" == 1 ]] || { printf 'a dirty tree was not refused (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+grep -q 'uncommitted cmux-tui source changes' <<<"$out" || { printf 'dirty refusal lost its reason:\n%s\n' "$out" >&2; exit 1; }
+grep -qF 'warm trees are dirty by design' <<<"$out" \
+  && grep -qF 'nx-remote --ref <pushed sha>' <<<"$out" \
+  || { printf 'dirty refusal does not explain nx-remote warm trees:\n%s\n' "$out" >&2; exit 1; }
+git -C "$TMP/job" checkout -q -- cmux-tui/a
+
 # A commit on no branch of origin is still refused before any wait.
 echo three > "$TMP/job/cmux-tui/a"
 git_q -C "$TMP/job" add cmux-tui/a

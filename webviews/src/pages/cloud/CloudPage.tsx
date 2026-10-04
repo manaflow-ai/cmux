@@ -81,6 +81,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
             row={selected}
             detail={snap.detail}
             plan={snap.plan}
+            team={snap.auth?.team}
             unavailable={snap.unavailable}
             strings={strings}
           />

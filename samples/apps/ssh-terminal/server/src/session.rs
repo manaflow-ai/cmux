@@ -1,23 +1,21 @@
-//! One live SSH shell: a reader task (channel to [`Output`]) and a writer
-//! task (ordered commands to the channel). The session is the only writer of
-//! its channel. Input chunks are put in `seq` order; resize, signal and close
-//! follow the input accepted before them, so the server sees everything in
-//! the order the session host sent it.
+//! One live shell on a host channel. The session is the only writer of its
+//! channel. Input chunks are put in `seq` order; resize and signal follow
+//! the input accepted before them, so the far end sees everything in the
+//! order the session host sent it.
 //!
-//! No call from the session host waits: a full buffer is an `Unavailable
-//! {retryable: true}` answer that changes nothing (a host thread that waited
-//! in `write` could never call `take_events`, and the two would deadlock).
+//! No call waits. The host's data-plane calls never wait either: a full
+//! host buffer is an `Unavailable {retryable: true}` answer, and the session
+//! keeps the command and sends it on the next call (write, resize, signal or
+//! `take_events`). A full session buffer is the same answer to the session
+//! host and changes nothing.
 
-use crate::client::HostKeyGate;
-use crate::iface::{BackendError, ByteEvent, Close, ExitStatus, Grid, Input, ResumeToken, Signal};
+use crate::iface::{
+    BackendError, ByteEvent, ChannelEvent, ChannelId, Close, ExitStatus, HostChannels, Input,
+    MAX_EXIT_MESSAGE, ResumeToken, Signal,
+};
 use crate::output::Output;
-use russh::client::{Handle, Msg};
-use russh::{ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Disconnect, Sig};
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use tokio::runtime::Runtime;
-use tokio::sync::{Notify, oneshot};
 
 /// Input chunks held while an earlier `seq` is missing. More is refused.
 pub const MAX_PENDING_INPUT: usize = 256;
@@ -29,14 +27,13 @@ const MAX_QUEUED_COMMANDS: usize = 1024;
 /// Detached sessions kept for `resume`; the oldest is closed past this.
 pub const MAX_DETACHED: usize = 16;
 
-pub enum Command {
+enum Command {
     Data(Vec<u8>),
-    Resize(Grid),
+    Resize(u16, u16),
     Signal(Signal),
-    Close(Close),
 }
 
-/// Everything the session host sent that the writer task has not sent yet.
+/// Everything the session host sent that the host channel has not taken.
 #[derive(Default)]
 struct Outbox {
     next_seq: u64,
@@ -52,136 +49,235 @@ impl Outbox {
     fn has_room(&self, bytes: usize) -> bool {
         self.bytes + bytes <= MAX_BUFFERED_BYTES && self.ready.len() < MAX_QUEUED_COMMANDS
     }
+
+    fn clear(&mut self) {
+        self.pending.clear();
+        self.ready.clear();
+        self.bytes = 0;
+    }
 }
 
-struct Shared {
-    outbox: Mutex<Outbox>,
-    wake: Notify,
+#[derive(Default)]
+struct State {
+    outbox: Outbox,
+    output: Output,
+    /// The session host closed the terminal.
+    closed: bool,
+    /// `connection.channel.close` was sent.
+    released: bool,
 }
 
 pub struct Session {
     pub terminal: String,
     /// Random per session; the resume token must carry it.
     nonce: u128,
-    pub output: Arc<Output>,
-    shared: Arc<Shared>,
-    closed: AtomicBool,
-}
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    channel: ChannelId,
+    host: Arc<dyn HostChannels>,
+    state: Mutex<State>,
 }
 
 fn buffer_full() -> BackendError {
     BackendError::Unavailable { reason: "the input buffer is full".into(), retryable: true }
 }
 
-pub fn start(
-    runtime: &Runtime,
-    terminal: String,
-    ssh: Handle<HostKeyGate>,
-    read: ChannelReadHalf,
-    write: ChannelWriteHalf<Msg>,
-    early: &[u8],
-) -> Arc<Session> {
-    let shared = Arc::new(Shared { outbox: Mutex::new(Outbox::default()), wake: Notify::new() });
-    let (ended, ended_rx) = oneshot::channel();
-    let output = Arc::new(Output::default());
-    output.push_early(early);
-    runtime.spawn(read_loop(read, output.clone(), ended));
-    runtime.spawn(write_loop(ssh, write, shared.clone(), ended_rx));
-    Arc::new(Session {
-        terminal,
-        nonce: rand::random(),
-        output,
-        shared,
-        closed: AtomicBool::new(false),
-    })
+/// Longest signal name the host may send (`exit.signal`).
+const MAX_SIGNAL_NAME: usize = 32;
+
+/// Cuts host text to at most `max` bytes, on a char boundary.
+fn cut(text: &mut String, max: usize) {
+    if text.len() > max {
+        let mut end = max;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+    }
+}
+
+/// Keeps far-end and host text bounded: the message within
+/// [`MAX_EXIT_MESSAGE`] bytes, the signal name within 32 bytes.
+fn bounded(mut status: ExitStatus) -> ExitStatus {
+    if let Some(message) = &mut status.message {
+        cut(message, MAX_EXIT_MESSAGE);
+    }
+    if let Some(signal) = &mut status.signal {
+        cut(signal, MAX_SIGNAL_NAME);
+    }
+    status
 }
 
 impl Session {
-    fn usable(&self) -> Result<(), BackendError> {
-        if self.closed.load(Ordering::Acquire) || self.output.has_ended() {
-            Err(BackendError::Closed)
+    pub fn new(terminal: String, channel: ChannelId, host: Arc<dyn HostChannels>) -> Arc<Self> {
+        Arc::new(Self {
+            terminal,
+            nonce: rand::random(),
+            channel,
+            host,
+            state: Mutex::new(State::default()),
+        })
+    }
+
+    fn lock(&self) -> MutexGuard<'_, State> {
+        // A panic while the lock was held leaves only plain data behind.
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn usable(state: &State) -> Result<(), BackendError> {
+        if state.closed || state.output.has_ended() {
+            Err(BackendError::not_open())
         } else {
             Ok(())
         }
     }
 
-    fn push(&self, command: Command) -> Result<(), BackendError> {
-        self.usable()?;
-        {
-            let mut outbox = lock(&self.shared.outbox);
-            if !outbox.has_room(0) {
-                return Err(buffer_full());
+    /// Sends queued commands in order until the host answers "full".
+    fn flush(&self, state: &mut State) {
+        while let Some(command) = state.outbox.ready.front() {
+            let sent = match command {
+                Command::Data(bytes) => self.host.send(&self.channel, bytes),
+                Command::Resize(cols, rows) => self.host.resize(&self.channel, *cols, *rows),
+                Command::Signal(signal) => self.host.signal(&self.channel, *signal),
+            };
+            let is_data = matches!(command, Command::Data(_));
+            match sent {
+                Err(BackendError::Unavailable { retryable: true, .. }) => return,
+                // A refused resize or signal (a server that ignores a window
+                // change or a signal) leaves the shell running: it is dropped.
+                Err(error) if is_data => {
+                    // The channel cannot take more. Read what the host still
+                    // has (often the exit); without an end, it is lost.
+                    state.outbox.clear();
+                    self.pull(state);
+                    state.output.finish(ByteEvent::Lost {
+                        reason: format!("the host channel failed: {error}"),
+                        retryable: false,
+                    });
+                    self.release(state);
+                    return;
+                }
+                Ok(()) | Err(_) => {
+                    if let Some(Command::Data(bytes)) = state.outbox.ready.pop_front() {
+                        state.outbox.bytes -= bytes.len();
+                    }
+                }
             }
-            outbox.ready.push_back(command);
         }
-        self.shared.wake.notify_one();
+    }
+
+    /// Reads at most the free room from the host channel.
+    fn pull(&self, state: &mut State) {
+        if state.output.is_closed() || state.output.has_ended() {
+            return;
+        }
+        let mut room = state.output.room();
+        for event in self.host.receive(&self.channel, room) {
+            match event {
+                ChannelEvent::Data(data) if data.len() <= room => {
+                    room -= data.len();
+                    state.output.push(&data);
+                }
+                ChannelEvent::Data(_) => state.output.finish(ByteEvent::Lost {
+                    reason: "the host channel sent more than the free room".into(),
+                    retryable: false,
+                }),
+                ChannelEvent::Exit(status) => state.output.finish(ByteEvent::Exit(bounded(status))),
+                ChannelEvent::Dropped { mut reason, retryable } => {
+                    cut(&mut reason, MAX_EXIT_MESSAGE);
+                    state.output.finish(ByteEvent::Lost { reason, retryable });
+                }
+            }
+            if state.output.has_ended() {
+                state.outbox.clear();
+                self.release(state);
+                return;
+            }
+        }
+    }
+
+    /// Sends `connection.channel.close` once.
+    fn release(&self, state: &mut State) {
+        if !state.released {
+            state.released = true;
+            // The channel is gone either way; a refusal changes nothing.
+            let _closed = self.host.close(&self.channel);
+        }
+    }
+
+    fn push(&self, command: Command) -> Result<(), BackendError> {
+        let mut state = self.lock();
+        Self::usable(&state)?;
+        if !state.outbox.has_room(0) {
+            return Err(buffer_full());
+        }
+        state.outbox.ready.push_back(command);
+        self.flush(&mut state);
         Ok(())
     }
 
     /// Accepts a chunk and moves every chunk that is now in order to the
     /// send queue. A refused write changes nothing; the host retries it.
     pub fn write(&self, input: Input) -> Result<(), BackendError> {
-        self.usable()?;
-        {
-            let mut outbox = lock(&self.shared.outbox);
-            let next = outbox.next_seq;
-            if input.seq < next || outbox.pending.contains_key(&input.seq) {
-                return Err(BackendError::Invalid(format!(
-                    "seq {} was already written",
-                    input.seq
-                )));
-            }
-            if input.seq - next > MAX_PENDING_INPUT as u64 {
-                return Err(BackendError::Invalid(format!(
-                    "seq {} is more than {MAX_PENDING_INPUT} ahead of {next}",
-                    input.seq
-                )));
-            }
-            if !outbox.has_room(input.bytes.len()) {
-                return Err(buffer_full());
-            }
-            outbox.bytes += input.bytes.len();
-            outbox.pending.insert(input.seq, input.bytes);
-            loop {
-                let next = outbox.next_seq;
-                let Some(bytes) = outbox.pending.remove(&next) else { break };
-                outbox.next_seq = next + 1;
-                outbox.ready.push_back(Command::Data(bytes));
-            }
+        let mut state = self.lock();
+        Self::usable(&state)?;
+        let outbox = &mut state.outbox;
+        let next = outbox.next_seq;
+        if input.seq < next || outbox.pending.contains_key(&input.seq) {
+            return Err(BackendError::invalid(format!("seq {} was already written", input.seq)));
         }
-        self.shared.wake.notify_one();
+        if input.seq - next > MAX_PENDING_INPUT as u64 {
+            return Err(BackendError::invalid(format!(
+                "seq {} is more than {MAX_PENDING_INPUT} ahead of {next}",
+                input.seq
+            )));
+        }
+        if !outbox.has_room(input.bytes.len()) {
+            return Err(buffer_full());
+        }
+        outbox.bytes += input.bytes.len();
+        outbox.pending.insert(input.seq, input.bytes);
+        loop {
+            let next = outbox.next_seq;
+            let Some(bytes) = outbox.pending.remove(&next) else { break };
+            outbox.next_seq = next + 1;
+            outbox.ready.push_back(Command::Data(bytes));
+        }
+        self.flush(&mut state);
         Ok(())
     }
 
-    pub fn resize(&self, grid: Grid) -> Result<(), BackendError> {
-        self.push(Command::Resize(grid))
+    pub fn resize(&self, cols: u16, rows: u16) -> Result<(), BackendError> {
+        self.push(Command::Resize(cols, rows))
     }
 
     pub fn signal(&self, signal: Signal) -> Result<(), BackendError> {
         self.push(Command::Signal(signal))
     }
 
-    /// Closes the channel. Later calls on the terminal are refused. `Now`
-    /// drops unsent input; `Graceful` sends it first. Never waits: closing
-    /// the output also frees a reader that waits for room.
+    /// Sends what waits, reads what the host has (within the room) and
+    /// gives the attached terminal everything new.
+    pub fn take_events(&self) -> Vec<ByteEvent> {
+        let mut state = self.lock();
+        if !state.closed && !state.output.has_ended() {
+            self.flush(&mut state);
+            self.pull(&mut state);
+        }
+        state.output.take()
+    }
+
+    /// Closes the channel. Later calls on the terminal are refused.
+    /// `Graceful` first sends the input the host takes now; `Now` drops it.
     pub fn close(&self, how: Close) -> Result<(), BackendError> {
-        if self.closed.swap(true, Ordering::AcqRel) {
-            return Err(BackendError::Closed);
+        let mut state = self.lock();
+        if state.closed {
+            return Err(BackendError::not_open());
         }
-        self.output.close();
-        {
-            let mut outbox = lock(&self.shared.outbox);
-            if how == Close::Now {
-                outbox.ready.clear();
-                outbox.pending.clear();
-                outbox.bytes = 0;
-            }
-            outbox.ready.push_back(Command::Close(how));
+        state.closed = true;
+        if how == Close::Graceful && !state.output.has_ended() {
+            self.flush(&mut state);
         }
-        self.shared.wake.notify_one();
+        state.outbox.clear();
+        state.output.close();
+        self.release(&mut state);
         Ok(())
     }
 
@@ -190,13 +286,23 @@ impl Session {
         let _already = session.close(Close::Now);
     }
 
+    /// Ended, and the attached terminal took the end event (or none is
+    /// attached). Only then may a new session take its terminal id.
+    pub fn is_finished(&self) -> bool {
+        self.lock().output.is_finished()
+    }
+
+    pub fn detach(&self) {
+        self.lock().output.detach();
+    }
+
+    pub fn attach_at(&self, offset: u64) -> bool {
+        self.lock().output.attach_at(offset)
+    }
+
     pub fn resume_token(&self) -> ResumeToken {
-        ResumeToken(format!(
-            "ssh:{}@{}#{:032x}",
-            self.terminal,
-            self.output.delivered(),
-            self.nonce
-        ))
+        let delivered = self.lock().output.delivered();
+        ResumeToken(format!("ssh:{}@{delivered}#{:032x}", self.terminal, self.nonce))
     }
 
     pub fn nonce_matches(&self, nonce: u128) -> bool {
@@ -206,92 +312,13 @@ impl Session {
 
 /// `ssh:<terminal>@<offset>#<nonce>` back to its parts.
 pub fn parse_token(token: &ResumeToken) -> Result<(String, u64, u128), BackendError> {
-    let invalid = || BackendError::Invalid("not an ssh resume token".into());
+    let invalid = || BackendError::invalid("not an ssh resume token");
     let rest = token.0.strip_prefix("ssh:").ok_or_else(invalid)?;
     let (rest, nonce) = rest.rsplit_once('#').ok_or_else(invalid)?;
     let (terminal, offset) = rest.rsplit_once('@').ok_or_else(invalid)?;
     let offset = offset.parse().map_err(|_| invalid())?;
     let nonce = u128::from_str_radix(nonce, 16).map_err(|_| invalid())?;
     Ok((terminal.to_owned(), offset, nonce))
-}
-
-async fn read_loop(mut read: ChannelReadHalf, output: Arc<Output>, ended: oneshot::Sender<()>) {
-    let mut code = None;
-    let mut exited = false;
-    while let Some(message) = read.wait().await {
-        match message {
-            ChannelMsg::Data { data } => output.push(&data).await,
-            ChannelMsg::ExtendedData { data, .. } => output.push(&data).await,
-            ChannelMsg::ExitStatus { exit_status } => {
-                code = Some(i32::try_from(exit_status).unwrap_or(i32::MAX));
-                exited = true;
-            }
-            ChannelMsg::ExitSignal { .. } | ChannelMsg::Close => exited = true,
-            _ => {}
-        }
-    }
-    // The channel ended. Without an exit status or a close from the server,
-    // the transport dropped: the terminal is lost, not exited.
-    output.finish(if exited {
-        ByteEvent::Exit(ExitStatus { code })
-    } else {
-        ByteEvent::Lost("the ssh connection ended".into())
-    });
-    let _writer_gone = ended.send(());
-}
-
-async fn write_loop(
-    ssh: Handle<HostKeyGate>,
-    write: ChannelWriteHalf<Msg>,
-    shared: Arc<Shared>,
-    mut ended: oneshot::Receiver<()>,
-) {
-    loop {
-        let next = {
-            let mut outbox = lock(&shared.outbox);
-            let command = outbox.ready.pop_front();
-            if let Some(Command::Data(bytes)) = &command {
-                outbox.bytes -= bytes.len();
-            }
-            command
-        };
-        let Some(command) = next else {
-            tokio::select! {
-                () = shared.wake.notified() => continue,
-                // The reader ended (exit or lost): drop the connection now
-                // instead of keeping it alive for nothing.
-                _ = &mut ended => break,
-            }
-        };
-        let sent = match command {
-            Command::Data(bytes) => write.data_bytes(bytes).await,
-            Command::Resize(grid) => {
-                write.window_change(u32::from(grid.cols), u32::from(grid.rows), 0, 0).await
-            }
-            Command::Signal(signal) => write.signal(ssh_signal(signal)).await,
-            Command::Close(how) => {
-                if how == Close::Graceful {
-                    // End of input first, so the shell sees a hang-up.
-                    let _eof = write.eof().await;
-                }
-                let _closed = write.close().await;
-                break;
-            }
-        };
-        if sent.is_err() {
-            break;
-        }
-    }
-    let _gone = ssh.disconnect(Disconnect::ByApplication, "", "en").await;
-}
-
-fn ssh_signal(signal: Signal) -> Sig {
-    match signal {
-        Signal::Interrupt => Sig::INT,
-        Signal::Terminate => Sig::TERM,
-        Signal::Hangup => Sig::HUP,
-        Signal::Kill => Sig::KILL,
-    }
 }
 
 /// Live sessions by terminal id, and the order in which they detached.
@@ -309,23 +336,27 @@ struct RegistryInner {
 }
 
 impl Registry {
+    fn lock(&self) -> MutexGuard<'_, RegistryInner> {
+        self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn get(&self, terminal: &str) -> Option<Arc<Session>> {
-        lock(&self.inner).sessions.get(terminal).cloned()
+        self.lock().sessions.get(terminal).cloned()
     }
 
     pub fn is_current(&self, session: &Arc<Session>) -> bool {
-        lock(&self.inner).sessions.get(&session.terminal).is_some_and(|s| Arc::ptr_eq(s, session))
+        self.lock().sessions.get(&session.terminal).is_some_and(|s| Arc::ptr_eq(s, session))
     }
 
     /// Adds a session. An older session with the same id that ended or was
     /// detached is replaced and closed; an attached, live one is refused.
     pub fn insert(&self, session: Arc<Session>) -> Result<(), BackendError> {
         let old = {
-            let mut inner = lock(&self.inner);
+            let mut inner = self.lock();
             if let Some(old) = inner.sessions.get(&session.terminal) {
                 let detached = inner.detached.iter().any(|d| Arc::ptr_eq(d, old));
-                if !detached && !old.output.has_ended() {
-                    return Err(BackendError::Invalid(format!(
+                if !detached && !old.is_finished() {
+                    return Err(BackendError::invalid(format!(
                         "terminal {} is open",
                         session.terminal
                     )));
@@ -345,14 +376,15 @@ impl Registry {
 
     /// True when a live, attached session holds `terminal`.
     pub fn is_busy(&self, terminal: &str) -> bool {
-        let inner = lock(&self.inner);
-        inner.sessions.get(terminal).is_some_and(|s| {
-            !s.output.has_ended() && !inner.detached.iter().any(|d| Arc::ptr_eq(d, s))
-        })
+        let inner = self.lock();
+        inner
+            .sessions
+            .get(terminal)
+            .is_some_and(|s| !s.is_finished() && !inner.detached.iter().any(|d| Arc::ptr_eq(d, s)))
     }
 
     pub fn remove(&self, session: &Arc<Session>) {
-        let mut inner = lock(&self.inner);
+        let mut inner = self.lock();
         if inner.sessions.get(&session.terminal).is_some_and(|s| Arc::ptr_eq(s, session)) {
             inner.sessions.remove(&session.terminal);
         }
@@ -360,18 +392,18 @@ impl Registry {
     }
 
     pub fn is_detached(&self, session: &Arc<Session>) -> bool {
-        lock(&self.inner).detached.iter().any(|d| Arc::ptr_eq(d, session))
+        self.lock().detached.iter().any(|d| Arc::ptr_eq(d, session))
     }
 
     pub fn attached(&self, session: &Arc<Session>) {
-        lock(&self.inner).detached.retain(|d| !Arc::ptr_eq(d, session));
+        self.lock().detached.retain(|d| !Arc::ptr_eq(d, session));
     }
 
     /// The session host dropped the terminal without `close`: keep the
     /// session for `resume`, and close the oldest past [`MAX_DETACHED`].
     pub fn detached(&self, session: &Arc<Session>) {
         let evicted = {
-            let mut inner = lock(&self.inner);
+            let mut inner = self.lock();
             if !inner.sessions.get(&session.terminal).is_some_and(|s| Arc::ptr_eq(s, session)) {
                 return;
             }
@@ -392,7 +424,7 @@ impl Registry {
     }
 
     pub fn drain(&self) -> Vec<Arc<Session>> {
-        let mut inner = lock(&self.inner);
+        let mut inner = self.lock();
         inner.detached.clear();
         inner.sessions.drain().map(|(_, s)| s).collect()
     }

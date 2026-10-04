@@ -19,6 +19,12 @@ enum HistoryHandlers {
         registry.bind("focusHistoryLast", run: { _ in
             guard services.locationTrail.navigate(.last) else { throw ActionFailure(message: HistoryAppStrings.nothingBack) }
         })
+        // A row of the Back / Forward button list (history.md 4.2a): the trail index it shows.
+        registry.bind("history.goTo", run: { invocation in
+            guard let index = invocation["index"]?.intValue, services.locationTrail.go(toIndex: index) else {
+                throw ActionFailure(message: HistoryAppStrings.entryGone)
+            }
+        })
         let pages: [(ActionID, @MainActor (AppServices) -> PalettePageSpec)] = [
             ("recentlyFocused", HistoryPalettePages.locations),
             ("recentlyClosed", HistoryPalettePages.closed),

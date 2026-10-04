@@ -1,0 +1,12 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/fs/[operation]/route.ts and web/services/vms/drivers/types.ts (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/vm-alpha01/fs/mkdir"
+  },
+  "status": 200,
+  "body": {
+    "ok": true,
+    "path": "/home/cmux/new"
+  }
+}

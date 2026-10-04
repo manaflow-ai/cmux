@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 /// The user's Ghostty config with one theme applied (`theme = <name>` after
 /// the config files, like `appearance.theme`), for a terminal whose room,

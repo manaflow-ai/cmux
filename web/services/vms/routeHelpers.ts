@@ -35,6 +35,7 @@ import {
   type VmOperationUnsupportedError,
   type VmProviderOperationError,
   type VmSnapshotNotFoundError,
+  type VmFileNotFoundError,
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -675,6 +676,15 @@ const vmCreateInProgressResponse = (error: VmCreateInProgressError, action: stri
     details: { idempotencyKeySet: !!error.idempotencyKey },
   });
 
+const vmFileNotFoundResponse = (error: VmFileNotFoundError): Response =>
+  vmErrorResponse({
+    error: "vm_file_not_found",
+    status: 404,
+    message: "This path does not exist on the Cloud VM.",
+    action: "Check the path; a retried delete of a removed file is already done.",
+    details: { path: error.path },
+  });
+
 const vmSnapshotNotFoundResponse = (error: VmSnapshotNotFoundError): Response =>
   vmErrorResponse({
     error: "vm_snapshot_not_found",
@@ -994,6 +1004,7 @@ export const vmWorkflowErrorResponders = {
   VmFreeAccessExpiredError: (error) =>
     vmFreeAccessExpiredResponse({ vmId: error.vmId, windowDays: error.windowDays }),
   VmSnapshotNotFoundError: (error) => vmSnapshotNotFoundResponse(error),
+  VmFileNotFoundError: (error) => vmFileNotFoundResponse(error),
   // Create-family failures need the caller's plan and operation copy; the
   // create, fork, and restore routes supply those as overrides.
   VmCreateInProgressError: () => null,

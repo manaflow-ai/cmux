@@ -10,6 +10,11 @@ import { CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
+/** Most teams one user's index holds (the user head is one SQLite row). */
+export const MAX_TEAM_INDEX = 1_000
+const TEAM_ROLES: ReadonlySet<string> = new Set(["owner", "admin", "member"])
+const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
+
 export interface UserState extends PushTargetsState, ChiefsState {
   readonly user: UserProfile | null
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
@@ -21,6 +26,8 @@ export interface UserState extends PushTargetsState, ChiefsState {
    * (plans/cmux-next/team-vm-plan.md S4). UserDO's alarm delivers them and clears each one.
    */
   readonly ssh_revoke_pending?: Readonly<Record<string, { readonly user: string; readonly teams: ReadonlyArray<string>; readonly at: number }>>
+  /** Every team this user belongs to, written only by that team's TeamDO (user.team_index; DM reach reads it). */
+  readonly team_index?: Readonly<Record<string, { readonly role: string; readonly kind: string }>>
 }
 
 const hex20 = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20)
@@ -43,7 +50,15 @@ export const grantFor = (state: UserState, p: Principal) => (p.grant ? state.gra
 export const installActive = (state: UserState, p: Principal) => {
   if (p.kind === "session") return true
   const inst = p.install ? state.installs[p.install] : undefined
-  return Boolean(inst && inst.revoked_at === null && inst.grant === p.grant)
+  if (!inst || inst.revoked_at !== null || inst.grant !== p.grant) return false
+  // A chief token (principal.agent): the chief must be this user's and not archived (instant chief revocation).
+  return p.agent === undefined || chiefActive(state, p.agent)
+}
+
+/** True for an unarchived chief of this user. */
+export const chiefActive = (state: UserState, agent: string): boolean => {
+  const c = (state as { chiefs?: Readonly<Record<string, { owner_user: string; archived_at: string | null }>> }).chiefs?.[agent]
+  return c !== undefined && c.archived_at === null && state.user !== null && state.user !== undefined && c.owner_user === state.user.id
 }
 
 /**
@@ -194,6 +209,24 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         if (!cur) return reject("selector.not_found", "install not found")
         if (cur.bound_team !== v.team) return reject("auth.forbidden", "install is not bound to this team")
         return revokeInstall(state, cur, ctx.now)
+      }
+      case "user.team_index": {
+        // Only the team's own TeamDO (its outbox delivers as system:team:<id>) indexes that team.
+        const v = params as { team?: unknown; role?: unknown; kind?: unknown }
+        if (typeof v.team !== "string" || p.kind !== "system" || p.identity !== `system:team:${v.team}`) return reject("auth.forbidden", "internal op of the team's TeamDO")
+        const cur = state.team_index?.[v.team]
+        if (v.role === null) {
+          if (!cur) return { ok: true, state, value: null, changed: false }
+          const { [v.team]: _gone, ...rest } = state.team_index ?? {}
+          return { ok: true, state: { ...state, team_index: rest }, value: null }
+        }
+        if (!TEAM_ROLES.has(v.role as string) || !TEAM_KINDS.has(v.kind as string)) return reject("validation.invalid", "role must be owner, admin or member; kind personal or stack")
+        const role = v.role as string
+        const kind = v.kind as string
+        if (cur && cur.role === role && cur.kind === kind) return { ok: true, state, value: cur, changed: false }
+        // The user head is one row: a user in more than MAX_TEAM_INDEX teams is refused (logged by the sender).
+        if (!cur && Object.keys(state.team_index ?? {}).length >= MAX_TEAM_INDEX) return reject("user.team_index_full", `a user belongs to at most ${MAX_TEAM_INDEX} teams`)
+        return { ok: true, state: { ...state, team_index: { ...(state.team_index ?? {}), [v.team]: { role, kind } } }, value: { role, kind } }
       }
       case "install.ssh_revoke_done": {
         // UserDO's own alarm, after every team in the notice confirmed the KRL entries.

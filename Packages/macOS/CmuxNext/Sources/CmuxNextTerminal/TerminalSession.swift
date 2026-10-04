@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextTerminalFind
 import CmuxNextWakeups
-import GhosttyKit
+import GhosttyNextKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
 ///
@@ -14,9 +14,9 @@ import GhosttyKit
 ///
 /// Geometry: the mirror's grid must equal the PTY's grid at every point in
 /// the byte stream, or later output lands in the wrong cells. The IO owner
-/// decides the PTY size; every `.resize` event resizes the live surface in
-/// place (`ghostty_surface_set_grid_size`) after every earlier chunk was
-/// parsed, and never replaces the surface. Once one arrived the surface
+/// decides the PTY size; every `.resize` event locks the live surface's grid
+/// in place (`ghostty_surface_set_grid`, queued on the output lane behind
+/// every earlier chunk), and never replaces the surface. Once one arrived the surface
 /// renders only `.resize` grids (``TerminalGridPolicy``). When
 /// ``ownsGeometry`` is true the grid the view fits is sent with `io.resize`,
 /// once per change, as a request: the surface follows when the owner
@@ -182,15 +182,20 @@ public final class TerminalSession {
             surfaceHasContent = true
             TerminalTimings.contentApplied()
         case .kittyReplay(let replay):
+            // GhosttyNextKit restores Kitty graphics through GHOSTSNP snapshots
+            // (terminal-snapshot-v1), not the desktop fork's kitty replay. Until
+            // this view attaches in snapshot mode (S2b), the VT part is
+            // replayed and on-screen Kitty images come back only when the
+            // program draws them again.
             if surfaceHasContent { swapSurface() }
-            restoreKittyReplay(replay)
+            surfaceView.lane?.processOutput(replay.vt)
             surfaceHasContent = true
             TerminalTimings.contentApplied()
         case .output(let data):
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()
-            // The surface may have been swapped while waiting (kitty restore fallback).
+            // The surface may have been swapped while waiting (a replay).
             surfaceView.lane?.processOutput(data)
             surfaceHasContent = true
             TerminalTimings.contentApplied()
@@ -201,7 +206,7 @@ public final class TerminalSession {
             model.hasExited = true
         case .status(let status):
             model.connection = status
-            if status == .exited { model.hasExited = true }
+            model.hasExited = status == .exited
             view.showStatus(status)
         }
     }
@@ -212,64 +217,13 @@ public final class TerminalSession {
         input.reconnect()
     }
 
-    /// `ghostty_surface_restore_kitty_replay` (ghostty.h:1614-1628) runs on
-    /// the output lane so it is ordered before any later output. On failure
-    /// the surface state may be partial, so it is discarded and the VT bytes
-    /// are replayed into a fresh surface without Kitty state.
-    private func restoreKittyReplay(_ replay: TerminalKittyReplay) {
-        guard let lane = surfaceView.lane else { return }
-        let target = ObjectIdentifier(surfaceView)
-        lane.perform { [weak self] surface in
-            let restored = replay.vt.withUnsafeBytes { buffer -> Bool in
-                let aliases = replay.aliases.map {
-                    ghostty_surface_kitty_image_alias(image_id: $0.imageID, image_number: $0.imageNumber)
-                }
-                let limits = ghostty_surface_kitty_graphics_limits(
-                    image_bytes: replay.limits.imageBytes,
-                    inflight_bytes: replay.limits.inflightBytes,
-                    images: replay.limits.images,
-                    placements: replay.limits.placements
-                )
-                let cursors = ghostty_surface_kitty_image_id_cursor_state(
-                    replay: .init(primary: replay.replayCursors.primary, alternate: replay.replayCursors.alternate),
-                    next: .init(primary: replay.nextCursors.primary, alternate: replay.nextCursors.alternate)
-                )
-                return aliases.withUnsafeBufferPointer { aliasBuffer in
-                    ghostty_surface_restore_kitty_replay(
-                        surface,
-                        buffer.baseAddress?.assumingMemoryBound(to: CChar.self),
-                        UInt(buffer.count),
-                        replay.cursorOffset,
-                        limits,
-                        cursors,
-                        aliasBuffer.baseAddress,
-                        UInt(aliasBuffer.count)
-                    )
-                }
-            }
-            guard !restored else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    guard let self, ObjectIdentifier(self.surfaceView) == target else { return }
-                    GhosttyRuntime.logger.error("kitty replay restore failed; replaying VT without graphics state")
-                    self.swapSurface()
-                    self.surfaceView.lane?.processOutput(replay.vt)
-                }
-            }
-        }
-    }
-
-    /// Resizes the live mirror to the owner's grid in stream order: output
-    /// queued before this event is parsed first, so Ghostty reflows the same
-    /// screen the owner reflowed. Every `.resize` applies; there is no
-    /// "late echo": the event is the PTY's size at this point in the stream.
+    /// Locks the live mirror to the owner's grid in stream order: the lock
+    /// is queued on the output lane behind every chunk received before this
+    /// event, so Ghostty reflows the same screen the owner reflowed. Every
+    /// `.resize` applies; the event is the PTY's size at this point in the
+    /// stream.
     private func applyCanonicalGrid(_ grid: TerminalGridSize) async {
         canonicalGrid = grid
-        // Parse queued output at the old grid first; skip the wait when the
-        // grid is already right. The event loop is suspended meanwhile, so
-        // later output stays behind this grid change, and the main thread
-        // keeps running.
-        if surfaceView.currentGrid != grid, let lane = surfaceView.lane { await lane.drained() }
         surfaceView.applyAnnouncedGrid(grid)
     }
 

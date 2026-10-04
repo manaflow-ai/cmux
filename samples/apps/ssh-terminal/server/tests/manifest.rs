@@ -19,6 +19,10 @@ fn manifest_validates_as_a_third_party_app() {
     let manifest = report.manifest.expect("manifest parsed");
     assert_eq!(manifest["id"], ssh_terminal::APP_ID);
     assert_eq!(manifest["handles"]["connection"]["kinds"], serde_json::json!(["ssh"]));
+    assert!(
+        manifest["handles"].get("credential").is_none(),
+        "the host owns the SSH transport and the key: the app asks for no credential handle"
+    );
     assert!(manifest.get("server").is_none(), "no first-party native server tier");
     assert!(
         manifest.get("implements").is_none(),
