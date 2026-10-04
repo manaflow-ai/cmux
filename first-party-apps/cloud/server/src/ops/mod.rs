@@ -114,6 +114,11 @@ pub fn op_names() -> impl Iterator<Item = &'static str> {
     OPS.iter().map(|(name, _)| *name)
 }
 
+/// RED scaffolding: the error codes each backend op declares.
+pub fn declared_errors(_op: &str) -> Option<&'static [&'static str]> {
+    None
+}
+
 /// How the catalog guards an op: `(mutation, user_only)`; `None` for an
 /// unknown op. Tests compare it with the fragment's `class` and `gesture`.
 pub fn op_policy(name: &str) -> Option<(bool, bool)> {
