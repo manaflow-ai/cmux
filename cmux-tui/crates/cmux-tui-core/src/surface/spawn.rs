@@ -418,7 +418,49 @@ impl Surface {
         terminal_public_id: TerminalPublicId,
         side: crate::terminal_backend::pty::BackendSide,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _ = (id, opts, mux, cell_pixels, terminal_public_id, side);
-        anyhow::bail!("byte-backend terminals are not built yet")
+        use crate::terminal_backend::pty::{BackendKiller, BackendMaster, wait_end};
+        let (opts, _, kitty_reservation) =
+            Self::spawn_prelude(id, opts, &mux, None, KittyQuota::AtLaunch)?;
+        // A catalog-owned terminal with zero views: its first projection
+        // (`terminal.project`) gives it a tab.
+        let terminal_public_id = Some(terminal_public_id);
+        let initial_kitty_limits = kitty_reservation
+            .as_ref()
+            .map(crate::mux::KittyImageBudgetReservation::initial_limits)
+            .unwrap_or_default();
+        let initial_geometry = PtyGeometry {
+            cols: opts.cols,
+            rows: opts.rows,
+            cell_width: cell_pixels.0,
+            cell_height: cell_pixels.1,
+        };
+        let master = BackendMaster::new(side.clone(), initial_geometry.pty_size()?);
+        let reader = master.try_clone_reader()?;
+        let writer = master.take_writer()?;
+        let command = vec![side.terminal.clone()];
+        let launch = LocalLaunch {
+            master: Box::new(master),
+            reader,
+            writer,
+            killer: Box::new(BackendKiller(side.clone())),
+            wait: Box::new(move || wait_end(&side)),
+            pid: None,
+            command,
+            cwd: None,
+            supports_clear_history_key_fallback: false,
+        };
+        let spawn = LocalSpawn {
+            id,
+            opts,
+            mux,
+            terminal_public_id,
+            kitty_reservation,
+            initial_kitty_limits,
+            resource_identity: None,
+            lifetime: PtyLifetime::DaemonOwned,
+            cell_pixels,
+            initial_geometry,
+        };
+        Self::spawn_local(spawn, launch)
     }
 }

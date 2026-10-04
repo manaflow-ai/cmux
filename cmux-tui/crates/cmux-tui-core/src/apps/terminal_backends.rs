@@ -168,8 +168,25 @@ impl Supervisor {
     /// deadline list; the ones that never had a view are closed. Answers the
     /// closed ids.
     pub(crate) fn close_unplaced_terminals_at(&self, now: Instant) -> Vec<String> {
-        let _ = now;
-        Vec::new()
+        let due: Vec<(String, crate::SurfaceId)> = {
+            let mut placements = self.terminals.backend.placements.lock().unwrap();
+            let due: Vec<String> = placements
+                .iter()
+                .filter(|(_, p)| p.deadline <= now)
+                .map(|(t, _)| t.clone())
+                .collect();
+            due.into_iter().filter_map(|t| placements.remove(&t).map(|p| (t, p.surface))).collect()
+        };
+        let mut closed = Vec::new();
+        for (terminal, surface) in due {
+            if !self.router.backend_terminal_viewed(surface) {
+                // The surface's killer closes the channel and tells the app.
+                self.router.close_backend_terminal(surface);
+                closed.push(terminal);
+            }
+        }
+        closed.sort();
+        closed
     }
 
     /// A backend terminal ended: an unplaced one leaves the session host.

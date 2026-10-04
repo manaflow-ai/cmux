@@ -99,8 +99,8 @@ impl Mux {
     /// True when `surface` is an app backend terminal that has no durable
     /// record yet (it was never projected).
     pub(crate) fn is_unregistered_app_terminal(&self, surface: SurfaceId) -> bool {
-        let _ = surface;
-        false
+        self.app_terminals.lock().unwrap().contains(&surface)
+            && !self.reserved_in_process_terminals.lock().unwrap().contains_key(&surface)
     }
 
     /// For the first view of an app terminal (no durable record yet): a new

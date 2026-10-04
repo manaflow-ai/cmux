@@ -75,9 +75,22 @@ pub(crate) fn check_open(
     open_token: &OpenToken,
     tokens: &dyn OpenTokenGate,
 ) -> Result<(LocalId, TokenUse), BackendError> {
-        let _ = (app, declaration, kind, open_token, tokens);
-    todo!("open checks")
+    open_token.check()?;
+    let used = tokens.consume(open_token.as_str(), app).ok_or_else(|| {
+        BackendError::denied(
+            "open_token is not valid: it is unknown, expired, used, or issued to another app",
+        )
+    })?;
+    let declaration = declaration?;
+    if !declaration.open_ops.contains(&used.op) {
+        return Err(BackendError::denied(format!(
+            "open_token was issued for {}, which is not in options.openOps",
+            used.op
+        )));
     }
+    allow_kind(&declaration.kinds, kind)?;
+    Ok((LocalId::new(kind)?, used))
+}
 
 impl LinkRegistry {
     /// The shared channel table (the relay moves bytes through it).
