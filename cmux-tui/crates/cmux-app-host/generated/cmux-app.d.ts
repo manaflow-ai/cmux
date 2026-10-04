@@ -35,7 +35,7 @@ declare namespace Cmux {
   type CloudMachine = { id: Cmux.MachineId; team: Cmux.TeamId; creator: Cmux.UserId; name: string | null; size: Cmux.CloudMachineSize; status: Cmux.CloudMachineStatus; image: { id: string; daemon_version: string | null }; host: Cmux.HostId | null; classic: boolean; created_at: number; last_active_at: number | null; idle_policy: { idle_seconds: number }; error: { code: string; message: string; at: number } | null; revision: Cmux.Revision }
   type CloudMachineSize = { cpu?: number; memory_mb?: number; disk_mb?: number }
   type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
-  type CloudPlan = { plan_id: string; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown; period_end: number } }
+  type CloudPlan = { plan_id: string; upgrade_plan: string | null; limits: { max_active: number; max_saved: number; memory_options_mb: Array<number>; locked_memory_options_mb: Array<number>; vm_hours_included: unknown | null }; usage: { active: number; saved: number; vm_hours_used: unknown; period_end: number } }
   type CloudSnapshot = { id: Cmux.SnapshotId; machine: Cmux.MachineId; name: string | null; size_mb: number; status: "creating" | "ready" | "deleting" | "failed"; created_at: number; revision: Cmux.Revision }
   type CodeRef = { commit: Cmux.CommitSha; path: string; export?: string }
   type ColorHex = string
