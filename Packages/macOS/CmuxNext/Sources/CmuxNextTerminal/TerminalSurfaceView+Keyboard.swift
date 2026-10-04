@@ -1,6 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
-import GhosttyKit
+import GhosttyNextKit
 
 // Keyboard and IME input.
 //
