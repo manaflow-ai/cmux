@@ -25,6 +25,7 @@ export const cloudCases = (c: Corpus): void => {
   const host = new CoreHost(groupHead())
   const send = (key: string, body: string): Op => ({ kind: "message.send", client_msg_id: key, parts: [text(body)] })
   c.op(host, "send: by a member", BOB, "m1", send("m1", "hello"), "commit")
+  c.op(host, "send: a cloud head refuses a paired-device mention", BOB, "m1d", { kind: "message.send", client_msg_id: "m1d", parts: [{ type: "text", text: "hi", runs: [{ start: 0, length: 2, mention: "remote_inst_1" }] }] }, "invalid_parts")
   c.op(host, "participants.add: stamps role, joined_seq, added_by", BOB, "p1", { kind: "participants.add", participant: human(CAROL, "Carol") }, "commit")
   c.op(host, "participants.add: a address", BOB, "p2", { kind: "participants.add", participant: address(ADDRESS) }, "invalid_participant")
   c.op(host, "participants.remove: a member may not remove another", BOB, "r1", { kind: "participants.remove", participant: CAROL }, "forbidden")
