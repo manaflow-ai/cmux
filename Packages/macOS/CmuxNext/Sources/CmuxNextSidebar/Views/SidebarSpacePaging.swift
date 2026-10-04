@@ -19,6 +19,7 @@ import QuartzCore
     /// The space a release switched to, until the model shows it.
     private(set) var pendingTarget: ProfileKey?
     private var snapshot: NSView?
+    var snapshotView: NSView? { snapshot }
 
     init(host: SidebarView) { self.host = host }
 

@@ -32,4 +32,21 @@ extension SidebarView {
         let dragging = list.drag.map { drag in drag.hiddenKeys.map { String(describing: $0) } } ?? []
         return (rows, selection, dragging)
     }
+
+    /// The swipe pages now (debug.sidebar_rows): where each sits and what it draws.
+    public func debugPaging() -> [String: String] {
+        var info: [String: String] = [:]
+        func describe(_ view: NSView?) -> String {
+            guard let view else { return "none" }
+            let tx = (view.layer?.presentation() ?? view.layer)?.value(forKeyPath: "transform.translation.x") as? CGFloat ?? 0
+            return "super=\(view.superview.map { String(describing: type(of: $0)) } ?? "nil") frame=\(view.frame) tx=\(tx) hidden=\(view.isHiddenOrHasHiddenAncestor) alpha=\(view.alphaValue)"
+        }
+        info["page"] = describe(scrollView)
+        if let neighbor = spacePaging.neighbor {
+            info["neighbor"] = describe(neighbor.view)
+            info["neighbor_rows"] = "\(neighbor.list.displayed.rows.count) views=\(neighbor.list.rowViews.count) frame=\(neighbor.list.frame)"
+        }
+        info["snapshot"] = describe(spacePaging.snapshotView)
+        return info
+    }
 }
