@@ -11,7 +11,6 @@ enum MiscHandlerStrings {
     static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module) }
     static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module) }
     static var cloud: String { String(localized: "handlers.misc.unavailable.cloud", defaultValue: "Cloud actions arrive with the Cloud wave; cmux-next has no Cloud client yet.", table: "MiscHandlers", bundle: .module) }
-    static var diffViewer: String { String(localized: "handlers.misc.unavailable.diffViewer", defaultValue: "cmux-next has no diff viewer yet.", table: "MiscHandlers", bundle: .module) }
     static var markdownViewer: String { String(localized: "handlers.misc.unavailable.markdownViewer", defaultValue: "cmux-next has no Markdown viewer yet.", table: "MiscHandlers", bundle: .module) }
     static var filePreview: String { String(localized: "handlers.misc.unavailable.filePreview", defaultValue: "cmux-next has no file preview surface yet.", table: "MiscHandlers", bundle: .module) }
     static var vscodeServer: String { String(localized: "handlers.misc.unavailable.vscodeServer", defaultValue: "The inline VS Code server is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
