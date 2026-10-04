@@ -2041,6 +2041,34 @@
             "name": "string"
           }
         },
+        "preview_attachments": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "kind": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "photo",
+                    "video",
+                    "audio",
+                    "file"
+                  ]
+                }
+              },
+              "count": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          },
+          "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
+        },
         "dm_peer": {
           "required": false,
           "type": {
@@ -27374,6 +27402,30 @@
               "preview": {
                 "type": "string"
               },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
+              },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
               },
@@ -27721,6 +27773,30 @@
               "preview": {
                 "type": "string"
               },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
+              },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
               },
@@ -27951,6 +28027,30 @@
               },
               "preview": {
                 "type": "string"
+              },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
               },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
@@ -28218,6 +28318,30 @@
               "preview": {
                 "type": "string"
               },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
+              },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"
               },
@@ -28459,6 +28583,30 @@
               },
               "preview": {
                 "type": "string"
+              },
+              "preview_attachments": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "photo",
+                      "video",
+                      "audio",
+                      "file"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "kind",
+                  "count"
+                ],
+                "additionalProperties": true,
+                "description": "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
               },
               "dm_peer": {
                 "$ref": "#/$defs/ParticipantId"

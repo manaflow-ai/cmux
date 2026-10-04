@@ -15,63 +15,47 @@ import type { AttachmentPart, Message, Part } from "./types.ts"
 export type AttachmentClass = "image" | "video" | "audio" | "file"
 
 const MB = 1_000_000
-/** Every attachment limit in one place. Decimal megabytes (100 MB stays under Cloudflare's 100 MiB request body cap on every plan). */
+/** Every attachment limit in one place (decimal megabytes; backend lead decisions 2026-10-03). */
 export const ATTACHMENT_LIMITS = {
-  maxBytes: { image: 25 * MB, video: 100 * MB, audio: 25 * MB, file: 25 * MB } satisfies Record<AttachmentClass, number>,
-  /** Per user, declared bytes of upload intents (a repeated intent for the same conversation and hash counts once). */
-  quota: { dayBytes: 1_000 * MB, monthBytes: 10_000 * MB, dayMs: 24 * 3_600_000, monthMs: 30 * 24 * 3_600_000 },
+  /** Per file, every type. */
+  maxBytes: 100 * MB,
+  /** Up to this size the bytes stream through the Worker (Free plan body cap is 100 MB); larger files use a presigned R2 PUT. */
+  streamMaxBytes: 32 * MB,
+  /** Per user, rolling 24 h: declared bytes and intents; stored bytes per uploader across conversations. */
+  quota: { dayBytes: 2_000 * MB, dayIntents: 300, storedBytes: 10_000 * MB, dayMs: 24 * 3_600_000 },
   maxNameChars: 255,
   maxDimension: 100_000,
   maxDurationMs: 24 * 3_600_000,
-  /** Upload slot and download URL lifetimes. */
+  /** Upload slot (both modes) and download URL lifetimes. */
   uploadTtlMs: 15 * 60_000,
   downloadTtlMs: 10 * 60_000,
   /** An uploaded object no message references is collectable after this long. */
   unreferencedGraceMs: 24 * 3_600_000
 } as const
 
-/** The allow list: type -> class. SVG, HTML, XML, scripts and executables are absent on purpose. */
+/** The allow list: type -> class. SVG, HTML and XML are never on it. */
 export const ATTACHMENT_TYPES: Readonly<Record<string, AttachmentClass>> = {
   "image/jpeg": "image",
   "image/png": "image",
   "image/gif": "image",
   "image/webp": "image",
   "image/heic": "image",
-  "image/heif": "image",
-  "image/avif": "image",
-  "video/mp4": "video",
-  "video/quicktime": "video",
-  "video/webm": "video",
-  "audio/mpeg": "audio",
-  "audio/mp4": "audio",
-  "audio/aac": "audio",
-  "audio/wav": "audio",
-  "audio/ogg": "audio",
-  "audio/webm": "audio",
-  "audio/flac": "audio",
   "application/pdf": "file",
   "text/plain": "file",
   "text/markdown": "file",
   "text/csv": "file",
   "application/json": "file",
-  "application/rtf": "file",
   "application/zip": "file",
-  "application/gzip": "file",
-  "application/x-tar": "file",
-  "application/x-7z-compressed": "file",
-  "application/msword": "file",
-  "application/vnd.ms-excel": "file",
-  "application/vnd.ms-powerpoint": "file",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "file",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "file",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "file",
-  "application/vnd.oasis.opendocument.text": "file",
-  "application/vnd.oasis.opendocument.spreadsheet": "file",
-  "application/vnd.oasis.opendocument.presentation": "file",
-  "application/vnd.apple.pages": "file",
-  "application/vnd.apple.numbers": "file",
-  "application/vnd.apple.keynote": "file"
+  "video/mp4": "video",
+  "video/quicktime": "video",
+  "audio/mp4": "audio",
+  "audio/mpeg": "audio",
+  "audio/aac": "audio",
+  "audio/wav": "audio"
 }
+
+/** Text types download as text/plain attachments (never rendered as their own type). */
+export const servedContentType = (mime: string): string => (mime.startsWith("text/") || mime === "application/json" ? "text/plain; charset=utf-8" : mime)
 
 /** Extensions refused whatever the declared type (executables, installers, scripts, active documents). */
 export const DENIED_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -132,8 +116,8 @@ export const validateAttachmentMeta = (input: unknown): MetaResult => {
   const mime = v.mime_type.toLowerCase()
   const cls = ATTACHMENT_TYPES[mime]
   if (!cls || deniedName(v.name)) return { ok: false, code: "attachment.type_refused", message: "this file type cannot be sent" }
-  const cap = ATTACHMENT_LIMITS.maxBytes[cls]
-  if ((v.byte_count as number) > cap) return { ok: false, code: "attachment.too_large", message: `${cls} attachments are limited to ${cap} bytes` }
+  const cap = ATTACHMENT_LIMITS.maxBytes
+  if ((v.byte_count as number) > cap) return { ok: false, code: "attachment.too_large", message: `attachments are limited to ${cap} bytes` }
   return {
     ok: true,
     class: cls,
@@ -169,21 +153,27 @@ export const cleanAttachmentPart = (part: Record<string, unknown>): AttachmentPa
 
 /**
  * An uploaded object of one conversation, kept by its ConversationDO outside the op stream
- * (written only after the Worker verified the bytes' hash). Never sent to subscribers.
+ * (written only after the bytes were verified). Never sent to subscribers; the file name lives
+ * only in message parts.
  */
 export interface AttachmentRecord {
   readonly hash: string
-  /** R2 key `home/v1/<conversation>/<sha256>/<upload id>`. */
+  /** Random id: the R2 key suffix and the id in download URLs (a hash never appears in a URL). */
+  readonly object_id: string
+  /** R2 key `home/v1/<conversation>/<object id>`. */
   readonly object_key: string
   readonly mime_type: string
   readonly byte_count: number
-  readonly name: string
-  /** Who uploaded these bytes here (each may see the object before any message references it). */
+  /** R2 etag at commit; downloads read only this version. */
+  readonly etag?: string
+  /** Actors who uploaded these bytes here (each may use the object before any message references it). */
   readonly uploaders: ReadonlyArray<string>
+  /** The user whose stored-bytes quota the object counts against (the first uploader's user). */
+  readonly quota_user: string
   readonly created_at: number
 }
 
-export const attachmentObjectKey = (conversation: string, sha256: string, uploadId: string) => `home/v1/${conversation}/${sha256}/${uploadId}`
+export const attachmentObjectKey = (conversation: string, objectId: string) => `home/v1/${conversation}/${objectId}`
 export const attachmentPrefix = (conversation: string) => `home/v1/${conversation}/`
 
 /**
@@ -204,17 +194,22 @@ export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
   return out
 }
 
-export type AttachmentLookup = (hash: string) => AttachmentRecord | undefined
+/**
+ * The record of `hash` only when `actor` may use it: an uploader of it in this conversation, or a
+ * message above the actor's history floor references it. Anything else (no such upload, another
+ * member's unsent upload, hidden pre-join history) is undefined, so callers cannot tell them apart.
+ */
+export type AttachmentLookup = (hash: string, actor: string, floor: number) => AttachmentRecord | undefined
 
-/** The owner's check: each part's hash (and poster) was uploaded here, and its type and size match the record. */
-export const checkAttachments = (parts: ReadonlyArray<Part>, lookup: AttachmentLookup): "unknown_attachment" | "attachment_mismatch" | null => {
+/** The owner's check for `actor`: each part's hash (and poster) is usable by the author, and its type and size match the record. */
+export const checkAttachments = (parts: ReadonlyArray<Part>, lookup: AttachmentLookup, actor: string, floor: number): "unknown_attachment" | "attachment_mismatch" | null => {
   for (const p of parts) {
     if (p.type !== "attachment") continue
-    const rec = lookup(p.hash)
+    const rec = lookup(p.hash, actor, floor)
     if (!rec) return "unknown_attachment"
     if (rec.mime_type !== p.mime_type || rec.byte_count !== p.byte_count) return "attachment_mismatch"
     if (p.poster_hash !== undefined) {
-      const poster = lookup(p.poster_hash)
+      const poster = lookup(p.poster_hash, actor, floor)
       if (!poster) return "unknown_attachment"
       if (ATTACHMENT_TYPES[poster.mime_type] !== "image") return "attachment_mismatch"
     }
@@ -232,29 +227,66 @@ export const attachmentRefWrites = (before: Message | null, message: Message): A
   return writes
 }
 
-export type QuotaResult = { readonly ok: true } | { readonly ok: false; readonly window: "day" | "month"; readonly retry_after_ms: number }
+/** Row deletes when retention removes a message: the message, its client-id key and its attachment references. */
+export const messageDeleteWrites = (message: Pick<Message, "id" | "author" | "client_msg_id" | "parts">): Array<RowWrite> => [
+  { table: "msg", op: "delete", key: message.id },
+  { table: "msgkey", op: "delete", key: `${message.author}:${message.client_msg_id}` },
+  ...[...attachmentHashes(message.parts)].map((h): RowWrite => ({ table: TABLE_ATTREF, op: "delete", key: `${h}:${message.id}` }))
+]
 
-/** Rolling day and month windows over earlier takes `{bytes, at}`; refuses when `bytes` would pass either cap. */
-export const attachmentQuota = (used: ReadonlyArray<{ readonly bytes: number; readonly at: number }>, bytes: number, now: number): QuotaResult => {
+export type PreviewAttachmentKind = "photo" | "video" | "audio" | "file"
+export interface PreviewAttachments {
+  readonly kind: PreviewAttachmentKind
+  readonly count: number
+}
+export const PREVIEW_ATTACHMENT_KINDS: ReadonlyArray<PreviewAttachmentKind> = ["photo", "video", "audio", "file"]
+const PREVIEW_KIND: Record<AttachmentClass, PreviewAttachmentKind> = { image: "photo", video: "video", audio: "audio", file: "file" }
+
+/** Inbox preview of a message's attachments (clients localize "2 photos"); mixed kinds are "file". */
+export const previewAttachmentsOf = (message: Pick<Message, "parts">): PreviewAttachments | undefined => {
+  const kinds = message.parts.flatMap((p) => (p.type === "attachment" ? [PREVIEW_KIND[ATTACHMENT_TYPES[p.mime_type] ?? "file"]] : []))
+  if (kinds.length === 0) return undefined
+  return { kind: kinds.every((k) => k === kinds[0]) ? kinds[0]! : "file", count: kinds.length }
+}
+
+export type QuotaResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly code: "attachment.quota" | "attachment.storage_quota"; readonly window: "day_bytes" | "day_intents" | "stored"; readonly retry_after_ms: number }
+
+export interface QuotaUsage {
+  /** Byte takes `{bytes, at}` (one per conversation and hash per day). */
+  readonly bytes: ReadonlyArray<{ readonly bytes: number; readonly at: number }>
+  /** Intent times. */
+  readonly intents: ReadonlyArray<number>
+  /** Bytes of objects this user uploaded first and that still exist. */
+  readonly stored: number
+}
+
+/** Per user: 300 intents and 2 GB declared bytes per rolling 24 h, 10 GB stored. `repeat`: same conversation and hash today (no new bytes). */
+export const attachmentQuota = (usage: QuotaUsage, request: { readonly bytes: number; readonly repeat: boolean }, now: number): QuotaResult => {
   const q = ATTACHMENT_LIMITS.quota
-  for (const [window, ms, cap] of [["day", q.dayMs, q.dayBytes], ["month", q.monthMs, q.monthBytes]] as const) {
-    const inside = used.filter((u) => u.at > now - ms).sort((a, b) => a.at - b.at)
-    let total = inside.reduce((s, u) => s + u.bytes, 0)
-    if (total + bytes <= cap) continue
-    // Retry when enough of the oldest takes have left the window.
-    let at = now
-    for (const u of inside) {
-      total -= u.bytes
-      at = u.at + ms
-      if (total + bytes <= cap) break
-    }
-    return { ok: false, window, retry_after_ms: Math.max(1, at - now) }
+  const since = now - q.dayMs
+  const intents = usage.intents.filter((t) => t > since).sort((a, b) => a - b)
+  if (intents.length >= q.dayIntents) return { ok: false, code: "attachment.quota", window: "day_intents", retry_after_ms: Math.max(1, intents[intents.length - q.dayIntents]! + q.dayMs - now) }
+  if (request.repeat) return { ok: true }
+  if (usage.stored + request.bytes > q.storedBytes) return { ok: false, code: "attachment.storage_quota", window: "stored", retry_after_ms: 0 }
+  const inside = usage.bytes.filter((u) => u.at > since).sort((a, b) => a.at - b.at)
+  let total = inside.reduce((sum, u) => sum + u.bytes, 0)
+  if (total + request.bytes <= q.dayBytes) return { ok: true }
+  // Retry when enough of the oldest takes have left the window.
+  let at = now
+  for (const u of inside) {
+    total -= u.bytes
+    at = u.at + q.dayMs
+    if (total + request.bytes <= q.dayBytes) break
   }
-  return { ok: true }
+  return { ok: false, code: "attachment.quota", window: "day_bytes", retry_after_ms: Math.max(1, at - now) }
 }
 
 /** Raster images render inline; everything else downloads (stored XSS defense with nosniff and a sandbox CSP). */
 export const contentDisposition = (mime: string, name: string): string => {
+  // Header-safe: control characters never reach the header.
+  name = name.replace(/[\p{Cc}\u2028\u2029]/gu, "_")
   const kind = ATTACHMENT_TYPES[mime] === "image" ? "inline" : "attachment"
   const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_")
   return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`

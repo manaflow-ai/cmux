@@ -1,3 +1,4 @@
+import { previewAttachmentsOf, type PreviewAttachments } from "./attachments.ts"
 import type { Commit, OpRequest } from "./request.ts"
 import type { ConversationHead, ConversationKind, Message, Participant } from "./types.ts"
 import { currentParticipants, findParticipant, utf8Bytes } from "./validate.ts"
@@ -21,6 +22,8 @@ export interface InboxBump {
   readonly last_seq: number
   readonly last_at: string
   readonly preview: string
+  /** The last message's attachments ({kind, count}); clients localize. Absent when it has none. */
+  readonly preview_attachments?: PreviewAttachments
   /** Absent when the owner cannot derive it from the counts the host passed. */
   readonly unread?: number
   readonly mentions?: number
@@ -186,6 +189,7 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
   const lastMessage = isLast ? message : request.last_message?.seq === head.last_seq ? request.last_message : undefined
   const lastAt = lastMessage?.created_at ?? head.created_at
   const preview = previewOf(head, lastMessage)
+  const previewAttachments = lastMessage && lastMessage.retracted_at === undefined ? previewAttachmentsOf(lastMessage) : undefined
   const humanIds = (participants: ReadonlyArray<Participant>) =>
     participants.filter((participant) => participant.kind === "human" && participant.left_at === undefined).map((participant) => participant.id)
   const nowHumans = humanIds(head.participants)
@@ -233,6 +237,7 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
       last_seq: head.last_seq,
       last_at: lastAt,
       preview,
+      ...(previewAttachments ? { preview_attachments: previewAttachments } : {}),
       ...(count ? { unread: count.unread, mentions: count.mentions } : {}),
       ...(peer ? { dm_peer: peer } : {}),
       ...(isRemoved ? { removed: true } : {})

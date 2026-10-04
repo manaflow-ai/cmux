@@ -355,6 +355,11 @@ export type HomeInboxEntry = {
   readonly last_seq: number
   readonly last_at: Timestamp
   readonly preview: string
+  /** Attachments of the last message, for a localized preview ("2 photos"); preview is empty for an attachment-only message. */
+  readonly preview_attachments?: {
+    readonly kind: "photo" | "video" | "audio" | "file"
+    readonly count: number
+  }
   readonly dm_peer?: ParticipantId
   readonly removed: boolean
   readonly unread: number

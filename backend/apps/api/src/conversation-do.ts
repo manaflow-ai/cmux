@@ -7,7 +7,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
-import { attachmentRecord, commitRecord, forgetUnreferenced, visibleRecord } from "./home-attachment-store.ts"
+import * as store from "./home-attachment-store.ts"
 
 type Head = conversation.ConversationState
 const MAX_HISTORY_PAGE = 200
@@ -41,6 +41,11 @@ export type AttachmentAccess =
   | { readonly ok: false; readonly code: "auth.forbidden"; readonly message: string }
   | { readonly ok: true; readonly open: boolean; readonly record: conversation.AttachmentRecord | null }
 
+/** A download the owner allows: the record, and the file name from the message part (or a generic one). */
+export type DownloadAccess = { readonly record: conversation.AttachmentRecord; readonly name: string | null } | null
+
+type Users = { releaseAttachmentStorage(e: string, key: string): Promise<void> }
+
 export type InvitePreviewResult =
   | { readonly state: "ok"; readonly inviter: string; readonly kind: "dm" | "group"; readonly title?: string }
   | { readonly state: "invalid" | "expired" }
@@ -55,8 +60,8 @@ export class ConversationDO extends OwnerDO<Head> {
     const sql = { exec: <T>(q: string, ...b: Array<unknown>) => ctx.storage.sql.exec(q, ...b).toArray() as Array<T> }
     const domain = conversation.makeConversationDomain({
       participantPolicy: ownerRecordPolicy,
-      // Verified uploads only (home-attachment-store.ts); a read inside the reducer, no write.
-      attachmentFor: (hash) => attachmentRecord(sql, hash),
+      // Verified uploads the author may use (home-attachment-store.ts); a read inside the reducer, no write.
+      attachmentFor: (hash, actor, floor) => store.usableRecord(sql, hash, actor, floor) ?? undefined,
       // The caller's verified address ids (HMAC with HOME_ADDRESS_KEY), for binding an email invite on accept.
       addressIdsFor: (p) => {
         if (p.email_verified !== true || !p.email || !env.HOME_ADDRESS_KEY) return []
@@ -122,9 +127,21 @@ export class ConversationDO extends OwnerDO<Head> {
   }
 
   /** A participant who is removed or leaves loses its sockets at once (no later events). */
-  protected afterOp(_principal: Principal, _op: string, _frames: ReadonlyArray<OwnerFrame>): void {
+  protected afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>): void {
     const state = this.boundEngine?.currentState
     if (state) this.closeSockets((p) => this.member(state, p) === undefined, "not a participant")
+    // A retract or an edit may release attachment references: older uploads may now be collectable.
+    if ((op === "message.retract" || op === "message.edit") && frames.some((f) => f.t === "result")) store.markDirty(this.sqlStore, Date.now())
+  }
+
+  /** The alarm also runs the attachment sweep (shared with the outbox drain and ledger prune). */
+  protected override nextWakeAt(_state: Head, _now: number): number | null {
+    return store.nextSweepAt(this.sqlStore)
+  }
+
+  protected override async onWake(now: number): Promise<void> {
+    const due = store.nextSweepAt(this.sqlStore)
+    if (due !== null && due <= now) await this.sweepAttachments(now)
   }
 
   /** conversation.history {before_seq?, limit?}: older messages, honoring history_visible. */
@@ -216,41 +233,125 @@ export class ConversationDO extends OwnerDO<Head> {
     }
   }
 
+  /** A current, acting participant (not an address) of an existing conversation, with the state. */
+  private acting(entity: string, actor: string) {
+    const state = this.existingState(entity)
+    const me = state?.participants.find((p) => p.id === actor && p.left_at === undefined && p.kind !== "address")
+    return state && me ? { state, me, open: state.state !== "archived" && state.state !== "importing" } : undefined
+  }
+
   /**
    * The Worker's attachment check for `actor` (a current participant only): whether the
-   * conversation takes new uploads, and the record of `hash` when this actor may see it (an
+   * conversation takes new uploads, and the record of `hash` when this actor may use it (an
    * uploader, or referenced by a message after the actor's history floor). Never writes.
    */
   async attachmentAccess(entity: string, actor: string, hash: string): Promise<AttachmentAccess> {
-    const state = this.existingState(entity)
-    const me = state?.participants.find((p) => p.id === actor && p.left_at === undefined && p.kind !== "address")
-    if (!state || !me) return { ok: false, code: "auth.forbidden", message: "not a participant of this conversation" }
-    const open = state.state !== "archived" && state.state !== "importing"
-    return { ok: true, open, record: visibleRecord(this.sqlStore, hash, actor, this.floor(state, me)) }
+    const a = this.acting(entity, actor)
+    if (!a) return { ok: false, code: "auth.forbidden", message: "not a participant of this conversation" }
+    return { ok: true, open: a.open, record: store.usableRecord(this.sqlStore, hash, actor, this.floor(a.state, a.me)) }
   }
 
-  /** After the Worker verified the bytes: records the upload for a still-current participant. */
-  async commitAttachment(
+  /** After the participant and quota checks: a single-use upload slot with a fresh object id. */
+  async createUploadSlot(
     entity: string,
     actor: string,
-    rec: { hash: string; object_key: string; mime_type: string; byte_count: number; name: string }
-  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string } | { ok: false; code: "auth.forbidden" }> {
-    const state = this.existingState(entity)
-    if (!state || !state.participants.some((p) => p.id === actor && p.left_at === undefined && p.kind !== "address")) return { ok: false, code: "auth.forbidden" }
-    const r = commitRecord(this.sqlStore, { ...rec, uploader: actor, created_at: Date.now() })
+    quotaUser: string,
+    meta: { hash: string; byte_count: number; mime_type: string },
+    mode: store.UploadSlot["mode"]
+  ): Promise<store.UploadSlot | null> {
+    const a = this.acting(entity, actor)
+    if (!a || !a.open) return null
+    const objectId = store.randomId()
+    const slot: store.UploadSlot = { id: store.randomId(), ...meta, actor, quota_user: quotaUser, object_id: objectId, object_key: conversation.attachmentObjectKey(entity, objectId), mode, expires_at: Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs }
+    store.createSlot(this.sqlStore, slot)
+    return slot
+  }
+
+  /** The live slot; `consume` makes it unusable from now on (single use). `actor` when the caller is authenticated. */
+  async uploadSlot(entity: string, id: string, mode: store.UploadSlot["mode"], consume: boolean, actor?: string): Promise<store.UploadSlot | null> {
+    if (!this.existingState(entity)) return null
+    return store.takeSlot(this.sqlStore, id, mode, consume, actor)
+  }
+
+  /** After the Worker verified the bytes: records the upload for a still-current participant of an open conversation. */
+  async commitAttachment(
+    entity: string,
+    slot: store.UploadSlot,
+    etag: string | undefined
+  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string } | { ok: false; code: "auth.forbidden" | "archived" }> {
+    const a = this.acting(entity, slot.actor)
+    if (!a) return { ok: false, code: "auth.forbidden" }
+    if (!a.open) return { ok: false, code: "archived" }
+    const r = store.commitRecord(this.sqlStore, { hash: slot.hash, object_id: slot.object_id, object_key: slot.object_key, mime_type: slot.mime_type, byte_count: slot.byte_count, ...(etag ? { etag } : {}), uploader: slot.actor, quota_user: slot.quota_user, created_at: Date.now() })
+    this.scheduleAlarm()
     return { ok: true, state: r.state, object_key: r.record.object_key }
   }
 
+  /** The file name of part `partIndex` of a message `actor` can see, when that part holds `hash`; undefined otherwise. */
+  private partName(state: Head, me: { joined_seq?: number }, messageId: string, partIndex: number, hash: string): string | undefined {
+    const msg = this.boundEngine!.rows.get<conversation.Message>(conversation.TABLE_MSG, messageId)?.row
+    if (!msg || msg.retracted_at !== undefined || msg.seq <= this.floor(state, me)) return undefined
+    const part = msg.parts[partIndex]
+    return part?.type === "attachment" && part.hash === hash ? part.name : undefined
+  }
+
+  /** For URL mints (by hash) and downloads (by object id): the usable record and the part's name. */
+  async downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden"> {
+    const a = this.acting(entity, actor)
+    if (!a) return "forbidden"
+    const found = "hash" in by ? store.attachmentRecord(this.sqlStore, by.hash) : store.recordByObjectId(this.sqlStore, by.object_id)
+    const record = found ? store.usableRecord(this.sqlStore, found.hash, actor, this.floor(a.state, a.me)) : null
+    if (!record) return null
+    if (!at) return { record, name: null }
+    const name = this.partName(a.state, a.me, at.message_id, at.part_index, record.hash)
+    return name === undefined ? null : { record, name }
+  }
+
+  /** Unreferenced uploads past the grace period: forget, delete their objects, release the uploaders' storage. */
+  private async sweepAttachments(now: number): Promise<number> {
+    const { records, more } = store.forgetUnreferenced(this.sqlStore, now - conversation.ATTACHMENT_LIMITS.unreferencedGraceMs, 100)
+    await this.dropObjects(records)
+    store.markSwept(this.sqlStore, now, more)
+    return records.length
+  }
+
+  private async dropObjects(records: ReadonlyArray<conversation.AttachmentRecord>): Promise<void> {
+    if (records.length && this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(records.map((r) => r.object_key))
+    for (const r of records) {
+      try {
+        await (this.env.USER_DO.get(this.env.USER_DO.idFromName(r.quota_user)) as unknown as Users).releaseAttachmentStorage(r.quota_user, r.object_key)
+      } catch (e) {
+        // Fails safe: the uploader's stored-bytes count stays high until a later release.
+        console.error(JSON.stringify({ msg: "attachment storage release failed", error: String(e) }))
+      }
+    }
+  }
+
+  /** Runs the sweep now (tests and operators); the alarm runs the same code when due. */
+  async collectAttachments(entity: string, now = Date.now()): Promise<number> {
+    return this.existingState(entity) ? this.sweepAttachments(now) : 0
+  }
+
   /**
-   * Retention (minimal safe version): forgets uploads older than the grace period that no
-   * message references (never sent, retracted, or edited away), then deletes their objects.
-   * Not yet scheduled: the backend lead wires it to the retention alarm (follow-up).
+   * Conversation storage deletion: forgets every record and slot, deletes every object under
+   * `home/v1/<conversation>/` (also orphans of failed uploads) and releases the uploaders' storage.
+   * The deletion path that calls it (no human for 30 days, section 10) does not exist yet.
    */
-  async collectAttachments(entity: string, now = Date.now(), limit = 100): Promise<Array<string>> {
-    if (!this.existingState(entity) || !this.env.HOME_ATTACHMENTS) return []
-    const keys = forgetUnreferenced(this.sqlStore, now - conversation.ATTACHMENT_LIMITS.unreferencedGraceMs, limit)
-    if (keys.length) await this.env.HOME_ATTACHMENTS.delete(keys)
-    return keys
+  async deleteAttachmentStorage(entity: string): Promise<number> {
+    if (!this.existingState(entity) || !this.env.HOME_ATTACHMENTS) return 0
+    const records = store.forgetAll(this.sqlStore)
+    await this.dropObjects(records)
+    let deleted = records.length
+    let cursor: string | undefined
+    do {
+      const page = await this.env.HOME_ATTACHMENTS.list({ prefix: conversation.attachmentPrefix(entity), ...(cursor ? { cursor } : {}) })
+      if (page.objects.length) {
+        await this.env.HOME_ATTACHMENTS.delete(page.objects.map((o) => o.key))
+        deleted += page.objects.filter((o) => !records.some((r) => r.object_key === o.key)).length
+      }
+      cursor = page.truncated ? page.cursor : undefined
+    } while (cursor)
+    return deleted
   }
 
   /** State of an object that already serves this conversation; never creates storage for unknown ids. */

@@ -247,7 +247,10 @@ export const makeConversationDomain = (options: ConversationDomainOptions = {}):
     const { commit } = result
     const writes: Array<RowWrite> = []
     if (commit.message && MESSAGE_PART_OPS.has(coreOp.kind)) {
-      const bad = checkAttachments(commit.message.parts, options.attachmentFor ?? NO_ATTACHMENTS)
+      // The author's own view: an uploader of the hash, or a referencing message above their floor.
+      const me = currentParticipant(head, actor)
+      const floor = head.settings?.history_visible === "since_join" ? (me?.joined_seq ?? 0) : 0
+      const bad = checkAttachments(commit.message.parts, options.attachmentFor ?? NO_ATTACHMENTS, actor, floor)
       if (bad) return refuse(bad)
       writes.push(...attachmentRefWrites(coreOp.kind === "message.send" ? null : (request.target ?? null), commit.message))
     }

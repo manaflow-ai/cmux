@@ -321,24 +321,32 @@ new body. No raw address, token or token hash is ever projected.
   address is deleted after 180 days without an invite unless suppressed.
 - A conversation with no human participant for 30 days deletes its DO storage.
 
-### 10.1 Attachments (implemented on feat-cmux-next-home-attachments, 2026-10-03)
+### 10.1 Attachments (feat-cmux-next-home-attachments, revised after the backend lead's review, 2026-10-03)
 
-- Flow: `POST /v1/home/attachments/intent` (participant, type allow list, size cap, per-user byte
-  quota) answers `exists` or a signed upload slot; `PUT /v1/home/attachments/upload/<slot>`
-  streams the bytes to R2 while the Worker hashes them; only a matching SHA-256 and length records
-  the object in the ConversationDO; `message.send` and `message.edit` accept an attachment part only
-  for a recorded hash with the same type and size. `POST /v1/home/attachments/url` mints a 10-minute
-  signed GET; the GET re-checks participation and `history_visible` at the owner.
-- Storage: private R2 bucket `HOME_ATTACHMENTS`, keys `home/v1/<conversation>/<sha256>/<upload id>`;
-  records per conversation, so dedupe never crosses conversations, and `exists` is answered only
-  for hashes the caller can already see. Limits in `home-core/src/conversation/attachments.ts`
-  (`ATTACHMENT_LIMITS`): 25 MB images, audio and files, 100 MB video; 1 GB per day and 10 GB per
-  30 days per user.
-- Retention: reference rows (`attref`, private) are written in each message's commit; retraction
-  and edits release them. `ConversationDO.collectAttachments` forgets unreferenced uploads older
-  than 24 h and then deletes their objects. Follow-ups: schedule it from the retention alarm; delete
-  `home/v1/<conversation>/` when a conversation's storage is deleted; delete `attref` rows when the
-  message retention alarm deletes messages; attachments in `conversation.import` (C-13).
+- Intent: `POST /v1/home/attachments/intent` (current participant; allow list jpeg, png, gif,
+  webp, heic, pdf, text/plain, markdown, csv, json, zip, mp4, mov, m4a, mp3, aac, wav; never svg,
+  html or xml; 100 MB per file; per user 300 intents and 2 GB declared per rolling day, 10 GB
+  stored; 60 intents per minute). It answers `exists` only for a hash the caller can already use
+  here, otherwise a single-use slot recorded in the ConversationDO.
+- Up to 32 MB the bytes stream through the Worker (`PUT /v1/home/attachments/upload/<conv>/<slot>.<kid>.<mac>`),
+  which hashes them. From 32 to 100 MB the client PUTs to a presigned R2 URL (15 min, signs
+  `content-length` and `x-amz-checksum-sha256`), then `POST /v1/home/attachments/commit`, which HEADs
+  size and checksum. Either way the object is usable only after verification; the recorded etag
+  pins downloads to that version.
+- Use in messages: `message.send`/`message.edit` accept a hash only when the author uploaded it
+  here or a message above the author's history floor references it; every other case is the same
+  `unknown_attachment`.
+- Downloads: `POST /v1/home/attachments/url {conversation, hash, message_id?, part_index?}` mints a
+  10-minute bearer-less URL bound to key id, method, conversation, object id, part, actor and
+  expiry; each GET rechecks membership and floor; the file name comes from the message part; text
+  is served as `text/plain` attachments, only images inline; out-of-range `Range` is 416.
+- No URL carries user content: object and slot ids are random; names stay in message parts.
+- Inbox: bumps carry `preview_attachments {kind: photo|video|audio|file, count}` (preview text
+  empty for attachment-only messages); clients localize.
+- Retention: `attref` rows are written in each message's commit; the ConversationDO alarm sweeps
+  uploads unreferenced for 24 h and releases the uploader's stored bytes. Hooks for paths that do
+  not exist yet: `messageDeleteWrites` (message retention) and `ConversationDO.deleteAttachmentStorage`
+  (conversation storage deletion). Attachments in `conversation.import` remain C-13.
 
 ## 11. Self-hosted implementation (cmux server, team VM)
 

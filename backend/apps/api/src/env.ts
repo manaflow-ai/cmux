@@ -124,6 +124,16 @@ export interface Env {
   readonly HOME_ATTACHMENTS?: R2Bucket
   /** Secret: HMAC key of attachment upload slots and download URLs (at least 32 characters); unset = attachments off. */
   readonly HOME_ATTACHMENT_KEY?: string
+  /** Key id of HOME_ATTACHMENT_KEY, signed into every slot and URL (default "1"). */
+  readonly HOME_ATTACHMENT_KEY_ID?: string
+  /** Rotation: the previous key and its id; URLs signed with it stay valid until they expire. */
+  readonly HOME_ATTACHMENT_KEY_PREVIOUS?: string
+  readonly HOME_ATTACHMENT_KEY_PREVIOUS_ID?: string
+  /** Presigned PUTs for 32-100 MB files: R2 S3 endpoint (https://<account>.r2.cloudflarestorage.com), bucket and a bucket-scoped token. Unset = large files refused. */
+  readonly HOME_ATTACHMENTS_S3_ENDPOINT?: string
+  readonly HOME_ATTACHMENTS_S3_BUCKET?: string
+  readonly HOME_ATTACHMENTS_S3_ACCESS_KEY_ID?: string
+  readonly HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY?: string
   /** Burst limit per user on attachment intents and download URL mints. */
   readonly HOME_ATTACHMENT_LIMIT?: RateLimit
   /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */

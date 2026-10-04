@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runDurableObjectAlarm, runInDurableObject as runInDO } from "cloudflare:test"
 import { createHash } from "node:crypto"
 import { invites } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
@@ -15,6 +15,8 @@ import type { Env } from "../src/env.ts"
  */
 const testEnv = env as unknown as Env & { STACK_TEST_PRIVATE_JWK: string; HOME_ATTACHMENTS: R2Bucket }
 const worker = (exports as unknown as { default: Fetcher }).default
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const runInDurableObject = runInDO as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 type Stub = { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string; code?: string }> }> }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const stub = (ns: any, name: string): Stub => ns.get(ns.idFromName(name))
@@ -150,18 +152,19 @@ describe("Home attachments: upload and dedupe", { timeout: 60_000 }, () => {
     // The hash is not referenceable after a failed upload.
     const sent = await op(alice.token, "message.send", { conversation: id, client_msg_id: "m1", parts: [attachmentPart(sha(declared), declared)] }, "m1")
     expect(sent.json.error.code).toBe("unknown_attachment")
-    // The right bytes go through; a size mismatch is refused too.
-    expect((await put(r.json.value.upload_url, bytesOf("short"))).status).toBe(400)
-    const good = await put(r.json.value.upload_url, declared)
+    // The slot was used once; a size mismatch on a new slot is refused too; then the right bytes go through.
+    expect((await put(r.json.value.upload_url, declared)).status).toBe(403)
+    expect((await put((await intent(alice, id, declared)).json.value.upload_url, bytesOf("short"))).status).toBe(400)
+    const good = await put((await intent(alice, id, declared)).json.value.upload_url, declared)
     expect(good.status).toBe(200)
     expect(((await good.json()) as any).value.state).toBe("stored")
-    // Replaying the slot with other bytes is refused and leaves the recorded object intact.
-    expect((await put(r.json.value.upload_url, forged)).status).toBe(400)
+    // Replaying a slot is refused and leaves the recorded object intact.
+    expect((await put(r.json.value.upload_url, forged)).status).toBe(403)
     expect((await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects).toHaveLength(1)
     expect((await op(alice.token, "message.send", { conversation: id, client_msg_id: "m2", parts: [attachmentPart(sha(declared), declared)] }, "m2")).json.ok).toBe(true)
     const got = await worker.fetch((await urlFor(alice, id, sha(declared))).json.value.url)
     expect(new Uint8Array(await got.arrayBuffer())).toEqual(declared)
-    expect((await put("https://api.test/v1/home/attachments/upload/not-a-token", declared)).status).toBe(403)
+    expect((await put(`https://api.test/v1/home/attachments/upload/${id}/${"0".repeat(32)}.k2.bad`, declared)).status).toBe(403)
   })
 
   it("dedupe answers 'exists' only inside the same conversation and only for hashes the caller can see", async () => {
@@ -268,17 +271,17 @@ describe("Home attachments: retention", { timeout: 60_000 }, () => {
     await upload(alice, g.id, orphan)
     const sent = await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [attachmentPart(keptHash, kept)] }, "m1")
     expect(sent.json.ok).toBe(true)
-    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id)) as unknown as { collectAttachments(e: string, now?: number): Promise<Array<string>> }
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id)) as unknown as { collectAttachments(e: string, now?: number): Promise<number> }
     const objects = async () => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${g.id}/` })).objects.map((o) => o.key.split("/")[3])
     // Inside the grace period nothing goes.
-    expect(await conv.collectAttachments(g.id)).toEqual([])
+    expect(await conv.collectAttachments(g.id)).toBe(0)
     const later = Date.now() + 25 * 3_600_000
-    expect(await conv.collectAttachments(g.id, later)).toHaveLength(1)
-    expect(await objects()).toEqual([keptHash])
+    expect(await conv.collectAttachments(g.id, later)).toBe(1)
+    expect(await objects()).toHaveLength(1)
     // The orphan's hash is no longer referenceable.
     expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m2", parts: [attachmentPart(sha(orphan), orphan)] }, "m2")).json.error.code).toBe("unknown_attachment")
     expect((await op(alice.token, "message.retract", { conversation: g.id, message_id: sent.json.value.message_id }, "r1")).json.ok).toBe(true)
-    expect(await conv.collectAttachments(g.id, later)).toHaveLength(1)
+    expect(await conv.collectAttachments(g.id, later)).toBe(1)
     expect(await objects()).toEqual([])
   })
 })
@@ -315,14 +318,17 @@ describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
     const orphan = bytesOf("orphan upload")
     const keptHash = await upload(alice, g.id, kept)
     await upload(alice, g.id, orphan)
-    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [attachmentPart(keptHash, kept)] }, "m1")).json.ok).toBe(true)
     const doStub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    // An upload commit schedules the sweep at the oldest upload's grace end.
+    const { alarm, sweepAt } = await runInDurableObject(doStub, async (i: any, state) => ({ alarm: await state.storage.getAlarm(), sweepAt: i.nextWakeAt(null, Date.now()) as number }))
+    expect(alarm).not.toBeNull()
+    expect(sweepAt).toBeGreaterThan(Date.now() + 23 * 3_600_000)
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [attachmentPart(keptHash, kept)] }, "m1")).json.ok).toBe(true)
     const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(alice.user))
     const stored = () => runInDurableObject(userStub, async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
     expect(await stored()).toBe(kept.byteLength + orphan.byteLength)
-    // An upload commit schedules the sweep; age both records past the grace period and fire the alarm.
-    expect(await runInDurableObject(doStub, async (_i, state) => (await state.storage.getAlarm()) !== null)).toBe(true)
-    await runInDurableObject(doStub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachments SET created_at = ?", Date.now() - 25 * 3_600_000))
+    // Age both records past the grace period and fire the alarm.
+    await runInDurableObject(doStub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_objects SET created_at = ?", Date.now() - 25 * 3_600_000))
     await runDurableObjectAlarm(doStub)
     const left = async () => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${g.id}/` })).objects.length
     expect(await left()).toBe(1)

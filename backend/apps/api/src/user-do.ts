@@ -312,21 +312,56 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
-   * Home attachment byte quota (home-scale.md B9 owner counter): rolling day and month windows of
-   * declared upload bytes. `key` = conversation and hash, so a repeated intent counts once.
+   * Home attachment quota (home-scale.md B9 owner counters): per rolling 24 h, 300 intents and
+   * 2 GB of declared bytes (`key` = conversation and hash, so a repeat adds no bytes), and 10 GB
+   * stored (objects this user uploaded first that still exist).
    */
-  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<homeConversation.QuotaResult | { ok: false; window: "none"; retry_after_ms: 0 }> {
-    const engine = this.existing()
-    if (!engine || engine.stream !== `user:${entity}`) return { ok: false, window: "none", retry_after_ms: 0 }
+  async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<homeConversation.QuotaResult | { ok: false; code: "auth.forbidden"; window: "none"; retry_after_ms: 0 }> {
+    if (!this.attachmentTables(entity)) return { ok: false, code: "auth.forbidden", window: "none", retry_after_ms: 0 }
     const sql = this.ctx.storage.sql
     const now = Date.now()
-    sql.exec(`CREATE TABLE IF NOT EXISTS home_attachment_usage (key TEXT PRIMARY KEY, bytes INTEGER NOT NULL, at INTEGER NOT NULL)`)
-    sql.exec(`DELETE FROM home_attachment_usage WHERE at <= ?`, now - homeConversation.ATTACHMENT_LIMITS.quota.monthMs)
-    if (sql.exec(`SELECT 1 FROM home_attachment_usage WHERE key = ? AND at > ?`, key, now - homeConversation.ATTACHMENT_LIMITS.quota.dayMs).toArray().length) return { ok: true }
-    const used = sql.exec<{ bytes: number; at: number }>(`SELECT bytes, at FROM home_attachment_usage`).toArray().map((r) => ({ bytes: Number(r.bytes), at: Number(r.at) }))
-    const decision = homeConversation.attachmentQuota(used, bytes, now)
-    if (decision.ok) sql.exec(`INSERT INTO home_attachment_usage (key, bytes, at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET bytes = excluded.bytes, at = excluded.at`, key, bytes, now)
+    const since = now - homeConversation.ATTACHMENT_LIMITS.quota.dayMs
+    sql.exec(`DELETE FROM home_attachment_usage WHERE at <= ?`, since)
+    sql.exec(`DELETE FROM home_attachment_intents WHERE at <= ?`, since)
+    const repeat = sql.exec(`SELECT 1 FROM home_attachment_usage WHERE key = ?`, key).toArray().length > 0
+    const usage = {
+      bytes: sql.exec<{ bytes: number; at: number }>(`SELECT bytes, at FROM home_attachment_usage`).toArray().map((r) => ({ bytes: Number(r.bytes), at: Number(r.at) })),
+      intents: sql.exec<{ at: number }>(`SELECT at FROM home_attachment_intents`).toArray().map((r) => Number(r.at)),
+      stored: this.storedBytes()
+    }
+    const decision = homeConversation.attachmentQuota(usage, { bytes, repeat }, now)
+    if (decision.ok) {
+      sql.exec(`INSERT INTO home_attachment_intents (at) VALUES (?)`, now)
+      if (!repeat) sql.exec(`INSERT INTO home_attachment_usage (key, bytes, at) VALUES (?, ?, ?)`, key, bytes, now)
+    }
     return decision
+  }
+
+  /** An object this user uploaded first now exists (counts toward the 10 GB stored cap). Idempotent by key. */
+  async recordAttachmentStorage(entity: string, objectKey: string, bytes: number): Promise<void> {
+    if (!this.attachmentTables(entity)) return
+    this.ctx.storage.sql.exec(`INSERT INTO home_attachment_stored (object_key, bytes) VALUES (?, ?) ON CONFLICT (object_key) DO NOTHING`, objectKey, bytes)
+  }
+
+  /** The object was collected or its conversation deleted. Idempotent by key. */
+  async releaseAttachmentStorage(entity: string, objectKey: string): Promise<void> {
+    if (!this.attachmentTables(entity)) return
+    this.ctx.storage.sql.exec(`DELETE FROM home_attachment_stored WHERE object_key = ?`, objectKey)
+  }
+
+  private storedBytes(): number {
+    return Number(this.ctx.storage.sql.exec<{ b: number }>(`SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored`).toArray()[0]?.b ?? 0)
+  }
+
+  /** Attachment counter tables of a bound user; false (no write) for an id this object never served. */
+  private attachmentTables(entity: string): boolean {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return false
+    const sql = this.ctx.storage.sql
+    sql.exec(`CREATE TABLE IF NOT EXISTS home_attachment_usage (key TEXT PRIMARY KEY, bytes INTEGER NOT NULL, at INTEGER NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS home_attachment_intents (at INTEGER NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS home_attachment_stored (object_key TEXT PRIMARY KEY, bytes INTEGER NOT NULL)`)
+    return true
   }
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */

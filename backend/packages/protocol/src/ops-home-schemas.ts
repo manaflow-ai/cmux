@@ -179,6 +179,11 @@ export const InboxEntry = Schema.Struct({
   last_seq: Seq,
   last_at: Timestamp,
   preview: Schema.String,
+  preview_attachments: Schema.optionalKey(
+    Schema.Struct({ kind: Schema.Literals(["photo", "video", "audio", "file"]), count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)) }).annotate({
+      description: "Attachments of the last message, for a localized preview (\"2 photos\"); preview is empty for an attachment-only message."
+    })
+  ),
   dm_peer: Schema.optionalKey(ParticipantId),
   removed: Schema.Boolean,
   unread: Seq,
