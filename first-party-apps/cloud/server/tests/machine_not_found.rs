@@ -29,7 +29,10 @@ fn delete(key: &str) -> Request {
 }
 
 fn removed(events: &[WatchEvent]) -> usize {
-    events.iter().filter(|e| matches!(e, WatchEvent::Removed { id, .. } if id == "vm-alpha01")).count()
+    events
+        .iter()
+        .filter(|e| matches!(e, WatchEvent::Removed { id, .. } if id == "vm-alpha01"))
+        .count()
 }
 
 fn answer(s: &mut Server<FakeControlPlane>, method: &str, body: Value) {
@@ -55,7 +58,10 @@ fn a_get_with_vm_not_found_removes_the_machine_once() {
     let mut s = listed();
     answer(&mut s, "GET", json!({ "error": "vm_not_found", "message": "Not found." }));
     let error = s.handle(&get()).unwrap_err();
-    assert_eq!((error.code, error.upstream_code.as_deref()), ("cmux.cloud.not_found", Some("vm_not_found")));
+    assert_eq!(
+        (error.code, error.upstream_code.as_deref()),
+        ("cmux.cloud.not_found", Some("vm_not_found"))
+    );
     assert!(s.projection().get("vm-alpha01").is_none(), "the machine is gone");
     assert_eq!(removed(&s.take_events()), 1, "exactly one removed event");
     s.handle(&get()).unwrap_err();
@@ -64,7 +70,9 @@ fn a_get_with_vm_not_found_removes_the_machine_once() {
 
 #[test]
 fn a_delete_with_a_bare_404_keeps_the_machine_and_emits_nothing() {
-    for (n, body) in [json!({}), json!({ "error": "vm_snapshot_not_found" })].into_iter().enumerate() {
+    for (n, body) in
+        [json!({}), json!({ "error": "vm_snapshot_not_found" })].into_iter().enumerate()
+    {
         let mut s = listed();
         answer(&mut s, "DELETE", body.clone());
         let error = s.handle(&delete(&format!("d-{n}"))).unwrap_err();
