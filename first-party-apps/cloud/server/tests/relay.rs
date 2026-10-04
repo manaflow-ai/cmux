@@ -131,3 +131,21 @@ fn host_events_during_a_call_keep_only_the_newest_of_each_op() {
     assert_eq!(first["data"]["n"], cmux_cloud::api::RELAY_QUEUE_LINES * 2 - 1);
     assert!(relay.next_message().expect("io").is_none(), "older events of the op were replaced");
 }
+
+#[test]
+fn unknown_host_frames_during_a_call_are_dropped_and_host_answers_are_bounded() {
+    let mut input = String::new();
+    input.push_str("{\"t\":\"host.mystery\",\"op\":\"x\"}\n");
+    for n in 0..(cmux_cloud::api::RELAY_QUEUE_LINES + 10) {
+        input.push_str(&format!("{{\"t\":\"host.result\",\"id\":{n},\"value\":{{}}}}\n"));
+    }
+    input.push_str("{\"type\":\"relay.response\",\"id\":\"r1\",\"status\":200,\"body\":{}}\n");
+    let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
+    assert_eq!(relay.call(&call()).expect("reply").status, 200);
+    let mut kept = 0;
+    while let Some(message) = relay.next_message().expect("io") {
+        assert_eq!(message["t"], "host.result", "{message}");
+        kept += 1;
+    }
+    assert_eq!(kept, cmux_cloud::api::RELAY_QUEUE_LINES);
+}

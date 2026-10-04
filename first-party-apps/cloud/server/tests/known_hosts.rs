@@ -126,3 +126,31 @@ fn the_server_reads_the_pins_at_start_and_the_api_key_replaces_an_old_one() {
         "beta's pin from the earlier run stays; alpha has the Cloud API's key once"
     );
 }
+
+#[test]
+fn a_symlink_or_fifo_at_known_hosts_is_not_read() {
+    let data = data_dir("link");
+    std::fs::create_dir_all(data.join("ssh")).unwrap();
+    let elsewhere = data.join("elsewhere");
+    std::fs::write(&elsewhere, format!("cmux-scp-vm-alpha01 {KEY_A}\n")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, file(&data)).unwrap();
+    let (pins, warnings) = KnownHosts::load(file(&data));
+    assert_eq!(pins.get("vm-alpha01"), None, "a pin behind a symlink is not read");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    std::fs::remove_file(file(&data)).unwrap();
+    let made = std::process::Command::new("/usr/bin/mkfifo").arg(file(&data)).status();
+    assert!(made.is_ok_and(|s| s.success()), "mkfifo");
+    // A FIFO with no writer would block an open forever: load returns.
+    let (pins, warnings) = KnownHosts::load(file(&data));
+    assert_eq!(pins.get("vm-alpha01"), None);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+}
+
+#[test]
+fn warnings_are_bounded() {
+    let data = data_dir("many");
+    std::fs::create_dir_all(data.join("ssh")).unwrap();
+    std::fs::write(file(&data), "garbage\n".repeat(1000)).unwrap();
+    let (_, warnings) = KnownHosts::load(file(&data));
+    assert_eq!(warnings.len(), 16);
+}
