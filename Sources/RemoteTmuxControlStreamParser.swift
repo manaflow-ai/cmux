@@ -252,11 +252,20 @@ struct RemoteTmuxControlStreamParser {
         }
         if line.hasPrefix("%subscription-changed ") {
             guard let name = Self.field(line, 1) else { return .ignoredNotification(line) }
-            // The value is everything after the first " : " separator. The middle
-            // fields (session/window/pane/flags) vary by tmux version, so key off
-            // the subscription name instead of a fixed field index.
-            let value = line.range(of: " : ").map { String(line[$0.upperBound...]) } ?? ""
-            return .subscriptionChanged(name: name, value: value)
+            // The value is everything after the first " : " separator. The
+            // middle fields vary by tmux version, but tmux documents a pane id
+            // before the separator; retain the first sigil-prefixed one without
+            // depending on a fixed field index.
+            guard let separator = line.range(of: " : ") else {
+                return .subscriptionChanged(name: name, paneId: nil, value: "")
+            }
+            let header = line[..<separator.lowerBound].split(separator: " ")
+            let paneId = header.dropFirst(2).compactMap { Self.id($0, sigil: "%") }.first
+            return .subscriptionChanged(
+                name: name,
+                paneId: paneId,
+                value: String(line[separator.upperBound...])
+            )
         }
         if line.hasPrefix("%") { return .ignoredNotification(line) }
         return .unparsed(line)

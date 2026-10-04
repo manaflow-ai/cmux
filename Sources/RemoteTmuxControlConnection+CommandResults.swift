@@ -256,6 +256,12 @@ extension RemoteTmuxControlConnection {
                 case nil:
                     break
                 }
+                // Pane rectangles can be reconciled while the attach result is
+                // still draining, when `send` deliberately rejects subscription
+                // writes to preserve FIFO alignment. Install the session-wide
+                // title watcher again now that this control client is connected
+                // and the attach block is known to be drained.
+                subscribePaneTitlesIfNeeded()
                 pendingPostAttachAction = nil
                 // First-connect coverage for the attach redraw kick happens at
                 // the publication point (each window's rects reply): here
@@ -330,10 +336,6 @@ extension RemoteTmuxControlConnection {
             // One-shot reflow classification result (see requestPaneReflow). Empty
             // lines → classifyAndEmitReflow defaults to no-reflow (safe).
             classifyAndEmitReflow(paneId: paneId, rawValue: lines.first ?? "", source: "oneshot")
-        case let .paneTitleReconciliation(paneId):
-            if updatePaneTitleMetadata(paneId: paneId, wireValue: lines.first ?? "") {
-                observers.emitPaneTitleChanged(paneId)
-            }
         case let .activityQuery(token):
             guard let completion = activityQueryCompletions.removeValue(forKey: token) else { break }
             var states: [Int: PaneForegroundState] = [:]

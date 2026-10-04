@@ -93,6 +93,9 @@ final class RemoteTmuxControlConnection {
     var paneTitleMetadataRevision: UInt64 = 0
     var paneTitleMetadataLiveRevisionByPane: [Int: UInt64] = [:]
     var paneTitleMetadataSnapshotRevisions: [RemoteTmuxPaneTitleSnapshotKey: UInt64] = [:]
+    /// `refresh-client -B` subscriptions belong to the control client. A
+    /// reconnect receives a new client, so this flag is reset with the stream.
+    var paneTitleSubscriptionActive = false
     /// Configured tmux pane-title placement per window; absence means off.
     var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
@@ -165,11 +168,6 @@ final class RemoteTmuxControlConnection {
     /// attempts); cancelled on `stop()` / genuine end so a dead connection stops
     /// retrying.
     private var reconnectTask: Task<Void, Never>?
-    /// Fallback reconciliation for tmux builds that intermittently omit a
-    /// `%subscription-changed` notification for `pane_title`. `requestWindows`
-    /// coalesces these refreshes, and pane rect publication updates titles only
-    /// when the authoritative value changed.
-    private var paneTitleReconciliationTask: Task<Void, Never>?
     /// Number of reconnect attempts since the last successful connect, driving the
     /// capped exponential backoff. Reset to 0 on a successful connect.
     private var reconnectAttemptCount = 0
@@ -319,9 +317,10 @@ final class RemoteTmuxControlConnection {
     /// its pane, the running command changing) — the same moments native
     /// tmux redraws its own header row.
     static let headerSubscriptionPrefix = "cmux_hdr_"
-    /// Per-pane subscription for raw `pane_title`, independent of the user's
-    /// `pane-border-format` (which may omit the title entirely).
-    nonisolated static let paneTitleSubscriptionPrefix = "cmux_title_"
+    /// One session-wide pane-title subscription. `%*` makes tmux evaluate the
+    /// format for every pane in the attached session; tmux carries the pane id
+    /// in each notification header so one watcher routes updates correctly.
+    nonisolated static let paneTitleSubscriptionName = "cmux_title_all"
 
     /// Per-WINDOW subscription to `pane-border-status`, the one layout input tmux
     /// changes with no notification of its own.
@@ -438,6 +437,7 @@ final class RemoteTmuxControlConnection {
         windowReorderRecoveryGeneration = nil
         pendingLayouts.removeAll()
         paneTitleMetadataSnapshotRevisions.removeAll()
+        paneTitleSubscriptionActive = false
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
@@ -583,8 +583,6 @@ final class RemoteTmuxControlConnection {
         failPendingCommandTransactions()
         reconnectTask?.cancel()
         reconnectTask = nil
-        paneTitleReconciliationTask?.cancel()
-        paneTitleReconciliationTask = nil
         resetWindowListRequestCoalescing()
         cancelSizingFollowUps()
         pendingPostAttachAction = nil
@@ -971,7 +969,7 @@ final class RemoteTmuxControlConnection {
             observers.emitActivePaneChanged(windowId, paneId)
         case let .sessionWindowChanged(_, windowId):
             record("session-window-changed @\(windowId)")
-        case let .subscriptionChanged(name, value):
+        case let .subscriptionChanged(name, sourcePaneId, value):
             // cmux subscribes each pane's working directory as "cmux_cwd_<paneId>".
             if name.hasPrefix(Self.cwdSubscriptionPrefix),
                let paneId = Int(name.dropFirst(Self.cwdSubscriptionPrefix.count)) {
@@ -991,10 +989,14 @@ final class RemoteTmuxControlConnection {
                     paneHeaderLabels[paneId] = label
                     observers.notifyTopologyChanged()
                 }
-            } else if name.hasPrefix(Self.paneTitleSubscriptionPrefix),
-                      let paneId = Int(name.dropFirst(Self.paneTitleSubscriptionPrefix.count)) {
-                if updatePaneTitleMetadata(paneId: paneId, wireValue: value) {
-                    observers.emitPaneTitleChanged(paneId)
+            } else if name == Self.paneTitleSubscriptionName {
+                // `%*` subscriptions include all panes in the attached
+                // session. The control-mode notification itself carries the
+                // target pane id, so the format stays the raw title and does
+                // not need a delimiter that could collide with terminal data.
+                guard let sourcePaneId else { return }
+                if updatePaneTitleMetadata(paneId: sourcePaneId, wireValue: value) {
+                    observers.emitPaneTitleChanged(sourcePaneId)
                 }
             } else if name.hasPrefix(Self.borderStatusSubscriptionPrefix),
                       let windowId = Int(name.dropFirst(Self.borderStatusSubscriptionPrefix.count)) {
@@ -1037,7 +1039,6 @@ final class RemoteTmuxControlConnection {
             if !attachBlockDrained {
                 attachBlockDrained = true
                 requestWindows()
-                startPaneTitleReconciliation()
             } else {
                 handleCommandResult(lines: lines, isError: isError)
             }
@@ -1071,30 +1072,6 @@ final class RemoteTmuxControlConnection {
     ///   must; a rename (`%session-renamed`) keeps the same windows, so it skips
     ///   the extra round trip. An invalid name always re-fetches as a recovery
     ///   resync regardless.
-    /// Starts the low-frequency authoritative title refresh once the command
-    /// FIFO is aligned. This is a compatibility fallback for a tmux server that
-    /// has accepted a `refresh-client -B` title watcher but later omits its
-    /// changed notification; normal servers still update immediately through
-    /// the subscription.
-    private func startPaneTitleReconciliation() {
-        paneTitleReconciliationTask?.cancel()
-        paneTitleReconciliationTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await ContinuousClock().sleep(for: .seconds(3))
-                } catch {
-                    return
-                }
-                guard let self, self.connectionState == .connected, self.attachBlockDrained else {
-                    return
-                }
-                for paneId in Set(self.windowsByID.values.flatMap(\.paneIDsInOrder)) {
-                    self.requestPaneTitleReconciliation(paneId: paneId)
-                }
-            }
-        }
-    }
-
     private func applySessionNameChange(sessionId newSessionId: Int?, name: String, event: String, refetchWindows: Bool) {
         guard let safeName = RemoteTmuxHost.controlModeLineSafeName(name) else {
             let idSuffix = newSessionId.map { " $\($0)" } ?? ""

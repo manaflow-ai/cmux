@@ -54,12 +54,11 @@ enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// `%session-window-changed $<sid> @<wid>` — the active window in a session changed.
     case sessionWindowChanged(sessionId: Int, windowId: Int)
 
-    /// `%subscription-changed <name> … : <value>` — a `refresh-client -B`
-    /// subscription's value changed. cmux subscribes per-pane `pane_current_path`
-    /// for live working-directory tracking. Parsed leniently: `name` is the first
-    /// field and `value` is everything after the first ` : ` separator, so the
-    /// version-variable middle fields (session/window/pane/flags) are ignored.
-    case subscriptionChanged(name: String, value: String)
+    /// `%subscription-changed <name> … <pane-id> … : <value>` — a
+    /// `refresh-client -B` subscription's value changed. `paneId` is retained
+    /// when tmux supplies it, allowing an all-pane subscription to route a
+    /// title update without encoding an extra delimiter in its format.
+    case subscriptionChanged(name: String, paneId: Int?, value: String)
 
     /// The coalesced output of one command block (`%begin`…`%end`/`%error`).
     case commandResult(commandNumber: Int, lines: [String], isError: Bool)

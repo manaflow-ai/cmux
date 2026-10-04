@@ -313,6 +313,15 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
         return controlModeLineSafeName(trimmed)
     }
 
+    /// Returns a line-safe pane title. Unlike session and window names, tmux
+    /// accepts an empty pane title to restore its default title behavior.
+    static func controlModeCommandPaneTitle(_ value: String?) -> String? {
+        let trimmed = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let forbidden = CharacterSet.controlCharacters.union(.newlines)
+        guard trimmed.unicodeScalars.allSatisfy({ !forbidden.contains($0) }) else { return nil }
+        return trimmed
+    }
+
     /// Validates a name already received from tmux. Unlike
     /// ``controlModeCommandName(_:)``, this preserves surrounding spaces because
     /// tmux is the source of truth for confirmed session/window names.

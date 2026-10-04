@@ -321,8 +321,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
 
     func requestRenamePane(_ tmuxPaneID: Int, title: String) -> Bool {
         guard let windowId = windowIdByPane[tmuxPaneID],
-              let name = RemoteTmuxHost.controlModeCommandName(title),
-              connection.connectionState == .connected else { return false }
+              let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
+              connection.connectionState == .connected else {
+            return false
+        }
         return connection.send(
             "select-pane -t @\(windowId).%\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(name))"
         )
@@ -333,6 +335,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
         workspace.performRemoteTmuxMirrorMutation {
             rebuildTopology(in: workspace)
         }
+        // A restored surface can reconcile before the control stream reaches
+        // `.connected`; retry the idempotent session-wide title watcher here
+        // once topology is actually mounted.
+        connection.subscribePaneTitlesIfNeeded()
         focusExplicitlyRequestedWindowIfAvailable()
     }
 

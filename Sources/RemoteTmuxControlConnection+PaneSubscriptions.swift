@@ -6,9 +6,8 @@ extension RemoteTmuxControlConnection {
     nonisolated static let paneTitleMetadataFormat = "#{pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
         + "#{host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{host_short}"
 
-    /// Live notifications only need the title. tmux control mode octal-escapes
-    /// the metadata separator in subscription values, while the host fields are
-    /// already supplied by the authoritative rectangle snapshot.
+    /// `%*` covers every pane in the attached session. tmux supplies the target
+    /// pane id in each control-mode notification, so the format is the raw title.
     nonisolated static let paneTitleSubscriptionFormat = "#{pane_title}"
 
     /// The complete pane-rect format, with the variable-width header followed
@@ -20,23 +19,10 @@ extension RemoteTmuxControlConnection {
     /// Updates one pane's raw title metadata and reports whether it changed.
     @discardableResult
     func updatePaneTitleMetadata(paneId: Int, wireValue: String) -> Bool {
-        // Decode defensively, then combine the live raw title with host
-        // metadata retained from the authoritative rectangle snapshot.
-        let decodedWireValue = String(decoding: RemoteTmuxControlStreamParser.unescapeOutput(
-            Array(wireValue.utf8)
-        ), as: UTF8.self)
-        let next: RemoteTmuxPaneTitleMetadata?
-        if let metadata = paneTitleMetadataByPane[paneId] {
-            next = RemoteTmuxPaneTitleMetadata(
-                title: decodedWireValue,
-                host: metadata.host,
-                hostShort: metadata.hostShort
-            )
-        } else {
-            // A subscription can race the first rectangle snapshot. Support
-            // the legacy three-field value in that narrow startup window.
-            next = RemoteTmuxPaneTitleMetadata(wireValue: decodedWireValue)
-        }
+        let next = RemoteTmuxPaneTitleMetadata.applyingLiveWireValue(
+            wireValue,
+            to: paneTitleMetadataByPane[paneId]
+        )
         guard paneTitleMetadataByPane[paneId] != next else { return false }
         paneTitleMetadataByPane[paneId] = next
         paneTitleMetadataRevision &+= 1
@@ -44,29 +30,22 @@ extension RemoteTmuxControlConnection {
         return true
     }
 
-    /// Reads a pane's raw title without the compound layout formatter. This is
-    /// the compatibility path for tmux servers which intermittently omit a
-    /// `refresh-client -B` update for `pane_title`.
-    func requestPaneTitleReconciliation(paneId: Int) {
-        _ = sendInternal(
-            "display-message -p -t %\(paneId) -F \"#{pane_title}\"",
-            kind: .paneTitleReconciliation(paneId)
-        )
+    /// The exact event-driven `refresh-client -B` line for every pane in the
+    /// attached tmux session. tmux evaluates `%*` once per pane and only emits
+    /// when that pane's title value changes.
+    nonisolated static func paneTitleSubscriptionCommand() -> String {
+        "refresh-client -B \"\(paneTitleSubscriptionName):%*:\(paneTitleSubscriptionFormat)\""
     }
 
-    /// The exact `refresh-client -B` line for a pane's raw title.
-    nonisolated static func paneTitleSubscriptionCommand(paneId: Int) -> String {
-        "refresh-client -B \"\(paneTitleSubscriptionPrefix)\(paneId):%\(paneId):\(paneTitleSubscriptionFormat)\""
-    }
-
-    /// Subscribes to raw pane-title changes, including OSC title updates.
-    func subscribePaneTitle(paneId: Int) {
-        send(Self.paneTitleSubscriptionCommand(paneId: paneId))
-    }
-
-    /// Removes the raw pane-title subscription for a pane.
-    func unsubscribePaneTitle(paneId: Int) {
-        send("refresh-client -B \(Self.paneTitleSubscriptionPrefix)\(paneId)")
+    /// Installs the session-wide pane-title watcher once the first verified pane
+    /// snapshot arrives. A projected pane that already has terminal content does
+    /// not need `seedPane`, so tying this watcher to seeding misses live tmux
+    /// renames after reconnect or session restoration.
+    func subscribePaneTitlesIfNeeded() {
+        guard !paneTitleSubscriptionActive else { return }
+        if send(Self.paneTitleSubscriptionCommand()) {
+            paneTitleSubscriptionActive = true
+        }
     }
 
     /// Subscribes to live changes of `paneId`'s expanded `pane-border-format`
@@ -78,10 +57,7 @@ extension RemoteTmuxControlConnection {
     }
 
     func unsubscribePaneHeader(paneId: Int) {
-        send(
-            "refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)"
-                + " -B \(Self.paneTitleSubscriptionPrefix)\(paneId)"
-        )
+        send("refresh-client -B \(Self.headerSubscriptionPrefix)\(paneId)")
     }
 
     /// Format for close-time activity queries: the pane id (for cache refresh and
@@ -196,18 +172,26 @@ extension RemoteTmuxControlConnection {
         send(Self.paneReflowSubscriptionCommand(paneId: paneId))
     }
 
-    /// Registers every live pane subscription.
-    ///
-    /// `refresh-client -B` accepts one subscription specification per command.
-    /// Sending repeated `-B` flags is not portable across tmux versions and can
-    /// leave later subscriptions (including the pane-title watcher) inactive.
-    /// Keep each registration on its own control command so tmux 3.6a and newer
-    /// consistently deliver every corresponding `%subscription-changed` event.
+    /// Registers every live pane subscription in one control command. tmux
+    /// accepts multiple `-B` flags, avoiding three extra FIFO entries each time
+    /// a pane is seeded. The session-wide title watcher is included only with
+    /// the first registration for this control client.
     func subscribePaneAll(paneId: Int) {
-        subscribePaneReflow(paneId: paneId)
-        subscribePanePath(paneId: paneId)
-        subscribePaneHeader(paneId: paneId)
-        subscribePaneTitle(paneId: paneId)
+        let includesTitleWatcher = !paneTitleSubscriptionActive
+        let titleWatcher = includesTitleWatcher
+            ? " -B \"\(Self.paneTitleSubscriptionName):%*:\(Self.paneTitleSubscriptionFormat)\""
+            : ""
+        let accepted = send(
+            "refresh-client"
+                + " -B \"\(Self.reflowSubscriptionPrefix)\(paneId):%\(paneId):"
+                + "#{alternate_on}\(PaneForegroundState.fieldSeparator)#{pane_current_command}\""
+                + " -B \"\(Self.cwdSubscriptionPrefix)\(paneId):%\(paneId):#{pane_current_path}\""
+                + " -B \"\(Self.headerSubscriptionPrefix)\(paneId):%\(paneId):#{T:pane-border-format}\""
+                + titleWatcher
+        )
+        if includesTitleWatcher, accepted {
+            paneTitleSubscriptionActive = true
+        }
     }
 
 

@@ -201,15 +201,16 @@ extension RemoteTmuxControlConnection {
             if let placement = RemoteTmuxPaneTitleRowPlacement(rawValue: String(parts[6])) {
                 titleRowPlacement = placement
             }
-            // Control-mode command results octal-escape non-printing bytes.
-            // Our unit separator between the border label and pane-title
-            // metadata therefore arrives as the printable sequence `\\037`,
-            // not as U+001F. Decode it before splitting or every pane silently
-            // falls back to the tmux window title.
-            let formattedFields = String(decoding: RemoteTmuxControlStreamParser.unescapeOutput(
-                Array(String(parts[7].dropFirst()).utf8)
-            ), as: UTF8.self)
-            let expandedFields = formattedFields.split(
+            // tmux command-result text encodes control characters such as the
+            // unit separators in pane-title metadata as `\\037`. Decode this
+            // format payload before splitting its metadata fields. `%output`
+            // already takes the raw-byte decoding path in the stream parser.
+            let encodedFields = String(parts[7].dropFirst())
+            let decodedFields = String(
+                decoding: RemoteTmuxControlStreamParser.unescapeOutput(Array(encodedFields.utf8)),
+                as: UTF8.self
+            )
+            let expandedFields = decodedFields.split(
                 separator: RemoteTmuxPaneTitleMetadata.fieldSeparator,
                 maxSplits: 1,
                 omittingEmptySubsequences: false
@@ -262,23 +263,26 @@ extension RemoteTmuxControlConnection {
             }
             return
         }
-        // A normal live subscription emits a targeted title event below. A
-        // snapshot may be the only notification on older tmux servers, so
-        // record its changed panes and deliver the same event after the
-        // authoritative state is installed.
-        var panesWithChangedTitleMetadata: [Int] = []
-        for (paneId, metadata) in titleMetadata
-        where (paneTitleMetadataLiveRevisionByPane[paneId] ?? 0) <= snapshotRevision {
-            if paneTitleMetadataByPane[paneId] != metadata {
-                paneTitleMetadataByPane[paneId] = metadata
-                panesWithChangedTitleMetadata.append(paneId)
+        for (paneId, metadata) in titleMetadata {
+            if RemoteTmuxPaneTitleMetadata.snapshotMayReplace(
+                liveRevision: paneTitleMetadataLiveRevisionByPane[paneId],
+                snapshotRevision: snapshotRevision
+            ) {
+                if paneTitleMetadataByPane[paneId] != metadata {
+                    paneTitleMetadataByPane[paneId] = metadata
+                }
+            } else if let live = paneTitleMetadataByPane[paneId] {
+                let merged = live.applyingSnapshotDefaults(metadata)
+                if live != merged { paneTitleMetadataByPane[paneId] = merged }
             }
         }
         for paneId in panesWithoutTitleMetadata
-        where (paneTitleMetadataLiveRevisionByPane[paneId] ?? 0) <= snapshotRevision {
+        where RemoteTmuxPaneTitleMetadata.snapshotMayReplace(
+            liveRevision: paneTitleMetadataLiveRevisionByPane[paneId],
+            snapshotRevision: snapshotRevision
+        ) {
             if paneTitleMetadataByPane[paneId] != nil {
                 paneTitleMetadataByPane[paneId] = nil
-                panesWithChangedTitleMetadata.append(paneId)
             }
         }
         for (paneId, label) in labels where paneHeaderLabels[paneId] != label {
@@ -316,6 +320,11 @@ extension RemoteTmuxControlConnection {
             pendingLayouts[windowId] = nil
         }
         record("pane-rects @\(windowId)")
+        // Establish the title watcher from verified pane topology rather than
+        // from terminal seeding. Restored panes may be render-ready and skip a
+        // `capture-pane` seed entirely, but their tmux title must still remain
+        // live after this snapshot.
+        subscribePaneTitlesIfNeeded()
         if initialBatchAwaiting != nil {
             // First population: hold verified windows in staging and publish
             // them all at once when the last reply lands, so observers never
@@ -332,9 +341,6 @@ extension RemoteTmuxControlConnection {
         if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
         prunePaneState(keeping: paneIDsForStatePruning())
         observers.notifyTopologyChanged()
-        for paneId in panesWithChangedTitleMetadata {
-            observers.emitPaneTitleChanged(paneId)
-        }
         // Publish first so every mirror surface adopts the verified grid before
         // capture-pane repaints the cells that grid growth newly exposed.
         repaintPanesThatGrew(from: previous, to: published)
