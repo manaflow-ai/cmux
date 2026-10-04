@@ -179,8 +179,17 @@ final class BrowserReplTabAttachment {
     var drag: DragState?
     /// Last automated mouse position in CSS pixels.
     var mousePosition = CGPoint.zero
-    /// Per-tab virtual clipboard (`clipboard.read` / `clipboard.write`).
-    var clipboardItems: [[String: Any]] = []
+    /// Per-tab virtual clipboard (`clipboard.read` / `clipboard.write`,
+    /// Meta+C, Meta+X and Meta+V, and the page's own writes in a tab a
+    /// session created): the live creator's alone (``BrowserReplTabClipboard``).
+    /// Its owner follows ``creatorSessionID`` (``syncClipboardOwner()``).
+    var clipboard = BrowserReplTabClipboard<[String: Any]>()
+
+    /// Hands the clipboard to the tab's live creator, or takes it away from
+    /// a creator that left: it empties, and nothing begun before lands.
+    private func syncClipboardOwner() {
+        clipboard.setOwner(creatorSessionID)
+    }
     /// Target id of the tab that opened this one, for popups.
     var openerTargetID: String?
     /// Credentials from `user:password@` in URLs a session navigated to, by
@@ -258,6 +267,7 @@ final class BrowserReplTabAttachment {
     /// a tab it created): the session's behaviors apply to it.
     func markCreated(by sessionID: String) {
         ownership.markCreated(by: sessionID)
+        syncClipboardOwner()
         applyContextToWebView()
     }
 
@@ -363,6 +373,7 @@ final class BrowserReplTabAttachment {
         let wasAttached = isAttached
         sinks[sessionID] = sink
         ownership.attach(sessionID: sessionID)
+        syncClipboardOwner()
         instrumentCurrentWebView()
         if !wasAttached {
             panel?.reevaluateHiddenWebViewDiscardScheduling(reason: "browser.repl.attach")
@@ -527,11 +538,11 @@ final class BrowserReplTabAttachment {
         for respond in dialogs.removeAll(ownedBy: sessionID) { respond(false, nil) }
         for chooser in fileChoosers.removeAll(ownedBy: sessionID) { chooser.respond(nil) }
         sinks.removeValue(forKey: sessionID)
-        if ownership.detach(sessionID: sessionID) {
-            // What the creating session copied or wrote is its own; a
-            // session that drives the kept tab later never reads it.
-            clipboardItems = []
-        }
+        // What the creating session copied or wrote is its own; a session
+        // that drives the kept tab later never reads it, and a Copy still
+        // running for it never lands.
+        ownership.detach(sessionID: sessionID)
+        syncClipboardOwner()
         if sinks.isEmpty {
             detachAll()
         } else {
@@ -598,7 +609,7 @@ final class BrowserReplTabAttachment {
     /// session created (``BrowserReplPageClipboard``): WebKit's asynchronous
     /// Clipboard API is off and `page-clipboard.js` sends the page's Clipboard
     /// API and `execCommand("copy" | "cut")` writes to the tab's clipboard
-    /// (``clipboardItems``). The guard stays on the web view for its life,
+    /// (``clipboard``). The guard stays on the web view for its life,
     /// also after the session leaves: a page loaded while the session drove
     /// the tab never gets the system clipboard. Writes after that fail.
     ///
@@ -620,9 +631,10 @@ final class BrowserReplTabAttachment {
                 return policy.blockReason(document: BrowserReplFrameDocument(info: frame))
             },
             onWrite: { webView, items in
+                // Only while the creating session holds the tab: a kept tab's
+                // page writes nowhere once its creator left.
                 guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
-                attachment.clipboardItems = items
-                return true
+                return attachment.clipboard.writeFromPage(items)
             }
         ) ?? false
         guard !installed else { return }
@@ -634,6 +646,7 @@ final class BrowserReplTabAttachment {
     func detachAll() {
         sinks.removeAll()
         ownership = BrowserReplTabOwnership()
+        syncClipboardOwner()
         // Playwright dismisses dialogs nobody handles; do the same so a page
         // is never left blocked on a dialog after its session goes away.
         for respond in dialogs.removeAll() { respond(false, nil) }

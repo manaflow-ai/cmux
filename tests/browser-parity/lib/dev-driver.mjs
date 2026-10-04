@@ -172,6 +172,10 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const CREDENTIAL_HEADERS = new Set(["cookie", "set-cookie", "set-cookie2", "authorization", "proxy-authorization", "x-api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token"]);
   const withoutCredentials = (headers) => Object.fromEntries(Object.entries(headers).filter(([k]) => !CREDENTIAL_HEADERS.has(k.toLowerCase())));
   // A tab another live session created: `driver` may not drive it.
+  const ownClipboard = (tab, driver) => {
+    if (tab.creator === driver && drivers.has(driver)) return tab;
+    throw new DriverError("unsupported", "page.clipboard is refused in a user's tab (one no attached session opened): a tab's clipboard belongs to the session that opened the tab, and other sessions may drive a user's tab. Open the page with tabs.open() to use it");
+  };
   const ownerRefusing = (tab, driver) => (tab.creator && tab.creator !== driver && drivers.has(tab.creator) ? tab.creator : null);
 
   function frameId(tab, frame) {
@@ -301,6 +305,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       if (!items || items.some((i) => !i || typeof i.type !== "string" || typeof i.base64 !== "string")) {
         throw new Error("the clipboard write is not a list of typed items within the size limit");
       }
+      // Only while the creating session holds the tab.
+      if (!(tab.creator && drivers.has(tab.creator))) throw new Error("the tab's clipboard is unavailable");
       tab.clipboard = items.map((i) => ({ type: i.type, base64: i.base64 }));
     });
     await tab.page.addInitScript({ content: pageClipboardInitScript() });
@@ -877,9 +883,11 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         await context.clearCookies({ name: c.name, domain: c.domain, path: c.path });
       }
     },
-    "clipboard.read": async ({ targetId }) => ({ items: tabFor(targetId).clipboard }),
-    "clipboard.write": async ({ targetId, items }) => {
-      tabFor(targetId).clipboard = items;
+    // As in the app (BrowserReplTabClipboard): the tab's clipboard is its
+    // live creator's alone; a user's tab has none for sessions.
+    "clipboard.read": async ({ targetId }, driver) => ({ items: ownClipboard(tabFor(targetId), driver).clipboard }),
+    "clipboard.write": async ({ targetId, items }, driver) => {
+      ownClipboard(tabFor(targetId), driver).clipboard = items;
     },
   };
 
