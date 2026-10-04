@@ -6517,6 +6517,688 @@
     }
    },
    "kind": "object"
+  },
+  "ConversationParticipantKind": {
+   "kind": "enum",
+   "values": [
+    "human",
+    "agent"
+   ]
+  },
+  "ConversationAgentClass": {
+   "kind": "enum",
+   "values": [
+    "mux",
+    "agent"
+   ]
+  },
+  "ConversationParticipant": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationParticipantKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "display_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "agent_class": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationAgentClass"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "acp_session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationPartRef": {
+   "kind": "object",
+   "fields": {
+    "message_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "part_index": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationTextRun": {
+   "kind": "object",
+   "fields": {
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "length": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mention": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "link": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationWorkStatus": {
+   "kind": "enum",
+   "values": [
+    "running",
+    "done",
+    "failed",
+    "waiting"
+   ]
+  },
+  "ConversationPart": {
+   "kind": "tagged_union",
+   "tag": "type",
+   "variants": {
+    "text": {
+     "kind": "object",
+     "fields": {
+      "type": {
+       "type": {
+        "kind": "literal",
+        "value": "text"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "text": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "runs": {
+       "type": {
+        "kind": "array",
+        "items": {
+         "kind": "ref",
+         "name": "ConversationTextRun"
+        }
+       },
+       "presence": "optional",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "work": {
+     "kind": "object",
+     "fields": {
+      "type": {
+       "type": {
+        "kind": "literal",
+        "value": "work"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "session": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "host": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": false
+      },
+      "status": {
+       "type": {
+        "kind": "ref",
+        "name": "ConversationWorkStatus"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "preview": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "optional",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    }
+   }
+  },
+  "ConversationTapback": {
+   "kind": "enum",
+   "values": [
+    "love",
+    "like",
+    "dislike",
+    "laugh",
+    "emphasize",
+    "question"
+   ]
+  },
+  "ConversationTapbackReaction": {
+   "kind": "object",
+   "fields": {
+    "tapback": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationTapback"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationEmojiReaction": {
+   "kind": "object",
+   "fields": {
+    "emoji": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationReactionKind": {
+   "kind": "untagged_union",
+   "variants": [
+    {
+     "kind": "ref",
+     "name": "ConversationTapbackReaction"
+    },
+    {
+     "kind": "ref",
+     "name": "ConversationEmojiReaction"
+    }
+   ]
+  },
+  "ConversationReaction": {
+   "kind": "object",
+   "fields": {
+    "author": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "part_index": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationReactionKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationMessage": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "conversation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "client_msg_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "author": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "parts": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ConversationPart"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "reply_to": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationPartRef"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "created_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "edited_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "retracted_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "reactions": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ConversationReaction"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationSummary": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "participants": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ConversationParticipant"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "rev": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "created_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "updated_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_message": {
+     "type": {
+      "kind": "ref",
+      "name": "ConversationMessage"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "read_cursors": {
+     "type": {
+      "kind": "map",
+      "values": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationChange": {
+   "kind": "tagged_union",
+   "tag": "kind",
+   "variants": {
+    "message": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "message"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "message": {
+       "type": {
+        "kind": "ref",
+        "name": "ConversationMessage"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "message-updated": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "message-updated"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "message": {
+       "type": {
+        "kind": "ref",
+        "name": "ConversationMessage"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "read-cursor": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "read-cursor"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "participant": {
+       "type": {
+        "kind": "scalar",
+        "name": "string"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "seq": {
+       "type": {
+        "kind": "scalar",
+        "name": "uint64"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    },
+    "conversation": {
+     "kind": "object",
+     "fields": {
+      "kind": {
+       "type": {
+        "kind": "literal",
+        "value": "conversation"
+       },
+       "presence": "required",
+       "nullable": false
+      },
+      "conversation": {
+       "type": {
+        "kind": "ref",
+        "name": "ConversationSummary"
+       },
+       "presence": "required",
+       "nullable": false
+      }
+     },
+     "additional_properties": false
+    }
+   }
+  },
+  "ConversationSearchHit": {
+   "kind": "object",
+   "fields": {
+    "conversation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "message_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "author": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "created_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "snippet": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ConversationTabRecord": {
+   "kind": "object",
+   "fields": {
+    "conversation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "owner": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -13614,12 +14296,54 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "tab_resource_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "content_resource_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabRecord"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [
-    "owner is local or cloud; pane and workspace are exclusive (workspace: its active pane, or its first pane when empty); conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md for the result object."
+    "owner is local or cloud; pane and workspace are exclusive (workspace: its active pane, or its first pane when empty); conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md."
    ]
   },
   "new-frontend-browser-tab": {
@@ -16927,12 +17651,25 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "conversations": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationSummary"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. See spec/commands.md for the result object."
+    "Trusted local connections only. See spec/commands.md."
    ]
   },
   "conversation-create": {
@@ -16978,8 +17715,26 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [
@@ -17013,12 +17768,33 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "messages": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationMessage"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. tail is 1-500. See spec/commands.md for the result object."
+    "Trusted local connections only. tail is 1-500. See spec/commands.md."
    ]
   },
   "conversation-history": {
@@ -17056,12 +17832,25 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "messages": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationMessage"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. limit is 1-500. See spec/commands.md for the result object."
+    "Trusted local connections only. limit is 1-500. See spec/commands.md."
    ]
   },
   "conversation-search": {
@@ -17091,12 +17880,25 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "hits": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationSearchHit"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md for the result object."
+    "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md."
    ]
   },
   "conversation-op": {
@@ -17151,8 +17953,50 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "rev": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "change": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationChange"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [
@@ -17195,7 +18039,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "EmptyResult"
    },
    "stream": null,
    "constraints": [
@@ -17229,8 +18073,18 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [
@@ -17256,8 +18110,26 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "token": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
    },
    "stream": null,
    "constraints": [

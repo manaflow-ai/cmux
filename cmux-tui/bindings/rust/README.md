@@ -132,6 +132,26 @@ session.delete_window_record("install-a", "window-1", Some(record.value.revision
 # }
 ```
 
+Home: `Session::ensure_home` returns the session's one home workspace
+(`workspace-kind-v1`; created on the first call, `replayed` after that).
+A connection that calls `ConnectedClient::declare_capabilities` with
+`CONVERSATION_TABS_CAPABILITY` reads a conversation tab as
+`TabContentKind::Conversation` (its content ID is a `Browser` ID); any other
+connection reads it as `Browser` in `session.snapshot` and `session.events`
+alike. The raw `conversation-*` and `new-conversation-tab` commands return
+typed results (`ConversationSummary`, `ConversationMessage`,
+`ConversationChange`, ...), generated from spec/sdk-schema.json.
+
+```rust,no_run
+use cmux::{CONVERSATION_TABS_CAPABILITY, Selector};
+# fn home(session: cmux::Session) -> cmux::Result<()> {
+session.connected_client(Selector::current()).declare_capabilities([CONVERSATION_TABS_CAPABILITY])?;
+let home = session.ensure_home()?.resource;
+# let _ = home;
+# Ok(())
+# }
+```
+
 All eight creation option types expose `correlation_key`. Values contain 1 to
 128 UTF-8 bytes and remain stable across creation attempts.
 

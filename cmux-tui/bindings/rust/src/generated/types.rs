@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2.
+// cmux-tui mux protocol 12, IR 71799a14bb8d885adbbde8e2cc0926dc4680aaf2e10340e614e25e9f26160581.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -221,6 +221,211 @@ pub struct CloseTerminalResult {
 pub struct ColumnPin {
     pub edge: String,
     pub mode: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConversationAgentClass {
+    #[serde(rename = "mux")]
+    Mux,
+    #[serde(rename = "agent")]
+    Agent,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum ConversationChange {
+    #[serde(rename = "conversation")]
+    Conversation {
+        conversation: ConversationSummary,
+    },
+    #[serde(rename = "message")]
+    Message {
+        message: ConversationMessage,
+    },
+    #[serde(rename = "message-updated")]
+    MessageUpdated {
+        message: ConversationMessage,
+    },
+    #[serde(rename = "read-cursor")]
+    ReadCursor {
+        participant: String,
+        seq: u64,
+    },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationEmojiReaction {
+    pub emoji: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationMessage {
+    pub author: String,
+    pub client_msg_id: String,
+    pub conversation: String,
+    pub created_at: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<String>,
+    pub id: String,
+    pub parts: Vec<ConversationPart>,
+    pub reactions: Vec<ConversationReaction>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ConversationPartRef>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub retracted_at: Option<String>,
+    pub seq: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ConversationPart {
+    #[serde(rename = "text")]
+    Text {
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        runs: Option<Vec<ConversationTextRun>>,
+        text: String,
+    },
+    #[serde(rename = "work")]
+    Work {
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        host: Option<String>,
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        preview: Option<String>,
+        session: String,
+        status: ConversationWorkStatus,
+    },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationPartRef {
+    pub message_id: String,
+    pub part_index: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationParticipant {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub acp_session: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub agent_class: Option<ConversationAgentClass>,
+    pub display_name: String,
+    pub id: String,
+    pub kind: ConversationParticipantKind,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConversationParticipantKind {
+    #[serde(rename = "human")]
+    Human,
+    #[serde(rename = "agent")]
+    Agent,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationReaction {
+    pub at: String,
+    pub author: String,
+    pub kind: ConversationReactionKind,
+    pub part_index: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConversationReactionKind {
+    ConversationTapbackReaction(ConversationTapbackReaction),
+    ConversationEmojiReaction(ConversationEmojiReaction),
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSearchHit {
+    pub author: String,
+    pub conversation: String,
+    pub created_at: String,
+    pub message_id: String,
+    pub seq: u64,
+    pub snippet: String,
+    pub title: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSummary {
+    pub created_at: String,
+    pub id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<ConversationMessage>,
+    pub last_seq: u64,
+    pub owner: String,
+    pub participants: Vec<ConversationParticipant>,
+    pub read_cursors: BTreeMap<String, u64>,
+    pub rev: u64,
+    pub title: String,
+    pub updated_at: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTabRecord {
+    pub conversation: String,
+    pub owner: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConversationTapback {
+    #[serde(rename = "love")]
+    Love,
+    #[serde(rename = "like")]
+    Like,
+    #[serde(rename = "dislike")]
+    Dislike,
+    #[serde(rename = "laugh")]
+    Laugh,
+    #[serde(rename = "emphasize")]
+    Emphasize,
+    #[serde(rename = "question")]
+    Question,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTapbackReaction {
+    pub tapback: ConversationTapback,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTextRun {
+    pub length: u32,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub mention: Option<String>,
+    pub start: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConversationWorkStatus {
+    #[serde(rename = "running")]
+    Running,
+    #[serde(rename = "done")]
+    Done,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "waiting")]
+    Waiting,
 }
 
 #[rustfmt::skip]
