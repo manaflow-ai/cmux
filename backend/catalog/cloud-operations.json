@@ -13671,6 +13671,7 @@
         "auth.unauthenticated",
         "conversation_exists",
         "forbidden",
+        "home.rate_limited",
         "idempotency.conflict",
         "invalid_participant",
         "invalid_title",
@@ -13704,7 +13705,7 @@
         "expose": "default",
         "group": "home"
       },
-      "docs": "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation.",
+      "docs": "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -34289,6 +34290,7 @@
         "auth.unauthenticated",
         "duplicate_participant",
         "forbidden",
+        "home.rate_limited",
         "idempotency.conflict",
         "invalid_participant",
         "kind_forbids",
@@ -34321,7 +34323,7 @@
         "expose": "opt_in",
         "group": "home"
       },
-      "docs": "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
+      "docs": "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
