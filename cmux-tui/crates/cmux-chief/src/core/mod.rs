@@ -48,6 +48,8 @@ pub const SESSIONS_TIMER: &str = "sessions";
 /// Retry backoff of a failed session list or a rejected prompt: 1 s, doubling to 30 s.
 pub const RETRY_INITIAL_MS: u64 = 1_000;
 pub const RETRY_MAX_MS: u64 = 30_000;
+/// Retries of a refused prompt before it stops (answered, with the error posted).
+pub const MAX_PROMPT_RETRIES: u32 = 10;
 
 /// The delay of retry `attempt` (1-based).
 pub fn retry_delay(attempt: u32) -> u64 {
@@ -148,12 +150,15 @@ pub enum Input {
     },
     /// A `prompt` request returned. `rejected`: acpmux answered it with an
     /// error; the core sends it again on the clock (`prompt:<id>`, 1 s
-    /// doubling to 30 s). A prompt lost with its connection is sent again on
-    /// the next acpmux connect.
+    /// doubling to 30 s), at most `MAX_PROMPT_RETRIES` times; then the
+    /// prompt is answered and `error` is posted in its conversation. A prompt
+    /// lost with its connection is sent again on the next acpmux connect.
     PromptSettled {
         prompt_id: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         rejected: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
     },
     Timer {
         key: String,
@@ -398,16 +403,8 @@ impl Core {
                     self.flush_outbox();
                 }
             }
-            Input::PromptSettled { prompt_id, rejected } => {
-                self.accept(&prompt_id);
-                if rejected && self.state.prompts.contains_key(&prompt_id) {
-                    let rejections = self.prompt_rejections.entry(prompt_id.clone()).or_insert(0);
-                    *rejections += 1;
-                    let delay = retry_delay(*rejections);
-                    self.log(format!("prompt {prompt_id} rejected; sending again in {delay} ms"));
-                    let key = format!("{PROMPT_TIMER_PREFIX}{prompt_id}");
-                    self.emit(Effect::ArmTimer { key, at: self.now + delay });
-                }
+            Input::PromptSettled { prompt_id, rejected, error } => {
+                self.prompt_settled(&prompt_id, rejected, error.as_deref());
             }
             Input::Timer { key } => self.timer(&key),
             Input::Disconnected { port } => self.disconnected(port),
@@ -418,6 +415,51 @@ impl Core {
             effects.insert(0, Effect::Persist { state: Box::new(self.state.clone()) });
         }
         effects
+    }
+
+    /// A prompt request returned. A refusal retries on the clock, at most
+    /// `MAX_PROMPT_RETRIES` times; then the prompt stops.
+    fn prompt_settled(&mut self, prompt_id: &str, rejected: bool, error: Option<&str>) {
+        self.accept(prompt_id);
+        if !rejected || !self.state.prompts.contains_key(prompt_id) {
+            return;
+        }
+        let rejections = self.prompt_rejections.get(prompt_id).copied().unwrap_or(0) + 1;
+        if rejections > MAX_PROMPT_RETRIES {
+            self.stop_refused_prompt(prompt_id, error.unwrap_or("refused"));
+            return;
+        }
+        self.prompt_rejections.insert(prompt_id.to_owned(), rejections);
+        let delay = retry_delay(rejections);
+        self.log(format!("prompt {prompt_id} rejected; sending again in {delay} ms"));
+        let key = format!("{PROMPT_TIMER_PREFIX}{prompt_id}");
+        self.emit(Effect::ArmTimer { key, at: self.now + delay });
+    }
+
+    /// A prompt refused past its retries: answered (never sent again), its
+    /// error posted in its conversation.
+    fn stop_refused_prompt(&mut self, prompt_id: &str, error: &str) {
+        let conversation = self.conversation_for(Some(prompt_id));
+        self.prompt_rejections.remove(prompt_id);
+        self.state.mark_answered(prompt_id);
+        self.dirty = true;
+        let tries = MAX_PROMPT_RETRIES + 1;
+        self.log(format!("prompt {prompt_id} refused {tries} times; giving up: {error}"));
+        let Some(conversation) = conversation else { return };
+        let key = format!("failed:{prompt_id}");
+        self.state.outbox.push(crate::state::OutboxEntry {
+            conversation,
+            idempotency_key: key.clone(),
+            rate_retried: false,
+            not_before: None,
+            op: cmux_conversation::Op::MessageSend {
+                client_msg_id: key,
+                parts: vec![cmux_conversation::Part::Text { text: format!("(turn failed: {error})"), runs: None }],
+                reply_to: None,
+            },
+            child: None,
+        });
+        self.flush_outbox();
     }
 
     fn timer(&mut self, key: &str) {
