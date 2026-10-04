@@ -320,9 +320,9 @@ kase(
   { mutation: true, note: "Two calls, two fresh tokens: no key, no replay." }
 )
 /** A refused mint: no stream, no key, no sequence (nothing was committed). */
-const mintErr = (code: string, message: string): Obj => ({
+const mintErr = (code: string, message: string, details?: Obj): Obj => ({
   http: { path: "/v1/ops", status: 200 },
-  body: { ok: false, op: "cloud.machine.link_token", error: { code, message, retryable: false }, transaction: tx(), idempotency_key: "", replayed: false, stream: "", sequence: 0 }
+  body: { ok: false, op: "cloud.machine.link_token", error: { code, message, retryable: false, ...(details ? { details } : {}) }, transaction: tx(), idempotency_key: "", replayed: false, stream: "", sequence: 0 }
 })
 kase("machine.link_token.not_bound", "cloud.machine.link_token", { host: host(4), services: ["ssh"] }, [mintErr("cloud.machine.not_bound", "the machine is still provisioning")], { mutation: true })
 kase("machine.link_token.not_found", "cloud.machine.link_token", { host: host(9), services: ["ssh"] }, [mintErr("cloud.machine.not_found", "no such machine in this team")], { mutation: true })
@@ -332,6 +332,13 @@ kase(
   { host: host(1), services: ["ssh"] },
   [mintErr("auth.forbidden", "link tokens are minted only for an install's cmux link")],
   { mutation: true, principal: SESSION_P, note: "Install principals only (LINK-RESOLVE): an app or page caller never holds a link token." }
+)
+kase(
+  "machine.link_token.install_refused",
+  "cloud.machine.link_token",
+  { host: host(1), services: ["ssh"] },
+  [mintErr("cloud.link.install_refused", "only the cli, mac app and ios installs mint link tokens", { install_kind: "vm", allowed: ["cli", "mac", "ios"] })],
+  { mutation: true, note: "CLOUD-LINK-FOLLOWUPS (2): a vm, daemon or web install never mints; the check runs before the machine lookup." }
 )
 backendOnly.push(...backendOnlyCases({ TEAM, INSTALL_P, vm, host, readErr }))
 

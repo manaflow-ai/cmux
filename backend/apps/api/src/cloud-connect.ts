@@ -100,7 +100,10 @@ export const connectInfo = async (entity: string, rows: Rows | undefined, p: Pri
   }
 }
 
-export type MintReply = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string }
+export type MintReply = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly code: string; readonly message: string; readonly details?: unknown }
+
+/** CLOUD-LINK-FOLLOWUPS (2): the install kinds whose `cmux link` may dial a machine. vm, daemon and web never mint. */
+export const LINK_INSTALL_KINDS: ReadonlyArray<string> = ["cli", "mac", "ios"]
 
 /**
  * cloud.machine.link_token (5.8 items 5-6): install principals only (never a session, never an
@@ -116,6 +119,8 @@ export const mintLinkToken = async (
 ): Promise<MintReply> => {
   const { entity, p } = args
   if (p.kind !== "install" || !p.install || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "link tokens are minted only for an install's cmux link" }
+  if (!LINK_INSTALL_KINDS.includes(p.install_kind ?? ""))
+    return { ok: false, code: "cloud.link.install_refused", message: "only the cli, mac app and ios installs mint link tokens", details: { install_kind: p.install_kind ?? null, allowed: [...LINK_INSTALL_KINDS] } }
   if (!p.grant_classes?.includes("execute")) return { ok: false, code: "auth.forbidden", message: "grant does not cover execute" }
   const d = decodeParams<{ host: string; services: ReadonlyArray<string> }>(CloudMachineLinkToken, args.params)
   if (!d.ok) return d
