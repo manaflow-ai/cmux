@@ -24,6 +24,9 @@ final class CloudBrowserAccessState {
     private var dismissedFailure: String?
     var showsPorts = true
     private(set) var unavailable: String?
+    /// Set while the pane waits for its resource to exist (a guest display
+    /// still starting). Any route or failure replaces it.
+    private(set) var starting: String?
     private var unavailableRetry: (@MainActor (UInt64) async -> Void)?
     private var unavailableRetryTask: Task<Void, Never>?
     private var unavailableRetryGeneration: UInt64 = 0
@@ -56,6 +59,7 @@ final class CloudBrowserAccessState {
         unavailable = nil
         self.resourceID = resourceID
         self.model = model
+        starting = nil
         remoteURL = url
         // WebKit has already committed this URL. Retain that identity so the
         // delegate's finish/desktop callbacks are accepted without issuing a
@@ -109,6 +113,11 @@ final class CloudBrowserAccessState {
             self.desktopFailure = String(localized: "cloud.display.connectionTimedOut", defaultValue: "The Cloud display did not connect within 45 seconds. Retry to reconnect.")
             self.trace("deadline")
         }
+    }
+
+    func showStarting(_ message: String) {
+        leave()
+        starting = message
     }
 
     func showUnavailable(_ message: String, retry: (@MainActor (UInt64) async -> Void)? = nil) {
@@ -231,6 +240,7 @@ final class CloudBrowserAccessState {
             self.resourceID = resourceID
         }
         self.model = model
+        starting = nil
         remoteURL = url
         navigationURL = nil
         preservingCommittedRoute = false
@@ -391,6 +401,7 @@ final class CloudBrowserAccessState {
         activeNavigationID = nil
         hasCommittedNavigation = false
         unavailable = nil
+        starting = nil
         model = nil
         remoteURL = nil
         navigationURL = nil

@@ -32,7 +32,9 @@ extension CmuxTuiSurfaceProvider {
         try Task.checkCancellation()
         try catalog.validateOwnership(of: [resource.id], at: destination)
         guard isRegisteredInCatalog() else { throw CancellationError() }
-        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
+        let pane = try existingPane
+            ?? CloudDisplayPaneReservation.current?.pane(for: resource)
+            ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }

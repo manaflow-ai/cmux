@@ -33,15 +33,9 @@ extension CmuxTuiSurfaceProvider {
 
     func createDisplay() async throws -> SurfaceResource {
         guard supportsDisplayCreation else { throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage) }
-        // The Displays group is expanded by default, so its first render can
-        // happen before the demand-driven guest discovery callback. Make the
-        // button self-starting instead of requiring a collapse/expand cycle.
-        if !displayCoordinator.canCreate {
-            await refreshDisplays()
-        }
-        guard displayCoordinator.canCreate else {
-            throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
-        }
+        // No discovery round trip first: the create command installs the guest
+        // helper itself and its reply is the full catalog, so a prior `list`
+        // only added a second VM exec (about two seconds) to the first click.
         let generation = currentLifecycleGeneration
         defer {
             if isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() { publishDisplays() }

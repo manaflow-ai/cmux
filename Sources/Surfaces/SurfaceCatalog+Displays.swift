@@ -31,38 +31,60 @@ extension SurfaceCatalog {
         }
         let identity = SurfaceResourceID(machine: machine, kind: .display, key: "new")
         try validateOwnership(of: [identity], at: destination)
-        guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else {
-            throw SurfaceCatalogError.noProvider(machine)
-        }
-        let resource = try await createDisplay(on: machine)
-        try validateOwnership(of: [resource.id], at: destination)
-        guard self.provider(for: machine) === provider else { throw CancellationError() }
-        _ = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
-            try await project(resource.id, into: target, focus: true, reuseExisting: false)
-        }
+        try await createDisplayInReservedPane(on: machine, at: destination, bestEffortOpen: false)
     }
 
     /// Creates a display even when the selected workspace is unavailable. If
     /// the destination remains live, the new display is opened there; otherwise
     /// it stays available in the machine's Displays pool.
     func createDisplay(on machine: SurfaceMachineID, into destination: SurfaceDestination?) async throws {
-        guard let destination else {
+        guard let destination, Workspace.liveWorkspace(id: destination.workspaceID) != nil,
+              (try? validateOwnership(of: [SurfaceResourceID(machine: machine, kind: .display, key: "new")], at: destination)) != nil else {
             _ = try await createDisplay(on: machine)
             return
         }
-        let resource = try await createDisplay(on: machine)
-        guard Workspace.liveWorkspace(id: destination.workspaceID) != nil else { return }
+        try await createDisplayInReservedPane(on: machine, at: destination, bestEffortOpen: true)
+    }
+
+    /// Opens the pane at the click, showing "Starting display…", then creates the
+    /// guest display (a VM round trip) and binds that same pane to it. Creation
+    /// failure closes the pane and throws. When opening the created display fails,
+    /// the pane closes and the display stays in the machine's pool; that failure
+    /// throws only when `bestEffortOpen` is false.
+    private func createDisplayInReservedPane(
+        on machine: SurfaceMachineID,
+        at destination: SurfaceDestination,
+        bestEffortOpen: Bool
+    ) async throws {
+        guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else {
+            throw SurfaceCatalogError.noProvider(machine)
+        }
+        let pane = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
+            try SurfacePaneFactory.makeBrowserPane(url: nil, at: target, focus: true)
+        }
+        SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID)?.cloudAccess.showStarting(
+            String(localized: "cloud.display.starting", defaultValue: "Starting display…")
+        )
+        let reservation = CloudDisplayPaneReservation(machine: machine, workspaceID: pane.workspaceID, panelID: pane.panelID)
+        let resource: SurfaceResource
         do {
-            try validateOwnership(of: [resource.id], at: destination)
-            _ = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
-                try await project(resource.id, into: target, focus: true, reuseExisting: false)
-            }
-        } catch is CancellationError {
-            throw CancellationError()
+            resource = try await createDisplay(on: machine)
         } catch {
-            // Guest creation already succeeded. A workspace can disappear or
-            // lose ownership while the remote display is starting; leave the
-            // display in the pool so it can still be opened from there.
+            SurfacePaneFactory.close(panelID: pane.panelID, in: pane.workspaceID)
+            throw error
+        }
+        do {
+            guard self.provider(for: machine) === provider else { throw CancellationError() }
+            try await CloudDisplayPaneReservation.$current.withValue(reservation) {
+                _ = try await project(resource.id, into: .workspace(id: pane.workspaceID, placement: .tab), focus: true, reuseExisting: false)
+            }
+        } catch {
+            if projections.contains(where: { $0.panelID == pane.panelID }) == false {
+                SurfacePaneFactory.close(panelID: pane.panelID, in: pane.workspaceID)
+            }
+            if error is CancellationError || !bestEffortOpen { throw error }
+            // Guest creation already succeeded. The workspace can lose the pane
+            // or ownership while the display starts; it stays in the pool.
         }
     }
 }

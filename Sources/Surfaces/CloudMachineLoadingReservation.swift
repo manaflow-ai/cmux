@@ -44,3 +44,25 @@ struct CloudMachineLoadingReservation: Sendable {
               materializedPlacement.tabID == expectedRemoteTabID else { throw CloudDiagnosticFailure.placement }
     }
 }
+
+
+/// A browser pane opened at the New Display click, before the guest has
+/// assigned the display. Display creation takes a round trip to the VM, so the
+/// pane shows "Starting display…" immediately and the projection that follows
+/// adopts it instead of opening a second pane.
+struct CloudDisplayPaneReservation: Sendable {
+    @TaskLocal static var current: CloudDisplayPaneReservation?
+
+    let machine: SurfaceMachineID
+    let workspaceID: UUID
+    let panelID: UUID
+
+    /// The reserved pane when it still exists and `resource` is a display on
+    /// the reserving machine. Any other resource opens its own pane.
+    @MainActor
+    func pane(for resource: SurfaceResource) -> (workspaceID: UUID, panelID: UUID)? {
+        guard resource.kind == .display, resource.machine == machine,
+              SurfacePaneFactory.browserPanel(panelID: panelID, in: workspaceID) != nil else { return nil }
+        return (workspaceID, panelID)
+    }
+}
