@@ -5,10 +5,12 @@
 //! envelope: `{id, ok: true, data}` or `{id, ok: false, error, error_code}`.
 //! Only local (Unix socket) connections may use apps commands. `apps-set`
 //! changes apps, so it needs a verified cmux app connection whatever origin
-//! it claims (Gate A2, plans/cmux-next/request-origin.md; `origin.forbidden`
-//! otherwise). Only the
-//! hosting app connection may send origin `user` (`apps.origin_forbidden`
-//! otherwise; see `apps::provider::hosting_app_connection`). A connection
+//! it claims, and so does every request with origin `user` (Gate A2,
+//! plans/cmux-next/request-origin.md; `origin.forbidden` otherwise). A
+//! connection that only declares kind `app` is not the verified app; it
+//! still counts for `apps-provider-register` until P8. Origin `user` from a
+//! verified connection that is bound to an agent is `apps.origin_forbidden`
+//! (see `apps::provider::hosting_app_connection`). A connection
 //! receives `apps-changed` and `apps-host` events after its first apps
 //! command; mount events go to the mounting connection only.
 
@@ -163,27 +165,34 @@ fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<Joi
     std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
 }
 
+/// Which hosting-app evidence a check accepts.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HostingEvidence {
+    /// User authority (origin `user`): only a verified cmux app connection.
+    Verified,
+    /// Provider registration: a declared kind `app` still counts until P8
+    /// (residual risk in plans/cmux-next/app-op-routing.md), or the verified
+    /// app. A page relay never counts.
+    DeclaredOrVerified,
+}
+
 /// What the daemon knows about `client` for the hosting-app check.
-fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
+fn claim_for(mux: &Mux, client: u64, evidence: HostingEvidence) -> crate::apps::ProviderClaim {
+    let app_kind = {
+        let state =
+            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.get(&client).is_some_and(|record| {
+            let verified = record.origin.derive() == crate::request_origin::RequestOrigin::User;
+            let declared = record.kind.as_deref() == Some("app")
+                && record.origin.role != crate::request_origin::HelloRole::PageRelay;
+            verified || (evidence == HostingEvidence::DeclaredOrVerified && declared)
+        })
+    };
     crate::apps::ProviderClaim {
         // An agent's conversation binding; switches to the identity lane's
         // terminal/acp_session actor with `agent` once it lands.
         agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
-        app_kind: mux
-            .control_clients
-            .state
-            .lock()
-            .unwrap()
-            .clients
-            .get(&client)
-            // The verified app is the hosting app. A page relay connection
-            // never is, whatever kind it declares (request-origin.md: its
-            // requests are page); until P8 a declared kind app still counts.
-            .is_some_and(|record| {
-                let declared = record.kind.as_deref() == Some("app")
-                    && record.origin.role != crate::request_origin::HelloRole::PageRelay;
-                declared || record.origin.derive() == crate::request_origin::RequestOrigin::User
-            }),
+        app_kind,
     }
 }
 
@@ -220,17 +229,18 @@ pub(super) fn try_handle(
         ));
     }
     // Gate A2 on the legacy door (request-origin.md): every apps-set change
-    // (install, uninstall, enable, disable, hide, sandbox, grant) needs a
-    // verified cmux app connection, whatever origin the request claims.
-    if matches!(request.command, Command::Set { .. })
-        && let Err(e) = super::origin_gate::require_user(mux, client)
-    {
+    // (install, uninstall, enable, disable, hide, sandbox, grant), whatever
+    // origin it claims, and every request with origin user (gestures) need a
+    // verified cmux app connection. A declared kind app does not count.
+    let user_authority = matches!(request.command, Command::Set { .. })
+        || request.origin == crate::apps::Origin::User;
+    if user_authority && let Err(e) = super::origin_gate::require_user(mux, client) {
         return Some(reply(writer, request.id, Err(e)));
     }
-    // Origin `user` installs apps, grants scopes and mints gestures: only the
-    // hosting app connection may claim it (A2). Checked before anything else
-    // so a refused request changes nothing.
-    if let Err(e) = crate::apps::admit_origin(request.origin, &claim_for(mux, client)) {
+    // Origin `user` also needs a connection that is not bound to an agent
+    // (the verified app check above does not see the agent binding).
+    let origin_claim = claim_for(mux, client, HostingEvidence::Verified);
+    if let Err(e) = crate::apps::admit_origin(request.origin, &origin_claim) {
         return Some(reply(writer, request.id, Err(e)));
     }
     if crate::apps::advertised().is_none() {
@@ -292,9 +302,11 @@ pub(super) fn try_handle(
             return Some(true);
         }
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
-        Command::ProviderRegister { families } => {
-            supervisor.register_provider(client, claim_for(mux, client), families)
-        }
+        Command::ProviderRegister { families } => supervisor.register_provider(
+            client,
+            claim_for(mux, client, HostingEvidence::DeclaredOrVerified),
+            families,
+        ),
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
         }

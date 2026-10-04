@@ -289,10 +289,14 @@ integer params. Validity uses a monotonic clock: a wall clock step neither
 extends nor cuts the 60 s; `expires_at` is wall-clock milliseconds for display.
 
 The legacy `apps-set` command (install, uninstall, enable, disable, hide,
-sandbox and grant changes, whatever `origin` it claims) needs origin `user`
-too, with the same refusal in the raw envelope: `error_code`
-`origin.forbidden`, `error` "needs a verified cmux app connection" and
-`error_details {"required": "user", "derived": <origin>}`.
+sandbox and grant changes, whatever `origin` it claims) and every legacy
+`apps-*` request with `origin: "user"` (for example an `apps-run` gesture)
+need origin `user` too, with the same refusal in the raw envelope:
+`error_code` `origin.forbidden`, `error` "needs a verified cmux app
+connection" and `error_details {"required": "user", "derived": <origin>}`. A
+connection that only declares `set-client-info` kind `app` is not the verified
+app. Hiding an app needs a verified app until P8 adds the verified-app path:
+agents must not change what the user sees.
 
 Completed pure mutations retain the newest 4096 ordinary replay records. A
 running registry may retain at most 127 additional ordinary records between
