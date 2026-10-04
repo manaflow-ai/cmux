@@ -29,6 +29,18 @@
 //! session host keeps running, so the bake's park step fails instead of
 //! snapshotting a half-stopped machine) and starts every role again.
 //!
+//! # Rebind
+//!
+//! When a running machine finds a new instance id (a fork of a running
+//! machine, or a clone whose session host crashed), the supervisor calls
+//! [`Role::stop`] on every role, in reverse order and with no event,
+//! before it replaces the identity. No role hears an event while the id
+//! changes. When the bind commits, it starts every role again with the
+//! new id ([`RoleContext::instance_id`]) and then delivers `Bound`. If the
+//! bind fails, the roles stay stopped (as the session host does) until a
+//! later bind commits. A clone of a parked snapshot has no running roles,
+//! so there it is only start, then `Bound`.
+//!
 //! # Failures
 //!
 //! A role error is never fatal. The supervisor logs it and reports the
@@ -54,7 +66,8 @@ pub enum HostEvent {
     /// work and hold no request open into the snapshot, by `deadline`.
     Parked { deadline: Instant },
     /// The guest resumed from a pause or its clock was set. The instance
-    /// id is unchanged.
+    /// id is unchanged: the supervisor sends it only after a metadata read
+    /// confirmed the id (a changed id is a rebind, see the module docs).
     Resumed,
     /// An interface or address changed (rtnetlink): listeners rebind.
     AddressesChanged,

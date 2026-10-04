@@ -19,10 +19,16 @@
 //! - The bake id parks: session host stopped, then terminal hosts stopped
 //!   (the warm template terminal is kept by the agent), housekeeping timers
 //!   stopped, and no spawn until a new id or an unpark.
+//! - Roles never run while the identity changes: a bind stops them first,
+//!   they hear no event (no `Resumed`) and no announce runs until the bind
+//!   commits, and they start again with the new id, then hear `Bound`. A
+//!   failed bind leaves them stopped with the session host.
 //! - No instance id never binds. Without any metadata service (a
 //!   container) the session host runs with the identity it has. On a
-//!   machine with one, a failed read never spawns; when parked or with no
-//!   session host it arms a bounded retry (50 ms doubling, 10 times).
+//!   machine with one, a failed read never spawns; when parked, with no
+//!   session host, or after a clone signal (clock set, driver file: a
+//!   fork may have happened) it arms a bounded retry (50 ms doubling, 10
+//!   times), and `Resumed` waits for a read that confirms the id.
 //! - Every restart goes through a fresh observation (a backoff timer can
 //!   be from before a snapshot). Session host exits restart with a capped
 //!   backoff
@@ -60,6 +66,11 @@ pub struct Observation {
     pub bake_id: Option<String>,
     /// `/etc/cmux/daemon-instance-id`, trimmed; `None` when absent or empty.
     pub bound_id: Option<String>,
+    /// The read follows a wake that a clone or a resume gives (clock set,
+    /// driver file). If it fails, the retry runs also while the session
+    /// host runs: a fork of a running machine must not keep the source
+    /// machine's identity.
+    pub clone_signal: bool,
 }
 
 /// One input to the machine.
@@ -152,6 +163,9 @@ pub enum Action {
     RemoveDriverFile,
     /// Start every role with this instance id.
     StartRoles(Option<String>),
+    /// Stop every role, in reverse order, with no event: the identity is
+    /// about to change. They start again at the commit.
+    StopRoles,
     /// Deliver `Parked` to every role and stop them, in reverse order, by
     /// a deadline; answers with [`Input::RolesParked`].
     ParkRoles,
@@ -194,6 +208,7 @@ impl Action {
             Action::DisarmBackoff => "disarm-backoff",
             Action::RemoveDriverFile => "remove-driver-file",
             Action::StartRoles(_) => "start-roles",
+            Action::StopRoles => "stop-roles",
             Action::ParkRoles => "park-roles",
             Action::ShutdownRoles => "shutdown-roles",
             Action::Notify(_) => "notify",
@@ -243,6 +258,12 @@ pub struct Machine {
     metadata_machine: bool,
     retry_attempts: u32,
     retry_armed: bool,
+    /// A read after a clone signal failed: retry also while the session
+    /// host runs, until a read gives an id.
+    verify_pending: bool,
+    /// A resume arrived while `verify_pending`: `Resumed` waits for a read
+    /// that confirms the id (a changed id binds instead).
+    resume_pending: bool,
     /// The periodic announce timer is armed.
     announce_loop: bool,
     exiting: bool,
@@ -270,6 +291,8 @@ impl Machine {
             metadata_machine: false,
             retry_attempts: 0,
             retry_armed: false,
+            verify_pending: false,
+            resume_pending: false,
             announce_loop: false,
             exiting: false,
         }
@@ -314,7 +337,8 @@ impl Machine {
             Input::BindFailed(id) => {
                 if self.binding.as_deref() == Some(id.as_str()) {
                     // Identity was not replaced: no session host, no bound
-                    // id; try again on a bounded retry timer.
+                    // id, roles stay stopped; try again on a bounded retry
+                    // timer.
                     self.binding = None;
                     self.arm_retry(&mut out);
                 }
@@ -346,7 +370,7 @@ impl Machine {
             }
             Input::AnnounceTick => {
                 self.announce_loop = false;
-                if !self.parked && self.current_id.is_some() {
+                if self.identity_settled() {
                     self.announce(&mut out);
                 }
             }
@@ -395,6 +419,9 @@ impl Machine {
         if id.is_some() || obs.bound_id.is_some() || obs.bake_id.is_some() {
             self.metadata_machine = true;
         }
+        if id.is_some() {
+            self.verify_pending = false;
+        }
         match id {
             None if !self.metadata_machine => {
                 // No metadata service at all (a container or a plain
@@ -406,12 +433,20 @@ impl Machine {
             }
             None => {
                 // A metadata machine whose read failed: never spawn on it.
-                if self.parked || self.daemon != DaemonState::Running {
+                // After a clone signal the running host may be a fork's:
+                // retry with a fresh budget (one per kernel event) until a
+                // read gives an id.
+                if obs.clone_signal {
+                    self.verify_pending = true;
+                    self.retry_attempts = 0;
+                }
+                if self.parked || self.daemon != DaemonState::Running || self.verify_pending {
                     self.arm_retry(out);
                 }
             }
             Some(id) if obs.bake_id.as_deref() == Some(id.as_str()) => {
                 self.retry_attempts = 0;
+                self.resume_pending = false;
                 self.park(id, out);
             }
             Some(id) if obs.bound_id.as_deref() != Some(id.as_str()) => self.bind(id, out),
@@ -428,6 +463,10 @@ impl Machine {
                 // An agent restart or an unpark on a bound machine starts
                 // the periodic announce too, not only a bind or a resume.
                 self.arm_announce_loop(out);
+                if std::mem::take(&mut self.resume_pending) {
+                    // The id is confirmed unchanged: deliver the resume.
+                    self.resume(out);
+                }
             }
         }
     }
@@ -440,6 +479,11 @@ impl Machine {
     }
 
     fn bind(&mut self, id: String, out: &mut Vec<Action>) {
+        // Roles do not run, and hear nothing, while the identity changes;
+        // they start again with the new id at the commit. A pending resume
+        // becomes the `Bound` of the new id.
+        self.stop_roles(out);
+        self.resume_pending = false;
         match self.daemon {
             DaemonState::Running => {
                 out.push(Action::TerminateDaemon);
@@ -543,11 +587,25 @@ impl Machine {
     }
 
     fn resume(&mut self, out: &mut Vec<Action>) {
-        if self.parked || self.current_id.is_none() {
+        if self.verify_pending {
+            // The read after the clone signal failed: the id may have
+            // changed, and `Resumed` promises it did not.
+            self.resume_pending = true;
+            return;
+        }
+        if !self.identity_settled() {
             return;
         }
         self.notify(Lifecycle::Resumed, out);
         self.announce(out);
+    }
+
+    /// Bound (or unbound on a machine without metadata), not parked, and
+    /// no identity change in flight: a bind stops the roles first and a
+    /// failed bind leaves them stopped, so running roles mean the id they
+    /// started with is the current one.
+    fn identity_settled(&self) -> bool {
+        !self.parked && self.roles_running && self.current_id.is_some()
     }
 
     fn announce(&mut self, out: &mut Vec<Action>) {
@@ -639,6 +697,13 @@ impl Machine {
         if !self.roles_running {
             self.roles_running = true;
             out.push(Action::StartRoles(self.current_id.clone()));
+        }
+    }
+
+    fn stop_roles(&mut self, out: &mut Vec<Action>) {
+        if self.roles_running {
+            self.roles_running = false;
+            out.push(Action::StopRoles);
         }
     }
 }

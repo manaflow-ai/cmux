@@ -177,6 +177,9 @@ impl<P: Platform> Agent<P> {
         let mut first = Vec::new();
         let mut rest = Vec::new();
         let mut observe = false;
+        // A wake a clone gives (P2-1): a failed read then retries even
+        // while the session host runs.
+        let mut clone_signal = false;
         let mut resumed = false;
         let mut terminate = false;
         for wake in wakes {
@@ -184,6 +187,7 @@ impl<P: Platform> Agent<P> {
                 Wake::ClockSet => {
                     resumed = true;
                     observe = true;
+                    clone_signal = true;
                 }
                 // A change of the global address set: roles rebind and the
                 // metadata is read again with a fresh retry budget. Not a
@@ -193,7 +197,11 @@ impl<P: Platform> Agent<P> {
                     observe = true;
                 }
                 Wake::ConfigFile => rest.push(Input::ConfigChanged),
-                Wake::DriverFile | Wake::BakeFile => observe = true,
+                Wake::DriverFile => {
+                    observe = true;
+                    clone_signal = true;
+                }
+                Wake::BakeFile => observe = true,
                 Wake::Retry => {
                     first.push(Input::RetryElapsed);
                     observe = true;
@@ -215,7 +223,9 @@ impl<P: Platform> Agent<P> {
             self.last_wake = wake_name(*wake);
         }
         if observe {
-            first.push(Input::Observed(self.platform.observe()));
+            let mut obs = self.platform.observe();
+            obs.clone_signal = clone_signal;
+            first.push(Input::Observed(obs));
         }
         if resumed {
             first.push(Input::ResumeSignal);
@@ -271,6 +281,10 @@ impl<P: Platform> Agent<P> {
                 Action::Recheck => follow.push(Input::Observed(self.platform.observe())),
                 Action::StartRoles(id) => {
                     let errors = self.roles.start(id.clone());
+                    self.log_all(errors);
+                }
+                Action::StopRoles => {
+                    let errors = self.roles.stop_all();
                     self.log_all(errors);
                 }
                 Action::Notify(event) => {

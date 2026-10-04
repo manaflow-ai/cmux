@@ -44,7 +44,12 @@ impl Platform for Fake {
     }
     fn observe(&mut self) -> Observation {
         let id = self.metadata.pop_front().flatten().map(str::to_owned);
-        Observation { instance_id: id, bake_id: self.bake.clone(), bound_id: self.bound.clone() }
+        Observation {
+            instance_id: id,
+            bake_id: self.bake.clone(),
+            bound_id: self.bound.clone(),
+            clone_signal: false,
+        }
     }
     fn adopt_daemon(&mut self) -> Option<u32> {
         None
