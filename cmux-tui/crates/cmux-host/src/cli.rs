@@ -241,6 +241,11 @@ fn run_agent(mut cfg: Config) -> u8 {
         Ok(log) => log,
         Err(e) => return usage(&format!("action log: {e}")),
     };
+    // Under root, process roles run as the session host's work user.
+    let work_user = cfg.daemon.user.clone().unwrap_or_else(|| crate::daemon_spec::WORK_USER.to_owned());
+    let work_user = crate::linux::spawn::lookup_user(&work_user).map(|u| {
+        crate::proc_roles::privilege::WorkUser { name: u.name, uid: u.uid, gid: u.gid, home: u.home }
+    });
     let platform = match crate::linux::LinuxPlatform::new(cfg) {
         Ok(p) => p,
         Err(e) => {
@@ -249,7 +254,7 @@ fn run_agent(mut cfg: Config) -> u8 {
         }
     };
     let roles: Vec<Box<dyn cmux_server_core::role::Role>> =
-        vec![Box::new(crate::proc_roles::ProcessRoles::new())];
+        vec![Box::new(crate::proc_roles::ProcessRoles::new(work_user))];
     match Agent::new(platform, roles, install, log).run() {
         Ok(()) => code(0),
         Err(e) => {

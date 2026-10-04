@@ -10,7 +10,7 @@ use std::sync::mpsc::Sender;
 
 use cmux_server_core::role_spec::{Program, Readiness, RoleSpec};
 
-use super::RolePaths;
+use super::{RolePaths, privilege};
 use super::log::{LOG_FILE_BYTES, LOG_FILES, RingLog, log_path};
 use super::supervisor::Msg;
 
@@ -62,6 +62,19 @@ fn check_owner(_path: &Path, _file: bool) -> Result<(), String> {
     Err("process roles need a Unix host".to_owned())
 }
 
+/// Gives the role's own folder to the work user. Refuses a folder that is
+/// a symlink or that another user owns (only root or the work user).
+#[cfg(unix)]
+fn own_role_dir(dir: &Path, user: &privilege::WorkUser) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    if !meta.is_dir() || (meta.uid() != 0 && meta.uid() != user.uid) {
+        return Err(format!("{} is not a folder owned by root or {}", dir.display(), user.name));
+    }
+    std::os::unix::fs::lchown(dir, Some(user.uid), Some(user.gid))
+        .map_err(|e| format!("{}: {e}", dir.display()))
+}
+
 /// The full environment of a role process.
 pub fn environment(
     spec: &RoleSpec,
@@ -95,9 +108,19 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
     use std::os::fd::AsRawFd;
     use std::os::unix::process::CommandExt;
 
+    // SAFETY: geteuid has no preconditions.
+    let euid = unsafe { libc::geteuid() };
+    let identity = privilege::identity_for(euid, paths.work_user.as_ref(), spec.run_as_root)?;
     let program = resolve(spec, paths)?;
     let dir = paths.role_dir(&spec.name);
+    // `<state>/roles` lets a dropped role reach only its own folder.
+    if let Some(roles) = dir.parent() {
+        cmux_server::fsx::ensure_dir(roles, 0o711).map_err(|e| e.to_string())?;
+    }
     cmux_server::fsx::ensure_dir(&dir, 0o700).map_err(|e| e.to_string())?;
+    if let privilege::Identity::Drop(user) = &identity {
+        own_role_dir(&dir, user)?;
+    }
     cmux_server::fsx::ensure_dir(&paths.log_dir(), 0o700).map_err(|e| e.to_string())?;
     let mut log = RingLog::open(log_path(&paths.log_dir(), &spec.name), LOG_FILE_BYTES, LOG_FILES)
         .map_err(|e| format!("log: {e}"))?;
@@ -111,12 +134,24 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
     command
         .args(&spec.args)
         .env_clear()
-        .envs(environment(spec, paths, |k| std::env::var(k).ok()))
+        .envs(environment(spec, paths, |k| match &identity {
+            privilege::Identity::Drop(user) => match k {
+                "HOME" => Some(user.home.display().to_string()),
+                "USER" | "LOGNAME" => Some(user.name.clone()),
+                _ => std::env::var(k).ok(),
+            },
+            privilege::Identity::Inherit => std::env::var(k).ok(),
+        }))
         .current_dir(&dir)
         .stdin(Stdio::null())
         .stdout(out_w)
         .stderr(err_w)
         .process_group(0);
+    if let privilege::Identity::Drop(user) = &identity {
+        // std clears the supplementary groups, then sets gid and uid,
+        // before `pre_exec` and exec (least privilege: no extra groups).
+        command.uid(user.uid).gid(user.gid);
+    }
     if let Some((_, notify_w)) = &notify {
         let fd = notify_w.as_raw_fd();
         // SAFETY: only async-signal-safe calls (dup2, fcntl) between fork
@@ -284,12 +319,13 @@ mod tests {
             restart: RestartPolicy::Always,
             ready: Readiness::Notify,
             stop_grace: Duration::from_secs(10),
+            run_as_root: false,
         }
     }
 
     #[test]
     fn environment_is_cleared_and_role_variables_win() {
-        let paths = RolePaths { store_bin: "/s/bin".into(), state: "/st".into() };
+        let paths = RolePaths { store_bin: "/s/bin".into(), state: "/st".into(), work_user: None };
         let mut s = spec(Program::Store("optchat-chief".to_owned()));
         s.env.insert("PATH".to_owned(), "/evil".to_owned());
         let env = environment(&s, &paths, |k| (k == "HOME").then(|| "/home/u".to_owned()));
@@ -315,7 +351,7 @@ mod tests {
         let prog = bin.join("optchat-chief");
         std::fs::write(&prog, "#!/bin/sh\n").unwrap();
         std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let paths = RolePaths { store_bin: bin.clone(), state: dir.path().join("state") };
+        let paths = RolePaths { store_bin: bin.clone(), state: dir.path().join("state"), work_user: None };
         let store = spec(Program::Store("optchat-chief".to_owned()));
         assert_eq!(resolve(&store, &paths).unwrap(), std::fs::canonicalize(&prog).unwrap());
         std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o777)).unwrap();

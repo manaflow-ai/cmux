@@ -28,6 +28,8 @@ pub struct RolePaths {
     pub store_bin: PathBuf,
     /// `<state>`: holds `roles/<name>/` and `logs/roles/`.
     pub state: PathBuf,
+    /// Under a root supervisor, roles run as this user (server.md 5.1).
+    pub work_user: Option<privilege::WorkUser>,
 }
 
 impl RolePaths {
@@ -35,6 +37,7 @@ impl RolePaths {
         RolePaths {
             store_bin: PathBuf::from(layout.current.as_str()).join("bin"),
             state: PathBuf::from(layout.state.as_str()),
+            work_user: None,
         }
     }
 

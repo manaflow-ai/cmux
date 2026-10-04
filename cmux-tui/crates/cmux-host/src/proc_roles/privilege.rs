@@ -26,8 +26,15 @@ pub fn identity_for(
     work: Option<&WorkUser>,
     run_as_root: bool,
 ) -> Result<Identity, String> {
-    let _ = (euid, work, run_as_root);
-    Ok(Identity::Inherit)
+    if euid != 0 || run_as_root {
+        return Ok(Identity::Inherit);
+    }
+    match work {
+        Some(user) if user.uid != 0 => Ok(Identity::Drop(user.clone())),
+        _ => Err("no work user to run this role as under a root supervisor; \
+                  set `runAsRoot: true` to run it as root"
+            .to_owned()),
+    }
 }
 
 #[cfg(test)]
