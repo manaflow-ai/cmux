@@ -416,3 +416,37 @@ fn legacy_apps_set_is_refused_from_every_connection_but_the_verified_app() {
         assert_ne!(reply["error_code"], "apps.origin_forbidden", "{reply}");
     }
 }
+
+#[test]
+fn legacy_user_origin_gestures_need_the_verified_app() {
+    let mux = mux("apps-run-a2");
+    let gesture = json!({
+        "id": 1, "cmd": "apps-run", "origin": "user", "app": "cmux/demo", "op": "demo.go",
+        "args": {},
+    });
+    // A connection that only declares kind app is not the hosting app.
+    let declared_app = connect(&mux);
+    mux.control_clients.state.lock().unwrap().clients.get_mut(&declared_app.client).unwrap().kind =
+        Some("app".to_string());
+    let agent = connect(&mux);
+    mux.bind_conversation_principal(agent.client, "agent:test".to_string());
+    let page_relay = relay(&mux, "token:10.1");
+    mux.control_clients.state.lock().unwrap().clients.get_mut(&page_relay.client).unwrap().kind =
+        Some("app".to_string());
+    assert_legacy_a2_refusal(&send(&mux, &declared_app, &gesture), "agent");
+    assert_legacy_a2_refusal(&send(&mux, &agent, &gesture), "agent");
+    assert_legacy_a2_refusal(&send(&mux, &page_relay, &gesture), "page");
+    // The verified app passes the gate without declaring a kind (the run
+    // then reaches the supervisor, apps.unavailable without an app host).
+    let app = verified_app(&mux, "token:10.1");
+    let reply = send(&mux, &app, &gesture);
+    assert_ne!(reply["error_code"], "origin.forbidden", "{reply}");
+    assert_ne!(reply["error_code"], "apps.origin_forbidden", "{reply}");
+    // Other origins keep working from any local connection.
+    let script = json!({
+        "id": 2, "cmd": "apps-run", "origin": "script", "app": "cmux/demo", "op": "demo.go",
+        "args": {},
+    });
+    let reply = send(&mux, &agent, &script);
+    assert_ne!(reply["error_code"], "origin.forbidden", "{reply}");
+}
