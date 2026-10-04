@@ -11,7 +11,6 @@ nonisolated enum ScreenStrings {
         String(format: text("screens.untitled", "Screen %lld"), number)
     }
 
-    static var iconPromptTitle: String { text("screens.icon.prompt", "Screen Icon") }
     static var groupNamePromptTitle: String { text("screens.group.rename.prompt", "Rename Screen Group") }
     static var barAccessibility: String { text("screens.bar.accessibility", "Screens") }
     /// A screen group with no name, in pickers.
