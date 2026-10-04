@@ -8,6 +8,7 @@ mod content;
 mod effects;
 mod mouse;
 mod owner;
+mod request_mutation;
 mod session;
 mod topology;
 
@@ -713,23 +714,6 @@ pub(crate) struct ParsedResourceRequest {
     /// Who made the request, resolved by the connection dispatcher from the
     /// envelope's credential (the local user when none is presented).
     pub actor: cmux_local_auth::Actor,
-}
-
-impl ParsedResourceRequest {
-    /// A `WorkspaceMutation` with this request's idempotency key, `origin`
-    /// and actor.
-    pub(crate) fn mutation(
-        &self,
-        origin: &str,
-    ) -> anyhow::Result<crate::workspace_registry::WorkspaceMutation> {
-        let key = self
-            .envelope
-            .idempotency_key
-            .clone()
-            .ok_or_else(|| anyhow::anyhow!("mutation without an idempotency key"))?;
-        Ok(crate::workspace_registry::WorkspaceMutation::new(key, origin)?
-            .with_actor(self.actor.clone()))
-    }
 }
 
 pub(crate) fn is_resource_protocol_message(message: &str) -> bool {

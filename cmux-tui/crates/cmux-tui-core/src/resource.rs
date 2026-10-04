@@ -603,6 +603,7 @@ impl ResourceOperation {
     }
 }
 
+mod envelope_validation;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
@@ -628,37 +629,6 @@ pub struct RequestEnvelope {
     /// actor; it is never part of the idempotency fingerprint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential: Option<String>,
-}
-
-impl RequestEnvelope {
-    pub fn validate(&self) -> Result<(), ResourceError> {
-        if self.protocol != PROTOCOL || self.envelope_type != EnvelopeType::Request {
-            return Err(ResourceError::validation_invalid(
-                Some("protocol"),
-                "expected a cmux.protocol/2 request envelope",
-            ));
-        }
-        if !self.params.is_object() {
-            return Err(ResourceError::validation_invalid(
-                Some("params"),
-                "request params must be an object",
-            ));
-        }
-        match (&self.idempotency_key, self.operation.class()) {
-            (None, OperationClass::Mutation) => Err(ResourceError::validation_invalid(
-                Some("idempotency_key"),
-                "mutations require idempotency_key",
-            )),
-            (Some(_), class) if class != OperationClass::Mutation => {
-                Err(ResourceError::validation_invalid(
-                    Some("idempotency_key"),
-                    "only mutations accept idempotency_key",
-                ))
-            }
-            (Some(key), OperationClass::Mutation) => validate_idempotency_key(key),
-            _ => Ok(()),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
