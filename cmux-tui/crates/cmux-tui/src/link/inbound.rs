@@ -71,7 +71,8 @@ where
         .await
         .map_err(|_| InboundRefused::NotAnEntry)?
         .map_err(|_| InboundRefused::NotAnEntry)?;
-    let banner = read_line(&mut entry, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::NotAnEntry)?;
+    let banner =
+        read_line(&mut entry, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::NotAnEntry)?;
     if banner != cmux_link::entry_path::ENTRY_BANNER {
         return Err(InboundRefused::NotAnEntry);
     }
