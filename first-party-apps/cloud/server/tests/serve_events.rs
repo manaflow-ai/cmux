@@ -198,16 +198,17 @@ fn a_link_exit_reaches_the_host_with_no_op_after_it() {
     let mut host = Host::start(FIXTURES);
     let carrier = host.op("1", "cloud.machine.connect", json!({"machine": "vm-alpha01"}), "c-1");
     assert_eq!(carrier["state"], "up");
-    host.spawner.exit("vm-alpha01", 1);
-    // Skip the op's own lines (machine watch, link up), however late they
-    // arrive; the next line after them must be the down line.
-    let line = loop {
-        let line = host.next().expect("a cloud.link.changed line with no op after the link exit");
-        let own = !link_changed(&line) || line["state"] == "up";
-        if !own {
-            break line;
+    // Read the op's own lines up to its `up` line, however late they come.
+    // The loop pumps the link before it sends that line and never after it
+    // in the same pass, so an exit after it cannot ride on the op's drain.
+    loop {
+        let line = host.next().expect("the up line of the connect");
+        if link_changed(&line) && line["state"] == "up" {
+            break;
         }
-    };
+    }
+    host.spawner.exit("vm-alpha01", 1);
+    let line = host.next().expect("a cloud.link.changed line with no op after the link exit");
     assert!(link_changed(&line), "{line}");
     assert_eq!(line["machine"], "vm-alpha01");
     assert_eq!(line["state"], "down");
