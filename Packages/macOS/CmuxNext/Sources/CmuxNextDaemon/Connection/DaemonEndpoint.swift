@@ -111,6 +111,9 @@ public struct DaemonCapabilities: Sendable {
     /// accept edges `top` and `bottom`, sent back as `columns[].dock`
     /// (plans/cmux-next/layout-model.md).
     public let edgeDocks = "edge-docks-v1"
+    /// Rows: `new-row`, `set-row-heights` and `columns[].rows`
+    /// (plans/cmux-next/rows.md). Without it no row op is sent.
+    public let rows = "rows-v1"
     /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
@@ -173,7 +176,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, stickyColumns, edgeDocks, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandJournal, stickyColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, conversationTabs, conversationSearch,
