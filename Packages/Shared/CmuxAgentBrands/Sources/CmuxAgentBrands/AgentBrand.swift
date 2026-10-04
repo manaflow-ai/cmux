@@ -91,6 +91,17 @@ public struct AgentBrandGradient: Hashable, Sendable {
     }
 }
 
+/// Simpler art a brand draws at `AgentBrandCatalog.smallPointSize` or smaller, painted in the
+/// mark's tone (Hermes Agent's wing in place of its traced portrait).
+public struct AgentBrandArt: Hashable, Sendable {
+    public let viewBox: AgentBrandRect
+    public let paths: [AgentBrandPathSpec]
+    public init(viewBox: AgentBrandRect, paths: [AgentBrandPathSpec]) {
+        self.viewBox = viewBox
+        self.paths = paths
+    }
+}
+
 /// A brand's mark: geometry in `viewBox`, the brand colors, and its optional tile and overlays.
 public struct AgentBrandSpec: Hashable, Sendable {
     public let name: String
@@ -99,8 +110,16 @@ public struct AgentBrandSpec: Hashable, Sendable {
     public let viewBox: AgentBrandRect
     public let tone: AgentBrandTone
     public let paths: [AgentBrandPathSpec]
+    /// Simpler art for small sizes; nil when the mark itself reads at 16 pt.
+    public let small: AgentBrandArt?
     public let tile: AgentBrandTile?
     public let overlays: [AgentBrandGradient]
+
+    /// The mark to draw at `pointSize`: the `small` art at `AgentBrandCatalog.smallPointSize`
+    /// or below (without overlays, which belong to the full mark), else the mark itself.
+    public func variant(forPointSize pointSize: Double) -> AgentBrandSpec {
+        self // Red: the small art lands in the next commit.
+    }
 }
 
 /// An agent or harness cmux supports.
@@ -143,9 +162,10 @@ public struct AgentBrandCatalog {
         return nil
     }
 
-    /// The mark to draw for an agent id, or nil for the generic glyph.
-    public static func spec(forAgent agent: String?) -> AgentBrandSpec? {
-        brand(for: agent).flatMap { specs[$0] }
+    /// The mark to draw for an agent id, or nil for the generic glyph. With `pointSize`, the
+    /// variant for that size (see `AgentBrandSpec.variant(forPointSize:)`).
+    public static func spec(forAgent agent: String?, pointSize: Double? = nil) -> AgentBrandSpec? {
+        brand(for: agent).flatMap { specs[$0] }.map { spec in pointSize.map(spec.variant(forPointSize:)) ?? spec }
     }
 
     static func candidates(_ raw: String) -> [String] {
