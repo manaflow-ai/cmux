@@ -37,7 +37,7 @@ const listen = async (stub: any, entity: string, principal: Record<string, unkno
   ws.accept()
   ws.send(JSON.stringify({ t: "subscribe", pending: [] }))
   for (let i = 0; i < 50 && !frames.some((f) => f.t === "snapshot"); i++) await sleep(10)
-  return { frames, state, events: () => frames.filter((f) => f.t === "event").length }
+  return { ws, frames, state, events: () => frames.filter((f) => f.t === "event").length }
 }
 
 interface Case {
@@ -159,5 +159,29 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
     for (let i = 0; i < 50 && sock.state.closed === undefined; i++) await sleep(10)
     expect(sock.events()).toBe(before)
     expect(sock.state.closed).toBe(4401)
+  })
+
+  it("a revoked install's open socket cannot get a snapshot or commit an op (review P1)", async () => {
+    const sub = `sock-rev2-${crypto.randomUUID().slice(0, 6)}`
+    const u = await userOf(sub)
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
+    const reg = await op(u.t, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "mac", name: "mac", device_name: "mac", platform: "macos" })
+    const install = reg.value.id as string
+    const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(u.user))
+    const grant = await runInDurableObject(userStub, async (i) => i.boundEngine.currentState.installs[install].grant as string)
+    const feed = testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u.user))
+    const principal = { identity: install, kind: "install", user: u.user, install, grant, install_kind: "mac", grant_classes: ["read", "mutate-own"], expires_at: Date.now() + 600_000 }
+    const sock = await listen(feed, u.user, principal)
+    expect((await op(u.t, "install.revoke", { install })).ok).toBe(true)
+    await runInDurableObject(feed, async (i) => i.forgetInstallChecks?.())
+    const snapshotsBefore = sock.frames.filter((f) => f.t === "snapshot").length
+    const ws = (sock as unknown as { ws?: WebSocket }).ws
+    ws?.send(JSON.stringify({ t: "subscribe", pending: [] }))
+    ws?.send(JSON.stringify({ t: "op", op: "feed.prefs.set", params: { push_enabled: false }, idempotency_key: "late", origin: "user" }))
+    for (let i = 0; i < 50 && sock.state.closed === undefined; i++) await sleep(10)
+    expect(sock.state.closed).toBe(4401)
+    expect(sock.frames.filter((f) => f.t === "snapshot").length).toBe(snapshotsBefore)
+    expect(sock.frames.some((f) => f.t === "result")).toBe(false)
   })
 })
