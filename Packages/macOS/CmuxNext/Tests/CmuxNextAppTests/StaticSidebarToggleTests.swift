@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import Foundation
 import CmuxNextDesign
 import Testing
@@ -77,5 +78,18 @@ import Testing
         if let shortcut = harness.services.registry.shortcutDisplay(for: "toggleSidebar") {
             #expect(button.toolTip?.contains(shortcut) == true)
         }
+    }
+
+    /// The tooltip follows a rebind of Toggle Sidebar (it read the key once).
+    @Test func theTooltipFollowsARebind() async throws {
+        let harness = try await ViewChangePermissionTests.harness()
+        defer { harness.stop() }
+        await settle(harness)
+        let registry = harness.services.registry
+        registry.setShortcutOverride(Shortcut("y", modifiers: [.command, .control]), for: "toggleSidebar")
+        defer { registry.removeShortcutOverride(for: "toggleSidebar") }
+        for _ in 0..<20 { await Task.yield() }
+        let display = try #require(registry.shortcutDisplay(for: "toggleSidebar"))
+        #expect(harness.window.root.sidebarToggleButton?.toolTip?.contains(display) == true)
     }
 }
