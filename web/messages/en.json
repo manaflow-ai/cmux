@@ -803,7 +803,7 @@
           ],
           "team": [
             "Everything in Pro for every member",
-            "Up to 5 Cloud VMs per user, sharing 20 vCPUs and 40 GB RAM per user",
+            "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
             "One invoice for the whole team",
             "Priority support"
           ]
@@ -1775,7 +1775,7 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs per user, sharing 20 vCPUs and 40 GB RAM per user",
+        "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
         "Centralized billing for your whole team",
         "Priority support"
       ]
@@ -1868,7 +1868,7 @@
           "free": "false",
           "pro": "5",
           "max": "5",
-          "team": "5 per user",
+          "team": "5 per paid seat",
           "enterprise": "Custom",
           "go": "1"
         },
@@ -1877,7 +1877,7 @@
           "free": "false",
           "pro": "20 vCPUs and 40 GB RAM, shared",
           "max": "80 vCPUs and 160 GB RAM, shared",
-          "team": "20 vCPUs and 40 GB RAM per user, shared",
+          "team": "20 vCPUs and 40 GB RAM per paid seat, shared across the team",
           "enterprise": "Custom",
           "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
         },
@@ -1984,7 +1984,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team includes the same allowance per user."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team includes the same allowance for each paid seat, in one pool shared across the team."
         },
         {
           "q": "What does Max add?",

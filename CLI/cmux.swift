@@ -4227,7 +4227,8 @@ struct CMUXCLI {
     /// `--size` spellings → memory in MB. The supported base-image ladder is
     /// 4 GB, 8 GB, 16 GB, 24 GB, 32 GB, and 64 GB of RAM, with disk sizes
     /// following each image. Disk is per machine; vCPUs and memory come from
-    /// one pool shared by the plan's active machines (the server enforces it).
+    /// shared vCPU and RAM pools, one per resource, that the plan's active
+    /// machines draw from (the server enforces both).
     private static let cloudVMSizeAliases: [String: Int] = [
         "4g": 4096, "4gb": 4096,
         "8g": 8192, "8gb": 8192,
@@ -6023,7 +6024,7 @@ struct CMUXCLI {
                             vm new: unknown size '\(sizeOpt)'.
 
                             Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
-                            Pro goes up to 32g; 64g needs cmux Max. Active machines share one vCPU and RAM pool. `cmux vm ls` shows your plan.
+                            Pro goes up to 32g; 64g needs cmux Max. Active machines draw from shared vCPU and RAM pools. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed

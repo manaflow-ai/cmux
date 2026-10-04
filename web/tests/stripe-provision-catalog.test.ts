@@ -112,7 +112,7 @@ describe("Stripe catalog provisioning", () => {
       ?.args.find((argument) => argument.startsWith("description="));
     expect(description("prod_pro")).toBe("description=Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app.");
     expect(description("prod_max")).toBe("description=Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM.");
-    expect(description("prod_team")).toBe("description=Per seat: up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, the cmux iOS app, and priority support.");
+    expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
   });
 
   test("provisions the monthly-only Max price and the Pro/Max plan switch portal", async () => {

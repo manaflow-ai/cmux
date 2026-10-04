@@ -503,7 +503,7 @@ private struct NativePricingPlansView: View {
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
-                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 5 Cloud VMs per user, sharing 20 vCPUs and 40 GB RAM per user"),
+                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team"),
                     String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
                     String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
                 ]
@@ -705,7 +705,7 @@ private struct NativePricingComparisonSection: View {
             free: .unavailable,
             pro: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "5")),
             max: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "5")),
-            team: .text(String(localized: "pricing.native.compare.concurrent.team", defaultValue: "5 per user")),
+            team: .text(String(localized: "pricing.native.compare.concurrent.team", defaultValue: "5 per paid seat")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
         NativePricingCompareRow(
@@ -714,7 +714,7 @@ private struct NativePricingComparisonSection: View {
             free: .unavailable,
             pro: .text(String(localized: "pricing.native.compare.resources.standard", defaultValue: "20 vCPUs and 40 GB RAM, shared")),
             max: .text(String(localized: "pricing.native.compare.resources.max", defaultValue: "80 vCPUs and 160 GB RAM, shared")),
-            team: .text(String(localized: "pricing.native.compare.resources.team", defaultValue: "20 vCPUs and 40 GB RAM per user, shared")),
+            team: .text(String(localized: "pricing.native.compare.resources.team", defaultValue: "20 vCPUs and 40 GB RAM per paid seat, shared across the team")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
         NativePricingCompareRow(
@@ -893,7 +893,7 @@ private struct NativePricingSizeSection: View {
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.body",
-                defaultValue: "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team includes the same pool per user. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
+                defaultValue: "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team adds the same pool for each paid seat, shared across the team. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)

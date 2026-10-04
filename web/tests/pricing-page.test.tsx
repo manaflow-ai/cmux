@@ -185,12 +185,12 @@ describe("localized pricing page", () => {
 
   test("keeps paid-plan copy flat: no metering, trials, or CodeRouter", () => {
     expect(enMessages.pricing.team.features).toEqual([
-      "Up to 5 Cloud VMs per user, sharing 20 vCPUs and 40 GB RAM per user",
+      "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
       "Centralized billing for your whole team",
       "Priority support",
     ]);
     expect(jaMessages.pricing.team.features).toEqual([
-      "ユーザーごとに最大 5 台の Cloud VM、ユーザーごとに 20 vCPU と 40 GB RAM を共有",
+      "有料シートごとに最大 5 台の Cloud VM、有料シートごとの 20 vCPU と 40 GB RAM をチーム全体で共有",
       "チーム全体の一元請求",
       "優先サポート",
     ]);
@@ -217,7 +217,7 @@ describe("localized pricing page", () => {
       free: "false",
       pro: "5",
       max: "5",
-      team: "5 per user",
+      team: "5 per paid seat",
       enterprise: "Custom",
     });
     expect(enMessages.dashboard.billing.free.upsellTitle).toBe(
