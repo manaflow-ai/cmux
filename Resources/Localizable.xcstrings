@@ -623606,6 +623606,124 @@
           }
         }
       }
+    },
+    "cli.browser.repl.error.sessionName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A session name is 1 to 64 characters: letters, digits, '.', '_' and '-'"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتكون اسم الجلسة من 1 إلى 64 حرفًا: أحرف وأرقام و'.' و'_' و'-'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Sitzungsname hat 1 bis 64 Zeichen: Buchstaben, Ziffern, '.', '_' und '-'"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nombre de sesión tiene de 1 a 64 caracteres: letras, dígitos, '.', '_' y '-'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nom de session compte de 1 à 64 caractères : lettres, chiffres, '.', '_' et '-'"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション名は 1〜64 文字の英字、数字、'.'、'_'、'-' です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 이름은 1~64자의 문자, 숫자, '.', '_', '-'로 이루어집니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话名称为 1 到 64 个字符：字母、数字、'.'、'_' 和 '-'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段名稱為 1 到 64 個字元：字母、數字、'.'、'_' 和 '-'"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.tooManySessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` lists them)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد جلسات REPL للمتصفح المفتوحة كبير جدًا؛ أعد تعيين إحداها باستخدام `cmux browser repl reset NAME` (يعرضها `cmux browser repl list --all-workspaces`)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Browser-REPL-Sitzungen sind geöffnet; setzen Sie eine mit `cmux browser repl reset NAME` zurück (`cmux browser repl list --all-workspaces` listet sie auf)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay demasiadas sesiones REPL del navegador abiertas; restablece una con `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` las enumera)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de sessions REPL du navigateur sont ouvertes ; réinitialisez-en une avec `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` les liste)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているブラウザ REPL セッションが多すぎます。`cmux browser repl reset NAME` でいずれかをリセットしてください（`cmux browser repl list --all-workspaces` で一覧表示できます）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는 브라우저 REPL 세션이 너무 많습니다. `cmux browser repl reset NAME`으로 하나를 재설정하세요(`cmux browser repl list --all-workspaces`로 목록을 볼 수 있습니다)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开的浏览器 REPL 会话过多；请使用 `cmux browser repl reset NAME` 重置其中一个（`cmux browser repl list --all-workspaces` 会列出它们）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟的瀏覽器 REPL 工作階段過多；請使用 `cmux browser repl reset NAME` 重設其中一個（`cmux browser repl list --all-workspaces` 會列出它們）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
