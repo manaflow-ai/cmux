@@ -11,7 +11,7 @@ extension InternalPageID {
 @MainActor
 final class CodeRouterPageTab: InternalPageProvider {
     static let appID = "cmux/coderouter"
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private var pages: [String: PageWebView] = [:]
 
     init(services: AppServices) {
@@ -23,7 +23,7 @@ final class CodeRouterPageTab: InternalPageProvider {
     var symbol: String { "arrow.triangle.branch" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard let view = PageFactory(services: services).coderouterWebPage() else { return NSView() }
+        guard let services, let view = PageFactory(services: services).coderouterWebPage() else { return NSView() }
         pages[key] = view
         return view
     }
