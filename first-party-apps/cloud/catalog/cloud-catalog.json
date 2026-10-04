@@ -1,0 +1,1908 @@
+{
+  "family": "cloud",
+  "owner": "app:cmux/cloud",
+  "operations": [
+    {
+      "name": "cloud.auth.status",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "signedIn": {
+            "type": "boolean"
+          },
+          "team": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "signedIn"
+        ]
+      },
+      "cli": {
+        "path": "cloud auth status",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Whether cmux is signed in to cmux Cloud and which team requests use. cmux answers from its own sign-in; the app server never sees a token.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.list",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A Cloud machine record (owner: the cmux Cloud API).",
+              "required": [
+                "id",
+                "status"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "provisioning",
+                    "running",
+                    "failed",
+                    "paused",
+                    "destroyed",
+                    "unknown"
+                  ]
+                },
+                "displayName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "slug": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "image": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "imageVersion": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "Epoch milliseconds."
+                },
+                "address": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "ipv4": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "ipv6": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "createdBy": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "userId": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                },
+                "freeAccessExpiresAt": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "machines",
+          "revision"
+        ]
+      },
+      "cli": {
+        "path": "cloud machine list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "List your Cloud machines and refresh the machine projection on this Mac. Read on page open, app activation and after every change; there is no polling. Alias: vm.list.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.get",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "provisioning",
+              "running",
+              "failed",
+              "paused",
+              "destroyed",
+              "unknown"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ipv4": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ipv6": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "createdBy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "freeAccessExpiresAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud machine get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Read one machine and update it in the projection. Alias: vm.get.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.create",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Display name."
+          },
+          "memoryMb": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 65536
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,31}$"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "provisioning",
+              "running",
+              "failed",
+              "paused",
+              "destroyed",
+              "unknown"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ipv4": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ipv6": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "createdBy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "freeAccessExpiresAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud machine create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "New Cloud Machine",
+          "ja": "新しいクラウドマシン"
+        }
+      },
+      "docs": "Create a machine. Needs an idempotency key: a retry with the same key returns the same machine and never creates a second one. Uses your plan quota. Alias: vm.create.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.rename",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "machine",
+          "displayName"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "provisioning",
+              "running",
+              "failed",
+              "paused",
+              "destroyed",
+              "unknown"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ipv4": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ipv6": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "createdBy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "freeAccessExpiresAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud machine rename",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Rename a machine; an empty name clears it. Alias: vm.update.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.start",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "provisioning",
+              "running",
+              "failed",
+              "paused",
+              "destroyed",
+              "unknown"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ipv4": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ipv6": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "createdBy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "freeAccessExpiresAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud machine start",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Start Cloud Machine",
+          "ja": "クラウドマシンを起動"
+        }
+      },
+      "docs": "Start (resume) a paused machine. The server also accepts cloud.machine.resume, vm.start and vm.resume.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.pause",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "provisioning",
+              "running",
+              "failed",
+              "paused",
+              "destroyed",
+              "unknown"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ipv4": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ipv6": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "createdBy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "freeAccessExpiresAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud machine pause",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Pause Cloud Machine",
+          "ja": "クラウドマシンを一時停止"
+        }
+      },
+      "docs": "Pause a machine. Its disk and sessions are kept. Alias: vm.pause.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.resize",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "cpu": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "memoryMb": {
+            "type": "integer",
+            "minimum": 4096,
+            "maximum": 65536,
+            "multipleOf": 1024
+          },
+          "storageMb": {
+            "type": "integer",
+            "minimum": 4096,
+            "maximum": 262144,
+            "multipleOf": 4096
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "cpus": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cpuPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "loadAverage1m": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memoryTotalMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memoryUsedMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "diskTotalMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "diskUsedMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxDiskMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxMemoryMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxVcpus": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud machine resize",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Resize a machine: cpu 1-32, memoryMb 4096-65536 in whole GiB, storageMb in 4 GiB steps up to 256 GiB. The result shows the plan limits. Alias: vm.resize.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.delete",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "destructive",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "cli": {
+        "path": "cloud machine delete",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Delete Cloud Machine…",
+          "ja": "クラウドマシンを削除…"
+        }
+      },
+      "gesture": "required",
+      "docs": "Delete a machine and its disk. Only a person (origin user, after the native confirmation) may delete; agents and scripts get cmux.cloud.origin_refused. Alias: vm.delete.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.stats",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "cpus": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cpuPercent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "loadAverage1m": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memoryTotalMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memoryUsedMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "diskTotalMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "diskUsedMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxDiskMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxMemoryMb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "maxVcpus": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud machine stats",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Live CPU, memory and disk of a machine. A sleeping machine answers without being woken.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.machine.idle_policy.set",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-shared",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "idleTimeoutSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 604800
+          }
+        },
+        "required": [
+          "machine",
+          "idleTimeoutSeconds"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "cli": {
+        "path": "cloud machine idle-policy set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Set when an idle machine pauses (seconds of idle time, 0 = never). Not served yet: the cmux Cloud API has no idle policy route, so the server answers cmux.cloud.unsupported.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.snapshot.list",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": [
+                    "string",
+                    "number",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "snapshots"
+        ]
+      },
+      "cli": {
+        "path": "cloud snapshot list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Snapshots of a machine, newest first. Alias: vm.snapshot.list.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.snapshot.create",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Display name."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud snapshot create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Snapshot Cloud Machine",
+          "ja": "クラウドマシンのスナップショットを作成"
+        }
+      },
+      "docs": "Take a snapshot of a machine. Alias: vm.snapshot.create.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.snapshot.restore",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshot": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The snapshot id from cloud.snapshot.list."
+          }
+        },
+        "required": [
+          "snapshot"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "provisioning",
+              "running",
+              "failed",
+              "paused",
+              "destroyed",
+              "unknown"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ipv4": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ipv6": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "createdBy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "freeAccessExpiresAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud snapshot restore",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Create a new machine from a snapshot. A retry with the same idempotency key returns the same machine. Alias: vm.snapshot.restore.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.snapshot.fork",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Display name."
+          }
+        },
+        "required": [
+          "machine"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "description": "A Cloud machine record (owner: the cmux Cloud API).",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "provisioning",
+              "running",
+              "failed",
+              "paused",
+              "destroyed",
+              "unknown"
+            ]
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slug": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "imageVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Epoch milliseconds."
+          },
+          "address": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "ipv4": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ipv6": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "createdBy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "freeAccessExpiresAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud snapshot fork",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "palette": {
+        "title": {
+          "en": "Fork Cloud Machine",
+          "ja": "クラウドマシンをフォーク"
+        }
+      },
+      "docs": "Fork a machine: snapshot it and start a copy. A retry with the same idempotency key returns the same copy.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.snapshot.delete",
+      "owner": "app:cmux/cloud",
+      "class": "mutation",
+      "risk": "destructive",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The machine id (vm-…) from cloud.machine.list."
+          },
+          "snapshot": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+            "description": "The snapshot id from cloud.snapshot.list."
+          }
+        },
+        "required": [
+          "machine",
+          "snapshot"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "cli": {
+        "path": "cloud snapshot delete",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "gesture": "required",
+      "docs": "Delete a snapshot of a machine. Only a person (origin user) may delete. Alias: vm.snapshot.delete.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.plan.get",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "planId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxActiveVms": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "activeVmCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "memoryOptionsMb": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "lockedMemoryOptionsMb": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "memoryUpgradePlanId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "freeAccessWindowDays": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "freeAccessExpiresAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud plan get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Your plan: machine limit, active machines, memory sizes the plan includes and the plan that adds larger ones. Read from the cmux Cloud API; cmux keeps no plan logic.",
+      "since": "cloud/1"
+    },
+    {
+      "name": "cloud.usage.get",
+      "owner": "app:cmux/cloud",
+      "class": "read",
+      "risk": "read",
+      "idempotency": "forbidden",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "vmHoursUsed": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "vmHoursIncluded": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "savedVmLimit": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "activeVmCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "cli": {
+        "path": "cloud usage get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Machine hours used and included in this period (plans with an hour allowance) and the saved machine limit.",
+      "since": "cloud/1"
+    }
+  ]
+}
