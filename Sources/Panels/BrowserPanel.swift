@@ -8762,7 +8762,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         completionHandler: @escaping (Bool) -> Void
     ) {
         if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
-           attachment.handleDialog(type: "beforeunload", message: message, defaultValue: nil, respond: { accept, _ in completionHandler(accept) }) {
+           attachment.handleDialog(type: "beforeunload", message: message, defaultValue: nil, frame: frame, respond: { accept, _ in completionHandler(accept) }) {
             return
         }
         completionHandler(true)
@@ -9145,7 +9145,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         completionHandler: @escaping () -> Void
     ) {
         if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
-           attachment.handleDialog(type: "alert", message: message, defaultValue: nil, respond: { _, _ in completionHandler() }) {
+           attachment.handleDialog(type: "alert", message: message, defaultValue: nil, frame: frame, respond: { _, _ in completionHandler() }) {
             return
         }
         let alert = NSAlert()
@@ -9185,7 +9185,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         completionHandler: @escaping (Bool) -> Void
     ) {
         if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }),
-           attachment.handleDialog(type: "confirm", message: message, defaultValue: nil, respond: { accept, _ in completionHandler(accept) }) {
+           attachment.handleDialog(type: "confirm", message: message, defaultValue: nil, frame: frame, respond: { accept, _ in completionHandler(accept) }) {
             return
         }
         let alert = NSAlert()
@@ -9241,6 +9241,7 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                type: "prompt",
                message: prompt,
                defaultValue: defaultText,
+               frame: frame,
                respond: { accept, text in completionHandler(accept ? (text ?? defaultText ?? "") : nil) }
            ) {
             return

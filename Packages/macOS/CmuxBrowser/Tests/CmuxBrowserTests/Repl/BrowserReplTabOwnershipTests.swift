@@ -269,6 +269,43 @@ import Testing
         #expect(ownership.downloadRecipient(startedBy: nil) == "creator")
     }
 
+    /// A dialog (or file chooser) a frame the session's policy blocks
+    /// opened never reaches that session: it would read the blocked page's
+    /// message and answer it. What the session's own doing opened is
+    /// dismissed; a user's page dialog its handler would have taken goes to
+    /// the user.
+    @Test func aDialogFromAFrameTheSessionsPolicyBlocksNeverReachesIt() throws {
+        var policy = BrowserReplDomainPolicy()
+        policy.prohibited = [try BrowserReplDomainPattern.parse("blocked.test", title: "test")]
+        let policies: (String) -> BrowserReplDomainPolicy? = { $0 == "agent" ? policy : nil }
+        let blocked = BrowserReplFrameDocument(origin: "https://blocked.test", place: "https://blocked.test")
+        let allowed = BrowserReplFrameDocument(origin: "https://allowed.test", place: "https://allowed.test")
+
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.dialog, .fileChooser], for: "agent")
+        #expect(users.route(for: .dialog, from: allowed, policy: policies) == .session("agent"))
+        #expect(users.route(for: .dialog, from: blocked, policy: policies) == .user,
+                "a blocked frame's dialog in a user's tab went to the session's handler")
+        #expect(users.route(for: .fileChooser, from: blocked, policy: policies) == .user)
+        users.beginInput(sessionID: "agent")
+        #expect(users.route(for: .dialog, from: blocked, policy: policies) == .refused,
+                "a blocked frame's dialog during the session's input reached it or the user")
+        users.endInput(sessionID: "agent")
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+        #expect(own.route(for: .dialog, from: blocked, policy: policies) == .refused,
+                "a blocked frame's dialog in the session's own tab reached it")
+        #expect(own.route(for: .dialog, from: allowed, policy: policies) == .session("agent"))
+
+        // Another session's policy does not matter.
+        var other = BrowserReplTabOwnership()
+        other.attach(sessionID: "free")
+        other.setHandledEvents([.dialog], for: "free")
+        #expect(other.route(for: .dialog, from: blocked, policy: policies) == .session("free"))
+    }
+
     @Test func eventNamesParseStrictly() {
         #expect(BrowserReplTabOwnership.events(named: ["dialog", "filechooser", "download", "network"]) == Set(BrowserReplTabEvent.allCases))
         #expect(BrowserReplTabOwnership.events(named: []) == [])

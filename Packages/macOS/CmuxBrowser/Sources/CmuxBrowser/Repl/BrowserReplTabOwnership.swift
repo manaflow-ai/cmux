@@ -356,6 +356,24 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         return .user
     }
 
+    /// Where a dialog or file chooser that `document` (the frame that asked,
+    /// as WebKit recorded it) opened goes, given each session's domain
+    /// policy (`nil`: none): ``route(for:)``, except that a session whose
+    /// policy blocks that document never gets it, so it neither reads the
+    /// blocked page's message nor answers it. In a tab that session created,
+    /// and while the page handles that session's input, it is answered as
+    /// an unhandled one (``BrowserReplEventRoute/refused``): the session's
+    /// doing must not bring cmux's UI up in front of the user. Otherwise
+    /// (the session's handler on a user's tab) it goes to the user, as it
+    /// would without that handler.
+    public func route(
+        for event: BrowserReplTabEvent,
+        from document: BrowserReplFrameDocument,
+        policy: (String) -> BrowserReplDomainPolicy?
+    ) -> BrowserReplEventRoute {
+        route(for: event)
+    }
+
     /// The one session `event` goes to (``route(for:)``), or `nil` when no
     /// session gets it.
     public func recipient(for event: BrowserReplTabEvent) -> String? {

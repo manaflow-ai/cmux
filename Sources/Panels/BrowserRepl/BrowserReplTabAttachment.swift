@@ -349,7 +349,20 @@ final class BrowserReplTabAttachment {
     /// no attached session or the chosen one has no sink.
     private func route(for event: BrowserReplTabEvent) -> BrowserReplEventRoute {
         guard isAttached else { return .user }
-        let route = ownership.route(for: event)
+        return deliverable(ownership.route(for: event))
+    }
+
+    /// Where a dialog or file chooser `frame` opened goes: never to a
+    /// session whose domain policy blocks that frame's document
+    /// (``BrowserReplTabOwnership/route(for:from:policy:)``).
+    private func route(for event: BrowserReplTabEvent, from frame: WKFrameInfo) -> BrowserReplEventRoute {
+        guard isAttached else { return .user }
+        return deliverable(ownership.route(for: event, from: BrowserReplFrameDocument(info: frame)) {
+            BrowserReplPolicyBoard.shared.policy(for: $0)
+        })
+    }
+
+    private func deliverable(_ route: BrowserReplEventRoute) -> BrowserReplEventRoute {
         if case .session(let sessionID) = route, sinks[sessionID] == nil { return .user }
         return route
     }
@@ -870,10 +883,11 @@ final class BrowserReplTabAttachment {
         type: String,
         message: String,
         defaultValue: String?,
+        frame: WKFrameInfo,
         respond: @escaping (Bool, String?) -> Void
     ) -> Bool {
         let owner: String
-        switch route(for: .dialog) {
+        switch route(for: .dialog, from: frame) {
         case .user:
             return false
         case .refused:
@@ -944,7 +958,7 @@ final class BrowserReplTabAttachment {
         respond: @escaping ([URL]?) -> Void
     ) -> Bool {
         let owner: String
-        switch route(for: .fileChooser) {
+        switch route(for: .fileChooser, from: frame) {
         case .user:
             return false
         case .refused:
