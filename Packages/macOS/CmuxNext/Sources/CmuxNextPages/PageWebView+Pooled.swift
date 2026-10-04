@@ -41,6 +41,19 @@ extension PageWebView {
         startLoading()
     }
 
+    /// Launches the WebContent process with an empty document of the served origin (a pooled
+    /// host's build step before ``startLoading()``), so the process launch and the page load land in
+    /// different run-loop turns. The empty document runs no script and never counts as loaded.
+    public func warmUpProcess() {
+        guard !servedLoadStarted, webView.url == nil else { return }
+        webView.loadHTMLString("<!doctype html>", baseURL: Self.warmUpURL(servedDescriptor))
+    }
+
+    /// The base URL of the warm-up document: the served origin, path `/__warm`.
+    nonisolated static func warmUpURL(_ page: PageDescriptor) -> URL {
+        page.url().appending(path: "__warm")
+    }
+
     /// Hands the claim's session to the shell page mounted ahead of its claim (`page.resume
     /// {page, route, context}`): no mount, the page shows the session in its next render. Routes
     /// for later calls become `routes`; the streams the page opened while prepared stay open.
