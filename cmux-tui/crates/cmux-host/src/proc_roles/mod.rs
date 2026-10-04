@@ -11,6 +11,7 @@
 
 mod adapter;
 mod log;
+pub mod privilege;
 mod spawn;
 mod supervisor;
 
