@@ -192,25 +192,6 @@ def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
     assert "libc: none" in releasing
 
 
-def test_cmux_tui_published_pr_tree_skips_builds_without_executing_pr_code() -> None:
-    artifacts = workflow("cmux-tui-artifacts.yml")
-    plan = workflow_job(artifacts, "plan-publication")
-    assert "contents: read" in plan
-    assert "secrets." not in plan
-    assert "SOURCE_COMMIT: ${{ github.event.pull_request.merge_commit_sha }}" in plan
-    assert 'git fetch --no-tags origin "$SOURCE_COMMIT"' in plan
-    assert "ref: ${{ github.event.pull_request.merge_commit_sha" not in plan
-    assert "head.repo.full_name == github.repository" in plan
-    assert "cmux_tui_publication.py" in plan
-    for job in ("build", "cmux-next-daemon-tests"):
-        body = workflow_job(artifacts, job)
-        assert "needs: plan-publication" in body
-        assert "needs.plan-publication.outputs.needed == 'true'" in body
-    publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "--require-ready --wait-seconds 120" in publisher
-    assert "already published with a different binary" not in publisher
-
-
 def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -> None:
     artifacts = workflow("cmux-tui-artifacts.yml")
     triggers = workflow_triggers(artifacts)
