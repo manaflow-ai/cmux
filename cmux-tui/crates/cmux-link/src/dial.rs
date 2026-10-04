@@ -21,7 +21,11 @@ pub const MAX_LINE_BYTES: usize = 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Service {
+    /// The session daemon's remote entry (JSON lines).
     Daemon,
+    /// The host's sshd on loopback (scp, sftp and rsync with `cmux link`
+    /// as ProxyCommand). Cloud hosts only, when their policy allows it.
+    Ssh,
 }
 
 /// How the stream reaches the peer. Lane 10's UI shows "same network only"
@@ -31,8 +35,11 @@ pub enum Service {
 pub enum PathState {
     /// A direct UDP path to the peer carries the stream.
     Direct,
-    /// The relay carries the stream (reserved; slice 1 never reports it).
+    /// The relay carries the stream (reserved; no relay ships yet).
     Relay,
+    /// This install's Freestyle tunnel carries the stream to the host's VPC
+    /// endpoint (Cloud hosts).
+    Tunnel,
     /// No path reaches the peer.
     Unreachable,
 }
@@ -61,10 +68,14 @@ pub enum DialOp {
 pub enum DialError {
     /// The request line is not a valid `link.dial`.
     BadRequest,
-    /// No pairing record names this host.
+    /// No pairing record or Cloud machine names this host.
     UnknownHost,
     /// The peer did not answer on any path.
     Unreachable,
+    /// The caller may not reach this host or service (policy or token).
+    NotAuthorized,
+    /// The host is paused; start it (`cloud.machine.start`) and dial again.
+    HostPaused,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,11 +117,52 @@ pub enum ReloadOp {
     Reload,
 }
 
-/// `{"service":"daemon"}`, the first line on an overlay link stream.
+/// `{"op":"link.cloud_event","event":"removed"|"upsert","host":...,
+/// "revision":N}`: a Cloud machine event that cmux-cloud forwards to the
+/// link (cloud-client-contract.md 1.7 cache rules 1 and 4). `removed` drops
+/// the record and closes open links to that host; `upsert` drops a record
+/// older than `revision`. The reply is `{"ok":true}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudEventRequest {
+    pub op: CloudEventOp,
+    pub event: CloudEvent,
+    pub host: String,
+    #[serde(default)]
+    pub revision: Option<u64>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CloudEventOp {
+    #[serde(rename = "link.cloud_event")]
+    CloudEvent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudEvent {
+    Removed,
+    Upsert,
+}
+
+/// The first line on an overlay link stream: `{"service":"daemon"}` to a
+/// paired peer, `{"service":...,"link_token":...,"epoch":...}` to a Cloud
+/// host (the host checks the token before it serves anything).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceHello {
     pub service: Service,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<u64>,
+}
+
+impl ServiceHello {
+    /// The hello to a paired peer (no token).
+    pub fn paired(service: Service) -> Self {
+        Self { service, link_token: None, epoch: None }
+    }
 }
 
 /// Parse a request line; `host` must be a valid install id.
@@ -156,7 +208,17 @@ mod tests {
             line(&DialReply::failed(DialError::Unreachable)),
             "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\"}\n"
         );
-        assert_eq!(line(&ServiceHello { service: Service::Daemon }), "{\"service\":\"daemon\"}\n");
+        assert_eq!(line(&ServiceHello::paired(Service::Daemon)), "{\"service\":\"daemon\"}\n");
+        let cloud = ServiceHello {
+            service: Service::Ssh,
+            link_token: Some("tok".into()),
+            epoch: Some(3),
+        };
+        assert_eq!(line(&cloud), "{\"service\":\"ssh\",\"link_token\":\"tok\",\"epoch\":3}\n");
+        assert_eq!(
+            line(&DialReply::failed(DialError::HostPaused)),
+            "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"host_paused\"}\n"
+        );
     }
 
     #[test]

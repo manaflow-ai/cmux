@@ -107,6 +107,23 @@ impl Overlay for FakeOverlay {
     async fn sync_peers(&self, _pairings: &Pairings) -> std::io::Result<()> {
         Ok(())
     }
+
+    async fn set_cloud_peer(
+        &self,
+        _host: &str,
+        _key: [u8; 32],
+        _info: &cmux_link::connect_info::ConnectInfo,
+    ) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    async fn forget_cloud_peer(&self, _host: &str) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    async fn path_state(&self, _key: &[u8; 32]) -> cmux_link::dial::PathState {
+        cmux_link::dial::PathState::Direct
+    }
 }
 
 async fn reply_line(caller: &mut DuplexStream) -> String {
