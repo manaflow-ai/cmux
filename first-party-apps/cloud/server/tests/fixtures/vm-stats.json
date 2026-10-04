@@ -1,0 +1,20 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/stats/route.ts (no customer data).",
+  "request": {
+    "method": "GET",
+    "path": "/api/vm/vm-alpha01/stats"
+  },
+  "status": 200,
+  "body": {
+    "state": "awake",
+    "sampledAt": "2026-10-03T00:00:00.000Z",
+    "cpus": 4,
+    "cpuPercent": 12.5,
+    "loadAverage1m": 0.4,
+    "memoryTotalMb": 8192,
+    "memoryUsedMb": 2048,
+    "diskTotalMb": 65536,
+    "diskUsedMb": 10240,
+    "id": "vm-alpha01"
+  }
+}
