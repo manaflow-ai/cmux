@@ -46,3 +46,7 @@ cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html merge=cmux-generated-v1
 Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
+# The React pages (build-pages-web.sh) and the strings tables it generates from the
+# xcstrings catalogs. Only generated output; the page sources merge normally.
+Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/** merge=cmux-generated-v1
+webviews/src/pages/*/generated/strings.json merge=cmux-generated-v1
