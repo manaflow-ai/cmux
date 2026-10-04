@@ -2338,6 +2338,7 @@
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
 		9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */; };
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
+		272A62278FCC175ADA154567 /* LinkHoverIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF2DDC7F468ACB78B5C88A0 /* LinkHoverIndicatorView.swift */; };
 		B79500310000000000000101 /* ListeningPortLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500310000000000000102 /* ListeningPortLookup.swift */; };
 		110436021104360211043602 /* LiveAgentSessionOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110436011104360111043601 /* LiveAgentSessionOwner.swift */; };
 		110431021104310211043102 /* LiveAgentSessionOwnerIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110431011104310111043101 /* LiveAgentSessionOwnerIndex.swift */; };
@@ -6718,6 +6719,7 @@
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastTerminalChildExitRecoveryTests.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
+		9BF2DDC7F468ACB78B5C88A0 /* LinkHoverIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkHoverIndicatorView.swift; sourceTree = "<group>"; };
 		B79500310000000000000102 /* ListeningPortLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningPortLookup.swift; sourceTree = "<group>"; };
 		110436011104360111043601 /* LiveAgentSessionOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwner.swift; sourceTree = "<group>"; };
 		110431011104310111043101 /* LiveAgentSessionOwnerIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwnerIndex.swift; sourceTree = "<group>"; };
@@ -11828,6 +11830,7 @@
 				DC48FD734E4CB28E454E8CDA /* RightSidebarModeBarTabWidths.swift */,
 				9C4B976F4761E72540766E54 /* RightSidebarModeBarTabsLayout.swift */,
 				DC32D1CB3F917D805A2D845A /* RightSidebarModeBarDrag.swift */,
+				9BF2DDC7F468ACB78B5C88A0 /* LinkHoverIndicatorView.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15304,6 +15307,7 @@
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				8561C0128561C0128561C012 /* KeyboardShortcutSettingsObserver.swift in Sources */,
+				272A62278FCC175ADA154567 /* LinkHoverIndicatorView.swift in Sources */,
 				B79500310000000000000101 /* ListeningPortLookup.swift in Sources */,
 				110436021104360211043602 /* LiveAgentSessionOwner.swift in Sources */,
 				110431021104310211043102 /* LiveAgentSessionOwnerIndex.swift in Sources */,
