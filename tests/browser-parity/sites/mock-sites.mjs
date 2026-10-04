@@ -780,6 +780,26 @@ function tools(req, url, body, state) {
     return { json: { ok: true } };
   }
   if (url.pathname === "/none") return { html: html("<p>No WebMCP here</p>", "Plain") };
+  if (url.pathname === "/__mock/read") {
+    state.webmcpReads = (state.webmcpReads || 0) + 1;
+    return { json: { ok: true } };
+  }
+  if (url.pathname === "/moves" || url.pathname === "/moved") {
+    // A page that moves to another URL while it lists its tools (its own
+    // script, or another session driving the tab): the listed tools then
+    // describe a page the agent no longer looks at.
+    return {
+      html: html(`<p>Moves</p><script>
+        const registry = new Map();
+        navigator.modelContext = {
+          registerTool(t) { registry.set(t.name, t); },
+          listTools() { if (location.pathname === "/moves") history.pushState(null, "", "/moved"); return [...registry.values()].map(({ execute, ...d }) => d); },
+          async executeTool(name, input) { return registry.get(name).execute(input); },
+        };
+        navigator.modelContext.registerTool({ name: "lookup", description: "Look something up", annotations: { readOnlyHint: true }, execute: async () => { await fetch("/__mock/read", { method: "POST" }); return { content: [{ type: "text", text: "looked up" }] }; } });
+      </script>`, "Moves"),
+    };
+  }
   return {
     html: html(`<p>Shop</p><script>
       // A page's own WebMCP implementation (like the MCP-B polyfill): tools

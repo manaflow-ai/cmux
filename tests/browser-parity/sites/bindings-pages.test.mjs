@@ -55,3 +55,18 @@ test("a site tool's same-origin call never runs in a document another origin's r
     env.state.notionRobotsRedirect = null;
   }
 });
+
+// A WebMCP call is bound to the document and URL it was listed in: a
+// confirmed draft whose tab loaded a new document since the preview (same
+// URL, same tools) calls nothing, and a trusted read-only call whose page
+// moved to another URL while it was listed calls nothing.
+test("webmcp.call: a call runs only in the document and at the URL its tool was listed in", async () => {
+  await s.run('await page.goto("https://tools.example/"); var wmR = await sites.webmcp.call("add_to_cart", { sku: "T-9" }); await page.reload();');
+  const cart = (env.state.cart || []).length;
+  assert.match(await s.error("sites.webmcp.call(wmR.id, { confirm: true })"), /page_changed|document_changed|new document/);
+  assert.equal((env.state.cart || []).length, cart, "the reloaded page's tool did not run");
+  const reads = env.state.webmcpReads || 0;
+  await s.run('await page.goto("https://tools.example/moves");');
+  assert.match(await s.error('sites.webmcp.call("lookup", {}, { trustReadOnlyHint: true })'), /page_changed|document_changed|navigated/);
+  assert.equal(env.state.webmcpReads || 0, reads, "the tool did not run on the moved page");
+});
