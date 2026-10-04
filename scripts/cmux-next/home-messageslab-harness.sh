@@ -8,7 +8,9 @@
 #       of the pinned commit, vendor.tsv) with swiftc and the
 #       flags of appkit-native/project.yml (Swift 5, APPKIT_NATIVE, -Onone like
 #       the test build), and writes its `--diff-harness` run (no pixels) to
-#       OUT. Needs Xcode 27 (the upstream sources use the macOS 27 SDK).
+#       OUT, then its `--coverage-check` (OUT/coverage.json: a send while
+#       scrolled up leaves no gap and every outgoing bubble keeps its fill).
+#       Needs Xcode 27 (the upstream sources use the macOS 27 SDK).
 #
 #   home-messageslab-harness.sh compare OUT [ORACLE_OUT MESSAGESLAB_DIR]
 #       From the cmux checkout: runs the harness suites, each in its own
@@ -21,7 +23,11 @@
 #            (tools/diff-harness/Harness.swift from MESSAGESLAB_DIR, copied
 #            for this run only into the gitignored Tests/.../Upstream, never
 #            vendored) on the vendored files, against the upstream app's run:
-#            animations.ndjson byte-identical, plus diff.py's geometry report.
+#            animations.ndjson byte-identical, plus diff.py's geometry report;
+#         3. MessagesLab's coverage check (appkit-native FlashCheck.swift,
+#            copied the same way) on the Home path: HomeStore snapshots
+#            through the adapter for --coverage-check's script (a send while
+#            scrolled up 500 pt, then one at the bottom), every 120 Hz frame.
 set -euo pipefail
 repo="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || true)"
 
@@ -54,8 +60,11 @@ PLIST
   mkdir -p "$out"
   # The harness runs offscreen on a virtual clock and exits; no window.
   "$app/Contents/MacOS/MessagesLabAppKitNative" -ApplePersistenceIgnoreState YES --diff-harness "$out" --no-pixels
-  rm -rf "$build"
   echo "oracle: $out/animations.ndjson ($(wc -l < "$out/animations.ndjson") transitions)"
+  if grep -q "runCoverage" "$src/appkit-native/Sources/FlashCheck.swift" 2>/dev/null; then
+    "$app/Contents/MacOS/MessagesLabAppKitNative" -ApplePersistenceIgnoreState YES --coverage-check "$out/coverage.json" | grep coverage-check || true
+  fi
+  rm -rf "$build"
   ;;
 compare)
   out="$2"; oracle="${3:-}"
@@ -91,7 +100,28 @@ import Testing
     }
 }
 SWIFT
+    if [[ -f "$ml/appkit-native/Sources/FlashCheck.swift" ]]; then
+      { echo "@testable import MessagesLabHome"; cat "$ml/appkit-native/Sources/FlashCheck.swift"; } > "$up/FlashCheck.swift"
+      # LiveProbes (tools/diff-harness/LiveProbes.swift) drives live probes; the check only writes JSON.
+      grep -q "enum LiveProbes" "$up/Harness.swift" || cat >> "$up/FlashCheck.swift" <<'SWIFT'
+enum LiveProbes {
+    static func write(_ obj: Any, _ path: String) {
+        if let d = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) {
+            try? d.write(to: URL(fileURLWithPath: path))
+        }
+    }
+}
+SWIFT
+      cp "$pkg/Harness/HomeCoverageCheck.swift" "$up/HomeCoverageCheck.swift"
+    fi
     (cd "$pkg" && MESSAGESLAB_FIXTURES="$out/fixtures" MESSAGESLAB_HARNESS_OUT="$out/vendored" swift test --filter UpstreamHarnessTests)
+    if [[ -f "$up/HomeCoverageCheck.swift" ]]; then
+      if (cd "$pkg" && MESSAGESLAB_FIXTURES="$out/fixtures" HOME_COVERAGE_OUT="$out/home-coverage.json" swift test --skip-build --filter HomeCoverageCheck); then
+        echo "home path coverage: $(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['gapFrames'], 'gap frames,', d['unfilledRowFrames'], 'unfilled bubble-frames')" "$out/home-coverage.json")"
+      else
+        echo "home path coverage: FAILED ($out/home-coverage.json)"; status=1
+      fi
+    fi
     if cmp -s "$oracle/animations.ndjson" "$out/vendored/animations.ndjson"; then
       echo "vendored: animations.ndjson byte-identical to MessagesLabAppKitNative ($(wc -l < "$oracle/animations.ndjson") transitions)"
     else
