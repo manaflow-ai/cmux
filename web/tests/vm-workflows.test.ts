@@ -767,7 +767,8 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
+    // A legacy source draws from the pool at the plan's default machine size.
+    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
@@ -854,10 +855,11 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
+    // A legacy source draws from the pool at the plan's default machine size.
+    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
-    expect(finalizedReservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
+    expect(finalizedReservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
   });
 
   test("keeps the supported 1-vCPU legacy fork shape", async () => {
@@ -940,7 +942,8 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: VM_DISK_MB_MAX });
+    // A legacy source draws from the pool at the plan's default machine size.
+    expect(reservation).toEqual({ vcpus: 4, memoryMb: 8 * 1024, diskMb: VM_DISK_MB_MAX });
     expect(beginInput?.forkPending).toBe(true);
     expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
@@ -1118,8 +1121,9 @@ describe("VM Effect workflows", () => {
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
+    // The 4 GB provider target is the sm ladder row, which has 2 vCPUs.
     expect(beginInput?.resourceReservation).toEqual({
-      vcpus: 1,
+      vcpus: 2,
       memoryMb: 4096,
       diskMb: 32 * 1024,
     });

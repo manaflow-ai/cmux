@@ -562,6 +562,14 @@ describe("VM REST auth", () => {
     runVmWorkflow.mockResolvedValue([{
       providerVmId: "provider-vm-team-1", provider: "freestyle",
       image: "snapshot-test", status: "running", createdAt: 1_777_000_000_000,
+    }, {
+      providerVmId: "provider-vm-team-2", provider: "freestyle",
+      image: "snapshot-test", status: "provisioning", createdAt: 1_777_000_000_000,
+      resourceReservation: { vcpus: 16, memoryMb: 32768 },
+    }, {
+      providerVmId: "provider-vm-team-3", provider: "freestyle",
+      image: "snapshot-test", status: "paused", createdAt: 1_777_000_000_000,
+      resourceReservation: { vcpus: 32, memoryMb: 65536 },
     }]);
 
     const response = await GET(new Request("https://cmux.test/api/vm", {
@@ -572,8 +580,17 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      limits: { planId: "team", maxActiveVms: 20, activeVmCount: 1, freeAccessWindowDays: 0, freeAccessExpiresAt: null },
-      vms: [{ freeAccessExpiresAt: null }],
+      // Four paid seats share 4 x (20 vCPUs, 40 GB). The legacy row without a
+      // marker counts at the 8 GB default; the paused machine does not count.
+      limits: {
+        planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
+        poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 20, usedMemoryMb: 40960,
+      },
+      vms: [
+        { freeAccessExpiresAt: null, resources: { vcpus: 4, memoryMb: 8192 } },
+        { resources: { vcpus: 16, memoryMb: 32768 } },
+        { resources: { vcpus: 32, memoryMb: 65536 } },
+      ],
     });
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");
     expect(listTeams).toHaveBeenCalledTimes(1);
@@ -1028,14 +1045,14 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
-  test("refuses a 32 GB machine on Pro with the Max upgrade instead of coercing it", async () => {
+  test("refuses a 64 GB machine on Pro with the Max upgrade instead of coercing it", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 65536 }),
       }),
     );
 
@@ -1046,8 +1063,8 @@ describe("VM REST auth", () => {
       upgradeRequired: true,
       upgradePlanId: "max",
       upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
-      memoryMb: 32768,
-      maxMemoryMb: 8192,
+      memoryMb: 65536,
+      maxMemoryMb: 32768,
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
