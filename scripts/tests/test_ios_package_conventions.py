@@ -130,6 +130,19 @@ public struct Value {
         self.assertIn('public nonisolated struct Policy {', result.fixed_source)
         self.assertIn('public nonisolated init() {}', result.fixed_source)
 
+
+    def test_fix_does_not_change_class_or_actor_semantics(self):
+        for kind in ("class", "actor"):
+            with self.subTest(kind=kind):
+                source = f"""public {kind} Policy {{
+    public static let enabled = true
+}}
+"""
+                result = self.lint(source, fix=True)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("manual conversion", result.stdout)
+                self.assertEqual(result.fixed_source, source)
+
     def test_fix_adds_an_initializer_to_an_all_static_struct_and_is_idempotent(self):
         source = '''public package struct Policy {
     public static let enabled = true

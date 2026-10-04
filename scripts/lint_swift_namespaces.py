@@ -84,12 +84,21 @@ def schedule_fix(path, original, masked, match):
     brace = masked.find("{", match.end())
     if brace < 0:
         return
+    kind = match.group("kind")
+    if kind in ("class", "actor"):
+        print(
+            f"SKIP   namespace-type autofix     {path}:{original.count(chr(10), 0, match.start()) + 1} "
+            f"{kind} {match.group('name')} requires a manual conversion; --fix will not change its semantics"
+        )
+        return
     visibility = "public" if "public" in match.group("head") else "package"
     isolation = "nonisolated " if "nonisolated" in match.group("head") else ""
     indent = match.group("indent")
     initializer = f"\n{indent}    {visibility} {isolation}init() {{}}"
-    fixes.setdefault(path, []).append((match.start("kind"), match.end("kind"), "struct"))
-    fixes[path].append((brace + 1, brace + 1, initializer))
+    edits = fixes.setdefault(path, [])
+    if kind == "enum":
+        edits.append((match.start("kind"), match.end("kind"), "struct"))
+    edits.append((brace + 1, brace + 1, initializer))
     fixed_declarations.add(declaration)
 
 
