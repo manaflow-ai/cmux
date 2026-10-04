@@ -582,47 +582,14 @@ pub const COMPACTOR_ARGS: [&str; 6] = [
     "--no-session-persistence",
 ];
 
-/// A node's first prompt in the cached layout: the session's system prompt
-/// (the file's text) and the user blocks.
-#[derive(Clone, Debug, PartialEq)]
-pub struct CachedPrompt {
-    pub system: String,
-    pub blocks: Vec<Value>,
-}
+pub use crate::prompt::CachedPrompt;
 
-/// The cached layout (README, Compactor cache): the system text plus the
-/// context up to its first cache mark (50k) as the system prompt; the rest
-/// of the context as one block per piece, the piece that ends at the last
-/// mark (100k, else the last that exists past the first) carrying the one
-/// `cache_control` marker when `marker`; then the step. Claude Code puts its
-/// own breakpoints on the system prompt and the last block (three of the
-/// API's four), so one marker is all a node may add.
+/// A node's first prompt in the cached layout (`prompt::cached_layout`): the
+/// compactor's system text plus the context up to its first cache mark is
+/// the session's system prompt, then the rest of the context with one
+/// marker at the last mark, then the step.
 pub fn cached_prompt(request: &CompactRequest, marker: bool) -> CachedPrompt {
-    let context = request.context.as_str();
-    let marks = optchat_core::cache_marks(context);
-    let Some(&first) = marks.first() else {
-        return CachedPrompt {
-            system: request.system.clone(),
-            blocks: vec![text_block(context), text_block(&request.step)],
-        };
-    };
-    let mut cuts = marks.clone();
-    cuts.push(context.len());
-    let mut blocks: Vec<Value> = cuts
-        .windows(2)
-        .map(|w| text_block(&context[w[0]..w[1]]))
-        .collect();
-    // The pieces after the first mark: the one ending at the last mark is
-    // the second to last block (the last piece runs to the end).
-    if marker && marks.len() >= 2 {
-        let at = blocks.len() - 2;
-        blocks[at]["cache_control"] = json!({"type": "ephemeral"});
-    }
-    blocks.push(text_block(&request.step));
-    CachedPrompt {
-        system: format!("{}\n\n{}", request.system, &context[..first]),
-        blocks,
-    }
+    crate::prompt::cached_layout(&request.system, &request.context, &request.step, marker)
 }
 
 /// Whether a failed turn's error is the API's limit of four cache
@@ -808,11 +775,27 @@ pub fn compactor_preset(paths: &Paths, home: &Path, harness: &str) -> Preset {
         harness: harness.to_owned(),
         env,
         args,
+        system_prompt: None,
     }
 }
 
+/// The acpmux preset of compactor slot `k` (`<base>-slot-<k>`).
+pub fn slot_preset(base: &str, k: usize) -> String {
+    format!("{base}-slot-{k}")
+}
+
+/// The compactor's acpmux presets, one per slot.
+pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str) -> Vec<Preset> {
+    vec![compactor_preset(paths, home, harness)]
+}
+
 /// How the compactor's sessions start for `home`.
-pub fn compactor_spec(paths: &Paths, home: &Path, harness: &str, model: &str) -> CompactorSpec {
+pub fn compactor_spec(
+    paths: &Paths,
+    home: &Path,
+    harness: &str,
+    model: Option<&str>,
+) -> CompactorSpec {
     let name = format!("optchat-compact-{}", home_id(home));
     CompactorSpec {
         work: std::env::temp_dir().join(&name),
@@ -820,7 +803,7 @@ pub fn compactor_spec(paths: &Paths, home: &Path, harness: &str, model: &str) ->
         preset: name.clone(),
         name,
         harness: harness.to_owned(),
-        model: Some(model.to_owned()),
+        model: model.map(str::to_owned),
         effort: None,
         timeout: CALL_TIMEOUT,
     }

@@ -13,10 +13,10 @@ use std::time::Duration;
 use common::*;
 use optchat_chief::brain::Input;
 use optchat_chief::compactor::{
-    AcpmuxCompactor, COMPACTOR_ARGS, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY,
-    SYSTEM_FILE, Slots, cached_prompt, compact_route, compactor_preset, compactor_settings,
-    compactor_spec, is_marker_limit_error, is_refusal_error, probe_models, project_dir_name,
-    request_blocks, strip_preamble,
+    AcpmuxCompactor, COMPACTOR_ARGS, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY, Slots,
+    cached_prompt, compact_route, compactor_presets, compactor_settings, compactor_spec,
+    is_marker_limit_error, is_refusal_error, probe_models, project_dir_name, request_blocks,
+    slot_preset, strip_preamble,
 };
 use optchat_chief::paths::Paths;
 use optchat_core::JOBS;
@@ -120,8 +120,8 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
     assert_eq!(s.model.as_deref(), Some("claude-sonnet-5-5"));
     assert_eq!(
         s.preset.as_deref(),
-        Some("optchat-compact-test-preset"),
-        "the compactor names its own preset, which acpmux must have"
+        Some("optchat-compact-test-preset-slot-0"),
+        "the compactor names its slot's own preset, which acpmux must have"
     );
     assert_eq!(s.effort, None, "no effort until it is verified live");
     assert!(s.name.starts_with("optchat-compact-test-"));
@@ -250,8 +250,10 @@ fn the_route_is_acpmux_on_the_subrouter_and_the_api_on_a_configured_endpoint() {
     assert_eq!(compact_route(None, &sub_with_key), Ok(CompactRoute::Acpmux));
     let keyless = config("https://api.anthropic.com", SUBROUTER_KEY);
     assert_eq!(compact_route(None, &keyless), Ok(CompactRoute::Acpmux));
+    // Purely local ACP: a configured key does not move the compactor off
+    // acpmux; only OPTCHAT_COMPACTOR=api does.
     let real = config("https://api.anthropic.com", "sk-real");
-    assert_eq!(compact_route(None, &real), Ok(CompactRoute::Api));
+    assert_eq!(compact_route(None, &real), Ok(CompactRoute::Acpmux));
     assert_eq!(compact_route(Some("api"), &sub), Ok(CompactRoute::Api));
     assert_eq!(
         compact_route(Some("acpmux"), &real),
@@ -595,13 +597,18 @@ fn the_compactor_has_its_own_isolated_configuration() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("mux");
     let paths = Paths::new(&home);
-    let preset = compactor_preset(&paths, &home, "claude-sr");
+    let presets = compactor_presets(&paths, &home, "claude-sr");
+    let preset = &presets[0];
     assert!(
         preset.name.starts_with("optchat-compact-"),
         "{}",
         preset.name
     );
-    assert!(preset.name.ends_with(&optchat_chief::paths::home_id(&home)));
+    assert!(
+        preset
+            .name
+            .ends_with(&format!("{}-slot-0", optchat_chief::paths::home_id(&home)))
+    );
     assert_eq!(
         preset.env["CLAUDE_CONFIG_DIR"],
         paths.compactor_config.display().to_string()
@@ -629,9 +636,9 @@ fn the_compactor_has_its_own_isolated_configuration() {
     }
     assert_eq!(settings["cleanupPeriodDays"], 1);
     assert_eq!(settings["autoMemoryEnabled"], false);
-    let spec = compactor_spec(&paths, &home, "claude-sr", "claude-sonnet-5-5");
+    let spec = compactor_spec(&paths, &home, "claude-sr", Some("claude-sonnet-5-5"));
     assert_eq!(spec.effort, None);
-    assert_eq!(spec.preset, preset.name);
+    assert_eq!(slot_preset(&spec.preset, 0), preset.name);
     assert!(spec.transcript_dirs.contains(&paths.compactor_config));
     assert!(
         spec.transcript_dirs.len() >= 2,
@@ -664,19 +671,19 @@ fn markers(blocks: &[Value]) -> Vec<usize> {
         .collect()
 }
 
-/// What Claude Code answers through acpmux when the request has more than
-/// four cache breakpoints (checked live: Claude Code uses three itself).
-const MARKER_LIMIT: &str = "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"A maximum of 4 blocks with cache_control may be provided. Found 5.\"}}";
+
 
 // Solution 1 of the cache research: the system text plus the view up to the
-// first mark (50k) is the session's system prompt (a file the preset's args
-// name), the rest of the view follows as blocks with ONE marker at the last
-// mark (100k), then the step.
+// first mark (50k) is the session's system prompt (the slot preset's
+// `systemPrompt`, which acpmux writes into its own preset directory and
+// checks by sha256), the rest of the view follows as blocks with ONE marker
+// at the last mark (100k), then the step.
 #[test]
-fn with_preset_args_the_view_head_is_the_system_prompt_and_one_marker_sits_at_100k() {
+fn with_system_prompt_support_the_view_head_is_the_slot_presets_system_prompt_and_one_marker_sits_at_100k()
+ {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
-    agents.inner.lock().unwrap().preset_args = true;
+    agents.inner.lock().unwrap().system_prompts = true;
     let compactor = compactor(&agents, dir.path());
     let context = chat_of(1_100);
     let marks = optchat_core::cache_marks(&context);
@@ -690,8 +697,12 @@ fn with_preset_args_the_view_head_is_the_system_prompt_and_one_marker_sits_at_10
     // The session's system prompt file: system text, then view[..50k].
     let system = inner.systems[0]
         .clone()
-        .expect("system.md written before the session");
+        .expect("the slot preset's system prompt is set before the session");
     assert_eq!(system, format!("SYS\n\n{}", &context[..marks[0]]));
+    assert_eq!(
+        inner.specs[0].preset.as_deref(),
+        Some("optchat-compact-test-preset-slot-0")
+    );
     let blocks = &inner.prompts[0];
     let t = texts(blocks);
     assert_eq!(t.len(), 4, "50k-80k, 80k-100k, 100k-end, step: {t:?}");
@@ -704,13 +715,13 @@ fn with_preset_args_the_view_head_is_the_system_prompt_and_one_marker_sits_at_10
         "one marker, on the piece that ends at 100k"
     );
     assert_eq!(blocks[1]["cache_control"], json!({"type": "ephemeral"}));
-    // The file holds the chat's text: gone with the node.
-    let slot = inner.specs[0].cwd.clone();
-    drop(inner);
-    assert!(
-        !slot.join(SYSTEM_FILE).exists(),
-        "system.md removed when the node ends"
+    // The prompt holds the chat's text: emptied when the node ends, and
+    // nothing is written into the slot directory (the agent's cwd).
+    assert_eq!(
+        inner.prompt_sets.last(),
+        Some(&("optchat-compact-test-preset-slot-0".to_owned(), String::new()))
     );
+    assert!(!inner.specs[0].cwd.join("system.md").exists());
 }
 
 #[test]
@@ -760,7 +771,7 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
     {
         let mut inner = agents.inner.lock().unwrap();
-        inner.preset_args = true;
+        inner.system_prompts = true;
         inner.answer_error = Some(MARKER_LIMIT.into());
     }
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -806,7 +817,7 @@ fn too_many_cache_breakpoints_retry_once_without_the_marker_and_say_so() {
 }
 
 #[test]
-fn without_preset_args_the_old_layout_stays() {
+fn without_system_prompt_support_the_old_layout_stays() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
     let compactor = compactor(&agents, dir.path());
@@ -816,30 +827,105 @@ fn without_preset_args_the_old_layout_stays() {
     };
     run_node(&compactor, &r).unwrap();
     let inner = agents.inner.lock().unwrap();
-    assert_eq!(inner.systems[0], None, "no system prompt file");
+    assert_eq!(inner.systems[0], None, "no system prompt");
+    assert!(inner.prompt_sets.is_empty());
     assert_eq!(inner.prompts[0], request_blocks(&r));
     assert!(markers(&inner.prompts[0]).is_empty());
 }
 
 #[test]
-fn the_compactor_preset_names_the_system_prompt_file_and_no_tools() {
+fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_prompt() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("mux");
     let paths = Paths::new(&home);
-    let preset = compactor_preset(&paths, &home, "claude-sr");
-    assert_eq!(
-        preset.args,
-        vec![
-            "--system-prompt-file",
-            "${cwd}/system.md",
-            "--tools",
-            "",
-            "--strict-mcp-config",
-            "--no-session-persistence",
-        ]
-    );
-    assert_eq!(preset.args, COMPACTOR_ARGS);
-    assert_eq!(SYSTEM_FILE, "system.md");
-    // Claude Code flags mean nothing to another harness.
-    assert!(compactor_preset(&paths, &home, "codex").args.is_empty());
+    let presets = compactor_presets(&paths, &home, "claude-sr");
+    assert_eq!(presets.len(), JOBS, "one per slot: a slot's prompt never races another's");
+    let id = optchat_chief::paths::home_id(&home);
+    for (k, p) in presets.iter().enumerate() {
+        assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
+        // acpmux's allowlist: no tools, no MCP servers, no transcript; the
+        // system prompt is the preset's text, never a path in the cwd.
+        assert_eq!(
+            p.args,
+            vec!["--tools", "", "--strict-mcp-config", "--no-session-persistence"]
+        );
+        assert!(p.system_prompt.is_some(), "installed with a system prompt");
+    }
+    assert_eq!(presets[0].args, COMPACTOR_ARGS);
+    // Claude Code flags and system prompts mean nothing to another harness.
+    let codex = compactor_presets(&paths, &home, "codex");
+    assert_eq!(codex.len(), JOBS);
+    assert!(codex.iter().all(|p| p.args.is_empty() && p.system_prompt.is_none()));
+}
+
+/// Codex caches a byte-identical request prefix automatically: every node
+/// runs in ONE working directory (its environment context names the cwd),
+/// with the old layout (system text first, no marker, no system prompt).
+#[test]
+fn a_codex_compactor_shares_one_working_directory_and_keeps_a_byte_stable_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: a line")));
+    agents.inner.lock().unwrap().system_prompts = true;
+    let spec = CompactorSpec {
+        harness: "codex".into(),
+        model: None,
+        ..spec(dir.path())
+    };
+    // Two nodes at once, so they hold two slots.
+    let compactor = Arc::new(AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS)));
+    agents.hold(true);
+    let r = |i: u64| CompactRequest {
+        context: chat_of(1_100),
+        ..request(i)
+    };
+    let threads: Vec<_> = (0..2)
+        .map(|i| {
+            let c = compactor.clone();
+            let req = r(i);
+            std::thread::spawn(move || run_node(&*c, &req).unwrap())
+        })
+        .collect();
+    agents.wait_prompts(2);
+    agents.release();
+    agents.release();
+    for t in threads {
+        t.join().unwrap();
+    }
+    let inner = agents.inner.lock().unwrap();
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    assert_eq!(inner.specs[0].cwd, work.join("shared"));
+    assert_eq!(inner.specs[1].cwd, work.join("shared"));
+    assert_ne!(inner.specs[0].preset, inner.specs[1].preset, "two slots");
+    assert!(inner.prompt_sets.is_empty(), "no system prompt on codex");
+    assert_eq!(inner.specs[0].model, None, "the harness's own model");
+    for (i, blocks) in inner.prompts.iter().enumerate() {
+        assert!(markers(blocks).is_empty());
+        let node = if texts(blocks).last().unwrap().ends_with('0') { 0 } else { 1 };
+        assert_eq!(*blocks, request_blocks(&r(node)), "prompt {i}");
+    }
+}
+
+#[test]
+fn a_codex_node_logs_its_cached_tokens() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: hi")));
+    agents.inner.lock().unwrap().answer = Some(json!({
+        "stopReason": "end_turn",
+        "usage": {"totalTokens": 31000, "inputTokens": 900, "cachedReadTokens": 30000, "outputTokens": 100, "thoughtTokens": 60}
+    }));
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let spec = CompactorSpec {
+        harness: "codex".into(),
+        model: None,
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS))
+        .with_log(Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())));
+    run_node(&compactor, &request(4)).unwrap();
+    let lines = lines.lock().unwrap();
+    let line = lines.iter().find(|l| l.contains("4+1")).expect("a node line");
+    for part in ["uncached 900", "cache write 0", "cache read 30000", "output 100", "codex"] {
+        assert!(line.contains(part), "{part} in {line}");
+    }
 }

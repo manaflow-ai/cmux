@@ -23,6 +23,12 @@ pub const CONV: &str = "conv_chief";
 pub const WAIT: Duration = Duration::from_secs(30);
 /// The turn session names' prefix of the test home (`optchat-<home id>`).
 pub const TURN_PREFIX: &str = "optchat-h0me";
+/// The turn sessions' acpmux preset of the test home.
+pub const TURN_PRESET: &str = "optchat-chief-h0me";
+
+/// What Claude Code answers through acpmux when the request has more than
+/// four cache breakpoints (checked live: Claude Code uses three itself).
+pub const MARKER_LIMIT: &str = "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"A maximum of 4 blocks with cache_control may be provided. Found 5.\"}}";
 
 /// A compactor that answers every node with a short line.
 pub struct Model;
@@ -236,11 +242,16 @@ pub fn update(kind: &str, mut update: Value) -> Value {
 #[derive(Default)]
 pub struct Agents {
     pub specs: Vec<SessionSpec>,
-    /// Each session's `<cwd>/system.md` when it started (the compactor's
-    /// system prompt file, which the preset's args name), None without one.
+    /// Each session's system prompt when it started: the text its preset
+    /// carried (acpmux `systemPrompt`), None without one.
     pub systems: Vec<Option<String>>,
-    /// Presets acpmux installed with their `args` (a daemon that knows them).
-    pub preset_args: bool,
+    /// Presets acpmux installed with a system prompt (a daemon that knows
+    /// `systemPrompt`): the cached layout.
+    pub system_prompts: bool,
+    /// Each preset's current system prompt text.
+    pub preset_prompts: BTreeMap<String, String>,
+    /// Every `set_system_prompt` call: (preset, text).
+    pub prompt_sets: Vec<(String, String)>,
     /// Each turn's prompt blocks.
     pub prompts: Vec<Vec<Value>>,
     pub prompt_ids: Vec<String>,
@@ -356,9 +367,12 @@ impl FakeAgents {
 impl AgentPort for FakeAgents {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
         let mut inner = self.inner.lock().unwrap();
-        inner
-            .systems
-            .push(std::fs::read_to_string(spec.cwd.join("system.md")).ok());
+        let system = spec
+            .preset
+            .as_ref()
+            .and_then(|p| inner.preset_prompts.get(p))
+            .cloned();
+        inner.systems.push(system);
         inner.specs.push(spec.clone());
         Ok(format!("s{}", inner.specs.len()))
     }
@@ -433,8 +447,22 @@ impl AgentPort for FakeAgents {
         Ok(None)
     }
 
-    fn preset_args(&self, _preset: &str) -> bool {
-        self.inner.lock().unwrap().preset_args
+    fn system_prompt(&self, _preset: &str) -> bool {
+        self.inner.lock().unwrap().system_prompts
+    }
+
+    fn set_system_prompt(&self, preset: &str, text: &str) -> Result<(), String> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.system_prompts {
+            return Err("unknown preset key \"systemPrompt\"".into());
+        }
+        inner
+            .prompt_sets
+            .push((preset.to_owned(), text.to_owned()));
+        inner
+            .preset_prompts
+            .insert(preset.to_owned(), text.to_owned());
+        Ok(())
     }
 
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
@@ -476,6 +504,8 @@ pub fn settings(dir: &Path) -> Settings {
         agent_gap: Duration::from_millis(30),
         turn_limit: None,
         engine: Engine::Acpmux,
+        turn_preset: Some(TURN_PRESET.into()),
+        system_text: optchat_chief::prompt::claude_md(None),
     }
 }
 
@@ -513,19 +543,31 @@ impl Harness {
         owner: Arc<Mutex<Owner>>,
         engine: Engine,
     ) -> Harness {
+        let settings = Settings {
+            engine,
+            ..settings(dir.path())
+        };
+        Harness::configured(dir, script, owner, settings, Arc::new(|_: &str| {}))
+    }
+
+    /// A brain with these settings and host.log sink.
+    pub fn configured(
+        dir: tempfile::TempDir,
+        script: Script,
+        owner: Arc<Mutex<Owner>>,
+        settings: Settings,
+        log: optchat_chief::brain::Log,
+    ) -> Harness {
         let chat = open_chat(&dir.path().join("chat"));
         let agents = FakeAgents::new(script);
         let (tx, rx) = channel();
         let brain = Brain::new(
             chat.clone(),
             agents.clone(),
-            Settings {
-                engine,
-                ..settings(dir.path())
-            },
+            settings,
             StateFile::new(&dir.path().join("host.json")),
             tx,
-            Arc::new(|_: &str| {}),
+            log,
         );
         Harness {
             dir,

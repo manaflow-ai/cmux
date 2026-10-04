@@ -67,16 +67,27 @@ fn turn_events(prompt_id: &str) -> Vec<Value> {
 }
 
 fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, fail_presets: bool) {
-    serve_with(listener, requests, fail_presets, false);
+    serve_with(listener, requests, fail_presets, &[]);
 }
 
-/// `old_presets`: an acpmux from before preset `args`, which refuses the key
-/// as its `_acpmux/presets` handler does ("unknown preset key").
+/// The first of `set`'s keys (in acpmux's order: sorted) that a daemon
+/// knowing none of `unknown` refuses.
+fn refused_key(set: &Value, unknown: &[&str]) -> Option<String> {
+    let mut keys: Vec<&String> = set.as_object()?.keys().collect();
+    keys.sort();
+    keys.into_iter()
+        .find(|k| unknown.contains(&k.as_str()))
+        .cloned()
+}
+
+/// `unknown`: preset keys this acpmux does not know (`args` before #17283,
+/// `systemPrompt` before the preset system prompt), refused as its
+/// `_acpmux/presets` handler does ("unknown preset key").
 fn serve_with(
     listener: UnixListener,
     requests: Arc<Mutex<Vec<Value>>>,
     fail_presets: bool,
-    old_presets: bool,
+    unknown: &'static [&'static str],
 ) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
@@ -104,10 +115,11 @@ fn serve_with(
                         )),
                         "session/new" => send(reply(json!({"sessionId": "s-1"}))),
                         "_acpmux/presets"
-                            if old_presets && req["params"]["set"].get("args").is_some() =>
+                            if refused_key(&req["params"]["set"], unknown).is_some() =>
                         {
+                            let key = refused_key(&req["params"]["set"], unknown).unwrap();
                             send(
-                                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": "unknown preset key \"args\"; use harness, model, effort, policy, env, description"}}),
+                                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32602, "message": format!("unknown preset key {key:?}; use harness, model, effort, policy, env, args, description")}}),
                             )
                         }
                         "_acpmux/presets" if fail_presets => send(
@@ -271,6 +283,7 @@ fn compactor_preset() -> Preset {
         )]
         .into(),
         args: vec!["--tools".into(), "".into()],
+        system_prompt: None,
     }
 }
 
@@ -360,7 +373,7 @@ fn preset_args_are_sent_and_feature_detected() {
             UnixListener::bind(&socket).unwrap(),
             requests.clone(),
             false,
-            old,
+            if old { &["args"] } else { &[] },
         );
         let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
         connect(&acpmux);
@@ -382,5 +395,67 @@ fn preset_args_are_sent_and_feature_detected() {
         } else {
             assert_eq!(sets.len(), 1);
         }
+    }
+}
+
+// The cached layout needs the preset `systemPrompt` (acpmux writes the text
+// into its own preset directory and checks its sha256 at every session
+// start): it is sent at install and replaced by `set_system_prompt`; a
+// daemon that refuses the key still gets the preset (without it), and the
+// port says so, so the turns and the compactor keep the old layout.
+#[test]
+fn a_preset_system_prompt_is_installed_replaced_and_feature_detected() {
+    let cases: [(&'static [&'static str], bool, bool); 3] = [
+        (&[], true, true),
+        (&["systemPrompt"], false, true),
+        (&["args", "systemPrompt"], false, false),
+    ];
+    for (unknown, prompt, args) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("acpmux.sock");
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        serve_with(
+            UnixListener::bind(&socket).unwrap(),
+            requests.clone(),
+            false,
+            unknown,
+        );
+        let preset = Preset {
+            system_prompt: Some("seed".into()),
+            ..compactor_preset()
+        };
+        let acpmux = Acpmux::new(socket, None, vec![preset]);
+        connect(&acpmux);
+        let name = "optchat-compact-1a2b3c4d";
+        assert_eq!(acpmux.system_prompt(name), prompt, "{unknown:?}");
+        assert_eq!(acpmux.preset_args(name), args, "{unknown:?}");
+        {
+            let requests = requests.lock().unwrap();
+            let first = requests
+                .iter()
+                .find(|r| r["method"] == "_acpmux/presets")
+                .unwrap();
+            assert_eq!(first["params"]["set"]["systemPrompt"], "seed");
+        }
+        let set = acpmux.set_system_prompt(name, "HEAD of the view");
+        if prompt {
+            assert_eq!(set, Ok(()));
+            let requests = requests.lock().unwrap();
+            let last = requests
+                .iter()
+                .rfind(|r| r["method"] == "_acpmux/presets")
+                .unwrap();
+            assert_eq!(
+                last["params"],
+                json!({"name": name, "set": {"systemPrompt": "HEAD of the view"}})
+            );
+        } else {
+            assert!(set.is_err(), "{unknown:?}");
+        }
+        assert_eq!(
+            acpmux.new_session(&compactor_session(dir.path())),
+            Ok("s-1".into()),
+            "the preset is installed either way"
+        );
     }
 }

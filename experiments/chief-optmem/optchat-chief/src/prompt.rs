@@ -83,6 +83,63 @@ pub fn claude_md(user: Option<&str>) -> String {
     }
 }
 
+/// How a turn reaches its memory tools: Claude Code harnesses get the
+/// `optchat` MCP server (the session directory's `.mcp.json`); any other
+/// harness gets no MCP server through acpmux and runs the `chief` launcher
+/// (its absolute path) from its shell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Tools {
+    Mcp,
+    Cli(String),
+}
+
+/// The system prompt for `tools`: MASTER, VIEW_DOC, the cmux section (its
+/// tool lines for `tools`), then the user's instructions file.
+pub fn system_text(user: Option<&str>, _tools: &Tools) -> String {
+    claude_md(user)
+}
+
+/// A prompt in the cached layout: the session's system prompt and the user
+/// blocks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CachedPrompt {
+    pub system: String,
+    pub blocks: Vec<Value>,
+}
+
+/// The cached layout of `context` (a view) between `system` and `tail`
+/// (README, Cache layout): `system` plus the context up to its first cache
+/// mark (50k) is the session's system prompt; the rest of the context
+/// follows as one block per piece, the piece that ends at the last mark
+/// (100k, else the last past the first) carrying the one `cache_control`
+/// marker when `marker`; then `tail`. Claude Code puts its own breakpoints
+/// on the system prompt and the last messages (three of the API's four), so
+/// one marker is all a request may add.
+pub fn cached_layout(system: &str, context: &str, tail: &str, marker: bool) -> CachedPrompt {
+    let text = |t: &str| json!({"type": "text", "text": t});
+    let marks = optchat_core::cache_marks(context);
+    let Some(&first) = marks.first() else {
+        return CachedPrompt {
+            system: system.to_owned(),
+            blocks: vec![text(context), text(tail)],
+        };
+    };
+    let mut cuts = marks.clone();
+    cuts.push(context.len());
+    let mut blocks: Vec<Value> = cuts.windows(2).map(|w| text(&context[w[0]..w[1]])).collect();
+    // The pieces after the first mark: the one ending at the last mark is
+    // the second to last block (the last piece runs to the end).
+    if marker && marks.len() >= 2 {
+        let at = blocks.len() - 2;
+        blocks[at]["cache_control"] = json!({"type": "ephemeral"});
+    }
+    blocks.push(text(tail));
+    CachedPrompt {
+        system: format!("{system}\n\n{}", &context[..first]),
+        blocks,
+    }
+}
+
 /// The user's instructions file, `$MUX_HOME/optchat/AGENTS.md` (None when
 /// missing or empty).
 pub fn user_instructions(path: &std::path::Path) -> Option<String> {

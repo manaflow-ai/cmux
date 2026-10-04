@@ -85,6 +85,16 @@ pub trait AgentPort: Send + Sync {
     fn preset_args(&self, _preset: &str) -> bool {
         false
     }
+    /// Whether the connected daemon installed `preset` with a system prompt
+    /// (it knows `systemPrompt`): the cached layout.
+    fn system_prompt(&self, _preset: &str) -> bool {
+        false
+    }
+    /// Replaces preset `preset`'s system prompt text (acpmux writes the file
+    /// and records its new sha256); sessions that start after it use it.
+    fn set_system_prompt(&self, _preset: &str, _text: &str) -> Result<(), String> {
+        Err("this acpmux takes no preset system prompt".into())
+    }
 }
 
 /// Event kinds that never change the log by themselves; a turn fetches
@@ -111,6 +121,12 @@ pub struct Preset {
     /// word each, no shell). A daemon from before `args` refuses the key; the
     /// preset is then installed without them and `preset_args` says so.
     pub args: Vec<String>,
+    /// The preset's system prompt text at install (acpmux `systemPrompt`,
+    /// Claude harnesses only): acpmux writes it into its own preset directory
+    /// and records its sha256; `set_system_prompt` replaces it later. A
+    /// daemon from before `systemPrompt` refuses the key; the preset is then
+    /// installed without it and `system_prompt` says so.
+    pub system_prompt: Option<String>,
 }
 
 /// The real port: one connection at a time to the acpmux daemon.

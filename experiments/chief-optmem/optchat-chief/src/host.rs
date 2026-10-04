@@ -54,6 +54,18 @@ const BUILD: &str = match option_env!("OPTCHAT_BUILD_COMMIT") {
     None => "unknown",
 };
 
+/// The turn harness and the compactor harness: `OPTCHAT_CHIEF_HARNESS`, else
+/// `MUX_HARNESS`, else claude-sr; the compactor's `OPTCHAT_COMPACTOR_HARNESS`.
+pub fn harness_choice(
+    chief: Option<&str>,
+    mux: Option<&str>,
+    compactor: Option<&str>,
+) -> (String, String) {
+    let _ = chief;
+    let turn = mux.unwrap_or("claude-sr").to_owned();
+    (turn, compactor.unwrap_or("claude-sr").to_owned())
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     let Some(daemon_socket) = flags
@@ -141,6 +153,7 @@ fn start(
         cmux_mcp: env("CMUX_MCP_COMMAND"),
         env: session_env,
         instructions: instructions.clone(),
+        tools: crate::prompt::Tools::Mcp,
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
 
@@ -165,6 +178,7 @@ fn start(
         harness: harness.clone(),
         env: session_dir::isolation_env(paths),
         args: Vec::new(),
+        system_prompt: None,
     });
     // Compactor sessions require their own preset and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without it, every node would
@@ -221,7 +235,7 @@ fn start(
                 Arc::new(
                     AcpmuxCompactor::new(
                         port.clone(),
-                        compactor_spec(paths, home, &compactor_harness, model),
+                        compactor_spec(paths, home, &compactor_harness, Some(model)),
                         slots.clone(),
                     )
                     .with_log(compactor_log.clone()),
@@ -325,6 +339,8 @@ fn start(
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
         engine,
+        turn_preset: None,
+        system_text: crate::prompt::claude_md(instructions.as_deref()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

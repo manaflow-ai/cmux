@@ -119,7 +119,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
 
     use optchat_chief::acpmux::{Acpmux, AgentEvent};
     use optchat_chief::compactor::{
-        AcpmuxCompactor, Slots, compactor_preset, compactor_spec, prepare_config,
+        AcpmuxCompactor, Slots, compactor_presets, compactor_spec, prepare_config,
     };
     use optchat_chief::paths::Paths;
     use optchat_host::{CompactRequest, NodeId, OptChat, SystemClock, run_node};
@@ -130,12 +130,8 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     paths.create().unwrap();
     let harness = std::env::var("OPTCHAT_COMPACTOR_HARNESS").unwrap_or_else(|_| "claude-sr".into());
     prepare_config(&paths.compactor_config).unwrap();
-    let preset = compactor_preset(&paths, &home, &harness);
-    let agents = Acpmux::new(
-        optchat_chief::acpmux_daemon::socket_path(),
-        None,
-        vec![preset],
-    );
+    let presets = compactor_presets(&paths, &home, &harness);
+    let agents = Acpmux::new(optchat_chief::acpmux_daemon::socket_path(), None, presets);
     let up = Arc::new((Mutex::new(None::<bool>), Condvar::new()));
     let signal = up.clone();
     agents.spawn_link(
@@ -166,7 +162,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     let compactor = Arc::new(
         AcpmuxCompactor::new(
             agents.clone(),
-            compactor_spec(&paths, &home, &harness, &model),
+            compactor_spec(&paths, &home, &harness, Some(&model)),
             Slots::new(optchat_core::JOBS),
         )
         .with_log(Arc::new(|line: &str| println!("compactor: {line}"))),
@@ -212,7 +208,7 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     );
     assert!(line.is_ok(), "{line:?}");
     // No transcript of a compactor slot is left in any Claude home.
-    let spec = compactor_spec(&paths, &home, &harness, &model);
+    let spec = compactor_spec(&paths, &home, &harness, Some(&model));
     let tag = format!("optchat-compact-{}", optchat_chief::paths::home_id(&home));
     for root in &spec.transcript_dirs {
         let left: Vec<String> = std::fs::read_dir(root.join("projects"))

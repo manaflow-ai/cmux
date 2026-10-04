@@ -126,6 +126,13 @@ pub struct Settings {
     /// Longest a turn may run (None: no limit).
     pub turn_limit: Option<Duration>,
     pub engine: Engine,
+    /// The turn sessions' acpmux preset on a Claude harness, whose system
+    /// prompt each turn sets (the cached layout); None on another harness.
+    pub turn_preset: Option<String>,
+    /// The turn's system text (`prompt::system_text`): the head of the
+    /// cached layout's system prompt, and the session directory's CLAUDE.md
+    /// in the old layout.
+    pub system_text: String,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation

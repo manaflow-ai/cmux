@@ -37,6 +37,8 @@ pub struct SessionSetup {
     pub env: BTreeMap<String, String>,
     /// The user's instructions file, read at host start (section 7.2).
     pub instructions: Option<String>,
+    /// How the turn reaches its memory tools (the harness family).
+    pub tools: crate::prompt::Tools,
 }
 
 pub fn shell_quote(value: &str) -> String {
@@ -211,6 +213,7 @@ mod tests {
             cmux_mcp: Some("/x/cmux".into()),
             env,
             instructions: None,
+            tools: crate::prompt::Tools::Mcp,
         }
     }
 

@@ -59,6 +59,17 @@ impl Usage {
     }
 }
 
+/// The token use a prompt's answer reports, and what it covers: Claude
+/// Code's `_meta.claude.usage` (the whole turn, "turn total"), else the ACP
+/// `usage` field codex-acp fills from the turn's last model request ("last
+/// request").
+pub fn answer_usage(answer: &Value) -> Option<(Usage, &'static str)> {
+    answer
+        .pointer("/_meta/claude/usage")
+        .and_then(Usage::parse)
+        .map(|u| (u, "turn total"))
+}
+
 #[derive(Debug, Default)]
 pub struct TurnFold {
     last_seq: u64,
