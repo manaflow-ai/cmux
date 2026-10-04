@@ -43,6 +43,11 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.snapshot.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
     ("cloud.usage.get", Kind::Read),
+    // Attach (crate::link): connect may start a paused machine, so all three
+    // are mutations with a key.
+    ("cloud.machine.connect", Kind::Mutation),
+    ("cloud.machine.disconnect", Kind::Mutation),
+    ("cloud.rescue.open", Kind::Mutation),
 ];
 
 /// Other names for ops: the `resume` verb and the old relay names
@@ -115,11 +120,37 @@ pub struct Server<C> {
     control_plane: C,
     projection: Projection,
     ledger: Ledger,
+    attach: crate::link::Attach,
+}
+
+impl<C> Server<C> {
+    pub fn attach(&self) -> &crate::link::Attach {
+        &self.attach
+    }
+
+    pub fn attach_mut(&mut self) -> &mut crate::link::Attach {
+        &mut self.attach
+    }
 }
 
 impl<C: ControlPlane> Server<C> {
+    /// A server with no link configuration (attach ops answer typed errors).
     pub fn new(control_plane: C) -> Self {
-        Self { control_plane, projection: Projection::default(), ledger: Ledger::default() }
+        Self::with_attach(control_plane, crate::link::Attach::unconfigured())
+    }
+
+    pub fn with_attach(control_plane: C, attach: crate::link::Attach) -> Self {
+        Self {
+            control_plane,
+            projection: Projection::default(),
+            ledger: Ledger::default(),
+            attach,
+        }
+    }
+
+    /// One Cloud API call context for an attach op.
+    pub(crate) fn ctx<'a>(&'a mut self, op: &'a str, key: Option<&'a str>) -> Ctx<'a, C> {
+        Ctx::new(&mut self.control_plane, &mut self.projection, op, key)
     }
 
     pub fn control_plane(&self) -> &C {
@@ -160,7 +191,7 @@ impl<C: ControlPlane> Server<C> {
                     format!("{name} is a read and takes no idempotency key"),
                 ));
             }
-            return self.run(name, &args, None);
+            return self.run(name, &args, request.origin, None);
         }
         let key = key.ok_or_else(|| {
             CloudError::new(
@@ -176,7 +207,7 @@ impl<C: ControlPlane> Server<C> {
         }
         self.ledger.attempt(key, name, &args);
         let upstream = upstream_key(name, &args, key);
-        match self.run(name, &args, Some(&upstream)) {
+        match self.run(name, &args, request.origin, Some(&upstream)) {
             Ok(result) => {
                 self.ledger.succeed(key, result.clone());
                 Ok(result)
@@ -191,7 +222,16 @@ impl<C: ControlPlane> Server<C> {
         }
     }
 
-    fn run(&mut self, name: &str, args: &Value, key: Option<&str>) -> Result<Value, CloudError> {
+    fn run(
+        &mut self,
+        name: &str,
+        args: &Value,
+        origin: Origin,
+        key: Option<&str>,
+    ) -> Result<Value, CloudError> {
+        if crate::link::ops::serves(name) {
+            return crate::link::ops::run(self, name, args, origin, key);
+        }
         let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, name, key);
         let group = name.split('.').nth(1).unwrap_or_default();
         match group {

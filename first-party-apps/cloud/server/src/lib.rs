@@ -7,7 +7,10 @@
 //! server never sees the bearer.
 
 pub mod api;
+pub mod connector;
+pub mod link;
 pub mod ops;
+pub mod rescue;
 
 pub use api::{
     CloudError, ControlPlane, HttpCall, HttpReply, Origin, RelayError, Request, SessionStatus,
