@@ -15,7 +15,7 @@ import CmuxNextPages
 /// tab has the keyboard (`diffViewerFocused`).
 enum DiffHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let service = context.services.diffPages
+        let service = context.services.viewers.diffPages
         context.services.pages.register(service)
         // R89's viewer actions open diffs through this service.
         context.services.viewers.diffViewer = service
@@ -48,7 +48,7 @@ enum DiffHandlers {
     /// The pane has no repository to show: the empty diff tab, where a person
     /// picks or drops a folder.
     static func openEmpty(_ context: AppActionContext, pane: PaneController, focus: Bool) {
-        context.services.diffPages.openEmpty(in: pane, focus: focus)
+        context.services.viewers.diffPages.openEmpty(in: pane, focus: focus)
     }
 
     private static func focusedPane(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> PaneController {

@@ -89,16 +89,16 @@ struct FilePageTabTests {
         let folder = try FileDocumentTests.folder()
         let file = folder.appending(path: "main.ts")
         try Data("let a = 1\n".utf8).write(to: file)
-        let key = services.editorPages.open(file, in: pane, focus: true)
+        let key = services.viewers.editorPages.open(file, in: pane, focus: true)
         #expect(LocalPageTab.page(of: key) == .editor)
         #expect(services.pages.stripItem(key).title == "main.ts")
         #expect(pane.stripModel.selectedID?.rawValue == key)
-        #expect(services.editorPages.open(file, in: pane, focus: true) == key)
-        let empty = services.markdownPages.openEmpty(in: pane, focus: false)
+        #expect(services.viewers.editorPages.open(file, in: pane, focus: true) == key)
+        let empty = services.viewers.markdownPages.openEmpty(in: pane, focus: false)
         #expect(LocalPageTab.page(of: empty) == .markdown)
         #expect(services.pages.tabIDs(in: pane.paneKey) == [key, empty])
         #expect(services.closeLocalTab(key))
-        #expect(!services.editorPages.openKeys.contains(key))
+        #expect(!services.viewers.editorPages.openKeys.contains(key))
     }
 
     /// The file viewer seam (R89) now opens the file pages, so Open File..., the picker, the CLI

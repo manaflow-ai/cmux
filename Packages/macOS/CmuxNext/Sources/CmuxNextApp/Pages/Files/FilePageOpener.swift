@@ -37,9 +37,9 @@ final class FilePageOpener: FileOpening {
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         switch Self.kind(for: url) {
         case .markdown?:
-            services.markdownPages.open(url, in: pane, focus: true, userChose: userChose)
+            services.viewers.markdownPages.open(url, in: pane, focus: true, userChose: userChose)
         case .editor?:
-            services.editorPages.open(url, in: pane, focus: true, userChose: userChose)
+            services.viewers.editorPages.open(url, in: pane, focus: true, userChose: userChose)
         case nil:
             guard AgentPaneFileOpen.showsInTab(url) else { return FilePageStrings.notAFile }
             pane.newBrowserTab(url: url)

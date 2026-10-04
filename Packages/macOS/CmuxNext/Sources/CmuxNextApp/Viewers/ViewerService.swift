@@ -16,9 +16,18 @@ final class ViewerService {
     /// choice cancels it).
     private(set) var diffOpen: Task<Void, Never>?
     private weak var services: AppServices?
+    /// The owner of the page services below (the app's services outlive the viewers).
+    private unowned let owner: AppServices
+    /// Diff viewer tabs (plans/cmux-next/diff-host.md S4).
+    private(set) lazy var diffPages = DiffPageService(services: owner)
+    /// Markdown page tabs (diff-host S6).
+    private(set) lazy var markdownPages = FilePageService(services: owner, kind: .markdown)
+    /// Code editor page tabs (diff-host S7).
+    private(set) lazy var editorPages = FilePageService(services: owner, kind: .editor)
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
         self.services = services
+        owner = services
         picker = CmuxPicker(services: services, recents: recents)
         fileOpener = FilePageOpener(services: services)
         self.recents = recents

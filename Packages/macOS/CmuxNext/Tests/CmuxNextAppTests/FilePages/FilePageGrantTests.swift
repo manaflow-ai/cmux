@@ -147,7 +147,7 @@ struct FilePageGrantTests {
         #expect(!roots.contains(home.appending(path: "notes.md").path))
         let services = ActionBindingCoverageTests.boundServices()
         // The app's roots come from the user's choices only (no terminal working directories).
-        #expect(services.editorPages.roots.paths == FilePageService.userChosenRoots(services).paths)
-        #expect(!services.editorPages.roots.contains(NSHomeDirectory() + "/notes.md"))
+        #expect(services.viewers.editorPages.roots.paths == FilePageService.userChosenRoots(services).paths)
+        #expect(!services.viewers.editorPages.roots.contains(NSHomeDirectory() + "/notes.md"))
     }
 }

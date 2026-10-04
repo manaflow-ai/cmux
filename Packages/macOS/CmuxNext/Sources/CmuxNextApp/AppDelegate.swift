@@ -270,9 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
-        services?.diffPages.terminate()
-        services?.markdownPages.terminate()
-        services?.editorPages.terminate()
+        services?.viewers.diffPages.terminate()
+        services?.viewers.markdownPages.terminate()
+        services?.viewers.editorPages.terminate()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
