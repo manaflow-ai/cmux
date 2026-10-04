@@ -95,7 +95,16 @@ mutation carries an `idempotency_key`. Shapes follow settings-surfaces.md:
 - `settings.set {key | path, value, if_revision?}`, `settings.reset {key | path}`,
   `settings.reset_all {}` (mutations).
 - `settings.domains.publish {themes, font_families, sounds}` and `settings.team_policy.set {layer}`
-  (mutations the daemon accepts only from the hosting app's connection, `set-client-info` kind app).
+  (mutations meant only for the hosting app). Coordinator decision 2026-10-04: the daemon REFUSES
+  both for every caller (`operation.failed`, `required_authority: attested_hosting_app`). A
+  capability declared in `set-client-info` on a same-uid socket is a claim, not authority: any agent
+  in a terminal could otherwise replace the team policy layer (and so remove team enforcement) or
+  narrow the value domains. Until then theme, font and sound rows accept any non-empty name and no
+  team layer applies (MDM profiles still apply: the daemon reads them itself).
+  Follow-up "attested hosting app": verify the connecting peer's audit token / code signature
+  (team id and bundle id of the signed app) on the unix socket, then accept both ops from that
+  connection only. Origin (`user`, `cli`, `mcp`) is also self-declared, so `agent_settable` stops
+  cooperative MCP agents only; the same check can later bind origin `user` to the app.
 
 Change notification, slice a: a raw `settings-changed {revision, keys, origin}` event on the
 existing `subscribe` stream, emitted through `MuxEvent` like `bookmarks-changed`, decoded by Swift
