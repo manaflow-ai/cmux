@@ -288,7 +288,11 @@ impl Surface {
     /// local-history READY's).
     #[cfg(test)]
     pub(crate) fn terminal_history_digest(&self) -> Option<ghostty_vt::HistoryDigest> {
-        self.as_pty()?.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner).history_digest()
+        self.as_pty()?
+            .term
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .history_digest()
     }
 
     /// `terminal.history`: GHOSTSNP HISTORY pages above `before`.
@@ -355,7 +359,12 @@ impl PtySurface {
         // Only the terminal lock (held) moves a viewer from behind to caught
         // up, so a viewer that is behind now stays behind until the sends
         // below: the encode is skipped when no viewer can use it.
-        let wanted = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().any(AttachTap::wants_local_ready);
+        let wanted = self
+            .taps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .any(AttachTap::wants_local_ready);
         let local = if wanted { self.encode_local_ready_locked(term) } else { None };
         let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match frame {

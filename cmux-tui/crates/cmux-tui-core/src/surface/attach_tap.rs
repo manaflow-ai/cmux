@@ -448,7 +448,8 @@ impl AttachFrameReceiver {
 
     /// Opt this viewer into local-history READYs at resizes.
     pub(crate) fn set_local_history(&self, enabled: bool) {
-        self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).local_history = enabled;
+        self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).local_history =
+            enabled;
     }
 
     /// Bytes currently queued for this viewer.
@@ -530,7 +531,13 @@ impl AttachTap {
 
     /// Whether this viewer would take a local-history READY of a resize now.
     pub(super) fn wants_local_ready(&self) -> bool {
-        !self.lifecycle.is_canceled() && self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).takes_local_ready()
+        !self.lifecycle.is_canceled()
+            && self
+                .state
+                .queue
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .takes_local_ready()
     }
 
     /// A resize without a replay frame: a viewer that takes `local` gets it
@@ -567,7 +574,11 @@ impl AttachTap {
     }
 
     /// Queue `item` within the caps; past them, overflow.
-    fn push(&self, mut queue: std::sync::MutexGuard<'_, AttachTapQueue>, item: QueuedFrame) -> bool {
+    fn push(
+        &self,
+        mut queue: std::sync::MutexGuard<'_, AttachTapQueue>,
+        item: QueuedFrame,
+    ) -> bool {
         let item_bytes = item.retained_bytes();
         if item_bytes > queue.max_retained_bytes.saturating_sub(queue.retained_bytes)
             || queue.frames.len() >= queue.max_frames

@@ -268,7 +268,8 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
     let surface =
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     let pty = surface.as_pty().unwrap();
-    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
+    let stream =
+        surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
     // An OSC longer than the 1 MiB snapshot continuation budget.
     {
         let mut term = pty.term.lock().unwrap();
@@ -297,7 +298,8 @@ fn only_a_grid_change_resyncs_a_snapshot_viewer() {
     let mux = Mux::new_for_test("snapshot-grid-only", SurfaceOptions::default());
     let surface =
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
+    let stream =
+        surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
     surface.take_viewer_snapshot(&stream.receiver).unwrap();
     let (generation, _) = surface.snapshot_stream_position().unwrap();
     let (width, height) = surface.cell_pixel_size();
@@ -473,7 +475,8 @@ fn a_resize_frame_reaches_a_local_history_viewer_as_its_local_ready() {
 fn a_burst_of_resizes_queues_one_local_ready_each() {
     let (tap, receiver) = local_viewer(1 << 20);
     receiver.finish_snapshot_locked();
-    let readies: Vec<_> = (0..10u16).map(|step| local_ready(1 + u64::from(step), 0, 60 + step)).collect();
+    let readies: Vec<_> =
+        (0..10u16).map(|step| local_ready(1 + u64::from(step), 0, 60 + step)).collect();
     for ready in &readies {
         tap.resync_snapshot_at_cut(Some(ready));
     }
