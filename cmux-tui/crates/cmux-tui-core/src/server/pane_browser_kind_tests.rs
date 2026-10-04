@@ -198,3 +198,31 @@ fn public_pane_split_refuses_browser_fields() {
         disconnect_client(&wire.mux, client, false);
     }
 }
+
+/// The wire shape did not change when the params moved to split_kind.rs:
+/// the old request lines (minimal, every field, an unknown field) parse.
+#[test]
+fn old_split_and_new_pane_right_request_lines_still_parse() {
+    for line in [
+        r#"{"cmd":"split","pane":1,"dir":"right"}"#,
+        r#"{"cmd":"split","pane":1,"dir":"down","cols":80,"rows":24,"cwd":"/tmp","env":{"A":"1"},"keep":true,"terminal_id":"0123456789ab4def8123456789abcdef","shell_args":["-l"]}"#,
+        r#"{"cmd":"split","pane":1,"dir":"right","kind":"browser","url":"https://a.test","future_field":3}"#,
+        r#"{"cmd":"new-pane-right","pane":1}"#,
+        r#"{"cmd":"new-pane-right","pane":1,"width":0.5,"cols":80,"rows":24,"cwd":"/tmp","env":{"A":"1"},"keep":false,"terminal_id":"0123456789ab4def8123456789abcdef","shell_args":[]}"#,
+        r#"{"cmd":"new-pane-right","pane":1,"kind":"pty","future_field":null}"#,
+    ] {
+        let parsed = serde_json::from_str::<Command>(line);
+        assert!(
+            matches!(parsed, Ok(Command::Split(_) | Command::NewPaneRight(_))),
+            "{line} must parse"
+        );
+    }
+    for line in [
+        r#"{"cmd":"split","dir":"right"}"#,
+        r#"{"cmd":"split","pane":1}"#,
+        r#"{"cmd":"new-pane-right","pane":"x"}"#,
+        r#"{"cmd":"split","pane":1,"dir":"right","keep":"yes"}"#,
+    ] {
+        assert!(serde_json::from_str::<Command>(line).is_err(), "{line} must be refused");
+    }
+}
