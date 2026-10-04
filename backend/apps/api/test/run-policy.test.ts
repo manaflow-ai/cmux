@@ -229,4 +229,25 @@ describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, ()
     const runs = (await read(t, "automation.runs.list", { automation })).value.runs
     expect(runs).toHaveLength(0)
   })
+
+  it("a cron fire refused as policy.pending retries in a second, without backoff (review P2)", async () => {
+    const t = await token("run-policy-pending")
+    const team = (await op(t, "user.ensure", {})).value.personal_team as string
+    const created = await op(t, "automation.create", { name: "cron", triggers: [{ type: "cron", expr: "* * * * *", tz: "UTC" }], body: steps })
+    expect(created.ok, JSON.stringify(created)).toBe(true)
+    const automation = created.value.id as string
+    const stub = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
+    await inDO(stub, async (s) => {
+      expect(s.boundEngine.currentState.run_policy).toBeUndefined()
+      const realEnv = s.env
+      // TeamDO is unreachable, so the policy stays unloaded and the fire is refused as policy.pending.
+      s.env = { ...realEnv, TEAM_DO: { idFromName: () => "x", get: () => ({ runPolicy: async () => { throw new Error("down") } }) } }
+      const at = s.boundEngine.currentState.automations[automation].triggers[0].next_at as number
+      await s.onWake(at + 1)
+      const rows = s.ctx.storage.sql.exec("SELECT key, attempts, at FROM retry_state WHERE key LIKE 'fire:%'").toArray()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ attempts: 0, at: at + 1 + 1000 })
+      s.env = realEnv
+    })
+  })
 })
