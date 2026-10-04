@@ -7,8 +7,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+#[path = "model_layout_column.rs"]
+mod layout_column;
 #[path = "model_tab.rs"]
 mod tab;
+pub use layout_column::{LayoutColumn, LayoutColumnSticky};
 pub use tab::{TabContentId, TabContentKind, TabSnapshot};
 
 /// JSON retained only where the catalog explicitly declares a JSON or extension value.
@@ -184,38 +187,6 @@ impl<'de> Deserialize<'de> for LayoutStack {
             ));
         }
         Ok(Self { pane_ids: wire.pane_ids, expanded_pane_id: wire.expanded_pane_id })
-    }
-}
-
-/// One stable horizontal viewport column.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct LayoutColumn {
-    pub column_id: SplitId,
-    pub width: f64,
-    pub root: Box<LayoutNode>,
-}
-
-impl<'de> Deserialize<'de> for LayoutColumn {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(deny_unknown_fields)]
-        struct Wire {
-            column_id: SplitId,
-            width: f64,
-            root: Box<LayoutNode>,
-        }
-
-        let wire = Wire::deserialize(deserializer)?;
-        if !wire.width.is_finite() || !(0.1..=1.0).contains(&wire.width) {
-            return Err(serde::de::Error::custom(
-                "layout column width must be finite and between 0.1 and 1",
-            ));
-        }
-        Ok(Self { column_id: wire.column_id, width: wire.width, root: wire.root })
     }
 }
 
