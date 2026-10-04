@@ -33,6 +33,10 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Opens `session.events` after each connect for the daemon's state
     /// resources (`DaemonStore.session`); off sends nothing extra.
     public var sessionEvents: Bool
+    /// Sends `client-hello` (role main) after `identify` on each connect,
+    /// with the install-key proof when a key is set (P8 3b-2). Only the
+    /// app's own control connection to its local daemon sets it.
+    public var clientHello: ClientHelloIdentity?
 
     public init(
         clientName: String = "cmux-next",
@@ -47,7 +51,8 @@ public struct DaemonConnectionConfiguration: Sendable {
         spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
         terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared(),
         resolvesShellIntegration: Bool = false,
-        sessionEvents: Bool = false
+        sessionEvents: Bool = false,
+        clientHello: ClientHelloIdentity? = nil
     ) {
         self.clientName = clientName
         self.requiredCapabilities = requiredCapabilities
@@ -62,6 +67,18 @@ public struct DaemonConnectionConfiguration: Sendable {
         self.terminalEnvironment = terminalEnvironment
         self.resolvesShellIntegration = resolvesShellIntegration && terminalEnvironment != nil
         self.sessionEvents = sessionEvents
+        self.clientHello = clientHello
+    }
+}
+
+/// What the app's main connection proves in `client-hello`.
+public struct ClientHelloIdentity: Sendable {
+    /// Nil: role main only (the daemon may still verify the app by its
+    /// code signature).
+    public var installKey: FrontendInstallKey?
+
+    public init(installKey: FrontendInstallKey?) {
+        self.installKey = installKey
     }
 }
 

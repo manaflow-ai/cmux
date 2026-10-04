@@ -22,6 +22,9 @@ pub(super) enum ServerAction {
     /// running owner keeps the grace it was started with.
     Ensure {
         terminal_reap_grace: Option<Duration>,
+        /// Private app contract (P8 3b-2): read the app's install key from
+        /// stdin and hand it to an owner this call spawns.
+        install_key_stdin: bool,
     },
     Stop {
         force: bool,
@@ -79,10 +82,22 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if let ServerAction::Ensure { terminal_reap_grace } = plan.action {
+    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin } = plan.action {
+        // Read before anything else: stdin is the app's pipe, never argv/env.
+        let install_key = match install_key_stdin
+            .then(|| cmux_tui_core::server::read_frontend_key(std::io::stdin().lock()))
+            .transpose()
+        {
+            Ok(key) => key,
+            Err(_) => {
+                let message = crate::localization::catalog().local_server.install_key_invalid;
+                return local_error("server.install_key_invalid", message, global.output, 1);
+            }
+        };
         return run_ensure(
             expected_session,
             terminal_reap_grace,
+            install_key,
             socket,
             socket_output,
             socket_is_derived,
@@ -362,6 +377,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
 fn run_ensure(
     expected_session: Option<String>,
     terminal_reap_grace: Option<Duration>,
+    install_key: Option<cmux_tui_core::server::FrontendKey>,
     socket: std::path::PathBuf,
     socket_output: String,
     socket_is_derived: bool,
@@ -376,6 +392,7 @@ fn run_ensure(
         term: None,
         initial_host_colors: None,
         terminal_reap_grace,
+        install_key,
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {

@@ -58,7 +58,15 @@ pub(super) fn serve_line_connection(
         writer.close();
         return;
     };
+    let local = matches!(transport, ClientTransport::Unix);
+    // The audit token is read before any byte from the peer, while the
+    // accepted socket is certainly this peer's (P8 3b-2, prover A).
+    let peer_token = if local { stream.peer_token() } else { None };
     let client = mux.control_clients.register(transport, writer.clone());
+    if local {
+        mux.control_clients.app_trust.connect_local(client, peer_token);
+    }
+    let mut hello = app_trust::HelloGate::new(local);
     admission.registered(&mux, client);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
@@ -91,7 +99,10 @@ pub(super) fn serve_line_connection(
         }
         let keep_open = match admission.refusal(&line) {
             Some(refusal) => writer.send_control(&refusal).is_ok(),
-            None => handle_connection_message(&mux, client, &line, &writer, &surface_scheduler),
+            None => match hello.observe(&mux.control_clients.app_trust, client, &line) {
+                Some(reply) => writer.send_control(&reply).is_ok(),
+                None => handle_connection_message(&mux, client, &line, &writer, &surface_scheduler),
+            },
         };
         zeroize_string(&mut line);
         if !keep_open {
@@ -105,6 +116,7 @@ pub(super) fn serve_line_connection(
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     }
     disconnect_client(&mux, client, false);
+    mux.control_clients.app_trust.disconnect(client);
     let _ = writer_thread.join();
     drop(connection_permit);
 }

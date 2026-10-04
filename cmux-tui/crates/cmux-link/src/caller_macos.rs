@@ -54,6 +54,14 @@ unsafe extern "C" {
     fn CFStringGetTypeID() -> usize;
     fn CFGetTypeID(object: CFTypeRef) -> usize;
     fn CFRelease(object: CFTypeRef);
+    fn CFURLCreateFromFileSystemRepresentation(
+        allocator: CFTypeRef,
+        buffer: *const u8,
+        length: CFIndex,
+        is_directory: u8,
+    ) -> CFTypeRef;
+    fn CFBundleCreate(allocator: CFTypeRef, url: CFTypeRef) -> CFTypeRef;
+    fn CFBundleGetIdentifier(bundle: CFTypeRef) -> CFTypeRef;
 }
 
 #[link(name = "Security", kind = "framework")]
@@ -140,7 +148,67 @@ pub(super) fn verify_signature(fd: RawFd) -> Result<(), String> {
     }
 }
 
-fn peer_audit_token(fd: RawFd) -> Result<[u32; 8], String> {
+/// Prover A of `verified_app` (`crate::app_caller`): the peer named by
+/// `token` (never by pid) is the signed app that contains this binary.
+pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller::NotTheApp> {
+    use crate::app_caller::NotTheApp;
+    let own =
+        signing(&own_code().map_err(NotTheApp::Unavailable)?).map_err(NotTheApp::Unavailable)?;
+    let team =
+        own.team.ok_or_else(|| NotTheApp::Unavailable("this build has no Team ID".into()))?;
+    if team.len() != 10
+        || !team.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+    {
+        return Err(NotTheApp::Unavailable(format!("unexpected Team ID {team:?}")));
+    }
+    let identifier = containing_app_identifier().map_err(NotTheApp::Unavailable)?;
+    let requirement = requirement(&format!(
+        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\" and identifier \"{identifier}\""
+    ))
+    .map_err(NotTheApp::Unavailable)?;
+    let guest = guest_code(token).map_err(NotTheApp::Signature)?;
+    // SAFETY: both references are live owned objects.
+    status(unsafe { SecCodeCheckValidity(guest.0, 0, requirement.0) }, "app check")
+        .map_err(NotTheApp::Signature)
+}
+
+/// Resolves `token` to running code (tests: a pid-reused token must fail).
+#[cfg(test)]
+pub(crate) fn guest_for_test(token: &[u32; 8]) -> Result<(), String> {
+    guest_code(token).map(|_| ())
+}
+
+/// `CFBundleIdentifier` of the app bundle that contains this executable.
+fn containing_app_identifier() -> Result<String, String> {
+    let executable = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+    let bundle = crate::app_caller::containing_bundle(&executable)
+        .ok_or("this binary is not inside an app bundle")?;
+    let path = bundle.as_os_str().as_encoded_bytes();
+    // SAFETY: the bytes are live for the call; CFURL copies them.
+    let url = Owned::new(
+        unsafe {
+            CFURLCreateFromFileSystemRepresentation(
+                ptr::null(),
+                path.as_ptr(),
+                path.len() as CFIndex,
+                1,
+            )
+        },
+        "CFURLCreateFromFileSystemRepresentation",
+    )?;
+    // SAFETY: `url.0` is a live CFURL.
+    let bundle = Owned::new(unsafe { CFBundleCreate(ptr::null(), url.0) }, "CFBundleCreate")?;
+    // SAFETY: `bundle.0` is live; the identifier is borrowed (Get rule) and
+    // copied before `bundle` drops.
+    let identifier = unsafe { string(CFBundleGetIdentifier(bundle.0)) }
+        .ok_or("the containing app has no CFBundleIdentifier")?;
+    if !crate::app_caller::plain_bundle_identifier(&identifier) {
+        return Err(format!("unexpected bundle identifier {identifier:?}"));
+    }
+    Ok(identifier)
+}
+
+pub(crate) fn peer_audit_token(fd: RawFd) -> Result<[u32; 8], String> {
     let mut token = [0u32; 8];
     let mut length = size_of_val(&token) as libc::socklen_t;
     // SAFETY: the out-buffer is valid for `length` bytes.

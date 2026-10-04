@@ -101,6 +101,8 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+mod app_trust;
+pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod line_connection;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
@@ -5313,6 +5315,8 @@ pub(crate) struct ClientRegistry {
     loopback: loopback_forward::LoopbackForwarder,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
+    /// `verified_app` per connection and the app's install key (P8 3b-2).
+    app_trust: app_trust::AppTrust,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5328,6 +5332,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             snapshot_viewers: Default::default(),
             apps: crate::apps::AppsSlot::default(),
+            app_trust: app_trust::AppTrust::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,

@@ -4,8 +4,9 @@
 //! `user|cli|mcp|script|remote`, absent = cli. Replies use the normal
 //! envelope: `{id, ok: true, data}` or `{id, ok: false, error, error_code}`.
 //! Only local (Unix socket) connections may use apps commands, and only the
-//! hosting app connection may send origin `user` (`apps.origin_forbidden`
-//! otherwise; see `apps::provider::hosting_app_connection`). A connection
+//! verified app connection (server/app_trust.rs) may send origin `user`
+//! (`apps.origin_forbidden` otherwise; see
+//! `apps::provider::hosting_app_connection`). A connection
 //! receives `apps-changed` and `apps-host` events after its first apps
 //! command; mount events go to the mounting connection only.
 
@@ -166,14 +167,9 @@ fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
         // An agent's conversation binding; switches to the identity lane's
         // terminal/acp_session actor with `agent` once it lands.
         agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
-        app_kind: mux
-            .control_clients
-            .state
-            .lock()
-            .unwrap()
-            .clients
-            .get(&client)
-            .is_some_and(|record| record.kind.as_deref() == Some("app")),
+        // Proved, never declared: install-key hello or app code signature
+        // (server/app_trust.rs). `set-client-info kind` does not count.
+        verified_app: mux.control_clients.app_trust.verified_app(client),
     }
 }
 
@@ -330,8 +326,9 @@ mod tests {
     #[test]
     fn origin_user_needs_the_hosting_app_connection() {
         let mux = Mux::new_for_test("apps-origin-gate", SurfaceOptions::default());
-        // An agent connection is refused even when it declared kind app.
+        // An agent connection is refused even when it is a verified app.
         let (agent, agent_out) = connection(&mux, Some("app"), true);
+        mux.control_clients.app_trust.prove_for_test(agent, "inst_test");
         for request in [install("user"), grant("user")] {
             assert_eq!(error_code(&mux, agent, &agent_out, request).as_deref(), FORBIDDEN);
         }
@@ -340,9 +337,10 @@ mod tests {
         for request in [install("user"), grant("user")] {
             assert_eq!(error_code(&mux, cli, &cli_out, request).as_deref(), FORBIDDEN);
         }
-        // The hosting app passes the gate (the request then reaches the
+        // The verified app passes the gate (the request then reaches the
         // supervisor, or apps.unavailable in a daemon without an app host).
         let (app, app_out) = connection(&mux, Some("app"), false);
+        mux.control_clients.app_trust.prove_for_test(app, "inst_test");
         for request in [install("user"), grant("user")] {
             assert_ne!(error_code(&mux, app, &app_out, request).as_deref(), FORBIDDEN);
         }
