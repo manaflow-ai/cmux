@@ -2495,22 +2495,25 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let id = params["chooserId"] as? String else {
             throw Self.error("invalid", "chooserId is required")
         }
+        let attachment = attachment(panel)
+        let gone = Self.error("not_found", "File chooser \(id) is gone")
         var urls: [URL]?
         if params["cancel"] as? Bool != true {
-            let directory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-repl-upload-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            fileChooserDirectories.append(directory)
-            urls = try (params["files"] as? [[String: Any]] ?? []).map { file in
-                let name = ((file["name"] as? String) ?? "file").replacingOccurrences(of: "/", with: "_")
-                let url = directory.appendingPathComponent(name.isEmpty ? "file" : name)
-                try (Data(base64Encoded: file["base64"] as? String ?? "") ?? Data()).write(to: url)
-                return url
+            // Only the session the chooser was routed to may answer it, and
+            // nothing is written to disk before that is known (nor past the
+            // staging bounds). This runs in one main-actor turn, so the
+            // chooser cannot go between the check and the answer.
+            let staged = try BrowserReplUploadStaging(parent: FileManager.default.temporaryDirectory).stage(
+                params["files"] as? [[String: Any]] ?? []
+            ) {
+                attachment.fileChooserFrame(id: id, sessionID: sessionID) != nil
             }
+            guard let staged else { throw gone }
+            fileChooserDirectories.append(staged.directory)
+            urls = staged.urls
         }
-        // Only the session the chooser was routed to may answer it.
-        guard attachment(panel).respondToFileChooser(id: id, sessionID: sessionID, files: urls) else {
-            throw Self.error("not_found", "File chooser \(id) is gone")
+        guard attachment.respondToFileChooser(id: id, sessionID: sessionID, files: urls) else {
+            throw gone
         }
         return nil
     }
