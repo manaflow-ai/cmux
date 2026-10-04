@@ -2,7 +2,7 @@
 // rows the list draws (OWNERSHIP-PRINCIPLES "Clients are projections": visible = mirror + pending
 // intents; an intent leaves the log on its echo or its reject). No I/O, no timers.
 import { format, L, type StringKey } from "./strings";
-import type { CloudMachine, CloudPlan, MachineEvent, MachineSize, MachineStatus, PlanSize } from "./ops";
+import type { CloudMachine, CloudPlan, MachineEvent, MachineStats, MachineStatus } from "./ops";
 
 /** The machine list layout (Debug setting `cloud.machines.layout`, README.md). */
 export type MachineLayout = "rows" | "cards";
@@ -19,12 +19,14 @@ export interface PendingIntent {
   kind: IntentKind;
   machine?: string;
   name?: string;
-  size?: string;
+  memoryMb?: number;
   idle?: number | null;
-  /** The machine id the owner answered for a create. */
+  /** The machine id the owner answered for a create (or a restore or fork). */
   result_id?: string;
   /** The owner answered; its next event for the machine is the echo. */
   replied?: boolean;
+  /** The projection revision the owner's answer reached: the mirror at it settles the intent. */
+  revision?: number;
 }
 
 export interface MachineRow {
@@ -36,7 +38,7 @@ export interface MachineRow {
 }
 
 export function machineTitle(machine: CloudMachine): string {
-  return machine.display_name || machine.slug || machine.id;
+  return machine.displayName || machine.slug || machine.id;
 }
 
 const STATUSES = new Set<string>(["provisioning", "running", "failed", "paused", "destroyed", "unknown"]);
@@ -57,8 +59,12 @@ export function applyEvent(machines: CloudMachine[], event: MachineEvent): Cloud
   return next;
 }
 
-/** True when the mirror already shows the intent's effect (its echo). */
-export function settled(intent: PendingIntent, machines: CloudMachine[]): boolean {
+/**
+ * True when the mirror already shows the intent's effect (its echo): the mirror reached the
+ * revision the owner answered, or it shows the change itself.
+ */
+export function settled(intent: PendingIntent, machines: CloudMachine[], revision = 0): boolean {
+  if (intent.revision !== undefined && intent.revision <= revision) return true;
   if (intent.kind === "create") return !!intent.result_id && machines.some((m) => m.id === intent.result_id);
   const machine = machines.find((m) => m.id === intent.machine);
   if (intent.kind === "delete") return !machine;
@@ -69,11 +75,11 @@ export function settled(intent: PendingIntent, machines: CloudMachine[]): boolea
     case "start":
       return machine.status === "running" || machine.status === "provisioning";
     case "rename":
-      return machine.display_name === intent.name;
+      return machine.displayName === intent.name;
+    // The record carries no size or idle policy: these settle by revision only.
     case "resize":
-      return machine.size?.name === intent.size;
     case "idle":
-      return (machine.idle_timeout_seconds ?? null) === (intent.idle ?? null);
+      return false;
   }
 }
 
@@ -140,11 +146,12 @@ export function formatMegabytes(mb: number, t: (key: string) => string, language
   return format(t(L.gigabytes), { value });
 }
 
-export function sizeSpec(size: MachineSize | PlanSize, t: (key: string) => string, language: string): string {
+/** "4 CPU · 8 GB · 64 GB" from the machine's stats (the record carries no size). */
+export function sizeSpec(stats: MachineStats, t: (key: string) => string, language: string): string {
   return format(t(L.sizeSpec), {
-    cpu: size.cpu ?? 0,
-    memory: formatMegabytes(size.memory_mb ?? 0, t, language),
-    storage: formatMegabytes(size.storage_mb ?? 0, t, language),
+    cpu: stats.cpus ?? 0,
+    memory: formatMegabytes(stats.memoryTotalMb ?? 0, t, language),
+    storage: formatMegabytes(stats.diskTotalMb ?? 0, t, language),
   });
 }
 
@@ -157,16 +164,31 @@ export function idleLabel(seconds: number | null | undefined, t: (key: string) =
   return format(t(L.idleMinutes), { count: Math.round(seconds / 60) });
 }
 
-export function defaultSize(plan: CloudPlan | undefined): string | undefined {
-  return plan?.sizes.find((size) => size.allowed)?.name;
+/** The first memory size the plan allows; undefined lets the owner pick its default. */
+export function defaultMemory(plan: CloudPlan | undefined): number | undefined {
+  return plan?.memoryOptionsMb[0];
+}
+
+/** Machines that count against the plan's `maxActiveVms` (paused ones do not). */
+export function activeMachines(machines: CloudMachine[]): number {
+  return machines.filter((machine) => machine.status === "running" || machine.status === "provisioning").length;
 }
 
 export function atMachineLimit(plan: CloudPlan | undefined, machines: CloudMachine[]): boolean {
-  if (!plan) return false;
-  return machines.filter((machine) => machine.status !== "destroyed").length >= plan.machine_limit;
+  if (plan?.maxActiveVms === undefined || plan.maxActiveVms === null) return false;
+  return activeMachines(machines) >= plan.maxActiveVms;
 }
 
-export function formatDate(ms: number | undefined, language: string, withTime = true): string {
+/** Epoch milliseconds from a number or an ISO 8601 string; undefined for anything else. */
+export function toMs(value: number | string | null | undefined): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "string") return undefined;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+export function formatDate(value: number | string | null | undefined, language: string, withTime = true): string {
+  const ms = toMs(value);
   if (!ms) return "";
   const options: Intl.DateTimeFormatOptions = withTime
     ? { dateStyle: "medium", timeStyle: "short" }
@@ -174,8 +196,8 @@ export function formatDate(ms: number | undefined, language: string, withTime = 
   return new Intl.DateTimeFormat(language, options).format(new Date(ms));
 }
 
-export function percent(used: number | undefined, total: number | undefined): number | undefined {
-  if (used === undefined || !total) return undefined;
+export function percent(used: number | null | undefined, total: number | null | undefined): number | undefined {
+  if (used === undefined || used === null || !total) return undefined;
   return Math.max(0, Math.min(100, Math.round((used / total) * 100)));
 }
 

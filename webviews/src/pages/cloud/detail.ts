@@ -2,6 +2,8 @@
 // networks and firewall rules. Each section is read when the machine is selected and re-read after
 // a change the owner confirmed (or after a native confirmation the user accepted). No polling: the
 // stats refresh only on selection or the Refresh button. A reply for an older selection is dropped.
+// A section whose op the owner does not serve yet is reported to the host (`unsupported`), which
+// shows "Not available yet" for it.
 import type { PageClient } from "../shared/pageClient";
 import {
   ACTION_RUN,
@@ -13,6 +15,8 @@ import {
   type CloudSnapshot,
   type FirewallRule,
   type MachineStats,
+  type SnapshotListResult,
+  isUnsupported,
 } from "./ops";
 
 export interface MachineDetail {
@@ -30,10 +34,22 @@ export type DetailSection = "stats" | "snapshots" | "publications" | "domains" |
 
 const SECTIONS: readonly DetailSection[] = ["stats", "snapshots", "publications", "domains", "networks", "firewall"];
 
+/** The read op behind each section. */
+export const SECTION_OPS: Record<DetailSection, string> = {
+  stats: CloudOps.machineStats,
+  snapshots: CloudOps.snapshotList,
+  publications: CloudOps.publicationList,
+  domains: CloudOps.domainList,
+  networks: CloudOps.networkList,
+  firewall: CloudOps.firewallList,
+};
+
 export interface DetailHost {
   get(): MachineDetail | undefined;
   set(detail: MachineDetail | undefined): void;
   fail(error: unknown): void;
+  /** The owner does not serve `op` yet. */
+  unsupported(op: string): void;
   canChange(): boolean;
   key(): string;
 }
@@ -67,6 +83,7 @@ export class DetailReader {
     SECTIONS.forEach((section, index) => {
       const result = results[index];
       if (result.status === "fulfilled") Object.assign(detail, { [section]: result.value });
+      else if (isUnsupported(result.reason)) this.host.unsupported(SECTION_OPS[section]);
     });
     this.host.set(detail);
   }
@@ -81,22 +98,12 @@ export class DetailReader {
       if (generation !== this.generation || !latest) return;
       this.host.set({ ...latest, [section]: value });
     } catch (error) {
-      this.host.fail(error);
+      this.reject(SECTION_OPS[section], error);
     }
   }
 
   createSnapshot(machine: string, name?: string): Promise<void> {
     return this.mutate(CloudOps.snapshotCreate, { machine, ...(name ? { name } : {}) }, "snapshots");
-  }
-
-  restoreSnapshot(machine: string, snapshot: string): Promise<void> {
-    // Restore overwrites the machine's disk: the host confirms it natively.
-    return this.native(CloudOps.snapshotRestore, { machine, snapshot });
-  }
-
-  /** The new machine reaches the list through the watch stream. */
-  forkSnapshot(machine: string, snapshot: string): Promise<void> {
-    return this.mutate(CloudOps.snapshotFork, { machine, snapshot });
   }
 
   createPublication(machine: string, port: number): Promise<void> {
@@ -130,7 +137,7 @@ export class DetailReader {
       });
       if (result?.confirmed !== false && section) await this.reload(section);
     } catch (error) {
-      this.host.fail(error);
+      this.reject(action, error);
     }
   }
 
@@ -140,8 +147,13 @@ export class DetailReader {
       await this.client.call(op, { ...params, idempotency_key: this.host.key() });
       if (section) await this.reload(section);
     } catch (error) {
-      this.host.fail(error);
+      this.reject(op, error);
     }
+  }
+
+  private reject(op: string, error: unknown): void {
+    if (isUnsupported(error)) this.host.unsupported(op);
+    else this.host.fail(error);
   }
 
   private read(section: DetailSection, machine: string): Promise<unknown> {
@@ -150,7 +162,9 @@ export class DetailReader {
       case "stats":
         return client.call<MachineStats>(CloudOps.machineStats, { machine });
       case "snapshots":
-        return client.call<CloudSnapshot[]>(CloudOps.snapshotList, { machine });
+        return client
+          .call<SnapshotListResult>(CloudOps.snapshotList, { machine })
+          .then((result): CloudSnapshot[] => result.snapshots);
       case "publications":
         return client.call<CloudPublication[]>(CloudOps.publicationList, { machine });
       case "domains":

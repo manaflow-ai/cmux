@@ -1,4 +1,6 @@
-// Sample data for the mock provider (dev loop and tests). Names and hosts are made up.
+// Sample data for the mock provider (dev loop and tests). Shapes follow the Cloud app server's
+// recorded fixtures (first-party-apps/cloud/server/tests/fixtures/, from `web/app/api/vm/**`).
+// Names, ids and addresses are made up.
 import type {
   CloudDomain,
   CloudMachine,
@@ -15,62 +17,76 @@ import type {
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 1, 9, 30);
 
+const creator = { userId: "user-dev-1", displayName: "Dev User" };
+
 export function sampleMachines(): CloudMachine[] {
   return [
     {
       id: "vm-a1",
       provider: "freestyle",
       status: "running",
-      display_name: "api-dev",
+      displayName: "api-dev",
       slug: "api-dev",
+      kind: "terminal",
       image: "cmux-base",
-      image_version: "20260902e",
-      created_at_ms: T0 - 3 * DAY,
-      address: { ipv4: "10.42.0.11" },
-      size: { name: "standard-2", cpu: 2, memory_mb: 4096, storage_mb: 20_480 },
-      idle_timeout_seconds: 3600,
+      imageVersion: "20260902e",
+      createdAt: T0 - 3 * DAY,
+      address: { ipv4: "10.42.0.11", ipv6: null },
+      createdBy: creator,
+      freeAccessExpiresAt: null,
     },
     {
       id: "vm-b2",
       provider: "freestyle",
       status: "paused",
-      display_name: "build-cache",
+      displayName: "build-cache",
+      slug: "build-cache",
+      kind: "terminal",
       image: "cmux-base",
-      created_at_ms: T0 - 10 * DAY,
-      address: { ipv4: "10.42.0.12" },
-      size: { name: "performance-4", cpu: 4, memory_mb: 8192, storage_mb: 51_200 },
+      imageVersion: "20260902e",
+      createdAt: T0 - 10 * DAY,
+      address: { ipv4: null, ipv6: null },
+      createdBy: creator,
+      freeAccessExpiresAt: null,
     },
     {
       id: "vm-c3",
       provider: "freestyle",
       status: "provisioning",
-      display_name: "scratch",
+      displayName: null,
+      slug: "quiet-otter",
+      kind: "terminal",
       image: "cmux-base",
-      created_at_ms: T0,
-      size: { name: "small-1", cpu: 1, memory_mb: 2048, storage_mb: 10_240 },
-      idle_timeout_seconds: 300,
+      imageVersion: "20260902e",
+      createdAt: T0,
+      address: null,
+      createdBy: null,
+      freeAccessExpiresAt: null,
     },
   ];
 }
 
-export function sampleSnapshots(): CloudSnapshot[] {
+/** Snapshots by machine. `createdAt` is an ISO string, as the snapshots route answers it. */
+export function sampleSnapshots(): Array<CloudSnapshot & { machine: string }> {
   return [
-    { id: "snap-1", name: "before upgrade", machine: "vm-a1", created_at_ms: T0 - DAY },
-    { id: "snap-2", machine: "vm-a1", created_at_ms: T0 - 2 * DAY },
-    { id: "snap-3", name: "warm cache", machine: "vm-b2", created_at_ms: T0 - 5 * DAY },
+    { id: "snap-1", name: "before upgrade", machine: "vm-a1", createdAt: new Date(T0 - DAY).toISOString() },
+    { id: "snap-2", name: null, machine: "vm-a1", createdAt: new Date(T0 - 2 * DAY).toISOString() },
+    { id: "snap-3", name: "warm cache", machine: "vm-b2", createdAt: new Date(T0 - 5 * DAY).toISOString() },
   ];
 }
 
-export function sampleStats(machine: CloudMachine): MachineStats {
-  if (machine.status !== "running") return { state: machine.status };
+/** `GET /api/vm/:id/stats`: sleeping machines answer `asleep` with no numbers. */
+export function sampleStats(machine: CloudMachine, memoryMb = 8192): MachineStats {
+  if (machine.status !== "running") return { state: "asleep" };
   return {
-    state: "running",
-    cpus: machine.size?.cpu,
-    cpu_percent: 23,
-    memory_total_mb: machine.size?.memory_mb,
-    memory_used_mb: 1536,
-    disk_total_mb: machine.size?.storage_mb,
-    disk_used_mb: 7168,
+    state: "awake",
+    cpus: 4,
+    cpuPercent: 12.5,
+    loadAverage1m: 0.4,
+    memoryTotalMb: memoryMb,
+    memoryUsedMb: 2048,
+    diskTotalMb: 65_536,
+    diskUsedMb: 10_240,
   };
 }
 
@@ -92,25 +108,18 @@ export function sampleAccount(): SampleAccount {
       { id: "team-personal", name: "Personal" },
       { id: "team-acme", name: "Acme" },
     ],
+    // The `limits` of `GET /api/vm`, as `cloud.plan.get` answers them.
     plan: {
-      name: "Pro",
-      machine_limit: 5,
-      upgradable: true,
-      sizes: [
-        { name: "small-1", cpu: 1, memory_mb: 2048, storage_mb: 10_240, allowed: true },
-        { name: "standard-2", cpu: 2, memory_mb: 4096, storage_mb: 20_480, allowed: true },
-        { name: "performance-4", cpu: 4, memory_mb: 8192, storage_mb: 51_200, allowed: true },
-        { name: "large-8", cpu: 8, memory_mb: 16_384, storage_mb: 102_400, allowed: false },
-      ],
+      planId: "go",
+      maxActiveVms: 3,
+      activeVmCount: 2,
+      memoryOptionsMb: [4096, 8192],
+      lockedMemoryOptionsMb: [16_384, 32_768],
+      memoryUpgradePlanId: "pro",
+      freeAccessExpiresAt: null,
+      freeAccessWindowDays: 0,
     },
-    usage: {
-      period_start_ms: Date.UTC(2026, 9, 1),
-      period_end_ms: Date.UTC(2026, 10, 1),
-      compute_hours: 42.5,
-      compute_hours_limit: 300,
-      storage_gb: 80,
-      storage_gb_limit: 200,
-    },
+    usage: { vmHoursUsed: 12.5, vmHoursIncluded: 40, activeVmCount: 2, savedVmLimit: 5 },
     domains: [
       { name: "dev.example.com", status: "verified" },
       { name: "preview.example.org", status: "pending" },
@@ -124,14 +133,14 @@ export function sampleAccount(): SampleAccount {
         id: "fw-1",
         action: "allow",
         source: { public: true },
-        destination: { vm_id: "vm-a1", port: 443, protocol: "tcp" },
+        destination: { vmId: "vm-a1", port: 443, protocol: "tcp" },
         description: "HTTPS",
       },
       {
         id: "fw-2",
         action: "allow",
         source: { cidr: "10.42.0.0/16" },
-        destination: { vm_id: "vm-a1", port: 5432, protocol: "tcp" },
+        destination: { vmId: "vm-a1", port: 5432, protocol: "tcp" },
       },
     ],
   };

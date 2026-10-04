@@ -1,8 +1,14 @@
 // Wire names and types of the `cmux.cloud` namespace (plans/cmux-next/cloud-app.md section 2). The
 // catalog fragment `first-party-apps/cloud/catalog/cloud-catalog.json` is the source of truth; this
 // one file mirrors it by hand until the generated client exists, so the lead can swap it for the
-// generated module without touching the page. Fields are serde snake_case like the other pages.
-// Machine fields follow `CmuxNextCloud/API/CloudMachine.swift` and `CloudResponses.swift`.
+// generated module without touching the page. Fields are camelCase like the catalog and the Cloud
+// API (`web/app/api/vm/**`). Mutations carry `idempotency_key` in their params (the page envelope
+// rule, react-pages.md); the host moves it to the op request's key.
+//
+// The app server does not implement every op the page lists yet (domains, publications, network,
+// firewall, team, sign-in and sign-out, billing, idle policy). It answers those with
+// `cmux.cloud.unsupported` or an unknown-op error; the page then shows "Not available yet"
+// (`isUnsupported`) for that op instead of an error.
 
 export const CloudOps = {
   authStatus: "cmux.cloud.auth.status",
@@ -53,13 +59,13 @@ export const PAGE_COMMAND = "cmux.page.command";
  * Ops the page never calls itself. They change money or delete data, or they change this client's
  * view, so the page asks the host to run them as a catalog action (`cmux.app.action.run {action:
  * <op>, args}`): the host shows the native confirmation sheet, which stamps origin user
- * (app-platform.md 15 "Confirmation"). Page JavaScript cannot prove a gesture.
+ * (app-platform.md 15 "Confirmation"). Page JavaScript cannot prove a gesture. Snapshot restore is
+ * not here: it makes a new machine and changes nothing that exists.
  */
 export const NATIVE_ACTIONS = new Set<string>([
   CloudOps.authSignIn,
   CloudOps.authSignOut,
   CloudOps.machineDelete,
-  CloudOps.snapshotRestore,
   CloudOps.publicationCreate,
   CloudOps.snapshotDelete,
   CloudOps.publicationDelete,
@@ -69,6 +75,20 @@ export const NATIVE_ACTIONS = new Set<string>([
   CloudOps.machineConnect,
 ]);
 
+/** Error codes that mean "the owner does not serve this op yet" (not a failure of the request). */
+const UNSUPPORTED_CODES = new Set([
+  "cmux.cloud.unsupported",
+  "cmux.cloud.unknown_op",
+  "cmux.protocol.unknown_op",
+  "cmux.app.unknown_action",
+  "operation.unsupported",
+]);
+
+export function isUnsupported(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && UNSUPPORTED_CODES.has(code);
+}
+
 /** The host's answer to a confirmation action. A declined sheet answers `confirmed: false`. */
 export interface ActionRunResult {
   confirmed?: boolean;
@@ -76,57 +96,58 @@ export interface ActionRunResult {
 
 export type MachineStatus = "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown";
 
-export interface MachineSize {
-  name?: string;
-  cpu?: number;
-  memory_mb?: number;
-  storage_mb?: number;
-}
-
+/** A Cloud machine record (catalog `cloud.machine.list` items; owner: the cmux Cloud API). */
 export interface CloudMachine {
   id: string;
-  provider: string;
+  provider?: string;
   status: MachineStatus;
-  display_name?: string;
-  slug?: string;
-  kind?: string;
-  image?: string;
-  image_version?: string;
-  created_at_ms?: number;
-  address?: { ipv4?: string; ipv6?: string };
-  size?: MachineSize;
-  // `created_at_ms` and `idle_timeout_seconds` are proposed names (Swift has `createdAt` in ms and
-  // no idle field); confirm against the C1 catalog fragment.
-  /** Seconds of inactivity before the owner pauses the machine; absent = never. */
-  idle_timeout_seconds?: number;
+  displayName?: string | null;
+  slug?: string | null;
+  kind?: string | null;
+  image?: string | null;
+  imageVersion?: string | null;
+  /** Epoch milliseconds. */
+  createdAt?: number | null;
+  address?: { ipv4?: string | null; ipv6?: string | null } | null;
+  createdBy?: { userId: string; displayName?: string | null } | null;
+  freeAccessExpiresAt?: number | null;
 }
 
 export interface MachineListResult {
   machines: CloudMachine[];
-  /** The owner's revision of the list; watch events at or below it are already in the list. */
+  /** The projection revision of the list; watch events at or below it are already in the list. */
   revision: number;
 }
 
-/** One event of `cmux.cloud.machine.watch`. */
+/** One event of `cmux.cloud.machine.watch`. Events of one projection change share its revision. */
 export type MachineEvent =
   | { type: "upsert"; revision: number; machine: CloudMachine }
   | { type: "removed"; revision: number; id: string };
 
+/** `cloud.machine.stats` (and the resize answer). `state` is `awake`, `asleep` or `unknown`. */
 export interface MachineStats {
   state: string;
-  cpus?: number;
-  cpu_percent?: number;
-  memory_total_mb?: number;
-  memory_used_mb?: number;
-  disk_total_mb?: number;
-  disk_used_mb?: number;
+  cpus?: number | null;
+  cpuPercent?: number | null;
+  loadAverage1m?: number | null;
+  memoryTotalMb?: number | null;
+  memoryUsedMb?: number | null;
+  diskTotalMb?: number | null;
+  diskUsedMb?: number | null;
+  maxVcpus?: number | null;
+  maxMemoryMb?: number | null;
+  maxDiskMb?: number | null;
 }
 
 export interface CloudSnapshot {
   id: string;
-  name?: string;
-  machine?: string;
-  created_at_ms?: number;
+  name?: string | null;
+  /** Epoch milliseconds or an ISO 8601 string (the Cloud API sends either). */
+  createdAt?: number | string | null;
+}
+
+export interface SnapshotListResult {
+  snapshots: CloudSnapshot[];
 }
 
 export interface CloudDomain {
@@ -145,14 +166,14 @@ export interface CloudPublication {
 export interface CloudNetwork {
   id: string;
   cidr?: string;
-  cidr_v6?: string;
+  cidrV6?: string;
   scope: string;
 }
 
 export interface FirewallEndpoint {
-  vm_id?: string;
-  vpc_id?: string;
-  tunnel_id?: string;
+  vmId?: string;
+  vpcId?: string;
+  tunnelId?: string;
   cidr?: string;
   public?: boolean;
   port?: number;
@@ -172,51 +193,55 @@ export interface CloudTeam {
   name: string;
 }
 
+/** `cloud.auth.status`: the host answers from its own sign-in. */
 export interface AuthStatus {
-  signed_in: boolean;
-  email?: string;
-  team?: string;
+  signedIn: boolean;
+  team?: string | null;
 }
 
-export interface PlanSize {
-  name: string;
-  cpu: number;
-  memory_mb: number;
-  storage_mb: number;
-  /** False when the plan does not include this size. */
-  allowed: boolean;
-}
-
+/** `cloud.plan.get`: the `limits` of `GET /api/vm`. No plan logic in the page. */
 export interface CloudPlan {
-  name: string;
-  machine_limit: number;
-  sizes: PlanSize[];
-  /** True when the plan can be upgraded through checkout. */
-  upgradable: boolean;
+  planId?: string | null;
+  maxActiveVms?: number | null;
+  activeVmCount?: number | null;
+  /** Memory sizes the plan allows for a new machine. */
+  memoryOptionsMb: number[];
+  /** Memory sizes shown but locked behind `memoryUpgradePlanId`. */
+  lockedMemoryOptionsMb: number[];
+  memoryUpgradePlanId?: string | null;
+  freeAccessExpiresAt?: number | null;
+  freeAccessWindowDays?: number | null;
 }
 
+/** `cloud.usage.get`. Hours are reported only for plans with an hour allowance. */
 export interface CloudUsage {
-  period_start_ms: number;
-  period_end_ms: number;
-  compute_hours: number;
-  compute_hours_limit?: number;
-  storage_gb: number;
-  storage_gb_limit?: number;
+  vmHoursUsed?: number | null;
+  vmHoursIncluded?: number | null;
+  activeVmCount?: number | null;
+  savedVmLimit?: number | null;
 }
 
 /**
- * What a machine mutation answers. `revision` is the owner's list revision that holds the change;
- * when the page already has it, the intent settles without waiting for another event.
+ * A machine mutation answers the machine record (or the stats, for a resize) with a top-level
+ * `revision`: the projection revision its change reached. When the page's mirror has that revision,
+ * the intent settles without a refetch.
  */
-export interface MutationResult {
-  machine?: CloudMachine;
-  revision?: number;
-}
+export type MachineMutationResult = CloudMachine & { revision: number };
+export type ResizeResult = MachineStats & { revision: number };
 
 export interface CreateMachineParams {
-  name: string;
-  /** Absent: the owner picks its default size. */
-  size?: string;
-  snapshot_id?: string;
+  /** 1 to 64 characters; absent = the owner names the machine. */
+  displayName?: string;
+  /** One of the plan's `memoryOptionsMb`; absent = the owner's default. */
+  memoryMb?: number;
+  kind?: string;
+  idempotency_key: string;
+}
+
+export interface ResizeParams {
+  machine: string;
+  cpu?: number;
+  memoryMb?: number;
+  storageMb?: number;
   idempotency_key: string;
 }
