@@ -55,8 +55,8 @@ impl LocalAppAuth {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
         let path = token_path(home);
-        let dir = path.parent().expect("run dir");
-        crate::agent_host::ensure_private_dir(dir)?;
+        let dir = home.join("run");
+        crate::agent_host::ensure_private_dir(&dir)?;
         match std::fs::remove_file(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
