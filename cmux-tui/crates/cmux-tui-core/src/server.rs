@@ -118,6 +118,7 @@ mod responses;
 mod rows;
 mod screen_json;
 mod session_stream;
+mod split_kind;
 mod split_respawn;
 mod tab_column;
 mod websocket_listener;
@@ -158,6 +159,8 @@ pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
+/// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
+pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -431,6 +434,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         DOCK_COLUMNS_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
         ROWS_CAPABILITY,
+        PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -1788,6 +1792,11 @@ enum Command {
         /// `SHELL` in `env`, else the daemon's default shell).
         #[serde(default)]
         shell_args: Option<Vec<String>>,
+        /// `pane-browser-kind-v1`: `pty` (default) or `browser` with `url`.
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
     },
     Split {
         pane: PaneId,
@@ -1812,6 +1821,11 @@ enum Command {
         /// `SHELL` in `env`, else the daemon's default shell).
         #[serde(default)]
         shell_args: Option<Vec<String>>,
+        /// `pane-browser-kind-v1`: `pty` (default) or `browser` with `url`.
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        url: Option<String>,
     },
     SetRatio {
         pane: PaneId,
@@ -14191,7 +14205,24 @@ fn handle_command_with_cancellation(
             keep,
             terminal_id,
             shell_args,
+            kind,
+            url,
         } => {
+            let terminal = split_kind::TerminalFields {
+                cwd: cwd.is_some(),
+                env: env.is_some(),
+                keep,
+                terminal_id: terminal_id.is_some(),
+                shell_args: shell_args.is_some(),
+            };
+            let width = width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH);
+            let size = optional_surface_size(cols, rows);
+            if let Some(url) = split_kind::browser_pane_url("new-pane-right", kind, url, &terminal)?
+            {
+                let surface =
+                    mux.split_browser_pane(pane, SplitDir::Right, Some(width), url, size)?;
+                return Ok(json!({ "surface": surface.id }));
+            }
             let spawn = placement_spawn_options(
                 cwd,
                 env.as_ref(),
@@ -14199,16 +14230,35 @@ fn handle_command_with_cancellation(
                 shell_args,
                 frontend_shell(mux, client),
             )?;
-            let surface = mux.new_pane_right_with_options(
-                pane,
-                width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
-                spawn,
-                optional_surface_size(cols, rows),
-            )?;
+            let surface = mux.new_pane_right_with_options(pane, width, spawn, size)?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
+        Command::Split {
+            pane,
+            dir,
+            cols,
+            rows,
+            cwd,
+            env,
+            keep,
+            terminal_id,
+            shell_args,
+            kind,
+            url,
+        } => {
             let dir = parse_split_dir(&dir)?;
+            let terminal = split_kind::TerminalFields {
+                cwd: cwd.is_some(),
+                env: env.is_some(),
+                keep,
+                terminal_id: terminal_id.is_some(),
+                shell_args: shell_args.is_some(),
+            };
+            if let Some(url) = split_kind::browser_pane_url("split", kind, url, &terminal)? {
+                let size = optional_surface_size(cols, rows);
+                let surface = mux.split_browser_pane(pane, dir, None, url, size)?;
+                return Ok(json!({ "surface": surface.id }));
+            }
             let spawn = placement_spawn_options(
                 cwd,
                 env.as_ref(),
