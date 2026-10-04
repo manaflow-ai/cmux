@@ -3,7 +3,8 @@ public import CmuxNextDesign
 /// Where the window chrome sits (R109): `sidebar.side` and
 /// `sidebar.spacesPosition` in cmux-next.json. A missing key is the
 /// default; a bad value is the default plus a diagnostic.
-public nonisolated enum ChromePlacementSetting {
+public nonisolated struct ChromePlacementSetting {
+    public nonisolated init() {}
     public static let sidebarSidePath = ["sidebar", "side"]
     public static let spacesPositionPath = ["sidebar", "spacesPosition"]
     public static let tabBarPositionPath = ["tabs", "barPosition"]
