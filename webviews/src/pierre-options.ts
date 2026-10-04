@@ -14,9 +14,13 @@ export type DiffViewerOptions = {
   wordWrap: boolean;
 };
 
+/** Height of a file header row; also the virtualizer's header metric. */
+export const DIFF_FILE_HEADER_HEIGHT = 32;
+
 export function codeViewOptions(options: DiffViewerOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
   return {
     layout: { paddingTop: 0, gap: 1, paddingBottom: 0 },
+    itemMetrics: { diffHeaderHeight: DIFF_FILE_HEADER_HEIGHT },
     diffStyle: options.layout,
     diffIndicators: options.diffIndicators,
     overflow: options.wordWrap ? "wrap" : "scroll",
@@ -53,14 +57,15 @@ export function workerHighlighterOptions(
 export function codeViewUnsafeCSS(): string {
   return `
     :host {
-      --diffs-light-bg: transparent;
-      --diffs-dark-bg: transparent;
+      /* Pierre's own background is the page's one viewer background, so file
+         headers, separators and code rows all paint the same opaque color. */
+      --diffs-light-bg: var(--cmux-diff-viewer-bg);
+      --diffs-dark-bg: var(--cmux-diff-viewer-bg);
       --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
       --diffs-bg-context-override: transparent;
       --diffs-bg-context-gutter-override: transparent;
-      --cmux-diff-surface-bg: transparent;
-      --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-bg) 42%, transparent);
-      --diffs-bg-separator-override: var(--cmux-diff-surface-bg);
+      --diffs-bg-separator-override: var(--cmux-diff-viewer-bg);
+      background-color: var(--cmux-diff-viewer-bg);
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
       --diffs-fg-number-addition-override: var(--diffs-addition-base);
@@ -70,18 +75,20 @@ export function codeViewUnsafeCSS(): string {
       --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--diffs-addition-base) 30%, transparent);
       --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--diffs-deletion-base) 30%, transparent);
     }
-    :host,
     pre,
     code {
       background-color: transparent;
     }
+    /* The file header is opaque: scrolled code never shows through it. Its
+       content is the slotted FileHeader (renderCustomHeader), so the row's
+       height is fixed to the virtualizer's diffHeaderHeight metric. */
     [data-diffs-header] {
-      container-type: scroll-state;
-      container-name: sticky-header;
-      min-height: 30px;
-      background-color: var(--cmux-diff-header-bg) !important;
-      -webkit-backdrop-filter: blur(8px) saturate(1.08);
-      backdrop-filter: blur(8px) saturate(1.08);
+      height: var(--cmux-diff-file-header-height, ${DIFF_FILE_HEADER_HEIGHT}px);
+      min-height: 0;
+      display: flex;
+      align-items: stretch;
+      background-color: var(--cmux-diff-viewer-bg);
+      border-bottom: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
@@ -131,9 +138,7 @@ export function codeViewUnsafeCSS(): string {
     [data-separator='line-info'] [data-expand-button] {
       background-color: transparent;
     }
-    [data-diffs-header=default],
-    [data-diffs-header=default] [data-additions-count],
-    [data-diffs-header=default] [data-deletions-count],
+    [data-diffs-header],
     [data-separator-wrapper],
     [data-separator-content],
     [data-unmodified-lines],
@@ -143,28 +148,31 @@ export function codeViewUnsafeCSS(): string {
   `;
 }
 
+/**
+ * Narrow tree overrides the CSS-variable surface cannot express (see the
+ * `#file-list` host variables in styles.css for colors, weights and spacing).
+ */
 export function fileTreeUnsafeCSS(): string {
   return `
     :host {
       display: block;
       height: 100%;
       min-height: 0;
-      --cmux-diff-tree-sticky-bg: var(--cmux-diff-bg);
-      background-color: var(--cmux-diff-sidebar-bg);
+      background-color: var(--cmux-diff-viewer-bg);
     }
     [data-file-tree-search-container][data-open='false'] {
       display: none;
     }
     [data-file-tree-search-container] {
-      margin: 0 4px 8px 0;
-      padding: 0 5px 8px 1px;
+      margin: 0 4px 6px 0;
+      padding: 0 5px 6px 1px;
       border-bottom: 1px solid var(--trees-border-color);
     }
     [data-file-tree-virtualized-scroll='true'] {
       height: 100%;
       min-height: 0;
       overflow: auto;
-      background-color: var(--cmux-diff-sidebar-bg);
+      background-color: var(--cmux-diff-viewer-bg);
       padding-inline-start: 0;
       padding-inline-end: 2px;
       margin-inline-end: 2px;
@@ -174,15 +182,21 @@ export function fileTreeUnsafeCSS(): string {
       flex: 1 1 auto;
       min-width: 0;
     }
-    [data-item-section='git'] {
-      opacity: 0.75;
+    /* +N -N change counts (the row decoration), right-aligned and tabular. A
+       one-sided count takes the row's added or deleted status color. */
+    [data-item-section='decoration'] {
+      flex: 0 0 auto;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
-    [data-item-type='folder'] {
-      color: color-mix(in lab, var(--trees-fg) 85%, var(--trees-bg));
-      font-weight: 500;
+    [data-item-git-status='added'] > [data-item-section='decoration'] {
+      color: var(--trees-status-added);
+    }
+    [data-item-git-status='deleted'] > [data-item-section='decoration'] {
+      color: var(--trees-status-deleted);
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-tree-sticky-bg) !important;
+      background-color: var(--cmux-diff-viewer-bg) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
   `;
