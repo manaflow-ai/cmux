@@ -34,7 +34,13 @@ final class AppPageNativeProvider: PageProvider {
                 throw PageError(code: "cmux.app.action_refused", message: "\(params["action"]?.stringValue ?? "") is not an action of this page")
             }
             let id = ActionID(rawValue: name)
-            let invocation = ActionInvocation(arguments: Self.arguments(params["args"], for: services.registry.descriptor(for: id)),
+            // `target` is the CLI form `kind:id` (a browser profile row: `browser-profile:<id>`).
+            var target: ActionTargetRef?
+            if let text = params["target"]?.stringValue {
+                guard let parsed = ActionTargetRef(parsing: text) else { throw PageError.invalidParams("target must be kind:id") }
+                target = parsed
+            }
+            let invocation = ActionInvocation(target: target, arguments: Self.arguments(params["args"], for: services.registry.descriptor(for: id)),
                                               origin: .user)
             return ["ran": .bool(services.registry.perform(id, invocation: invocation))]
         case PageNativeOp.clipboardWrite:

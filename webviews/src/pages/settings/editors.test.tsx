@@ -92,7 +92,9 @@ describe("editors", () => {
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.backgroundOpacity", value: 0.7 }]);
     const order = page.provider.log
       .map((entry) => entry.op)
-      .filter((op) => op !== "cmux.settings.list" && op !== "cmux.settings.snapshot");
+      .filter(
+        (op) => op !== "cmux.settings.list" && op !== "cmux.settings.snapshot" && op !== "cmux.settings.host.lists",
+      );
     expect(order).toEqual([
       "cmux.settings.preview",
       "cmux.settings.preview",

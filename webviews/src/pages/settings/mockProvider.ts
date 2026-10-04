@@ -11,6 +11,8 @@ import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
+  type BrowserProfile,
+  type HostLists,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -84,11 +86,17 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
+      "cmux.settings.host.lists": () => this.host,
       "cmux.app.action.run": (params) => {
         // The page bridge allows this page only its declared actions.
         if (!(settingsPageActions as readonly string[]).includes(params.action as string)) {
           throw new ProtocolError("cmux.page.action_refused", `action ${String(params.action)} is not allowed here`);
         }
+        this.runProfileAction(
+          params.action as string,
+          (params.args ?? {}) as Params,
+          params.target as string | undefined,
+        );
         return {};
       },
     };
@@ -96,6 +104,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview",
       "cmux.settings.preview.end",
       "cmux.settings.sound.play",
+      "cmux.settings.host.lists",
       "cmux.app.action.run",
     ]);
     for (const [op, handler] of Object.entries(ops)) {
@@ -112,6 +121,61 @@ export class MockSettingsProvider {
     session.provide("cmux.settings.changed", (ctx) => this.track(this.changed, ctx));
     session.provide("cmux.page.connection", (ctx) => this.track(this.connection, ctx));
     session.provide("cmux.page.command", (ctx) => this.track(this.commands, ctx));
+    session.provide("cmux.settings.host.changed", (ctx) => this.track(this.hostChanged, ctx));
+  }
+
+  /** The app's live lists (spaces, machines, browser profiles) as the host serves them. */
+  host: HostLists = {
+    rooms: [
+      { id: "default", title: "Default", subtitle: null, active: true },
+      { id: "work", title: "Work", subtitle: null, active: false },
+    ],
+    machines: [{ id: "ssh:build", title: "build-mac", subtitle: "cmux@build-mac", active: true }],
+    browser_profiles: [
+      { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
+      { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },
+    ],
+    profile_colors: [
+      { name: "grey", swatch: "#8E8E93", fill: "#C7C7CC" },
+      { name: "green", swatch: "#5E9A6A", fill: "#B5D6BB" },
+      { name: "orange", swatch: "#B07A45", fill: "#E0C3A3" },
+    ],
+  };
+  private readonly hostChanged = new Set<EventSourceContext>();
+
+  /** Replaces the host lists and sends `cmux.settings.host.changed`. */
+  setHost(host: HostLists): void {
+    this.host = host;
+    for (const ctx of this.hostChanged) ctx.emit(host);
+  }
+
+  /** What the app's `browserProfile.*` actions do to the lists (enough for the page's tests). */
+  private runProfileAction(action: string, args: Params, target: string | undefined): void {
+    const id = target?.startsWith("browser-profile:") ? target.slice("browser-profile:".length) : null;
+    const profiles = this.host.browser_profiles;
+    const edit = (patch: Partial<BrowserProfile>) =>
+      profiles.map((profile) => (profile.id === id ? { ...profile, ...patch } : profile));
+    let next = profiles;
+    if (action === "browserProfile.new") {
+      next = [
+        ...profiles,
+        {
+          id: `p-${profiles.length + 1}`,
+          name: `Profile ${profiles.length + 1}`,
+          color: null,
+          icon: null,
+          is_default: false,
+          source: null,
+        },
+      ];
+    } else if (action === "browserProfile.rename") next = edit({ name: String(args.name) });
+    else if (action === "browserProfile.setColor") next = edit({ color: String(args.color) });
+    else if (action === "browserProfile.clearColor") next = edit({ color: null });
+    else if (action === "browserProfile.setIcon") next = edit({ icon: String(args.icon) });
+    else if (action === "browserProfile.clearIcon") next = edit({ icon: null });
+    else if (action === "browserProfile.delete") next = profiles.filter((profile) => profile.id !== id);
+    else return;
+    this.setHost({ ...this.host, browser_profiles: next });
   }
 
   /** Simulates the daemon going away or coming back. */

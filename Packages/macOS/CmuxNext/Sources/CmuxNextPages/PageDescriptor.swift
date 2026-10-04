@@ -116,7 +116,10 @@ public extension PageDescriptor {
     /// preview and sound ops share the namespace; the page may run only the two actions it links to.
     static let settings = PageDescriptor(
         id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
-        nativeOps: [PageNativeOp.actionRun], actions: ["palette.openCmuxSettingsFile", "openSettings"])
+        nativeOps: [PageNativeOp.actionRun],
+        actions: ["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
+                  "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
+                  "browserProfile.manageExtensions", "browserProfile.delete"])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
