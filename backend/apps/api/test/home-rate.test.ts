@@ -183,4 +183,11 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     expect(rejectOf(await add(changed.env, max))).toMatchObject({ code: "idempotency.conflict" })
     expect(changed.calls).toEqual([])
   })
+
+  it("a session user who never called user.ensure gets home.user_not_ready (not retryable), not home.rate_limited", async () => {
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "rate-not-ready-nia")
+    const nia = { identity: `${user}:s`, kind: "session" as const, user, display_name: "Nia" }
+    const res = await conversationMutate(testEnv as never, nia, { t: "op", op: "conversation.create", params: { title: "first", participants: [{ id: user, kind: "human", display_name: "Nia" }] }, idempotency_key: crypto.randomUUID() })
+    expect(rejectOf(res)).toMatchObject({ code: "home.user_not_ready", retryable: false })
+  })
 })
