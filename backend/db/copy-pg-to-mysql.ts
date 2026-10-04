@@ -4,9 +4,10 @@
  *
  *   bun copy-pg-to-mysql.ts --branch development|staging|main [--verify-only]
  *
- * Reads Postgres with the read-only credential (~/.secrets/cmux-next-planetscale-ro-<branch>.env,
- * variable DATABASE_URL or the first *_URL in that file) and writes MySQL with the readwriter
- * credential (~/.secrets/cmux-next-vitess-<branch>-rw.env). Never prints a credential.
+ * Reads Postgres with ~/.secrets/cmux-next-planetscale-<branch>.env (variable DATABASE_URL or the
+ * first *_URL in that file) in a session forced read-only (default_transaction_read_only), because
+ * the -ro role there is search-ro and may read only the search tables. Writes MySQL with the
+ * readwriter credential (~/.secrets/cmux-next-vitess-<branch>-rw.env). Never prints a credential.
  *
  * The copy uses the same single-writer guard as the projection: a MySQL row that is already newer
  * (a dual-write shadow row) keeps its values. Verify compares row counts and a per-row sha256 of
@@ -114,13 +115,14 @@ if (import.meta.main) {
   }
   // The Postgres branch is named production where the Vitess one is main.
   const pgName = branch === "main" ? "production" : branch!
-  const pgEnv = readEnvFile(join(homedir(), ".secrets", `cmux-next-planetscale-ro-${pgName}.env`))
+  const pgEnv = readEnvFile(join(homedir(), ".secrets", `cmux-next-planetscale-${pgName}.env`))
   const pgUrl = pgEnv.DATABASE_URL ?? Object.entries(pgEnv).find(([k]) => k.endsWith("_URL"))?.[1]
   const myEnv = readEnvFile(join(homedir(), ".secrets", `cmux-next-vitess-${branch}-rw.env`))
   if (!pgUrl || !myEnv.DATABASE_HOST) throw new Error("missing credential file or variable (values are not printed)")
   const pgc = new pg.Client({ connectionString: pgUrl, ssl: { rejectUnauthorized: true } })
   await pgc.connect()
   await pgc.query("SET default_transaction_read_only = on")
+  if ((await pgc.query("SHOW default_transaction_read_only")).rows[0]?.default_transaction_read_only !== "on") throw new Error("Postgres session is not read-only")
   const my = await mysql.createConnection({ host: myEnv.DATABASE_HOST, user: myEnv.DATABASE_USERNAME, password: myEnv.DATABASE_PASSWORD, database: myEnv.DATABASE_NAME, ssl: { rejectUnauthorized: true }, timezone: "Z", dateStrings: true })
   await my.query("SET time_zone = '+00:00'")
   try {

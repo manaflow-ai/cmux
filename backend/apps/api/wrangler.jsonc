@@ -34,7 +34,7 @@
   "env": {
     "development": {
       "name": "cmux-api-development",
-      "vars": { "ENVIRONMENT": "development", "WORKER_NAME": "cmux-api-development", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "vars": { "ENVIRONMENT": "development", "WORKER_NAME": "cmux-api-development", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
@@ -56,7 +56,8 @@
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1111", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1131", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1141", "simple": { "limit": 60, "period": 60 } }],
       // Home attachments: private bucket (no public access, no custom domain); the Worker hashes uploads and signs downloads.
       "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments-development" }],
-      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }, { "binding": "HYPERDRIVE_RO", "id": "cb712d90da9d42fb84ac975275e0b6c8" }]
+      // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess development (readwriter / reader), the dual-write shadow (state-placement.md 4.5).
+      "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }, { "binding": "HYPERDRIVE_RO", "id": "cb712d90da9d42fb84ac975275e0b6c8" }, { "binding": "PS_MYSQL", "id": "60893ba4eaef437a91a77da71730ea9b" }, { "binding": "PS_MYSQL_RO", "id": "fe1e9fd2a3844fbfabcb12110832c394" }]
     },
     "staging": {
       "name": "cmux-api-staging",
