@@ -22,6 +22,8 @@ pub const LISTINGS_PER_OWNER: usize = 8;
 pub const MAX_BATCH: usize = 1000;
 /// Most snapshots the daemon keeps across all callers.
 const MAX_LISTINGS: usize = 256;
+/// Most entries all snapshots hold together.
+const MAX_TOTAL_ENTRIES: usize = 1_000_000;
 
 /// One batch of a listing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -65,7 +67,10 @@ impl Listings {
         if mine.len() >= LISTINGS_PER_OWNER {
             self.drop_oldest(mine);
         }
-        if self.listings.len() >= MAX_LISTINGS {
+        while !self.listings.is_empty()
+            && (self.listings.len() >= MAX_LISTINGS
+                || self.total_entries().saturating_add(entries.len()) > MAX_TOTAL_ENTRIES)
+        {
             let all = self.listings.iter().map(|(id, l)| (id.clone(), l.last_used)).collect();
             self.drop_oldest(all);
         }
@@ -75,6 +80,10 @@ impl Listings {
             Listing { owner: owner.to_owned(), entries, revision, last_used: now },
         );
         self.page(owner, &id, None, limit, now)
+    }
+
+    fn total_entries(&self) -> usize {
+        self.listings.values().map(|listing| listing.entries.len()).sum()
     }
 
     fn drop_oldest(&mut self, candidates: Vec<(String, Instant)>) {

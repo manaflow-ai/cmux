@@ -164,15 +164,26 @@ impl Drop for PendingWrite {
 const MAX_DEPTH: usize = 256;
 
 /// Removes `name` in `dir` and everything below it. Symlinks are removed,
-/// never followed; every folder is entered with `O_NOFOLLOW`.
+/// never followed; every folder is entered with `O_NOFOLLOW`; a folder on
+/// another file system (a mount point) is refused, never descended.
 pub fn remove_tree(dir: BorrowedFd<'_>, name: &str) -> Result<(), FsError> {
-    remove_below(dir, name, 0)
+    let device = sys::lstat_at(dir, name)?.st_dev;
+    remove_below(dir, name, 0, device)
 }
 
-fn remove_below(dir: BorrowedFd<'_>, name: &str, depth: usize) -> Result<(), FsError> {
-    let meta = Meta::of(&sys::lstat_at(dir, name)?);
+fn remove_below(
+    dir: BorrowedFd<'_>,
+    name: &str,
+    depth: usize,
+    device: libc::dev_t,
+) -> Result<(), FsError> {
+    let stat = sys::lstat_at(dir, name)?;
+    let meta = Meta::of(&stat);
     if meta.kind != EntryKind::Dir {
         return Ok(sys::unlink_at(dir, name, false)?);
+    }
+    if stat.st_dev != device {
+        return Err(FsError::PermissionDenied);
     }
     if depth >= MAX_DEPTH {
         return Err(FsError::NotEmpty);
@@ -184,7 +195,7 @@ fn remove_below(dir: BorrowedFd<'_>, name: &str, depth: usize) -> Result<(), FsE
     })?;
     for entry in names {
         let entry = String::from_utf8(entry).map_err(|_| FsError::NotEmpty)?;
-        match remove_below(child.as_fd(), &entry, depth + 1) {
+        match remove_below(child.as_fd(), &entry, depth + 1, device) {
             Err(FsError::NotFound) | Ok(()) => {}
             Err(error) => return Err(error),
         }
