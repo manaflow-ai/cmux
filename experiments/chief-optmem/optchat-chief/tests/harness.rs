@@ -488,7 +488,9 @@ fn the_turn_line_reports_the_answers_usage_after_turn_end() {
         h.settle();
         let lines = lines.lock().unwrap();
         assert!(
-            lines.iter().any(|l| l.contains(" cache: ") && l.contains(expected)),
+            lines
+                .iter()
+                .any(|l| l.contains(" cache: ") && l.contains(expected)),
             "{expected}: {lines:?}"
         );
     }
