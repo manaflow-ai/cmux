@@ -5,6 +5,7 @@
 
 #include <cstring>
 
+#include "devtools_message_id.h"
 #include "include/cef_parser.h"
 #include "shim_internal.h"
 
@@ -53,15 +54,16 @@ bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_
   const bool watched = watched_browsers().count(browser_id) > 0;
   if (!watched && !raw_send_browsers().count(browser_id)) return false;
   if (!message || message_size == 0) return false;
-  CefRefPtr<CefValue> value = CefParseJSON(message, message_size, JSON_PARSER_RFC);
-  if (!value || value->GetType() != VTYPE_DICTIONARY) return false;
-  CefRefPtr<CefDictionaryValue> dict = value->GetDictionary();
+  // A top-level scan, not a full parse: a full parse refuses valid protocol
+  // output (lone surrogates, deep nesting) and costs a parse per message.
+  long long id = 0;
+  const DevToolsIdKind kind = TopLevelDevToolsId(static_cast<const char*>(message), message_size, &id);
+  if (kind == DevToolsIdKind::kInvalid) return false;
   const std::string raw(static_cast<const char*>(message), message_size);
-  int id = 0;
-  if (dict->HasKey("id")) {
+  if (kind == DevToolsIdKind::kInt) {
     // A reply. Raw-send replies are the host's alone; shim-internal
     // replies go on to OnDevToolsMethodResult (DEVTOOLS_RESULT).
-    if (!MessageId(dict, &id) || id < kFirstRawDevToolsId) return false;
+    if (id < kFirstRawDevToolsId) return false;
     Emit(CMUX_SHIM_DEVTOOLS_EVENT, browser_id, 0, 0, 0, raw);
     return true;
   }
@@ -98,9 +100,14 @@ int cmux_shim_devtools_send(int browser_id, const char* message_json) {
   if (!value || value->GetType() != VTYPE_DICTIONARY) return -1;
   int id = 0;
   if (!MessageId(value->GetDictionary(), &id) || id < kFirstRawDevToolsId) return -1;
+  // The parsed message is sent again as written by CEF: one "id" only (a
+  // repeated key kept its last value here, but the protocol would answer
+  // with the first, a shim-internal id).
+  const std::string canonical = CefWriteJSON(value, JSON_WRITER_DEFAULT).ToString();
+  if (canonical.empty()) return -1;
   // Before the send: a reply may arrive while SendDevToolsMessage runs.
   raw_send_browsers().insert(browser_id);
-  return browser->GetHost()->SendDevToolsMessage(message_json, size) ? 1 : -1;
+  return browser->GetHost()->SendDevToolsMessage(canonical.data(), canonical.size()) ? 1 : -1;
 }
 
 }  // extern "C"

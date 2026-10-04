@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace cmux_shim {
 
@@ -152,6 +154,36 @@ inline bool ResolvePagePath(const std::string& root, const std::string& url_path
   *file = real_file;
   *mime = type;
   return true;
+}
+
+// Whether a request may load a page's files: a main-frame navigation, or a
+// request from a frame of the same cmux-page origin (a child frame being
+// navigated is judged by its parent). Normal web pages can neither embed
+// nor load cmux-page resources.
+inline bool PageRequestAllowed(bool main_frame, const std::string& frame_url, const std::string& parent_url,
+                               const std::string& domain) {
+  if (main_frame) return true;
+  const std::string origin = std::string(kCmuxPageScheme) + "://" + domain;
+  auto same = [&](const std::string& url) {
+    return url.size() >= origin.size() && url.compare(0, origin.size(), origin) == 0 &&
+           (url.size() == origin.size() || url[origin.size()] == '/' || url[origin.size()] == '?' ||
+            url[origin.size()] == '#');
+  };
+  if (same(frame_url)) return true;
+  return (frame_url.empty() || frame_url == "about:blank") && same(parent_url);
+}
+
+// Response headers of every cmux-page response. frame-ancestors 'self' is
+// added unless the page's CSP sets its own.
+inline std::vector<std::pair<std::string, std::string>> PageResponseHeaders(const std::string& csp) {
+  std::string policy = csp;
+  if (policy.find("frame-ancestors") == std::string::npos) policy += "; frame-ancestors 'self'";
+  return {
+      {"Content-Security-Policy", policy},
+      {"X-Content-Type-Options", "nosniff"},
+      {"X-Frame-Options", "SAMEORIGIN"},
+      {"Cross-Origin-Resource-Policy", "same-origin"},
+  };
 }
 
 }  // namespace cmux_shim
