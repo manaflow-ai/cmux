@@ -21,7 +21,7 @@ export class BoundaryError extends Error {
   }
 }
 
-import { siteOf } from "./public-suffix.mjs";
+import { isPublicSuffixName, siteOf } from "./public-suffix.mjs";
 
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -150,7 +150,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     if (!Array.isArray(domains) || !domains.length) throw new BoundaryError("invalid", `${title}: ${name}: domains: expected the domains it may be typed into, such as ["example.com"]; a secret without domains is not accepted`);
     const parsed = domains.map((d) => {
       try {
-        return T.parsePattern(d, title);
+        return T.parsePattern(d, title, isPublicSuffixName);
       } catch (e) {
         throw new BoundaryError("invalid", e.message);
       }
@@ -291,6 +291,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     if (op === "get") return policyJSON();
     if (op === "check") return blockReason(args.url || "");
     if (op === "site") return siteOf(args.host || "");
+    if (op === "publicSuffix") return isPublicSuffixName(args.name || "");
     if (op !== "set") throw new BoundaryError("invalid", `policy: unknown operation ${op}`);
     const title = args.title || "session.domainPolicy";
     if (policy.locked) throw new BoundaryError("invalid", `${title}: the domain policy is locked for this session`);
@@ -299,7 +300,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       if (!Array.isArray(list)) throw new BoundaryError("invalid", `${title}: expected an array of domain patterns or null, got ${JSON.stringify(list)}`);
       return list.map((d) => {
         try {
-          return T.parsePattern(d, title);
+          return T.parsePattern(d, title, isPublicSuffixName);
         } catch (e) {
           throw new BoundaryError("invalid", e.message);
         }

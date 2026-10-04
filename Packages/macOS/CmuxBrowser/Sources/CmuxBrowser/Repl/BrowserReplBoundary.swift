@@ -10,14 +10,17 @@ import Foundation
 /// passes through the session, which applies them whatever the JavaScript
 /// side did.
 final class BrowserReplBoundary: @unchecked Sendable {
-    let secrets = BrowserReplSecretStore()
+    let secrets: BrowserReplSecretStore
     private let lock = NSLock()
     private var policy = BrowserReplDomainPolicy()
     private let publicSuffixes: BrowserReplPublicSuffixList
 
-    /// - Parameter publicSuffixes: The list `site` answers come from.
+    /// - Parameter publicSuffixes: The list `site` and `publicSuffix`
+    ///   answers come from, and that refuses wildcard patterns over a
+    ///   public suffix.
     init(publicSuffixes: BrowserReplPublicSuffixList = .system) {
         self.publicSuffixes = publicSuffixes
+        self.secrets = BrowserReplSecretStore(publicSuffixes: publicSuffixes)
     }
 
     /// Methods whose results are images or documents; their pixels are
@@ -71,7 +74,8 @@ final class BrowserReplBoundary: @unchecked Sendable {
 
     /// `get`, `check { url }` (the reason or null), `site { host }` (the
     /// host's registrable domain by the Public Suffix List, or the host when
-    /// it has none, as the driver scopes cookies) or `set { allowed?,
+    /// it has none, as the driver scopes cookies), `publicSuffix { name }`
+    /// (whether the name is a public suffix itself) or `set { allowed?,
     /// prohibited?, blockIPs?, lock?, title }`; a given key replaces its
     /// value, `null` clears it. A locked policy refuses `set`.
     /// - Returns: The result and, for `set`, the new policy to give the driver.
@@ -83,6 +87,8 @@ final class BrowserReplBoundary: @unchecked Sendable {
             return (.success(blockReason(args["url"] as? String ?? "").map { $0 as Any } ?? NSNull()), nil)
         case "site":
             return (.success(publicSuffixes.site(of: args["host"] as? String ?? "")), nil)
+        case "publicSuffix":
+            return (.success(publicSuffixes.isPublicSuffix(args["name"] as? String ?? "")), nil)
         case "set":
             let title = args["title"] as? String ?? "session.domainPolicy"
             do {
@@ -92,11 +98,11 @@ final class BrowserReplBoundary: @unchecked Sendable {
                     }
                     var next = policy
                     if args.keys.contains("allowed") {
-                        let list = try Self.patterns(args["allowed"], title: title)
+                        let list = try patterns(args["allowed"], title: title)
                         next.allowed = (list?.isEmpty ?? true) ? nil : list
                     }
                     if args.keys.contains("prohibited") {
-                        next.prohibited = try Self.patterns(args["prohibited"], title: title) ?? []
+                        next.prohibited = try patterns(args["prohibited"], title: title) ?? []
                     }
                     if let block = args["blockIPs"] as? Bool { next.blockIPAddresses = block }
                     if args["lock"] as? Bool == true { next.locked = true }
@@ -114,7 +120,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
         }
     }
 
-    private static func patterns(_ raw: Any?, title: String) throws -> [BrowserReplDomainPattern]? {
+    private func patterns(_ raw: Any?, title: String) throws -> [BrowserReplDomainPattern]? {
         if raw == nil || raw is NSNull { return nil }
         guard let list = raw as? [Any] else {
             throw BrowserReplDriverError(code: "invalid", message: "\(title): expected an array of domain patterns or null, got \(JSONSerialization.browserReplString(raw) ?? "?")")
@@ -123,7 +129,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
             guard let text = item as? String else {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): expected domain patterns as non-empty strings, got \(JSONSerialization.browserReplString(item) ?? "?")")
             }
-            return try BrowserReplDomainPattern.parse(text, title: title)
+            return try BrowserReplDomainPattern.parse(text, title: title, publicSuffixes: publicSuffixes)
         }
     }
 

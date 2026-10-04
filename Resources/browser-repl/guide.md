@@ -64,7 +64,8 @@ at once.
 - `sleep(ms)`, `display(value)`, `console`.
 - `session`: `name(label)` labels this session's tabs; `keep(page)` keeps a
   tab after a one-shot run; `id`; `guide()` returns this text.
-  `allowedDomains(["example.com", "*.example.org"], { lock })`,
+  `allowedDomains(["example.com", "*.example.org"], { lock })` (a wildcard
+  over a public suffix, such as `*.com` or `*.co.uk`, is refused),
   `prohibitedDomains([...])` and `blockIPAddresses(true)` limit navigations,
   new tabs, `fetch` (every redirect), site tools and the subresources of
   tabs this session opened. A tab this session opened never loads a blocked page (the

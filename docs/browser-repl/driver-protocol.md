@@ -226,6 +226,15 @@ Every event carries `targetId`.
 Agent code runs in the REPL's JavaScriptCore context, so the guards are
 native (`BrowserReplBoundary` in the session, and the driver):
 
+- Domain patterns (the policy's `allowed` and `prohibited`, a secret's
+  domains, `tools.register` domains): `example.com`, `*.example.com`,
+  `https://example.com:8443` or `*`. Several wildcards, a wildcard
+  top-level domain (`example.*`), an embedded wildcard and a wildcard over
+  a public suffix of the system's Public Suffix List (`*.com`, `*.co.uk`,
+  `*.github.io`) fail with `invalid`; a wildcard over a site
+  (`*.example.co.uk`) and a public suffix named alone (`com`, one host)
+  are accepted.
+
 - Secrets: values stay in the session. `input.insertText { secret }` reaches
   the driver as `{ text, secretName, secretDomains }`; the driver types it
   only when the document that holds the focused element has an origin
@@ -426,7 +435,7 @@ structured values cross the boundary as JSON strings.
 | `driverCall(callId, method, paramsJSON)` | the app later calls `globalThis.__cmuxHostOnResult(callId, errorJSON, resultJSON)`; exactly one of the two is `null`; `errorJSON` is `{ code, message }` |
 | `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64?, targetId?, credentials?, origin? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store (a cookie goes to a URL its domain matches and whose path its path matches by RFC 6265, so a `/account` cookie never goes to `/accounting`), for `credentials` `include` (default) always, `same-origin` only for URLs on `origin`, `omit` never. The domain policy is checked on the URL and every redirect hop (`blocked`); a body over 64 MiB fails; a session runs at most 16 fetches at once and queues the rest in order; when a cell times out, the fetches it started are cancelled and its queued ones fail with `cancelled`; the session redacts the URL, headers and the body (UTF-8 text as text; other bytes by each value's UTF-8 and escaped bytes, and its percent-encoded and Base64 forms) |
 | `secrets(op, argsJSON)` | synchronous, `{"ok": value}` or `{"error": {code, message}}`: `set { name, value, domains, totp }`, `load { path }` (read natively) or `load { object }`, `list`, `has { name }`, `delete { name }`, `clear`. No result holds a value |
-| `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `site { host }` → the host's site (registrable domain by the Public Suffix List, or the host itself when it has none), the same site `cookies.clear` scopes to, `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
+| `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `site { host }` → the host's site (registrable domain by the Public Suffix List, or the host itself when it has none), the same site `cookies.clear` scopes to, `publicSuffix { name }` → whether the name is itself a public suffix (the runtime's `tools.register` refuses a wildcard over one), `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
 | `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
 | `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
 | `tmpdir`, `homedir` | the session's private temporary directory (`<app temp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, removed on close when empty; no other session's files are in it) and the canonical home directory, for `node:os` |
