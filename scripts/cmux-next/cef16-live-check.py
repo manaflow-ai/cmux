@@ -171,12 +171,35 @@ try:
     title = js("document.title")
     text = js("(document.body && document.body.innerText || '').slice(0, 200)")
     elements = js("document.querySelectorAll('*').length")
-    csp = js("fetch(location.origin + '/index.html').then(r => r.headers.get('content-security-policy') + ' | ' + "
-             "r.headers.get('x-content-type-options'), e => 'err:' + e)")
     check("4a cmux-page://cmux.history renders", bool(page) and isinstance(elements, int) and elements > 5,
           {"url": page, "title": title, "text": text, "elements": elements})
+    # The page's own CSP in force: a blocked fetch reports the policy text.
+    enforced = js("new Promise(done => { document.addEventListener('securitypolicyviolation', e => "
+                  "done('violation: ' + e.violatedDirective + ' | policy: ' + e.originalPolicy), {once: true}); "
+                  "fetch('/index.html').then(r => setTimeout(() => done('allowed:' + r.status), 500), "
+                  "e => setTimeout(() => done('failed, no violation: ' + e), 500)); })")
+    # The response headers, as Chromium received them (raw DevTools Network events).
+    rpc("debug.cef.raw", {"action": "clear"})
+    rpc("debug.cef.raw", {"action": "watch", "enabled": True})
+    rpc("debug.cef.raw", {"action": "send", "message": json.dumps({"id": 1073741901, "method": "Network.enable"})})
+    time.sleep(0.5)
+    cdp("Page.reload", {})
+    def response_headers():
+        for message in rpc("debug.cef.raw", {"action": "log"}).get("messages", []):
+            try:
+                event = json.loads(message["json"])
+            except ValueError:
+                continue
+            response = (event.get("params") or {}).get("response") or {}
+            if event.get("method") == "Network.responseReceived" and str(response.get("url", "")).startswith("cmux-page://cmux.history/"):
+                return {"url": response.get("url"), "status": response.get("status"), "headers": response.get("headers")}
+        return None
+    headers = wait(response_headers, 15)
+    rpc("debug.cef.raw", {"action": "watch", "enabled": False})
+    lower = {k.lower(): v for k, v in ((headers or {}).get("headers") or {}).items()}
     check("4c cmux-page response carries its own CSP and nosniff",
-          isinstance(csp, str) and "default-src" in csp and "nosniff" in csp, {"headers": csp})
+          "content-security-policy" in lower and lower.get("x-content-type-options") == "nosniff",
+          {"response": headers, "enforced": enforced})
     try:
         shot = rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "window.png")})
         evidence["snapshot"] = shot
