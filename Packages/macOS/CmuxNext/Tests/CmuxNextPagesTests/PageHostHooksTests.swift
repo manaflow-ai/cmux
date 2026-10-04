@@ -51,7 +51,11 @@ import WebKit
         let root = try Self.root()
         let view = try #require(PageWebView(descriptor: Self.appPage, root: root, routes: []))
         var notices = 0
-        view.onCrashNotice = { _ in notices += 1 }
+        var crashes = 0
+        view.onCrash = { _, reloading in
+            crashes += 1
+            if !reloading { notices += 1 }
+        }
         var clock = Date(timeIntervalSinceReferenceDate: 1_000)
         view.now = { clock }
         for _ in 0..<PageCrashReloads.limit {
@@ -59,6 +63,7 @@ import WebKit
             clock += 1
         }
         #expect(notices == 0)
+        #expect(crashes == PageCrashReloads.limit)
         view.webViewWebContentProcessDidTerminate(view.webView)
         #expect(notices == 1)
         // The Reload button forgets the crashes.

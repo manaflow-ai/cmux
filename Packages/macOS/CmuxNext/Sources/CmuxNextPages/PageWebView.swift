@@ -25,6 +25,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let descriptor: PageDescriptor
     public let router: PageRouter
     let webView: WKWebView
+    /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
+    /// router and the bridge instead.
+    public var webKitView: WKWebView { webView }
     private let bridge: any PageHostBridge
     private var loaded = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
@@ -34,9 +37,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var onOpenExternal: ((URL) -> Void)?
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
     public var onNavigate: ((PageNavigation) -> PageNavigation.Policy)?
-    /// The page crashed more often than ``PageCrashReloads`` allows: it is not reloaded, and the
-    /// host shows its notice (with a button that calls ``reloadAfterCrashes()``).
-    public var onCrashNotice: ((PageWebView) -> Void)?
+    /// The page's web content crashed. `reloading` is false once it crashed more often than
+    /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
+    /// button that calls ``reloadAfterCrashes()``).
+    public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
+    /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
+    public var themeSurface: SurfaceKind? {
+        didSet { if themeSurface != oldValue { applyTheme() } }
+    }
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     private var crashReloads = PageCrashReloads()
@@ -216,7 +225,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func applyTheme(force: Bool = false) {
         guard loaded else { return }
-        let theme = WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
+        let theme = WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                             surface: themeSurface)
         guard force || theme.payloadJSON != appliedTheme else { return }
         appliedTheme = theme.payloadJSON
         webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)
@@ -253,12 +263,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         loaded = false
         router.reset()
-        if crashReloads.shouldReload(at: now()) {
+        let reloading = crashReloads.shouldReload(at: now())
+        if reloading {
             webView.reload()
         } else {
             logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
-            onCrashNotice?(self)
         }
+        onCrash?(self, reloading)
     }
 
     /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash
