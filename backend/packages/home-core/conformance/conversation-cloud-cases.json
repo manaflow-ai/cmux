@@ -172,6 +172,32 @@
    }
   },
   {
+   "name": "create group: a paired device never joins a cloud head",
+   "create": {
+    "id": "conv_01J00000000000000000GROUP",
+    "actor": "user_alice",
+    "title": "Team",
+    "now": "2026-10-01T12:00:00.000Z",
+    "kind": "group",
+    "participants": [
+     {
+      "id": "user_alice",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "remote_inst_1",
+      "kind": "human",
+      "display_name": "Alice",
+      "person": "user_alice"
+     }
+    ]
+   },
+   "expect": {
+    "reject": "invalid_participant"
+   }
+  },
+  {
    "name": "create group: custom settings",
    "create": {
     "id": "conv_01J00000000000000000GROUP",
