@@ -208,6 +208,14 @@ pub(in super::super) fn repair_side_split_identities(
             }
             match identity_state(transaction, &split)? {
                 None => park(transaction, screen_id, &split, revision)?,
+                // The one approved exception to "a tombstone is final"
+                // (coordinator, 2026-10-03): the first rows-v1 build
+                // (504206109aa, integration branch only, never released)
+                // tombstoned a lone column's id with no parked flag only
+                // because of how it stored the column. A valid side table of
+                // a live screen that still names such an id parks it again,
+                // so dev databases written by that build stay writable. A
+                // released build never tombstones a side-table id unflagged.
                 Some((kind, live)) if kind == "split" && (live || parked.is_none()) => {
                     if live {
                         tombstone_resource_identity(transaction, &split, revision)?;
