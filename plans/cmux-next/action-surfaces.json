@@ -19022,6 +19022,34 @@
       "title" : "Add Server…",
       "title_key" : "action.server.addServer",
       "title_table" : "ServerActions"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "browser markdown-save",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "s",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "markdownSave",
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Markdown: Save",
+      "title_key" : "action.markdownSave",
+      "title_table" : "ActionCatalog"
     }
   ],
   "version" : 1
