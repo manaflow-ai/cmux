@@ -31,13 +31,28 @@ final class HomeCloudLink {
     /// one only while none is in flight: that one's outcome answers it.
     private var leasing = 0
     /// The first wait before a failed lease is tried again; each failure
-    /// doubles it up to `maxRetry`, and a lease that holds resets it.
+    /// doubles it up to `maxRetry`, and a lease that holds resets it. The
+    /// same steps space forced renewals (`forcedWait`).
     static let firstRetry: Duration = .seconds(1)
     static let maxRetry: Duration = .seconds(60)
     private var retryDelay = HomeCloudLink.firstRetry
     /// The pending retry; cancelled by a new link, a lease that holds, or
     /// this link ending.
     private let retry: DemandTimer
+    /// The expiry of the lease this link set last. A daemon request that
+    /// names another expiry is about a lease already replaced, which the
+    /// newer lease answers.
+    private var leasedExpiry: UInt64?
+    /// How long a forced renewal waits after a forced renewal that
+    /// succeeded. Zero until one succeeds; each doubles it up to
+    /// `maxRetry`, and only a reply or a live socket on a lease (not the
+    /// lease itself) resets it, so a Worker that refuses every new token
+    /// cannot make renewals and resends loop.
+    private var forcedWait: Duration = .zero
+    /// Runs while forced renewals wait; one asked for meanwhile goes when it ends.
+    private let cooldown: DemandTimer
+    /// The reason of a forced renewal asked for while `cooldown` runs.
+    private var pendingForced: String?
 
     /// `clock` runs the retry backoff; tests pass a manual clock.
     init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID, clock: any Clock<Duration> = ContinuousClock()) {
@@ -45,9 +60,14 @@ final class HomeCloudLink {
         self.source = source
         self.localID = localID
         retry = DemandTimer(owner: "App.homeCloud.leaseRetry", clock: clock)
+        cooldown = DemandTimer(owner: "App.homeCloud.renewCooldown", clock: clock)
         source.onLeaseMissing { [weak self] in
             // task-owner: one hop to the main actor; ends at once
             Task { @MainActor in self?.leaseMissing() }
+        }
+        source.onLeaseProven { [weak self] in
+            // task-owner: one hop to the main actor; ends at once
+            Task { @MainActor in self?.leaseProven() }
         }
     }
 
@@ -79,6 +99,10 @@ final class HomeCloudLink {
         last = link
         retry.cancel()
         retryDelay = Self.firstRetry
+        cooldown.cancel()
+        pendingForced = nil
+        forcedWait = .zero
+        leasedExpiry = nil
         guard let endpoint = link.endpoint else {
             // No transport, so no lease and nothing goes out: offline.
             source.configure(commands: nil, link: nil, identity: identity(link.userID, link), leased: false)
@@ -88,7 +112,8 @@ final class HomeCloudLink {
         let outcome = await lease.sync(endpoint, expectedUserID: link.userID)
         leasing -= 1
         switch outcome {
-        case .leased(let subject):
+        case .leased(let subject, let expiresAt):
+            leasedExpiry = expiresAt
             source.configure(commands: endpoint, link: link.id, identity: identity(subject, link), leased: true)
         case .signedOut:
             source.configure(commands: endpoint, link: link.id, identity: nil)
@@ -101,7 +126,20 @@ final class HomeCloudLink {
     /// The daemon asked for a lease (`cloud-session-needed`): it is for the
     /// account the source acts as when the lease work runs, and only a
     /// lease for that account counts as renewed.
+    ///
+    /// Every upstream socket refused with one token asks (the inbox and up
+    /// to 64 conversations), so one renewal answers them all: a request
+    /// that names a lease this link already replaced (`expiresAt`), or that
+    /// arrives while lease work is queued or running, needs nothing more. A
+    /// forced renewal asked for soon after one succeeded waits
+    /// (`forcedWait`).
     func sessionNeeded(reason: String, expiresAt: UInt64? = nil) {
+        if let expiresAt, let leasedExpiry, expiresAt != leasedExpiry { return }
+        guard leasing == 0 else { return }
+        if Self.isForced(reason), cooldown.isScheduled {
+            pendingForced = reason
+            return
+        }
         renew(reason: reason)
     }
 
@@ -113,14 +151,39 @@ final class HomeCloudLink {
         renew(reason: "missing")
     }
 
+    /// A reply or a live socket came through the current lease: the Worker
+    /// takes its token, so a later forced renewal need not wait.
+    private func leaseProven() {
+        forcedWait = .zero
+    }
+
+    /// `missing` takes the current token; the others refresh it.
+    private static func isForced(_ reason: String) -> Bool { reason != "missing" }
+
     private func renew(reason: String) {
         guard let endpoint = last?.endpoint else { return }
         leasing += 1
         lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
-            if case .leased(let subject) = outcome { source.leaseRenewed(subject: subject) }
+            if case .leased(let subject, let expiresAt) = outcome {
+                self?.leasedExpiry = expiresAt
+                source.leaseRenewed(subject: subject)
+            }
             guard let self else { return }
             leasing -= 1
+            if case .leased = outcome, Self.isForced(reason) { startCooldown() }
             settled(outcome, reason: reason)
+        }
+    }
+
+    /// A forced renewal succeeded: the next one waits, twice as long as the
+    /// last wait, unless a reply or a live socket proves this lease first.
+    private func startCooldown() {
+        forcedWait = forcedWait == .zero ? Self.firstRetry : min(forcedWait * 2, Self.maxRetry)
+        cooldown.schedule(after: forcedWait) { @MainActor [weak self] in
+            guard let self, let reason = pendingForced else { return }
+            pendingForced = nil
+            guard leasing == 0 else { return }
+            renew(reason: reason)
         }
     }
 

@@ -35,8 +35,10 @@ extension CloudAuth: CloudLeaseTokens {
 /// order it was asked for, so an older lease never lands after a newer one.
 final class HomeCloudLease {
     enum Outcome: Equatable, Sendable {
-        /// The daemon holds a lease for this account (the token's `sub`).
-        case leased(subject: String)
+        /// The daemon holds a lease for this account (the token's `sub`),
+        /// until `expiresAt` (Unix milliseconds, what `cloud-session-needed`
+        /// names for it).
+        case leased(subject: String, expiresAt: UInt64)
         /// No account was asked for: the daemon holds no lease.
         case signedOut
         /// No lease for the account asked for.
@@ -132,7 +134,7 @@ final class HomeCloudLease {
             let expiresAt = Self.expiry(ofJWT: token) ?? Self.fallbackExpiry(now: Date())
             _ = try await sessions.setSession(CloudSessionSetRequest(apiBaseURL: origin, accessToken: token, expiresAt: expiresAt,
                                                                      clientVersion: clientVersion))
-            return .leased(subject: subject)
+            return .leased(subject: subject, expiresAt: expiresAt)
         } catch is CancellationError {
             if clearOnFailure { _ = try? await sessions.clearSession() }
             return .superseded

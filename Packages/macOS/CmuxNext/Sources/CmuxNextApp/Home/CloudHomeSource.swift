@@ -35,6 +35,14 @@ nonisolated final class CloudHomeSource: HomeSource {
         var leased = false
         /// Asks the link for a lease when an op or read found none.
         var leaseMissing: (@Sendable () -> Void)?
+        /// Tells the link a reply or a live socket came through the lease.
+        var leaseProven: (@Sendable () -> Void)?
+        /// A reply, a live socket or an owner event came through the
+        /// current lease since it was renewed: the Worker takes its token.
+        var proven = true
+        /// Bumps with every renewed lease. A reply proves only the lease it
+        /// was sent under: one sent before the renewal proves nothing new.
+        var leaseEpoch: UInt64 = 0
         /// Bumps on every configure; work started under an older one is dropped.
         var generation: UInt64 = 0
         var entries: [ConversationID: CloudInboxEntry] = [:]
@@ -199,9 +207,9 @@ nonisolated final class CloudHomeSource: HomeSource {
             break
         }
         // An owner event proves the cloud reachable again.
-        if case .changed = event { recover() }
-        if case .resynced = event { recover() }
-        if case .inboxChanged = event { recover() }
+        if case .changed = event { reached() }
+        if case .resynced = event { reached() }
+        if case .inboxChanged = event { reached() }
     }
 
     /// Called (off any lock) when an op or read is refused because the
@@ -209,6 +217,12 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// then, so the daemon never asks for one itself.
     func onLeaseMissing(_ action: @escaping @Sendable () -> Void) {
         state.withLock { $0.leaseMissing = action }
+    }
+
+    /// Called (off any lock) when the first reply, live socket or owner
+    /// event after a renewed lease shows the Worker takes its token.
+    func onLeaseProven(_ action: @escaping @Sendable () -> Void) {
+        state.withLock { $0.leaseProven = action }
     }
 
     /// A new display name for the account this source acts as; any other
@@ -254,7 +268,12 @@ nonisolated final class CloudHomeSource: HomeSource {
     func leaseRenewed(subject: String) {
         let renewed = state.withLock { state -> (first: Bool, generation: UInt64)? in
             guard let identity = state.identity, identity.cloudID == CloudIdentity.cloudID(stackUserID: subject) else { return nil }
-            defer { state.leased = true }
+            defer {
+                state.leased = true
+                // A lease is not proof: the Worker may refuse its token too.
+                state.proven = false
+                state.leaseEpoch += 1
+            }
             return (!state.leased, state.generation)
         }
         guard let renewed else { return }
@@ -590,7 +609,7 @@ nonisolated final class CloudHomeSource: HomeSource {
     private func apply(_ report: CloudSubscriptionState) {
         // Any socket live again proves the cloud reachable; a disconnect leaves intents waiting for that.
         if report.state == "disconnected" { state.withLock { $0.degraded = true } }
-        if report.state == "live" { recover() }
+        if report.state == "live" { reached() }
         guard report.scope == "conversation", let conversation = report.conversation else { return }
         let id = ConversationID(conversation)
         state.withLock { state in
@@ -640,7 +659,7 @@ nonisolated final class CloudHomeSource: HomeSource {
                 return reply.state == "live"
             }
             // Edits refused while it connected go again.
-            if live { recover() }
+            if live { reached() }
         } catch {
             state.withLock { state in
                 guard state.generation == generation, state.targets[conversation]?.fromEvent == false else { return }
@@ -847,6 +866,7 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// leaves intents unconfirmed marks the source degraded; a good reply
     /// recovers it.
     private func reply<T>(for identity: CloudIdentity, _ body: () async throws -> T) async throws -> T {
+        let epoch = state.withLock { $0.leaseEpoch }
         let value: T
         do {
             value = try await Self.mapped(body)
@@ -858,7 +878,7 @@ nonisolated final class CloudHomeSource: HomeSource {
             throw rejection
         }
         guard state.withLock({ $0.identity?.cloudID }) == identity.cloudID else { throw HomeRejection.notAuthorized }
-        recover()
+        reached(leaseEpoch: epoch)
         return value
     }
 
@@ -876,6 +896,21 @@ nonisolated final class CloudHomeSource: HomeSource {
             await prior?.value
             for id in ids { _ = try? await commands.unsubscribe(id.rawValue) }
         }
+    }
+
+    /// A reply, a live socket or an owner event: the cloud and the Worker
+    /// took this lease. The link stops spacing renewals, and what failed
+    /// before goes again.
+    /// `leaseEpoch`: the lease a reply was sent under; a reply sent before
+    /// the current lease proves nothing about it.
+    private func reached(leaseEpoch: UInt64? = nil) {
+        let proven = state.withLock { state -> (@Sendable () -> Void)? in
+            guard !state.proven, leaseEpoch.map({ $0 == state.leaseEpoch }) ?? true else { return nil }
+            state.proven = true
+            return state.leaseProven
+        }
+        proven?()
+        recover()
     }
 
     /// The cloud is reachable again after a failure: the store resends.

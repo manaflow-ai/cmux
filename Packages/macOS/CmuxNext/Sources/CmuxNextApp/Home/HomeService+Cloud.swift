@@ -32,7 +32,7 @@ extension HomeService {
 
     func handleCloud(_ event: CloudConversationsEvent) {
         if case .sessionNeeded(let needed) = event {
-            cloudLinker?.sessionNeeded(reason: needed.reason)
+            cloudLinker?.sessionNeeded(reason: needed.reason, expiresAt: needed.expiresAt)
             return
         }
         cloudSource.handle(event)
