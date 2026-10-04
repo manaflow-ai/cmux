@@ -509,3 +509,22 @@ async fn a_recovered_permission_prompt_is_not_idle() {
     let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
     assert_eq!(result["msg"]["status"], "completed", "{result}");
 }
+
+/// An idle hosted session whose link this daemon lost (another owner took
+/// the host over and left) still ends at the idle exit: the reaper ends the
+/// unadopted host with its nonce proof instead of sending Terminate over
+/// the dead link and leaving the harness running.
+#[tokio::test]
+async fn an_idle_hosted_agent_with_a_lost_link_is_ended() {
+    let daemon = Daemon::with_env("idlelost", "approve-all", &[("ACPMUX_IDLE_CHILD_SECS", "2")]);
+    let session = new_session(&daemon).await;
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+    // Another owner takes the host over, which closes the daemon's link.
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    assert!(gone_within(harness_pid, Duration::from_secs(20)), "the idle agent kept running");
+}
