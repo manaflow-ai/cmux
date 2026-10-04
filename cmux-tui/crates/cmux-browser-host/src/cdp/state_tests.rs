@@ -339,3 +339,35 @@ fn browser_page_targets_never_become_tabs() {
     assert!(state.tabs.is_empty());
     assert!(state.sessions.is_empty());
 }
+
+#[test]
+fn a_nested_frame_on_a_browser_page_is_released_through_its_parent_frame() {
+    let mut state = State::default();
+    attach(&mut state, "T1", "S1", None);
+    let frame = |state: &mut State, parent: &str, session: &str, target: &str| {
+        state.apply(&cdp(
+            Some(parent),
+            "Target.attachedToTarget",
+            json!({"sessionId": session, "targetInfo": {"targetId": target, "type": "iframe", "url": "https://x.test/"}, "waitingForDebugger": true}),
+        ))
+    };
+    frame(&mut state, "S1", "C1", "F1");
+    frame(&mut state, "C1", "C2", "F2");
+    let applied = state.apply(&cdp(
+        Some("C2"),
+        "Page.frameNavigated",
+        json!({"frame": {"id": "F2", "parentId": "F1", "loaderId": "L", "url": "chrome-extension://abc/menu.html"}, "type": "Navigation"}),
+    ));
+    assert_eq!(
+        applied.follow_ups,
+        vec![FollowUp::Release {
+            session_id: "C2".into(),
+            waiting: false,
+            parent: Some("C1".into())
+        }]
+    );
+    assert!(state.target_for_session("C2").is_none());
+    // A new main document drops the old frames' URLs.
+    navigate_main(&mut state, "S1", "L2", "https://b.test/");
+    assert_eq!(state.tabs["T1"].frame_urls.len(), 1);
+}

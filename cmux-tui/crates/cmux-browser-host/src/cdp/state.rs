@@ -136,6 +136,9 @@ pub struct Applied {
 pub struct State {
     pub tabs: HashMap<String, TabState>,
     pub sessions: HashMap<String, String>,
+    /// Frame session -> the session it attached through (a nested
+    /// cross-site frame attaches through its parent frame's session).
+    pub parent_sessions: HashMap<String, String>,
     pub order: Vec<String>,
     pub active: Option<String>,
     /// Dialog id -> (tab, session that opened it).
@@ -182,6 +185,7 @@ impl State {
                         self.remove_tab(&target_id, &mut applied);
                     } else {
                         self.sessions.remove(session_id);
+                        self.parent_sessions.remove(session_id);
                         if let Some(tab) = self.tabs.get_mut(&target_id) {
                             tab.frame_sessions.retain(|_, session| session.as_str() != session_id);
                             tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
@@ -258,6 +262,9 @@ impl State {
         {
             tab.frame_sessions.insert(target_id.to_owned(), session_id.to_owned());
             self.sessions.insert(session_id.to_owned(), tab_id.clone());
+            if let Some(parent) = parent {
+                self.parent_sessions.insert(session_id.to_owned(), parent.to_owned());
+            }
             applied.follow_ups.push(FollowUp::SetUpFrame {
                 target_id: tab_id,
                 session_id: session_id.to_owned(),
@@ -351,7 +358,10 @@ impl State {
                     // An out-of-process frame committed a browser page.
                     tab.frame_sessions.retain(|_, session| session.as_str() != session_id);
                     tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
-                    let parent = tab.session_id.clone();
+                    let parent = self
+                        .parent_sessions
+                        .remove(session_id)
+                        .unwrap_or_else(|| tab.session_id.clone());
                     self.sessions.remove(session_id);
                     applied.follow_ups.push(FollowUp::Release {
                         session_id: session_id.to_owned(),
@@ -365,6 +375,8 @@ impl State {
                     tab.main_frame = Some(frame_id.clone());
                     tab.url = url.clone();
                     tab.committed_url = url.clone();
+                    // A new document: its frames start over.
+                    tab.frame_urls.retain(|frame, _| *frame == frame_id);
                     tab.loader = frame.get("loaderId").and_then(Value::as_str).map(str::to_owned);
                     tab.lifecycle.clear();
                     tab.nav_seq += 1;
