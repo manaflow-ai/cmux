@@ -8,6 +8,7 @@
 //! pending frames, records that the viewer needs a snapshot, and the worker
 //! sends one READY snapshot taken under the terminal lock before live bytes.
 
+use super::snapshot_attach::LocalReadySnapshot;
 use super::*;
 pub struct AttachFrameReceiver {
     state: Arc<AttachTapState>,
@@ -15,10 +16,22 @@ pub struct AttachFrameReceiver {
 }
 
 impl AttachFrameReceiver {
+    fn pop_item(queue: &mut AttachTapQueue) -> Option<QueuedFrame> {
+        let item = queue.frames.pop_front()?;
+        queue.retained_bytes = queue.retained_bytes.saturating_sub(item.retained_bytes());
+        Some(item)
+    }
+
+    /// The next frame of a plain receiver. Only a snapshot viewer that opted
+    /// into local history is ever offered a local READY, and it reads its
+    /// queue with `recv_viewer_event`; any other item is skipped.
     fn pop(queue: &mut AttachTapQueue) -> Option<AttachFrame> {
-        let frame = queue.frames.pop_front()?;
-        queue.retained_bytes = queue.retained_bytes.saturating_sub(frame.retained_bytes());
-        Some(frame)
+        loop {
+            match Self::pop_item(queue)? {
+                QueuedFrame::Frame(frame) => return Some(frame),
+                QueuedFrame::LocalReady(_) => {}
+            }
+        }
     }
 
     pub fn recv(&self) -> Result<AttachFrame, RecvError> {
@@ -178,6 +191,26 @@ impl AttachFrame {
     }
 }
 
+/// One item of a viewer queue.
+#[derive(Debug)]
+pub(super) enum QueuedFrame {
+    Frame(AttachFrame),
+    /// A local-history READY at a resize cut, after every frame queued before
+    /// the resize (`terminal-snapshot-local-history-v1`).
+    LocalReady(Arc<LocalReadySnapshot>),
+}
+
+impl QueuedFrame {
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Frame(frame) => frame.retained_bytes(),
+            // The READY bytes are shared between viewers; each viewer's
+            // backlog still counts them, so a stuck viewer stays bounded.
+            Self::LocalReady(ready) => size_of::<Self>() + ready.frame.data.len(),
+        }
+    }
+}
+
 pub(super) enum AttachFrameMerge {
     Merged,
     Unmerged(AttachFrame),
@@ -269,7 +302,7 @@ pub(super) struct AttachTapState {
 }
 
 pub(super) struct AttachTapQueue {
-    frames: VecDeque<AttachFrame>,
+    frames: VecDeque<QueuedFrame>,
     retained_bytes: usize,
     max_frames: usize,
     max_retained_bytes: usize,
@@ -285,6 +318,9 @@ pub(super) struct AttachTapQueue {
     /// The last snapshot could not be encoded (an unfinished escape sequence
     /// over the continuation budget); the next output asks again.
     snapshot_deferred: bool,
+    /// The viewer reflows its own history: a resize reaches it as a
+    /// local-history READY while it is not behind.
+    local_history: bool,
 }
 
 impl AttachTapQueue {
@@ -299,6 +335,16 @@ impl AttachTapQueue {
             self.resyncs += 1;
         }
     }
+
+    /// Whether a resize now may reach this viewer as a local-history READY:
+    /// it opted in and holds every frame since its last snapshot.
+    fn takes_local_ready(&self) -> bool {
+        self.snapshot_mode
+            && self.local_history
+            && self.receiver_alive
+            && !self.needs_snapshot
+            && !self.snapshot_deferred
+    }
 }
 
 /// What a snapshot viewer's worker handles next.
@@ -307,6 +353,8 @@ pub(crate) enum ViewerEvent {
     Frame(AttachFrame),
     /// Send a READY snapshot; queued bytes were dropped.
     Snapshot,
+    /// Send this local-history READY (no history follows it).
+    LocalReady(Arc<LocalReadySnapshot>),
 }
 
 /// Lets a command outside the attach worker (`snapshot-request`) ask one
@@ -354,8 +402,10 @@ impl AttachFrameReceiver {
             if queue.needs_snapshot {
                 return Ok(ViewerEvent::Snapshot);
             }
-            if let Some(frame) = Self::pop(&mut queue) {
-                return Ok(ViewerEvent::Frame(frame));
+            match Self::pop_item(&mut queue) {
+                Some(QueuedFrame::Frame(frame)) => return Ok(ViewerEvent::Frame(frame)),
+                Some(QueuedFrame::LocalReady(ready)) => return Ok(ViewerEvent::LocalReady(ready)),
+                None => {}
             }
             if !queue.sender_alive {
                 return Err(RecvTimeoutError::Disconnected);
@@ -394,6 +444,11 @@ impl AttachFrameReceiver {
         queue.retained_bytes = 0;
         queue.needs_snapshot = false;
         queue.snapshot_deferred = true;
+    }
+
+    /// Opt this viewer into local-history READYs at resizes.
+    pub(crate) fn set_local_history(&self, enabled: bool) {
+        self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).local_history = enabled;
     }
 
     /// Bytes currently queued for this viewer.
@@ -447,6 +502,7 @@ impl AttachTap {
                 needs_snapshot: snapshot_mode,
                 resyncs: 0,
                 snapshot_deferred: false,
+                local_history: false,
             }),
             ready: Condvar::new(),
         });
@@ -470,6 +526,59 @@ impl AttachTap {
             drop(queue);
             self.state.ready.notify_one();
         }
+    }
+
+    /// Whether this viewer would take a local-history READY of a resize now.
+    pub(super) fn wants_local_ready(&self) -> bool {
+        !self.lifecycle.is_canceled() && self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).takes_local_ready()
+    }
+
+    /// A resize without a replay frame: a viewer that takes `local` gets it
+    /// queued after its pending frames; any other snapshot viewer resyncs.
+    pub(super) fn resync_snapshot_at_cut(&self, local: Option<&Arc<LocalReadySnapshot>>) {
+        let queue = self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(local) = local
+            && queue.takes_local_ready()
+        {
+            self.push(queue, QueuedFrame::LocalReady(local.clone()));
+            return;
+        }
+        drop(queue);
+        self.resync_snapshot();
+    }
+
+    /// A resize with its replay `frame`: replay viewers get the frame, a
+    /// snapshot viewer that takes `local` gets it, other snapshot viewers
+    /// resync.
+    pub(super) fn try_send_resize(
+        &self,
+        frame: AttachFrame,
+        local: Option<&Arc<LocalReadySnapshot>>,
+    ) -> bool {
+        if let Some(local) = local
+            && !self.lifecycle.is_canceled()
+        {
+            let queue = self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if queue.takes_local_ready() {
+                return self.push(queue, QueuedFrame::LocalReady(local.clone()));
+            }
+        }
+        self.try_send(frame)
+    }
+
+    /// Queue `item` within the caps; past them, overflow.
+    fn push(&self, mut queue: std::sync::MutexGuard<'_, AttachTapQueue>, item: QueuedFrame) -> bool {
+        let item_bytes = item.retained_bytes();
+        if item_bytes > queue.max_retained_bytes.saturating_sub(queue.retained_bytes)
+            || queue.frames.len() >= queue.max_frames
+        {
+            return self.overflow(queue);
+        }
+        queue.retained_bytes = queue.retained_bytes.saturating_add(item_bytes);
+        queue.frames.push_back(item);
+        drop(queue);
+        self.state.ready.notify_one();
+        true
     }
 
     /// Overflow: a legacy viewer disconnects, a snapshot viewer falls behind.
@@ -520,7 +629,7 @@ impl AttachTap {
         }
         let queue_retained_bytes = queue.retained_bytes;
         let queue_max_retained_bytes = queue.max_retained_bytes;
-        if let Some(pending) = queue.frames.back_mut() {
+        if let Some(QueuedFrame::Frame(pending)) = queue.frames.back_mut() {
             let previous_bytes = pending.retained_bytes();
             let max_frame_bytes = queue_max_retained_bytes
                 .saturating_sub(queue_retained_bytes.saturating_sub(previous_bytes));
@@ -539,17 +648,7 @@ impl AttachTap {
                 AttachFrameMerge::Overflow => return self.overflow(queue),
             }
         }
-        let frame_bytes = frame.retained_bytes();
-        if frame_bytes > queue.max_retained_bytes.saturating_sub(queue.retained_bytes)
-            || queue.frames.len() >= queue.max_frames
-        {
-            return self.overflow(queue);
-        }
-        queue.retained_bytes = queue.retained_bytes.saturating_add(frame_bytes);
-        queue.frames.push_back(frame);
-        drop(queue);
-        self.state.ready.notify_one();
-        true
+        self.push(queue, QueuedFrame::Frame(frame))
     }
 }
 

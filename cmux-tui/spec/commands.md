@@ -5987,6 +5987,28 @@ colors-changed | digest)* -> detached` instead of the replay stream:
   READY ends the older READY's history; no further chunk of it is sent. A
   viewer feeds the chunks to its restore after the READY they follow and
   drops history whose `generation` and `offset` differ from its last READY.
+- Servers that also advertise `terminal-snapshot-local-history-v1` accept
+  `snapshot_local_history: true` on a snapshot attach (ignored without
+  `snapshot`). Such a viewer reflows its own copy of the history at a resize.
+  While it holds every frame since its last READY, a resize reaches it as
+  `snapshot {surface, phase:"ready", history:"local", generation, offset,
+  version, cols, rows, colors, marker_epoch, active_top_marker,
+  history_rows, history_digest, data}`: the READY of the new grid, taken
+  under the terminal lock at the resize. It follows every `output` sent
+  before the resize, its `generation` is the resize's new generation and its
+  `offset` is the offset at the resize; no `output` before the resize is
+  dropped, and no history chunk follows it. A burst of resizes gives one such
+  READY per resize, in order. `history_rows` is the host's primary-screen
+  history row count after the resize and `history_digest` (lowercase hex) is
+  the digest of its last 64 history rows (codepoints and wrap flags, no
+  styles) as libghostty-vt `ghostty_terminal_history_digest` computes it. The
+  viewer computes both from its reflowed history and sends `snapshot-request`
+  on a mismatch. A local READY ends the history of an older READY. A viewer
+  that is behind (a snapshot pending or deferred, a backlog overflow) or is
+  still receiving the history of an older READY gets a READY with history at
+  a later cut instead, as do attach, overflow and `snapshot-request`; so does
+  every viewer when the host cannot compute the history check. A host replay
+  replacement and a Kitty-limit resync also send a READY with history.
 - `digest {surface, generation, offset, version, sha256}` follows 2 s after
   output goes idle, only when the viewer has every byte up to that offset.
   `sha256` (hex) covers, for each SCREEN, PAGE and CONTINUATION record of the
@@ -6016,6 +6038,7 @@ Params:
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
+| `snapshot_local_history` | `bool` | default false | `terminal-snapshot-local-history-v1`; only with `snapshot` |
 
 Result:
 
