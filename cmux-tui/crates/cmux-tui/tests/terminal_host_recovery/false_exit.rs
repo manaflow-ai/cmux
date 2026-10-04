@@ -237,8 +237,8 @@ fn unadoptable_host_that_exits_ends_its_terminal_with_the_real_status() {
 
 /// A live host that refuses every protocol this build offers (a newer
 /// build's host after a rollback, whose record this build still reads) must
-/// not read "adopting" forever. After repeated refusals while the host is
-/// live, the terminal reads unadoptable, the host keeps running, and close
+/// not read "adopting" forever. After repeated refusals over at least 10 s
+/// while the host is live, the terminal reads unadoptable, the host keeps running, and close
 /// ends the host with proof (plans/cmux-next/durable-sessions.md section 7).
 #[test]
 fn live_host_that_refuses_every_protocol_is_unadoptable_not_adopting() {
@@ -295,7 +295,7 @@ fn live_host_that_refuses_every_protocol_is_unadoptable_not_adopting() {
             line.clear();
         }
     });
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(40));
     let tab = loop {
         let tab = tab_with_resource_id(&harness.socket, &tab_id, 3);
         if tab["terminal_state"] == "unadoptable" {

@@ -10,6 +10,7 @@ pub(crate) mod exited_drain;
 pub(crate) mod host_accept;
 pub(crate) mod host_crash;
 pub(crate) mod host_parser;
+pub(crate) mod host_refusal;
 pub(crate) mod host_serve;
 pub(crate) mod host_shared;
 pub(crate) mod host_state;
