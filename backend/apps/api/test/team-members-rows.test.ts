@@ -1,0 +1,64 @@
+import { env, exports } from "cloudflare:workers"
+import { runInDurableObject as runIn } from "cloudflare:test"
+import { importJWK, SignJWT, type JWK } from "jose"
+import { describe, expect, it } from "vitest"
+
+/** (f) steps 2-3: TeamDO members and hosts live in rows, not in the 2 MB head; old heads migrate on wake. */
+const runInDurableObject = runIn as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace }
+const worker = (exports as unknown as { default: Fetcher }).default
+const token = async (sub: string) =>
+  new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
+    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
+    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
+    .setAudience(testEnv.STACK_PROJECT_ID)
+    .setSubject(sub)
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
+const post = async (path: string, t: string, body: unknown) =>
+  (await (await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify(body) })).json()) as any
+const head = (stub: unknown) => runInDurableObject(stub, async (_i, state) => String(state.storage.sql.exec("SELECT json FROM own_state WHERE id = 1").one().json))
+
+describe("TeamDO members in rows", { timeout: 120_000 }, () => {
+  it("a new team keeps its member as a row, not in the head", async () => {
+    const t = await token("team-rows-1")
+    const team = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value.personal_team as string
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    const json = JSON.parse(await head(stub))
+    expect(json.members).toBeUndefined()
+    expect(json.member_count).toBe(1)
+    const rows = await runInDurableObject(stub, async (_i, state) => Number(state.storage.sql.exec("SELECT COUNT(*) AS n FROM own_rows WHERE tbl = 'member'").one().n))
+    expect(rows).toBe(1)
+    // The member still reads team ops.
+    expect((await post("/v1/read", t, { op: "team.policy.get", params: {} })).value?.policy).toBeDefined()
+  })
+
+  it("an old head with 12,000 members migrates to rows on wake and stays under 100 KB", async () => {
+    const t = await token("team-rows-2")
+    const team = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value.personal_team as string
+    const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    const owner = Object.keys((await post("/v1/read", t, { op: "team.directory", params: {} })).value.members.reduce((m: Record<string, true>, x: { user: string }) => ({ ...m, [x.user]: true }), {}))[0]!
+    // Write an old-style head: members and hosts as maps (what deployed objects hold today).
+    await runInDurableObject(stub, async (_i, state) => {
+      const sql = state.storage.sql
+      const cur = JSON.parse(String(sql.exec("SELECT json FROM own_state WHERE id = 1").one().json))
+      const members: Record<string, unknown> = { [owner]: { user: owner, role: "owner", display_name: "Owner" } }
+      for (let i = 0; i < 12_000; i++) members[`user_${String(i).padStart(20, "0")}`] = { user: `user_${String(i).padStart(20, "0")}`, role: "member", display_name: `Member ${i}` }
+      const legacy = { ...cur, members, hosts: {} }
+      delete legacy.member_count
+      sql.exec("UPDATE own_state SET json = ? WHERE id = 1", JSON.stringify(legacy))
+      sql.exec("DELETE FROM own_rows WHERE tbl = 'member'")
+    })
+    // As after a deploy: the engine reopens from storage, and the next bind migrates.
+    await runInDurableObject(stub, async (instance) => {
+      instance.engine = undefined
+    })
+    expect((await post("/v1/read", t, { op: "team.policy.get", params: {} })).value?.policy).toBeDefined()
+    const json = await head(stub)
+    expect(json.length).toBeLessThan(100_000)
+    expect(JSON.parse(json).member_count).toBe(12_001)
+    const n = await runInDurableObject(stub, async (_i, state) => Number(state.storage.sql.exec("SELECT COUNT(*) AS n FROM own_rows WHERE tbl = 'member'").one().n))
+    expect(n).toBe(12_001)
+  })
+})
