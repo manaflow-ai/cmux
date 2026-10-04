@@ -167,6 +167,18 @@ test("jira: only the signed-in account's Jira sites are called", async () => {
   assert.ok(!env.state.requests.slice(before).some((r) => /\/\/(evil|wiki)\.atlassian\.net\//.test(r.url)), "no request reached an unlisted site");
 });
 
+test("jira under allowedDomains [*.atlassian.net]: a tenant is verified on its own origin", async () => {
+  const p = env.session("jira-policy");
+  await p.value('session.allowedDomains(["*.atlassian.net"])');
+  // home.atlassian.com is outside the policy; the tenant's own /myself
+  // proves the signed-in account can use it.
+  assert.equal((await p.value('sites.jira.me({ site: "acme" })')).displayName, "Ada");
+  assert.equal((await p.value('sites.jira.issue("https://acme.atlassian.net/browse/ABC-1")')).summary, "Login fails");
+  // A tenant the account cannot use is refused, naming the host to allow.
+  assert.match(await p.error('sites.jira.me({ site: "wiki" })'), /wiki\.atlassian\.net is not a Jira site the signed-in account can use.*home\.atlassian\.com/s);
+  assert.match(await p.error("sites.jira.sites()"), /home\.atlassian\.com.*session\.allowedDomains/s);
+});
+
 test("signed out: each API reports not_signed_in", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {
