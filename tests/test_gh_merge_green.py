@@ -14,6 +14,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 HEAD = "a" * 40
 BASE = "b" * 40
+ANCESTOR = "c" * 40
 NAMES = ("cmux-next Release compile (Xcode 26)", "cmux app scheme compile (Debug)", "cmux-next swift test")
 BUILD_STEPS = ("Release compile", "Compile the cmux scheme", "Build package and tests")
 TEST_STEP = "Run WebKit driver package tests"
@@ -30,6 +31,10 @@ class FakeGitHub:
         self.pr = {"state": "open", "head": {"sha": HEAD}, "base": {"sha": BASE, "ref": "feat-cmux-next"}, "mergeable": True}
         self.head_checks = []
         self.base_checks = []
+        self.ancestor_checks = []
+        self.parents = {BASE: []}
+        self.compare_files = []
+        self.compare_entries = None
         self.jobs = {}
         self.logs = {}
         for i, (name, step) in enumerate(zip(NAMES, BUILD_STEPS), 1):
@@ -43,8 +48,17 @@ class FakeGitHub:
     def json(self, route, *, paginate=False):
         if route.endswith("pulls/42"):
             return copy.deepcopy(self.pr)
+        if "/compare/" in route:
+            return {"files": self.compare_entries if self.compare_entries is not None else [{"filename": path} for path in self.compare_files]}
         if "/commits/" in route:
-            return [{"check_runs": copy.deepcopy(self.head_checks if HEAD in route else self.base_checks)}]
+            sha = route.split("/commits/", 1)[1].split("/", 1)[0]
+            if "/check-runs" not in route:
+                return {"sha": sha, "parents": [{"sha": parent} for parent in self.parents.get(sha, [])]}
+            if sha == ANCESTOR:
+                checks = self.ancestor_checks
+            else:
+                checks = self.head_checks if HEAD in route else self.base_checks
+            return [{"check_runs": copy.deepcopy(checks)}]
         if "/actions/jobs/" in route:
             return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
         if "/files" in route:
@@ -134,6 +148,60 @@ class MainFixEvidenceTests(unittest.TestCase):
         self.gh.fail_test()
         self.gh.base_checks = []
         with self.assertRaisesRegex(module.Refused, "base"):
+            self.validate()
+
+    def test_missing_base_run_uses_nearest_ancestor_and_audits_why(self):
+        """Path-filtered base changes use and audit the nearest ancestor run."""
+        self.gh.fail_test()
+        self.gh.base_checks = []
+        self.gh.parents[BASE] = [ANCESTOR]
+        ancestor = copy.deepcopy(self.gh.head_checks[2])
+        ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
+        self.gh.ancestor_checks = [ancestor]
+        self.gh.compare_files = ["plans/cmux-next/path-filtered.md"]
+        ancestor_job = copy.deepcopy(self.gh.jobs[3])
+        ancestor_job.update(id=31, head_sha=ANCESTOR, run_id=21)
+        self.gh.jobs[31] = ancestor_job
+        self.gh.logs[31] = test_log()
+        evidence = self.validate()
+        self.assertIn(f"nearest ancestor `{ANCESTOR}`", evidence)
+        self.assertIn("intervening changes are path-filtered", evidence)
+        self.assertIn("/job/31", evidence)
+
+    def test_ancestor_fallback_rejects_intervening_source_changes(self):
+        """Source changes between the ancestor and base refuse the fallback."""
+        self.gh.fail_test()
+        self.gh.base_checks = []
+        self.gh.parents[BASE] = [ANCESTOR]
+        ancestor = copy.deepcopy(self.gh.head_checks[2])
+        ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
+        self.gh.ancestor_checks = [ancestor]
+        self.gh.compare_files = ["Packages/macOS/CmuxNext/Sources/Changed.swift"]
+        with self.assertRaisesRegex(module.Refused, "intervening changes may affect the test"):
+            self.validate()
+
+    def test_ancestor_fallback_rejects_renamed_source_file(self):
+        """Renames out of source paths cannot masquerade as docs-only changes."""
+        self.gh.fail_test()
+        self.gh.base_checks = []
+        self.gh.parents[BASE] = [ANCESTOR]
+        ancestor = copy.deepcopy(self.gh.head_checks[2])
+        ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
+        self.gh.ancestor_checks = [ancestor]
+        self.gh.compare_entries = [{"filename": "docs/cmux-next/renamed.md", "previous_filename": "Packages/macOS/CmuxNext/Sources/Changed.swift"}]
+        with self.assertRaisesRegex(module.Refused, "intervening changes may affect the test"):
+            self.validate()
+
+    def test_ancestor_fallback_rejects_compare_file_cap(self):
+        """A capped compare response cannot prove all intervening paths are safe."""
+        self.gh.fail_test()
+        self.gh.base_checks = []
+        self.gh.parents[BASE] = [ANCESTOR]
+        ancestor = copy.deepcopy(self.gh.head_checks[2])
+        ancestor.update(id=31, head_sha=ANCESTOR, details_url="https://github.com/manaflow-ai/cmux/actions/runs/21/job/31")
+        self.gh.ancestor_checks = [ancestor]
+        self.gh.compare_entries = [{"filename": "plans/path-filtered.md"}] * 300
+        with self.assertRaisesRegex(module.Refused, "300-file limit"):
             self.validate()
 
     def test_timeout_or_setup_failure_is_not_a_test_failure(self):
