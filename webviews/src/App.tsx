@@ -1384,7 +1384,7 @@ export function FileHeader({
       }}
     >
       <FileIcon path={path} />
-      <span className="file-header-path" title={previousPath == null ? path : `${previousPath} → ${path}`}>
+      <span className="file-header-path selectable" title={previousPath == null ? path : `${previousPath} → ${path}`}>
         {previousPath != null ? (
           <span className="file-header-previous">
             <bdi>{previousPath}</bdi>

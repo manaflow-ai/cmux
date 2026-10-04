@@ -1,3 +1,11 @@
+// DESKTOP-FEEL (R139): the shared desktop layer loads first. The hosts of main.mjs link no
+// stylesheet (only the Vite HTML entries get assets/desktop.css), so the diff viewer installs the
+// layer's CSS inline, ahead of its own styles. The legacy agent session (ACP UI lead) keeps the
+// behavior half only until its content opts in with `.selectable`.
+import "./pages/shared/desktop";
+import desktopStyles from "./pages/shared/desktop.css?inline";
+import { installWebviewStyles } from "./surfaces/installWebviewStyles";
+
 type WebviewKind = "agent-session" | "diff";
 
 function resolveWebviewKind(): WebviewKind {
@@ -25,6 +33,7 @@ if (resolveWebviewKind() === "agent-session") {
     surface.mountAgentSessionSurface(rootElement);
   });
 } else {
+  installWebviewStyles("desktop", desktopStyles);
   void import("./surfaces/diffSurface").then((surface) => {
     void surface.mountDiffSurface(rootElement);
   });

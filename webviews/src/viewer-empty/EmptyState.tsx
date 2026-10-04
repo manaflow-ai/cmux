@@ -10,7 +10,7 @@ import { E } from "./strings";
 import { relativeTime } from "./time";
 
 export interface EmptyStateProps {
-  kind: "diff" | "markdown";
+  kind: "diff" | "markdown" | "editor";
   title: string;
   subtitle: string;
   /** The text over the page while something is dragged onto it. */
