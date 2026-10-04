@@ -148,8 +148,19 @@ pub(super) fn names_preset(params: &serde_json::Value, meta: Option<&serde_json:
 pub(super) async fn canonical_cwd(
     given: &std::path::Path,
 ) -> Result<std::path::PathBuf, crate::rpc::RpcError> {
-    // RED stub: the caller's string, unchecked.
-    Ok(given.to_path_buf())
+    let refused = || {
+        crate::rpc::RpcError::invalid_params(
+            "the local app starts a preset by its id only; cwd is refused (not an existing directory)",
+        )
+    };
+    if !given.is_absolute() {
+        return Err(refused());
+    }
+    let canonical = tokio::fs::canonicalize(given).await.map_err(|_| refused())?;
+    match tokio::fs::metadata(&canonical).await {
+        Ok(m) if m.is_dir() => Ok(canonical),
+        _ => Err(refused()),
+    }
 }
 
 pub(super) fn preset_by_id_only(
