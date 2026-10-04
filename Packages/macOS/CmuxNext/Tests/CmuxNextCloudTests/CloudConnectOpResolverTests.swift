@@ -62,8 +62,11 @@ import Testing
         let link = socket.directory + "/link"
         #expect(symlink(socket.path, link) == 0)
         defer { unlink(link) }
-        for path in ["", "relative/l.sock", file, link, socket.directory + "/../" + socket.directory.dropFirst(5) + "/l.sock",
-                     socket.directory + "/missing.sock", "/" + String(repeating: "a", count: 120)] {
+        let dotted: String = socket.directory + "/../" + String(socket.directory.dropFirst(5)) + "/l.sock"
+        let missing: String = socket.directory + "/missing.sock"
+        let long: String = "/" + String(repeating: "a", count: 120)
+        let paths: [String] = ["", "relative/l.sock", file, link, dotted, missing, long]
+        for path in paths {
             #expect(throws: CloudLinkError.self, "\(path)") { try CloudLinkSocketPolicy.check(path) }
         }
         try CloudLinkSocketPolicy.check(socket.path)
