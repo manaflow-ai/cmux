@@ -28,6 +28,9 @@ final class DaemonService {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
+    /// The connection Quit's end choice runs on, kept after
+    /// `shutdownConnection` so Retry ends the same daemon (`endSessionsAndStop`).
+    @ObservationIgnored var endingConnection: DaemonConnection?
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
@@ -76,6 +79,8 @@ final class DaemonService {
     @ObservationIgnored private(set) var retryWake: RetryWake
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    /// How the connections reach this app's daemon (the page relay opens its own with it).
+    @ObservationIgnored private(set) var endpointProvider: DaemonConnection.EndpointProvider?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -83,6 +88,7 @@ final class DaemonService {
     /// (`DaemonService.prestart`); without one the first attempt starts here.
     func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
+               resolvesShellIntegration: Bool = false,
                prestart: DaemonPrestart? = nil) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
@@ -97,6 +103,7 @@ final class DaemonService {
                 return
             }
         }
+        endpointProvider = launcher.endpointProvider
         if let session = try? DaemonLauncher.sessionName(tag: launch.tag) {
             launchSnapshotSession = session
             showLaunchSnapshot(session: session)
@@ -104,6 +111,7 @@ final class DaemonService {
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
             terminalEnvironment: terminalEnvironmentProvider,
+            resolvesShellIntegration: resolvesShellIntegration,
             sessionEvents: true)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {

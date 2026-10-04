@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4";
+inline constexpr std::string_view kProtocolIrSha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -96,6 +96,7 @@ enum class NotificationSource;
 struct NotifyResult;
 struct Pane;
 enum class PaneDirection;
+enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
 struct PingResult;
@@ -356,7 +357,7 @@ struct ServerStatsRequest;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
-struct SetColumnStickyRequest;
+struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetPersonalTerminalRequest;
@@ -2462,10 +2463,10 @@ struct SplitRespawn {
 
 struct MoveTabToColumnRequest {
     Field<Id> after_column{};
+    Field<ColumnPin> dock{};
     Field<Id> pane{};
     Field<SplitRespawn> respawn{};
     Field<Id> screen{};
-    Field<ColumnPin> sticky{};
     Id surface{};
     Field<std::string> transaction{};
     Field<float> width{};
@@ -2610,15 +2611,22 @@ struct NewPaneRequest {
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
 
+enum class PaneKind {
+    pty,
+    browser,
+};
+
 struct NewPaneRightRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
+    Field<PaneKind> kind{};
     Id pane{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
+    Field<std::string> url{};
     Field<float> width{};
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
@@ -3471,13 +3479,13 @@ struct SetClientSizingRequest {
     friend bool operator==(const SetClientSizingRequest&, const SetClientSizingRequest&) = default;
 };
 
-struct SetColumnStickyRequest {
+struct SetColumnDockRequest {
+    bool dock{};
     Field<std::string> edge{};
     Field<std::string> mode{};
     Id pane{};
-    bool sticky{};
     Field<std::uint64_t> transaction{};
-    friend bool operator==(const SetColumnStickyRequest&, const SetColumnStickyRequest&) = default;
+    friend bool operator==(const SetColumnDockRequest&, const SetColumnDockRequest&) = default;
 };
 
 struct SetDefaultColorsRequest {
@@ -3723,10 +3731,12 @@ struct SplitRequest {
     SplitDirection dir{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
+    Field<PaneKind> kind{};
     Id pane{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
+    Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
 };
 
@@ -4749,6 +4759,12 @@ template <>
 struct Codec<PaneDirection> {
     static Result<Json> encode(const PaneDirection& value);
     static Result<PaneDirection> decode(const Json& value);
+};
+
+template <>
+struct Codec<PaneKind> {
+    static Result<Json> encode(const PaneKind& value);
+    static Result<PaneKind> decode(const Json& value);
 };
 
 template <>
@@ -6312,9 +6328,9 @@ struct Codec<SetClientSizingRequest> {
 };
 
 template <>
-struct Codec<SetColumnStickyRequest> {
-    static Result<Json> encode(const SetColumnStickyRequest& value);
-    static Result<SetColumnStickyRequest> decode(const Json& value);
+struct Codec<SetColumnDockRequest> {
+    static Result<Json> encode(const SetColumnDockRequest& value);
+    static Result<SetColumnDockRequest> decode(const Json& value);
 };
 
 template <>

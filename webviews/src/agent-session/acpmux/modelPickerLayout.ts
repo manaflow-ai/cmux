@@ -21,6 +21,11 @@ export type ModelPickerProps = {
   onEffort(value: string): void;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
   onHarness?(harness: string): void;
+  /// The pointer or keyboard rests on a harness row (undefined: the menu closed), for acpmux's
+  /// prewarm hint (harnessSwitch.ts).
+  onHarnessHint?(harness: string | undefined): void;
+  /// A short note per harness in place of "New chat" (a harness that failed to start).
+  harnessNotes?: Readonly<Record<string, string>>;
   /// The room, in px, left of the open menu for its submenus (`menuRoom`). Tests pass a
   /// number in place of real layout.
   measureRoom?(menu: HTMLElement): number;

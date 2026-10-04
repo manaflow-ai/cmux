@@ -199,6 +199,21 @@ impl Translator {
     }
 
     /// Take the lines `inbound` queued for claude's stdin.
+    /// Error answers for every ACP request still waiting on Claude, which
+    /// are dropped: used when Claude's answer cannot be carried (a line over
+    /// the agent host's frame limit), so no turn waits forever.
+    pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
+        self.pending
+            .lock()
+            .await
+            .drain()
+            .map(|(id, _)| {
+                let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
+                Message::err(id, RpcError::internal(message))
+            })
+            .collect()
+    }
+
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
         std::mem::take(&mut *self.stdin_replies.lock().await)
     }

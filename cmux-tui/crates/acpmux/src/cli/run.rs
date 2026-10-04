@@ -673,10 +673,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                     .and_then(|x| x.get("url").and_then(Value::as_str))
                     .unwrap_or("")
                     .to_owned();
-                if let Some(host) = url
-                    .strip_prefix("ssh://")
-                    .map(|h| h.rsplit_once(':').map(|(h, _)| h).unwrap_or(h))
-                {
+                if url.starts_with("ssh://") {
                     let remote_path =
                         v.get("path").and_then(Value::as_str).unwrap_or("").to_owned();
                     let file = std::path::Path::new(&remote_path)
@@ -691,15 +688,12 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                         }
                     };
                     std::fs::create_dir_all(local.parent().unwrap())?;
-                    let status = std::process::Command::new("scp")
-                        .args([
-                            "-rq",
-                            "-o",
-                            "BatchMode=yes",
-                            &format!("{host}:{remote_path}"),
-                            &local.to_string_lossy(),
-                        ])
-                        .status()?;
+                    let argv = crate::cli::hosts::scp_fetch_argv(
+                        &url,
+                        &remote_path,
+                        &local.to_string_lossy(),
+                    )?;
+                    let status = std::process::Command::new("scp").args(argv).status()?;
                     if status.success() {
                         out["remotePath"] = json!(remote_path);
                         out["path"] = json!(local);

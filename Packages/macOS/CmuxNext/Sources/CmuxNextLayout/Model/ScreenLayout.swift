@@ -7,7 +7,7 @@ public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
     /// (rows folded into vertical splits), which pane and split queries
     /// read; geometry lays out `rows` instead.
     public var root: SplitNode
-    /// Pinned to a viewport edge (daemon `columns[].sticky`); nil scrolls.
+    /// Pinned to a viewport edge (daemon `columns[].dock`); nil scrolls.
     public var dock: DockColumn?
     /// The column's rows, top to bottom (`rows-v1`, plans/cmux-next/rows.md);
     /// empty for a column with one row, which is today's column.

@@ -29,8 +29,19 @@ impl Driver for FakeDriver {
     }
 }
 
+/// The runtime's synchronous natives (main's ABI): `secrets(op, args)` and
+/// `policy(op, args)`.
+fn secrets(gate: &Gate, op: &str, args: Value) -> Result<Value, String> {
+    gate.native("secrets", json!({"op": op, "args": args}))
+}
+
+fn policy(gate: &Gate, op: &str, args: Value) -> Result<Value, String> {
+    gate.native("policy", json!({"op": op, "args": args}))
+}
+
 fn agent_secret(gate: &Gate, domain: &str) {
-    gate.native("secretSet", json!(["pw", "s3cret-value", {"domains": [domain]}])).unwrap();
+    secrets(gate, "set", json!({"name": "pw", "value": "s3cret-value", "domains": [domain]}))
+        .unwrap();
 }
 
 fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
@@ -83,12 +94,12 @@ fn vm_code_cannot_widen_a_locked_policy() {
     };
     gate.set_owner_policy(layer, true).unwrap();
     // The VM "allows" another domain: the base layer still refuses it.
-    gate.native("policyNarrow", json!([{"allowed": ["evil.test", "example.com"]}])).unwrap();
+    policy(&gate, "set", json!({"allowed": ["evil.test", "example.com"]})).unwrap();
     assert!(
         gate.driver_call("tab.navigate", json!({"targetId": "T", "url": "https://evil.test/"}))
             .is_err()
     );
-    let got = gate.native("policyGet", json!([])).unwrap();
+    let got = policy(&gate, "get", json!({})).unwrap();
     assert_eq!(got["locked"], true);
     assert!(gate.set_owner_policy(Layer::default(), false).is_err());
 }
@@ -179,16 +190,21 @@ fn results_and_errors_going_back_into_the_vm_are_masked() {
 #[test]
 fn natives_expose_names_never_values() {
     let (gate, _) = make_gate(Value::Null, false);
-    let handle =
-        gate.native("secretSet", json!(["api", "k-123", {"domains": ["example.com"]}])).unwrap();
-    assert_eq!(handle, json!({"__secret": "api"}));
+    let set =
+        secrets(&gate, "set", json!({"name": "api", "value": "k-123", "domains": ["example.com"]}));
+    assert_eq!(set.unwrap(), json!({"name": "api", "domains": ["example.com"], "totp": false}));
     gate.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
-    let list = gate.native("secretList", json!([])).unwrap();
+    let list = secrets(&gate, "list", json!({})).unwrap();
     assert!(!list.to_string().contains("s3cret") && !list.to_string().contains("k-123"));
     assert_eq!(list[0]["agentKnown"], true);
     assert_eq!(list[1]["agentKnown"], false);
-    assert_eq!(gate.native("secretDelete", json!(["api"])).unwrap(), json!(true));
-    assert!(gate.native("secretSet", json!(["bad name", "v", {"domains": ["a.test"]}])).is_err());
+    assert_eq!(secrets(&gate, "has", json!({"name": "api"})).unwrap(), json!(true));
+    assert_eq!(secrets(&gate, "delete", json!({"name": "api"})).unwrap(), json!(true));
+    assert_eq!(secrets(&gate, "has", json!({"name": "api"})).unwrap(), json!(false));
+    assert!(
+        secrets(&gate, "set", json!({"name": "bad name", "value": "v", "domains": ["a.test"]}))
+            .is_err()
+    );
 }
 
 #[test]
@@ -207,8 +223,22 @@ fn owner_secrets_are_not_typed_until_tabs_can_be_sealed() {
 fn vm_code_cannot_replace_or_delete_owner_secrets() {
     let (gate, _) = make_gate(Value::Null, false);
     gate.load_secret("pw", "s3cret-value", &["example.com".into()], false).unwrap();
-    assert!(gate.native("secretSet", json!(["pw", "other", {"domains": ["evil.test"]}])).is_err());
-    assert!(gate.native("secretDelete", json!(["pw"])).is_err());
+    assert!(
+        secrets(&gate, "set", json!({"name": "pw", "value": "other", "domains": ["evil.test"]}))
+            .is_err()
+    );
+    assert!(secrets(&gate, "delete", json!({"name": "pw"})).is_err());
+    // clear removes the agent's secrets only.
+    secrets(&gate, "set", json!({"name": "api", "value": "k-123", "domains": ["a.test"]})).unwrap();
+    secrets(&gate, "clear", json!({})).unwrap();
+    let names: Vec<String> = secrets(&gate, "list", json!({}))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(names, vec!["pw".to_owned()]);
     assert_eq!(gate.mask("s3cret-value"), "<secret:pw>", "the owner secret is intact");
 }
 
@@ -249,11 +279,102 @@ fn an_active_policy_installs_a_request_filter_on_the_driver() {
     };
     gate.set_owner_policy(layer, false).unwrap();
     let filter = driver.filter.lock().unwrap().clone().expect("a request filter");
-    assert!(filter("https://example.com/app.js").is_none());
-    assert!(filter("https://evil.test/beacon?d=1").unwrap().contains("session.allowedDomains"));
-    assert!(filter("data:text/plain,x").is_none());
+    assert!(filter("T", "https://example.com/app.js").is_none());
+    assert!(
+        filter("T", "https://evil.test/beacon?d=1").unwrap().contains("session.allowedDomains")
+    );
+    assert!(filter("T", "data:text/plain,x").is_none());
     // Narrowing from the VM updates the filter.
-    gate.native("policyNarrow", json!([{"prohibited": ["example.com"]}])).unwrap();
+    policy(&gate, "set", json!({"prohibited": ["example.com"]})).unwrap();
     let filter = driver.filter.lock().unwrap().clone().unwrap();
-    assert!(filter("https://example.com/").is_some());
+    assert!(filter("T", "https://example.com/").is_some());
+}
+
+#[test]
+fn secrets_load_takes_main_s_map_shape() {
+    let (gate, _) = make_gate(Value::Null, false);
+    let loaded = secrets(
+        &gate,
+        "load",
+        json!({"object": {"example.com": {"api": "k-1", "otp": {"value": "JBSWY3DPEHPK3PXP", "totp": true}}, "*.example.org": {"api": "k-1"}}}),
+    )
+    .unwrap();
+    let api = loaded.as_array().unwrap().iter().find(|s| s["name"] == "api").unwrap().clone();
+    // Patterns come in key order of the parsed map (serde_json sorts keys).
+    assert_eq!(
+        api,
+        json!({"name": "api", "domains": ["*.example.org", "example.com"], "totp": false})
+    );
+    assert!(loaded.to_string().contains("\"totp\":true"));
+    assert!(!loaded.to_string().contains("k-1"));
+}
+
+#[test]
+fn policy_ops_answer_get_check_set_and_site() {
+    let (gate, _) = make_gate(Value::Null, false);
+    assert_eq!(
+        policy(&gate, "get", json!({})).unwrap(),
+        json!({"allowed": null, "prohibited": [], "blockIPs": false, "locked": false})
+    );
+    assert_eq!(policy(&gate, "check", json!({"url": "https://a.test/"})).unwrap(), Value::Null);
+    let set = policy(
+        &gate,
+        "set",
+        json!({"prohibited": ["a.test"], "title": "session.prohibitedDomains"}),
+    )
+    .unwrap();
+    assert_eq!(set["prohibited"], json!(["a.test"]));
+    let reason = policy(&gate, "check", json!({"url": "https://a.test/x"})).unwrap();
+    assert!(reason.as_str().unwrap().contains("session.prohibitedDomains"), "{reason}");
+    policy(&gate, "set", json!({"blockIPs": true, "title": "session.blockIPAddresses"})).unwrap();
+    assert_eq!(policy(&gate, "get", json!({})).unwrap()["blockIPs"], true);
+    policy(
+        &gate,
+        "set",
+        json!({"allowed": ["b.test"], "lock": true, "title": "session.allowedDomains"}),
+    )
+    .unwrap();
+    let locked = policy(&gate, "set", json!({"allowed": null, "title": "session.allowedDomains"}))
+        .unwrap_err();
+    assert_eq!(locked, "session.allowedDomains: the domain policy is locked for this session");
+    for (host, site) in [
+        ("www.example.com", "example.com"),
+        ("a.b.example.co.uk", "example.co.uk"),
+        ("x.co.at", "x.co.at"),
+        ("localhost", "localhost"),
+        ("127.0.0.1", "127.0.0.1"),
+    ] {
+        assert_eq!(policy(&gate, "site", json!({"host": host})).unwrap(), json!(site), "{host}");
+    }
+    assert!(policy(&gate, "nope", json!({})).is_err());
+}
+
+/// frame.observe reads a tab another session holds, so a secret one
+/// session typed into a tab is masked for every session of the host, and
+/// the record ends when the tab closes.
+#[test]
+fn a_secret_typed_into_a_tab_is_masked_for_every_session() {
+    let shared = Arc::new(TabSecrets::default());
+    let (typer, _) = make_gate(json!("https://example.com/login"), false);
+    let typer = typer.with_tab_secrets(shared.clone());
+    let (reader, _) = make_gate(Value::Null, false);
+    let reader = reader.with_tab_secrets(shared);
+    agent_secret(&typer, "example.com");
+    let before = reader.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
+    assert_eq!(before["title"], "token s3cret-value here", "nothing typed into T yet");
+    typer
+        .driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
+        .unwrap();
+    let info = reader.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
+    assert_eq!(info["title"], "token <secret:pw> here");
+    let other_tab = reader.driver_call("tab.info", json!({"targetId": "U"})).unwrap();
+    assert_eq!(other_tab["title"], "token s3cret-value here", "only the typed tab");
+    let error = reader
+        .driver_call("tab.navigate", json!({"targetId": "T", "url": "https://example.com/"}))
+        .unwrap_err();
+    assert_eq!(error.message, "failed: token <secret:pw> here");
+    let event = reader.mask_event("tab.gone", &json!({"targetId": "T", "t": "s3cret-value"}));
+    assert_eq!(event["t"], "<secret:pw>");
+    let after = reader.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
+    assert_eq!(after["title"], "token s3cret-value here", "the record ends with the tab");
 }

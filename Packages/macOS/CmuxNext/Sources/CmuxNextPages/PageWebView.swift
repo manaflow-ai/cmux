@@ -28,6 +28,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
     /// router and the bridge instead.
     public var webKitView: WKWebView { webView }
+    /// Whether the document can take typing yet (the dispatcher's type-ahead).
+    public let inputReadiness: PageInputReadiness
     private let bridge: any PageHostBridge
     private var loaded = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
@@ -125,7 +127,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         if options.fullFrameRate {
-            configuration.preferences.setWebKitFeature(PageEngineOptions.near60FPSFeature, enabled: false)
+            WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
         }
         configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources),
                                           forURLScheme: PageDescriptor.scheme)
@@ -135,7 +137,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         }
+        inputReadiness = PageInputReadiness(configuration: configuration)
         webView = PageWKWebView(frame: .zero, configuration: configuration)
+        inputReadiness.attach(webView)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
         wantsLayer = true
@@ -158,6 +162,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
+        router.hasUserGesture = { [weak self] in (self?.webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
+        #if DEBUG
+        // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
+        // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
+        // users keep WebKit's occlusion throttling.
+        if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
+        #endif
+        PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
+            self?.paintedUptime = ProcessInfo.processInfo.systemUptime
+        }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
@@ -227,7 +241,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func close() {
         router.close()
         bridge.uninstall()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
     }
+
+    /// When the current document painted its first frame (``PagePaintProbe``), in
+    /// `ProcessInfo.systemUptime` seconds; nil until it has.
+    public private(set) var paintedUptime: TimeInterval?
+    public var hasPainted: Bool { paintedUptime != nil }
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
@@ -292,8 +312,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        // A new document: the old one's subscriptions and host calls end with it.
+        // A new document: the old one's subscriptions and host calls end with it, and it has not
+        // painted yet.
         router.reset()
+        paintedUptime = nil
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
     }

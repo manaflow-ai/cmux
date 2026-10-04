@@ -35,6 +35,8 @@ export function mountAppsPage(
       },
     });
   }
+  // The host opens a listing or the Installed tab on an open page by setting the fragment.
+  window.addEventListener("hashchange", () => store.applyRoute(window.location.hash));
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("store.window.title");

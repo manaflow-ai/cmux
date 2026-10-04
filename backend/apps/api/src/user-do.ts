@@ -17,7 +17,7 @@ import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./
 import { SecondaryStream } from "./secondary-stream.ts"
 import { readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
-import { HOME_RATE_WINDOW_MS, homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
+import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -233,12 +233,12 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
-   * RPC from the Worker before an op that resolves human reach: one attempt from `actor`'s
-   * hourly budget for `op` (home-rate.ts homeRateTakeSql).
+   * RPC from the Worker before an op that resolves human reach: takes one attempt from `actor`'s
+   * hourly budget for `op` (home-rate.ts homeRateTakeSql). An object that never served this user
+   * (no user.ensure yet) creates no storage and answers `not_ready`.
    */
   async homeRateTake(entity: string, actor: string, op: HomeRateOp): Promise<HomeRateGate> {
-    const bound = this.boundEntity()
-    if (bound !== null && bound !== entity) return { ok: false, retry_after_ms: HOME_RATE_WINDOW_MS }
+    if (!this.isBound(entity)) return { ok: false, not_ready: true }
     return homeRateTakeSql(this.sqlStore, actor, op, Date.now())
   }
 

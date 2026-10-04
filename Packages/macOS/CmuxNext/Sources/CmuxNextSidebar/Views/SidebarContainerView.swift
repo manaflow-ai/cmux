@@ -1,19 +1,20 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import Observation
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
 /// token, or the root material and its tint), with no fill, panel, border
 /// or seam (plans/cmux-next/windows.md). It owns its width.
 ///
-/// Pin leading, top, and bottom; the view animates its own width constraint
-/// between the user's width (`SidebarModel.presentation == .shown`) and 0
-/// (`.hidden`), and follows live resizing through the trailing handle.
-/// Neighbors should attach to its trailing anchor so they follow and reach
-/// the window edge when the sidebar hides.
+/// Pin the edge of `side` (leading by default), top, and bottom; the view
+/// animates its own width constraint between the user's width
+/// (`SidebarModel.presentation == .shown`) and 0 (`.hidden`), and follows
+/// live resizing through the handle on the edge facing the content.
+/// Neighbors should attach to that edge so they follow and reach the window
+/// edge when the sidebar hides.
 ///
 /// While the width animates, the sidebar content keeps its full width and
-/// slides out past the leading edge (a clip view hides the overflow), so
+/// slides out past the window edge (a clip view hides the overflow), so
 /// rows never reflow mid-animation. Once hidden, the content is
 /// `isHidden`: it cannot hold focus, take drops or appear to VoiceOver.
 public final class SidebarContainerView: NSView {
@@ -24,16 +25,25 @@ public final class SidebarContainerView: NSView {
 
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
-    /// Holds the sidebar at `model.width`, pinned to the clip's trailing edge.
+    /// Holds the sidebar at `model.width`, pinned to the clip's edge that
+    /// faces the content (`side`).
     private let panel = NSView()
     private var panelWidth: NSLayoutConstraint!
-    private let handle: SidebarResizeHandle
+    let handle: SidebarResizeHandle
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead.
     private var targetWidth: CGFloat
     /// Bumped per width animation; a stale completion does nothing.
     private var animationGeneration = 0
+
+    /// The window edge this sidebar sits on (`sidebar.side`, R109): the
+    /// resize handle and the slide-out follow it.
+    public var side: SidebarSide = .left {
+        didSet { if side != oldValue { applySide() } }
+    }
+    /// The panel and handle pins of each side (`applySide`).
+    var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
 
     /// Dragging the resize edge narrower than this hides the sidebar
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
@@ -67,16 +77,17 @@ public final class SidebarContainerView: NSView {
             clip.trailingAnchor.constraint(equalTo: trailingAnchor),
             clip.topAnchor.constraint(equalTo: topAnchor),
             clip.bottomAnchor.constraint(equalTo: bottomAnchor),
-            panel.trailingAnchor.constraint(equalTo: clip.trailingAnchor),
             panel.topAnchor.constraint(equalTo: clip.topAnchor),
             panel.bottomAnchor.constraint(equalTo: clip.bottomAnchor),
-            handle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: Metrics.dividerHitWidth / 2),
             handle.topAnchor.constraint(equalTo: topAnchor),
             handle.bottomAnchor.constraint(equalTo: bottomAnchor),
             handle.widthAnchor.constraint(equalToConstant: Metrics.dividerHitWidth),
         ])
+        sidePins = Self.pins(panel: panel, clip: clip, handle: handle, in: self)
+        NSLayoutConstraint.activate(sidePins[side] ?? [])
         panel.isHidden = model.isHidden
         handle.isHidden = model.isHidden
+        handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
         observe()
     }
@@ -147,7 +158,8 @@ public final class SidebarContainerView: NSView {
             liveStartWidth = model.width
         case let .changed(dx):
             guard !model.isHidden else { return }
-            let proposed = liveStartWidth + dx
+            // A right sidebar widens as its leading edge moves left.
+            let proposed = liveStartWidth + (side == .left ? dx : -dx)
             if proposed < Self.hideThreshold {
                 // Hide outright and come back at the width the drag began at.
                 handle.endDrag()
@@ -169,11 +181,12 @@ public final class SidebarContainerView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (_, _, defaultWidth) in Observations({
+            for await (_, _, defaultWidth, border) in Observations({
                 // The default width token is tracked so a settings change
                 // resizes live.
-                (model.presentation, model.width, Metrics.sidebarWidth)
+                (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth)
             }) {
+                self?.handle.restingLineWidth = border
                 self?.followDefaultWidth(defaultWidth)
                 self?.apply()
             }
@@ -232,7 +245,7 @@ public final class SidebarContainerView: NSView {
     }
 }
 
-/// Strip on the sidebar's trailing edge that resizes it. Invisible until
+/// Strip on the sidebar's edge facing the content that resizes it. Invisible until
 /// the pointer is over it; then a hairline fades in (and stays while
 /// dragging), so the edge never shows as a seam at rest.
 final class SidebarResizeHandle: NSView {
@@ -248,8 +261,22 @@ final class SidebarResizeHandle: NSView {
     private var startX: CGFloat = 0
     private let line = CALayer()
 
-    /// The hairline shows only on hover or while dragging.
-    var isLineVisible: Bool { isHovered || isDragging }
+    /// Width of the line at rest (`sidebar.border`); 0 shows it only on
+    /// hover or while dragging.
+    var restingLineWidth: CGFloat = 0 {
+        didSet {
+            guard restingLineWidth != oldValue else { return }
+            needsLayout = true
+            updateLine()
+        }
+    }
+
+    /// The hairline shows at rest when the sidebar border is on, else only
+    /// on hover or while dragging.
+    var isLineVisible: Bool { isHovered || isDragging || restingLineWidth > 0 }
+
+    /// The drawn width: the border's, else the divider hairline.
+    var lineWidth: CGFloat { restingLineWidth > 0 ? restingLineWidth : Metrics.lineWidth(Metrics.dividerThickness) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -272,7 +299,7 @@ final class SidebarResizeHandle: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let width = Metrics.lineWidth(Metrics.dividerThickness)
+        let width = lineWidth
         line.frame = CGRect(x: (bounds.width - width) / 2, y: 0, width: width, height: bounds.height)
         CATransaction.commit()
     }

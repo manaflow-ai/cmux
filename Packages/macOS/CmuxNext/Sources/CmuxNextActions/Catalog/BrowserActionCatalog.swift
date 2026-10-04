@@ -137,8 +137,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
-                keywords: ["browser", "react", "inspect"],
-                defaultShortcut: Shortcut("g", modifiers: [.command, .shift]), category: .browser,
+                // No default chord: Shift-Cmd-G is Find Previous in a browser
+                // (R88); this action is not built yet.
+                keywords: ["browser", "react", "inspect"], category: .browser,
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
             ),
@@ -207,6 +208,19 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 // An agent must not be able to put the file picker in front of the person.
                 importCSV.isPersonOnly = true
                 return importCSV
+            }(),
+            {
+                // The Passwords page (passwords.md 1.4). Person-only and no CLI verb or MCP tool:
+                // the page shows sites and usernames, which agents never see (decision P2).
+                var open = ActionDescriptor(
+                    id: "passwords.open",
+                    title: String(localized: "action.passwords.open", defaultValue: "Passwords", bundle: .module),
+                    keywords: ["passwords", "passkeys", "sign-in", "logins", "credentials", "keychain", "autofill"],
+                    category: .browser, symbol: "key", surfaces: [.palette],
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+                )
+                open.isPersonOnly = true
+                return open
             }(),
             ActionDescriptor(
                 id: "palette.enableBrowser",
@@ -287,21 +301,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.filePreviewRevealInFinder", defaultValue: "Reveal File in Finder", bundle: .module),
                 keywords: ["file", "finder"], category: .browser, symbol: "folder", surfaces: [.contextMenu],
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
-            ),
-            ActionDescriptor(
-                id: "openDiffViewer",
-                title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"],
-                // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-D); G for git.
-                defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
-                symbol: "plusminus", surfaces: [.palette, .keyboard], targets: [.pane],
-                cliName: "browser open-diff-viewer"
-            ),
-            ActionDescriptor(
-                id: "palette.openDirectoryDiffViewer",
-                title: String(localized: "action.palette.openDirectoryDiffViewer", defaultValue: "Open Directory Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"], category: .browser, symbol: "plus.forwardslash.minus",
-                surfaces: [.palette], targets: [.pane], cliName: "browser open-directory-diff-viewer"
             ),
             ActionDescriptor(
                 id: "diffViewerNextLine",

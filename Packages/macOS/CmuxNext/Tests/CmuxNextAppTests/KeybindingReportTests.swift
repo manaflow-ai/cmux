@@ -99,3 +99,14 @@ struct KeybindingReportTests {
         #expect(report["outcome"] == "none")
     }
 }
+
+extension KeybindingReportTests {
+    /// R88: the address bar sets omnibarFocused in the key window's context;
+    /// a page does not.
+    @Test func theAddressBarSetsOmnibarFocused() {
+        typealias M = KeyOwnershipMatrixTests
+        let omnibar = KeyRouter.keyContext(for: M.focused(.browser, tab: "b1", target: .addressBar), appContext: [], facts: KeyRouter.Facts())
+        #expect(omnibar.bits.contains(.omnibarFocused))
+        #expect(!KeyRouter.keyContext(for: M.page, appContext: [], facts: KeyRouter.Facts()).bits.contains(.omnibarFocused))
+    }
+}

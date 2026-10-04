@@ -270,16 +270,16 @@ switch (descriptor titles are built once at launch).
 - Bottom band: Settings and the account avatar on one line (above).
 - Per-section arrangement list | inline | grid with alignment, gap and columns (section 4).
 - Band caps 1/3 and 1/4, then scroll; customizable (section 7).
-- Custom icons (emoji, SF Symbol or image) for workspaces and Home: the existing workspace
-  `icon` string of workspace-metadata-v1 is extended (sidebar sections lead); the Home lead reuses
-  it. Done: one emoji draws as text, any other value is an SF Symbol name
-  (`WorkspaceIcon.parse`). Images: accepted (Lawrence, 2026-10-02); the state-module owner asked for a generic
-  shape. `blob.put {media_type, data}` -> `{ref: "blob:sha256-<hex>", size}` and `blob.get {ref}`,
-  personal store, content-addressed and idempotent by hash, at most 256 KiB, png/jpeg/webp (svg
-  refused for now); the workspace `icon` holds `blob:sha256-<hex>`. GC: a sweep at daemon start and
-  after each put deletes blobs no registered reference field names and older than 7 days, and a
-  64 MiB total cap refuses a put the sweep cannot make room for. Built after #16174 merges,
-  reviewed by the state-module owner.
+- Custom icons (emoji, SF Symbol, image or SVG) for workspaces and Home: the existing workspace
+  `icon` string of workspace-metadata-v1 carries the one icon value (R94, plans/cmux-next/icons.md):
+  one emoji, an SF Symbol name, `image:sha256-<hex>` or `svg:sha256-<hex>`. Assets are stored once
+  in the daemon's personal blob store (`put-blob {media_type, data}` -> `{ref, icon, size}`,
+  `get-blob {blob}`, capability `icon-assets-v1`): png/jpeg/webp at most 256 KiB (the picker scales
+  images to 256 px PNG), SVG at most 64 KiB after the allowlist sanitizer, content addressed and
+  idempotent. GC: a sweep at open and before each put deletes blobs no icon field references and
+  older than 7 days; a 64 MiB cap refuses a put the sweep cannot make room for. A replica without
+  the blob draws the kind's default icon (coordination/icons.md). Picker: the one icon picker
+  (Set Workspace Icon from the palette, the context menu or `cmux workspace set-icon`).
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
   by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
   derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`

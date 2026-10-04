@@ -22,6 +22,8 @@ public final class PaletteModel {
             guard query != oldValue, !isMirroring else { return }
             notice = nil
             selectsQuery = false
+            // A tree page reads `~` or `/` as a jump, not a filter.
+            if jump(for: query) { return }
             send(.setQuery(query))
         }
     }
@@ -48,6 +50,13 @@ public final class PaletteModel {
     /// The text step opened on its initial text (a rename's current name):
     /// the field selects it, so typing replaces it and the arrow keys edit it.
     public internal(set) var selectsQuery = false
+    /// With `selectsQuery`: select only this many UTF-16 units from the
+    /// start (a file name without its extension); nil selects all.
+    public internal(set) var selectedQueryLength: Int?
+    /// The current page's line under the field (`PalettePageSpec.hint`).
+    public internal(set) var fieldHint: String?
+    /// The footer title's clickable segments (`PalettePageSpec.crumbs`).
+    public internal(set) var pageCrumbs: [String] = []
     /// Why the last command could not run, shown as its row's subtitle
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?
@@ -195,7 +204,7 @@ public final class PaletteModel {
     public func reset(to effect: PaletteEffect, fallback: PalettePageSpec) {
         switch effect.resolved() {
         case .deferred: break
-        case .push(let page): reset(to: page)
+        case .push(let page), .replace(let page): reset(to: page)
         case .textInput(let spec):
             let state = PageState(kind: .textInput(spec))
             let id = PaletteScopeID("input:\(spec.id)")
@@ -279,6 +288,8 @@ public final class PaletteModel {
             reload()
         case .push(let page):
             push(page)
+        case .replace(let page):
+            replaceCurrentPage(with: page)
         case .textInput(let spec):
             pushTextInput(spec)
         }
@@ -290,7 +301,7 @@ public final class PaletteModel {
         let handler: @MainActor () -> Void
         switch command.effect.resolved() {
         case .perform(let run), .performKeepingOpen(let run): handler = run
-        case .push, .textInput, .deferred: return false
+        case .push, .replace, .textInput, .deferred: return false
         }
         guard let performer, let reason = performer(handler) else {
             if performer == nil { handler() }

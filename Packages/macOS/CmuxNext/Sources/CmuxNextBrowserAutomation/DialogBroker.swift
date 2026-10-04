@@ -69,7 +69,9 @@ final class DialogBroker {
         case .alert(let message): ("alert", message, "")
         case .confirm(let message): ("confirm", message, "")
         case .textInput(let message, let defaultText): ("prompt", message, defaultText ?? "")
-        case .permission: nil
+        // Permission and HTTP credential prompts stay the person's: an agent
+        // never answers them (credentials, plans/cmux-next/passwords.md).
+        case .permission, .credentials: nil
         }
     }
 }

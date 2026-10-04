@@ -7,6 +7,9 @@ struct ActionFailure: Error, Hashable, CustomStringConvertible {
     let message: String
     /// An explicit target names nothing: the control socket answers `not_found`.
     var isNotFound = false
+    /// A navigation or focus move with no target (R136): no notice for a
+    /// keyboard or menu run; callers still get the message.
+    var isQuiet = false
 
     /// The cmux-tui daemon does not serve `capability`.
     static func needsDaemonCapability(_ capability: String) -> ActionFailure {
@@ -20,6 +23,10 @@ struct ActionFailure: Error, Hashable, CustomStringConvertible {
 
     static func invalidTarget(_ message: String) -> ActionFailure {
         ActionFailure(message: message)
+    }
+
+    static func noTarget(_ message: String) -> ActionFailure {
+        ActionFailure(message: message, isQuiet: true)
     }
 
     static func notFound(_ message: String) -> ActionFailure {
@@ -47,6 +54,8 @@ extension ActionRegistry {
                 try run(invocation)
             } catch let failure as ActionFailure where failure.isNotFound {
                 self?.refuseNotFound(failure.message)
+            } catch let failure as ActionFailure where failure.isQuiet {
+                self?.refuse(failure.message, quiet: true)
             } catch {
                 self?.refuse(String(describing: error))
             }

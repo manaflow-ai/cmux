@@ -384,6 +384,19 @@ pub fn ease_out(t: f32) -> f32 {
     cubic_bezier(f64::from(t.clamp(0., 1.)), x1, y1, x2, y2) as f32
 }
 
+/// Control points of Core Animation's `easeInEaseOut`
+/// (`CAMediaTimingFunction(name: .easeInEaseOut)`): a cubic Bezier from
+/// (0, 0) to (1, 1) through (0.42, 0) and (0.58, 1). cmux-next uses it for
+/// the hover marquee's scroll (`Motion.marqueeAnimation`).
+pub const EASE_IN_EASE_OUT_CONTROL_POINTS: [f64; 4] = [0.42, 0., 0.58, 1.];
+
+/// Core Animation's `easeInEaseOut` at time fraction `t` (0..=1), solved
+/// like `ease_out`; within 1e-5 of `CAMediaTimingFunction`.
+pub fn ease_in_ease_out(t: f32) -> f32 {
+    let [x1, y1, x2, y2] = EASE_IN_EASE_OUT_CONTROL_POINTS;
+    cubic_bezier(f64::from(t.clamp(0., 1.)), x1, y1, x2, y2) as f32
+}
+
 /// A CSS / Core Animation timing curve through (0, 0), (x1, y1), (x2, y2),
 /// (1, 1) at time fraction `t` (0..=1; x1 and x2 within 0..=1).
 fn cubic_bezier(t: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
@@ -699,7 +712,7 @@ impl MotionPolicy {
         Self { speed, reduce_motion, debug_scale: 1. }
     }
 
-    fn scale(&self) -> f64 {
+    pub(crate) fn scale(&self) -> f64 {
         self.speed.time_scale() * self.debug_scale.max(1.)
     }
 

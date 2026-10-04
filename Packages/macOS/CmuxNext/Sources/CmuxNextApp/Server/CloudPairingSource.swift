@@ -6,8 +6,7 @@ import Foundation
 /// looks a code up with `server.pair.preview` and approves it with
 /// `server.pair.approve` (origin user, the intent's key as the idempotency
 /// key) through the API Worker. Every other intent goes to `inner`, which
-/// serves this Mac's own `server.status` (still the mock until the local
-/// `server` role serves it).
+/// serves this Mac's own `server.status` (`LocalServerSource`).
 @MainActor
 final class CloudPairingSource: ServerSource {
     /// One POST to the API Worker as the signed-in user (`v1/read`, `v1/ops`).
@@ -20,13 +19,13 @@ final class CloudPairingSource: ServerSource {
     private var sink: (@MainActor (ServerSourceEvent) -> Void)?
     private var work: [String: Task<Void, Never>] = [:]
 
-    /// The App's source: this Mac's status (mock for now) plus cloud pairing
+    /// The App's source: this Mac's status from the bundled CLI plus cloud pairing
     /// as the signed-in user. Phase 1 pairs into the Worker's team for the
     /// session (the personal team, server.md 6.2 step 4), read from the
     /// Worker: the app's Stack team id is not a Worker team id.
     static func app(feed: FeedService, auth: CloudAuth) -> CloudPairingSource {
         CloudPairingSource(
-            inner: MockServerSource(scenario: .healthyMac),
+            inner: LocalServerSource.app(),
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)

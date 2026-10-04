@@ -122,7 +122,22 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun],
         actions: ["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete"])
+                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"],
+        dynamicPrefixes: ["backdrop"])
+
+    /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
+    /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page
+    /// runs no registry action yet.
+    static let apps = PageDescriptor(
+        id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun])
+
+    /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
+    /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
+    /// the page runs only three account actions. Connect adds a credential, so it is the host op
+    /// `cmux.coderouter.accounts.connect` behind the app's native sheet, never a plain action.
+    static let coderouter = PageDescriptor(
+        id: "cmux.coderouter", resource: "coderouter", namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
+        actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(

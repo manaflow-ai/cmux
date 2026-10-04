@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextBridge
 
-/// `columns[].sticky` (`sticky-columns-v1`) reaches the layout; an older
+/// `columns[].dock` (`dock-columns-v1`) reaches the layout; an older
 /// daemon (no field) and a newer one (unknown values) both degrade.
 struct DockColumnMappingTests {
     private func column(_ json: String) throws -> ColumnSnapshot {
@@ -12,25 +12,25 @@ struct DockColumnMappingTests {
     }
 
     @Test func decodesEdgeAndMode() throws {
-        let dock = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"sticky":{"edge":"left","mode":"overlay"}}"#).dock
+        let dock = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"dock":{"edge":"left","mode":"overlay"}}"#).dock
         #expect(dock == DockSnapshot(edge: .left, mode: .overlay))
         #expect(dock.map(LayoutMapping.dock) == DockColumn(edge: .left, mode: .overlay))
     }
 
     @Test func anOlderDaemonHasNoDockColumns() throws {
         #expect(try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4}}"#).dock == nil)
-        #expect(try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"sticky":null}"#).dock == nil)
+        #expect(try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"dock":null}"#).dock == nil)
     }
 
-    @Test func aDockArrivesInItsOwnFieldAndASideFlagCannotUseIt() throws {
-        let dock = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"dock":{"edge":"bottom","mode":"overlay"}}"#).dock
-        #expect(dock == DockSnapshot(edge: .bottom, mode: .overlay))
-        let misplaced = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"dock":{"edge":"left","mode":"docked"}}"#).dock
-        #expect(misplaced == nil)
+    @Test func everyEdgeArrivesInTheOneDockField() throws {
+        let bottom = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"dock":{"edge":"bottom","mode":"overlay"}}"#).dock
+        #expect(bottom == DockSnapshot(edge: .bottom, mode: .overlay))
+        let left = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"dock":{"edge":"left","mode":"docked"}}"#).dock
+        #expect(left == DockSnapshot(edge: .left, mode: .docked))
     }
 
     @Test func unknownValuesFallBackToTheDefaults() throws {
-        let dock = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"sticky":{"edge":"diagonal","mode":"float"}}"#).dock
+        let dock = try column(#"{"id":9,"width":0.3,"layout":{"type":"leaf","pane":4},"dock":{"edge":"diagonal","mode":"float"}}"#).dock
         #expect(dock == DockSnapshot(edge: .right, mode: .docked))
     }
 

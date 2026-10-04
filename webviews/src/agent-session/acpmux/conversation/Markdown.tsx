@@ -433,7 +433,7 @@ export function Markdown({
   // An odd number of fence lines: the last block is a fence still arriving.
   const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
   return (
-    <div className={`cv-md ${className}${streaming && waiting ? " is-waiting" : ""}`}>
+    <div className={`cv-md selectable ${className}${streaming && waiting ? " is-waiting" : ""}`}>
       {blocks.map((entry, index) => {
         const live = !atMount.current!.has(entry.key);
         const open = openFence && index === blocks.length - 1;

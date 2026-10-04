@@ -103,9 +103,9 @@ fn public_viewport_node(
                 "width": f64::from(column.width),
                 "root": public_layout_node(&column.layout, tabs_by_pane, panes_by_id)?,
             });
-            // `sticky-columns-v1`: omitted while the column scrolls.
-            if let Some(sticky) = column.sticky {
-                value["sticky"] = serde_json::to_value(sticky)?;
+            // `dock-columns-v1`: omitted while the column scrolls.
+            if let Some(dock) = column.dock {
+                value["dock"] = serde_json::to_value(dock)?;
             }
             Ok(value)
         })

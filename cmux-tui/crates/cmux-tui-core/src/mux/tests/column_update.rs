@@ -1,9 +1,9 @@
 //! `column.update` (resource API v2): pins, unpins, and resizes a viewport
-//! column through the same reducer as `set-column-sticky`, with idempotent
-//! replay and the layout invariants of `sticky-columns-v1`.
+//! column through the same reducer as `set-column-dock`, with idempotent
+//! replay and the layout invariants of `dock-columns-v1`.
 
 use super::*;
-use crate::model::{ColumnSticky, StickyEdge, StickyMode};
+use crate::model::{ColumnDock, DockEdge, DockMode};
 
 /// A screen with `count` viewport columns, one pane each.
 fn column_mux(count: usize) -> (Arc<Mux>, Vec<PaneId>) {
@@ -32,9 +32,9 @@ fn column_ids(mux: &Arc<Mux>) -> Vec<String> {
     })
 }
 
-fn flags(mux: &Arc<Mux>) -> Vec<Option<ColumnSticky>> {
+fn flags(mux: &Arc<Mux>) -> Vec<Option<ColumnDock>> {
     mux.with_state(|state| {
-        state.workspaces[0].screens[0].layout_columns.iter().map(|column| column.sticky).collect()
+        state.workspaces[0].screens[0].layout_columns.iter().map(|column| column.dock).collect()
     })
 }
 
@@ -80,8 +80,8 @@ fn send(mux: &Arc<Mux>, operation: &str, params: Value, key: &str) -> Result<Val
     }
 }
 
-fn flag(edge: StickyEdge, mode: StickyMode) -> Option<ColumnSticky> {
-    Some(ColumnSticky { edge, mode })
+fn flag(edge: DockEdge, mode: DockMode) -> Option<ColumnDock> {
+    Some(ColumnDock { edge, mode })
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn column_update_pins_unpins_and_replays_by_idempotency_key() {
             &mux,
             serde_json::json!({
                 "column": columns[1],
-                "sticky": true,
+                "dock": true,
                 "edge": "left",
                 "mode": "overlay",
             }),
@@ -103,7 +103,7 @@ fn column_update_pins_unpins_and_replays_by_idempotency_key() {
     let pinned = pin().unwrap();
     assert_eq!(pinned["result"]["value"]["id"], screen_id(&mux), "{pinned}");
     assert_eq!(pinned["result"]["replayed"], false);
-    assert_eq!(flags(&mux), vec![None, flag(StickyEdge::Left, StickyMode::Overlay), None]);
+    assert_eq!(flags(&mux), vec![None, flag(DockEdge::Left, DockMode::Overlay), None]);
 
     let committed = revision(&mux);
     let replay = pin().unwrap();
@@ -113,20 +113,18 @@ fn column_update_pins_unpins_and_replays_by_idempotency_key() {
     assert_eq!(revision(&mux), committed, "a replay commits nothing");
 
     // Defaults: right and docked.
-    update(&mux, serde_json::json!({"column": columns[2], "sticky": true}), "column-right")
-        .unwrap();
+    update(&mux, serde_json::json!({"column": columns[2], "dock": true}), "column-right").unwrap();
     assert_eq!(
         flags(&mux),
         vec![
             None,
-            flag(StickyEdge::Left, StickyMode::Overlay),
-            flag(StickyEdge::Right, StickyMode::Docked)
+            flag(DockEdge::Left, DockMode::Overlay),
+            flag(DockEdge::Right, DockMode::Docked)
         ]
     );
 
-    update(&mux, serde_json::json!({"column": columns[1], "sticky": false}), "column-unpin")
-        .unwrap();
-    assert_eq!(flags(&mux), vec![None, None, flag(StickyEdge::Right, StickyMode::Docked)]);
+    update(&mux, serde_json::json!({"column": columns[1], "dock": false}), "column-unpin").unwrap();
+    assert_eq!(flags(&mux), vec![None, None, flag(DockEdge::Right, DockMode::Docked)]);
 }
 
 #[test]
@@ -136,12 +134,12 @@ fn column_update_sets_width_and_flag_in_one_commit() {
     let before = revision(&mux);
     update(
         &mux,
-        serde_json::json!({"column": columns[0], "sticky": true, "edge": "left", "width": 0.4}),
+        serde_json::json!({"column": columns[0], "dock": true, "edge": "left", "width": 0.4}),
         "column-both",
     )
     .unwrap();
     assert_eq!(revision(&mux), before + 1, "one commit");
-    assert_eq!(flags(&mux)[0], flag(StickyEdge::Left, StickyMode::Docked));
+    assert_eq!(flags(&mux)[0], flag(DockEdge::Left, DockMode::Docked));
     assert!((widths(&mux)[0] - 0.4).abs() < 1e-6);
     mux.with_state(|state| {
         let screen = &state.workspaces[0].screens[0];
@@ -155,23 +153,23 @@ fn column_update_sets_width_and_flag_in_one_commit() {
 }
 
 #[test]
-fn column_update_replaces_and_moves_edges_like_set_column_sticky() {
+fn column_update_replaces_and_moves_edges_like_set_column_dock() {
     let (mux, _) = column_mux(3);
     let columns = column_ids(&mux);
-    update(&mux, serde_json::json!({"column": columns[2], "sticky": true}), "column-a").unwrap();
-    update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-b").unwrap();
-    assert_eq!(flags(&mux), vec![None, flag(StickyEdge::Right, StickyMode::Docked), None]);
+    update(&mux, serde_json::json!({"column": columns[2], "dock": true}), "column-a").unwrap();
+    update(&mux, serde_json::json!({"column": columns[1], "dock": true}), "column-b").unwrap();
+    assert_eq!(flags(&mux), vec![None, flag(DockEdge::Right, DockMode::Docked), None]);
     update(
         &mux,
-        serde_json::json!({"column": columns[1], "sticky": true, "edge": "left"}),
+        serde_json::json!({"column": columns[1], "dock": true, "edge": "left"}),
         "column-c",
     )
     .unwrap();
-    assert_eq!(flags(&mux), vec![None, flag(StickyEdge::Left, StickyMode::Docked), None]);
+    assert_eq!(flags(&mux), vec![None, flag(DockEdge::Left, DockMode::Docked), None]);
 }
 
 /// The edge docks of `edge-docks-v1` (top and bottom) go through
-/// `column.update` like the side pins: `set-column-sticky` already takes
+/// `column.update` like the side pins: `set-column-dock` already takes
 /// them, and the reducer is the same.
 #[test]
 fn column_update_pins_top_and_bottom_docks() {
@@ -179,7 +177,7 @@ fn column_update_pins_top_and_bottom_docks() {
     let columns = column_ids(&mux);
     update(
         &mux,
-        serde_json::json!({"column": columns[0], "sticky": true, "edge": "top"}),
+        serde_json::json!({"column": columns[0], "dock": true, "edge": "top"}),
         "column-top",
     )
     .unwrap();
@@ -187,7 +185,7 @@ fn column_update_pins_top_and_bottom_docks() {
         &mux,
         serde_json::json!({
             "column": columns[2],
-            "sticky": true,
+            "dock": true,
             "edge": "bottom",
             "mode": "overlay",
         }),
@@ -197,15 +195,15 @@ fn column_update_pins_top_and_bottom_docks() {
     assert_eq!(
         flags(&mux),
         vec![
-            flag(StickyEdge::Top, StickyMode::Docked),
+            flag(DockEdge::Top, DockMode::Docked),
             None,
-            flag(StickyEdge::Bottom, StickyMode::Overlay)
+            flag(DockEdge::Bottom, DockMode::Overlay)
         ]
     );
     // A second top dock replaces the first, like a side pin.
     update(
         &mux,
-        serde_json::json!({"column": columns[1], "sticky": true, "edge": "top"}),
+        serde_json::json!({"column": columns[1], "dock": true, "edge": "top"}),
         "column-top-again",
     )
     .unwrap();
@@ -213,8 +211,8 @@ fn column_update_pins_top_and_bottom_docks() {
         flags(&mux),
         vec![
             None,
-            flag(StickyEdge::Top, StickyMode::Docked),
-            flag(StickyEdge::Bottom, StickyMode::Overlay)
+            flag(DockEdge::Top, DockMode::Docked),
+            flag(DockEdge::Bottom, DockMode::Overlay)
         ]
     );
 }
@@ -223,11 +221,11 @@ fn column_update_pins_top_and_bottom_docks() {
 fn column_update_refuses_to_leave_no_scrolling_column() {
     let (mux, _) = column_mux(2);
     let columns = column_ids(&mux);
-    update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-ok").unwrap();
+    update(&mux, serde_json::json!({"column": columns[1], "dock": true}), "column-ok").unwrap();
     let before = (flags(&mux), revision(&mux));
     let rejected = update(
         &mux,
-        serde_json::json!({"column": columns[0], "sticky": true, "edge": "left"}),
+        serde_json::json!({"column": columns[0], "dock": true, "edge": "left"}),
         "column-last",
     );
     assert_eq!(rejected.unwrap_err()["code"], "validation.invalid");
@@ -242,11 +240,11 @@ fn column_update_rejects_malformed_requests_without_changes() {
     for (key, fields) in [
         ("no-change", serde_json::json!({"column": columns[1]})),
         ("edge-alone", serde_json::json!({"column": columns[1], "edge": "left"})),
-        ("bad-edge", serde_json::json!({"column": columns[1], "sticky": true, "edge": "middle"})),
+        ("bad-edge", serde_json::json!({"column": columns[1], "dock": true, "edge": "middle"})),
         ("bad-width", serde_json::json!({"column": columns[1], "width": 1.5})),
         (
             "unknown-column",
-            serde_json::json!({"column": "split_0000000000000000000000000000beef", "sticky": true}),
+            serde_json::json!({"column": "split_0000000000000000000000000000beef", "dock": true}),
         ),
     ] {
         let error = update(&mux, fields, key).expect_err(key);
@@ -255,11 +253,24 @@ fn column_update_rejects_malformed_requests_without_changes() {
     assert_eq!((flags(&mux), widths(&mux), revision(&mux)), before);
 }
 
+/// DOCK-WIRE (R87): an older client's `sticky` is refused, never ignored
+/// (with `width` alone the pin would silently drop).
+#[test]
+fn column_update_refuses_the_old_sticky_field() {
+    let (mux, _) = column_mux(3);
+    let columns = column_ids(&mux);
+    let before = (flags(&mux), widths(&mux), revision(&mux));
+    let fields = serde_json::json!({"column": columns[2], "sticky": true, "width": 0.4});
+    let error = update(&mux, fields, "old-sticky").expect_err("sticky is refused");
+    assert_eq!(error["code"], "validation.invalid", "{error}");
+    assert_eq!((flags(&mux), widths(&mux), revision(&mux)), before);
+}
+
 #[test]
 fn column_update_is_undone_by_undo_layout() {
     let (mux, panes) = column_mux(3);
     let columns = column_ids(&mux);
-    update(&mux, serde_json::json!({"column": columns[2], "sticky": true}), "column-undo").unwrap();
+    update(&mux, serde_json::json!({"column": columns[2], "dock": true}), "column-undo").unwrap();
     assert!(flags(&mux)[2].is_some());
     assert!(matches!(
         mux.undo_layout(panes[2], None, false).unwrap(),
@@ -306,9 +317,9 @@ fn column_update_sequences_keep_layout_invariants() {
     for step in 0..60 {
         let mut fields = serde_json::json!({"column": columns[next(columns.len())]});
         match next(3) {
-            0 => fields["sticky"] = serde_json::json!(false),
+            0 => fields["dock"] = serde_json::json!(false),
             1 => {
-                fields["sticky"] = serde_json::json!(true);
+                fields["dock"] = serde_json::json!(true);
                 fields["edge"] = serde_json::json!(["left", "right"][next(2)]);
                 fields["mode"] = serde_json::json!(["docked", "overlay"][next(2)]);
             }
@@ -320,7 +331,7 @@ fn column_update_sequences_keep_layout_invariants() {
         assert_eq!(membership(&mux), tabs, "a column change never moves a tab");
         let flags = flags(&mux);
         assert!(flags.iter().any(Option::is_none), "at least one column scrolls");
-        for edge in [StickyEdge::Left, StickyEdge::Right] {
+        for edge in [DockEdge::Left, DockEdge::Right] {
             assert!(flags.iter().flatten().filter(|flag| flag.edge == edge).count() <= 1);
         }
         let committed = revision(&mux);
@@ -336,14 +347,14 @@ fn column_update_enforces_revision_and_idempotency_conflicts() {
     let columns = column_ids(&mux);
     let stale = update(
         &mux,
-        serde_json::json!({"column": columns[1], "sticky": true, "expected_revision": "1"}),
+        serde_json::json!({"column": columns[1], "dock": true, "expected_revision": "1"}),
         "column-stale",
     )
     .unwrap_err();
     assert_eq!(stale["code"], "revision.conflict", "{stale}");
     assert_eq!(flags(&mux), vec![None, None]);
 
-    update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-key").unwrap();
+    update(&mux, serde_json::json!({"column": columns[1], "dock": true}), "column-key").unwrap();
     let reused =
         update(&mux, serde_json::json!({"column": columns[1], "width": 0.4}), "column-key")
             .unwrap_err();
@@ -355,14 +366,12 @@ fn column_update_enforces_revision_and_idempotency_conflicts() {
 fn column_update_that_changes_nothing_records_no_undo_entry() {
     let (mux, _) = column_mux(2);
     let columns = column_ids(&mux);
-    update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-first")
-        .unwrap();
+    update(&mux, serde_json::json!({"column": columns[1], "dock": true}), "column-first").unwrap();
     let (undo, layout_revision) = mux.with_state(|state| {
         let screen = &state.workspaces[0].screens[0];
         (screen.layout_undo.len(), screen.layout_revision)
     });
-    update(&mux, serde_json::json!({"column": columns[1], "sticky": true}), "column-again")
-        .unwrap();
+    update(&mux, serde_json::json!({"column": columns[1], "dock": true}), "column-again").unwrap();
     mux.with_state(|state| {
         let screen = &state.workspaces[0].screens[0];
         assert_eq!((screen.layout_undo.len(), screen.layout_revision), (undo, layout_revision));
@@ -383,7 +392,7 @@ fn column_update_refuses_a_column_of_another_screen() {
         "session": "current",
         "screen": other_screen,
         "column": first_columns[1],
-        "sticky": true,
+        "dock": true,
     });
     let error = send(&mux, "column.update", params, "column-other").unwrap_err();
     assert_eq!(error["code"], "validation.invalid", "{error}");
@@ -441,7 +450,7 @@ fn column_update_survives_a_restart() {
     let columns = column_ids(&mux);
     update(
         &mux,
-        serde_json::json!({"column": columns[1], "sticky": true, "edge": "left", "width": 0.5}),
+        serde_json::json!({"column": columns[1], "dock": true, "edge": "left", "width": 0.5}),
         "column-restart",
     )
     .unwrap();
@@ -449,7 +458,7 @@ fn column_update_survives_a_restart() {
     drop(mux);
 
     let mux = open();
-    assert_eq!(flags(&mux), vec![None, flag(StickyEdge::Left, StickyMode::Docked)]);
+    assert_eq!(flags(&mux), vec![None, flag(DockEdge::Left, DockMode::Docked)]);
     assert!((widths(&mux)[1] - 0.5).abs() < 1e-6);
     mux.with_state(|state| {
         assert!(state.workspaces[0].screens[0].layout_column_projection_is_consistent());

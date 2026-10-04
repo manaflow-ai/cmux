@@ -19,3 +19,15 @@ public nonisolated enum TerminalConnectionStatus: Sendable, Equatable {
     case disconnected(TerminalDisconnectCause, reconnecting: Bool)
     case exited
 }
+
+/// Why a dead terminal's host was lost when no exit status reached the
+/// owner (tab `end.kind == host_lost`). The banner says "Terminal lost"
+/// instead of "Process exited": the shell did not exit normally.
+public nonisolated enum TerminalHostLoss: Sendable, Equatable {
+    /// The host process ended (killed, crashed) before it reported an exit.
+    case hostEnded
+    /// A logout or session shutdown ended it.
+    case sessionShutdown
+    /// The owner no longer finds the host it recorded.
+    case hostMissing
+}

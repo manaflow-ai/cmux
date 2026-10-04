@@ -565,6 +565,13 @@
     "down"
    ]
   },
+  "PaneKind": {
+   "kind": "enum",
+   "values": [
+    "pty",
+    "browser"
+   ]
+  },
   "PaneDirection": {
    "kind": "enum",
    "values": [
@@ -10225,6 +10232,28 @@
       "default": null,
       "since": 12,
       "capability": "terminal-shell-args-v1"
+     },
+     "kind": {
+      "type": {
+       "kind": "ref",
+       "name": "PaneKind"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pane-browser-kind-v1"
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pane-browser-kind-v1"
      }
     },
     "additional_properties": false,
@@ -10239,7 +10268,8 @@
    },
    "stream": null,
    "constraints": [
-    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+    "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
    ]
   },
   "split": {
@@ -10349,6 +10379,28 @@
       "default": null,
       "since": 12,
       "capability": "terminal-shell-args-v1"
+     },
+     "kind": {
+      "type": {
+       "kind": "ref",
+       "name": "PaneKind"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pane-browser-kind-v1"
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "pane-browser-kind-v1"
      }
     },
     "additional_properties": false,
@@ -10363,7 +10415,8 @@
    "stream": null,
    "constraints": [
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
-    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+    "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+    "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
    ]
   },
   "set-ratio": {
@@ -10515,10 +10568,10 @@
     "width must be finite."
    ]
   },
-  "set-column-sticky": {
+  "set-column-dock": {
    "authority": "control",
    "since": 12,
-   "capability": "sticky-columns-v1",
+   "capability": "dock-columns-v1",
    "request": {
     "kind": "object",
     "fields": {
@@ -10530,7 +10583,7 @@
       "presence": "required",
       "nullable": false
      },
-     "sticky": {
+     "dock": {
       "type": {
        "kind": "scalar",
        "name": "boolean"
@@ -15455,7 +15508,7 @@
       "nullable": true,
       "default": null
      },
-     "sticky": {
+     "dock": {
       "type": {
        "kind": "ref",
        "name": "ColumnPin"
@@ -15464,7 +15517,7 @@
       "nullable": true,
       "default": null,
       "since": 12,
-      "capability": "edge-docks-v1"
+      "capability": "dock-columns-v1"
      },
      "respawn": {
       "type": {

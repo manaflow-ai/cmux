@@ -24,6 +24,9 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     /// (nil for text that is not localized), so clients outside the app
     /// localize from the same catalog (`SettingsSchemaExport`).
     public let textKeys: SettingTextKeys
+    /// Whether the palette lists this setting (R93). Every row is exposed
+    /// unless it names a reason to stay out.
+    public var palette: SettingPaletteExposure = .exposed
 
     /// A row whose texts come from the string catalog (`SettingsText.keyed`).
     public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
@@ -52,6 +55,17 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     public var id: String { path.joined(separator: ".") }
 }
 
+/// Whether a setting has a palette row (`SettingsPaletteSource`).
+public nonisolated enum SettingPaletteExposure: Sendable, Hashable {
+    case exposed
+    /// Kept out of the palette, with the reason.
+    case hidden(String)
+}
+
+extension SettingDescriptor {
+    public var isPaletteExposed: Bool { palette == .exposed }
+}
+
 /// What a setting holds and how the Settings window edits it.
 public nonisolated enum SettingKind: Sendable, Hashable {
     /// One of fixed values (a pop-up or segmented control).
@@ -69,6 +83,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case url
     /// A list of host names.
     case hostList
+    /// A list of folder paths, each absolute or `~/...` (`picker.pinned`).
+    case folderList
     /// `{"start": "HH:MM", "end": "HH:MM"}`; absent means off.
     case timeRange
     /// A Ghostty theme: one theme name or `light:A,dark:B` (`AppThemeSetting`).

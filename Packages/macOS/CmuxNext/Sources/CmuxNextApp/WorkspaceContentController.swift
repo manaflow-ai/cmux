@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -17,6 +18,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) var contentView: WorkspaceContentView!
     private(set) var screenBar: ScreenBarController!
+    /// Agent cursors drawn in this content's overlay plane
+    /// (plans/cmux-next/agent-cursor.md). Drivers publish through
+    /// `agentCursor.publisher`; placement comes from the visibility source.
+    /// With no input events it draws nothing.
+    private(set) var agentCursor: AgentCursorStack?
     /// The workspace theme: only this content area, under the window's
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
@@ -60,6 +66,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
+        if let planeLayer = layoutView.overlayPlane.layer {
+            agentCursor = AgentCursorStack(hostLayer: planeLayer, resolver: services.agentCursorVisibility.resolver(for: self))
+            agentCursor?.model.onUntrack = { [weak services] target in services?.agentCursorVisibility.untrack(target) }
+        }
         observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)

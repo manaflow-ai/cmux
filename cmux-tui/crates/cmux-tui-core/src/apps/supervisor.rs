@@ -78,6 +78,23 @@ pub trait OpRouter: Send + Sync {
     /// True when the daemon's own dispatcher owns `op`; other ops go to a
     /// provider.
     fn owns(&self, op: &str) -> bool;
+    /// Creates the zero-view session-host terminal of an app's byte-backend
+    /// terminal. Without a session host: an error.
+    fn spawn_backend_terminal(
+        &self,
+        side: crate::terminal_backend::pty::BackendSide,
+    ) -> anyhow::Result<crate::mux::app_terminals::BackendTerminal> {
+        anyhow::bail!("no session host for {}", side.terminal)
+    }
+    /// True when the backend terminal ever had a view.
+    fn backend_terminal_viewed(&self, surface: crate::SurfaceId) -> bool {
+        let _ = surface;
+        false
+    }
+    /// Removes and stops a never-viewed backend terminal.
+    fn close_backend_terminal(&self, surface: crate::SurfaceId) {
+        let _ = surface;
+    }
 }
 
 pub struct Config {
@@ -190,6 +207,8 @@ pub(super) struct Inner {
     /// Open tokens minted for user runs of server ops (`servers.rs`).
     pub open_tokens: HashMap<String, super::open_tokens::OpenToken>,
     pub server_crashes: HashMap<String, super::servers::Crashes>,
+    /// Run callers and the ops they wait for (`cancel.rs`).
+    pub calls: super::cancel::Calls,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -213,6 +232,8 @@ pub struct Supervisor {
     pub(super) storage: Mutex<Option<Storage>>,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
+    /// Connector links of the terminal interfaces (`terminal_ops.rs`).
+    pub(super) terminals: super::terminal_links::Terminals,
     transactions: AtomicU64,
 }
 
@@ -263,6 +284,7 @@ impl Supervisor {
                 servers: HashMap::new(),
                 open_tokens: HashMap::new(),
                 server_crashes: HashMap::new(),
+                calls: Default::default(),
             }),
             config,
             router,
@@ -270,6 +292,7 @@ impl Supervisor {
             storage: Mutex::new(None),
             timers: Timers::default(),
             me: me.clone(),
+            terminals: Default::default(),
             transactions: AtomicU64::new(1),
         });
         if seeded {
@@ -284,12 +307,14 @@ impl Supervisor {
         self.inner.lock().unwrap().sinks.entry(client).or_insert(sink);
     }
 
-    /// A control connection closed: its mounts unmount, its follows end.
+    /// A control connection closed: its mounts unmount, its follows end, its
+    /// runs are cancelled.
     pub fn disconnect(&self, client: u64) {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             inner.sinks.remove(&client);
-            let provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            let mut provider_outs = self.provider_disconnect_locked(&mut inner, client);
+            provider_outs.extend(self.cancel_client_locked(&mut inner, client));
             for set in inner.followers.values_mut() {
                 set.remove(&client);
             }
@@ -380,11 +405,16 @@ impl Supervisor {
                 vec![]
             }
             Effect::StopHost(app) => {
-                let mut outs = self.stop_app_locked(inner, app, "disabled");
+                let mut outs = self.terminal_access_changed_locked(inner, app);
+                outs.extend(self.stop_app_locked(inner, app, "disabled"));
                 outs.extend(self.stop_server_locked(inner, app, "disabled"));
                 outs
             }
-            Effect::GrantsChanged(app) => self.regrant_locked(inner, app),
+            Effect::GrantsChanged(app) => {
+                let mut outs = self.terminal_access_changed_locked(inner, app);
+                outs.extend(self.regrant_locked(inner, app));
+                outs
+            }
         }
     }
 

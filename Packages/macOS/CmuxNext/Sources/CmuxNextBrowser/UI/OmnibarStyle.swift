@@ -15,8 +15,18 @@ enum OmnibarStyle {
 
     /// Omnibox and toolbar button height.
     static var barHeight: CGFloat { compact ? 24 : 28 }
-    /// Toolbar row: the bar plus a 3 pt vertical interior margin.
-    static var toolbarHeight: CGFloat { barHeight + 2 * basePadding }
+    /// The browser chrome's one vertical gap (R101): above the tab pills,
+    /// from the active tab to the omnibar, and from the omnibar to the
+    /// page. It is the pane chrome's tab gap (`PaneChromeMetrics.tabGap`),
+    /// so density and `layout.panePadding` move all three together.
+    /// `scale` is the window's backing scale (the strip snaps to it too).
+    static func chromeGap(scale: CGFloat) -> CGFloat { PaneChromeMetrics.current.tabGap(scale: scale) }
+    /// Space the toolbar leaves above the omnibar. The tab strip above
+    /// already ends `chromeGap` below its pills (`PaneChromeMetrics`), so
+    /// the omnibar starts at the toolbar's top edge.
+    static let toolbarTopPadding: CGFloat = 0
+    /// Toolbar row: the bar, then `chromeGap` down to the page.
+    static func toolbarHeight(scale: CGFloat) -> CGFloat { toolbarTopPadding + barHeight + chromeGap(scale: scale) }
     /// Horizontal interior margin: the pane's chrome line, so the first
     /// button's hover shape starts where the tab pills above it start and
     /// its glyph near the tabs' icons (`Metrics.paneChromeInset`).

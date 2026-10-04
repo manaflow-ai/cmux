@@ -1,20 +1,25 @@
-/// What the quit alerts say (user feedback 2026-09-30: minimal, plain,
-/// native). The first alert keeps the terminals by default and hides the
-/// end choices behind "End Sessions…", which asks once more.
+/// What the quit dialog says (R96, R138: a cmux dialog, minimal and plain).
+/// The first step keeps the terminals by default and hides the end choices
+/// behind "Quit Everything…", which asks once more.
 struct QuitAlertContent: Equatable {
     enum Button: String, Equatable {
+        /// Keep Sessions Running (the default).
+        case keep
+        /// Quit, for the incognito-only question.
         case quit
         case cancel
-        /// Opens the end confirmation.
-        case endSessions = "end"
-        case endKeepLayout = "end-keep-layout"
+        /// Opens the confirmation.
+        case quitEverything = "quit-everything"
+        /// End every local terminal, keep the layout.
+        case confirmQuitEverything = "confirm-quit-everything"
+        /// Also delete the workspaces.
         case endEverything = "end-everything"
     }
 
     var title: String
     /// One short sentence per line.
     var lines: [String]
-    /// NSAlert order: the first is the default (Return).
+    /// The first is the primary button; `QuitAlert` draws it last.
     var buttons: [Button]
     var showsSuppression: Bool
 
@@ -35,21 +40,26 @@ struct QuitAlertContent: Equatable {
         if prompt.runningPrograms > 0 { lines.append(QuitStrings.programsRunning(prompt.runningPrograms)) }
         if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }
         if prompt.remoteSessions { lines.append(QuitStrings.remote) }
-        return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.quit, .cancel, .endSessions], showsSuppression: true)
+        return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .cancel, .quitEverything],
+                                showsSuppression: true)
     }
 
-    /// "End all terminals?", asked once after "End Sessions…".
+    /// "End all terminals?", asked once after "Quit Everything…".
     static var endConfirmation: QuitAlertContent {
         QuitAlertContent(title: QuitStrings.endTitle, lines: [QuitStrings.endEverythingDeletes],
-                         buttons: [.endKeepLayout, .cancel, .endEverything], showsSuppression: false)
+                         buttons: [.confirmQuitEverything, .cancel, .endEverything], showsSuppression: false)
     }
+
+    /// The first step (Return and a second Cmd-Q keep), not the confirmation.
+    var isFirstStep: Bool { buttons.first == .keep || buttons.first == .quit }
 
     static func title(of button: Button) -> String {
         switch button {
+        case .keep: QuitStrings.keepSessionsRunning
         case .quit: ConfirmationStrings.quit
         case .cancel: ConfirmationStrings.cancel
-        case .endSessions: QuitStrings.endSessions
-        case .endKeepLayout: QuitStrings.endKeepLayout
+        case .quitEverything: QuitStrings.quitEverythingEllipsis
+        case .confirmQuitEverything: QuitStrings.quitEverything
         case .endEverything: QuitStrings.endEverything
         }
     }

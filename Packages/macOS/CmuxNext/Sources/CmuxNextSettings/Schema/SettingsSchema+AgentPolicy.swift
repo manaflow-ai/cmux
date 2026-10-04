@@ -3,8 +3,10 @@
 /// is in exactly one of the two tables, with no default (the 18 surface
 /// background rows join the settable table as one decided group, R55):
 /// `SettingsSchemaExportTests` fails on a key in neither or both, so a new
-/// setting cannot reach agents without a decision. The daemon's config actor
-/// enforces the exported flag; MCP only forwards.
+/// setting cannot reach agents without a decision. Enforced at the one write
+/// path, `SettingsController.setSetting(_:to:by:)` (`SettingWriter`): every
+/// caller that is not the user (socket cli/mcp/script/remote, palette actions
+/// run from the socket, pages without a user gesture) may change only these keys.
 extension SettingsSchema {
     /// Why an agent may not change a key.
     public nonisolated enum AgentRefusal: String, Sendable, Hashable {
@@ -14,15 +16,23 @@ extension SettingsSchema {
         case network
         /// The key can end terminals or other work.
         case destructive
+        /// The person decides it; agents do not, in v1 (`picker.pinned`:
+        /// which folders the picker offers first).
+        case userOnly
     }
     /// Keys an agent may set and reset: the table below plus every
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
-    public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys)
+    public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        "window.titlebarButtons",
+        "tabs.plusButton",
+        "tabs.barPosition",
         "navigation.historyScope",
         "sidebar.minimalMode",
+        "sidebar.side",
+        "sidebar.spacesPosition",
         "tabs.newTabKind",
         "newTerminal.opensWorkspace",
         "palette.scopes.tabs.prefix",
@@ -61,6 +71,9 @@ extension SettingsSchema {
         "layout.panePadding",
         "layout.paneCornerRadius",
         "layout.paneBorder",
+        "layout.paneSeparation",
+        "sidebar.border",
+        "sidebar.borderWidth",
         "layout.paneBorderColor",
         "layout.paneBorderWidth",
         "focusRing.enabled",
@@ -109,10 +122,13 @@ extension SettingsSchema {
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "labs.previewFeatures",
+        "updates.notify",
+        "updates.quietHours",
     ]
 
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = [
+        "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
@@ -120,6 +136,14 @@ extension SettingsSchema {
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
         "app.quitBehavior": .destructive,
+        // Update checks and downloads reach the network; install on quit
+        // replaces the app.
+        "updates.checkAutomatically": .network,
+        "updates.checkIntervalSeconds": .network,
+        "updates.downloadAutomatically": .network,
+        "updates.meteredNetwork": .network,
+        "updates.installOnQuit": .destructive,
+        "updates.keepPreviousVersions": .destructive,
     ]
 
     /// True when an agent may change `descriptor`, false when it may not, nil

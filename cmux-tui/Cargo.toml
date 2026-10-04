@@ -48,6 +48,7 @@ members = [
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-local-auth",
@@ -84,6 +85,7 @@ default-members = [
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-terminal-iface",
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-local-auth",
@@ -128,6 +130,7 @@ cmux-wg = { path = "crates/cmux-wg" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 cmux-app-manifest = { path = "crates/cmux-app-manifest" }
+cmux-terminal-iface = { path = "crates/cmux-terminal-iface" }
 cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 anyhow = "1"
 async-trait = "0.1"

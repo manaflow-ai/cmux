@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 extension SettingsController {
     /// Returns the complete `shortcuts` object for the next keymap export.
@@ -30,6 +30,22 @@ extension SettingsController {
         }
         guard !edits.isEmpty else { return }
         try await file.apply(edits)
+    }
+
+    /// Writes the `shortcuts` object to `url` as a keymap file
+    /// (`{"shortcuts": {...}}`, pretty JSON), atomically.
+    public func exportShortcutKeymap(to url: URL) async throws {
+        let keymap: JSONValue = .object(["shortcuts": try await shortcutKeymap()])
+        try Data(keymap.prettyText().utf8).write(to: url, options: .atomic)
+    }
+
+    /// Reads a keymap file (JSONC) and imports it (``importShortcutKeymap(_:)``),
+    /// then reloads so the registry applies it. A file that does not parse
+    /// changes nothing.
+    public func importShortcutKeymap(from url: URL) async throws {
+        let value = try JSONC.parse(try String(contentsOf: url, encoding: .utf8))
+        try await importShortcutKeymap(value)
+        await reload()
     }
 
     /// The edits that switch cmux-next.json to `preset`, from the file as it is.

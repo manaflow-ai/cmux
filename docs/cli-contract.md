@@ -419,12 +419,18 @@ cmux action list [--category <c>] [--noun <n>] [--available]
 cmux action describe <id>
 cmux action run <id> [--target <id>] [--<arg> <value>] [--arg name=value] [--wait] [--interactive]
 cmux settings get [<path>]
-cmux settings set <path> <value>
-cmux settings unset <path>
+cmux settings set <path> <value> [--confirm]
+cmux settings reset <path> [--confirm]
+cmux settings unset <path> [--confirm]
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
 ```
 
 `settings set` parses the value as JSON when it parses, else as a string.
+`unset` is an alias of `reset`. A key only the person may change answers
+`setting_user_only` (exit 1) with a hint. `--confirm` asks the person at the
+Mac on a native sheet and waits for the answer with no client deadline; a
+declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
+`cmux settings set <path> -- --confirm` sets the string "--confirm".
 `events` streams JSON lines until interrupted.
 
 Browser page commands address a browser tab the app hosts, by `tab_…` id or

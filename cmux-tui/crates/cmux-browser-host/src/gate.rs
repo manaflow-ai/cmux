@@ -10,7 +10,7 @@
 use crate::driver::Driver;
 use crate::policy::{Layer, Policy, Writer, parse_patterns};
 use crate::protocol::{DriverError, ErrorCode};
-use crate::secrets::Vault;
+use crate::secrets::{TabSecrets, Vault};
 use crate::vm::VmHost;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -30,6 +30,11 @@ pub struct Gate {
     grants: Grants,
     /// Navigations the policy refused (`session.blockedNavigations()`).
     log: Mutex<Vec<Value>>,
+    /// False while a policy is active that the engine cannot enforce on the
+    /// page's own requests (no request filter): every call fails closed.
+    filter_enforced: std::sync::atomic::AtomicBool,
+    /// Secrets typed into tabs by any session of the host.
+    tab_secrets: Arc<TabSecrets>,
 }
 
 /// Finds the URL of the frame that holds keyboard focus. Same-origin child
@@ -47,7 +52,51 @@ impl Gate {
             vault: Mutex::new(Vault::default()),
             grants,
             log: Mutex::new(Vec::new()),
+            filter_enforced: std::sync::atomic::AtomicBool::new(true),
+            tab_secrets: Arc::default(),
         }
+    }
+
+    /// Shares the host's record of secrets typed into tabs, so this session
+    /// masks what any session typed (and records what it types itself).
+    pub fn with_tab_secrets(mut self, tab_secrets: Arc<TabSecrets>) -> Gate {
+        self.tab_secrets = tab_secrets;
+        self
+    }
+
+    /// The session ends: the driver releases its per-session state now.
+    pub fn end_session(&self) {
+        self.driver.end_session();
+    }
+
+    /// Masks a value from (or about) one tab: the session's own secrets and
+    /// the secrets any session typed into that tab.
+    pub fn mask_for_target(&self, target: Option<&str>, value: &Value) -> Value {
+        let value = self.mask_value(value);
+        match target.and_then(|target| self.tab_secrets.masker(target)) {
+            Some(masker) => masker.mask_value(&value),
+            None => value,
+        }
+    }
+
+    fn mask_text_for_target(&self, target: Option<&str>, text: &str) -> String {
+        let text = self.mask(text);
+        match target.and_then(|target| self.tab_secrets.masker(target)) {
+            Some(masker) => masker.mask(&text).into_owned(),
+            None => text,
+        }
+    }
+
+    /// Masks a driver event for this session; a closed tab's record ends.
+    pub fn mask_event(&self, name: &str, payload: &Value) -> Value {
+        let target = payload.get("targetId").and_then(Value::as_str);
+        let masked = self.mask_for_target(target, payload);
+        if matches!(name, "tab.gone" | "tab.closed")
+            && let Some(target) = target
+        {
+            self.tab_secrets.forget(target);
+        }
+        masked
     }
 
     /// Owner-side policy change (`browser.policy.set`, user origin or the
@@ -72,13 +121,16 @@ impl Gate {
         };
         let filter: Option<crate::driver::RequestFilter> = active.then(|| {
             let policy = self.policy.clone();
-            let filter: crate::driver::RequestFilter = Arc::new(move |url: &str| {
+            // The session's policy is the same for every tab it drives.
+            let filter: crate::driver::RequestFilter = Arc::new(move |_target: &str, url: &str| {
                 let parsed = url::Url::parse(url).ok()?;
                 policy.lock().unwrap_or_else(PoisonError::into_inner).subresource_refusal(&parsed)
             });
             filter
         });
-        self.driver.set_request_filter(filter);
+        let wanted = filter.is_some();
+        let installed = self.driver.set_request_filter(filter);
+        self.filter_enforced.store(!wanted || installed, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Owner-side secrets (`browser.secrets.load`): values never enter the VM.
@@ -192,12 +244,16 @@ impl Gate {
         };
         let now =
             SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
-        let text = self
-            .vault
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .text_for_frame(&name, frame_url, now)
-            .map_err(|e| Self::refuse(e.0))?;
+        let (text, typed) = {
+            let vault = self.vault.lock().unwrap_or_else(PoisonError::into_inner);
+            let text =
+                vault.text_for_frame(&name, frame_url, now).map_err(|e| Self::refuse(e.0))?;
+            (text, vault.typed_value(&name).map(str::to_owned))
+        };
+        // Every session masks it in this tab from now on, not only this one.
+        if let (Some(target), Some(value)) = (target.as_str(), typed) {
+            self.tab_secrets.record(target, &name, &value);
+        }
         params[field] = Value::String(text);
         Ok(())
     }
@@ -205,118 +261,200 @@ impl Gate {
 
 impl VmHost for Gate {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
+        if !self.filter_enforced.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(DriverError::new(
+                ErrorCode::Forbidden,
+                format!(
+                    "{method}: this engine cannot apply the domain policy to requests the page makes itself; \
+                     clear the policy or use engine \"headless\""
+                ),
+            ));
+        }
         self.check(method, &params)?;
         let mut params = params;
         if matches!(method, "input.insertText" | "input.key") {
             self.resolve_secret(&mut params, "text")?;
         }
-        match self.driver.call(method, &params) {
-            Ok(value) => Ok(self.mask_value(&value)),
+        let target = params.get("targetId").and_then(Value::as_str).map(str::to_owned);
+        let target = target.as_deref();
+        let result = self.driver.call(method, &params);
+        if method == "tabs.close"
+            && result.is_ok()
+            && let Some(target) = target
+        {
+            self.tab_secrets.forget(target);
+        }
+        match result {
+            Ok(value) => Ok(self.mask_for_target(target, &value)),
             Err(mut error) => {
-                error.message = self.mask(&error.message);
-                error.error_name = error.error_name.map(|name| self.mask(&name));
-                error.data = error.data.map(|data| self.mask_value(&data));
+                error.message = self.mask_text_for_target(target, &error.message);
+                error.error_name =
+                    error.error_name.map(|name| self.mask_text_for_target(target, &name));
+                error.data = error.data.map(|data| self.mask_for_target(target, &data));
                 Err(error)
             }
         }
     }
 
-    fn native(&self, name: &str, args: Value) -> Result<Value, String> {
-        let arg = |i: usize| args.get(i).cloned().unwrap_or(Value::Null);
+    /// Main's native ABI (port plan D1): `secrets(op, args)` and
+    /// `policy(op, args)`, reached as `native("secrets" | "policy",
+    /// {op, args})`. Values never appear in an answer.
+    fn native(&self, name: &str, call: Value) -> Result<Value, String> {
+        let op = call["op"].as_str().unwrap_or("");
+        let args = &call["args"];
         match name {
-            "secretSet" => {
-                let secret_name = arg(0).as_str().unwrap_or("").to_owned();
-                let value = arg(1).as_str().unwrap_or("").to_owned();
-                let options = arg(2);
-                let domains: Vec<String> = options["domains"]
-                    .as_array()
-                    .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-                    .unwrap_or_default();
-                let totp = options["totp"].as_bool().unwrap_or(false);
-                if self
-                    .vault
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .agent_known(&secret_name)
-                    == Some(false)
-                {
-                    return Err(format!(
-                        "secrets.set: {secret_name} is a user secret; agent code cannot replace it"
-                    ));
-                }
-                self.vault
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .set(&secret_name, &value, &domains, totp, true)
-                    .map_err(|e| e.0)?;
-                Ok(json!({"__secret": secret_name}))
+            "secrets" => self.secrets_op(op, args),
+            "policy" => self.policy_op(op, args),
+            other => Err(format!("unknown host function {other}")),
+        }
+    }
+}
+
+impl Gate {
+    fn vault(&self) -> std::sync::MutexGuard<'_, Vault> {
+        self.vault.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Agent code may not replace or delete a secret the user gave the host.
+    fn refuse_user_secret(&self, title: &str, name: &str) -> Result<(), String> {
+        if self.vault().agent_known(name) == Some(false) {
+            return Err(format!("{title}: {name} is a user secret; agent code cannot change it"));
+        }
+        Ok(())
+    }
+
+    fn set_secret(
+        &self,
+        name: &str,
+        value: &str,
+        domains: &[String],
+        totp: bool,
+    ) -> Result<Value, String> {
+        self.refuse_user_secret("secrets.set", name)?;
+        self.vault().set(name, value, domains, totp, true).map_err(|e| e.0)?;
+        Ok(described(name, domains, totp))
+    }
+
+    fn secrets_op(&self, op: &str, args: &Value) -> Result<Value, String> {
+        let text = |key: &str| args[key].as_str().unwrap_or("").to_owned();
+        match op {
+            "set" => {
+                let domains = strings(&args["domains"]);
+                self.set_secret(&text("name"), &text("value"), &domains, args["totp"].as_bool().unwrap_or(false))
             }
-            "secretList" => {
-                let list = self.vault.lock().unwrap_or_else(PoisonError::into_inner).list();
-                Ok(Value::Array(
-                    list.into_iter()
-                        .map(|s| json!({"name": s.name, "domains": s.domains, "totp": s.totp, "agentKnown": s.agent_known}))
-                        .collect(),
-                ))
-            }
-            "secretDelete" => {
-                let secret_name = arg(0).as_str().unwrap_or("").to_owned();
-                if self
-                    .vault
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .agent_known(&secret_name)
-                    == Some(false)
-                {
-                    return Err(format!(
-                        "secrets.delete: {secret_name} is a user secret; agent code cannot delete it"
-                    ));
-                }
-                Ok(json!(
-                    self.vault.lock().unwrap_or_else(PoisonError::into_inner).delete(&secret_name)
-                ))
-            }
-            "policyNarrow" => {
-                // {allowed?: [..]|null, prohibited?: [..], blockIPAddresses?: bool, lock?: bool}
-                let change = arg(0);
-                let to_list = |v: &Value| -> Vec<String> {
-                    v.as_array()
-                        .map(|l| l.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-                        .unwrap_or_default()
+            // {"<domain pattern>": {name: value | {value, totp}}}; a name with
+            // the same value under several patterns gets all of them.
+            "load" => {
+                let Some(map) = args["object"].as_object() else {
+                    return Err("secrets.load: expected { \"<domain pattern>\": { name: value } }".into());
                 };
+                let mut merged: Vec<(String, String, Vec<String>, bool)> = Vec::new();
+                for (pattern, entries) in map {
+                    let Some(entries) = entries.as_object() else {
+                        return Err(format!("secrets.load: {pattern:?}: a secret needs domains; expected {{ \"<domain pattern>\": {{ name: value }} }}"));
+                    };
+                    for (name, v) in entries {
+                        let value = v.get("value").and_then(Value::as_str).or(v.as_str()).unwrap_or("").to_owned();
+                        let totp = v.get("totp").and_then(Value::as_bool).unwrap_or(false);
+                        match merged.iter_mut().find(|m| &m.0 == name && m.1 == value) {
+                            Some(m) => {
+                                m.2.push(pattern.clone());
+                                m.3 |= totp;
+                            }
+                            None => merged.push((name.clone(), value, vec![pattern.clone()], totp)),
+                        }
+                    }
+                }
+                let mut out = Vec::new();
+                for (name, value, domains, totp) in merged {
+                    out.push(self.set_secret(&name, &value, &domains, totp)?);
+                }
+                Ok(Value::Array(out))
+            }
+            "list" => Ok(Value::Array(
+                self.vault()
+                    .list()
+                    .into_iter()
+                    .map(|s| json!({"name": s.name, "domains": s.domains, "totp": s.totp, "agentKnown": s.agent_known}))
+                    .collect(),
+            )),
+            "has" => Ok(json!(self.vault().agent_known(&text("name")).is_some())),
+            "delete" => {
+                let name = text("name");
+                self.refuse_user_secret("secrets.delete", &name)?;
+                Ok(json!(self.vault().delete(&name)))
+            }
+            "clear" => {
+                let mut vault = self.vault();
+                let agent: Vec<String> = vault.list().into_iter().filter(|s| s.agent_known).map(|s| s.name).collect();
+                for name in agent {
+                    vault.delete(&name);
+                }
+                Ok(Value::Null)
+            }
+            other => Err(format!("secrets: unknown operation {other:?}")),
+        }
+    }
+
+    fn policy_op(&self, op: &str, args: &Value) -> Result<Value, String> {
+        match op {
+            "get" => Ok(effective(&self.policy.lock().unwrap_or_else(PoisonError::into_inner))),
+            "check" => {
+                let url = args["url"].as_str().unwrap_or("");
+                let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+                Ok(policy.navigation_refusal(url).map_or(Value::Null, Value::String))
+            }
+            "site" => Ok(json!(crate::policy::site_of(args["host"].as_str().unwrap_or("")))),
+            // The host's own log of blocked navigations (cmux-next: the host
+            // blocks before the request, so the runtime does not see these).
+            "log" => {
+                Ok(Value::Array(self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()))
+            }
+            // Agent code may only narrow: the host intersects with the user's
+            // layer and refuses changes after a lock.
+            "set" => {
+                let title = args["title"].as_str().unwrap_or("session.policy");
                 let mut policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
                 let mut layer = policy.agent().clone();
-                match change.get("allowed") {
+                let parse = |v: &Value| {
+                    parse_patterns(&strings(v)).map_err(|e| format!("{title}: {}", e.0))
+                };
+                match args.get("allowed") {
                     Some(Value::Null) => layer.allowed = None,
                     Some(list) => {
-                        layer.allowed = Some(parse_patterns(&to_list(list)).map_err(|e| e.0)?);
+                        let parsed = parse(list)?;
+                        layer.allowed = (!parsed.is_empty()).then_some(parsed);
                     }
                     None => {}
                 }
-                if let Some(list) = change.get("prohibited") {
-                    layer.prohibited = parse_patterns(&to_list(list)).map_err(|e| e.0)?;
+                if let Some(list) = args.get("prohibited") {
+                    layer.prohibited = parse(list)?;
                 }
-                if let Some(block) = change.get("blockIPAddresses").and_then(Value::as_bool) {
+                if let Some(block) = args.get("blockIPs").and_then(Value::as_bool) {
                     layer.block_ips = block;
                 }
-                let lock = change.get("lock").and_then(Value::as_bool).unwrap_or(false);
-                policy.set(Writer::Agent, layer, lock).map_err(|e| e.0)?;
+                let lock = args["lock"].as_bool().unwrap_or(false);
+                policy.set(Writer::Agent, layer, lock).map_err(|e| format!("{title}: {}", e.0))?;
                 let answer = effective(&policy);
                 drop(policy);
                 self.sync_request_filter();
                 Ok(answer)
             }
-            "policyGet" => {
-                Ok(effective(&self.policy.lock().unwrap_or_else(PoisonError::into_inner)))
-            }
-            "policyLog" => {
-                Ok(Value::Array(self.log.lock().unwrap_or_else(PoisonError::into_inner).clone()))
-            }
-            // The tab's own last after-commit block; none are made yet.
-            "policyCheck" => Ok(Value::Null),
-            other => Err(format!("unknown host function {other}")),
+            other => Err(format!("policy: unknown operation {other:?}")),
         }
     }
+}
+
+fn strings(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|list| list.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+/// `{name, domains, totp}`, main's described secret.
+fn described(name: &str, domains: &[String], totp: bool) -> Value {
+    json!({"name": name, "domains": domains, "totp": totp})
 }
 
 /// The effective policy as the runtime shows it: the narrower allow list,
@@ -336,7 +474,7 @@ fn effective(policy: &Policy) -> Value {
     json!({
         "allowed": allowed,
         "prohibited": prohibited,
-        "blockIPAddresses": base.block_ips || agent.block_ips,
+        "blockIPs": base.block_ips || agent.block_ips,
         "locked": policy.locked(),
     })
 }

@@ -64,15 +64,11 @@ nonisolated enum CEFDisposition: Int32, Equatable, Sendable {
         self = CEFDisposition(rawValue: Int32(clamping: raw)) ?? .unknown
     }
 
-    /// How a page-requested tab opens in cmux. `nil`: no tab (Chromium
-    /// saves or ignores it, or keeps it in the current tab).
-    var tabDisposition: BrowserNewTabDisposition? {
+    /// True for the dispositions a modified link click produces.
+    var isLinkClick: Bool {
         switch self {
-        case .newBackgroundTab: .backgroundTab
-        case .newPopup: .popup
-        case .newForegroundTab, .newWindow, .singletonTab, .switchToTab, .newSplitView, .unknown: .foregroundTab
-        case .offTheRecord: .foregroundTab
-        case .currentTab, .saveToDisk, .ignoreAction, .newPictureInPicture: nil
+        case .newBackgroundTab, .newForegroundTab, .newWindow, .saveToDisk: true
+        default: false
         }
     }
 }

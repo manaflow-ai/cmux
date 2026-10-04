@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use serve_common::Host;
 use std::sync::Arc;
 
-const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha"];
+const FIXTURES: &[&str] = &["vm-get"];
 
 /// A server whose host has not given link details yet.
 fn host() -> Host {

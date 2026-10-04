@@ -46,16 +46,25 @@ export function installDom(): void {
   globals.window = dom.window;
   globals.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
   globals.IS_REACT_ACT_ENVIRONMENT = true;
+  createRoot = privateCreateRoot();
+}
+
+/**
+ * A private copy of React DOM's client, evaluated against the DOM globals now installed; the shared
+ * one goes back into the cache so other files keep theirs. The last copy loaded also owns
+ * `flushSync` (Base UI calls it), so a file renders with the copy it loaded last.
+ */
+export function privateCreateRoot(): typeof import("react-dom/client").createRoot {
   const clientBuild = process.env.NODE_ENV === "production" ? "production" : "development";
   const clientPath = fileURLToPath(
     new URL(`./cjs/react-dom-client.${clientBuild}.js`, import.meta.resolve("react-dom/client")),
   );
-  // Load a private copy, then put the shared one back so other files keep theirs.
   const shared = require.cache[clientPath];
   delete require.cache[clientPath];
-  ({ createRoot } = require(clientPath) as typeof import("react-dom/client"));
+  const { createRoot: create } = require(clientPath) as typeof import("react-dom/client");
   if (shared) require.cache[clientPath] = shared;
   else delete require.cache[clientPath];
+  return create;
 }
 
 /** Restores the globals installDom replaced (call from afterAll). */

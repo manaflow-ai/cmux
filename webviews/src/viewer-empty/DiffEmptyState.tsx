@@ -1,7 +1,8 @@
 // The diff page's empty state: no repository yet. The user picks a recent repository, chooses a
 // folder (the host's picker) or drops one; then picks what to compare (the source menu's sources)
 // and opens it. `cmux.diff.open` answers the page config, which the boot path renders.
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState } from "react";
+import { ChoiceGroup } from "../ui/ChoiceGroup";
 import type { DiffSource } from "../diff/generated/protocol";
 import type { DiffViewerLabelResolver } from "../labels";
 import { isPageError, type PageClient } from "../pages/shared/pageClient";
@@ -217,17 +218,6 @@ function SourceStep({
   );
   const current = options[index];
   const focused = useRef(false);
-  // Native radios: arrows move the choice; Return opens it, Escape goes back to the list.
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.metaKey || event.altKey || event.ctrlKey || busy) return;
-    if (event.key === "Enter" && current) {
-      event.preventDefault();
-      onOpen(current.source);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      onBack();
-    }
-  };
   return (
     <div className="ve-step">
       <div className="ve-chosen">
@@ -243,7 +233,14 @@ function SourceStep({
         </button>
       </div>
       <h2 className="ve-section-title">{t(E.sourceHeading)}</h2>
-      <fieldset className="ve-sources" aria-label={t(E.sourceHeading)}>
+      {/* Native radios: arrows move the choice; Return opens it, Escape goes back to the list. */}
+      <ChoiceGroup
+        className="ve-sources"
+        label={t(E.sourceHeading)}
+        busy={busy}
+        onSubmit={() => current && onOpen(current.source)}
+        onCancel={onBack}
+      >
         {options.map((option) => {
           const checked = option.kind === current?.kind;
           const title = option.entry.labelKey ? label(option.entry.labelKey) : option.kind;
@@ -274,7 +271,6 @@ function SourceStep({
                 aria-label={title}
                 aria-describedby={`ve-source-help-${option.kind}`}
                 onChange={() => onSelect(option.kind)}
-                onKeyDown={onKeyDown}
               />
               <span className="ve-recent-text">
                 <span className="ve-recent-name">{title}</span>
@@ -285,7 +281,7 @@ function SourceStep({
             </label>
           );
         })}
-      </fieldset>
+      </ChoiceGroup>
       <div className="ve-actions">
         <button type="button" className="ve-button" onClick={onBack} disabled={busy}>
           {t(E.back)}

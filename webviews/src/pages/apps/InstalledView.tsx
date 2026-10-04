@@ -1,7 +1,8 @@
 // Installed: every installed app with Enabled, Update, Permissions, Logs and Remove (Swift
-// AppInstalledView). Logs follow the owner's stream while shown.
+// AppInstalledView); first-party apps get Hide/Show in place of Remove (FIRST-PARTY-APPS). Logs follow the owner's stream while shown.
 import type { Strings } from "../shared/i18n";
 import { GrantsPanel } from "./GrantsPanel";
+import { isRemovable } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 
@@ -24,7 +25,9 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                     {app.name} <span className="apps-version">{app.version}</span>
                     {app.source === "local" && <Badge text={t("store.badge.local")} />}
                   </span>
-                  <span className={app.failure ? "apps-failure" : "apps-muted"}>{app.failure ?? app.id}</span>
+                  <span className={app.failure ? "apps-failure selectable" : "apps-muted"}>
+                    {app.failure ?? app.id}
+                  </span>
                 </div>
                 <div className="apps-installed-actions">
                   <Switch
@@ -53,14 +56,24 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                   >
                     {t(snap.logsShown === app.id ? "store.action.hideLogs" : "store.action.logs")}
                   </button>
-                  <button type="button" className="apps-button" onClick={() => void store.uninstall(app.id)}>
-                    {t("store.action.remove")}
-                  </button>
+                  {isRemovable(app) ? (
+                    <button type="button" className="apps-button" onClick={() => void store.uninstall(app.id)}>
+                      {t("store.action.remove")}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="apps-button"
+                      onClick={() => void store.setHidden(app.id, !app.hidden)}
+                    >
+                      {t(app.hidden ? "store.action.show" : "store.action.hide")}
+                    </button>
+                  )}
                 </div>
               </div>
               {snap.grantsShown === app.id && grants && <GrantsPanel grants={grants} store={store} strings={strings} />}
               {snap.logsShown === app.id && (
-                <pre className="apps-logs">
+                <pre className="apps-logs selectable">
                   {logs.length === 0
                     ? t("store.detail.noLogs")
                     : logs.map((line, index) => (

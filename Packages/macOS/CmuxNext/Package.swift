@@ -44,6 +44,9 @@ import PackageDescription
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 //   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
 //     handshake; the page talks to acpmux itself; no daemon)
+//   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
+//   CmuxNextAgentCursorVisibility -> AgentCursor (pure visibility rules for a cursor target: snapshot in,
+//     visible / hidden anchor / not drawn out; no AppKit; the App builds the snapshot from the live models)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
 //   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, JavaScriptCore
@@ -116,6 +119,8 @@ let package = Package(
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
         .package(path: "../../Shared/CmuxAgentBrands"),
+        // Vendored from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py).
+        .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         .package(path: "../../Shared/CmuxIrxTransport"),
@@ -147,6 +152,8 @@ let package = Package(
                 "CmuxNextPalette",
                 "CmuxNextLayout",
                 "CmuxNextBrowser",
+                "CmuxNextBrowserAutomation",
+                "CmuxNextBrowserHost",
                 "CmuxNextRemoteLocalhost",
                 "CmuxNextBridge",
                 "CmuxNextControl",
@@ -167,6 +174,8 @@ let package = Package(
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
+                "CmuxNextAgentCursor",
+                "CmuxNextAgentCursorVisibility",
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
@@ -360,6 +369,33 @@ let package = Package(
             dependencies: ["CmuxNextBookmarks"],
             swiftSettings: uiSwiftSettings
         ),
+        // Agent cursor (plans/cmux-next/agent-cursor.md, R130): maps published
+        // automation.input events through the live layout to cursor commands
+        // for the window overlay. No layers, no timers; the App supplies the
+        // resolver and the layer host.
+        .target(
+            name: "CmuxNextAgentCursor",
+            dependencies: [.product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentCursorTests",
+            dependencies: ["CmuxNextAgentCursor", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent cursor visibility (agent-cursor.md section 3, decisions
+        // CURSOR-HIDDEN/SHOW/SCREENS): pure rules over a value snapshot,
+        // replayed from schemas/agent-cursor-visibility/vectors.json.
+        .target(
+            name: "CmuxNextAgentCursorVisibility",
+            dependencies: ["CmuxNextAgentCursor"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentCursorVisibilityTests",
+            dependencies: ["CmuxNextAgentCursorVisibility", "CmuxNextAgentCursor"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the
         // pane listing computer use sessions on every machine, their
         // screenshot timeline and user controls. A projection: the CUA host
@@ -519,6 +555,7 @@ let package = Package(
             name: "CmuxNextUpdater",
             dependencies: [
                 "CmuxNextDesign",
+                "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
@@ -795,6 +832,17 @@ let package = Package(
             dependencies: ["CmuxNextBrowserAutomation", "CmuxNextBrowser"],
             swiftSettings: uiSwiftSettings
         ),
+        // The app's provider bridge to the browser host (plans/cmux-next/browser-host.md, step c3).
+        .target(
+            name: "CmuxNextBrowserHost",
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBrowserHostTests",
+            dependencies: ["CmuxNextBrowserHost", "CmuxNextBrowserAutomation", "CmuxNextBrowser", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextRemoteLocalhost",
             dependencies: ["CmuxNextWakeups"],
@@ -848,7 +896,8 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextDaemon", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
+                           "CmuxNextDaemon", "CmuxNextHome", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

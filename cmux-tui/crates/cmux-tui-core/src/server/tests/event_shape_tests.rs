@@ -75,7 +75,7 @@ fn scroll_surface_emits_one_scroll_changed_event() {
 
     handle_command(
         &mux,
-        0,
+        mux.local_test_client(0),
         Command::ScrollSurface { surface: surface.id, delta: -5 },
         &test_writer(),
     )
@@ -97,7 +97,7 @@ fn scroll_surface_emits_one_scroll_changed_event() {
 
     handle_command(
         &mux,
-        0,
+        mux.local_test_client(0),
         Command::ScrollSurface { surface: surface.id, delta: 0 },
         &test_writer(),
     )

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4'
+IR_SHA256 = 'c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5'
 
 
 @dataclass(frozen=True)
@@ -1348,10 +1348,10 @@ COMMANDS = {
         None,
         {
             'after_column': CommandFieldMetadata(None, None),
+            'dock': CommandFieldMetadata(12, 'dock-columns-v1'),
             'pane': CommandFieldMetadata(None, None),
             'respawn': CommandFieldMetadata(12, 'tab-column-respawn-v1'),
             'screen': CommandFieldMetadata(None, None),
-            'sticky': CommandFieldMetadata(12, 'edge-docks-v1'),
             'surface': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
             'width': CommandFieldMetadata(None, None),
@@ -1547,10 +1547,12 @@ COMMANDS = {
             'cwd': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
+            'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'width': CommandFieldMetadata(None, None),
         },
     ),
@@ -2202,18 +2204,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
-    'set-column-sticky': CommandMetadata(
-        'set-column-sticky',
+    'set-column-dock': CommandMetadata(
+        'set-column-dock',
         'control',
         12,
-        'sticky-columns-v1',
+        'dock-columns-v1',
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+            'dock': CommandFieldMetadata(None, None),
             'edge': CommandFieldMetadata(None, None),
             'mode': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
-            'sticky': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
         },
     ),
@@ -2532,10 +2534,12 @@ COMMANDS = {
             'dir': CommandFieldMetadata(None, None),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
+            'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
         },
     ),
     'subscribe': CommandMetadata(

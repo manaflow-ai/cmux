@@ -26,7 +26,7 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { AgentMark, agentMarkObserving, setAgentMarkStyle } = await import("./AgentMark");
 const { agentKey } = await import("./agentKey");
-const { agentBrand, AGENT_BRAND_RESOLUTION_CASES, SUPPORTED_AGENTS } = await import("./agentBrand");
+const { agentBrand, AGENT_BRANDS, AGENT_BRAND_RESOLUTION_CASES, SUPPORTED_AGENTS } = await import("./agentBrand");
 const { agentDisplayName } = await import("../acpmux/agents");
 const { applyAgentTheme } = await import("./theme");
 const { agentPaneTheme, ghosttyDefault } = await import("../../../scripts/agent-pane/theme.mjs");
@@ -279,6 +279,19 @@ test("a tiled mark draws its tile in brand color only, and mono hides brand-only
   } finally {
     setAgentMarkStyle("brand");
     delete doc.documentElement.dataset.theme;
+    await act(async () => root.unmount());
+  }
+});
+
+test("at 16 px and below a traced mark draws its owner's simpler small art", async () => {
+  const root = await renderMarks(["hermes-agent"], { size: 14 });
+  try {
+    const small = doc.querySelector("svg.agent-mark")!.getAttribute("viewBox");
+    await act(async () => root.render(createElement(AgentMark, { agent: "hermes-agent", size: 32 })));
+    const large = doc.querySelector("svg.agent-mark")!.getAttribute("viewBox");
+    expect(small).not.toBe(large);
+    expect(small).toBe(AGENT_BRANDS["hermes"].small!.viewBox.join(" "));
+  } finally {
     await act(async () => root.unmount());
   }
 });

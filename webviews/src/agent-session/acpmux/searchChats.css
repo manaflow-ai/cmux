@@ -112,3 +112,52 @@
   font: inherit;
   font-size: 12px;
 }
+
+/* Open and close (R93): the scrim fades and the sheet fades and grows from the palette's open
+   scale (Motion.panelOpenScale), then shrinks slightly as it fades out, faster than it opened, as
+   the native command palette does. Only opacity and transform move, so the compositor runs it.
+   Durations are the host's motion tokens (ui.animationSpeed); with Reduce Motion nothing animates
+   and the app closes the sheet at once (searchAnimates). The closing layer lets clicks through. */
+.acpmux-search-layer {
+  --acpmux-search-open-scale: 0.97;
+  --acpmux-search-close-scale: 0.98;
+}
+.acpmux-search-layer.is-closing {
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-search-scrim {
+    animation: acpmux-search-fade-in var(--agent-motion-in) var(--agent-ease-out);
+  }
+  .acpmux-search {
+    animation: acpmux-search-in var(--agent-motion-in) var(--agent-ease-out);
+  }
+  .acpmux-search-layer.is-closing .acpmux-search-scrim {
+    animation: acpmux-search-fade-out var(--agent-motion-out) var(--agent-ease-out) forwards;
+  }
+  .acpmux-search-layer.is-closing .acpmux-search {
+    animation: acpmux-search-out var(--agent-motion-out) var(--agent-ease-out) forwards;
+  }
+}
+@keyframes acpmux-search-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-search-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes acpmux-search-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(var(--acpmux-search-open-scale));
+  }
+}
+@keyframes acpmux-search-out {
+  to {
+    opacity: 0;
+    transform: translateX(-50%) scale(var(--acpmux-search-close-scale));
+  }
+}

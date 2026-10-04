@@ -12,7 +12,7 @@ public struct ColumnSnapshot: Sendable, Hashable, Decodable {
     /// Fraction of the frontend viewport width.
     public var width: Double
     public var layout: LayoutNode
-    /// Docked to a viewport edge; nil scrolls (`sticky-columns-v1`).
+    /// Docked to a viewport edge; nil scrolls (`dock-columns-v1`).
     public var dock: DockSnapshot?
     /// The column's rows, top to bottom (`rows-v1`); empty for a column
     /// with one row. `layout` is then the compat chain of these rows.
@@ -26,19 +26,16 @@ public struct ColumnSnapshot: Sendable, Hashable, Decodable {
         self.rows = rows
     }
 
-    // TODO(R87 slice 2): the daemon sends every edge as `dock`.
-    enum CodingKeys: String, CodingKey { case id, width, layout, sideDock = "sticky", bandDock = "dock", rows }
+    enum CodingKeys: String, CodingKey { case id, width, layout, dock, rows }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(ColumnID.self, forKey: .id)
         width = try c.decode(Double.self, forKey: .width)
         layout = try c.decode(LayoutNode.self, forKey: .layout)
-        // The wire key `sticky` carries left and right, `dock` top and
-        // bottom (edge-docks-v1).
-        let side = (try? c.decodeIfPresent(DockSnapshot.self, forKey: .sideDock)) ?? nil
-        let band = ((try? c.decodeIfPresent(DockSnapshot.self, forKey: .bandDock)) ?? nil).flatMap { $0.edge.isBand ? $0 : nil }
-        dock = side ?? band
+        // `dock` carries every edge (`dock-columns-v1`; top and bottom
+        // also need `edge-docks-v1`).
+        dock = (try? c.decodeIfPresent(DockSnapshot.self, forKey: .dock)) ?? nil
         // A malformed `rows` keeps the column: the compat chain in `layout`
         // still holds every pane, as an older client reads it.
         rows = ((try? c.decodeIfPresent([RowSnapshot].self, forKey: .rows)) ?? nil) ?? []

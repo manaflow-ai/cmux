@@ -205,10 +205,6 @@
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.billing.checkout": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.browser.open": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -257,10 +253,6 @@
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.machine.create": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.machine.disconnect": {
       "scope": "cloud:write",
       "class": "mutation"
@@ -271,6 +263,10 @@
     },
     "cloud.machine.idle_policy.set": {
       "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.link_token": {
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.machine.list": {
@@ -285,16 +281,12 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.machine.resize": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "cloud.machine.start": {
       "scope": "cloud:write",
       "class": "mutation"
     },
     "cloud.machine.upgrade": {
-      "scope": "cloud:write",
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.machine.watch": {
@@ -325,17 +317,13 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.snapshot.create": {
-      "scope": "cloud:write",
+    "cloud.shell.open": {
+      "scope": "cloud:execute",
       "class": "mutation"
     },
     "cloud.snapshot.list": {
       "scope": "cloud:read",
       "class": "read"
-    },
-    "cloud.snapshot.restore": {
-      "scope": "cloud:write",
-      "class": "mutation"
     },
     "codemirror.cycle_variant": {
       "scope": "codemirror:write",
@@ -1652,10 +1640,15 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "cloud.billing.checkout",
     "cloud.fs.remove",
+    "cloud.machine.create",
     "cloud.machine.delete",
+    "cloud.machine.resize",
     "cloud.port.close",
+    "cloud.snapshot.create",
     "cloud.snapshot.delete",
+    "cloud.snapshot.restore",
     "domain.release",
     "firewall.delete",
     "frontend_projection.get",
@@ -1668,6 +1661,7 @@
     "install.revoke",
     "install.sign_out",
     "integration.revoke",
+    "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",

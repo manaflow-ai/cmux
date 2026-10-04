@@ -40,6 +40,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("input.text") ? null : "no text field";
     case "host_list":
       return has("input.token-input") ? null : "no token field";
+    case "folder_list":
+      return has("[data-add-folder]") ? null : "no Add Folder button";
     case "time_range":
       return has('input[type="time"]', 2) ? null : "no time fields";
   }
@@ -98,8 +100,9 @@ describe("editors", () => {
     expect(order).toEqual([
       "cmux.settings.preview",
       "cmux.settings.preview",
-      "cmux.settings.preview.end",
+      // The write lands before the preview ends, so the window never flashes the old value.
       "cmux.settings.set",
+      "cmux.settings.preview.end",
     ]);
   });
 

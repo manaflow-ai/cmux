@@ -2,7 +2,7 @@
 //! matched by id, and op lines that arrive during a call wait their turn.
 
 use cmux_cloud::api::HostRelay;
-use cmux_cloud::{ControlPlane, HttpCall, RelayError, WireCall, WireReply, WireResult};
+use cmux_cloud::{ControlPlane, RelayError, WireCall, WireReply, WireResult};
 use serde_json::{Value, json};
 use std::io::Cursor;
 
@@ -12,17 +12,6 @@ fn call() -> WireCall {
         params: json!({ "size": { "cpu": 2 } }),
         idempotency_key: Some("k-1".into()),
         origin: Some("user"),
-    }
-}
-
-/// TRANSITIONAL: a classic route call (link and file routes).
-fn classic_call() -> HttpCall {
-    HttpCall {
-        op: "cloud.machine.connect".into(),
-        method: "POST",
-        path: "/api/vm/vm-1/attach-endpoint".into(),
-        body: Some(json!({})),
-        idempotency_key: None,
     }
 }
 
@@ -83,18 +72,6 @@ fn a_wire_error_is_typed_and_a_bad_result_is_unavailable() {
 }
 
 #[test]
-fn a_classic_call_still_uses_the_request_lines() {
-    let input =
-        "{\"type\":\"relay.response\",\"id\":\"r1\",\"status\":200,\"body\":{\"host\":\"h\"}}\n";
-    let mut out = Vec::new();
-    let mut relay = HostRelay::new(Cursor::new(input), &mut out);
-    let reply = relay.classic(&classic_call()).expect("reply");
-    assert_eq!(reply.status, 200);
-    drop(relay);
-    assert_eq!(first_line(&out)["type"], "relay.request");
-}
-
-#[test]
 fn not_signed_in_and_a_closed_channel_are_typed() {
     let input = "{\"type\":\"relay.error\",\"id\":\"r1\",\"code\":\"not_signed_in\"}\n";
     let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
@@ -146,10 +123,10 @@ fn op_lines_beyond_the_queue_bound_get_relay_busy_and_the_rest_keep_their_order(
             "{{\"type\":\"op\",\"id\":\"{n}\",\"op\":\"cloud.machine.list\"}}\n"
         ));
     }
-    input.push_str("{\"type\":\"relay.response\",\"id\":\"r1\",\"status\":200,\"body\":{}}\n");
+    input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
     let mut out = Vec::new();
     let mut relay = HostRelay::new(Cursor::new(input), &mut out);
-    assert_eq!(relay.classic(&classic_call()).expect("reply").status, 200);
+    assert!(matches!(relay.call(&call()).expect("reply"), WireReply::Result(_)));
     let mut kept = Vec::new();
     while let Some(message) = relay.next_message().expect("io") {
         kept.push(message["id"].as_str().expect("id").to_owned());
@@ -173,9 +150,9 @@ fn host_events_during_a_call_keep_only_the_newest_of_each_op() {
             "{{\"t\":\"host.event\",\"op\":\"cmux.host.link.changed\",\"data\":{{\"n\":{n}}}}}\n"
         ));
     }
-    input.push_str("{\"type\":\"relay.response\",\"id\":\"r1\",\"status\":200,\"body\":{}}\n");
+    input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
     let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
-    assert_eq!(relay.classic(&classic_call()).expect("reply").status, 200);
+    assert!(matches!(relay.call(&call()).expect("reply"), WireReply::Result(_)));
     let first = relay.next_message().expect("io").expect("the newest event");
     assert_eq!(first["data"]["n"], cmux_cloud::api::RELAY_QUEUE_LINES * 2 - 1);
     assert!(relay.next_message().expect("io").is_none(), "older events of the op were replaced");
@@ -188,9 +165,9 @@ fn unknown_host_frames_during_a_call_are_dropped_and_host_answers_are_bounded() 
     for n in 0..(cmux_cloud::api::RELAY_QUEUE_LINES + 10) {
         input.push_str(&format!("{{\"t\":\"host.result\",\"id\":{n},\"value\":{{}}}}\n"));
     }
-    input.push_str("{\"type\":\"relay.response\",\"id\":\"r1\",\"status\":200,\"body\":{}}\n");
+    input.push_str("{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{}}\n");
     let mut relay = HostRelay::new(Cursor::new(input), Vec::new());
-    assert_eq!(relay.classic(&classic_call()).expect("reply").status, 200);
+    assert!(matches!(relay.call(&call()).expect("reply"), WireReply::Result(_)));
     let mut kept = 0;
     while let Some(message) = relay.next_message().expect("io") {
         assert_eq!(message["t"], "host.result", "{message}");

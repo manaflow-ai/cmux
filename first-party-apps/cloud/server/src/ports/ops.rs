@@ -4,7 +4,7 @@
 use super::listener::Listener;
 use super::{Edge, Forward, MAX_LISTENERS};
 use crate::api::{CloudError, ControlPlane, Origin, args, codes};
-use crate::connector::iface::Carrier;
+use crate::link::Carrier;
 use crate::link::LinkSupervisor;
 use crate::ops::Server;
 use crate::proxy;

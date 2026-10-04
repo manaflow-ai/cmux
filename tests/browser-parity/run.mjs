@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "./lib/fixture-server.mjs";
 import { normalize, diffValues } from "./lib/normalize.mjs";
+import { makeTestDir, removeTestDir } from "./lib/test-dirs.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PARITY@@";
@@ -80,9 +81,9 @@ function wrapCell(origins, cell) {
   return `${prelude(origins)};\n${cell.body}`;
 }
 
-function exec(cmd, argv, { input, timeoutMs = 180_000, env } = {}) {
+function exec(cmd, argv, { input, timeoutMs = 180_000, env, cwd } = {}) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env });
+    const child = spawn(cmd, argv, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env, cwd });
     let out = "";
     let err = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
@@ -155,6 +156,9 @@ async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) 
   const suffix = Math.random().toString(36).slice(2, 8);
   const sessions = new Set();
   const outputs = [];
+  // A new working directory for the scenario: the session's fs root, where
+  // scenarios write and remove their files, never the checkout.
+  const workDir = makeTestDir("parity-cmux-");
   try {
     for (const cell of cells) {
       let name = null;
@@ -162,13 +166,14 @@ async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) 
         name = `parity-${scenario}-${cell.session}-${suffix}`;
         sessions.add(name);
       }
-      const r = await run(evalArgv(name), { input: cell.code });
+      const r = await run(evalArgv(name), { input: cell.code, cwd: workDir });
       const lines = r.out.split("\n").filter((l) => !/^\[(ok|error) \| \d+ms\]$/.test(l.trim()));
       while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
       outputs.push({ output: lines.join("\n"), error: r.code === 0 ? null : r.err.trim() || `exit ${r.code}` });
     }
   } finally {
     for (const name of sessions) await run(resetArgv(name), {});
+    removeTestDir(workDir);
   }
   return outputs;
 }
@@ -195,6 +200,22 @@ function parseEmits(outputs, cells) {
   return emits;
 }
 
+// known-failures.json: a scenario whose differing keys are exactly the
+// keys recorded for this platform and backend fails for a known
+// environment reason; returns that reason, else null.
+export function knownFailure(backend, name, problems, platform = process.platform) {
+  // Only value differences can be known: a missing or unexpected key (an
+  // error included) is always a failure.
+  if (!problems.length || problems.some((p) => !p.startsWith('"'))) return null;
+  const file = path.join(root, "known-failures.json");
+  const entry = JSON.parse(fs.readFileSync(file, "utf8"))[platform]?.[backend]?.[name];
+  if (!entry) return null;
+  const keys = problems.map((p) => (/"([^"]+)"/.exec(p) || [])[1]);
+  const listed = new Set(entry.keys);
+  const same = keys.every((k) => k && listed.has(k)) && new Set(keys).size === listed.size;
+  return same ? entry.reason : null;
+}
+
 const goldenPath = (name) => path.join(root, "goldens", `${name}.json`);
 const readGolden = (name) => (fs.existsSync(goldenPath(name)) ? JSON.parse(fs.readFileSync(goldenPath(name), "utf8")) : null);
 
@@ -205,6 +226,7 @@ async function main() {
   const server = await startFixtureServers();
   let failures = 0;
   let total = 0;
+  let knownCount = 0;
   try {
     for (const file of files) {
       const scenario = loadScenario(path.join(dir, file));
@@ -262,7 +284,11 @@ async function main() {
         actual[e.k] = e.v;
       }
       problems.push(...diffValues(expected, actual));
-      if (problems.length) {
+      const known = knownFailure(args.backend, scenario.name, problems);
+      if (known) {
+        knownCount++;
+        console.log(`KNOWN ${scenario.name}: ${known}`);
+      } else if (problems.length) {
         failures++;
         console.log(`FAIL ${scenario.name}`);
         for (const p of problems) console.log(`  ${p}`);
@@ -273,7 +299,7 @@ async function main() {
     await server.close();
   }
   if (args.mode !== "run") {
-    console.log(`\n${total - failures}/${total} scenarios ${args.mode === "record" ? "recorded" : "match"}`);
+    console.log(`\n${total - failures - knownCount}/${total} scenarios ${args.mode === "record" ? "recorded" : "match"}${knownCount ? ` (${knownCount} known environment failure${knownCount > 1 ? "s" : ""}, known-failures.json)` : ""}`);
     process.exitCode = failures ? 1 : 0;
   }
 }

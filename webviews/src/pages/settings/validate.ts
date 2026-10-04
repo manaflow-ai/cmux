@@ -83,6 +83,11 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       return isPageURL(value) ? null : "expected an http(s), about: or file: address";
     case "host_list":
       return Array.isArray(value) && value.every(isHost) ? null : "expected a list of host names";
+    case "folder_list":
+      return Array.isArray(value) &&
+        value.every((item) => typeof item === "string" && (item.startsWith("/") || item.startsWith("~/")))
+        ? null
+        : "expected a list of absolute or ~/ folder paths";
     case "time_range": {
       const range = value as { start?: unknown; end?: unknown } | null;
       return typeof range === "object" && range !== null && isTime(range.start) && isTime(range.end)

@@ -52,7 +52,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | moveWorkspaceUp / Down | Move Workspace Up / Down | ⌃⌥⌘[ / ⌃⌥⌘] | PKMC | KSS:133, CV:7993, SWR:590 |
 | palette.moveWorkspaceToTop | Move to Top | — | PMC | CV:8013, SWR:602 |
 | selectWorkspaceByNumber | Workspace 1…9 | ⌘1…9 | KM | KSS:137, cmuxApp:1268 |
-| space.selectByNumber | Space 1…9 | ⌃1…9 | KM | cmux-next ProfileActionCatalog |
+| space.selectByNumber | Space 1…9 | ⌃⌥1…9 | KM | cmux-next ProfileActionCatalog |
 | moveWorkspaceToWindow | Move Workspace to Window ▸ | — | MC | cmuxApp:1561, SWR:613 |
 | renameWorkspace | Rename Workspace… | ⇧⌘R | PKMC | KSS:139, CV:7899, SWR:481 |
 | palette.clearWorkspaceName | Clear Workspace Name | — | PMC | CV:7919, SWR:488 |
@@ -125,7 +125,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | moveSurfaceLeft / Right | Reorder Tab Left / Right | ⇧⌥⌘[ / ⇧⌥⌘] | KM | KSS:124 |
 | moveSurfaceToPreviousPane / NextPane | Move Tab to Previous / Next Pane | ⌃⇧⌘[ / ⌃⇧⌘] | PKM | KSS:125 |
 | moveSurfaceToPaneLeft/Right/Up/Down | Move Tab to Pane (dir) | ⇧⌥⌘←→↑↓ | PKMC | KSS:126-127, TIV:1444 |
-| selectSurfaceByNumber | Tab 1…9 | ⌃⌥1…9 | K | KSS:128 |
+| selectSurfaceByNumber | Tab 1…9 | ⌃1…9 | K | KSS:128 |
 | palette.moveTabToNewWorkspace | Move Tab to New Workspace | — | PC | ContentView+MoveTabToNewWorkspace:13 |
 | palette.toggleTabPin / toggleTabUnread | Pin Tab / Mark Tab Unread | — | PC | CV:8104, 8115 |
 | palette.toggleFullWidthTab | Full Width Tab | — | PC | CV:8626 |

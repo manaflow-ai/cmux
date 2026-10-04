@@ -56,8 +56,24 @@ pub trait Engines: Send + Sync {
         &self,
         engine: &str,
         events: crate::driver::EventSink,
+        session: &SessionContext,
     ) -> Result<Arc<dyn Driver>, DriverError>;
 }
+
+/// The session an engine is opened for (lease identity on provider tabs).
+#[derive(Debug, Clone)]
+pub struct SessionContext {
+    pub name: String,
+    pub caller: Caller,
+    /// The agent's task label (`browser.repl.open {label}`), the lease badge text.
+    pub label: String,
+    /// The browser profile (`browser.repl.open {profile}`): `agent` (the
+    /// per-workspace agent profile, D12) unless the person picked another.
+    pub profile: String,
+}
+
+/// The profile agents get unless the person names another (D12).
+pub const AGENT_PROFILE: &str = "agent";
 
 type EventSlot = Arc<Mutex<Option<(Arc<Gate>, std::sync::mpsc::Sender<DriverEvent>)>>>;
 
@@ -76,6 +92,8 @@ pub struct Host {
     sessions: Mutex<BTreeMap<String, Arc<Session>>>,
     /// Serializes opens, so two opens of one name never start two engines.
     opening: Mutex<()>,
+    /// Secrets any session typed into a tab (masked for every session).
+    tab_secrets: Arc<crate::secrets::TabSecrets>,
 }
 
 impl Host {
@@ -85,6 +103,7 @@ impl Host {
             cwd: cwd.into(),
             sessions: Mutex::new(BTreeMap::new()),
             opening: Mutex::new(()),
+            tab_secrets: Arc::default(),
         }
     }
 
@@ -113,6 +132,21 @@ impl Host {
         }
     }
 
+    /// The person's tabs (cef, webkit) carry automation leases keyed by the
+    /// session, so the implicit shared `default` session is refused there.
+    fn require_named_session(engine: &str, params: &Value) -> Result<(), DriverError> {
+        let named = params
+            .get("session")
+            .and_then(Value::as_str)
+            .is_some_and(|name| !name.is_empty() && name != "default");
+        if matches!(engine, "cef" | "webkit") && !named {
+            return Err(DriverError::invalid(format!(
+                "session: {engine} sessions drive the person's tabs and need an explicit session name"
+            )));
+        }
+        Ok(())
+    }
+
     fn session_name(params: &Value) -> Result<String, DriverError> {
         let name = params.get("session").and_then(Value::as_str).unwrap_or("default");
         let valid = !name.is_empty()
@@ -131,6 +165,7 @@ impl Host {
         let _opening = self.opening.lock().unwrap_or_else(PoisonError::into_inner);
         let name = Self::session_name(params)?;
         let engine = params.get("engine").and_then(Value::as_str).unwrap_or("auto").to_owned();
+        Self::require_named_session(&engine, params)?;
         if let Some(existing) = self.sessions().get(&name) {
             if engine != "auto" && engine != existing.engine {
                 return Err(DriverError::invalid(format!(
@@ -151,13 +186,32 @@ impl Host {
             if let Some((gate, tx)) =
                 sink_slot.lock().unwrap_or_else(PoisonError::into_inner).as_ref()
             {
-                let payload = gate.mask_value(&event.payload);
+                let payload = gate.mask_event(&event.name, &event.payload);
                 let _ = tx.send(DriverEvent { name: event.name, payload });
             }
         });
-        let driver = self.engines.driver(&engine, sink)?;
+        // Only the person (user origin) opens a session on another profile,
+        // such as their signed-in one (D12); agents get the agent profile.
+        let profile = params.get("profile").and_then(Value::as_str).unwrap_or(AGENT_PROFILE);
+        if profile != AGENT_PROFILE && caller.origin != "user" {
+            return Err(DriverError::new(
+                ErrorCode::Forbidden,
+                format!(
+                    "profile {profile:?}: only the person opens a session on a profile other than {AGENT_PROFILE:?}"
+                ),
+            ));
+        }
+        let context = SessionContext {
+            name: name.clone(),
+            caller: caller.clone(),
+            label: lease_label(params.get("label").and_then(Value::as_str), &name),
+            profile: profile.to_owned(),
+        };
+        let driver = self.engines.driver(&engine, sink, &context)?;
         let capabilities = driver.capabilities().into_iter().map(str::to_owned).collect();
-        let gate = Arc::new(Gate::new(driver, Grants { raw_cdp }));
+        let gate = Arc::new(
+            Gate::new(driver, Grants { raw_cdp }).with_tab_secrets(self.tab_secrets.clone()),
+        );
         let config = VmConfig {
             session_id: name.clone(),
             cwd: session_root(params.get("cwd").and_then(Value::as_str), &self.cwd, &name),
@@ -269,6 +323,9 @@ impl Host {
         let removed = self.sessions().remove(&name);
         if let Some(session) = &removed {
             *session.events.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            // The leases go now: a reset reopens this name at once, and the
+            // old engine may live on until an eval in flight returns.
+            session.gate.end_session();
         }
         let removed = removed.is_some();
         Ok(json!({"session": name, "closed": removed}))
@@ -305,6 +362,28 @@ fn session_root(caller: Option<&str>, fallback_base: &str, session: &str) -> Str
     std::env::temp_dir().join("cmux-browser-host").join("roots").join(session).display().to_string()
 }
 
+/// The lease badge text: the agent's label without control or invisible
+/// format characters, whitespace collapsed, at most 48 characters; the
+/// session name when nothing is left. The app shows it after a fixed prefix.
+fn lease_label(label: Option<&str>, session: &str) -> String {
+    let invisible = |c: char| {
+        c.is_control()
+            || matches!(c,
+                '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFB}' | '\u{E0000}'..='\u{E007F}')
+    };
+    let words: Vec<String> = label
+        .unwrap_or("")
+        .split(char::is_whitespace)
+        .map(|word| word.chars().filter(|c| !invisible(*c)).collect::<String>())
+        .filter(|word| !word.is_empty())
+        .collect();
+    let text: String = words.join(" ").chars().take(48).collect();
+    let text = text.trim_end();
+    if text.is_empty() { session.to_owned() } else { text.to_owned() }
+}
+
 /// Cuts `text` to at most `max` bytes on a character boundary; true when cut.
 fn cap(text: &mut String, max: usize) -> bool {
     if text.len() <= max {
@@ -323,6 +402,72 @@ fn cap(text: &mut String, max: usize) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An engine that records the profile each session was opened with and
+    /// answers no driver call.
+    struct ProfileEngines(Mutex<Vec<String>>);
+
+    struct NoDriver;
+
+    impl Driver for NoDriver {
+        fn call(&self, method: &str, _: &Value) -> Result<Value, DriverError> {
+            Err(DriverError::unsupported_method(method))
+        }
+
+        fn capabilities(&self) -> Vec<&'static str> {
+            Vec::new()
+        }
+    }
+
+    impl Engines for ProfileEngines {
+        fn driver(
+            &self,
+            _engine: &str,
+            _events: crate::driver::EventSink,
+            session: &SessionContext,
+        ) -> Result<Arc<dyn Driver>, DriverError> {
+            self.0.lock().unwrap().push(session.profile.clone());
+            Ok(Arc::new(NoDriver))
+        }
+    }
+
+    #[test]
+    fn engines_get_the_session_profile_and_only_the_person_picks_another() {
+        let engines = Arc::new(ProfileEngines(Mutex::new(Vec::new())));
+        let root = std::env::temp_dir().join(format!("profile-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let host = Host::new(engines.clone(), root.display().to_string());
+        let caller = |origin: &str| Caller {
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: origin.into(),
+        };
+        host.dispatch(
+            &caller("mcp"),
+            "browser.repl.open",
+            &json!({"session": "a", "engine": "headless"}),
+        )
+        .unwrap();
+        let refused = host
+            .dispatch(
+                &caller("mcp"),
+                "browser.repl.open",
+                &json!({"session": "b", "engine": "headless", "profile": "signed-in"}),
+            )
+            .unwrap_err();
+        assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
+        host.dispatch(
+            &caller("user"),
+            "browser.repl.open",
+            &json!({"session": "c", "engine": "headless", "profile": "signed-in"}),
+        )
+        .unwrap();
+        assert_eq!(*engines.0.lock().unwrap(), vec!["agent".to_owned(), "signed-in".to_owned()]);
+        for name in ["a", "c"] {
+            let _ = host.dispatch(&caller("user"), "browser.repl.close", &json!({"session": name}));
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn output_caps_on_char_boundaries() {
@@ -345,6 +490,29 @@ mod tests {
             session_root(Some(narrow.to_str().unwrap()), "/", "s"),
             narrow.canonicalize().unwrap().display().to_string()
         );
+    }
+
+    #[test]
+    fn lease_labels_are_cleaned_and_capped() {
+        assert_eq!(lease_label(Some("Book  a\nflight"), "s"), "Book a flight");
+        assert_eq!(lease_label(Some("\u{202E}evil\u{200B}\u{0007}"), "s"), "evil");
+        assert_eq!(lease_label(Some(" \u{FEFF} "), "s1"), "s1");
+        assert_eq!(lease_label(None, "s1"), "s1");
+        assert_eq!(lease_label(Some(&"x".repeat(200)), "s").chars().count(), 48);
+    }
+
+    #[test]
+    fn the_persons_tabs_need_a_named_session() {
+        for engine in ["cef", "webkit"] {
+            assert!(Host::require_named_session(engine, &json!({})).is_err(), "{engine}");
+            let null = json!({"session": null});
+            assert!(Host::require_named_session(engine, &null).is_err());
+            let default = json!({"session": "default"});
+            assert!(Host::require_named_session(engine, &default).is_err());
+            assert!(Host::require_named_session(engine, &json!({"session": "a"})).is_ok());
+        }
+        assert!(Host::require_named_session("headless", &json!({})).is_ok());
+        assert!(Host::require_named_session("auto", &json!({})).is_ok());
     }
 
     #[test]

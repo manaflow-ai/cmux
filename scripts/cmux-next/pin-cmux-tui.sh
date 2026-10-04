@@ -45,6 +45,11 @@
 #        and, when the push starts no run, gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short>.
 #     3. ./scripts/cmux-next/pin-cmux-tui.sh pin --commit <sha> --verified-run <run-id>
 #     4. Commit scripts/cmux-next/cmux-tui.pin; delete the helper branch.
+#     5. GPLv3 source availability: tag the pinned commit (and every commit a
+#        vendor pins) with an annotated tag and push it:
+#          git tag -a cmux-tui-src-<first 11 of sha> <full sha> -m "source for vendored cmux-tui crates"
+#          git push origin refs/tags/cmux-tui-src-<first 11 of sha>
+#        Never move or delete these tags.
 #
 # App host (cmux-app-host, apps-v1): both modes also fetch the app host the
 #   same build published, cmux-tui-app-host-<target> in the commit-addressed
@@ -193,6 +198,23 @@ wait_for_tree() {
   [[ "$published" =~ ^[0-9a-f]{64}$ ]] || { echo "error: $sha_url is not a sha256 file" >&2; exit 1; }
 }
 
+# Pull-request checks use a synthetic merge commit. When the merge does not
+# change cmux-tui or either Ghostty gitlink, its tree key is exactly the first
+# parent (the base branch) key. Keep that base key explicit in the log and wait
+# for its publication instead of treating the PR as an unpublished tree.
+pull_request_base_key() {
+  [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]] || return 1
+  local base_rev=""
+  if git -C "$repo_root" rev-parse --verify -q HEAD^1 >/dev/null; then
+    base_rev="HEAD^1"
+  elif [[ "${GITHUB_BASE_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+    base_rev="$GITHUB_BASE_SHA"
+  else
+    return 1
+  fi
+  tree_key "$base_rev"
+}
+
 # On a developer checkout, waiting is pointless when the last commit that
 # changed the binary's inputs is on no remote branch: nothing will publish
 # it. CI and fleet checkouts may lack remote-tracking refs, so they wait.
@@ -289,7 +311,7 @@ fetch_tree_companions() {
 }
 
 fetch_tree() {
-  local key dir binary url actual temp_dir
+  local key base_key wait_key dir binary url actual temp_dir
   key="$(tree_key HEAD)"
   if local_build_matches "${CMUX_TUI_CLIENT_LOCAL:-}"; then
     echo "same-tree cmux-tui $key: using the local build of this source, $CMUX_TUI_CLIENT_LOCAL"
@@ -309,7 +331,15 @@ fetch_tree() {
   # shellcheck disable=SC2064 # expand now: the trap must remove this temp dir
   trap "rm -rf '$temp_dir'" EXIT
   refuse_unpushed_source
-  wait_for_tree "$key" "$temp_dir/sha256"
+  wait_key="$key"
+  if base_key="$(pull_request_base_key 2>/dev/null)"; then
+    if [[ "$base_key" == "$key" ]]; then
+      echo "pull-request cmux-tui tree $key matches base tree; waiting for the base publication (bounded)" >&2
+    else
+      echo "pull-request cmux-tui tree $key differs from base tree $base_key; waiting for its own publication (bounded)" >&2
+    fi
+  fi
+  wait_for_tree "$wait_key" "$temp_dir/sha256"
   download "$url" "$temp_dir/cmux-tui" || { echo "error: could not download $url" >&2; exit 1; }
   actual="$(sha256_of "$temp_dir/cmux-tui")"
   [[ "$actual" == "$published" ]] || { echo "error: $url has sha256 $actual, but $url.sha256 publishes $published" >&2; exit 1; }

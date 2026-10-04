@@ -64,4 +64,19 @@ enum ConfirmationStrings {
     static var unnamedGroup: String {
         String(localized: "confirm.group.unnamed", defaultValue: "Untitled", table: "Handlers", bundle: .module)
     }
+
+    /// A socket write of a user-only setting (`cmux settings set --confirm`).
+    static func userOnlySettingTitle(_ key: String) -> String {
+        String(format: String(localized: "confirm.userOnlySetting.title", defaultValue: "Change %@?", table: "Handlers", bundle: .module), key)
+    }
+
+    static func userOnlySettingBody(_ key: String, _ value: String) -> String {
+        String(format: String(localized: "confirm.userOnlySetting.body",
+                              defaultValue: "A command asks to set %1$@ to %2$@. Only you can change this setting, so cmux asks you first.",
+                              table: "Handlers", bundle: .module), key, value)
+    }
+
+    static var userOnlySettingButton: String {
+        String(localized: "confirm.userOnlySetting.button", defaultValue: "Change", table: "Handlers", bundle: .module)
+    }
 }

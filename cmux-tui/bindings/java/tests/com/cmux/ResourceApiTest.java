@@ -554,14 +554,14 @@ public final class ResourceApiTest {
             "layout result is recursively typed"
         );
 
-        java.util.function.Function<Object, Map<String, Object>> viewport = sticky -> {
+        java.util.function.Function<Object, Map<String, Object>> viewport = dock -> {
             Map<String, Object> first = new LinkedHashMap<>();
             first.put("column_id", "split_" + HEX);
             first.put("width", 0.5);
             first.put("root", Map.of("kind", "leaf", "pane_id", "pane_" + HEX, "tab_ids", List.of()));
-            first.put("sticky", sticky);
+            first.put("dock", dock);
             Map<String, Object> second = new LinkedHashMap<>(first);
-            second.remove("sticky");
+            second.remove("dock");
             Map<String, Object> fields = new LinkedHashMap<>(layoutFields);
             fields.put("root", Map.of("kind", "viewport", "base_width", 0.5,
                 "columns", List.of(first, second)));
@@ -571,10 +571,10 @@ public final class ResourceApiTest {
             viewport.apply(Map.of("edge", "top", "mode", "docked")));
         require(
             pinned.root() instanceof Layout.Viewport view &&
-                view.columns().get(0).sticky().equals(
-                    Optional.of(new Layout.Sticky("top", "docked"))) &&
-                view.columns().get(1).sticky().isEmpty(),
-            "viewport columns decode their sticky flag"
+                view.columns().get(0).dock().equals(
+                    Optional.of(new Layout.Dock("top", "docked"))) &&
+                view.columns().get(1).dock().isEmpty(),
+            "viewport columns decode their dock flag"
         );
         boolean refused = false;
         try {
@@ -583,7 +583,7 @@ public final class ResourceApiTest {
         } catch (ProtocolError expected) {
             refused = true;
         }
-        require(refused, "an unknown sticky edge is a protocol error");
+        require(refused, "an unknown dock edge is a protocol error");
 
         Snapshots.TerminalSnapshot terminal = Client.decodeTerminal(Map.of(
             "id", "term_" + HEX,

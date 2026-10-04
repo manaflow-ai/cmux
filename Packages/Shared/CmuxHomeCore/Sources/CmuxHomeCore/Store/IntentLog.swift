@@ -10,8 +10,11 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
         /// The owner committed it at `rev` of the op's stream. It leaves the
         /// log when the mirror reaches that revision (or echoes the message).
         case acknowledged(rev: Revision)
-        /// The owner refused it. Sends stay visible as "Not Delivered" until
-        /// the user retries (a new key) or discards.
+        /// The owner refused it, or it got no answer after every resend
+        /// (`indeterminate`, `ownerUnreachable`). Sends stay visible as "Not
+        /// Delivered" until the user retries or discards. A retry of an
+        /// unanswered send keeps its key (the owner may have committed it);
+        /// a retry of a refused send with attachments takes a new key.
         case failed(HomeRejection)
     }
 
@@ -28,6 +31,9 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
     /// owner first: not sent yet, so a disconnect or reconnect never
     /// resends it.
     public var isQueued = false
+    /// A failed send that reached the owner and got no answer after every
+    /// resend: the owner may have committed it.
+    public var mayHaveBeenDelivered = false
 
     public init(intent: HomeIntent, state: State = .sending) {
         self.intent = intent
@@ -58,8 +64,13 @@ public struct IntentLog: Hashable, Sendable {
         update(key) { $0.state = .acknowledged(rev: rev) }
     }
 
-    public mutating func fail(_ key: IdempotencyKey, _ rejection: HomeRejection) {
-        update(key) { $0.state = .failed(rejection) }
+    /// `mayHaveBeenDelivered`: no answer came, after the send itself went
+    /// to the owner; false for a refusal.
+    public mutating func fail(_ key: IdempotencyKey, _ rejection: HomeRejection, mayHaveBeenDelivered: Bool = false) {
+        update(key) {
+            $0.state = .failed(rejection)
+            $0.mayHaveBeenDelivered = mayHaveBeenDelivered
+        }
     }
 
     /// The uploads of a send finished (`uploading: false`) or a failed send
@@ -67,7 +78,10 @@ public struct IntentLog: Hashable, Sendable {
     public mutating func setUploading(_ key: IdempotencyKey, _ uploading: Bool) {
         update(key) {
             $0.isUploading = uploading
-            if uploading { $0.state = .sending }
+            if uploading {
+                $0.state = .sending
+                $0.mayHaveBeenDelivered = false
+            }
         }
     }
 
@@ -130,6 +144,7 @@ public struct IntentLog: Hashable, Sendable {
         update(key) {
             $0.state = .sending
             $0.resentImmediately = false
+            $0.mayHaveBeenDelivered = false
         }
     }
 

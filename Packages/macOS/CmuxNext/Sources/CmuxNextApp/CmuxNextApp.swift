@@ -29,7 +29,8 @@ public struct CmuxNextApp {
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider())
+                                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                                              resolvesShellIntegration: environment.resolvesShellIntegration)
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"

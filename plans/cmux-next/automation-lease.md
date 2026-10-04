@@ -14,7 +14,9 @@ lease { session, actor, on_behalf_of?, origin, label, since_ms, state: driving |
 
 `session`, `actor`, `on_behalf_of` and `origin` are stamped from the connection, never taken from the caller. `label` is the agent's free-form task label (the badge text). `since_ms` is the time the lease started; pause and hand back do not change it. The host also keeps `needs_fresh_observe` (not rendered).
 
-A host also keeps a set of sessions the user stopped. A stopped session cannot take a lease on any target until the user allows it again.
+A host also keeps a set of names the user stopped. `stop` adds the lease's principal: its `on_behalf_of` when present, else its `actor`. `acquire` and `act` refuse a caller with `stopped_by_user` when EITHER its `actor` OR its `on_behalf_of` is in the set, under any session name. "Stop" means that agent stops, whoever it claims to act for, and every agent acting for a stopped principal stops too (decisions of the browser lease review, 2026-10-04: a new session name cannot dodge a stop; hq-07's stricter actor-or-principal rule). `allow {actor}` removes exactly that name from the set; a caller is accepted again only when neither of its names remains stopped.
+
+Provider engines (`cef`, `webkit`: the person's own tabs) refuse the implicit shared session: when the caller did not name a session (the host substituted its default), `acquire` and `act` on such a target fail with `session_required`. Headless Chromium and desktop targets still accept the implicit session.
 
 ## Operations
 
@@ -22,7 +24,7 @@ Agent operations (origin is not `user`; a `user` origin gets `agent_origin_requi
 
 | Op | Effect |
 | --- | --- |
-| `acquire {target}` | no lease: create it in `driving`. Same session: no change. Another session: `lease_held`. Stopped session: `stopped_by_user`. |
+| `acquire {target, engine?, implicit_session?}` | implicit session on a `cef`/`webkit` target: `session_required`. Caller `actor` or `on_behalf_of` in the stopped set: `stopped_by_user`. No lease: create it in `driving`. Same session: no change. Another session: `lease_held`. |
 | `act {target}` (any input: click, type, key, scroll, drag, set value, navigate) | as `acquire` when there is no lease. Holder in `paused`: `paused_by_user`; in `user_driving`: `user_driving`; with `needs_fresh_observe`: `stale_after_hand_back`. |
 | `observe {target}` (snapshot, screenshot, read) | never blocked, never takes a lease. The holder's observe in `driving` clears `needs_fresh_observe`. |
 | `release {target}` | holder: remove the lease. No lease: no change. Another session: `not_lease_holder`. |
@@ -35,8 +37,8 @@ Signals and user operations (`user` origin only; any other origin gets `user_ori
 | `user_input {target}` (a signal from the app or the helper: a person pressed a key, clicked or scrolled in the target) | `driving` becomes `paused`. Other states and no lease: no change. |
 | `take_over {target}` | `driving` or `paused` becomes `user_driving`. No lease: `no_lease`. |
 | `hand_back {target}` | `paused` or `user_driving` becomes `driving` and sets `needs_fresh_observe`. `driving`: `not_paused`. No lease: `no_lease`. |
-| `stop {target}` | remove the lease and add its session to the stopped set (C1, user stop wins). No lease: `no_lease`. |
-| `allow {session}` | remove the session from the stopped set. |
+| `stop {target}` | remove the lease and add its stop key (`on_behalf_of`, else `actor`) to the stopped set (C1, user stop wins). No lease: `no_lease`. |
+| `allow {actor}` | remove that name from the stopped set. The person can always do this (badge, palette, CLI, op); hosts write an audit event for every stop and allow. |
 
 `user_input` is a signal from the user's own client, so it carries no user origin check of its own; hosts accept it only on the authenticated provider or user connection.
 
@@ -57,4 +59,4 @@ The app has one lease view model fed by two sources (the browser host provider l
 
 ## Error codes
 
-`lease_held`, `paused_by_user`, `user_driving`, `stale_after_hand_back`, `stopped_by_user`, `not_lease_holder`, `no_lease`, `not_paused`, `user_origin_required`, `agent_origin_required`. Agents receive the code and a short reason; `paused_by_user` and `user_driving` tell the agent to wait for hand back, not to retry.
+`lease_held`, `paused_by_user`, `user_driving`, `stale_after_hand_back`, `stopped_by_user`, `session_required`, `not_lease_holder`, `no_lease`, `not_paused`, `user_origin_required`, `agent_origin_required`. Agents receive the code and a short reason; `paused_by_user` and `user_driving` tell the agent to wait for hand back, not to retry.

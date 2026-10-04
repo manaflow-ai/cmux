@@ -16,7 +16,7 @@
       const store = JSON.parse(localStorage.getItem("ApplicationStore") || "null");
       if (store && store.currentUserId) headers.user = store.currentUserId;
     } catch (e) {}
-    const r = await fetch(arg.api, { method: "POST", headers, credentials: "include", body: JSON.stringify({ query: arg.query, variables: arg.variables || {} }) });
+    const r = await fetch(arg.api, { method: "POST", headers, credentials: "include", body: JSON.stringify({ query: arg.query, variables: arg.variables || {}, ...(arg.operationName ? { operationName: arg.operationName } : {}) }) });
     let json = null;
     try {
       json = await r.json();
@@ -24,13 +24,160 @@
     return { status: r.status, json };
   }
 
+  // The operations of a GraphQL document as the GraphQL spec's grammar
+  // ("Language") reads them: [{ type, name }] in order, or null when the
+  // text is not a well-formed executable document. The lexer skips what
+  // GraphQL ignores (whitespace, line terminators, commas, comments, a byte
+  // order mark) and reads strings and block strings as single tokens, so
+  // keywords and brackets inside them or behind them are read the way the
+  // server reads them. Anything it cannot read is null.
+  function graphqlOperations(text) {
+    const src = String(text);
+    const NAME = /[_A-Za-z][_0-9A-Za-z]*/y;
+    const NUMBER = /-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?/y;
+    const tokens = [];
+    let i = 0;
+    while (i < src.length) {
+      const c = src[i];
+      if (c === " " || c === "\t" || c === "\n" || c === "\r" || c === "," || c === "﻿") {
+        i++;
+        continue;
+      }
+      if (c === "#") {
+        while (i < src.length && src[i] !== "\n" && src[i] !== "\r") i++;
+        continue;
+      }
+      if (src.startsWith('"""', i)) {
+        let j = i + 3;
+        for (;;) {
+          if (j >= src.length) return null;
+          if (src.startsWith('\\"""', j)) j += 4;
+          else if (src.startsWith('"""', j)) break;
+          else j++;
+        }
+        tokens.push({ kind: "string" });
+        i = j + 3;
+        continue;
+      }
+      if (c === '"') {
+        let j = i + 1;
+        for (;;) {
+          if (j >= src.length || src[j] === "\n" || src[j] === "\r") return null;
+          if (src[j] === "\\") j += 2;
+          else if (src[j] === '"') break;
+          else j++;
+        }
+        tokens.push({ kind: "string" });
+        i = j + 1;
+        continue;
+      }
+      NAME.lastIndex = i;
+      const name = NAME.exec(src);
+      if (name) {
+        tokens.push({ kind: "name", value: name[0] });
+        i += name[0].length;
+        continue;
+      }
+      NUMBER.lastIndex = i;
+      const number = NUMBER.exec(src);
+      if (number && number[0] !== "-") {
+        tokens.push({ kind: "number" });
+        i += number[0].length;
+        continue;
+      }
+      if (src.startsWith("...", i)) {
+        tokens.push({ kind: "punct", value: "..." });
+        i += 3;
+        continue;
+      }
+      if ("!$&()[]{}:=@|".includes(c)) {
+        tokens.push({ kind: "punct", value: c });
+        i++;
+        continue;
+      }
+      return null;
+    }
+
+    let p = 0;
+    const at = (value) => !!tokens[p] && tokens[p].kind === "punct" && tokens[p].value === value;
+    const isName = (value) => !!tokens[p] && tokens[p].kind === "name" && (value === undefined || tokens[p].value === value);
+    const CLOSE = { "(": ")", "[": "]", "{": "}" };
+    // Skips one balanced (), [] or {} group that starts at tokens[p].
+    const group = () => {
+      const stack = [];
+      do {
+        const tk = tokens[p++];
+        if (!tk) return false;
+        if (tk.kind !== "punct") continue;
+        if (CLOSE[tk.value]) stack.push(CLOSE[tk.value]);
+        else if (tk.value === ")" || tk.value === "]" || tk.value === "}") {
+          if (stack.pop() !== tk.value) return false;
+        }
+      } while (stack.length);
+      return true;
+    };
+    // Directives (@name, @name(args)), then a selection set.
+    const directivesThenSelection = () => {
+      while (at("@")) {
+        p++;
+        if (!isName()) return false;
+        p++;
+        if (at("(") && !group()) return false;
+      }
+      return at("{") && group();
+    };
+    const ops = [];
+    while (p < tokens.length) {
+      if (at("{")) {
+        if (!group()) return null;
+        ops.push({ type: "query", name: null });
+        continue;
+      }
+      if (isName("fragment")) {
+        p++;
+        if (!isName() || isName("on")) return null;
+        p++;
+        if (!isName("on")) return null;
+        p++;
+        if (!isName()) return null;
+        p++;
+        if (!directivesThenSelection()) return null;
+        continue;
+      }
+      if (!isName("query") && !isName("mutation") && !isName("subscription")) return null;
+      const type = tokens[p++].value;
+      let name = null;
+      if (isName()) name = tokens[p++].value;
+      if (at("(") && !group()) return null;
+      if (!directivesThenSelection()) return null;
+      ops.push({ type, name });
+    }
+    return ops;
+  }
+
+  // Why a document is not one read query to run, or null when it is: it
+  // must parse, hold only query operations (a mutation or subscription
+  // anywhere is refused, whatever operationName selects), and name the
+  // one that runs when it holds several.
+  function notAReadQuery(text, operationName) {
+    const ops = graphqlOperations(text);
+    if (!ops || !ops.length) return "is not a GraphQL document this tool can read";
+    if (ops.some((o) => o.type !== "query")) return "holds a mutation or subscription";
+    if (ops.length > 1 && ops.some((o) => !o.name)) return "mixes an anonymous operation with others";
+    if (new Set(ops.map((o) => o.name)).size !== ops.length) return "names two operations alike";
+    if (operationName !== undefined && operationName !== null) {
+      if (typeof operationName !== "string" || !ops.some((o) => o.name === operationName)) return `has no operation named ${JSON.stringify(operationName)}`;
+    } else if (ops.length > 1) return "has several operations; pass { operationName } to pick one";
+    return null;
+  }
+
   const ISSUE_FIELDS = "id identifier title url priorityLabel createdAt updatedAt state { name type } assignee { name email } team { key name } labels { nodes { name } }";
 
   S.register(
     "linear",
     (t) => {
-      async function q(query, variables) {
-        const r = await t.inOrigin(APP, graphql, { api: API, query, variables });
+      async function q(query, variables, operationName) {
+        const r = await t.inOrigin(APP, graphql, { api: API, query, variables, operationName });
         const errors = (r.json && r.json.errors) || [];
         if (r.status === 401 || errors.some((e) => /auth/i.test((e.extensions && e.extensions.code) || e.message || ""))) throw new S.SiteError("not_signed_in", "linear: the cmux browser is not signed in to Linear; open https://linear.app with tabs.open() and ask the user to sign in");
         if (errors.length) throw new S.SiteError("graphql", `linear: ${errors.map((e) => e.message).join("; ")}`);
@@ -66,10 +213,14 @@
           const d = await q(`query($first: Int) { viewer { assignedIssues(first: $first, orderBy: updatedAt) { nodes { ${ISSUE_FIELDS} } } } }`, { first: options.limit || 25 });
           return d.viewer.assignedIssues.nodes.map(flat);
         },
-        // Any read-only GraphQL query; mutations go through the Linear UI.
-        async query(text, variables) {
-          if (/^\s*mutation\b/i.test(String(text))) throw new S.SiteError("write_requires_draft", "linear.query: mutations are not run by site tools; make the change in the Linear page");
-          return q(String(text), variables);
+        // One read-only GraphQL query; options: { operationName } when the
+        // document holds several. Mutations go through the Linear UI.
+        async query(text, variables, options = {}) {
+          const source = String(text);
+          const operationName = options && options.operationName !== undefined ? options.operationName : null;
+          const why = notAReadQuery(source, operationName);
+          if (why) throw new S.SiteError("write_requires_draft", `linear.query: this document ${why}; it runs one read query, and mutations are not run by site tools: make the change in the Linear page`);
+          return q(source, variables, operationName);
         },
       };
     },

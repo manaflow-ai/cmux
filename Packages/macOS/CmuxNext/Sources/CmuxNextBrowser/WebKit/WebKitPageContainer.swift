@@ -13,7 +13,11 @@ import AppKit
 /// container never sets the web view's frame after adding it; a container
 /// resize reaches it once through autoresizing, and WebKit re-places both.
 final class WebKitPageContainer: NSView {
+    /// The web view; WebKit owns its frame (an attached inspector shrinks it).
+    private(set) weak var page: NSView?
+
     init(page: NSView) {
+        self.page = page
         super.init(frame: .zero)
         page.frame = bounds
         page.autoresizingMask = [.width, .height]

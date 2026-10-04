@@ -166,7 +166,7 @@ enum NewTabPage {
         guard let kind = NewTabDefaultKind(rawValue: value), let settings = services.settings,
               let descriptor = SettingsSchema.descriptor(for: NewTabDefaultKind.configPath) else { return }
         Task {
-            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue)) } catch {
+            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue), by: .caller("page")) } catch {
                 Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
                     .error("new tab kind write failed: \(String(describing: error), privacy: .public)")
             }

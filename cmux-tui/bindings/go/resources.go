@@ -87,14 +87,14 @@ type LayoutColumn struct {
 	ColumnID SplitID    `json:"column_id"`
 	Width    float64    `json:"width"`
 	Root     LayoutNode `json:"root"`
-	// Sticky is the column's sticky flag (sticky-columns-v1); nil while it
+	// Dock is the column's dock flag (dock-columns-v1); nil while it
 	// scrolls.
-	Sticky *LayoutColumnSticky `json:"sticky,omitempty"`
+	Dock *LayoutColumnDock `json:"dock,omitempty"`
 }
 
-// LayoutColumnSticky is a pinned column's Edge ("left", "right", "top" or
+// LayoutColumnDock is a pinned column's Edge ("left", "right", "top" or
 // "bottom") and Mode ("docked" or "overlay").
-type LayoutColumnSticky struct {
+type LayoutColumnDock struct {
 	Edge string `json:"edge"`
 	Mode string `json:"mode"`
 }
@@ -299,7 +299,10 @@ func decodeLayoutColumn(data []byte) (LayoutColumn, error) {
 		ColumnID *SplitID        `json:"column_id"`
 		Width    *float64        `json:"width"`
 		Root     json.RawMessage `json:"root"`
-		Sticky   json.RawMessage `json:"sticky"`
+		Dock     json.RawMessage `json:"dock"`
+		// Sticky is the pre-R87 name of Dock: read so a replayed or
+		// older result still decodes; dock wins when both are present.
+		Sticky json.RawMessage `json:"sticky"`
 	}
 	if err := strictDecode(data, &wire); err != nil {
 		return LayoutColumn{}, err
@@ -318,17 +321,21 @@ func decodeLayoutColumn(data []byte) (LayoutColumn, error) {
 	if err != nil {
 		return LayoutColumn{}, err
 	}
-	sticky, err := decodeLayoutColumnSticky(wire.Sticky)
+	flag := wire.Dock
+	if len(flag) == 0 {
+		flag = wire.Sticky
+	}
+	dock, err := decodeLayoutColumnDock(flag)
 	if err != nil {
 		return LayoutColumn{}, err
 	}
 	return LayoutColumn{
-		ColumnID: *wire.ColumnID, Width: *wire.Width, Root: root, Sticky: sticky,
+		ColumnID: *wire.ColumnID, Width: *wire.Width, Root: root, Dock: dock,
 	}, nil
 }
 
-// decodeLayoutColumnSticky reads an omitted or null flag as nil.
-func decodeLayoutColumnSticky(data json.RawMessage) (*LayoutColumnSticky, error) {
+// decodeLayoutColumnDock reads an omitted or null flag as nil.
+func decodeLayoutColumnDock(data json.RawMessage) (*LayoutColumnDock, error) {
 	if len(data) == 0 || string(bytes.TrimSpace(data)) == "null" {
 		return nil, nil
 	}
@@ -340,17 +347,17 @@ func decodeLayoutColumnSticky(data json.RawMessage) (*LayoutColumnSticky, error)
 		return nil, err
 	}
 	if wire.Edge == nil || wire.Mode == nil {
-		return nil, fmt.Errorf("layout column sticky requires edge and mode")
+		return nil, fmt.Errorf("layout column dock requires edge and mode")
 	}
 	switch *wire.Edge {
 	case "left", "right", "top", "bottom":
 	default:
-		return nil, fmt.Errorf("layout column sticky edge %q is not left, right, top, or bottom", *wire.Edge)
+		return nil, fmt.Errorf("layout column dock edge %q is not left, right, top, or bottom", *wire.Edge)
 	}
 	if *wire.Mode != "docked" && *wire.Mode != "overlay" {
-		return nil, fmt.Errorf("layout column sticky mode %q is not docked or overlay", *wire.Mode)
+		return nil, fmt.Errorf("layout column dock mode %q is not docked or overlay", *wire.Mode)
 	}
-	return &LayoutColumnSticky{Edge: *wire.Edge, Mode: *wire.Mode}, nil
+	return &LayoutColumnDock{Edge: *wire.Edge, Mode: *wire.Mode}, nil
 }
 
 func validLayoutWidth(value float64) bool {

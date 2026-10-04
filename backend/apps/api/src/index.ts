@@ -9,6 +9,8 @@ import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
 import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
 import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts"
 import { handleOutboxReplay } from "./admin-outbox.ts"
+import { handleCloudAbandonedClear } from "./cloud-admin.ts"
+import { handleTeamVmAdmin } from "./team-vm-admin.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
@@ -23,6 +25,7 @@ export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
+export { CloudDO } from "./cloud-do.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
 export { AutomationEgress } from "./automation-egress.ts"
@@ -34,7 +37,7 @@ export { UserDO } from "./user-do.ts"
 export { UsageMeterDO } from "./usage-meter-do.ts"
 
 /**
- * WebSocket gateway: `GET /v1/wire/{user|team|feed}` and `/v1/wire/conv/<conversation>` with subprotocols
+ * WebSocket gateway: `GET /v1/wire/{user|team|feed|cloud}` and `/v1/wire/conv/<conversation>` with subprotocols
  * `cmux.wire.v1, bearer.<token>` (browsers cannot set headers; the token stays
  * out of the URL and logs). The Worker authenticates and passes the principal
  * to the owner DO; frames never carry identity.
@@ -61,6 +64,8 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
         ? [env.TEAM_DO, principal.team]
         : scope === "feed"
           ? [env.FEED_DO, principal.user]
+          : scope === "cloud"
+            ? [env.CLOUD_DO, principal.team]
           : scope === "conv"
             ? [env.CONVERSATION_DO, conversation]
             : scope === "mux"
@@ -93,10 +98,13 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   return Response.json({ ok: true, value: reply.value })
 }
 
+/** The projection compare's cron expression (wrangler.jsonc staging and development triggers). */
+const PROJECTION_COMPARE_CRON = "*/15 * * * *"
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
-    const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed)$/)
+    const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
     if (m && request.headers.get("Upgrade") === "websocket") return wire(request, env, m[1]!)
     // Home (E5): one socket per conversation; the ConversationDO admits current participants only.
     const conv = url.pathname.match(/^\/v1\/wire\/conv\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})$/)
@@ -123,6 +131,8 @@ export default {
     if (url.pathname === CARD_PATH && request.method === "GET") return handleContactCard(env)
     if (url.pathname === "/v1/hooks/sendblue") return handleSendblueHook(request, env)
     if (url.pathname === "/v1/admin/outbox/replay") return handleOutboxReplay(request, env)
+    if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
+    if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
@@ -140,9 +150,11 @@ export default {
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
   },
-  // Cron (wrangler triggers): the feed text sweep (feed-sweep.ts).
+  // Cron (wrangler triggers): the feed text sweep (feed-sweep.ts), and every 15 minutes the
+  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
-  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    if (controller.cron === PROJECTION_COMPARE_CRON) return (await import("./projection-compare-cron.ts")).compareFromEnv(env)
     const report = await sweepFeedText(sweepDeps(env))
     console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
   }

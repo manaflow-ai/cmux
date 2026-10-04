@@ -5,7 +5,7 @@ use cmux_browser_host::cdp::{AGENT_WORLD, CdpConnection, CdpDriver, CdpWire};
 use cmux_browser_host::driver::Driver;
 use cmux_browser_host::protocol::{DriverEvent, ErrorCode};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
@@ -25,6 +25,11 @@ struct Browser {
     tabs: HashMap<String, FakeTab>,
     /// Every message the driver sent, in order.
     sent: Vec<Value>,
+    /// Chromium's double report: after the agent world's context (20) a
+    /// second context with the same name (21) where the agent script never ran.
+    empty_agent_world: bool,
+    /// Agent-world contexts that hold the page agent.
+    agent_in: HashSet<i64>,
 }
 
 struct FakeWire {
@@ -130,7 +135,23 @@ impl FakeWire {
                 let target = target_of(&session);
                 events.push(session_event(&session, "Runtime.executionContextCreated", json!({"context": {
                     "id": 20, "name": AGENT_WORLD, "auxData": {"frameId": format!("F-{target}"), "isDefault": false}}})));
+                browser.agent_in.insert(20);
+                if browser.empty_agent_world {
+                    events.push(session_event(&session, "Runtime.executionContextCreated", json!({"context": {
+                        "id": 21, "name": AGENT_WORLD, "auxData": {"frameId": format!("F-{target}"), "isDefault": false}}})));
+                }
                 json!({"identifier": "1"})
+            }
+            "Runtime.evaluate" if params["expression"] == AGENT_SOURCE => {
+                let context = params["contextId"].as_i64().unwrap_or(0);
+                browser.agent_in.insert(context);
+                json!({"result": {"type": "undefined"}})
+            }
+            "Runtime.evaluate"
+                if params["expression"].as_str().is_some_and(|e| e.contains("__cmuxPageAgent")) =>
+            {
+                let context = params["contextId"].as_i64().unwrap_or(0);
+                json!({"result": {"type": "boolean", "value": browser.agent_in.contains(&context)}})
             }
             "Page.navigate" => {
                 let url = params["url"].as_str().unwrap().to_owned();
@@ -273,8 +294,11 @@ struct Harness {
 
 impl Harness {
     fn new() -> Harness {
-        let wire =
-            Arc::new(FakeWire { conn: OnceLock::new(), browser: Mutex::new(Browser::default()) });
+        Harness::with_browser(Browser::default())
+    }
+
+    fn with_browser(browser: Browser) -> Harness {
+        let wire = Arc::new(FakeWire { conn: OnceLock::new(), browser: Mutex::new(browser) });
         let conn = CdpConnection::new(Box::new(WireHandle(wire.clone())));
         wire.conn.set(Arc::downgrade(&conn)).ok().unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
@@ -432,6 +456,28 @@ fn agent_world_evaluation_uses_the_agent_context() {
 }
 
 #[test]
+fn agent_calls_install_the_agent_in_an_agent_world_context_that_lacks_it() {
+    let h = Harness::with_browser(Browser { empty_agent_world: true, ..Browser::default() });
+    let target = h.open(None);
+    let mark = h.mark();
+    h.call("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 1"}));
+    let sent = h.sent_since(mark);
+    let installed =
+        sent.iter().position(|(m, p)| m == "Runtime.evaluate" && p["expression"] == AGENT_SOURCE);
+    let called = sent.iter().position(|(m, _)| m == "Runtime.callFunctionOn").unwrap();
+    assert!(
+        installed.is_some_and(|i| i < called),
+        "the agent goes into context 21 first: {sent:?}"
+    );
+    assert_eq!(sent[installed.unwrap()].1["contextId"], 21);
+    assert_eq!(sent[called].1["executionContextId"], 21);
+    // The context is checked once.
+    let mark = h.mark();
+    h.call("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 2"}));
+    assert_eq!(h.methods_since(mark).iter().filter(|m| *m == "Runtime.evaluate").count(), 0);
+}
+
+#[test]
 fn agent_handles_resolve_inside_the_agent_world() {
     let h = Harness::new();
     let target = h.open(None);
@@ -452,6 +498,9 @@ fn agent_handles_resolve_inside_the_agent_world() {
 fn page_world_handles_move_through_backend_nodes() {
     let h = Harness::new();
     let target = h.open(None);
+    // The first agent call checks the agent world once; keep that out of
+    // the sequence below.
+    h.call("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 0"}));
     let mark = h.mark();
     h.call(
         "frame.evaluate",
@@ -677,9 +726,15 @@ fn unknown_methods_and_browser_level_raw_cdp_are_refused() {
 fn a_request_filter_intercepts_and_decides_every_request() {
     let h = Harness::new();
     let target = h.open(None);
-    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|url: &str| {
-        url.contains("evil.test").then(|| "not in session.allowedDomains (example.com)".to_owned())
-    });
+    // The filter sees the tab each request belongs to.
+    let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+    let record = seen.clone();
+    let filter: cmux_browser_host::driver::RequestFilter =
+        Arc::new(move |target: &str, url: &str| {
+            record.lock().unwrap().push((target.to_owned(), url.to_owned()));
+            url.contains("evil.test")
+                .then(|| "not in session.allowedDomains (example.com)".to_owned())
+        });
     let mark = h.mark();
     assert!(h.driver.set_request_filter(Some(filter)));
     let enabled = h.sent_since(mark);
@@ -696,6 +751,8 @@ fn a_request_filter_intercepts_and_decides_every_request() {
     loop {
         let sent = h.sent_since(mark);
         if sent.len() >= 2 {
+            let seen = seen.lock().unwrap().clone();
+            assert!(seen.iter().all(|(t, _)| t == &target), "requests name their tab: {seen:?}");
             assert!(
                 sent.contains(&(
                     "Fetch.failRequest".to_string(),
@@ -727,7 +784,7 @@ fn a_request_filter_intercepts_and_decides_every_request() {
 fn workers_and_prerenders_are_intercepted_before_they_run() {
     let h = Harness::new();
     h.open(None);
-    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_: &str| None);
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_: &str, _: &str| None);
     assert!(h.driver.set_request_filter(Some(filter)));
     let mark = h.mark();
     for (session, kind, subtype) in [("W1", "worker", ""), ("P1", "page", "prerender")] {

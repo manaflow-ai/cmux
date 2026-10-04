@@ -1,5 +1,6 @@
 import { sanitizeCollapsedFiles } from "./collapsed-files";
 import { callDiffComments, diffCommentsBridgeAvailable } from "./comments/bridge";
+import type { DiffWrites } from "./diff-writes";
 import type { DiffViewerOptions } from "./pierre-options";
 
 /**
@@ -56,12 +57,19 @@ export async function loadViewerPrefs(): Promise<ViewerPrefs> {
   return readLocalViewerPrefs();
 }
 
-export function saveViewerPrefs(prefs: ViewerPrefs): void {
+/** Saves `prefs` through the mounted viewer's outbox (`writes`) and to localStorage. */
+export function saveViewerPrefs(prefs: ViewerPrefs, writes: DiffWrites): void {
   const sanitized = sanitizeViewerPrefs(prefs);
   if (diffCommentsBridgeAvailable()) {
-    callDiffComments<unknown>("viewerPrefs.set", { preferences: sanitized }).catch(() => {
-      // Preferences are a convenience; a failed save must never surface.
-    });
+    // Preferences are a convenience; a failed save never surfaces. The outbox keeps writes of the
+    // same keys in order and sends only the newest of a burst (diff-writes.ts).
+    const keys = Object.keys(sanitized).sort();
+    if (keys.length > 0) {
+      writes.dispatch("prefs", {
+        resource: `prefs:${keys.join(",")}`,
+        write: { method: "viewerPrefs.set", params: { preferences: sanitized } },
+      });
+    }
   }
   writeLocalViewerPrefs(sanitized);
 }

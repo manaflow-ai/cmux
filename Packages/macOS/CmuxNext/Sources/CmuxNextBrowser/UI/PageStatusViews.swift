@@ -40,6 +40,12 @@ final class PageStatusViews {
         goneView.isHidden = true
         unresponsiveView.isHidden = true
         errorView.onRetry = { tab()?.reload() }
+        errorView.onProceed = { (tab() as? any BrowserCertificateBypassing)?.proceedPastCertificateError() }
+        errorView.onBack = {
+            guard let tab = tab() else { return }
+            // Nowhere to go back to (the bad page was the first): a blank page.
+            if tab.state.canGoBack { tab.goBack() } else if let blank = URL(string: BrowserNewTabPage.blankURL) { tab.load(blank) }
+        }
         goneView.onReload = { tab()?.reload() }
         unresponsiveView.onWait = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: false) }
         unresponsiveView.onExit = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: true) }

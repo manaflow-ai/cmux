@@ -36,6 +36,7 @@ nonisolated public enum PaletteRanker {
         now: Date,
         showsRecent: Bool,
         keepsSectionOrder: Bool = false,
+        ranksPrefixFirst: Bool = false,
         recentLimit: Int = 5,
         rowLimit: Int = 400,
         highlightLimit: Int = 60
@@ -47,16 +48,31 @@ nonisolated public enum PaletteRanker {
                              showsRecent: showsRecent, recentLimit: recentLimit)
         }
         let hasHistory = !frecency.entries.isEmpty
-        var scored: [(index: Int, score: Int)] = index.matches(for: parsed).map { match in
+        let gated = entries.contains { $0.queryPrefix != nil || $0.hidesWhenTyping }
+        var scored: [(index: Int, score: Int)] = index.matches(for: parsed).compactMap { match in
+            if gated, entries[match.index].hidesWhenTyping { return nil }
+            if gated, let prefix = entries[match.index].queryPrefix, !query.hasPrefix(prefix) { return nil }
             let entry = entries[match.index]
             var score = match.score + entry.rankBias
             if hasHistory, let key = entry.frecencyKey { score += frecency.boost(for: key, at: now) }
             if !entry.isEnabled { score -= Self.disabledPenalty }
             return (match.index, score)
         }
-        scored.sort { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            return lhs.index < rhs.index
+        if ranksPrefixFirst {
+            let prefix = query.trimmingCharacters(in: .whitespaces).lowercased()
+            let starts = Set(scored.lazy.map { $0.index }.filter { entries[$0].title.lowercased().hasPrefix(prefix) })
+            scored.sort { lhs, rhs in
+                let left = starts.contains(lhs.index), right = starts.contains(rhs.index)
+                if left != right { return left }
+                if left { return lhs.index < rhs.index }
+                if lhs.score != rhs.score { return lhs.score > rhs.score }
+                return lhs.index < rhs.index
+            }
+        } else {
+            scored.sort { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score > rhs.score }
+                return lhs.index < rhs.index
+            }
         }
         if scored.count > rowLimit { scored.removeLast(scored.count - rowLimit) }
 
