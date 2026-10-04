@@ -32,6 +32,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// A navigation to any other origin (a link in the page): the host opens it in a browser tab.
     public var onOpenExternal: ((URL) -> Void)?
+    /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
+    public var onNavigate: ((PageNavigation) -> PageNavigation.Policy)?
+    /// The page crashed more often than ``PageCrashReloads`` allows: it is not reloaded, and the
+    /// host shows its notice (with a button that calls ``reloadAfterCrashes()``).
+    public var onCrashNotice: ((PageWebView) -> Void)?
+    /// The crash clock (tests set it).
+    var now: () -> Date = { Date() }
+    private var crashReloads = PageCrashReloads()
 
     public var pageID: String { descriptor.id }
 
@@ -68,7 +76,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
         guard PageID.isReserved(descriptor.id) else { return true }
         let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
-        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), debugRoot(for: descriptor)].compactMap { $0 }
+        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), PageID.bundledRoot(for: descriptor.id),
+                       debugRoot(for: descriptor)].compactMap { $0 }
         return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
     }
 
@@ -79,13 +88,18 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     ///
     /// `documentAttributes` become `data-*` attributes of `<html>` before the page's code runs (the
     /// page's init: `["cloud-machines-layout": "cards"]` is `data-cloud-machines-layout`).
+    ///
+    /// `options` are engine options (``PageEngineOptions``); each engine maps the ones it has.
     public init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil,
-                 documentAttributes: [String: String] = [:]) {
+                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         self.descriptor = descriptor
         router = PageRouter(descriptor: descriptor, routes: routes)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        if options.fullFrameRate {
+            configuration.preferences.setWebKitFeature(PageEngineOptions.near60FPSFeature, enabled: false)
+        }
         configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root), forURLScheme: PageDescriptor.scheme)
         configuration.userContentController.addUserScript(
             WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
@@ -211,10 +225,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     // MARK: WKNavigationDelegate
 
     public func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
-        guard let url = action.request.url else { return .cancel }
-        if descriptor.owns(url) { return .allow }
-        if action.targetFrame?.isMainFrame ?? true, url.scheme != "about" { onOpenExternal?(url) }
-        return .cancel
+        let url = action.request.url
+        switch PageNavigation.policy(for: url, page: descriptor, userClicked: action.navigationType == .linkActivated,
+                                     mainFrame: action.targetFrame?.isMainFrame ?? true, hook: onNavigate) {
+        case .allow:
+            return .allow
+        case .openExternal:
+            if let url { onOpenExternal?(url) }
+            return .cancel
+        case .cancel:
+            return .cancel
+        }
     }
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -232,6 +253,18 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         loaded = false
         router.reset()
+        if crashReloads.shouldReload(at: now()) {
+            webView.reload()
+        } else {
+            logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
+            onCrashNotice?(self)
+        }
+    }
+
+    /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash
+    /// notice's Reload button).
+    public func reloadAfterCrashes() {
+        crashReloads = PageCrashReloads()
         webView.reload()
     }
 }

@@ -1,12 +1,12 @@
-import Foundation
+public import Foundation
 import ObjectiveC
-import WebKit
+public import WebKit
 
 /// WebKit's runtime features (the Feature Flags list in Safari's Develop
 /// menu), through the `_features` and `_setEnabled:forFeature:` SPI. Every
 /// call checks that the running WebKit has the SPI and the feature, and does
 /// nothing otherwise.
-extension WKPreferences {
+public extension WKPreferences {
     /// Turns the feature named `key` on or off; false when this WebKit has
     /// no such feature or SPI.
     @discardableResult

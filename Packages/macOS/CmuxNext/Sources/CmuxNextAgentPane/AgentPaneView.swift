@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import os
 public import WebKit
 
@@ -40,7 +41,7 @@ public final class AgentPaneView: NSView {
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation
-    private var crashReloads = AgentPaneCrashReloads()
+    private var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     private var crashNotice: NSView?
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
@@ -345,7 +346,7 @@ public final class AgentPaneView: NSView {
     @objc private func reloadAfterCrashes() {
         crashNotice?.removeFromSuperview()
         crashNotice = nil
-        crashReloads = AgentPaneCrashReloads()
+        crashReloads = PageCrashReloads()
         source.load(into: webView)
     }
 

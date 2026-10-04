@@ -6,7 +6,7 @@ import WebKit
 
 /// The page host hooks the agent pane needs (agent pane move, H2 H3 H5 H10 H11): engine options,
 /// bounded crash reloads with a notice, the navigation policy, first-party roots in other module
-/// bundles, and per-page CSP sources.
+/// bundles. (Per-page CSP sources are PageCSP.)
 @MainActor
 @Suite struct PageHostHooksTests {
     private let page = PageDescriptor(id: "cmux.history", resource: "history", namespaces: ["cmux.history."])
@@ -100,24 +100,6 @@ import WebKit
         PageID.registerBundledRoot(other, for: "com.example.app")
         #expect(PageID.bundledRoot(for: "cmux.agentx") == nil)
         #expect(PageID.bundledRoot(for: "com.example.app") == nil)
-    }
-
-    // MARK: H11 CSP sources
-
-    @Test func theCSPAddsOnlyThePagesOwnSources() {
-        #expect(PageSchemeHandler.contentSecurityPolicy(for: page) == PageSchemeHandler.contentSecurityPolicy)
-        let agent = PageDescriptor(id: "cmux.agent", resource: "agent-pane", namespaces: ["cmux.agent."],
-                                   connectSources: ["ws://127.0.0.1:*", "bad; script-src *"],
-                                   frameSources: ["http://localhost:*"])
-        let csp = PageSchemeHandler.contentSecurityPolicy(for: agent)
-        #expect(csp.hasSuffix("; connect-src ws://127.0.0.1:*; frame-src http://localhost:*"))
-        #expect(!csp.contains("script-src *"))
-    }
-
-    @Test func appPagesGetNoNetworkSources() throws {
-        let app = try PageDescriptor.appPage(id: "com.example.app", resource: "app", namespaces: ["com.example.app."])
-        #expect(app.connectSources.isEmpty)
-        #expect(app.frameSources.isEmpty)
     }
 
     private static let appPage = PageDescriptor(id: "com.example.hooks", resource: "hooks", namespaces: ["com.example.hooks."])
