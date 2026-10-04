@@ -1262,7 +1262,8 @@ describe("firewall VM endpoints on team-owned VMs", () => {
     const created: unknown[] = []; const scopes: Array<string | null | undefined> = [];
     expect(await run(createVmFirewallRule({ ...input, source: { vmId: "fs-1" }, destination: { cidr: "10.250.0.0/24", port: 8080, protocol: "tcp" } }), repoWith("user-1", scopes), gateway(created))).toBeNull();
     expect(scopes).toEqual(["team-1"]);
-    expect(created).toHaveLength(1);
+    // Only the rule reaches the provider (the Freestyle driver spreads it into the request body).
+    expect(created).toEqual([{ source: { vmId: "fs-1" }, destination: { cidr: "10.250.0.0/24", port: 8080, protocol: "tcp" } }]);
   });
 
   test("rules of the caller's team-owned VM are listed", async () => {

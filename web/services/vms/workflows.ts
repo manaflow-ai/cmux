@@ -3586,6 +3586,8 @@ export function execVm(input: {
 type VmFirewallInput = {
   readonly userId: string;
   readonly provider?: ProviderId;
+  /** The account scope that owns the VMs named by vmId (new VMs are team-owned). */
+  readonly billingTeamId?: string | null;
 };
 
 function firewallProvider(input: VmFirewallInput) {
@@ -3603,8 +3605,10 @@ function ensureOwnedFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallI
     const provider = input.provider ?? "freestyle";
     if (endpoint.vmId) {
       if (!repo.findUserVm) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall VM ownership lookup is unavailable" }));
-      const vm = yield* repo.findUserVm({ userId: input.userId, providerVmId: endpoint.vmId, provider });
-      if (!vm) return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.vmId }));
+      const vm = yield* repo.findUserVm({ userId: input.userId, billingTeamId: input.billingTeamId, providerVmId: endpoint.vmId, provider });
+      // The firewall edits the caller's own network, which holds only the VMs the caller created;
+      // a teammate's VM in the same team scope is on the teammate's network.
+      if (!vm || vm.userId !== input.userId) return yield* Effect.fail(new VmNotFoundError({ vmId: endpoint.vmId }));
     }
     if (endpoint.tunnelId) {
       if (!repo.findTunnelsByProviderTunnelIds) return yield* Effect.fail(new VmPrivateNetworkUnavailableError({ provider, reason: "firewall tunnel ownership lookup is unavailable" }));
@@ -3654,7 +3658,8 @@ export function createVmFirewallRule(input: VmFirewallInput & VMFirewallRuleInpu
     yield* ensureOwnedFirewallEndpoint(repo, input, input.source);
     yield* ensureOwnedFirewallEndpoint(repo, input, input.destination);
     if (!providers.createFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "createFirewallRule" }));
-    return yield* providers.createFirewallRule(provider, input);
+    // Only the rule goes to the provider: the driver spreads it into the request body.
+    return yield* providers.createFirewallRule(provider, { source: input.source, destination: input.destination, ...(input.description ? { description: input.description } : {}) });
   });
 }
 

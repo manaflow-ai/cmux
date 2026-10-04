@@ -1,5 +1,5 @@
 // Request-body parsing for POST /api/vm/firewall endpoints (source and destination).
-import { isIP } from "node:net";
+import { canonicalCidr } from "./networkPolicy";
 import { vmErrorResponse } from "./routeHelpers";
 
 export type FirewallEndpoint = { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: true; port?: number; protocol?: "tcp" | "udp" | "icmp" };
@@ -43,14 +43,13 @@ function endpointTraffic(value: Record<string, unknown>, field: string): Pick<Fi
   return result;
 }
 
+/** An address with an explicit prefix that fits its family (IPv4 /0-32, IPv6 /0-128). */
 function validCidr(value: string): boolean {
-  const slash = value.lastIndexOf("/");
-  if (slash <= 0 || slash === value.length - 1) return false;
-  const prefixText = value.slice(slash + 1);
-  if (!/^\d+$/.test(prefixText)) return false;
-  const prefix = Number(prefixText);
-  const address = value.slice(0, slash);
-  const bits = isIP(address);
-  return bits > 0 && Number.isInteger(prefix) && prefix >= 0 && prefix <= bits;
+  if (!value.includes("/")) return false;
+  try {
+    canonicalCidr(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
-

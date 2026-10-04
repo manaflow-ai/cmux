@@ -1,17 +1,31 @@
 import { parseFirewallEndpoint } from "../../../../services/vms/firewallEndpoint";
+import type { AuthedUser } from "../../../../services/vms/auth";
 import { defaultProviderId } from "../../../../services/vms/drivers";
 import { jsonResponse, resolveVmRouteAccountScope, vmErrorResponse, withAuthedVmApiRoute } from "../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { createVmFirewallRule, deleteVmFirewallRule, getVmFirewallRule, listVmFirewallRules } from "../../../../services/vms/workflows";
 import { parseLenientObjectBody, optionalString } from "../../../../services/vms/routeInput";
 
+/**
+ * vmId endpoints name VMs in an account scope (new VMs are team-owned), so resolve the scope the
+ * same way the other VM routes do. Calls without a vmId do not need a team.
+ */
+function vmScope(user: AuthedUser, request: Request, namesVm: boolean): { ok: true; billingTeamId?: string | null } | { ok: false; response: Response } {
+  if (!namesVm) return { ok: true };
+  const account = resolveVmRouteAccountScope(user, request);
+  return account.ok ? { ok: true, billingTeamId: account.entitlements.billingTeamId } : account;
+}
+
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(request, "/api/vm/firewall", { "cmux.vm.operation": "firewall_list" }, "/api/vm/firewall GET failed", async ({ user }) => {
     const url = new URL(request.url);
     const ruleId = optionalString(url.searchParams.get("ruleId"));
+    const vmId = optionalString(url.searchParams.get("vmId")) ?? undefined;
+    const scope = vmScope(user, request, !ruleId && vmId !== undefined);
+    if (!scope.ok) return scope.response;
     const result = ruleId
       ? await runVmRoute(getVmFirewallRule({ userId: user.id, provider: defaultProviderId(), ruleId }), { request })
-      : await runVmRoute(listVmFirewallRules({ userId: user.id, provider: defaultProviderId(), vpcId: optionalString(url.searchParams.get("vpcId")) ?? undefined, vmId: optionalString(url.searchParams.get("vmId")) ?? undefined, tunnelId: optionalString(url.searchParams.get("tunnelId")) ?? undefined }), { request });
+      : await runVmRoute(listVmFirewallRules({ userId: user.id, provider: defaultProviderId(), billingTeamId: scope.billingTeamId, vpcId: optionalString(url.searchParams.get("vpcId")) ?? undefined, vmId, tunnelId: optionalString(url.searchParams.get("tunnelId")) ?? undefined }), { request });
     if (!result.ok) return result.response;
     return jsonResponse(ruleId ? result.value : { rules: result.value });
   });
@@ -25,7 +39,9 @@ export async function POST(request: Request): Promise<Response> {
     const description = body.description === undefined ? undefined : optionalString(body.description);
     if (body.description !== undefined && description === undefined) return vmErrorResponse({ error: "vm_invalid_firewall_description", status: 400, message: "description must be a string.", action: "Pass a short rule description." });
     if (description && description.length > 1024) return vmErrorResponse({ error: "vm_invalid_firewall_description", status: 400, message: "description must be 1024 characters or fewer.", action: "Pass a shorter rule description." });
-    const result = await runVmRoute(createVmFirewallRule({ userId: user.id, provider: defaultProviderId(), source, destination, ...(description ? { description } : {}) }), { request });
+    const scope = vmScope(user, request, source.vmId !== undefined || destination.vmId !== undefined);
+    if (!scope.ok) return scope.response;
+    const result = await runVmRoute(createVmFirewallRule({ userId: user.id, provider: defaultProviderId(), billingTeamId: scope.billingTeamId, source, destination, ...(description ? { description } : {}) }), { request });
     if (!result.ok) return result.response;
     return jsonResponse(result.value, 201);
   });
