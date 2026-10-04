@@ -162,7 +162,7 @@ describe("CloudStore", () => {
     expect(detail?.snapshots?.length).toBeGreaterThan(0);
     expect(detail?.firewall?.length).toBeGreaterThan(0);
     await store.deleteSnapshot(target.id, detail!.snapshots![0].id);
-    await store.deleteFirewallRule(target.id, detail!.firewall![0].id);
+    await store.deleteFirewallRule(detail!.firewall![0].id);
     await store.openBilling();
     expect(ops(provider, CloudOps.snapshotDelete)).toEqual([]);
     expect(ops(provider, CloudOps.firewallDelete)).toEqual([]);
@@ -383,14 +383,7 @@ describe("CloudStore against the landed catalog (C4i)", () => {
     await store.setIdlePolicy(running().id, 300);
     await store.openBilling();
     const { unavailable, error, pending, detail } = store.getSnapshot();
-    for (const op of [
-      CloudOps.publicationList,
-      CloudOps.domainList,
-      CloudOps.networkList,
-      CloudOps.firewallList,
-      CloudOps.machineIdlePolicySet,
-      CloudOps.billingOpen,
-    ])
+    for (const op of [CloudOps.machineIdlePolicySet, CloudOps.billingOpen])
       expect(unavailable).toContain(op);
     expect(error).toBeUndefined();
     expect(pending).toEqual([]);

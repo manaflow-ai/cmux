@@ -5,8 +5,8 @@
 // API (`web/app/api/vm/**`). Mutations carry `idempotency_key` in their params (the page envelope
 // rule, react-pages.md); the host moves it to the op request's key.
 //
-// The app server does not implement every op the page lists yet (domains, publications, network,
-// firewall, team, sign-in and sign-out, billing, idle policy). It answers those with
+// The app server does not implement every op the page lists yet (team, sign-in and sign-out,
+// billing, idle policy). It answers those with
 // `cmux.cloud.unsupported` or an unknown-op error; the page then shows "Not available yet"
 // (`isUnsupported`) for that op instead of an error.
 
@@ -41,6 +41,8 @@ export const CloudOps = {
   publicationDelete: "cmux.cloud.publication.delete",
   publicationVerify: "cmux.cloud.publication.verify",
   networkList: "cmux.cloud.network.list",
+  tunnelAttach: "cmux.cloud.tunnel.attach",
+  tunnelRotateKey: "cmux.cloud.tunnel.rotate_key",
   firewallList: "cmux.cloud.firewall.list",
   firewallGet: "cmux.cloud.firewall.get",
   firewallCreate: "cmux.cloud.firewall.create",
@@ -48,6 +50,27 @@ export const CloudOps = {
   planGet: "cmux.cloud.plan.get",
   usageGet: "cmux.cloud.usage.get",
   billingOpen: "cmux.cloud.billing.open",
+  fsList: "cmux.cloud.fs.list",
+  fsStat: "cmux.cloud.fs.stat",
+  fsRead: "cmux.cloud.fs.read",
+  fsWrite: "cmux.cloud.fs.write",
+  fsMkdir: "cmux.cloud.fs.mkdir",
+  fsRemove: "cmux.cloud.fs.remove",
+  filePush: "cmux.cloud.file.push",
+  filePull: "cmux.cloud.file.pull",
+  portList: "cmux.cloud.port.list",
+  portForward: "cmux.cloud.port.forward",
+  portClose: "cmux.cloud.port.close",
+  browserOpen: "cmux.cloud.browser.open",
+} as const;
+
+/**
+ * Host actions that are not Cloud ops. `cloud.browser.open` answers a proxy route and opens no tab;
+ * the browser host owns tabs, so the page asks the host to open `url` through `proxy` (README "Host
+ * gaps": the host does not serve this action yet).
+ */
+export const HostActions = {
+  browserTabOpen: "cmux.browser.tab.open_with_proxy",
 } as const;
 
 /** The native UI op that runs a registry action in the hosting app (react-pages.md 1.3). */
@@ -60,19 +83,28 @@ export const PAGE_COMMAND = "cmux.page.command";
  * view, so the page asks the host to run them as a catalog action (`cmux.app.action.run {action:
  * <op>, args}`): the host shows the native confirmation sheet, which stamps origin user
  * (app-platform.md 15 "Confirmation"). Page JavaScript cannot prove a gesture. Snapshot restore is
- * not here: it makes a new machine and changes nothing that exists.
+ * not here: it makes a new machine and changes nothing that exists. Tunnel attach and key rotation
+ * give a device a path into a private network; file push and pull reach any file of this Mac (the
+ * host's native file panel picks the local path); file remove deletes data. All of them are origin
+ * user only at the server.
  */
 export const NATIVE_ACTIONS = new Set<string>([
   CloudOps.authSignIn,
   CloudOps.authSignOut,
   CloudOps.machineDelete,
   CloudOps.publicationCreate,
+  CloudOps.publicationUpdate,
   CloudOps.snapshotDelete,
   CloudOps.publicationDelete,
   CloudOps.firewallCreate,
   CloudOps.firewallDelete,
   CloudOps.billingOpen,
   CloudOps.machineConnect,
+  CloudOps.tunnelAttach,
+  CloudOps.tunnelRotateKey,
+  CloudOps.fsRemove,
+  CloudOps.filePush,
+  CloudOps.filePull,
 ]);
 
 /** Error codes that mean "the owner does not serve this op yet" (not a failure of the request). */
@@ -150,42 +182,139 @@ export interface SnapshotListResult {
   snapshots: CloudSnapshot[];
 }
 
-export interface CloudDomain {
-  name: string;
-  status: "verified" | "pending" | "failed";
+/** One DNS record to add for a custom domain. */
+export interface DnsInstruction {
+  purpose?: string;
+  recordTypes?: string[];
+  name?: string;
+  value?: string;
 }
 
+/** `cloud.domain.list` items (`CustomDomainDto`). States are open strings from the Cloud API. */
+export interface CloudDomain {
+  id: string;
+  hostname: string;
+  /** `not_required`, `pending`, `verified` or `failed`. */
+  verificationState: string;
+  /** `missing`, `pending`, `active` or `failed`. */
+  certificateState?: string | null;
+  createdAt?: string | null;
+  dnsInstructions?: DnsInstruction[] | null;
+  publications: Array<{ id: string; hostname: string; state: string }>;
+}
+
+export interface DomainListResult {
+  domains: CloudDomain[];
+}
+
+export type AccessMode = "personal" | "team" | "public";
+
+/** `cloud.publication.list` items (`PublicationDto`). */
 export interface CloudPublication {
   id: string;
-  machine: string;
   hostname: string;
+  url?: string | null;
+  domainKind?: string | null;
+  vmId: string;
   port: number;
-  status: "active" | "pending" | "failed";
+  accessMode: AccessMode;
+  teamId?: string | null;
+  state: string;
+  routingRevision?: number | null;
+  verification?: Record<string, unknown> | null;
+}
+
+export interface PublicationListResult {
+  publications: CloudPublication[];
 }
 
 export interface CloudNetwork {
   id: string;
-  cidr?: string;
-  cidrV6?: string;
-  scope: string;
+  cidr?: string | null;
+  cidrV6?: string | null;
+  scope: "user" | "team";
 }
 
+export interface NetworkListResult {
+  networks: CloudNetwork[];
+}
+
+/** One side of a firewall rule: one identity (vmId, vpcId, tunnelId, cidr or public), port needs protocol. */
 export interface FirewallEndpoint {
   vmId?: string;
   vpcId?: string;
   tunnelId?: string;
   cidr?: string;
-  public?: boolean;
+  public?: true;
   port?: number;
-  protocol?: string;
+  protocol?: "tcp" | "udp" | "icmp";
 }
 
 export interface FirewallRule {
   id: string;
-  action: string;
+  action: "allow";
   source: FirewallEndpoint;
   destination: FirewallEndpoint;
   description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FirewallListResult {
+  rules: FirewallRule[];
+}
+
+/** `cloud.firewall.create` input (without the idempotency key). */
+export interface NewFirewallRule {
+  source: FirewallEndpoint;
+  destination: FirewallEndpoint;
+  description?: string;
+}
+
+/** `cloud.fs.list` entries and the `cloud.fs.stat` answer. */
+export interface FsEntry {
+  name?: string;
+  path?: string;
+  kind: "file" | "directory" | "symlink";
+  size?: number | null;
+  mode?: number | null;
+  /** Epoch milliseconds. */
+  modifiedAt?: number | null;
+}
+
+export interface FsListResult {
+  path: string;
+  entries: FsEntry[];
+}
+
+export interface FsReadResult {
+  path: string;
+  dataBase64: string;
+  size: number;
+}
+
+/** A port forward on this Mac (`cloud.port.list` items, the `cloud.port.forward` answer). */
+export interface PortForward {
+  machine: string;
+  port: number;
+  host: "127.0.0.1";
+  /** Connect here, on 127.0.0.1 only. */
+  localPort: number;
+  generation: number;
+  state: "up" | "down";
+  reason?: string | null;
+}
+
+export interface PortListResult {
+  forwards: PortForward[];
+}
+
+/** `cloud.browser.open`: a proxy route to the machine's localhost and the URL to load through it. */
+export interface BrowserRoute {
+  machine: string;
+  proxy: { kind: "http" | "socks5"; host: "127.0.0.1"; port: number };
+  url: string;
+  generation: number;
 }
 
 export interface CloudTeam {
