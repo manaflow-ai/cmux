@@ -950,6 +950,57 @@ import Testing
         #expect(fixture.connection.connectionState == .reconnecting)
     }
 
+    private static func singlePaneWindow(columns: Int, rows: Int) -> RemoteTmuxWindow {
+        RemoteTmuxWindow(
+            id: 1,
+            name: "main",
+            width: columns,
+            height: rows,
+            layout: RemoteTmuxLayoutNode(width: columns, height: rows, x: 0, y: 0, content: .pane(7))
+        )
+    }
+
+    private static func visibleRepaints(_ connection: RemoteTmuxControlConnection, pane: Int) -> Int {
+        connection.pendingCommandKindsForTesting.filter {
+            if case .capturePane(pane, _) = $0 { return true }
+            return false
+        }.count
+    }
+
+    /// tmux rewraps a pane's lines when its width changes, in either direction. The mirror's
+    /// own rewrap matches only for lines it saw arrive live: a seeded row carries no wrap
+    /// information, and capture drops the trailing spaces a shell pads its prompt line with.
+    /// Measured on tmux 3.7b with zsh: narrowing 120 columns to 93 wrapped the padded prompt
+    /// row onto a second row in tmux and not in the mirror, so every row below it sat a row
+    /// off, and the cursor with them. Only tmux's own screen puts that right.
+    @Test func narrowedPaneIsRepaintedFromTmux() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let wide = Self.singlePaneWindow(columns: 120, rows: 40)
+        let narrow = Self.singlePaneWindow(columns: 93, rows: 40)
+        fixture.connection.windowsByID[1] = narrow
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+        fixture.connection.repaintPanesTmuxRedrew(from: wide, to: narrow)
+
+        #expect(Self.visibleRepaints(fixture.connection, pane: 7) == 1)
+    }
+
+    /// A pane that only gets shorter is not rewrapped: tmux moves whole rows into history,
+    /// and so does the mirror. No repaint is owed.
+    @Test func paneThatOnlyGotShorterIsNotRepainted() {
+        let fixture = attachedConnection()
+        defer { fixture.close() }
+
+        let tall = Self.singlePaneWindow(columns: 93, rows: 40)
+        let short = Self.singlePaneWindow(columns: 93, rows: 37)
+        fixture.connection.windowsByID[1] = short
+        fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
+        fixture.connection.repaintPanesTmuxRedrew(from: tall, to: short)
+
+        #expect(Self.visibleRepaints(fixture.connection, pane: 7) == 0)
+    }
+
     @Test func captureFailureForExitedPaneCancelsSeedWithoutReconnect() {
         let fixture = attachedConnection()
         defer { fixture.close() }
@@ -1438,7 +1489,7 @@ import Testing
         fixture.connection.windowsByID[1] = grownWindow
         fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
         fixture.connection.observers.notifyTopologyChanged()
-        fixture.connection.repaintPanesThatGrew(from: initialWindow, to: grownWindow)
+        fixture.connection.repaintPanesTmuxRedrew(from: initialWindow, to: grownWindow)
 
         finishPendingCommands(
             on: fixture.connection,
@@ -1595,7 +1646,7 @@ import Testing
             fixture.connection.windowsByID[1] = restoredWindow
             fixture.connection.recordPublishedPaneOwnership(windowId: 1, paneIds: [7])
             fixture.connection.observers.notifyTopologyChanged()
-            fixture.connection.repaintPanesThatGrew(
+            fixture.connection.repaintPanesTmuxRedrew(
                 from: shrunkenWindow,
                 to: restoredWindow
             )

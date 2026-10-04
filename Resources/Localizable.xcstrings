@@ -235781,7 +235781,7 @@
         }
       }
     },
-  "machines.new.plan.loading": {
+    "machines.new.plan.loading": {
     "extractionState": "manual",
     "localizations": {
       "en": {
@@ -235793,120 +235793,120 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "جارٍ تحميل خطة جهاز Cloud…"
         }
       },
       "bs": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Učitavanje plana Cloud mašine…"
         }
       },
       "da": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Indlæser din Cloud-maskineplan…"
         }
       },
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Dein Cloud-Maschinentarif wird geladen…"
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cargando el plan de tu máquina Cloud…"
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Chargement du forfait de votre machine Cloud…"
         }
       },
       "it": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Caricamento del piano della macchina Cloud…"
         }
       },
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cloud マシンのプランを読み込んでいます…"
         }
       },
       "km": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "កំពុងផ្ទុកគម្រោងម៉ាស៊ីន Cloud របស់អ្នក…"
         }
       },
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cloud 머신 요금제를 불러오는 중…"
         }
       },
       "nb": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Laster inn Cloud-maskinplanen din…"
         }
       },
       "pl": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Wczytywanie planu maszyny Cloud…"
         }
       },
       "pt-BR": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Carregando o plano da sua máquina Cloud…"
         }
       },
       "ru": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Загрузка тарифа машины Cloud…"
         }
       },
       "th": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "กำลังโหลดแผนเครื่อง Cloud ของคุณ…"
         }
       },
       "tr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Cloud makine planınız yükleniyor…"
         }
       },
       "uk": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "Завантаження тарифу машини Cloud…"
         }
       },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "正在加载你的 Cloud 机器方案…"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Loading your Cloud machine plan…"
+          "value": "正在載入您的 Cloud 機器方案…"
         }
       }
     }
   },
-  "machines.new.plan.retry": {
+    "machines.new.plan.retry": {
     "extractionState": "manual",
     "localizations": {
       "en": {
@@ -235918,120 +235918,120 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "إعادة المحاولة"
         }
       },
       "bs": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Pokušaj ponovo"
         }
       },
       "da": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Prøv igen"
         }
       },
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Erneut versuchen"
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Reintentar"
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Réessayer"
         }
       },
       "it": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Riprova"
         }
       },
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "再試行"
         }
       },
       "km": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "ព្យាយាមម្ដងទៀត"
         }
       },
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "재시도"
         }
       },
       "nb": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Prøv igjen"
         }
       },
       "pl": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Ponów"
         }
       },
       "pt-BR": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Tentar Novamente"
         }
       },
       "ru": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Повторить"
         }
       },
       "th": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "ลองใหม่"
         }
       },
       "tr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Tekrar Dene"
         }
       },
       "uk": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "Повторити"
         }
       },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "重试"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Retry"
+          "value": "重試"
         }
       }
     }
   },
-  "machines.new.plan.error": {
+    "machines.new.plan.error": {
     "extractionState": "manual",
     "localizations": {
       "en": {
@@ -236043,115 +236043,115 @@
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "لا تزال تفاصيل خطة Cloud قيد التحميل. أعد المحاولة بعد قليل."
         }
       },
       "bs": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Detalji Cloud plana se još učitavaju. Pokušajte ponovo za trenutak."
         }
       },
       "da": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud-planens detaljer indlæses stadig. Prøv igen om et øjeblik."
         }
       },
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Die Details des Cloud-Tarifs werden noch geladen. Versuche es gleich noch einmal."
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Los detalles del plan de Cloud aún se están cargando. Vuelve a intentarlo en un momento."
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Les détails du forfait Cloud sont encore en cours de chargement. Réessayez dans un instant."
         }
       },
       "it": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "I dettagli del piano Cloud sono ancora in caricamento. Riprova tra un momento."
         }
       },
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud プランの詳細を読み込み中です。しばらくしてから再試行してください。"
         }
       },
       "km": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "ព័ត៌មានលម្អិតនៃគម្រោង Cloud នៅតែកំពុងផ្ទុក។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
         }
       },
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 요금제 정보를 아직 불러오는 중입니다. 잠시 후 다시 시도하세요."
         }
       },
       "nb": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Detaljene for Cloud-planen lastes fortsatt inn. Prøv igjen om et øyeblikk."
         }
       },
       "pl": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Szczegóły planu Cloud wciąż się wczytują. Spróbuj ponownie za chwilę."
         }
       },
       "pt-BR": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Os detalhes do plano Cloud ainda estão carregando. Tente novamente em instantes."
         }
       },
       "ru": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Сведения о тарифе Cloud ещё загружаются. Повторите попытку через мгновение."
         }
       },
       "th": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "รายละเอียดแผน Cloud ยังโหลดอยู่ โปรดลองใหม่อีกครั้งในอีกสักครู่"
         }
       },
       "tr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud planı ayrıntıları hâlâ yükleniyor. Birazdan tekrar deneyin."
         }
       },
       "uk": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Відомості про тариф Cloud ще завантажуються. Повторіть спробу через мить."
         }
       },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 方案详情仍在加载。请稍后重试。"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "Cloud plan details are still loading. Retry in a moment."
+          "value": "Cloud 方案詳細資料仍在載入。請稍後重試。"
         }
       }
     }
@@ -619409,6 +619409,1235 @@
           "stringUnit": {
             "state": "translated",
             "value": "已複製到剪貼簿"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.agentRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requires a value. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب --agent قيمة. الاستخدام: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent erfordert einen Wert. Verwendung: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent requiere un valor. Uso: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent nécessite une valeur. Utilisation : cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent には値が必要です。使い方: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent에는 값이 필요합니다. 사용법: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要一个值。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 需要一個值。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown option %@. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيار غير معروف %@. الاستخدام: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannte Option %@. Verwendung: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción desconocida %@. Uso: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option inconnue %@. Utilisation : cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なオプション %@。使い方: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 옵션 %@. 사용법: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知选项 %@。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的選項 %@。用法：cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+          }
+        }
+      }
+    },
+    "cli.hooks.setup.error.conflictingAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent was given more than once with different values. Specify one agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تمرير --agent أكثر من مرة بقيم مختلفة. حدد وكيلًا واحدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent wurde mehrmals mit unterschiedlichen Werten angegeben. Gib einen Agenten an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent se indicó más de una vez con valores distintos. Indica un solo agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent a été indiqué plusieurs fois avec des valeurs différentes. Indiquez un seul agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent が異なる値で複数回指定されました。エージェントを 1 つだけ指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent가 서로 다른 값으로 여러 번 지정되었습니다. 에이전트를 하나만 지정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 被多次指定且值不同。请只指定一个代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 被多次指定且值不同。請只指定一個代理程式。"
+          }
+        }
+      }
+    },
+    "cloudTree.displays.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting display…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイを起動中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display wird gestartet…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando pantalla…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage de l’écran…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스플레이 시작 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动显示器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在啟動顯示器…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ بدء الشاشة…"
+          }
+        }
+      }
+    },
+    "surface.split.noSpace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no room to split this pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインを分割する余地がありません。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für eine Teilung dieses Bereichs ist kein Platz."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay espacio para dividir este panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il n’y a pas assez de place pour diviser ce volet."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 패널을 분할할 공간이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有空间拆分此窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有空間分割此窗格。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة لتقسيم هذا الجزء."
+          }
+        }
+      }
+    },
+    "cloud.display.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting display…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスプレイを起動中…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display wird gestartet…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando pantalla…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage de l’écran…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디스플레이 시작 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动显示器…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在啟動顯示器…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ بدء الشاشة…"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detector.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find shortcut by keys"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث عن اختصار بالمفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronađi prečicu po tipkama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find genvej ud fra taster"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel anhand der Tasten finden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar atajo por teclas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouver un raccourci par ses touches"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trova scorciatoia dai tasti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーでショートカットを探す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកផ្លូវកាត់តាមគ្រាប់ចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키로 단축키 찾기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finn snarvei etter taster"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znajdź skrót po klawiszach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontrar atalho pelas teclas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найти сочетание по клавишам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาคีย์ลัดจากปุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısayolu tuşlarla bul"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Знайти сполучення за клавішами"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按按键查找快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "依按鍵尋找快速鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detector.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press keys to see which shortcut uses them"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط المفاتيح لمعرفة الاختصار الذي يستخدمها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pritisnite tipke da vidite koja ih prečica koristi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk på taster for at se, hvilken genvej der bruger dem"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasten drücken, um zu sehen, welches Tastenkürzel sie verwendet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa las teclas para ver qué atajo las usa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur des touches pour voir quel raccourci les utilise"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi i tasti per vedere quale scorciatoia li usa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーを押すと、そのキーを使うショートカットを表示します"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុចគ្រាប់ចុចដើម្បីមើលថាផ្លូវកាត់ណាប្រើវា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "키를 눌러 해당 키를 사용하는 단축키를 확인하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykk på taster for å se hvilken snarvei som bruker dem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naciśnij klawisze, aby zobaczyć, który skrót ich używa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione as teclas para ver qual atalho as usa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите клавиши, чтобы увидеть, какое сочетание их использует"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กดปุ่มเพื่อดูว่าคีย์ลัดใดใช้ปุ่มเหล่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hangi kısayolun bu tuşları kullandığını görmek için tuşlara basın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть клавіші, щоб побачити, яке сполучення їх використовує"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按下按键以查看使用它们的快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按下按鍵以查看使用它們的快速鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detector.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detect Shortcut"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتشاف اختصار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otkrij prečicu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrér genvej"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel erkennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detectar atajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détecter un raccourci"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rileva scorciatoia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットを検出"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រកឃើញផ្លូវកាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 감지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdag snarvei"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wykryj skrót"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detectar atalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Определить сочетание"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจจับคีย์ลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısayolu algıla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Визначити сполучення"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检测快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "偵測快速鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.detector.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listening…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ الاستماع…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slušam…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lytter…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Tasten …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escuchando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En écoute…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In ascolto…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力待ち…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងស្តាប់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 대기 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lytter…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasłuchiwanie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvindo…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидание нажатия…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังรอการกด…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dinleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очікування натискання…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在监听…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在聆聽…"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear search"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح البحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obriši pretragu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ryd søgning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suche löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpiar búsqueda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer la recherche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancella ricerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索をクリア"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្អាតការស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 초기화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tøm søk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyczyść wyszukiwanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpar pesquisa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистить поиск"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล้างการค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aramayı temizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очистити пошук"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除搜索"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除搜尋"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No shortcuts match"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد اختصارات مطابقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema odgovarajućih prečica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen matchende genveje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine passenden Tastenkürzel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay atajos coincidentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun raccourci correspondant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna scorciatoia corrispondente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するショートカットはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានផ្លូវកាត់ដែលត្រូវគ្នាទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 단축키가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen samsvarende snarveier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak pasujących skrótów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum atalho correspondente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет подходящих сочетаний клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีคีย์ลัดที่ตรงกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleşen kısayol yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає відповідних сполучень клавіш"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配的快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有符合的快速鍵"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search shortcuts"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في الاختصارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži prečice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg i genveje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar atajos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des raccourcis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca scorciatoie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកផ្លូវកាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk i snarveier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj skrótów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pesquisar atalhos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск сочетаний клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาคีย์ลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısayollarda ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук сполучень клавіш"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋快速鍵"
           }
         }
       }
