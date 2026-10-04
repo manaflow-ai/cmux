@@ -103,8 +103,11 @@ def open_with_cli(entry):
     entry["cli_create"] = cli("--quiet", "tab", "create", "browser", "--url", opts.url, "--pane", str(pane))
     time.sleep(2)
     strips = rpc("debug.tab_drag").get("strips") or []
-    target = next((t for strip in strips for t in strip.get("tabs", [])
-                   if "example" in str(t.get("label", "")).lower() or "http" in str(t.get("label", "")).lower()), None)
+    entry["strips"] = [[t.get("label") for t in strip.get("tabs", [])] for strip in strips]
+    # The newest matching tab (a restored session may hold older ones); the strip appends new tabs.
+    matches = [t for strip in strips for t in strip.get("tabs", [])
+               if "example" in str(t.get("label", "")).lower() or "http" in str(t.get("label", "")).lower()]
+    target = matches[-1] if matches else None
     entry["strip_tab"] = target
     if target:
         x = int(target["frame"][0] + target["frame"][2] / 2)
