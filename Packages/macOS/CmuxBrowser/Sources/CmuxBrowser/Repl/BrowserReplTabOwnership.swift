@@ -45,9 +45,16 @@ extension Dictionary where Key == String, Value == String {
         ["cookie", "set-cookie", "set-cookie2", "authorization", "proxy-authorization", "x-api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token"]
     }
 
-    /// These headers (names lowercase) without the credential ones.
+    /// These headers (names lowercase) without the credential ones: the
+    /// standard names, and every name that says it carries one, by the rule
+    /// `fetch` applies when a redirect leaves the origin
+    /// (``BrowserReplFetcher/isCredentialHeader(_:)``: `auth`, `token`,
+    /// `secret`, `session`, `password`, `signature` and the like).
     public func removingBrowserReplCredentialHeaders() -> [String: String] {
-        filter { !Self.browserReplCredentialHeaderNames.contains($0.key.lowercased()) }
+        filter { header in
+            !Self.browserReplCredentialHeaderNames.contains(header.key.lowercased())
+                && !BrowserReplFetcher.isCredentialHeader(header.key)
+        }
     }
 }
 

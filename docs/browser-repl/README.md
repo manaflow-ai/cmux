@@ -388,7 +388,9 @@ rest. Measurements: [performance.md](performance.md).
   (`page.on("request")` and the like) in a tab the session did not create
   reach it only while it listens for them, or for a request its own action
   started, and never carry the page's credential headers (`Cookie`,
-  `Authorization` and the like).
+  `Authorization`, and any header whose name says it carries one:
+  `auth`, `token`, `secret`, `session`, `password`, `signature`, `csrf`
+  and the like, the rule `fetch` uses across origins).
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
   session lasts. In them dialogs and file choosers wait for the agent,
