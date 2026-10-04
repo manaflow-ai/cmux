@@ -170,10 +170,7 @@ impl LinkRegistry {
                 }
                 Err(lost) => Some(lost),
             },
-            FrameBody::Credit { direction: Direction::In, bytes } => {
-                link.to_app.grant(bytes);
-                None
-            }
+            FrameBody::Credit { direction: Direction::In, bytes } => link.to_app.grant(bytes).err(),
             FrameBody::Credit { direction: Direction::Out, .. } => {
                 Some(Lost::new("credit direction", false))
             }

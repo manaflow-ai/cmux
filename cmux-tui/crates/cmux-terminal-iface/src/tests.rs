@@ -69,9 +69,11 @@ fn a_sender_never_sends_past_its_credit() {
     let refused = send.send(vec![0; 7]).unwrap_err();
     assert!(refused.retryable(), "{refused}");
     assert_eq!(send.offset(), 4, "a refused send takes nothing");
-    send.grant(5);
-    assert_eq!(send.available(), 11);
-    assert!(send.send(vec![0; 11]).is_ok());
+    send.grant(4).unwrap();
+    assert_eq!(send.available(), 10);
+    assert_eq!(send.grant(1), Err(Lost::new("credit", false)), "more than one window in flight");
+    assert_eq!(send.available(), 10, "a refused grant gives nothing");
+    assert!(send.send(vec![0; 10]).is_ok());
     assert_eq!(send.available(), 0);
 }
 
@@ -126,7 +128,7 @@ fn sender_and_receiver_agree_over_a_long_exchange() {
         let eat = next(unconsumed + 1);
         unconsumed -= eat;
         if let Some(FrameBody::Credit { bytes, .. }) = recv.consume(Direction::Out, eat).unwrap() {
-            send.grant(bytes);
+            send.grant(bytes).unwrap();
         }
     }
     assert_eq!(send.offset(), total);
@@ -141,6 +143,16 @@ fn resumed_offsets_continue() {
     assert_eq!(offset, 1003);
     assert_eq!(recv.receive(offset, bytes.len()), Ok(()));
     assert_eq!(recv.receive(3, 0), Err(Lost::new("overlap", false)));
+}
+
+#[test]
+fn offsets_near_the_end_of_u64_never_wrap_past_the_credit() {
+    let mut recv = ReceiveWindow::resume_at(u64::MAX - 10, 64 * 1024);
+    assert_eq!(recv.receive(u64::MAX, 10), Ok(()));
+    assert_eq!(recv.receive(u64::MAX, 1), Err(Lost::new("credit", false)));
+    let mut send = SendWindow::resume_at(u64::MAX - 1, 64 * 1024);
+    assert_eq!(send.available(), 1);
+    assert_eq!(send.grant(u32::MAX), Err(Lost::new("credit", false)));
 }
 
 #[test]

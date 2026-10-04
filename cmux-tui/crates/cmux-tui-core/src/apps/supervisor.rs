@@ -368,11 +368,16 @@ impl Supervisor {
                 vec![]
             }
             Effect::StopHost(app) => {
-                let mut outs = self.stop_app_locked(inner, app, "disabled");
+                let mut outs = self.terminal_access_changed_locked(inner, app);
+                outs.extend(self.stop_app_locked(inner, app, "disabled"));
                 outs.extend(self.stop_server_locked(inner, app, "disabled"));
                 outs
             }
-            Effect::GrantsChanged(app) => self.regrant_locked(inner, app),
+            Effect::GrantsChanged(app) => {
+                let mut outs = self.terminal_access_changed_locked(inner, app);
+                outs.extend(self.regrant_locked(inner, app));
+                outs
+            }
         }
     }
 

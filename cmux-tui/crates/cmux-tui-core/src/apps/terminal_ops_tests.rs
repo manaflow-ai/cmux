@@ -186,3 +186,22 @@ fn a_host_close_ends_the_link_and_tells_the_server() {
     let late = json!({ "t": "end", "channel": "link-1", "lost": { "reason": "closed", "retryable": true } });
     assert!(c.f.supervisor.terminal_line("cmux/cloudy", &late).is_empty());
 }
+
+#[test]
+fn revoking_the_grant_or_disabling_the_app_ends_its_links() {
+    let c = connectors(&["cloudy"]);
+    let tokens = c.tokens(0, "cloudy", 2);
+    assert_eq!(c.open("cmux/cloudy", &tokens[0], "vm-1")["value"]["channel"], "link-1");
+    c.f.set("revoke", "cmux/cloudy", Origin::User, |o| {
+        o.grant = Some(("terminal:backend".into(), false));
+    })
+    .unwrap();
+    assert!(c.f.supervisor.terminal_links().link("link-1").is_none(), "revoke ends the link");
+    c.f.set("regrant", "cmux/cloudy", Origin::User, |o| {
+        o.grant = Some(("terminal:backend".into(), true));
+    })
+    .unwrap();
+    assert_eq!(c.open("cmux/cloudy", &tokens[1], "vm-1")["value"]["channel"], "link-2");
+    c.f.set("off", "cmux/cloudy", Origin::User, |o| o.enabled = Some(false)).unwrap();
+    assert!(c.f.supervisor.terminal_links().link("link-2").is_none(), "disable ends the link");
+}

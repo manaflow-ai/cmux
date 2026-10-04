@@ -199,6 +199,16 @@ fn link_frames_follow_credit_continuity_and_ownership() {
 }
 
 #[test]
+fn an_app_cannot_grant_the_host_more_than_one_window() {
+    let (r, t) = (LinkRegistry::default(), Tokens::default());
+    let channel = open(&r, &t, "t1", "vm-1").unwrap().channel;
+    let body = FrameBody::Credit { direction: Direction::In, bytes: u32::MAX };
+    let out = r.receive_from_app("cmux/cloud", Frame { channel: channel.clone(), body }).unwrap();
+    assert_eq!(out.ended.unwrap().end, End::Lost(Lost::new("credit", false)));
+    assert!(r.link(&channel).is_none());
+}
+
+#[test]
 fn the_consumer_frees_credit_as_it_takes_bytes() {
     let (r, t) = (LinkRegistry::default(), Tokens::default());
     let channel = open(&r, &t, "t1", "vm-1").unwrap().channel;

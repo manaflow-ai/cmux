@@ -20,8 +20,8 @@ use serde_json::{Value, json};
 
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
 use crate::terminal_backend::{
-    BackendError, CONNECTOR_INTERFACE, Declaration, LinkAnswer, LinkEvent, LinkRegistry, Lost,
-    OpenTokenGate, wire,
+    BackendError, CONNECTOR_INTERFACE, Declaration, FrameBody, LinkAnswer, LinkEvent, LinkRegistry,
+    Lost, OpenTokenGate, wire,
 };
 
 /// The restricted scope both terminal interfaces need.
@@ -89,15 +89,23 @@ impl Supervisor {
             };
             return vec![reply];
         }
-        let outcome =
-            wire::frame_from_json(value).and_then(|f| self.terminals.receive_from_app(app, f));
-        match outcome {
+        let frame = match wire::frame_from_json(value) {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.log_terminal(app, "warn", format!("terminal frame ignored: {error}"));
+                return vec![];
+            }
+        };
+        let is_end = matches!(frame.body, FrameBody::End(_));
+        match self.terminals.receive_from_app(app, frame) {
             Ok(outcome) => {
                 if let Some(ended) = &outcome.ended {
                     self.log_link_ends(app, std::slice::from_ref(ended));
                 }
                 outcome.to_app.iter().map(wire::frame_to_json).collect()
             }
+            // The `end` an app owes after a host close finds no link: expected.
+            Err(BackendError::Invalid { .. }) if is_end => vec![],
             Err(error) => {
                 self.log_terminal(app, "warn", format!("terminal frame ignored: {error}"));
                 vec![]
@@ -156,6 +164,22 @@ impl Supervisor {
     /// far ends see `lost` (a new user run reconnects).
     pub(super) fn terminal_server_gone_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
         let ended = self.terminals.end_app(app, &Lost::new("the app server stopped", true));
+        ended
+            .iter()
+            .flat_map(|e| self.log_locked(inner, app, "info", link_end_message(e)))
+            .collect()
+    }
+
+    /// After a disable, uninstall or grant change: when `app` may no longer
+    /// serve terminals (not installed and enabled, or no `terminal:backend`
+    /// grant), every link it holds ends with a lost that is not retryable.
+    pub(super) fn terminal_access_changed_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
+        let enabled = inner.mirror.apps.get(app).is_some_and(|r| r.installed && r.enabled);
+        let key = HostKey { app: app.to_owned(), preview: false };
+        if enabled && Self::grant_for(inner, &key).scopes.contains(TERMINAL_SCOPE) {
+            return vec![];
+        }
+        let ended = self.terminals.end_app(app, &Lost::new("access to the app ended", false));
         ended
             .iter()
             .flat_map(|e| self.log_locked(inner, app, "info", link_end_message(e)))

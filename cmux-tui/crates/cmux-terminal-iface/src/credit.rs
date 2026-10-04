@@ -11,6 +11,7 @@ use crate::frames::{Direction, FrameBody, Lost};
 /// The sender's side: never sends past the granted credit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SendWindow {
+    window: u32,
     offset: u64,
     limit: u64,
 }
@@ -23,7 +24,7 @@ impl SendWindow {
 
     /// A resumed terminal: its offsets continue from `offset`.
     pub fn resume_at(offset: u64, window_bytes: u32) -> Self {
-        Self { offset, limit: offset.saturating_add(u64::from(window_bytes)) }
+        Self { window: window_bytes, offset, limit: offset.saturating_add(u64::from(window_bytes)) }
     }
 
     /// The running byte total sent so far.
@@ -51,9 +52,18 @@ impl SendWindow {
         Ok(FrameBody::Data { offset: self.offset, bytes })
     }
 
-    /// A credit frame from the receiver.
-    pub fn grant(&mut self, bytes: u32) {
-        self.limit = self.limit.saturating_add(u64::from(bytes));
+    /// A credit frame from the receiver. Credit that would let more than
+    /// one window be in flight is a protocol violation: the answer is the
+    /// `lost` that ends the channel, and nothing is granted.
+    pub fn grant(&mut self, bytes: u32) -> Result<(), Lost> {
+        let limit = self.limit.checked_add(u64::from(bytes));
+        match limit {
+            Some(limit) if limit - self.offset <= u64::from(self.window) => {
+                self.limit = limit;
+                Ok(())
+            }
+            _ => Err(Lost::new("credit", false)),
+        }
     }
 }
 
@@ -93,7 +103,9 @@ impl ReceiveWindow {
     /// Checks one data frame. A gap, an overlap or data past the credit ends
     /// the channel: the answer is the `lost` to send, never retryable.
     pub fn receive(&mut self, offset: u64, len: usize) -> Result<(), Lost> {
-        let expected = self.offset.saturating_add(len as u64);
+        let Some(expected) = self.offset.checked_add(len as u64) else {
+            return Err(Lost::new("credit", false));
+        };
         if offset < expected {
             return Err(Lost::new("overlap", false));
         }
