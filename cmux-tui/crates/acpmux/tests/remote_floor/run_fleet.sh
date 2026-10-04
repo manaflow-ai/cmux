@@ -42,5 +42,8 @@ if [ -z "$claude_bin" ]; then
 fi
 [ -n "$claude_bin" ] || { echo "no claude $version on this host"; exit 2; }
 echo "using $claude_bin"
-TMPDIR="$scratch" python3 "$here/probe_claude.py" --claude "$claude_bin" \
-  --real-model "$url" "$@"
+if [ "${CLAUDE_PROBE_FAKE:-0}" = 1 ]; then
+  TMPDIR="$scratch" python3 "$here/probe_claude.py" --claude "$claude_bin" --skip-machine-wide "$@"
+else
+  TMPDIR="$scratch" python3 "$here/probe_claude.py" --claude "$claude_bin" --real-model "$url" "$@"
+fi
