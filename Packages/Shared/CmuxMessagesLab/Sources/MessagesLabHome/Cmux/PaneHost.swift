@@ -125,7 +125,18 @@ final class HostView: NSView {
         super.layout()
         for v in [below, selectionHost, morphHost, composeHost, above] { v.frame = bounds }
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        if let demo, demo.frame != bounds { demo.frame = bounds }
+        if let demo, demo.frame != bounds {
+            demo.frame = bounds
+            demo.setNeedsLayout()
+        }
+        // cmux: the window view lays out first, so the compose view's bounds
+        // (its field, "+" and emoji rects are in them) are this pane's before
+        // the glass is placed. Host.swift's window starts at the fixture size;
+        // a pane of another height placed the glass from the stale 1032 pt
+        // compose bounds, below the pane (y 1000): the field glass, "+" and
+        // emoji buttons were invisible until an engine change moved the
+        // field, and "+" and emoji never came back.
+        demo?.layoutIfNeeded()
         CATransaction.commit()
         placeNativeViews()
     }
