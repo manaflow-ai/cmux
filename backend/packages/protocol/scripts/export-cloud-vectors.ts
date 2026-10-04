@@ -107,8 +107,8 @@ const AGENT_P = { kind: "install", agent: AGENT }
 const CUT = "the provider call was cut off; retry with the same key"
 
 const cases: Array<Obj> = []
-const kase = (name: string, op: string, params: Obj, responses: Array<Obj>, opts: { key?: string; principal?: Obj; note?: string } = {}) => {
-  const c: Obj = { name, op, class: opts.key ? "mutation" : "read", principal: opts.principal ?? INSTALL_P, params }
+const kase = (name: string, op: string, params: Obj, responses: Array<Obj>, opts: { key?: string; mutation?: boolean; principal?: Obj; note?: string } = {}) => {
+  const c: Obj = { name, op, class: opts.key || opts.mutation ? "mutation" : "read", principal: opts.principal ?? INSTALL_P, params }
   if (opts.key) c.idempotency_key = opts.key
   c.responses = responses
   if (opts.note) c.note = opts.note
@@ -260,18 +260,23 @@ kase("machine.connect_info.paused", "cloud.machine.connect_info", { machine: vm(
 })
 kase("machine.connect_info.not_bound", "cloud.machine.connect_info", { machine: vm(4) }, [readErr(400, "BadRequest", "cloud.machine.not_bound", "the machine is still provisioning")])
 
-// ---- link_token (only `cmux link` calls it; the Cloud app never does)
-const linkToken = { token: "lt_vector_0001", expires_at: 1790000300000, host: host(1), epoch: 1, services: ["daemon", "ssh"] }
-kase("machine.link_token", "cloud.machine.link_token", { host: host(1), services: ["daemon", "ssh"] }, replayPair("cloud.machine.link_token", "key-link-1", linkToken, "7"), {
-  key: "key-link-1",
-  note: "responses[1]: a same-key replay while the token is valid returns the same token."
-})
+// ---- link_token (only `cmux link` calls it; the Cloud app never does). No idempotency key:
+// each call mints a fresh token and nothing replays (the Worker gives the ledger a fresh key, so
+// the response's idempotency_key is empty here).
+const linkToken = (n: number) => ({ token: `lt_vector_${String(n).padStart(4, "0")}`, expires_at: 1790000300000 + n * 1000, host: host(1), epoch: 1, services: ["daemon", "ssh"] })
+kase(
+  "machine.link_token",
+  "cloud.machine.link_token",
+  { host: host(1), services: ["daemon", "ssh"] },
+  [opOk("cloud.machine.link_token", "", linkToken(1), "7"), opOk("cloud.machine.link_token", "", linkToken(2), "7")],
+  { mutation: true, note: "Two calls, two fresh tokens: no key, no replay." }
+)
 kase(
   "machine.link_token.not_bound",
   "cloud.machine.link_token",
   { host: host(4), services: ["daemon"] },
-  [opErr("cloud.machine.link_token", "key-link-unbound", "cloud.machine.not_bound", "the machine is still provisioning")],
-  { key: "key-link-unbound" }
+  [opErr("cloud.machine.link_token", "", "cloud.machine.not_bound", "the machine is still provisioning")],
+  { mutation: true }
 )
 
 // ---- snapshots

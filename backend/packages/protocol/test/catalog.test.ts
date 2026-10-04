@@ -28,6 +28,14 @@ describe("cloud operation catalog", () => {
     }
   })
 
+  it("only an install-only mutation may opt out of the idempotency key, and it says why", () => {
+    for (const op of cloudOps) {
+      if (op.idempotency !== "none") continue
+      expect([op.name, op.class, op.principals]).toEqual([op.name, "mutation", ["install"]])
+      expect([op.name, /No idempotency key/.test(op.docs)]).toEqual([op.name, true])
+    }
+  })
+
   it("visible CLI paths are unique", () => {
     const visible = cloudOps.filter((o) => o.cli.visible).map((o) => o.cli.path)
     expect(visible.filter((p) => !p)).toEqual([])

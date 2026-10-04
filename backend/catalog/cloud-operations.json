@@ -6365,7 +6365,7 @@
       "retryable": true
     },
     "mutation.indeterminate": {
-      "retryable": false
+      "retryable": true
     }
   },
   "operations": {
@@ -15854,7 +15854,7 @@
     },
     "cloud.machine.link_token": {
       "class": "mutation",
-      "idempotency": "required",
+      "idempotency": "none",
       "target": "team",
       "ancestors": [
         "user"
@@ -15881,14 +15881,6 @@
                 ]
               }
             }
-          },
-          "expected_revision": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "decimal"
-            },
-            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
         "extra": false
@@ -15979,7 +15971,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. A same-key replay while the token is valid returns the same token. Only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+      "docs": "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO; the token is never cached or logged. Install principals only; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -17793,7 +17785,7 @@
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
-      "risk": "mutate-own",
+      "risk": "execute",
       "principals": [
         "session",
         "install"
@@ -18657,7 +18649,7 @@
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
-      "risk": "mutate-own",
+      "risk": "money",
       "principals": [
         "session",
         "install"
@@ -18673,13 +18665,13 @@
       },
       "cli": {
         "path": "cloud snapshot create",
-        "visible": true
+        "visible": false
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "Take a snapshot of a machine. May answer cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key.",
+      "docs": "Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

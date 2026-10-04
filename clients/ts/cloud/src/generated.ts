@@ -1329,7 +1329,7 @@ export interface CloudOps {
       readonly machine: CloudMachine
     }
   }
-  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. A same-key replay while the token is valid returns the same token. Only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO; the token is never cached or logged. Install principals only; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
   readonly "cloud.machine.link_token": {
     readonly params: {
       readonly host: HostId
@@ -1434,7 +1434,7 @@ export interface CloudOps {
       readonly stream: string
     }
   }
-  /** Take a snapshot of a machine. May answer cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. */
+  /** Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.create": {
     readonly params: {
       readonly machine: MachineId
@@ -2941,12 +2941,12 @@ export const cloudOpMeta = {
   "cloud.machine.rename": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
   "cloud.machine.resize": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
   "cloud.machine.start": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
-  "cloud.machine.upgrade": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
+  "cloud.machine.upgrade": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "cloud.migration.start": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
   "cloud.migration.status": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.plan.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.shell.open": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
-  "cloud.snapshot.create": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
+  "cloud.snapshot.create": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
   "cloud.snapshot.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
   "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
