@@ -21,6 +21,10 @@ import WebKit
     let isolated: IsolatedWorldTransport?
     let relay: NativeRelayTransport?
     private(set) var suppressionOff = false
+    /// LOCALAPP_SPIKE_VISIBLE=1 (a live Mac with a window server): the window is put on screen,
+    /// without activating the app, so WebKit treats the page as visible like the real pane.
+    static let visible = ProcessInfo.processInfo.environment["LOCALAPP_SPIKE_VISIBLE"] == "1"
+    private static var placed = 0
     private var loaded: CheckedContinuation<Void, Never>?
 
     init(mode: Mode, spy: Bool) {
@@ -53,6 +57,12 @@ import WebKit
         webView.navigationDelegate = self
         isolated?.attach(webView)
         relay?.attach(webView)
+        if Self.visible {
+            NSApplication.shared.setActivationPolicy(.accessory)
+            window.setFrameOrigin(NSPoint(x: 40 + 30 * Self.placed, y: 40 + 30 * Self.placed))
+            Self.placed += 1
+            window.orderFrontRegardless()
+        }
     }
 
     func load() async {

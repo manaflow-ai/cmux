@@ -79,7 +79,7 @@ struct RelayBench {
             let s = samples[mode]!
             var row: [String: Any] = [
                 "engine": "webkit", "mode": mode.rawValue, "rounds": Self.rounds,
-                "suppressionOff": pages[mode]!.suppressionOff,
+                "suppressionOff": pages[mode]!.suppressionOff, "visible": BenchPage.visible,
                 "seq_p50_ms": Self.pct(s.seq, 0.5), "seq_p95_ms": Self.pct(s.seq, 0.95), "seq_p99_ms": Self.pct(s.seq, 0.99),
                 "burst_p50_ms": Self.pct(s.burst, 0.5), "burst_p95_ms": Self.pct(s.burst, 0.95), "burst_p99_ms": Self.pct(s.burst, 0.99),
                 "paced_p50_ms": Self.pct(s.paced, 0.5), "paced_p95_ms": Self.pct(s.paced, 0.95), "paced_p99_ms": Self.pct(s.paced, 0.99),
