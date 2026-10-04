@@ -283,6 +283,7 @@ async fn an_escaped_grandchild_does_not_hold_back_the_exit() {
     ];
     let record = link::spawn(&launcher(), &spec).await.expect("spawn host");
     let (link, _) = connected(&record, 0).await;
+    let lock = live_lock(&dir, &record);
     let mut after = 0;
     let exited = tokio::time::timeout(
         Duration::from_secs(15),
@@ -298,4 +299,43 @@ async fn an_escaped_grandchild_does_not_hold_back_the_exit() {
         unsafe { libc::kill(pid, libc::SIGKILL) };
     }
     assert!(exited.is_ok(), "the host never reported the harness exit");
+    // The host itself ends once its Exit is acknowledged.
+    wait_dead(lock).await;
+    drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Output that back-pressure keeps in the pipe is not a hung pipe: with no
+/// controller to acknowledge entries, the host stops reading at its buffer
+/// cap, and the harness exits meanwhile. Every line still arrives before
+/// the Exit once a controller reads them, however late it connects.
+#[tokio::test]
+async fn paced_output_left_in_the_pipe_at_exit_is_kept() {
+    let dir = scratch("paced");
+    let mut spec = spec(&dir, "s-paced");
+    // About 20 KB of lines: above the cap, below a pipe's buffer, so the
+    // harness writes them all and exits while most are still unread.
+    spec.buffer_cap = 4096;
+    spec.program = "python3".into();
+    spec.args = vec![
+        "-c".into(),
+        "import json,sys\nfor i in range(300):\n    print(json.dumps({'jsonrpc':'2.0','method':'x/line','params':{'i':i}}))\nsys.stdout.flush()\n".into(),
+    ];
+    let record = link::spawn(&launcher(), &spec).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    // Longer than the drain period: the harness has exited by now.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let (link, _) = connected(&record, 0).await;
+    let mut after = 0;
+    let seen = read_until(&link, &mut after, |e| matches!(e, Entry::Exit { .. })).await;
+    let lines = seen
+        .iter()
+        .filter(
+            |(_, e)| matches!(e, Entry::In { msg } if msg.get("method") == Some(&json!("x/line"))),
+        )
+        .count();
+    assert_eq!(lines, 300, "lines still in the pipe at the harness exit were dropped");
+    wait_dead(lock).await;
+    drop(link);
+    let _ = std::fs::remove_dir_all(&dir);
 }

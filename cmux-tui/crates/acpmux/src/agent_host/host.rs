@@ -145,14 +145,17 @@ enum Event {
     Frame(u64, Option<ControllerFrame>),
     /// SIGTERM: end the harness and the host.
     Term,
-    /// The drain after the leader's exit is over: output pipes still open
+    /// A quiet drain period (its generation) ended: output pipes still open
     /// belong to processes that left the harness group (setsid).
-    DrainOver,
+    DrainOver(u64),
 }
 
-/// How long output may still arrive after the harness leader exited and its
-/// group was killed. A process that left the group (setsid) can hold the
-/// pipes open forever; the exit is reported when this passes.
+/// After the harness leader exited and its group was killed: how long the
+/// pipes may stay open with the reader ready (a permit out) and no line
+/// arriving. Output not yet read because of back-pressure is never cut: the
+/// period runs only while the host is ready to read. A process that left the
+/// group (setsid) can hold the pipes open forever; the exit is reported when
+/// a quiet period passes.
 const DRAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
 struct Controller {
@@ -303,6 +306,11 @@ impl Started {
         };
         let mut next_conn = 0u64;
         let mut permit_out = pace_tx.try_send(()).is_ok();
+        // The leader exited and its exit is not pushed yet.
+        let mut draining = false;
+        // Generation of the armed quiet period, if one is armed.
+        let mut drain_gen = 0u64;
+        let mut drain_armed = false;
 
         while let Some(event) = events.recv().await {
             match event {
@@ -311,6 +319,8 @@ impl Started {
                 Event::Stderr(Some(_)) if state.exit_h.is_some() => {}
                 Event::Stdout(Some(line)) => {
                     permit_out = false;
+                    drain_gen += 1;
+                    drain_armed = false;
                     state.on_stdout(line).await;
                 }
                 Event::Stdout(None) => {
@@ -318,7 +328,11 @@ impl Started {
                     state.stdout_done = true;
                     state.maybe_push_exit();
                 }
-                Event::Stderr(Some(line)) => state.on_stderr(line),
+                Event::Stderr(Some(line)) => {
+                    drain_gen += 1;
+                    drain_armed = false;
+                    state.on_stderr(line);
+                }
                 Event::Stderr(None) => {
                     state.stderr_done = true;
                     state.maybe_push_exit();
@@ -334,18 +348,11 @@ impl Started {
                         unsafe { libc::killpg(pg, libc::SIGKILL) };
                     }
                     state.maybe_push_exit();
-                    if state.exit_h.is_none() {
-                        let tx = events_tx.clone();
-                        // task-owner: one bounded drain per host; the host
-                        // process ends with its runtime.
-                        tokio::spawn(async move {
-                            tokio::time::sleep(DRAIN_BUDGET).await;
-                            let _ = tx.send(Event::DrainOver).await;
-                        });
-                    }
+                    draining = state.exit_h.is_none();
                 }
-                Event::DrainOver => {
-                    if state.exit_h.is_none() {
+                Event::DrainOver(generation) => {
+                    let ready = permit_out || state.stdout_done;
+                    if draining && generation == drain_gen && ready && state.exit_h.is_none() {
                         tracing::warn!(
                             "harness output stays open after its exit; reporting the exit"
                         );
@@ -400,6 +407,22 @@ impl Started {
             let wanted = !state.stdout_done && state.weight <= state.spec.buffer_cap;
             if wanted && !permit_out && pace_tx.try_send(()).is_ok() {
                 permit_out = true;
+            }
+            // A quiet period runs only while the reader is ready (a permit
+            // out) and the exit waits on open pipes.
+            if draining && state.exit_h.is_some() {
+                draining = false;
+            }
+            if draining && (permit_out || state.stdout_done) && !drain_armed {
+                drain_armed = true;
+                let tx = events_tx.clone();
+                let generation = drain_gen;
+                // task-owner: one bounded quiet period; a later line makes
+                // its generation stale, the runtime ends it with the host.
+                tokio::spawn(async move {
+                    tokio::time::sleep(DRAIN_BUDGET).await;
+                    let _ = tx.send(Event::DrainOver(generation)).await;
+                });
             }
         }
         remove_artifacts(&state.spec.hosts_dir, &state.record);
