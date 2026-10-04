@@ -50,3 +50,22 @@ test("an adopt event hands the host's context to the page and starts a new gener
   await adopt({ kind: "agent" });
   expect(seen).toHaveLength(1);
 });
+
+// The remounted screen must exist when the adopt event returns: WebKit delivers the next typed
+// key right after the event, and a render left for later would drop it with the old field.
+test("the adopted screen renders inside the adopt event", async () => {
+  function Probe() {
+    const generation = useNewTabAdoption(() => {});
+    return createElement("output", { id: "generation" }, String(generation));
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(createElement(Probe)));
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = false;
+  try {
+    dom.window.dispatchEvent(new dom.window.CustomEvent(NEW_TAB_ADOPT_EVENT, { detail: { kind: "agent" } }));
+    expect(dom.window.document.getElementById("generation")!.textContent).toBe("1");
+  } finally {
+    (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+    await act(async () => root.unmount());
+  }
+});
