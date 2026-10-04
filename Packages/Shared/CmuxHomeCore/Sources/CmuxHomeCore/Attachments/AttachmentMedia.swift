@@ -154,6 +154,28 @@ enum AttachmentMedia {
         return data as Data
     }
 
+    /// An image in a type the owner refuses but ImageIO reads (a pasted
+    /// macOS screenshot is TIFF, an iPhone photo can be HEIF): re-encoded
+    /// as PNG when it has alpha, else JPEG, with its orientation and other
+    /// metadata kept. Nil when `type` is not such an image.
+    static func convertedImage(_ makeSource: () -> CGImageSource?, type: UTType?) throws
+        -> (data: Data, type: UTType, fileExtension: String)? {
+        guard let type, type.conforms(to: .image),
+              HomeAttachmentPolicy.allowedTypes[HomeAttachmentPolicy.canonicalMimeType(mimeType(for: type))] == nil,
+              let source = makeSource(), CGImageSourceGetCount(source) > 0 else { return nil }
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let hasAlpha = (properties?[kCGImagePropertyHasAlpha] as? Bool) ?? false
+        let target: UTType = hasAlpha ? .png : .jpeg
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, target.identifier as CFString, 1, nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let options: [CFString: Any] = hasAlpha ? [:] : [kCGImageDestinationLossyCompressionQuality: 0.9]
+        CGImageDestinationAddImageFromSource(destination, source, 0, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { throw HomeRejection.invalid("not_an_image") }
+        return (data as Data, target, hasAlpha ? "png" : "jpg")
+    }
+
     // MARK: Video and audio
 
     struct Movie {
@@ -199,6 +221,12 @@ enum AttachmentMedia {
     /// Checks the policy, then copies the bytes into the cache and fills the ref.
     static func prepare(fileURL: URL, root: URL) async throws -> LocalAttachment {
         let name = fileURL.lastPathComponent
+        if let converted = try convertedImage({ CGImageSourceCreateWithURL(fileURL as CFURL, nil) },
+                                              type: UTType(filenameExtension: fileURL.pathExtension.lowercased())) {
+            let base = fileURL.deletingPathExtension().lastPathComponent
+            return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
+                                     name: "\(base).\(converted.fileExtension)")
+        }
         let mime = mimeType(forExtension: fileURL.pathExtension)
         let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
@@ -207,8 +235,13 @@ enum AttachmentMedia {
         return try await describe(cached: cached, hash: hash, byteCount: byteCount, name: name, mimeType: mime, root: root)
     }
 
-    static func prepare(data: Data, typeIdentifier: String, root: URL) async throws -> LocalAttachment {
+    /// `name` defaults to `attachment.<ext>`.
+    static func prepare(data: Data, typeIdentifier: String, root: URL, name: String? = nil) async throws -> LocalAttachment {
         let type = UTType(typeIdentifier)
+        if let converted = try convertedImage({ CGImageSourceCreateWithData(data as CFData, nil) }, type: type) {
+            return try await prepare(data: converted.data, typeIdentifier: converted.type.identifier, root: root,
+                                     name: name ?? "attachment.\(converted.fileExtension)")
+        }
         let fileExtension = type?.preferredFilenameExtension ?? ""
         // The type's own mime type when the owner allows it (an M4A type may
         // prefer the .mp4 extension), else the extension's.
@@ -216,7 +249,7 @@ enum AttachmentMedia {
         let mime = HomeAttachmentPolicy.allowedTypes[typeMime] != nil || fileExtension.isEmpty
             ? typeMime
             : mimeType(forExtension: fileExtension)
-        let name = fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"
+        let name = name ?? (fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)")
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
         let (hash, cached) = try ingest(data: data, fileExtension: fileExtension, root: root)
         return try await describe(cached: cached, hash: hash, byteCount: data.count, name: name, mimeType: mime, root: root)
