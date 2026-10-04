@@ -679,10 +679,11 @@ import Testing
         let subscribes = Gate()
         daemon.script.withLock { $0.subscribeGate = subscribes }
         let reopen = Task { try? await source.snapshot(of: ConversationID(dm), tail: 10) }
-        for _ in 0..<500 { await Task.yield() }
-        source.close(ConversationID(dm))
+        // The first unsubscribe goes; the reopen's subscribe reaches the daemon and is held there.
         unsubscribes.open()
         await subscribes.arrived()
+        // The close comes while that subscribe is in flight: its unsubscribe queues behind it.
+        source.close(ConversationID(dm))
         // Room for an unsubscribe that does not wait for the subscribe to overtake it.
         try await Task.sleep(for: .milliseconds(200))
         subscribes.open()
