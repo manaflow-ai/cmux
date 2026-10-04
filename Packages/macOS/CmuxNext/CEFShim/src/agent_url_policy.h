@@ -15,7 +15,8 @@ namespace cmux_shim {
 // More nested blob:/filesystem: wrappers than this are refused (fail closed).
 constexpr int kAgentURLMaxWrapperDepth = 2;
 
-// First-party pages (cmux-page://cmux, cmux-page://cmux.<id>) are refused;
+// First-party pages (cmux-page://cmux, cmux-page://cmux.<id>, and single-label
+// shared hosts such as cmux-page://shell) are refused;
 // third-party app pages stay allowed. Fail closed on an empty host or a
 // percent escape.
 inline bool IsReservedPageHost(const std::string& rest) {
@@ -30,7 +31,8 @@ inline bool IsReservedPageHost(const std::string& rest) {
   if (port != std::string::npos) host = host.substr(0, port);
   for (char& c : host) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   while (!host.empty() && host.back() == '.') host.pop_back();
-  return host.empty() || host == "cmux" || host.rfind("cmux.", 0) == 0;
+  // A third-party app id always has a dot; a single label ("shell") is a shared first-party host.
+  return host.empty() || host == "cmux" || host.rfind("cmux.", 0) == 0 || host.find('.') == std::string::npos;
 }
 
 // True when an agent-driven tab must not load `text`: the schemes chrome,
