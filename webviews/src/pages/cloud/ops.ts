@@ -56,6 +56,12 @@ export const AccountOps = {
 } as const;
 
 /**
+ * The public plans page. "See plans" links it while billing is not built (`cloud.billing.checkout`
+ * answers owner.unreachable); switch "See plans" back to the checkout when billing lands.
+ */
+export const PLANS_URL = "https://cmux.com/pricing";
+
+/**
  * Host actions that are not Cloud ops. `cloud.browser.open` answers a proxy route and opens no tab;
  * the browser host (owned by the browser lead) opens it: `browser.tab.open {url, machineStore,
  * engine: "cef"}`, where `machineStore` (the tab configuration's BrowserMachineStore) carries the
