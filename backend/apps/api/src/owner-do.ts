@@ -220,7 +220,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * status is revoked closes it; a stale status is checked now (one UserDO RPC) before the frame is
    * routed. An unreachable UserDO refuses the frame (fail closed) and keeps the socket.
    */
-  private async frameAllowed(ws: WebSocket, a: Attachment): Promise<boolean> {
+  private async frameAllowed(ws: WebSocket, a: Attachment): Promise<true | false | "unreachable"> {
     const p = a.principal
     if (p.expires_at !== undefined && p.expires_at <= Date.now()) {
       closeQuietly(ws, 4401, "token expired")
@@ -231,12 +231,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     let c = this.installChecks.get(key)
     if (!c || Date.now() - c.at > INSTALL_CHECK_MS) {
       const status = await this.askUserDO(p.user, [{ install: p.install, grant: p.grant }])
-      if (!status) {
-        safeSend(ws, JSON.stringify({ t: "error", code: "owner.unreachable", message: "could not check this install; retry" }))
-        return false
-      }
+      if (!status) return "unreachable"
       c = { active: status[0] === true, at: Date.now() }
       this.installChecks.set(key, c)
+      // A socket held by a failed background check is released now that the status is fresh.
+      if (this.heldForCheck.size > 0) this.ctx.waitUntil(this.runInstallChecks())
     }
     if (!c.active) {
       closeQuietly(ws, 4401, "install revoked")
@@ -555,10 +554,32 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
   }
 
+  /** One promise chain per socket: frames are gated and routed strictly in arrival order. */
+  private readonly frameChains = new Map<WebSocket, Promise<void>>()
+
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    const a = ws.deserializeAttachment() as Attachment
+    const prev = this.frameChains.get(ws) ?? Promise.resolve()
+    const next = prev.then(() => this.handleFrame(ws, message)).catch(() => undefined)
+    this.frameChains.set(ws, next)
+    await next
+    if (this.frameChains.get(ws) === next) this.frameChains.delete(ws)
+  }
+
+  private async handleFrame(ws: WebSocket, message: string | ArrayBuffer) {
     // A socket lives no longer than its token, and a revoked install's frames are never routed.
-    if (!(await this.frameAllowed(ws, a))) return
+    const gate = await this.frameAllowed(ws, ws.deserializeAttachment() as Attachment)
+    if (gate !== true) {
+      if (gate === "unreachable") {
+        let key: unknown
+        try {
+          key = (JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)) as { idempotency_key?: unknown }).idempotency_key
+        } catch {}
+        safeSend(ws, JSON.stringify({ t: "error", code: "owner.unreachable", message: "could not check this install; retry", ...(typeof key === "string" ? { idempotency_key: key } : {}) }))
+      }
+      return
+    }
+    // Read after the await: another frame of this socket may have changed it.
+    const a = ws.deserializeAttachment() as Attachment
     const row = this.boundEntity()
     if (row === null) return ws.close(1011, "unbound")
     const engine = this.open(row)
@@ -608,6 +629,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   override async webSocketClose(ws: WebSocket, code: number) {
     this.heldForCheck.delete(ws)
+    this.frameChains.delete(ws)
     // 1005/1006 are reserved: they report "no code" and "abnormal" and cannot be sent.
     try {
       ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing")

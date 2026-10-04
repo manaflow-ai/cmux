@@ -287,7 +287,7 @@ export class UserDO extends OwnerDO<UserState> {
     // One answer per entry, in order (two sockets of one install may hold different grants).
     if (!this.isBound(entity)) return list.map(() => false)
     const state = this.bind(entity).currentState
-    return list.slice(0, 1000).map((x) => installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}) }))
+    return list.map((x) => installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}) }))
   }
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
