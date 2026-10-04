@@ -1,7 +1,8 @@
 //! Every sample app with a `cmux-app.v2.json` (`samples/apps/*`) is a valid
-//! manifest v2 package whose interface implementations name exports its built
-//! script defines. `cmux-app.json` stays manifest v1 for the CmuxNextApps
-//! prototype and is checked by the v1 TS validator.
+//! manifest v2 package; a sample with a script also has interface
+//! implementations that name exports its built script defines.
+//! `cmux-app.json` stays manifest v1 for the CmuxNextApps prototype and is
+//! checked by the v1 TS validator.
 
 use std::path::{Path, PathBuf};
 
@@ -35,10 +36,12 @@ mod apps {
             assert!(report.is_valid(), "{}: {:?}", dir.display(), report.issues);
             let manifest = report.manifest.expect("manifest");
             assert_eq!(manifest["manifestVersion"], 2, "{}", dir.display());
-            let main = std::fs::read_to_string(
-                dir.join(manifest["runtime"]["main"].as_str().expect("runtime.main")),
-            )
-            .expect("main");
+            // A sample without a script (a server-only app such as
+            // ssh-terminal) has its own tests; here it only has to validate.
+            let Some(main) = manifest.pointer("/runtime/main").and_then(Value::as_str) else {
+                continue;
+            };
+            let main = std::fs::read_to_string(dir.join(main)).expect("main");
             let implements = manifest["implements"].as_object().expect("implements");
             assert!(!implements.is_empty(), "{} implements nothing", dir.display());
             for (interface, implementation) in implements {
