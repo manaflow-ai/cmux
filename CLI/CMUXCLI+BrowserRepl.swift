@@ -273,8 +273,18 @@ extension CMUXCLI {
                 return BrowserReplMCPServer.result(ofEval: try evaluate(code, nil))
             }
         }
-        while let line = readLine(strippingNewline: true) {
-            guard let reply = server.handle(line: line) else { continue }
+        // Lines are bounded like `--eval -`: a longer one is answered with a
+        // JSON-RPC error and skipped to its newline, never buffered whole.
+        var reader = BrowserReplMCPLineReader(maximumLineBytes: Self.maximumEncodedTextBytes)
+        while let line = reader.nextLine() {
+            let reply: String?
+            switch line {
+            case .text(let text):
+                reply = server.handle(line: text)
+            case .tooLong:
+                reply = BrowserReplMCPServer.oversizedLineReply(maximumBytes: Self.maximumEncodedTextBytes)
+            }
+            guard let reply else { continue }
             FileHandle.standardOutput.write(Data((reply + "\n").utf8))
         }
         // No other client can name this server's own session, so its tabs
@@ -469,6 +479,59 @@ extension CMUXCLI {
     """
 }
 
+/// Reads newline-delimited lines from a file descriptor (stdin by default)
+/// with a byte cap: a line past the cap is reported as ``Line/tooLong`` and
+/// the rest of it is read and dropped, so memory stays bounded by the cap.
+struct BrowserReplMCPLineReader {
+    enum Line {
+        case text(String)
+        case tooLong
+    }
+
+    let maximumLineBytes: Int
+    private let fileDescriptor: Int32
+    private var pending = Data()
+    private var chunk = [UInt8](repeating: 0, count: 1 << 16)
+    private var atEnd = false
+
+    init(maximumLineBytes: Int, fileDescriptor: Int32 = STDIN_FILENO) {
+        self.maximumLineBytes = maximumLineBytes
+        self.fileDescriptor = fileDescriptor
+    }
+
+    /// The next line without its newline, `.tooLong` for one past the cap,
+    /// or `nil` at end of input.
+    mutating func nextLine() -> Line? {
+        var discarding = false
+        while true {
+            if let newline = pending.firstIndex(of: 0x0A) {
+                let line = pending[pending.startIndex..<newline]
+                pending.removeSubrange(pending.startIndex...newline)
+                if discarding || line.count > maximumLineBytes { return .tooLong }
+                return .text(String(decoding: line, as: UTF8.self))
+            }
+            if pending.count > maximumLineBytes {
+                // Past the cap with no newline yet: keep none of it.
+                pending.removeAll(keepingCapacity: true)
+                discarding = true
+            }
+            if atEnd {
+                if discarding { return .tooLong }
+                guard !pending.isEmpty else { return nil }
+                defer { pending.removeAll() }
+                return .text(String(decoding: pending, as: UTF8.self))
+            }
+            let descriptor = fileDescriptor
+            let count = chunk.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
+            if count > 0 {
+                pending.append(contentsOf: chunk[0..<count])
+            } else if count == 0 || errno != EINTR {
+                atEnd = true
+            }
+        }
+    }
+}
+
 /// JSON-RPC 2.0 handling for `cmux browser repl mcp` (Model Context Protocol,
 /// newline-delimited messages on stdio). Tool calls go to `callTool`; this
 /// type only speaks the protocol, so it is testable without a socket.
@@ -592,6 +655,12 @@ struct BrowserReplMCPServer {
         }
         lines.append("[ok | \(duration)ms]")
         return .text(lines.joined(separator: "\n"))
+    }
+
+    /// The reply to a line longer than `maximumBytes`: its id is unknown, so
+    /// the error carries a null id.
+    static func oversizedLineReply(maximumBytes: Int) -> String {
+        encode(error(id: NSNull(), code: -32600, message: "Request too large: a message is at most \(maximumBytes / (1024 * 1024)) MiB"))
     }
 
     /// Handles one line; returns the reply line, or nil for a notification.
