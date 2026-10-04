@@ -454,7 +454,10 @@ impl Core {
             not_before: None,
             op: cmux_conversation::Op::MessageSend {
                 client_msg_id: key,
-                parts: vec![cmux_conversation::Part::Text { text: format!("(turn failed: {error})"), runs: None }],
+                parts: vec![cmux_conversation::Part::Text {
+                    text: format!("(turn failed: {error})"),
+                    runs: None,
+                }],
                 reply_to: None,
             },
             child: None,
