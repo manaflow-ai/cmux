@@ -4,7 +4,9 @@
 //! channel's one `end` from the server's drain of link events.
 
 use crate::link::Carrier;
-use cmux_terminal_iface::{BackendError, DEFAULT_WINDOW_BYTES, End, FrameBody, HostLink, Lost};
+use cmux_terminal_iface::{
+    BackendError, DEFAULT_WINDOW_BYTES, DataPlane, End, FrameBody, HostLink, Lost,
+};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// What a link handle and the server share for one channel.
@@ -39,8 +41,10 @@ pub(crate) fn end(handle: &LinkHandle, lost: Lost) {
     }
 }
 
-/// One link to a Cloud machine's session host.
-pub struct CloudHostLink {
+/// One link to a Cloud machine's session host. Its bytes move on the
+/// carrier socket ([`DataPlane::Socket`]): the app host has no frame stream
+/// for this server, so the daemon dials the link's local socket.
+pub(crate) struct CloudHostLink {
     carrier: Carrier,
     shared: LinkHandle,
 }
@@ -48,17 +52,6 @@ pub struct CloudHostLink {
 impl CloudHostLink {
     pub(crate) fn new(carrier: Carrier, shared: LinkHandle) -> Self {
         Self { carrier, shared }
-    }
-
-    /// The channel id (`cloud-vm/<machine>#<generation>`).
-    pub fn channel(&self) -> &str {
-        &self.carrier.id
-    }
-
-    /// The local carrier until the app host's frame stream exists (GAP in
-    /// `crate::connector`).
-    pub fn carrier(&self) -> &Carrier {
-        &self.carrier
     }
 
     /// Asks the server to end the link (applied at its next drain).
@@ -73,6 +66,15 @@ impl CloudHostLink {
 }
 
 impl HostLink for CloudHostLink {
+    /// `cloud-vm/<machine>#<generation>`: a new id after every reconnect.
+    fn channel(&self) -> &str {
+        &self.carrier.id
+    }
+
+    fn data_plane(&self) -> DataPlane {
+        DataPlane::Socket { path: self.carrier.socket.clone() }
+    }
+
     fn window_bytes(&self) -> u32 {
         DEFAULT_WINDOW_BYTES
     }
@@ -84,8 +86,10 @@ impl HostLink for CloudHostLink {
         match frame {
             // The session host ended the channel: end the link.
             FrameBody::End(_) => self.ask_close(),
-            // GAP(data plane): the bytes move on the carrier socket.
-            FrameBody::Data { .. } | FrameBody::Credit { .. } => Err(BackendError::Unsupported),
+            // DataPlane::Socket: the bytes move on the carrier socket.
+            FrameBody::Data { .. } | FrameBody::Credit { .. } => Err(BackendError::invalid(
+                "this link's bytes move on its carrier socket (DataPlane::Socket)",
+            )),
         }
     }
 
