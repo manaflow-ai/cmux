@@ -390,7 +390,13 @@ fn reduce_set(mirror: &Mirror, set: &SetOp, facts: Option<&Facts>) -> Result<Out
     if set.grant.is_some() && !user {
         return Err(Reject::Origin("grants"));
     }
-    if set.sandboxed == Some(false) && before.sandboxed && !user {
+    // Enabling, disabling and the sandbox change what an app may do or
+    // break a user's tool: the user decides, in both directions
+    // (APPS-ENABLE-ORIGIN).
+    if set.enabled.is_some_and(|e| e != before.enabled) && before.installed && !user {
+        return Err(Reject::Origin("enabled"));
+    }
+    if set.sandboxed.is_some_and(|s| s != before.sandboxed) && !user {
         return Err(Reject::Origin("sandboxed"));
     }
     let installing = set.installed == Some(true) && !before.installed;

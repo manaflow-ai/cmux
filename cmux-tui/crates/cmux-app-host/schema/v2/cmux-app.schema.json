@@ -295,10 +295,9 @@
         },
         "screen": {
           "enum": [
-            "app",
-            "appColumn"
+            "app"
           ],
-          "description": "app: the app fills the screen. appColumn: a sticky app column next to the normal columns (Home)."
+          "description": "app: the app fills the screen."
         },
         "tab": {
           "type": "boolean",
