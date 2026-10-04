@@ -160,7 +160,8 @@ extension HoverCardPanel {
     /// `anchor`, before the screen clamp.
     static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize) -> CGPoint {
         switch placement {
-        case .below, .above: CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
+        case .below: CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
+        case .above: CGPoint(x: anchor.minX, y: anchor.maxY + Metrics.space2)
         case .beside: CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
         }
     }
