@@ -255,4 +255,17 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     expect(rejectOf(res)).toMatchObject({ code: "home.rate_limited" })
     expect(rec.calls).toEqual([])
   })
+
+  it("a same-key dm.open retry with a changed display name, after the budget is spent, returns the stored result", async () => {
+    const vic = await signIn("rate-dmname-vic", "Vic")
+    const wes = await signIn("rate-dmname-wes", "Wes")
+    await joinTeam(vic, wes)
+    const key = crypto.randomUUID()
+    const open = (name: string) => conversationMutate(testEnv as never, { ...sessionPrincipal(vic), display_name: name }, { t: "op", op: "dm.open", params: { peer: wes.user }, idempotency_key: key })
+    expect((await open("Vic")).frames.some((f) => f.t === "result")).toBe(true)
+    await spend(vic, vic.user, "conversation.create", 60)
+    const again = await open("Victoria")
+    expect(rejectOf(again)).toBeUndefined()
+    expect(again.frames.find((f) => f.t === "result")).toMatchObject({ replayed: true })
+  })
 })
