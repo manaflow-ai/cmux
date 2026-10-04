@@ -315,7 +315,7 @@ final class CEFRuntime {
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
         // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
-        for (id, root) in CEFPageSchemes.firstPartyRoots where shim.pageSchemeAddFirstParty(id, root.path, nil) != 1 {
+        for (id, entry) in CEFPageSchemes.firstParty where shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp) != 1 {
             logger.error("cmux-page \(id, privacy: .public) refused by the shim")
         }
         // Google Chrome's native messaging hosts after cmux's own.
