@@ -28,6 +28,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
     /// router and the bridge instead.
     public var webKitView: WKWebView { webView }
+    /// Whether the document can take typing yet (the dispatcher's type-ahead).
+    public let inputReadiness: PageInputReadiness
     private let bridge: any PageHostBridge
     private var loaded = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
@@ -135,7 +137,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         }
+        inputReadiness = PageInputReadiness(configuration: configuration)
         webView = PageWKWebView(frame: .zero, configuration: configuration)
+        inputReadiness.attach(webView)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
         wantsLayer = true

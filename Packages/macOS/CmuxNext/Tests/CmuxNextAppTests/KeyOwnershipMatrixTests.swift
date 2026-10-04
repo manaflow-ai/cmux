@@ -258,6 +258,7 @@ struct KeyOwnershipMatrixTests {
         case .consume: return .consumed
         case .panel: return .panel
         case .primaryInput: return .primaryInput
+        case .typeAhead: return .typeAhead
         }
     }
 
