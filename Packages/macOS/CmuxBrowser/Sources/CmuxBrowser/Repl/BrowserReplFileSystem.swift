@@ -184,7 +184,7 @@ public struct BrowserReplFileSystem: Sendable {
         case "readdir":
             let display = try raw("path")
             let directory = try openDirectory(try locate(.read), display: display)
-            return try Self.entries(of: directory).map { entry -> [String: Any] in
+            return try Self.entries(of: directory, display: display, isCancelled: isCancelled).map { entry -> [String: Any] in
                 ["name": entry.name, "type": entry.type]
             }
         case "stat":
@@ -207,7 +207,7 @@ public struct BrowserReplFileSystem: Sendable {
             }
             if status.isDirectory {
                 if arguments["recursive"] as? Bool == true {
-                    try Self.removeTree(in: location.directory, name: name, display: display)
+                    try Self.removeTree(in: location.directory, name: name, display: display, isCancelled: isCancelled)
                 } else if unlinkat(location.directory.fd, name, AT_REMOVEDIR) != 0 {
                     throw Self.posixError(errno, syscall: "rm", display: display)
                 }
@@ -636,9 +636,18 @@ public struct BrowserReplFileSystem: Sendable {
         return BrowserReplDescriptor(descriptor)
     }
 
+    /// How many entries `readdir` and `rm -r` handle between checks for
+    /// cancellation.
+    static let entriesPerCancellationCheck = 1024
+
     /// The entries of an open directory, by name, with their types (a link
-    /// is a `symlink`).
-    static func entries(of directory: BrowserReplDescriptor) throws -> [(name: String, type: String)] {
+    /// is a `symlink`). Stops with `ECANCELED` when `isCancelled` says so,
+    /// checked every ``entriesPerCancellationCheck`` entries.
+    static func entries(
+        of directory: BrowserReplDescriptor,
+        display: String = "",
+        isCancelled: () -> Bool = { false }
+    ) throws -> [(name: String, type: String)] {
         let copy = dup(directory.fd)
         guard copy >= 0, let stream = fdopendir(copy) else {
             let number = errno
@@ -649,6 +658,9 @@ public struct BrowserReplFileSystem: Sendable {
         rewinddir(stream)
         var result: [(name: String, type: String)] = []
         while let entry = readdir(stream) {
+            if !result.isEmpty, result.count % entriesPerCancellationCheck == 0, isCancelled() {
+                throw cancelledError(syscall: "scandir", display: display)
+            }
             let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
                 String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
             }
@@ -670,8 +682,21 @@ public struct BrowserReplFileSystem: Sendable {
     /// Removes directory `name` in `parent` and everything in it, following
     /// no link. Holds at most two directories open: it descends by name
     /// from `parent` with `O_NOFOLLOW` at each step, so a deep tree cannot
-    /// use up descriptors.
-    private static func removeTree(in parent: BrowserReplDescriptor, name: String, display: String) throws {
+    /// use up descriptors. Stops with `ECANCELED` when `isCancelled` says
+    /// so, checked every ``entriesPerCancellationCheck`` entries.
+    private static func removeTree(
+        in parent: BrowserReplDescriptor,
+        name: String,
+        display: String,
+        isCancelled: () -> Bool
+    ) throws {
+        var handled = 0
+        func count() throws {
+            handled += 1
+            if handled % entriesPerCancellationCheck == 0, isCancelled() {
+                throw cancelledError(syscall: "rm", display: display)
+            }
+        }
         func open(_ path: ArraySlice<String>) throws -> BrowserReplDescriptor {
             var current = parent
             for component in path {
@@ -685,7 +710,8 @@ public struct BrowserReplFileSystem: Sendable {
         while let last = path.last {
             let directory = try open(path[...])
             var subdirectory: String?
-            for entry in try entries(of: directory) {
+            for entry in try entries(of: directory, display: display, isCancelled: isCancelled) {
+                try count()
                 if entry.type == "directory" {
                     subdirectory = subdirectory ?? entry.name
                 } else if unlinkat(directory.fd, entry.name, 0) != 0, errno != ENOENT {
