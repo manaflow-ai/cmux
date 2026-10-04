@@ -18,6 +18,8 @@ export interface MountedPicker {
   readonly store: PickerStore;
   /** Starts a session (the host's stream calls this; the bench calls it directly). */
   open(session: PickerSession): void;
+  /** Unmounts the picker and ends its session stream (the page shell's reset). */
+  unmount(): void;
 }
 
 export function mountIconPicker(
@@ -25,6 +27,8 @@ export function mountIconPicker(
   client: PageClient | null,
   strings: Strings = createStrings(table),
   makeRoot: typeof createRoot = createRoot,
+  /** A session to show from the first render (the page shell's claim): one render, no remount. */
+  initial?: PickerSession,
 ): MountedPicker {
   const emoji = decodeEmojiTable(rawEmoji as RawEmojiTable);
   const store = new PickerStore({
@@ -60,10 +64,27 @@ export function mountIconPicker(
   };
   document.documentElement.lang = strings.language;
   document.title = strings.t("iconPicker.title");
+  if (initial?.id) {
+    if (initial.symbols) store.configure(initial.symbols, initial.maxEmojiVersion);
+    session = initial;
+    store.reset(initial.tab ?? "emoji");
+  }
   flushSync(render);
+  if (initial?.id) root.querySelector<HTMLInputElement>(".icon-picker-search")?.focus();
   // The search text is built after the first frame, so it is ready before the first keystroke
   // without slowing the page's first paint.
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => setTimeout(() => warmSearch(emoji), 0));
-  if (client) void client.subscribe<PickerSession>(IconPickerOps.session, (data) => open(data)).catch(() => undefined);
-  return { store, open };
+  let unsubscribe: (() => void) | undefined;
+  let mounted = true;
+  if (client)
+    void client
+      .subscribe<PickerSession>(IconPickerOps.session, (data) => open(data))
+      .then((stop) => (mounted ? (unsubscribe = stop) : stop()))
+      .catch(() => undefined);
+  const unmount = () => {
+    mounted = false;
+    unsubscribe?.();
+    reactRoot.unmount();
+  };
+  return { store, open, unmount };
 }

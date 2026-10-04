@@ -12,6 +12,8 @@ public nonisolated struct PageID {
     public static let firstParty: Set<String> = [
         "cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",
         "cmux.diff", "cmux.markdown", "cmux.icon-picker",
+        // The page shell and its probe page (PageDescriptor+Shell).
+        "cmux.shell", "cmux.shell.probe",
     ]
 
     /// Whether `id` is a first-party page in the table (it gets first-party access).

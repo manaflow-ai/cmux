@@ -14,6 +14,9 @@ import WebKit
 ///
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
+///
+/// A pooled host (``PageHostPool``) has one handler for every first-party page: it resolves each
+/// request's host (``PageServedHosts``) and answers with that page's own CSP; any other host fails.
 final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The strict policy every page starts with (``PageCSP/strict``).
     nonisolated static var contentSecurityPolicy: String { PageCSP.strict.header }
@@ -30,16 +33,34 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let body: Data
     }
 
-    private let page: PageDescriptor
-    private let root: URL
-    private weak var dynamicSource: (any PageDynamicResourceSource)?
+    /// What one host serves: its descriptor (origin, CSP, entry, dynamic prefixes), its file root,
+    /// and the source of its dynamic prefixes (held weakly; the page view keeps it alive).
+    struct Served {
+        let page: PageDescriptor
+        let root: URL
+        weak var dynamicSource: (any PageDynamicResourceSource)?
+    }
+
+    /// The host (lowercased) to what it serves; nil fails the request.
+    private let resolve: (String) -> Served?
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
-    init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil) {
-        self.page = page
-        self.root = root.standardizedFileURL.resolvingSymlinksInPath()
-        self.dynamicSource = dynamicSource
+    /// One page's handler: only `page`'s own host.
+    convenience init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil) {
+        let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
+        let host = page.id.lowercased()
+        self.init { $0 == host ? served : nil }
+    }
+
+    /// A handler that resolves every request's host.
+    init(resolve: @escaping (String) -> Served?) {
+        self.resolve = resolve
+    }
+
+    private func served(_ url: URL) -> Served? {
+        guard url.scheme?.lowercased() == PageDescriptor.scheme, let host = url.host?.lowercased() else { return nil }
+        return resolve(host)
     }
 
     /// The page's directory inside this module's resource bundle (`Resources/pages/<resource>`).
@@ -50,8 +71,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
-              let url = request.url,
-              Self.route(for: url, page: page, root: root) != nil
+              let url = request.url, let served = served(url),
+              Self.route(for: url, page: served.page, root: served.root) != nil
         else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
@@ -76,14 +97,16 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The reply for a GET of `url`: a bundled file (nil when missing or outside the root, as
     /// before), or the dynamic source's answer (a 404 when it has none).
     func reply(to url: URL) async -> Reply? {
-        switch Self.route(for: url, page: page, root: root) {
+        guard let served = served(url) else { return nil }
+        let page = served.page
+        switch Self.route(for: url, page: page, root: served.root) {
         case nil:
             return nil
         case .file(let file):
             guard let data = await Self.read(file) else { return nil }
             return Self.reply(url: url, page: page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
         case .dynamic(let request):
-            guard let resource = await dynamicSource?.resource(for: request) else {
+            guard let resource = await served.dynamicSource?.resource(for: request) else {
                 return Self.reply(url: url, page: page, status: 404, mimeType: "text/plain", body: Data())
             }
             let fallback = Self.mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
