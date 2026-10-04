@@ -1011,6 +1011,19 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "sidebar.border" : {
+      "default" : false,
+      "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
+      "title" : "Border",
+      "type" : "boolean"
+    },
+    "sidebar.borderWidth" : {
+      "description" : "sidebar.borderWidth",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Border Width",
+      "type" : "number"
+    },
     "sidebar.bottomBandMaxShare" : {
       "default" : 0.25,
       "description" : "The share of the sidebar the bottom sections fill before they scroll.",
