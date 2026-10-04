@@ -70,3 +70,16 @@ fn an_unregistered_or_disconnected_connection_is_never_verified() {
     trust.connect_local(2, None);
     assert!(!trust.verified_app(2));
 }
+
+/// Security review P1: on a signed build a same-uid process could restart
+/// the owner with a key it chose, so the install-key proof alone never
+/// makes a connection the app there; only prover A (the audit token) does.
+#[test]
+fn a_signed_build_never_accepts_the_install_key_proof_alone() {
+    let trust = AppTrust { signed_build: true, ..AppTrust::default() };
+    trust.prove_for_test(1, "inst_a");
+    assert!(!trust.verified_app(1));
+    let unsigned = AppTrust { signed_build: false, ..AppTrust::default() };
+    unsigned.prove_for_test(1, "inst_a");
+    assert!(unsigned.verified_app(1));
+}
