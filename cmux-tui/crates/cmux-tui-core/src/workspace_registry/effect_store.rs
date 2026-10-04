@@ -803,7 +803,7 @@ impl WorkspaceRegistry {
         if let Some(expected) = expected_revision
             && expected != revision
         {
-            anyhow::bail!("resource revision conflict: expected {expected}, current {revision}");
+            return Err(revision_conflict::error(expected, revision));
         }
         tx.execute(
             "INSERT INTO resource_effect_receipts(
@@ -1312,7 +1312,7 @@ fn require_creation_preconditions(
     if let Some(expected) = expected_revision
         && expected != revision
     {
-        anyhow::bail!("resource revision conflict: expected {expected}, current {revision}");
+        return Err(revision_conflict::error(expected, revision));
     }
     Ok(())
 }

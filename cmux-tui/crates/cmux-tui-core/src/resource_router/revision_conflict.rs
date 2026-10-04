@@ -1,21 +1,20 @@
-//! Reading a registry revision conflict, typed or as the stores raise it.
+//! Recognizing a resource revision conflict, typed by the stores or already
+//! mapped to a `ResourceError`.
 
 use super::ResourceError;
+use crate::workspace_registry::revision_conflict::RevisionConflict;
 
-/// The expected and current revisions of a registry revision conflict,
-/// which the stores raise as "resource revision conflict: expected E,
-/// current C".
-pub(super) fn revision_conflict_values(message: &str) -> Option<(u64, u64)> {
-    let conflict = message.strip_prefix("resource revision conflict: expected ")?;
-    let (expected, actual) = conflict.split_once(", current ")?;
-    Some((expected.parse().ok()?, actual.parse().ok()?))
+/// The expected and current revisions when `error` is a store's
+/// [`RevisionConflict`].
+pub(super) fn revision_conflict_values(error: &anyhow::Error) -> Option<(u64, u64)> {
+    error.downcast_ref::<RevisionConflict>().map(|conflict| (conflict.expected, conflict.current))
 }
 
-/// True when `error` is a resource revision conflict, typed or as the
-/// stores raise it (the same reading as [`super::resource_operation_error`]).
+/// True when `error` is a resource revision conflict, typed or as a mapped
+/// `ResourceError` (the same reading as [`super::resource_operation_error`]).
 pub(crate) fn is_revision_conflict(error: &anyhow::Error) -> bool {
     match error.downcast_ref::<ResourceError>() {
         Some(resource) => resource.code == "revision.conflict",
-        None => revision_conflict_values(&error.to_string()).is_some(),
+        None => revision_conflict_values(error).is_some(),
     }
 }

@@ -43,6 +43,7 @@ mod public_fold;
 mod public_projection_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
+pub(crate) mod revision_conflict;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
 mod terminal_exit_store;
@@ -3203,10 +3204,9 @@ impl WorkspaceRegistry {
         )?;
         debug_assert!(!terminal.replayed);
         let previous_revision = transaction_resource_revision(&tx)?;
-        anyhow::ensure!(
-            previous_revision == expected_resource_revision,
-            "resource revision conflict: expected {expected_resource_revision}, current {previous_revision}"
-        );
+        if previous_revision != expected_resource_revision {
+            return Err(revision_conflict::error(expected_resource_revision, previous_revision));
+        }
         let revision = previous_revision
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;

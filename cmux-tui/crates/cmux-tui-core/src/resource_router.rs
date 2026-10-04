@@ -1433,7 +1433,7 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
             return ResourceError::idempotency_conflict(key, operation);
         }
     }
-    if let Some((expected, actual)) = revision_conflict_values(&message) {
+    if let Some((expected, actual)) = revision_conflict_values(&error) {
         return ResourceError::revision_conflict(expected, actual);
     }
     ResourceError::operation_failed("resource.runtime", message, json!({}))

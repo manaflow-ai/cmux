@@ -227,9 +227,10 @@ impl WorkspaceRegistry {
         if let Some(expected) = expected_revision
             && expected != previous_revision
         {
-            anyhow::bail!(
-                "resource revision conflict: expected {expected}, current {previous_revision}"
-            );
+            return Err(crate::workspace_registry::revision_conflict::error(
+                expected,
+                previous_revision,
+            ));
         }
         let revision = previous_revision
             .checked_add(1)
