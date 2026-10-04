@@ -462,6 +462,25 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertIn('ref=main', queries)
         self.assertIn('/commits/' + HEAD + '/check-runs', queries)
 
+    def test_advisory_vercel_review_neutral_or_skipped_is_allowed(self):
+        for conclusion in ("neutral", "skipped"):
+            with self.subTest(conclusion=conclusion):
+                result, merged, _ = self.run_case(checks=[
+                    {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                    {"id": 2, "name": "Vercel Agent Review", "status": "completed", "conclusion": conclusion},
+                ])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(merged)
+
+    def test_non_advisory_neutral_still_refuses(self):
+        result, merged, _ = self.run_case(checks=[
+            {"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+            {"id": 2, "name": "review-bot", "status": "completed", "conclusion": "neutral"},
+        ])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+        self.assertIn("review-bot", result.stderr)
+
     def test_no_ci_workflow_refuses_pending_failed_and_empty_checks(self):
         for checks in ([], [{'id': 1, 'name': 'tests', 'status': 'in_progress'}],
                        [{'id': 1, 'name': 'tests', 'status': 'completed', 'conclusion': 'failure'}]):
