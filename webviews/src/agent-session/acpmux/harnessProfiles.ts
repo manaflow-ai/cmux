@@ -3,7 +3,9 @@ import type { AcpmuxSnapshot } from "./model";
 // What each harness's sessions last reported about themselves (model, permission modes, config
 // options), kept per viewer. A harness switch draws the target harness's composer from it in the
 // same frame as the pick, before acpmux has started that harness; the session's own summary
-// replaces it once the session attaches. Storage can be missing or blocked: then the profiles
+// replaces it once the session attaches. In the app the pane's web view has a non-persistent
+// data store, so profiles last one app session; the first switch to a harness after a launch
+// draws the catalog's first model until its session reports. Storage can be missing or blocked: then the profiles
 // live for this page only.
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;

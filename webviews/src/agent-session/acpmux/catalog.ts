@@ -27,7 +27,9 @@ const CATALOG_KEY = "cmux.acpmux.harnessCatalog.v1";
 /// before acpmux answers (stale-while-revalidate: the query refetches it in the background).
 /// Each harness keeps its own models: a fetch whose model probe has not finished for a harness
 /// (no models yet) keeps that harness's cached ones, and a harness acpmux no longer lists is
-/// dropped. Storage can be missing or blocked; then nothing is cached.
+/// dropped. Storage can be missing or blocked; then nothing is cached. In the app the pane's web
+/// view has a non-persistent data store, so this cache lasts one app session: the first pane after
+/// a launch fetches before its picker has models. A host-backed store is a follow-up.
 export class HarnessCatalogCache {
   private memory: { catalog: HarnessCatalog; at: number } | undefined;
   private loaded = false;
