@@ -154,6 +154,24 @@ fn column_update_sets_width_and_flag_in_one_commit() {
     assert_eq!(flags(&mux)[2], None, "a width change leaves the flag");
 }
 
+/// A lone column of rows fills the screen: a width asked through
+/// `column.update` leaves it at 1.0, the same rule as
+/// `set-viewport-pane-width`.
+#[test]
+fn column_update_keeps_a_lone_column_at_full_width() {
+    let (mux, panes) = column_mux(1);
+    mux.new_row_with_options(panes[0], 500, Default::default(), Some((38, 10)), None).unwrap();
+    let columns = column_ids(&mux);
+    assert_eq!(columns.len(), 1, "one column of two rows");
+    update(&mux, serde_json::json!({"column": columns[0], "width": 0.6}), "lone-width").unwrap();
+    assert_eq!(widths(&mux), vec![1.0], "a lone column stays at full width");
+    mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        assert!(screen.layout_column_projection_is_consistent());
+        assert_eq!(screen.viewport_base_width, Some(1.0));
+    });
+}
+
 #[test]
 fn column_update_replaces_and_moves_edges_like_set_column_sticky() {
     let (mux, _) = column_mux(3);
