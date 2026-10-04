@@ -96,8 +96,9 @@ impl ConnectInfo {
         if self.host != host {
             return Err(InvalidInfo::HostMismatch);
         }
-        // RED stub: the overlay address is not checked yet.
-        let _ = overlay_address;
+        if self.peer.overlay_address != overlay_address(host) {
+            return Err(InvalidInfo::OverlayMismatch);
+        }
         STANDARD
             .decode(&self.peer.wg_public_key)
             .ok()
@@ -173,8 +174,7 @@ impl ConnectInfoCache {
     /// back for its one use. An older revision than the cached one keeps the
     /// cached peer data.
     pub fn insert(&mut self, mut info: ConnectInfo, now: Instant) -> Option<LinkToken> {
-        // RED stub: the token stays in the cache.
-        let token = info.link_token.clone();
+        let token = info.link_token.take();
         let keep_cached = self
             .entries
             .get(&info.host)
