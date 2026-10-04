@@ -27,7 +27,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Sets the window's behind-window blur radius (tests record it).
     private let applyWindowBlur: @MainActor (NSWindow, Int) -> Void
     let contentHost = NSView()
-    private let sidebar: SidebarContainerView
+    let sidebar: SidebarContainerView
+    /// The edge the sidebar sits on (`sidebar.side`, R109).
+    var sidebarSide: SidebarSide = .left
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private(set) weak var content: NSView?

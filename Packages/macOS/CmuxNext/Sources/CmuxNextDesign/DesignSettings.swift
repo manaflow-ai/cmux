@@ -91,6 +91,10 @@ public final class DesignSettings {
     public var titlebarButtons: TitlebarButtonsMode = .hover
     /// `tabs.plusButton`.
     public var plusButton: PlusButtonMode = .hover
+    /// `sidebar.side` (R109).
+    public var sidebarSide: SidebarSide = .left
+    /// `sidebar.spacesPosition` (R109).
+    public var spacesPosition: SpacesPosition = .bottom
 
     public init() {}
 
