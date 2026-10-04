@@ -89,5 +89,15 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// New Workspace on the remote host: with a remote tmux workspace selected, New
+    /// Workspace creates a tmux session on that workspace's host and New Local Workspace
+    /// is offered for local work. Defaults on; while off, New Workspace always creates a
+    /// local workspace.
+    public let remoteTmuxNewWorkspaceOnHost = DefaultsKey<Bool>(
+        id: "remoteTmux.beta.newWorkspaceOnHost.enabled",
+        defaultValue: true,
+        userDefaultsKey: "remoteTmux.beta.newWorkspaceOnHost.enabled"
+    )
+
     public init() {}
 }

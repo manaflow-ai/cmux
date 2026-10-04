@@ -458,6 +458,7 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(section: .betaFeatures, id: "remoteTmuxNewWorkspaceOnHost", title: String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost", defaultValue: "New Workspace on the remote host"), synonyms: String(localized: "settings.search.alias.setting.betaFeatures.remote-tmux-new-workspace-on-host", defaultValue: "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable")),
             .init(
                 section: .betaFeatures,
                 id: "workspace-todo-controls",

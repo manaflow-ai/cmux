@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -8,7 +9,7 @@ import Testing
 #endif
 
 /// New Workspace routing for remote-tmux mirrors: the pure host-derivation
-/// truth table, the controller seam (`handleNewWorkspaceRequested(in:)`), and
+/// truth table, the controller seam (`newSessionRequest(in:)` and `createAndMirrorSession`), and
 /// the `performNewWorkspaceAction` hook that suppresses local creation when
 /// the active workspace is a mirror.
 ///
@@ -73,7 +74,11 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             try? FileManager.default.removeItem(atPath: stub)
             try? FileManager.default.removeItem(atPath: argvLog)
         }
-        let controller = RemoteTmuxController()
+        var failures: [RemoteTmuxController.NewSessionFailure] = []
+        var environment = RemoteTmuxNewSessionEnvironment.live
+        environment.attach = { _, _, _, _, _ in throw AttachRefused() }
+        environment.reportFailure = { _, failure, _ in failures.append(failure) }
+        let controller = RemoteTmuxController(newSessionEnvironment: environment)
         let manager = TabManager()
         _ = try RemoteTmuxRoutingFixture.mirrorSelectedSession(controller: controller, host: hostA, sessionName: "dev", into: manager)
         let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
@@ -81,13 +86,10 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             controller.detach(host: hostA, sessionName: "dev")
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
         }
-        var failures: [RemoteTmuxController.NewSessionFailure] = []
-        controller.reportNewSessionFailure = { _, failure, _ in failures.append(failure) }
-        controller.mirrorNewSession = { _, _, _, _ in throw AttachRefused() }
         let tabsBefore = manager.tabs.count
 
-        #expect(controller.handleNewWorkspaceRequested(in: manager))
-        await controller.waitForNewSessionRoutingForTesting()
+        let request = try #require(controller.newSessionRequest(in: manager))
+        await controller.createAndMirrorSession(request, in: manager)
 
         let argv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
         return (failures, argv, manager.tabs.count - tabsBefore)
@@ -209,12 +211,15 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             }
 
             #expect(manager.selectedTab?.id == mirrorWorkspace.id)
-            #expect(controller.handleNewWorkspaceRequested(in: manager))
-            // Drain the routed request against the cached stub transport before
-            // the deferred detach can evict it.
-            await controller.waitForNewSessionRoutingForTesting()
+            let request = try #require(controller.newSessionRequest(in: manager))
+            #expect(request.host == hostA)
+            #expect(request.activeTabId == mirrorWorkspace.id)
+            // Run the request against the cached stub transport before the
+            // deferred detach can evict it.
+            await controller.createAndMirrorSession(request, in: manager)
 
             manager.selectWorkspace(localWorkspace)
+            #expect(controller.newSessionRequest(in: manager) == nil)
             #expect(!controller.handleNewWorkspaceRequested(in: manager))
         }
     }
@@ -251,8 +256,8 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }
 
-            #expect(controller.handleNewWorkspaceRequested(in: manager))
-            await controller.waitForNewSessionRoutingForTesting()
+            let request = try #require(controller.newSessionRequest(in: manager))
+            await controller.createAndMirrorSession(request, in: manager)
 
             let recordedArgv = (try? String(contentsOfFile: argvLog, encoding: .utf8)) ?? ""
             // RemoteTmuxHost.tmuxRemoteCommand single-quotes every word of the remote
@@ -291,10 +296,11 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }
 
-            #expect(controller.handleNewWorkspaceRequested(in: manager))
+            let request = try #require(controller.newSessionRequest(in: manager))
+            async let routed: Void = controller.createAndMirrorSession(request, in: manager)
             // The user moves on before the round trip completes.
             manager.selectWorkspace(localWorkspace)
-            await controller.waitForNewSessionRoutingForTesting()
+            await routed
 
             let created = try #require(manager.tabs.first { $0.title == "unstolen" })
             #expect(created.isRemoteTmuxMirror)
@@ -328,14 +334,47 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
                 }
             }
 
-            #expect(controller.handleNewWorkspaceRequested(in: manager))
+            let request = try #require(controller.newSessionRequest(in: manager))
+            async let routed: Void = controller.createAndMirrorSession(request, in: manager)
             // The window goes away before the round trip completes.
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            await controller.waitForNewSessionRoutingForTesting()
+            await routed
 
             #expect(!manager.tabs.contains { $0.title == "orphaned" })
             #expect(controller.sessionMirror(host: hostA, sessionName: "orphaned") == nil)
         }
+    }
+
+    /// The setting turns the routing off: New Workspace on a mirrored workspace is then a
+    /// local workspace again, and New Local Workspace has nothing to offer.
+    @Test func turningTheSettingOffLeavesNewWorkspaceLocal() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let restoreSSH = RemoteTmuxRoutingFixture.pinStubSSH("/usr/bin/false")
+            defer { restoreSSH() }
+            var routes = true
+            var environment = RemoteTmuxNewSessionEnvironment.live
+            environment.routesToMirrorHost = { routes }
+            let controller = RemoteTmuxController(newSessionEnvironment: environment)
+            let manager = TabManager()
+            let mirrorWorkspace = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
+                controller: controller, host: hostA, sessionName: "dev", into: manager
+            )
+            defer { controller.detach(host: hostA, sessionName: "dev") }
+            #expect(manager.selectedTab?.id == mirrorWorkspace.id)
+            #expect(controller.wouldNewWorkspaceSpawnRemote(in: manager))
+
+            routes = false
+            #expect(controller.newSessionRequest(in: manager) == nil)
+            #expect(!controller.wouldNewWorkspaceSpawnRemote(in: manager))
+            #expect(!controller.handleNewWorkspaceRequested(in: manager))
+        }
+    }
+
+    /// The setting ships on, and the app reads it through the catalog key.
+    @Test func theSettingDefaultsToOn() {
+        let key = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost
+        #expect(key.defaultValue)
+        #expect(key.userDefaultsKey == "remoteTmux.beta.newWorkspaceOnHost.enabled")
     }
 
     // MARK: - performNewWorkspaceAction hook
@@ -349,10 +388,14 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             defer { restoreSSH() }
             let manager = TabManager()
             let localWorkspace = try #require(manager.selectedWorkspace)
-            var reportedFailures: [(host: RemoteTmuxHost, failure: RemoteTmuxController.NewSessionFailure)] = []
-            let previousReport = controller.reportNewSessionFailure
-            controller.reportNewSessionFailure = { host, failure, _ in
-                reportedFailures.append((host: host, failure: failure))
+            // The action starts the request and returns. The report is the edge that says
+            // the request finished.
+            let (reports, reportContinuation) = AsyncStream<
+                (host: RemoteTmuxHost, failure: RemoteTmuxController.NewSessionFailure)
+            >.makeStream()
+            let previousEnvironment = controller.newSessionEnvironment
+            controller.newSessionEnvironment.reportFailure = { host, failure, _ in
+                reportContinuation.yield((host: host, failure: failure))
             }
             let mirrorWorkspace = try RemoteTmuxRoutingFixture.mirrorSelectedSession(
                 controller: controller, host: hostA, sessionName: "dev", into: manager
@@ -360,7 +403,7 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
 
             let (windowId, window) = RemoteTmuxRoutingFixture.registerWindowedContext(appDelegate: appDelegate, manager: manager)
             defer {
-                controller.reportNewSessionFailure = previousReport
+                controller.newSessionEnvironment = previousEnvironment
                 window.close()
                 manager.window = nil
                 if controller.sessionMirror(host: hostA, sessionName: "dev") != nil {
@@ -376,13 +419,13 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
             #expect(manager.selectedTab?.id == mirrorWorkspace.id)
             let tabsBefore = manager.tabs.map(\.id)
             #expect(appDelegate.performNewWorkspaceAction(tabManager: manager, debugSource: "test.remoteMirror"))
-            await controller.waitForNewSessionRoutingForTesting()
+            var reportIterator = reports.makeAsyncIterator()
+            let report = await reportIterator.next()
             #expect(manager.tabs.map(\.id) == tabsBefore)
-            #expect(reportedFailures.count == 1)
-            #expect(reportedFailures.first?.host == hostA)
+            #expect(report?.host == hostA)
             // Nothing was created, so this is the creation failure, not an attach one.
-            if case .create = reportedFailures.first?.failure {} else {
-                Issue.record("expected a creation failure, got \(String(describing: reportedFailures.first?.failure))")
+            if case .create = report?.failure {} else {
+                Issue.record("expected a creation failure, got \(String(describing: report?.failure))")
             }
 
             // Active workspace is local: the same action creates a local workspace.
