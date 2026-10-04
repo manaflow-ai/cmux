@@ -36,12 +36,17 @@ pub struct ProviderEngine {
     subscription: u64,
     /// The session's lease identity (stamped from its connection).
     lease: LeaseCaller,
+    /// Set once the session's end released its leases (close, or the
+    /// backstop drop), so a late drop of a closed engine never clears the
+    /// leases of a new session with the same name.
+    ended: std::sync::atomic::AtomicBool,
 }
 
 /// Driver methods that only read a tab: they never take or block a lease
 /// (automation lease contract, `observe`). Every other call on a tab is an
 /// `act`.
 const OBSERVE_METHODS: &[&str] = &[
+    "frame.observe",
     "tab.info",
     "tab.screenshot",
     "frames.list",
@@ -83,6 +88,7 @@ impl ProviderEngine {
             agent_source,
             subscription,
             lease,
+            ended: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -243,6 +249,12 @@ impl Driver for ProviderEngine {
         if let Some(error) = self.provider.refusal(method, target_id) {
             return Err(error);
         }
+        // A structured read: refused before the lease sees it unless it
+        // calls an allowlisted page agent function.
+        let observe = match method {
+            "frame.observe" => Some(crate::observe::evaluate_params(params)?),
+            _ => None,
+        };
         // The automation lease: reads pass, any other call acts (and takes
         // the lease when the tab has none).
         let target = target_id.to_owned();
@@ -254,9 +266,16 @@ impl Driver for ProviderEngine {
         self.provider.lease(&op, &self.lease).map_err(|error| lease_refusal(method, error))?;
         if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
             self.call_cef(method, target_id, params)
+        } else if let Some(evaluate) = observe {
+            // The app's WebKit driver runs it as its agent-world evaluate.
+            self.provider.call("frame.evaluate", &evaluate)
         } else {
             self.provider.call(method, params)
         }
+    }
+
+    fn end_session(&self) {
+        self.release_session();
     }
 
     fn capabilities(&self) -> Vec<&'static str> {
@@ -264,11 +283,20 @@ impl Driver for ProviderEngine {
     }
 }
 
+impl ProviderEngine {
+    /// The session ends: its leases go (the app clears the badges). Runs
+    /// once, from `end_session` (close) or, as a backstop, from drop.
+    fn release_session(&self) {
+        if !self.ended.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let _ = self.provider.lease(&LeaseOp::SessionEnd, &self.lease);
+        }
+    }
+}
+
 impl Drop for ProviderEngine {
     fn drop(&mut self) {
         self.provider.unsubscribe(self.subscription);
-        // The session ends: its leases go (the app clears the badges).
-        let _ = self.provider.lease(&LeaseOp::SessionEnd, &self.lease);
+        self.release_session();
     }
 }
 
