@@ -12,4 +12,9 @@ describe("firewall endpoint cidr", () => {
   test("rejects prefixes wider than the address and bare addresses", () => {
     for (const cidr of ["10.0.0.0/33", "fd00::/129", "10.0.0.0", "10.0.0.0/", "10.0.0.0/x", "nope/8"]) expect([cidr, accepted(cidr)]).toEqual([cidr, false]);
   });
+
+  test("sends the canonical range", () => {
+    expect(parseFirewallEndpoint({ cidr: "10.0.0.5/8" }, "source")).toEqual({ cidr: "10.0.0.0/8" });
+    expect(parseFirewallEndpoint({ cidr: "FD00::1/64" }, "source")).toEqual({ cidr: "fd00::/64" });
+  });
 });

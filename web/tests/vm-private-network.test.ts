@@ -1343,6 +1343,18 @@ describe("firewall rule ownership on the shared provider account", () => {
     expect(deleted.log.deleted).toEqual(["fw-mine"]);
   });
 
+  test("a rule with an endpoint field the API does not know is not the caller's", async () => {
+    // Freestyle adds selectors as new optional fields; an unknown one could name another tenant.
+    all.push({ id: "fw-unknown", action: "allow", source: { vmId: "fs-1" }, destination: { vmId: "fs-1", futureSelector: "foreign" } });
+    try {
+      expect((await run(getVmFirewallRule({ ...input, ruleId: "fw-unknown" }))).tag).toBe("VmFirewallRuleNotFoundError");
+      const deleted = await run(deleteVmFirewallRule({ ...input, ruleId: "fw-unknown" }));
+      expect(deleted.log.deleted).toEqual([]);
+    } finally {
+      all.pop();
+    }
+  });
+
   test("another tenant's rule is not found by get or delete, and nothing is deleted", async () => {
     expect((await run(getVmFirewallRule({ ...input, ruleId: "fw-foreign" }))).tag).toBe("VmFirewallRuleNotFoundError");
     const deleted = await run(deleteVmFirewallRule({ ...input, ruleId: "fw-foreign" }));
