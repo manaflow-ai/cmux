@@ -11,6 +11,8 @@ struct CloudWelcomeHero: View {
     var compact = false
     /// A larger, centered machine list (workspace open on two terminals) and no prompt.
     var machineFocus = false
+    /// With machineFocus: the prompt pill under the list's trailing edge, overlapping it.
+    var machineFocusPrompt = false
 
     private var height: CGFloat { compact ? 244 : 262 }
     private var listTop: CGFloat { compact ? 22 : 40 }
@@ -18,13 +20,22 @@ struct CloudWelcomeHero: View {
 
     var body: some View {
         if machineFocus {
-            focusedMachineList
-                .frame(width: 340)
-                .cloudWelcomeGlassPanel(cornerRadius: 14)
-                .padding(.top, 18)
-                .padding(.bottom, 22)
-                .frame(maxWidth: .infinity)
-                .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                focusedMachineList
+                    .frame(width: 340)
+                    .cloudWelcomeGlassPanel(cornerRadius: 14)
+                if machineFocusPrompt {
+                    // Just below the list, hanging past its right edge, as in the layered hero.
+                    prompt
+                        .cloudWelcomeGlassPanel(cornerRadius: 10)
+                        .frame(width: 340 + 120, alignment: .trailing)
+                        .padding(.top, 10)
+                }
+            }
+            .padding(.top, 18)
+            .padding(.bottom, 22)
+            .frame(maxWidth: .infinity)
+            .accessibilityHidden(true)
         } else {
             layeredHero
         }

@@ -32,14 +32,37 @@ enum CloudWelcomeLayout: Equatable {
     case machineFocus
     /// machineFocus without the "New" badge.
     case machineFocusNoBadge
+    /// stacked title, machineFocus's larger centered list, and the prompt pill.
+    case machineFocusWithPrompt
+    /// machineFocusWithPrompt with the name in lowercase ("cmux cloud").
+    case machineFocusWithPromptLowercase
+    /// machineFocusWithPromptLowercase with a lowercase "new" badge too.
+    case machineFocusWithPromptAllLowercase
+    /// machineFocus with "cmux cloud" and a lowercase "new" badge.
+    case machineFocusAllLowercase
 
     static let allCases: [CloudWelcomeLayout] = [
         .titleInPanel, .stacked, .stackedNoBadge, .machineFocus, .machineFocusNoBadge,
+        .machineFocusWithPrompt, .machineFocusWithPromptLowercase, .machineFocusWithPromptAllLowercase,
+        .machineFocusAllLowercase,
     ]
 
     var titleIsOnTop: Bool { self != .titleInPanel }
     var showsBadge: Bool { self != .stackedNoBadge && self != .machineFocusNoBadge }
-    var isMachineFocus: Bool { self == .machineFocus || self == .machineFocusNoBadge }
+    var isMachineFocus: Bool {
+        self == .machineFocus || self == .machineFocusNoBadge || self == .machineFocusAllLowercase || showsPrompt
+    }
+    /// machineFocus with the prompt pill under the list.
+    var showsPrompt: Bool {
+        self == .machineFocusWithPrompt || self == .machineFocusWithPromptLowercase
+            || self == .machineFocusWithPromptAllLowercase
+    }
+    /// The product name as the stacked title shows it.
+    var productName: String {
+        self == .machineFocusWithPromptLowercase || lowercaseBadge ? "cmux cloud" : "cmux Cloud"
+    }
+    /// The "New" badge in lowercase ("new").
+    var lowercaseBadge: Bool { self == .machineFocusWithPromptAllLowercase || self == .machineFocusAllLowercase }
 }
 
 /// "Introducing cmux Cloud": shown once on launch (new users, and existing
@@ -55,7 +78,6 @@ struct CloudWelcomeView: View {
     let onNext: (CloudWelcomeNextStep) -> Void
 
     static let windowWidth: CGFloat = 580
-    private static let cornerRadius: CGFloat = 22
     private static let panelCornerRadius: CGFloat = 16
 
     var body: some View {
@@ -66,7 +88,11 @@ struct CloudWelcomeView: View {
                     .padding(.top, 26)
                     .padding(.bottom, 2)
             }
-            CloudWelcomeHero(compact: layout.titleIsOnTop, machineFocus: layout.isMachineFocus)
+            CloudWelcomeHero(
+                compact: layout.titleIsOnTop,
+                machineFocus: layout.isMachineFocus,
+                machineFocusPrompt: layout.showsPrompt
+            )
             panel
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
@@ -77,12 +103,15 @@ struct CloudWelcomeView: View {
         .modifier(CloudWelcomeInjectionRedraw())
     }
 
+    /// On macOS 26 the window hosts this view inside an NSGlassEffectView (the
+    /// controller does that), so the glass is the window itself: it fills the
+    /// window to its own corners and never lenses this content. SwiftUI's
+    /// .glassEffect painted behind the content did both (a second rim inside the
+    /// window edge, and a ghost of the title). Earlier macOS gets the window material.
     @ViewBuilder
     private var windowBackground: some View {
         if #available(macOS 26.0, *) {
             Color.clear
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-                .ignoresSafeArea()
         } else {
             CloudWelcomeVisualEffect()
                 .ignoresSafeArea()
@@ -150,7 +179,7 @@ struct CloudWelcomeView: View {
                     .foregroundStyle(.secondary)
                 HStack(alignment: .center, spacing: 10) {
                     // The product name, not a sentence: the same in every language.
-                    Text(verbatim: "cmux Cloud")
+                    Text(verbatim: layout.productName)
                         .cmuxFont(size: 30, weight: .bold)
                     if layout.showsBadge {
                         newBadge
@@ -174,7 +203,8 @@ struct CloudWelcomeView: View {
     }
 
     private var newBadge: some View {
-        Text(String(localized: "cloud.welcome.newBadge", defaultValue: "New"))
+        let label = String(localized: "cloud.welcome.newBadge", defaultValue: "New")
+        return Text(layout.lowercaseBadge ? label.lowercased() : label)
             .cmuxFont(size: 12, weight: .medium)
             .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 8)
@@ -251,11 +281,11 @@ struct CloudWelcomeView: View {
     }
 }
 
-/// Behind-window material for macOS before 26 (no Liquid Glass there).
+/// The window material before macOS 26 (what the About window uses).
 private struct CloudWelcomeVisualEffect: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .hudWindow
+        view.material = .underWindowBackground
         view.blendingMode = .behindWindow
         view.state = .active
         return view

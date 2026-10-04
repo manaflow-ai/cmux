@@ -67,7 +67,16 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         window.backgroundColor = .clear
         window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
         window.standardWindowButton(.zoomButton)?.isEnabled = false
-        window.contentView = hosting
+        if #available(macOS 26.0, *) {
+            // The window is the glass: content goes inside it, edge to edge, and the
+            // window's own frame rounds the corners.
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.contentView = hosting
+            window.contentView = glass
+        } else {
+            window.contentView = hosting
+        }
         window.delegate = self
         return window
     }
