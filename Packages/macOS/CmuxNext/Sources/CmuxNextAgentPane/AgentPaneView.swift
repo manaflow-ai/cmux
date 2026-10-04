@@ -41,9 +41,9 @@ public final class AgentPaneView: NSView {
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation
-    private var crashReloads = PageCrashReloads()
+    var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
-    private var crashNotice: NSView?
+    var crashNotice: NSView?
     /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
     /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
     /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
@@ -331,64 +331,6 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
-    /// Reloads the page after its web content process crashed, unless it
-    /// keeps crashing; then the pane says so and waits for the user.
-    func webContentProcessDidTerminate() {
-        // The composer that held the session's words is gone.
-        dictation.handle(.cancel)
-        if crashReloads.shouldReload(at: .now) {
-            source.load(into: webView)
-        } else {
-            showCrashNotice()
-        }
-    }
-
-    /// The page host's crash report: the same as ``webContentProcessDidTerminate()``, with the
-    /// reload policy kept by the page host.
-    func pageCrashed(reloading: Bool) {
-        dictation.handle(.cancel)
-        if !reloading { showCrashNotice() }
-    }
-
-    private func showCrashNotice() {
-        guard crashNotice == nil else { return }
-        let message = NSTextField(wrappingLabelWithString: Self.crashedMessage)
-        message.alignment = .center
-        let reload = NSButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
-        let notice = NSStackView(views: [message, reload])
-        notice.orientation = .vertical
-        notice.spacing = 12
-        notice.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(notice)
-        let inset = notice.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48)
-        // A pane narrower than the inset clips the notice instead of
-        // breaking the layout.
-        inset.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            notice.centerXAnchor.constraint(equalTo: centerXAnchor),
-            notice.centerYAnchor.constraint(equalTo: centerYAnchor),
-            inset,
-        ])
-        crashNotice = notice
-        themeCrashNotice(themeTokens)
-    }
-
-    /// The notice sits on the pane's background, so it takes the pane's
-    /// theme rather than the system appearance.
-    private func themeCrashNotice(_ tokens: ThemeTokens) {
-        guard let notice = crashNotice else { return }
-        notice.appearance = NSAppearance(named: tokens.isDark ? .darkAqua : .aqua)
-        for case let label as NSTextField in notice.subviews {
-            label.textColor = tokens.textSecondary.nsColor
-        }
-    }
-
-    @objc private func reloadAfterCrashes() {
-        crashNotice?.removeFromSuperview()
-        crashNotice = nil
-        crashReloads = PageCrashReloads()
-        if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
-    }
 
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
