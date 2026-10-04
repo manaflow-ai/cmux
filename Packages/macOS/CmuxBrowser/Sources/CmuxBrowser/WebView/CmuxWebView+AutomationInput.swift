@@ -287,6 +287,13 @@ extension WKWebView {
         )
     }
 
+    /// Forgets that automation holds `stroke`'s modifier, without sending
+    /// the page an event; later automated keys no longer carry it.
+    public func forgetBrowserReplModifier(_ stroke: BrowserReplKeyStroke) {
+        guard stroke.modifierKey != nil else { return }
+        browserNativeInputDeliveryOwner.removeModifier(for: stroke.keyCode)
+    }
+
     /// Releases every modifier the automation left held.
     public func releaseBrowserReplModifiers() {
         for keyCode in browserNativeInputDeliveryOwner.heldModifierKeyCodes {

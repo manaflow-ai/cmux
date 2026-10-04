@@ -119,10 +119,21 @@ the user); otherwise (the session's handler on a user's tab) it keeps the
 browser's own UI. A `dialog.respond` for a dialog whose frame the policy
 blocks by then fails with `blocked`, and the dialog is dismissed.
 
-When the last session leaves a tab, the driver releases what the sessions
-left pressed: each held key gets its key-up (last pressed first) and each
-held mouse button its button-up at the last mouse position, or the drag it
-started ends. The page sees them as trusted events. `session.name` shows the tabs the
+When a session ends, the driver releases what it left pressed in each tab
+it drives, and only that: each key it holds gets its key-up (last pressed
+first) and its press in progress its button-up at the last mouse position,
+or the drag it started ends. The page sees them as trusted events, so they
+go through the session's input guards: the general-pasteboard quarantine
+of a call that gives the page a user gesture (see "Guards") and, under a
+domain policy, the frame
+gate, which keeps blocked frames inert while they land. When the guards
+refuse them (the tab shows a page the policy blocks, or a local file
+outside the session's directories), nothing is sent and the keys and press
+are forgotten: later input no longer carries those modifiers, and a drag
+ends with `dragend` and no drop. Another session that stays on the tab
+keeps its own keys and press and inherits none of these. When the last
+session leaves or the tab closes, nothing more is sent; what is left is
+forgotten the same way. `session.name` shows the tabs the
 session opened, now and later, as `<name> · <page title>`, following title
 changes; a title the user set wins, and the plain title returns when the
 session ends. An empty name removes the label.

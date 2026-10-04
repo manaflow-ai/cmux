@@ -139,7 +139,8 @@ final class BrowserReplTabAttachment {
 
     /// Mouse buttons held by automation, for drag event types.
     var mouseState = BrowserReplMouseState()
-    /// Keys held by automation, released when the last session leaves.
+    /// Keys held by automation, by the session that pressed each; a session
+    /// releases its own when it leaves (``takeHeldInput(of:)``).
     var heldKeys = BrowserReplHeldKeys()
     /// The session whose press is in progress: from its button down to its
     /// button up no other session's mouse event reaches the page, so two
@@ -550,6 +551,12 @@ final class BrowserReplTabAttachment {
     }
 
     func removeSink(sessionID: String) {
+        // Input the session still holds was released through the session's
+        // guards when it ended (the driver's `releaseHeldInput`); what is
+        // left (a release the guards refused) is dropped without a native
+        // event, so no other session inherits it and no unguarded trusted
+        // event reaches the page.
+        dropHeldInput(of: sessionID)
         pointerReleased(sessionID: sessionID)
         // Dialogs and choosers routed to the leaving session are answered as
         // unhandled ones are; no other session may answer them.
@@ -674,7 +681,7 @@ final class BrowserReplTabAttachment {
         // is never left blocked on a dialog after its session goes away.
         for dialog in dialogs.removeAll() { dialog.respond(false, nil) }
         for chooser in fileChoosers.removeAll() { chooser.respond(nil) }
-        releaseHeldInput()
+        resetHeldInput()
         uninstrument()
         agentUserScript.release()
         applyContextToWebView()
@@ -689,29 +696,48 @@ final class BrowserReplTabAttachment {
         for waiter in waiters { waiter.resume() }
     }
 
-    /// Hands the tab back with no automated input in progress: keys and
-    /// buttons the sessions left pressed get their key-up and mouse-up (or
-    /// the drag they started ends), and automated right clicks whose menu
-    /// never opened stop suppressing the user's next context menu.
-    private func releaseHeldInput() {
-        let keys = heldKeys.releaseAll()
-        let buttons = mouseState.pressedButtons
-        mouseState.reset()
-        let dragState = drag
-        drag = nil
-        guard let webView = panel?.webView as? CmuxWebView else { return }
-        webView.cancelPendingAutomationContextMenus()
-        webView.automationDragCapture = nil
+    /// Keys and buttons one session holds down in this tab.
+    struct HeldInput {
+        var keys: [BrowserReplKeyStroke] = []
+        var buttons: [BrowserReplMouseButton] = []
+        var drag: DragState?
+
+        var isEmpty: Bool { keys.isEmpty && buttons.isEmpty && drag == nil }
+    }
+
+    /// What `sessionID` holds down here, forgotten: its keys (last pressed
+    /// first), and its mouse buttons and drag when its press is the one in
+    /// progress (``BrowserReplPointerOwner``: only one session presses at a
+    /// time). Another session's keys and press stay.
+    func takeHeldInput(of sessionID: String) -> HeldInput {
+        var held = HeldInput(keys: heldKeys.releaseAll(heldBy: sessionID))
+        if pointer.owner == sessionID {
+            held.buttons = mouseState.pressedButtons
+            held.drag = drag
+            mouseState.reset()
+            drag = nil
+            pointerReleased(sessionID: sessionID)
+        }
+        return held
+    }
+
+    /// Delivers the key-up of each held key and the button-up of each held
+    /// button at the last mouse position (or ends the drag), as trusted
+    /// events. Only the driver calls this, for a session that ends, inside
+    /// that session's input guards: the clipboard quarantine and the frame
+    /// gate (`WebKitBrowserReplDriver.releaseHeldInput`).
+    func deliverRelease(_ held: HeldInput) {
+        guard !held.isEmpty, let webView = panel?.webView as? CmuxWebView else { return }
+        if held.drag != nil { webView.automationDragCapture = nil }
         if webView.window != nil {
-            for stroke in keys {
+            for stroke in held.keys {
                 _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false)
             }
         }
-        webView.releaseBrowserReplModifiers()
         guard let window = webView.window else { return }
         let location = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: mousePosition)
-        for button in buttons.reversed() {
-            if button == .left, let drop = dragState?.drop {
+        for button in held.buttons.reversed() {
+            if button == .left, let drop = held.drag?.drop {
                 drop.draggingLocation = location
                 webView.draggingExited(drop)
                 webView.endAutomationDrag(at: location, operation: [])
@@ -733,6 +759,54 @@ final class BrowserReplTabAttachment {
             ) {
                 webView.deliverAutomationMouseEvent(event)
             }
+        }
+    }
+
+    /// Forgets what `sessionID` still holds without sending the page any
+    /// event (its release was refused by its guards, or never ran): its
+    /// modifier keys stop applying to later input, a drag it started ends
+    /// without a drop, and no other session inherits its keys or press.
+    private func dropHeldInput(of sessionID: String) {
+        forgetReleased(takeHeldInput(of: sessionID))
+    }
+
+    /// Forgets `held` (from ``takeHeldInput(of:)``) without sending the page
+    /// any event: a release its session's guards refused.
+    func forgetReleased(_ held: HeldInput) {
+        guard !held.isEmpty, let webView = panel?.webView as? CmuxWebView else { return }
+        for stroke in held.keys {
+            webView.forgetBrowserReplModifier(stroke)
+        }
+        endDragSilently(held.drag, in: webView)
+    }
+
+    /// Hands the tab back with no automated input in progress, without
+    /// sending the page an unguarded trusted event: every session's held
+    /// keys and buttons are forgotten (each session released its own
+    /// through its guards when it ended), a drag in progress ends without a
+    /// drop, and automated right clicks whose menu never opened stop
+    /// suppressing the user's next context menu.
+    private func resetHeldInput() {
+        _ = heldKeys.releaseAll()
+        mouseState.reset()
+        let dragState = drag
+        drag = nil
+        guard let webView = panel?.webView as? CmuxWebView else { return }
+        webView.cancelPendingAutomationContextMenus()
+        endDragSilently(dragState, in: webView)
+        webView.releaseBrowserReplModifiers()
+    }
+
+    /// Ends the automated drag session `dragState` started, if any: WebKit's
+    /// drag source is told it ended with no operation (the page gets
+    /// `dragend`, which grants no user gesture). No mouse, key or drop
+    /// event reaches the page.
+    private func endDragSilently(_ dragState: DragState?, in webView: CmuxWebView) {
+        guard let dragState else { return }
+        webView.automationDragCapture = nil
+        if dragState.drop != nil, webView.window != nil {
+            let location = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: mousePosition)
+            webView.endAutomationDrag(at: location, operation: [])
         }
     }
 

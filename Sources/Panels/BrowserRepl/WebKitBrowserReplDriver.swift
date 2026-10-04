@@ -227,6 +227,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let sessionID = self.sessionID
         Task { @MainActor in
             await pendingPolicy.idle()
+            // Keys and buttons the session left pressed are released through
+            // its own input guards, before it leaves its tabs.
+            for attachment in BrowserReplTabAttachments.shared.attachments(forSession: sessionID) {
+                await self.releaseHeldInput(on: attachment)
+            }
             BrowserReplPolicyBoard.shared.removeSession(sessionID)
             BrowserReplTabAttachments.shared.detach(sessionID: sessionID)
             // The compiled domain-policy list must not outlive the session
@@ -249,6 +254,43 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 try? FileManager.default.removeItem(at: directory)
             }
             self.fileChooserDirectories.removeAll()
+        }
+    }
+
+    /// Releases what this session, which is ending, holds down in the tab
+    /// of `attachment`: each key it holds gets its key-up and its press in
+    /// progress its button-up (or its drag ends). These are trusted events,
+    /// so they go through the guards the session's input goes through: the
+    /// page clipboard quarantine (a key-up or button-up is a user gesture
+    /// to WebKit, and must not let a page write the system clipboard) and,
+    /// under a domain policy, the frame gate, which keeps every blocked
+    /// frame inert while they land and refuses them when the tab's page is
+    /// blocked; a local file outside the session's directories refuses them
+    /// too. A refused release sends nothing: the session's keys and press
+    /// are forgotten without an event (the attachment drops them when the
+    /// session leaves the tab). Another session's keys and press stay.
+    @MainActor
+    private func releaseHeldInput(on attachment: BrowserReplTabAttachment) async {
+        let held = attachment.takeHeldInput(of: sessionID)
+        guard !held.isEmpty, let panel = attachment.panel else { return }
+        let webView = panel.webView
+        if BrowserReplFileSandbox.localPageRefusal(url: Self.url(panel), documentOrigin: nil, roots: currentFileRoots) != nil
+            || currentPolicy.blockReason(Self.url(panel)) != nil {
+            attachment.forgetReleased(held)
+            return
+        }
+        do {
+            try await withAgentGestureClipboardQuarantine(panel, when: true) {
+                try await frameGate.guardingInput(
+                    in: webView,
+                    frames: { await BrowserReplFrameTree.frames(of: webView) },
+                    checkFocusAfter: false
+                ) {
+                    attachment.deliverRelease(held)
+                }
+            }
+        } catch {
+            attachment.forgetReleased(held)
         }
     }
 
@@ -2185,7 +2227,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 let outcome = type == "down" && stroke.editingCommand != nil
                     ? webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown.map { webView.observeAutomationKeyDownOutcome($0) }
                     : nil
-                self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down")
+                self.attachment(panel).heldKeys.record(stroke, keyDown: type == "down", sessionID: self.sessionID)
                 // The editing command runs only for a key no page handled (it
                 // did not cancel the keydown), as a browser's Edit menu does.
                 if type == "down", let command = stroke.editingCommand, let outcome, await outcome.wasUnhandled() {

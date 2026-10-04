@@ -26,8 +26,8 @@ public struct BrowserReplHeldKeys: Sendable, Equatable {
     /// The keys `sessionID` holds, in release order (last pressed first),
     /// and forgets them; the other sessions' keys stay held.
     public mutating func releaseAll(heldBy sessionID: String) -> [BrowserReplKeyStroke] {
-        let released = held.map(\.stroke)
-        held.removeAll()
+        let released = held.filter { $0.sessionID == sessionID }.map(\.stroke)
+        held.removeAll { $0.sessionID == sessionID }
         return released.reversed()
     }
 
