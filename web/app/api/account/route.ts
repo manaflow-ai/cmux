@@ -75,10 +75,6 @@ import {
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
-import {
-  createLegacySubrouterRetirementClient,
-  legacySubrouterRetirementConfig,
-} from "../../../services/subrouter/legacyRetirementClient";
 import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY } from "../../../services/vms/repository";
 import {
   destroyVm,
@@ -99,8 +95,6 @@ const VAULT_OBJECT_DELETE_BATCH_SIZE = 100;
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const POSTHOG_DEFAULT_API_HOST = "https://us.posthog.com";
 const POSTHOG_PERSON_DELETE_TIMEOUT_MS = 10_000;
-const LEGACY_TENANT_RETIRE_BATCH_SIZE = 2;
-const LEGACY_TENANT_RETIRE_PHASE_TIMEOUT_MS = 20_000;
 const HOSTED_TENANT_DELETE_BATCH_SIZE = 2;
 const HOSTED_TENANT_DELETE_PHASE_TIMEOUT_MS = 20_000;
 
@@ -142,12 +136,11 @@ type StackPaginationPage = readonly unknown[] & {
   readonly nextCursor?: string | null;
 };
 
-type AccountDeletionResumeCheckpoint = "legacy" | "hosted" | null;
+type AccountDeletionResumeCheckpoint = "hosted" | null;
 
 type AccountDeletionTombstoneStart =
   | {
       readonly kind: "started";
-      readonly legacySubrouterRetiredTenantIds: readonly string[];
       readonly hostedSubrouterDeletedTeamIds: readonly string[];
       readonly hostedSubrouterDeletionStarted: boolean;
       readonly resumeCheckpoint: AccountDeletionResumeCheckpoint;
@@ -226,14 +219,6 @@ export async function DELETE(request: Request): Promise<Response> {
     if (hostedSubrouterDeletionRequired) {
       hostedSubrouter.assertTenantDeletionConfigured();
     }
-    // Resolve the legacy credential before PostHog, billing, VM, vault, or
-    // hosted tenant cleanup. Existing DB mappings are retained until both
-    // services confirm retirement, so a failed request remains retryable.
-    const legacySubrouter = legacyTenantIds.length > 0
-      ? createLegacySubrouterRetirementClient(
-          legacySubrouterRetirementConfig(),
-        )
-      : null;
     // The tombstone blocks new forwards before this fail-prone external call.
     // Complete analytics deletion before billing, access, VM, vault, tenant,
     // or Stack cleanup so a retryable PostHog failure leaves those resources
@@ -341,28 +326,6 @@ export async function DELETE(request: Request): Promise<Response> {
         await refreshAccountDeletionTombstoneLease(userId);
       },
     });
-    if (legacyTenantIds.length > 0) {
-      await refreshAccountDeletionTombstoneLease(userId);
-      resumeCheckpoint = "legacy";
-      const legacyRetirement = await retireLegacySubrouterTenantsForAccount({
-        userId,
-        tenantIds: legacyTenantIds,
-        completedTenantIds: tombstoneStart.legacySubrouterRetiredTenantIds,
-        client: legacySubrouter!,
-        afterRetirement: (revoked) => {
-          if (revoked) destructiveCleanupStarted = true;
-        },
-      });
-      if (!legacyRetirement.complete) {
-        await markAccountDeletionTombstoneLegacyDeletePending(userId);
-        return jsonResponse({
-          error: "account_delete_retryable",
-          retryable: true,
-          destroyedVms,
-        }, 503);
-      }
-      resumeCheckpoint = null;
-    }
     if (hostedSubrouterDeletionRequired) {
       await refreshAccountDeletionTombstoneLease(userId);
       resumeCheckpoint = "hosted";
@@ -540,33 +503,6 @@ function shouldDeleteHostedSubrouterTenants(input: {
     Boolean(process.env.SUBROUTER_HOSTED_URL?.trim());
 }
 
-async function retireLegacySubrouterTenantsForAccount(input: {
-  readonly userId: string;
-  readonly tenantIds: readonly string[];
-  readonly completedTenantIds: readonly string[];
-  readonly client: ReturnType<typeof createLegacySubrouterRetirementClient>;
-  readonly afterRetirement: (revoked: boolean) => void;
-}): Promise<{ readonly complete: boolean }> {
-  const completed = new Set(input.completedTenantIds);
-  const remaining = uniqueNonEmptyStrings(input.tenantIds).filter(
-    (tenantId) => !completed.has(tenantId),
-  );
-  const batch = remaining.slice(0, LEGACY_TENANT_RETIRE_BATCH_SIZE);
-  const deadline = Date.now() + LEGACY_TENANT_RETIRE_PHASE_TIMEOUT_MS;
-  let confirmed = 0;
-  for (const tenantId of batch) {
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) break;
-    const retirement = await input.client.revokeTenant(tenantId, {
-      signal: AbortSignal.timeout(Math.min(remainingMs, 10_000)),
-    });
-    input.afterRetirement(retirement.revoked);
-    await markAccountDeletionTombstoneLegacyTenantRetired(input.userId, tenantId);
-    confirmed += 1;
-  }
-  return { complete: confirmed === remaining.length };
-}
-
 async function deleteHostedSubrouterTenantsForAccount(input: {
   readonly userId: string;
   readonly accessToken: string;
@@ -641,8 +577,6 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
         userIdHash: accountDeletionTombstones.userIdHash,
         status: accountDeletionTombstones.status,
         updatedAt: accountDeletionTombstones.updatedAt,
-        legacySubrouterRetiredTenantIds:
-          accountDeletionTombstones.legacySubrouterRetiredTenantIds,
         hostedSubrouterDeletedTeamIds:
           accountDeletionTombstones.hostedSubrouterDeletedTeamIds,
       })
@@ -667,17 +601,16 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
         .where(eq(accountDeletionTombstones.userIdHash, userIdHash));
       return {
         kind: "started",
-        legacySubrouterRetiredTenantIds: uniqueNonEmptyStrings(
-          existing.legacySubrouterRetiredTenantIds ?? [],
-        ),
         hostedSubrouterDeletedTeamIds: uniqueNonEmptyStrings(
           existing.hostedSubrouterDeletedTeamIds ?? [],
         ),
         hostedSubrouterDeletionStarted:
           existing.status === "hosted_delete_pending" ||
           uniqueNonEmptyStrings(existing.hostedSubrouterDeletedTeamIds ?? []).length > 0,
-        resumeCheckpoint:
-          existing.status === "legacy_delete_pending" ? "legacy" : "hosted",
+        // The legacy Subrouter is retired, so a legacy_delete_pending
+        // tombstone from an older deployment resumes at the same retryable
+        // post-cleanup checkpoint as a hosted one.
+        resumeCheckpoint: "hosted",
       };
     }
     if (existing && isBlockingAccountDeletionTombstone(existing, now)) {
@@ -704,35 +637,17 @@ async function markAccountDeletionTombstonePending(userId: string): Promise<Acco
           errorMessage: null,
         },
       });
-    const legacySubrouterRetiredTenantIds = uniqueNonEmptyStrings(
-      existing?.legacySubrouterRetiredTenantIds ?? [],
-    );
     const hostedSubrouterDeletedTeamIds = uniqueNonEmptyStrings(
       existing?.hostedSubrouterDeletedTeamIds ?? [],
     );
     return {
       kind: "started",
-      legacySubrouterRetiredTenantIds,
       hostedSubrouterDeletedTeamIds,
       hostedSubrouterDeletionStarted:
         hostedSubrouterDeletedTeamIds.length > 0,
       resumeCheckpoint: null,
     };
   });
-}
-
-async function markAccountDeletionTombstoneLegacyTenantRetired(
-  userId: string,
-  tenantId: string,
-): Promise<void> {
-  await cloudDb()
-    .update(accountDeletionTombstones)
-    .set({
-      legacySubrouterRetiredTenantIds:
-        sql`${accountDeletionTombstones.legacySubrouterRetiredTenantIds} || ${JSON.stringify([tenantId])}::jsonb`,
-      updatedAt: new Date(),
-    })
-    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
 
 async function markAccountDeletionTombstoneHostedTeamDeleted(
@@ -745,19 +660,6 @@ async function markAccountDeletionTombstoneHostedTeamDeleted(
       hostedSubrouterDeletedTeamIds:
         sql`${accountDeletionTombstones.hostedSubrouterDeletedTeamIds} || ${JSON.stringify([teamId])}::jsonb`,
       updatedAt: new Date(),
-    })
-    .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
-}
-
-async function markAccountDeletionTombstoneLegacyDeletePending(
-  userId: string,
-): Promise<void> {
-  await cloudDb()
-    .update(accountDeletionTombstones)
-    .set({
-      status: "legacy_delete_pending",
-      updatedAt: new Date(),
-      errorMessage: null,
     })
     .where(eq(accountDeletionTombstones.userIdHash, accountDeletionUserHash(userId)));
 }
@@ -815,10 +717,6 @@ async function markAccountDeletionFailureCheckpoint(
   error: unknown,
   resumeCheckpoint: AccountDeletionResumeCheckpoint,
 ): Promise<void> {
-  if (resumeCheckpoint === "legacy") {
-    await markAccountDeletionTombstoneLegacyDeletePending(userId);
-    return;
-  }
   if (resumeCheckpoint === "hosted") {
     await markAccountDeletionTombstoneHostedDeletePending(userId);
     return;
