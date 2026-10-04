@@ -48,7 +48,7 @@ enum BrowserProfileHandlers {
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 try profiles.setIcon(id, icon)
             } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
-                context.services.iconPicker.pick(current: record.icon, at: anchor) { result in
+                context.services.iconPicker.pick(current: record.icon, target: "browserProfile:\(id)", at: anchor) { result in
                     switch result {
                     case .set(let icon): try? profiles.setIcon(id, icon)
                     case .clear: try? profiles.setIcon(id, nil)
