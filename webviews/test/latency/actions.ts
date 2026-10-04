@@ -140,13 +140,32 @@ const diffActions: LatencyAction[] = [
   {
     name: "sidebar toggle",
     async prepare(page) {
+      // The panel slides at once; the diff column changes width when the slide ends.
+      await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
-      return `document.body.dataset.filesHidden === ${js(hidden === "true" ? "false" : "true")}`;
+      const target = hidden === "true" ? "open" : "closed";
+      return `document.querySelector("#files-sidebar")?.dataset.filesMotionTarget === ${js(target)}`;
     },
     async input(page) {
       await page.click("#files-toggle");
     },
     settle: settle(350),
+  },
+  {
+    name: "sidebar reverse",
+    async prepare(page) {
+      await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
+      const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
+      // Start a slide, then reverse it half-way (the measured input).
+      await page.click("#files-toggle");
+      await page.waitForTimeout(50);
+      const target = hidden === "true" ? "closed" : "open";
+      return `document.querySelector("#files-sidebar")?.dataset.filesMotionTarget === ${js(target)}`;
+    },
+    async input(page) {
+      await page.click("#files-toggle");
+    },
+    settle: settle(400),
   },
   {
     name: "layout toggle",
