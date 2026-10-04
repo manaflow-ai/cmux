@@ -127,6 +127,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
 
+    /// The session's own input and navigations: a dialog or file chooser the
+    /// page opens while it handles one goes to the session.
+    private static func isActionOnPage(_ method: String) -> Bool {
+        method.hasPrefix("input.") || method == "tab.navigate" || method == "tab.reload" || method == "tab.history"
+    }
+
     /// Methods that read or act on a page or its cookies; refused while the
     /// page is one the policy blocks.
     private static func isGuarded(_ method: String) -> Bool {
@@ -233,7 +239,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             try checkPagePolicy(method: method, params: params)
             try await checkFramePolicy(method: method, params: params)
-            let value = try await handle(method: method, params: params)
+            let value: Any?
+            if Self.isActionOnPage(method), let panel = tabToPrepare {
+                // What the page opens while it handles this session's input
+                // goes to this session, never to cmux's UI in front of the user.
+                value = try await attachment(panel).withInput(sessionID: sessionID) {
+                    try await handle(method: method, params: params)
+                }
+            } else {
+                value = try await handle(method: method, params: params)
+            }
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
             guard let json = JSONSerialization.browserReplString(value) else {
                 return .failure(Self.error("invalid", "Driver result for \(method) is not JSON"))

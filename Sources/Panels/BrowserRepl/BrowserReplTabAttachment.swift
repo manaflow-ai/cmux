@@ -261,6 +261,15 @@ final class BrowserReplTabAttachment {
         ownership.setHandledEvents(events, for: sessionID)
     }
 
+    /// Runs `body`, a session's input or navigation on this tab: a dialog or
+    /// file chooser the page opens meanwhile goes to that session, also in
+    /// a user's tab (``BrowserReplTabOwnership/beginInput(sessionID:)``).
+    func withInput<T>(sessionID: String, _ body: () async throws -> T) async rethrows -> T {
+        ownership.beginInput(sessionID: sessionID)
+        defer { ownership.endInput(sessionID: sessionID) }
+        return try await body()
+    }
+
     /// Whether `event` goes to a session instead of cmux's UI.
     func routesToSessions(_ event: BrowserReplTabEvent) -> Bool {
         recipient(for: event) != nil
