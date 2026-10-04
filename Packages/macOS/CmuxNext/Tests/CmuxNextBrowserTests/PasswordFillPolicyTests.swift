@@ -45,4 +45,25 @@ import Testing
         tab.setPasswordFillAllowedByProfile(false)
         #expect(!tab.isAgentDriven)
     }
+
+    /// The switch is sent only when it changes Chromium's state.
+    @Test func theSwitchIsSentOnlyOnChange() {
+        var state = PasswordFillState()
+        var sent = state.nextSwitchValue(agentDriven: false)
+        #expect(sent == nil, "Chromium fills by default")
+        var changed = state.setAllowedByProfile(false)
+        #expect(changed)
+        sent = state.nextSwitchValue(agentDriven: false)
+        #expect(sent == 0)
+        sent = state.nextSwitchValue(agentDriven: false)
+        #expect(sent == nil)
+        changed = state.setAllowedByProfile(true)
+        #expect(changed)
+        sent = state.nextSwitchValue(agentDriven: false)
+        #expect(sent == 1)
+        sent = state.nextSwitchValue(agentDriven: true)
+        #expect(sent == 0)
+        changed = state.setAllowedByProfile(true)
+        #expect(!changed)
+    }
 }

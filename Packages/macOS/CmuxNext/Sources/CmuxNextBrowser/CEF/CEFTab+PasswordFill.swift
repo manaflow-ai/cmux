@@ -2,9 +2,11 @@ import Foundation
 import os
 
 extension CEFTab {
-    /// Stub (slice 1).
-    var passwordFills: Bool { true }
-    public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
+    var passwordFills: Bool { passwordFill.fills(agentDriven: isAgentDriven) }
+
+    public func setPasswordFillAllowedByProfile(_ allowed: Bool) {
+        if passwordFill.setAllowedByProfile(allowed) { applyPasswordFill() }
+    }
 
     public func markAgentDriven() {
         guard !isAgentDriven else { return }
@@ -14,14 +16,19 @@ extension CEFTab {
         CEFAgentURLGuard.leave(self, committedURL ?? state.url)
     }
 
-    /// Chromium fills passwords by default; only an agent-driven tab turns it
-    /// off (again on attach, for a page that was still being created).
-    func applyPasswordFill() {
-        // Turned off through the fork's cmux_tab_set_password_fill (API 15); an older fork has no autofill switch to turn.
-        guard isAgentDriven, let browserID, runtime.state == .ready else { return }
-        if runtime.shim?.setPasswordFill(browserID, 0) != 1 {
+    func applyPasswordFill() { CEFPasswordFill.apply(self) }
+}
+
+/// Sends a tab's `PasswordFillState` decision through the fork's
+/// cmux_tab_set_password_fill (API 15), again on attach for a page that was
+/// still being created; an older fork has no switch to turn.
+enum CEFPasswordFill {
+    static func apply(_ tab: CEFTab) {
+        guard let browserID = tab.browserID, tab.runtime.state == .ready,
+              let value = tab.passwordFill.nextSwitchValue(agentDriven: tab.isAgentDriven) else { return }
+        if tab.runtime.shim?.setPasswordFill(browserID, value) != 1, value == 0 {
             // Fails open on a fork without the switch; say so (no URL or value in the line).
-            runtime.logger.notice("password fill stays on for agent-driven browser \(browserID, privacy: .public): fork has no switch")
+            tab.runtime.logger.notice("password fill stays on for browser \(browserID, privacy: .public): fork has no switch")
         }
     }
 }
