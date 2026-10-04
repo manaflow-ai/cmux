@@ -13,6 +13,10 @@ public final class PageInputReadiness {
 
     /// True once the current document focused an editable element.
     public private(set) var isReady = false
+    /// A list-like control has focus now: a combobox, listbox, menu, tree,
+    /// grid or an input that drives one (`aria-activedescendant`,
+    /// `aria-autocomplete`). Ctrl-N/P/J/K move its selection (R85).
+    public private(set) var isListFocused = false
     /// Runs when ``isReady`` turns true.
     public var onReady: (() -> Void)?
     private weak var webView: WKWebView?
@@ -30,9 +34,14 @@ public final class PageInputReadiness {
         self.webView = webView
     }
 
+    func reportList(_ focused: Bool) {
+        isListFocused = focused
+    }
+
     func report(_ ready: Bool) {
         let turnedReady = ready && !isReady
         isReady = ready
+        if !ready { isListFocused = false }
         if turnedReady { onReady?() }
     }
 
@@ -55,9 +64,17 @@ public final class PageInputReadiness {
           \(editable)
           const post = (ready) => { try { window.webkit.messageHandlers.\(handlerName).postMessage(ready); } catch (_) {} };
           let sent = false;
+          let list = false;
           post(false);
-          const report = () => { if (!sent && editable(document.activeElement)) { sent = true; post(true); } };
+          const isList = (el) => !!el && el !== document.body && (!!el.closest('[role=listbox],[role=menu],[role=menubar],[role=tree],[role=grid]')
+            || el.getAttribute('role') === 'combobox' || el.hasAttribute('aria-activedescendant') || el.hasAttribute('aria-autocomplete'));
+          const report = () => {
+            if (!sent && editable(document.activeElement)) { sent = true; post(true); }
+            const now = isList(document.activeElement);
+            if (now !== list) { list = now; post({ list: now }); }
+          };
           document.addEventListener('focusin', report, true);
+          document.addEventListener('focusout', () => setTimeout(report, 0), true);
           document.addEventListener('DOMContentLoaded', report);
         })();
         """
@@ -78,6 +95,10 @@ public final class PageInputReadiness {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            if let body = message.body as? [String: Any], let list = body["list"] as? Bool {
+                MainActor.assumeIsolated { owner?.reportList(list) }
+                return
+            }
             let ready = message.body as? Bool == true
             MainActor.assumeIsolated { owner?.report(ready) }
         }
