@@ -329,3 +329,23 @@ extension BrowserPanel {
         )
     }
 }
+
+#if DEBUG
+extension BrowserPanel {
+    /// The `browser_discard` debug socket command: unloads the page the way
+    /// hidden-tab hibernation does, so tests can check what wakes it.
+    /// Without `force` every discard blocker applies; with it a visible or
+    /// REPL-driven tab is unloaded too.
+    func debugDiscardForTesting(force: Bool) -> String {
+        if hiddenWebViewDiscardManager.isDiscardedForMemory { return "OK already_discarded" }
+        if force {
+            dropWebViewForDiscard(reason: "debug_browser_discard", now: Date())
+            return "OK discarded"
+        }
+        let blockers = hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
+        guard blockers.isEmpty else { return "ERROR: blocked by \(blockers.joined(separator: ","))" }
+        dropWebViewForDiscard(reason: "debug_browser_discard", now: Date())
+        return "OK discarded"
+    }
+}
+#endif

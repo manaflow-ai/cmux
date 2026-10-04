@@ -3724,6 +3724,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
+
+        let environment = ProcessInfo.processInfo.environment
+        if !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached {
+            Task.detached(priority: .utility) {
+                SessionScrollbackReplayStore.sweepStaleReplayFiles(
+                    olderThan: Date().addingTimeInterval(
+                        -SessionScrollbackReplayStore.staleReplayLifetime
+                    )
+                )
+            }
+        }
+
         if shouldAwaitCrashRecoveryProbe() {
             isWaitingForStartupCrashRecoveryProbe = true
             let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
@@ -3748,8 +3760,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// A missing primary with a backup is ambiguous until the asynchronous
-    /// crash-artifact probe completes. Defer cleanup and window bootstrap only
-    /// for that rare case; normal launches never wait on crash-file I/O.
+    /// crash-artifact probe completes. Replay-file cleanup runs independently
+    /// in a detached utility task and does not participate in this restore gate.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
@@ -19297,6 +19309,11 @@ private extension NSApplication {
     }
 
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
+        // WebKit sends a key no page handled back through here, to the key
+        // window. For a key browser automation typed into a tab that is the
+        // user's window: its terminal would get the text and its menus the
+        // Command shortcuts. The page already received the key.
+        if event.isResentBrowserAutomationKeyEvent { return }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0

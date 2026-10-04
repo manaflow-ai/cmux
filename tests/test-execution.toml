@@ -86,6 +86,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_browser_repl_cli_io.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
 lane = "macos-cli-no-socket"
 
@@ -226,6 +231,11 @@ requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_cli_claude_teams_tmux_sequence.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_tmux_compat_session_lookup.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
@@ -1571,10 +1581,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_presign.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_merge_gate.py"
 lane = "linux-guard"
 
 [[test]]

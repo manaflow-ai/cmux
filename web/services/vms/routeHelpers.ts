@@ -36,6 +36,10 @@ import {
   type VmOperationUnsupportedError,
   type VmProviderOperationError,
   type VmSnapshotNotFoundError,
+  type VmFileNotFoundError,
+  type VmFirewallRuleNotFoundError,
+  type VmFirewallRuleInvalidError,
+  type VmFirewallRuleLimitError,
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -731,6 +735,45 @@ const vmCreateInProgressResponse = (error: VmCreateInProgressError, action: stri
     details: { idempotencyKeySet: !!error.idempotencyKey },
   });
 
+const vmFirewallRuleNotFoundResponse = (error: VmFirewallRuleNotFoundError): Response =>
+  vmErrorResponse({
+    error: "vm_firewall_rule_not_found",
+    status: 404,
+    message: "This firewall rule is not in your Cloud VM network.",
+    action: "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done.",
+    displayTitle: "Firewall rule not found",
+    details: { ruleId: error.ruleId },
+  });
+
+const vmFirewallRuleInvalidResponse = (error: VmFirewallRuleInvalidError): Response =>
+  vmErrorResponse({
+    error: "vm_invalid_firewall_rule",
+    status: 400,
+    message: error.reason,
+    action: "Name your own Cloud VM, network, or tunnel as the destination.",
+    displayTitle: "Firewall rule not allowed",
+  });
+
+const vmFirewallRuleLimitResponse = (error: VmFirewallRuleLimitError): Response =>
+  vmErrorResponse({
+    error: "vm_firewall_rule_limit",
+    status: 409,
+    message: `You already have ${error.limit} firewall rules.`,
+    action: "Delete a rule you no longer need, then retry.",
+    displayTitle: "Firewall rule limit reached",
+    details: { limit: error.limit },
+  });
+
+const vmFileNotFoundResponse = (error: VmFileNotFoundError): Response =>
+  vmErrorResponse({
+    error: "vm_file_not_found",
+    status: 404,
+    message: "This path does not exist on the Cloud VM.",
+    action: "Check the path; a retried delete of a removed file is already done.",
+    displayTitle: "File not found",
+    details: { path: error.path },
+  });
+
 const vmSnapshotNotFoundResponse = (error: VmSnapshotNotFoundError): Response =>
   vmErrorResponse({
     error: "vm_snapshot_not_found",
@@ -1069,6 +1112,10 @@ export const vmWorkflowErrorResponders = {
   VmFreeAccessExpiredError: (error) =>
     vmFreeAccessExpiredResponse({ vmId: error.vmId, windowDays: error.windowDays }),
   VmSnapshotNotFoundError: (error) => vmSnapshotNotFoundResponse(error),
+  VmFileNotFoundError: (error) => vmFileNotFoundResponse(error),
+  VmFirewallRuleNotFoundError: (error) => vmFirewallRuleNotFoundResponse(error),
+  VmFirewallRuleInvalidError: (error) => vmFirewallRuleInvalidResponse(error),
+  VmFirewallRuleLimitError: (error) => vmFirewallRuleLimitResponse(error),
   // Create-family failures need the caller's plan and operation copy; the
   // create, fork, and restore routes supply those as overrides.
   VmCreateInProgressError: () => null,

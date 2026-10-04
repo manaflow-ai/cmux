@@ -1221,7 +1221,7 @@ describe("account deletion route", () => {
     );
   });
 
-  test("retires mapped legacy and hosted tenants before deleting the Stack user", async () => {
+  test("deletes an account with mapped legacy tenants without calling the retired legacy Subrouter", async () => {
     listedPersonalVmIds = [];
     revokedIdentityLeaseCount = 0;
     legacyTenantRows = [{ tenantId: "legacy-personal" }];
@@ -1229,73 +1229,41 @@ describe("account deletion route", () => {
     const response = await DELETE(accountDeletionRequest());
 
     expect(response.status).toBe(200);
-    expect(legacySubrouterRevokeRequests).toHaveLength(1);
-    const [legacyUrl, legacyInit] = legacySubrouterRevokeRequests[0]!;
-    expect(String(legacyUrl)).toBe(
-      "https://subrouter.cmux.dev/admin/tenants/legacy-personal/revoke",
-    );
-    expect(new Headers(legacyInit?.headers).get("authorization")).toBe(
-      "Bearer test-legacy-subrouter-admin",
-    );
+    expect(legacySubrouterRevokeRequests).toHaveLength(0);
     expect(hostedTenantDeleteRequests).toHaveLength(1);
-    expect(accountLifecycleEvents.indexOf("legacy-subrouter-revoke:legacy-personal"))
-      .toBeLessThan(accountLifecycleEvents.indexOf("stack-delete"));
     expect(accountLifecycleEvents.indexOf("subrouter-delete:account-user-1"))
       .toBeLessThan(accountLifecycleEvents.indexOf("stack-delete"));
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
-  test("checkpoints bounded legacy tenant retirement and resumes without replay", async () => {
-    legacyTenantRows = [
-      { tenantId: "legacy-1" },
-      { tenantId: "legacy-2" },
-      { tenantId: "legacy-3" },
-    ];
+  test("deletes an account with mapped legacy tenants when legacy Subrouter configuration is absent", async () => {
+    legacyTenantRows = [{ tenantId: "legacy-personal" }];
+    delete process.env.SUBROUTER_ADMIN_TOKEN;
+    delete process.env.SUBROUTER_BASE_URL;
 
-    const pending = await DELETE(accountDeletionRequest());
+    const response = await DELETE(accountDeletionRequest());
 
-    expect(pending.status).toBe(503);
-    expect(await pending.json()).toEqual({
-      error: "account_delete_retryable",
-      retryable: true,
-      destroyedVms: 2,
-    });
-    expect(legacySubrouterRevokeRequests.map(([url]) => String(url))).toEqual([
-      "https://subrouter.cmux.dev/admin/tenants/legacy-1/revoke",
-      "https://subrouter.cmux.dev/admin/tenants/legacy-2/revoke",
-    ]);
-    expect(hostedTenantDeleteRequests).toHaveLength(0);
-    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(legacySubrouterRevokeRequests).toHaveLength(0);
+    expect(hostedTenantDeleteRequests).toHaveLength(1);
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
+  });
 
+  test("resumes a legacy_delete_pending tombstone written by an older deployment", async () => {
+    legacyTenantRows = [{ tenantId: "legacy-1" }, { tenantId: "legacy-2" }];
     transactionTombstoneSelectResults = [[{
       userIdHash: "existing-hash",
       status: "legacy_delete_pending",
       updatedAt: new Date(),
-      legacySubrouterRetiredTenantIds: ["legacy-1", "legacy-2"],
+      legacySubrouterRetiredTenantIds: ["legacy-1"],
       hostedSubrouterDeletedTeamIds: [],
     }]];
 
     const completed = await DELETE(accountDeletionRequest());
 
     expect(completed.status).toBe(200);
-    expect(legacySubrouterRevokeRequests.slice(2).map(([url]) => String(url))).toEqual([
-      "https://subrouter.cmux.dev/admin/tenants/legacy-3/revoke",
-    ]);
-    expect(deleteStackUser).toHaveBeenCalledTimes(1);
-  });
-
-  test("validates legacy tenant retirement before destructive account cleanup", async () => {
-    legacyTenantRows = [{ tenantId: "legacy-personal" }];
-    delete process.env.SUBROUTER_ADMIN_TOKEN;
-
-    const response = await DELETE(accountDeletionRequest());
-
-    expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "account_delete_failed" });
-    expect(postHogDeleteRequests).toHaveLength(0);
-    expect(hostedTenantDeleteRequests).toHaveLength(0);
     expect(legacySubrouterRevokeRequests).toHaveLength(0);
-    expect(updateStackUser).not.toHaveBeenCalled();
-    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(deleteStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("fails before mutation when hosted tenant deletion is missing in a managed deployment", async () => {
