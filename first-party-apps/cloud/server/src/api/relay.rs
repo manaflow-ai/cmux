@@ -273,9 +273,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                         self.host_events += 1;
                         self.queued.push_back(message);
                     } else {
-                        eprintln!(
-                            "cmux-cloud: dropped a host event that came during a relay call"
-                        );
+                        eprintln!("cmux-cloud: dropped a host event that came during a relay call");
                     }
                 }
                 Some("host.result" | "host.error") if self.host_answers < RELAY_QUEUE_LINES => {
