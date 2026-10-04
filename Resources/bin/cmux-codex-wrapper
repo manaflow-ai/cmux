@@ -180,7 +180,7 @@ cmux_computer_use_stat_owner_modes() {
     local stat_bin=/usr/bin/stat
     [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
     [[ -x "$stat_bin" ]] || return 1
-    "$stat_bin" -f '%u %Lp' -- "$@" 2>/dev/null || "$stat_bin" -c '%u %a' -- "$@" 2>/dev/null
+    "$stat_bin" -f '%u %Lp' "$@" 2>/dev/null || "$stat_bin" -c '%u %a' "$@" 2>/dev/null
 }
 
 # Succeed only when every "<owner> <mode>" line is owned by root or the current
