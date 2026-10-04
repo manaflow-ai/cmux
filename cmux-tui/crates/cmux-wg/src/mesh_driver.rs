@@ -1,10 +1,11 @@
 //! The task that runs a [`crate::WgMesh`].
 //!
 //! One Tokio task owns everything mutable: the peer table (one boringtun
-//! session per peer), the TCP stack, and the UDP socket. Callers talk to it
-//! through commands. Nothing here sleeps to synchronize: the loop wakes on a
-//! datagram, a command, a stream write, the earliest WireGuard timer of any
-//! session, or the deadline smoltcp asks for.
+//! session per peer), the TCP stack, the pacer, and the UDP socket. Callers
+//! talk to it through commands. Nothing here sleeps to synchronize: the loop
+//! wakes on a datagram, a command, a stream write, the earliest WireGuard
+//! timer of any session, the pacer's next departure, or the deadline smoltcp
+//! asks for.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -22,6 +23,7 @@ use crate::config::InterfaceAddress;
 use crate::error::WgError;
 use crate::mesh::{MeshCommand, WgMeshConfig, WgPeer};
 use crate::mesh_peers::PeerTable;
+use crate::pacing::Pacer;
 use crate::stream::WgStream;
 use crate::tcp_stack::TcpStack;
 use crate::underlay::{SocketPath, Underlay, is_transient};
@@ -52,6 +54,11 @@ pub(crate) struct MeshDriver {
     /// Checks the MAC of every handshake initiation before the
     /// Diffie-Hellman that identifies its key, and rate-limits them.
     pub(crate) gate: RateLimiter,
+    /// Per-connection pacing of the stack's output (shared with
+    /// [`crate::WgNet`]): smoltcp releases a whole window at once, and a
+    /// burst into a socket buffer loses segments.
+    pub(crate) pacer: Pacer,
+    pace_deadline: Option<Instant>,
     commands: mpsc::Receiver<MeshCommand>,
     wake: Arc<Notify>,
     pub(crate) scratch: Vec<u8>,
@@ -83,6 +90,8 @@ impl MeshDriver {
             local,
             addresses: config.addresses,
             gate,
+            pacer: Pacer::default(),
+            pace_deadline: None,
             commands,
             wake,
             scratch: vec![0u8; BUFFER_BYTES + 32],
@@ -94,7 +103,7 @@ impl MeshDriver {
         let mut datagram = vec![0u8; BUFFER_BYTES];
         loop {
             let stack_deadline = self.stack.poll_delay();
-            let next_tick = self.table.next_tick();
+            let next_tick = self.table.next_tick().into_iter().chain(self.pace_deadline).min();
             let backlogged = self.udp.backlogged();
             let udp = &mut self.udp;
             let io = std::future::poll_fn(|cx| {
@@ -142,29 +151,48 @@ impl MeshDriver {
         }
     }
 
-    /// Encrypt what the stack emitted for the peer that routes each
-    /// destination and send it, until the socket backs up. A packet no peer
-    /// routes, or for a peer with no known endpoint, is dropped (TCP
-    /// retransmits). A peer without a session queues it in boringtun and
-    /// starts a handshake.
+    /// Move what the stack emitted into the pacer, then encrypt what the
+    /// pacer lets leave for the peer that routes each destination, until the
+    /// socket backs up. Nothing waits in the stack's way: a full pacer
+    /// leaves packets in the device, which then refuses smoltcp more.
     fn flush_tx(&mut self) {
         let now = Instant::now();
-        while !self.udp.backlogged()
+        while self.pacer.has_room()
             && let Some(packet) = self.stack.pop_tx()
         {
-            let Some(key) = Tunn::dst_address(&packet).and_then(|dst| self.table.route(dst)) else {
-                continue;
+            self.pacer.push(packet, now);
+        }
+        self.pace_deadline = None;
+        while !self.udp.backlogged() {
+            let packet = match self.pacer.pop(now) {
+                Ok(Some(packet)) => packet,
+                Ok(None) => break,
+                Err(at) => {
+                    self.pace_deadline = Some(at);
+                    break;
+                }
             };
-            let Some(peer) = self.table.get_mut(&key) else { continue };
-            if peer.endpoint.is_none() {
-                continue;
-            }
-            if let TunnResult::WriteToNetwork(datagram) =
-                peer.tunn.encapsulate(&packet, &mut self.scratch)
-            {
-                transmit(&mut self.udp, self.local, peer.endpoint, datagram);
-                peer.schedule.on_activity(now);
-            }
+            self.send_packet(&packet, now);
+        }
+    }
+
+    /// Encrypt one packet for the peer that routes its destination and send
+    /// it. A packet no peer routes, or for a peer with no known endpoint, is
+    /// dropped (TCP retransmits). A peer without a session queues it in
+    /// boringtun and starts a handshake.
+    fn send_packet(&mut self, packet: &[u8], now: Instant) {
+        let Some(key) = Tunn::dst_address(packet).and_then(|dst| self.table.route(dst)) else {
+            return;
+        };
+        let Some(peer) = self.table.get_mut(&key) else { return };
+        if peer.endpoint.is_none() {
+            return;
+        }
+        if let TunnResult::WriteToNetwork(datagram) =
+            peer.tunn.encapsulate(packet, &mut self.scratch)
+        {
+            transmit(&mut self.udp, self.local, peer.endpoint, datagram);
+            peer.schedule.on_activity(now);
         }
     }
 
@@ -258,19 +286,21 @@ impl MeshDriver {
             .find(|address| address.is_ipv4() == remote.is_ipv4())
     }
 
-    /// Reset every connection and send the resets once.
+    /// Reset every connection and send what is queued, resets included,
+    /// once and unpaced, on sessions that are up (none starts a handshake).
     fn shutdown(&mut self) {
         self.stack.abort_all();
+        let now = Instant::now();
         while let Some(packet) = self.stack.pop_tx() {
-            let Some(key) = Tunn::dst_address(&packet).and_then(|dst| self.table.route(dst)) else {
-                continue;
-            };
-            let Some(peer) = self.table.get_mut(&key) else { continue };
-            if peer.tunn.time_since_last_handshake().is_some()
-                && let TunnResult::WriteToNetwork(datagram) =
-                    peer.tunn.encapsulate(&packet, &mut self.scratch)
-            {
-                transmit(&mut self.udp, self.local, peer.endpoint, datagram);
+            self.pacer.push(packet, now);
+        }
+        for packet in self.pacer.drain() {
+            let live = Tunn::dst_address(&packet)
+                .and_then(|dst| self.table.route(dst))
+                .and_then(|key| self.table.get_mut(&key))
+                .is_some_and(|peer| peer.tunn.time_since_last_handshake().is_some());
+            if live {
+                self.send_packet(&packet, now);
             }
         }
         self.udp.flush();

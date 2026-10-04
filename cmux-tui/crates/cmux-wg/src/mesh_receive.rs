@@ -97,6 +97,7 @@ impl MeshDriver {
                     // for a SYN, so an accepted connection is tagged with
                     // the session that carried it.
                     if packet_source(packet).is_some_and(|address| peer.allows(address)) {
+                        self.pacer.received(packet, now);
                         self.stack.push_rx(packet.to_vec(), Some(key));
                     }
                     break;
