@@ -15,23 +15,23 @@ enum CompletionCandidates {
     /// Without params the app answers for its *selected* workspace, which is not
     /// necessarily the one the user is targeting.
     static func workspaces(_ arguments: [String]) -> [String] {
-        fetch(method: "workspace.list", params: selectors(["window"], in: arguments), mapping: identifier)
+        fetch(arguments, method: "workspace.list", params: selectors(["window"], in: arguments), mapping: identifier)
     }
 
     static func surfaces(_ arguments: [String]) -> [String] {
-        fetch(method: "surface.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
+        fetch(arguments, method: "surface.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
     static func windows(_ arguments: [String]) -> [String] {
-        fetch(method: "window.list", mapping: identifier)
+        fetch(arguments, method: "window.list", mapping: identifier)
     }
 
     static func panes(_ arguments: [String]) -> [String] {
-        fetch(method: "pane.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
+        fetch(arguments, method: "pane.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
     static func panels(_ arguments: [String]) -> [String] {
-        fetch(method: "surface.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
+        fetch(arguments, method: "surface.list", params: selectors(["window", "workspace"], in: arguments), mapping: identifier)
     }
 
     /// Browser tabs live in one workspace, so this is the one handler that has to
@@ -51,7 +51,7 @@ enum CompletionCandidates {
         } else if let workspaceID = nonEmpty(environment["CMUX_WORKSPACE_ID"]) {
             params["workspace_id"] = workspaceID
         }
-        return fetch(method: "browser.tab.list", params: params, mapping: identifier)
+        return fetch(arguments, method: "browser.tab.list", params: params, mapping: identifier)
     }
 
     /// Theme names come off disk, not the socket, so the socket deadline does not
@@ -72,7 +72,7 @@ enum CompletionCandidates {
     }
 
     static func vms(_ arguments: [String]) -> [String] {
-        fetch(method: "vm.list", mapping: identifier)
+        fetch(arguments, method: "vm.list", mapping: identifier)
     }
 
     /// The listing key every entity uses, with `ref` preferred and `id` as the
@@ -105,6 +105,38 @@ enum CompletionCandidates {
         return params
     }
 
+    /// The root `--socket` and `--password` typed before the command name, last
+    /// one winning. Like `CMUXCLI.run`, which reads global options only ahead of
+    /// the command, so completion connects where the completed command will.
+    /// `words[0]` is the executable. Bash splits `--socket=<path>` at the `=` in
+    /// COMP_WORDS, so a lone `=` between a flag and its value is skipped.
+    private static func connectionOptions(in words: [String]) -> (socket: String?, password: String?) {
+        var socket: String?
+        var password: String?
+        var index = 1
+        while index < words.count {
+            let (name, inlineValue) = CMUXCLI.splitGlobalOption(words[index])
+            if CMUXCLI.valueTakingGlobalOptionNames.contains(name) {
+                var valueIndex = index + 1
+                if inlineValue == nil, valueIndex < words.count, words[valueIndex] == "=" {
+                    valueIndex += 1
+                }
+                let value = inlineValue ?? (valueIndex < words.count ? words[valueIndex] : nil)
+                switch name {
+                case "--socket": socket = nonEmpty(value) ?? socket
+                case "--password": password = nonEmpty(value) ?? password
+                default: break
+                }
+                index = inlineValue == nil ? valueIndex + 1 : index + 1
+            } else if name == "--json" {
+                index += 1
+            } else {
+                break
+            }
+        }
+        return (socket, password)
+    }
+
     private static func nonEmpty(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -127,6 +159,7 @@ enum CompletionCandidates {
 
     /// Returns candidates, or an empty array for every failure mode.
     private static func fetch(
+        _ words: [String],
         method: String,
         params: [String: Any] = [:],
         mapping: ([String: Any]) -> String?
@@ -134,13 +167,20 @@ enum CompletionCandidates {
         do {
             let deadline = Date.now.addingTimeInterval(timeout)
             let processEnvironment = ProcessInfo.processInfo.environment
-            let environmentSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
+            let typed = connectionOptions(in: words)
+            // Same precedence as `CMUXCLI.run`: --socket, then CMUX_SOCKET_PATH,
+            // then the default path.
+            let environmentSocketPath = typed.socket == nil
+                ? try CLISocketEnvironment.socketPath(in: processEnvironment)
+                : nil
             let bundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
-            let requestedSocketPath = environmentSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            let requestedSocketPath = typed.socket ?? environmentSocketPath ?? CLISocketPathResolver.defaultSocketPath(
                 bundleIdentifier: bundleIdentifier,
                 environment: processEnvironment
             )
-            let source: CLISocketPathSource = environmentSocketPath == nil ? .implicitDefault : .environment
+            let source: CLISocketPathSource = typed.socket != nil
+                ? .explicitFlag
+                : environmentSocketPath == nil ? .implicitDefault : .environment
             let resolution = CLISocketPathResolver(
                 environment: processEnvironment,
                 bundleIdentifier: bundleIdentifier
@@ -155,7 +195,7 @@ enum CompletionCandidates {
             guard let authenticationTimeout = remainingTimeout(until: deadline) else { return [] }
             try CMUXCLI.authenticateSocketClientIfNeeded(
                 client,
-                explicitPassword: nil,
+                explicitPassword: typed.password,
                 socketPath: socketPath,
                 responseTimeout: authenticationTimeout,
                 deadline: deadline
