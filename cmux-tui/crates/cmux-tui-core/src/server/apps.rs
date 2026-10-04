@@ -366,4 +366,24 @@ mod tests {
         );
         assert!(matches!(result.command, Command::ProviderResult { request_id: 4, ok: false, .. }));
     }
+
+    #[test]
+    fn the_app_supervisor_starts_off_the_daemon_startup_path() {
+        // The job stands in for building the supervisor; it blocks until
+        // released, and the caller must already have returned.
+        let (release, wait) = std::sync::mpsc::channel::<()>();
+        let (done, finished) = std::sync::mpsc::channel::<()>();
+        let handle = crate::server::spawn_off_startup(move || {
+            wait.recv().unwrap();
+            done.send(()).unwrap();
+        })
+        .unwrap();
+        assert!(finished.try_recv().is_err(), "the caller returned while the start still runs");
+        release.send(()).unwrap();
+        handle.join().unwrap();
+        assert!(finished.try_recv().is_ok());
+        // Without an app host (no apps-v1) nothing starts and nothing blocks.
+        let mux = Mux::new_for_test("apps-start-off-path", SurfaceOptions::default());
+        crate::server::start_apps_when_ready(&mux);
+    }
 }

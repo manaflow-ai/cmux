@@ -177,7 +177,10 @@ impl Supervisor {
         if !reachable {
             return Err(ApiError::new("apps.hidden", "the app is hidden from this surface"));
         }
-        let Some(export) = export else { return Ok(Target::Server) };
+        let Some(export) = export else {
+            Self::admit_server_op(inner, app, op, origin)?;
+            return Ok(Target::Server);
+        };
         if self.config.host_binary.is_none() {
             return Err(ApiError::new("apps.unavailable", "this daemon has no app host"));
         }
