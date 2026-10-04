@@ -60,8 +60,9 @@ struct TerminalLocalHistoryRestoreTests {
     }
 
     /// The viewer missed one chunk: its history differs from the owner's, so
-    /// it keeps none of it, shows the owner's screen, and counts a mismatch
-    /// (the IO then asks for READY + history).
+    /// it keeps none of it and shows only the owner's READY (whose first page
+    /// here holds every owner row, the missed one included), and counts a
+    /// mismatch (the IO then asks for READY + history).
     @Test func aDivergedViewerDropsItsHistoryAndAsksForIt() async throws {
         let (owner, viewer, viewerIO) = try await pair(skipping: 120)
         defer { owner.close(); viewer.close() }
@@ -70,6 +71,7 @@ struct TerminalLocalHistoryRestoreTests {
         await LiveTerminal.until(viewer) { viewer.diagnostics.localHistoryMismatches == 1 }
         #expect(viewer.diagnostics.localHistoryMismatches == 1)
         #expect(viewer.surfaceView.viewportText() == owner.surfaceView.viewportText())
-        #expect(!LiveTerminal.screenText(viewer).contains("row 0 "))
+        #expect(LiveTerminal.screenText(viewer).contains("row 120 "))
+        #expect(LiveTerminal.screenText(viewer) == LiveTerminal.screenText(owner))
     }
 }
