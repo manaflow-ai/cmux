@@ -72,6 +72,7 @@ public nonisolated enum SidebarLayoutReducer {
         try validate(title: section.title)
         try validate(maxRows: section.maxRows)
         guard section.arrangement.isValid else { throw SidebarLayoutReject.invalidArrangement }
+        for item in section.items { try validate(span: item.span) }
         let existing = Set(sections.flatMap { $0.items.map(\.id) })
         let newIDs = section.items.map(\.id)
         guard Set(newIDs).count == newIDs.count, existing.isDisjoint(with: newIDs) else { throw SidebarLayoutReject.duplicateID }
@@ -133,6 +134,7 @@ public nonisolated enum SidebarLayoutReducer {
     private static func addItem(_ item: LayoutItem, to id: LayoutSectionID, at index: Int, in sections: inout [LayoutSection]) throws {
         guard let s = sections.firstIndex(where: { $0.id == id }) else { throw SidebarLayoutReject.unknownSection }
         try ensureItems(sections[s])
+        try validate(span: item.span)
         guard locate(item.id, in: sections) == nil, !sections.contains(where: { $0.id.rawValue == item.id.rawValue })
         else { throw SidebarLayoutReject.duplicateID }
         // L3: pinning a reference twice into one section is a no-op.
@@ -174,6 +176,12 @@ public nonisolated enum SidebarLayoutReducer {
         guard let title else { return }
         // Unicode scalars, like the store's reducer (Rust `chars().count()`).
         guard !title.isEmpty, title.unicodeScalars.count <= maxTitleLength else { throw SidebarLayoutReject.invalidTitle }
+    }
+
+    /// L4: an item's grid span is 1...12, like the arrangement's columns.
+    private static func validate(span: Int?) throws {
+        guard let span else { return }
+        guard SectionArrangement.columnsRange.contains(span) else { throw SidebarLayoutReject.invalidArrangement }
     }
 
     private static func validate(maxRows: Int?) throws {

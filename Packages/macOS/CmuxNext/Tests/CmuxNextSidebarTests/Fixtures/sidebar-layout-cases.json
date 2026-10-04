@@ -17,7 +17,7 @@
     {"name": "empty title", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"title": ""}}, "expect": "reject", "reason": "invalid_title"},
     {"name": "max rows out of range", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"max_rows": 51}}, "expect": "reject", "reason": "invalid_max_rows"},
     {"name": "columns out of range", "op": {"kind": "section.update", "id": "sec_top", "patch": {"layout": "grid", "columns": 40}}, "expect": "reject", "reason": "invalid_arrangement"},
-    {"name": "per-field arrangement patch keeps the other fields", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"gap": 6}}, "expect": "accept", "revision": 1, "section": "sec_bottom", "arrangement": {"layout": "inline", "align": "fill", "gap": 6}},
+    {"name": "per-field arrangement patch keeps the other fields", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"gap": 6}}, "expect": "accept", "revision": 1, "section": "sec_bottom", "arrangement": {"layout": "grid", "align": "fill", "gap": 6, "columns": 8}},
     {"name": "clear a field with null", "op": {"kind": "section.update", "id": "sec_top", "patch": {"layout": "grid", "columns": null}}, "expect": "accept", "revision": 1, "section": "sec_top", "arrangement": {"layout": "grid", "align": "leading"}},
     {"name": "hide a title", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"title": "Tools", "shows_title": false}}, "expect": "accept", "revision": 1},
     {"name": "show the account label", "op": {"kind": "item.update", "id": "itm_account", "shows_label": true}, "expect": "accept", "revision": 1},

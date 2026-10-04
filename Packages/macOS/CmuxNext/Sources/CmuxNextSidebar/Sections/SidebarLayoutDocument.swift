@@ -97,8 +97,9 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// The default layout (plans/cmux-next/sidebar-sections.md): Home, the
     /// App Store and CodeRouter (a first-party app's label item; it opens
     /// the app's page, Lawrence R36) on top, the workspaces, then one bottom
-    /// line with Settings (icon and label) at the leading edge and the
-    /// account avatar (icon only) at the trailing edge. Sticky sections use
+    /// row with Settings (icon and label) over 7/8 of the width and the
+    /// account avatar (icon only) over the last 1/8 (a grid of 8 columns,
+    /// R53). Sticky sections use
     /// the built-in look and draw no header. The window rail's default
     /// (Leo, 2026-10-03) was removed by R52; stored layouts still equal to
     /// it move back (`sectionsMigrationOps`).
@@ -109,9 +110,9 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
                               LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
-                      arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
-                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),
-                          LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
+                      arrangement: SectionArrangement(layout: .grid, align: .fill, columns: 8), items: [
+                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), span: 7),
+                          LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false, span: 1),
                       ]),
     ])
 

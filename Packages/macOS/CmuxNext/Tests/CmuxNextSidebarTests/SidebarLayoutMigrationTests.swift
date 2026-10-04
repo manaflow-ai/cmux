@@ -50,3 +50,19 @@ import Testing
         #expect(once.sectionsMigration == once)
     }
 }
+
+/// R53: the sections default before the grid bottom row (one inline line)
+/// moves to the grid row through ordinary ops; a customized one is kept.
+@Suite struct SidebarGridBottomMigrationTests {
+    @Test func theInlineBottomDefaultBecomesTheGridRow() {
+        let stored = SidebarLayoutDocument(revision: 4, sections: SidebarLayoutDocument.inlineBottomDefaults.sections)
+        #expect(stored.sectionsMigration.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(stored.sectionsMigration.sectionsMigrationOps.isEmpty)
+    }
+
+    @Test func aCustomizedInlineBottomIsKept() throws {
+        let custom = try SidebarLayoutReducer.reduce(SidebarLayoutDocument.inlineBottomDefaults,
+                                                     .itemRemove(LayoutItemID("itm_account"))).get()
+        #expect(custom.sectionsMigrationOps.isEmpty)
+    }
+}

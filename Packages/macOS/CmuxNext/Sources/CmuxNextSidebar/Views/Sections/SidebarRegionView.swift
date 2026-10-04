@@ -66,7 +66,9 @@ final class SidebarRegionView: NSView {
     private static func labelWidths(_ content: Content) -> [LayoutItemID: CGFloat] {
         var widths: [LayoutItemID: CGFloat] = [:]
         let font = SidebarStyle.titleFont
-        for section in content.sections where section.arrangement.layout == .inline {
+        // Inline lines and span grids (R53) draw labeled items with icon and label.
+        for section in content.sections where section.arrangement.layout == .inline
+            || (section.arrangement.layout == .grid && section.items.contains { $0.span != nil }) {
             for item in section.items where item.showsLabel {
                 let info = content.infos[item.id] ?? .fallback(for: item.ref)
                 widths[item.id] = SidebarItemRowView.chipWidth(title: info.title, font: font, badge: info.badge)

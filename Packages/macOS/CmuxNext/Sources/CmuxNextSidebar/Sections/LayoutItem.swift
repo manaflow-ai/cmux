@@ -60,20 +60,23 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
     /// like the account avatar beside Settings.
     public var showsLabel: Bool
     /// Columns this item takes on a grid section's line (1...12, of the
-    /// arrangement's `columns`); nil = one tile (R53).
-    public var span: Int? = nil
+    /// arrangement's `columns`), like a CSS grid span; nil = one tile.
+    /// Spans give items fractional widths: the default bottom row is
+    /// Settings at 7 of 8 columns and the account at 1 (R53).
+    public var span: Int?
 
     /// The app this item opens, for an app item.
     public var owningAppID: String? { ref.kind == LayoutItemRef.appKind ? ref.value : nil }
 
-    public init(id: LayoutItemID, ref: LayoutItemRef, showsLabel: Bool = true) {
+    public init(id: LayoutItemID, ref: LayoutItemRef, showsLabel: Bool = true, span: Int? = nil) {
         self.id = id
         self.ref = ref
         self.showsLabel = showsLabel
+        self.span = span
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, ref
+        case id, ref, span
         case showsLabel = "shows_label"
     }
 
@@ -82,5 +85,6 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
         id = try c.decode(LayoutItemID.self, forKey: .id)
         ref = try c.decode(LayoutItemRef.self, forKey: .ref)
         showsLabel = try c.decodeIfPresent(Bool.self, forKey: .showsLabel) ?? true
+        span = try c.decodeIfPresent(Int.self, forKey: .span)
     }
 }
