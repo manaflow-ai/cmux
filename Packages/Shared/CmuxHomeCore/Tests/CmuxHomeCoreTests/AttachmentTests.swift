@@ -48,10 +48,49 @@ private func makeImage(type: UTType, width: Int, height: Int, alpha: Bool) throw
     return data as Data
 }
 
+/// A JPEG with EXIF orientation 6 and a GPS position.
+private func makeJPEGWithLocation(width: Int, height: Int) throws -> Data {
+    let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                         space: CGColorSpaceCreateDeviceRGB(),
+                                         bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+    context.setFillColor(red: 0, green: 1, blue: 0, alpha: 1)
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    let image = try #require(context.makeImage())
+    let data = NSMutableData()
+    let destination = try #require(CGImageDestinationCreateWithData(data as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil))
+    let gps: [CFString: Any] = [
+        kCGImagePropertyGPSLatitude: 37.3349, kCGImagePropertyGPSLatitudeRef: "N",
+        kCGImagePropertyGPSLongitude: 122.009, kCGImagePropertyGPSLongitudeRef: "W",
+    ]
+    CGImageDestinationAddImage(destination, image, [kCGImagePropertyOrientation: 6, kCGImagePropertyGPSDictionary: gps] as CFDictionary)
+    #expect(CGImageDestinationFinalize(destination))
+    return data as Data
+}
+
+private func hasGPS(_ url: URL) throws -> Bool {
+    let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
+    let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+    return properties[kCGImagePropertyGPSDictionary] != nil
+}
+
+private func movieHasLocation(_ url: URL) async throws -> Bool {
+    let items = try await AVURLAsset(url: url).load(.metadata)
+    return items.contains { $0.identifier == .quickTimeMetadataLocationISO6709 || $0.identifier == .commonIdentifierLocation
+        || $0.identifier == .quickTimeUserDataLocationISO6709 }
+}
+
 /// A one-second H.264 movie, `width` x `height` encoded, rotated 90 degrees
 /// by its track transform (display size is `height` x `width`).
-private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int32 = 10) async throws {
+private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int32 = 10,
+                       location: String? = nil) async throws {
     let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+    if let location {
+        let item = AVMutableMetadataItem()
+        item.identifier = .quickTimeMetadataLocationISO6709
+        item.dataType = kCMMetadataBaseDataType_UTF8 as String
+        item.value = location as NSString
+        writer.metadata = [item]
+    }
     let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
         AVVideoCodecKey: AVVideoCodecType.h264,
         AVVideoWidthKey: width,
@@ -358,6 +397,63 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         await #expect(throws: HomeAttachmentError.self) { try await store.prepareAttachment(fileURL: script) }
         #expect(HomeAttachmentPolicy.accepts(fileURL: root.appendingPathComponent("Screen Shot.tiff")))
         #expect(HomeAttachmentPolicy.accepts(fileURL: root.appendingPathComponent("notes.md")))
+    }
+
+    /// Location is stripped by default (the host's
+    /// `home.attachments.keepLocation` setting is off): the uploaded bytes
+    /// have no GPS, the hash is of those bytes, orientation stays.
+    @MainActor @Test func photoLocationIsStrippedUnlessKept() async throws {
+        let root = try temporaryDirectory()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root.appendingPathComponent("cache"))
+        let original = try makeJPEGWithLocation(width: 40, height: 20)
+        let file = root.appendingPathComponent("IMG_0001.jpg")
+        try original.write(to: file)
+        #expect(try hasGPS(file))
+
+        let stripped = try await store.prepareAttachment(fileURL: file)
+        #expect(try !hasGPS(stripped.fileURL))
+        let bytes = try Data(contentsOf: stripped.fileURL)
+        #expect(stripped.ref.hash == sha256Hex(bytes))
+        #expect(stripped.ref.hash != sha256Hex(original))
+        #expect(stripped.ref.byteCount == bytes.count)
+        #expect(stripped.ref.name == "IMG_0001.jpg")
+        #expect(stripped.ref.mimeType == "image/jpeg")
+        #expect(stripped.ref.width == 20 && stripped.ref.height == 40) // orientation 6 kept
+
+        let pasted = try await store.prepareAttachment(data: original, typeIdentifier: UTType.jpeg.identifier)
+        #expect(try !hasGPS(pasted.fileURL))
+        #expect(pasted.ref.hash == sha256Hex(try Data(contentsOf: pasted.fileURL)))
+
+        let kept = try await store.prepareAttachment(fileURL: file, keepLocation: true)
+        #expect(try hasGPS(kept.fileURL))
+        #expect(kept.ref.hash == sha256Hex(original))
+        let keptPaste = try await store.prepareAttachment(data: original, typeIdentifier: UTType.jpeg.identifier, keepLocation: true)
+        #expect(keptPaste.ref.hash == sha256Hex(original))
+
+        // A photo without location keeps its exact bytes.
+        let plain = try makeJPEG(width: 10, height: 10, orientation: 1)
+        #expect(try await store.prepareAttachment(data: plain, typeIdentifier: UTType.jpeg.identifier).ref.hash == sha256Hex(plain))
+    }
+
+    /// The same for a video's location metadata (a passthrough export, no
+    /// re-encode).
+    @MainActor @Test func videoLocationIsStrippedUnlessKept() async throws {
+        let root = try temporaryDirectory()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root.appendingPathComponent("cache"))
+        let movie = root.appendingPathComponent("clip.mov")
+        try await makeMovie(at: movie, width: 64, height: 32, location: "+37.3349-122.0090/")
+        #expect(try await movieHasLocation(movie))
+
+        let stripped = try await store.prepareAttachment(fileURL: movie)
+        #expect(try await !movieHasLocation(stripped.fileURL))
+        #expect(stripped.ref.hash == sha256Hex(try Data(contentsOf: stripped.fileURL)))
+        #expect(stripped.ref.mimeType == "video/quicktime")
+        #expect(stripped.ref.width == 32 && stripped.ref.height == 64)
+        #expect(stripped.ref.poster != nil)
+
+        let kept = try await store.prepareAttachment(fileURL: movie, keepLocation: true)
+        #expect(try await movieHasLocation(kept.fileURL))
+        #expect(kept.ref.hash == sha256Hex(try Data(contentsOf: movie)))
     }
 
     @Test func attachmentRefWithoutNewFieldsDecodes() throws {
