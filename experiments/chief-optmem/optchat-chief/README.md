@@ -129,9 +129,10 @@ $MUX_HOME/optchat/claude/         the turn sessions' CLAUDE_CONFIG_DIR (settings
                                   transcripts kept 2 days)
 $MUX_HOME/optchat/compactor-claude/  the compactor sessions' own CLAUDE_CONFIG_DIR (0700; same settings as below;
                                   unused on claude-sr, which resets CLAUDE_CONFIG_DIR)
-$TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working directories (0700), one per slot: only
+$TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working directories (0700), one per slot:
                                   .claude/settings.json (every tool denied, all hooks off, no auto-memory,
-                                  no bundled skills, transcripts kept 1 day)
+                                  no bundled skills, transcripts kept 1 day), and while a node runs in the
+                                  cached layout system.md (0600, the session's system prompt, deleted with the node)
 ```
 
 `$MUX_HOME/optchat/` is mode 0700 and the log, tree and host.json are 0600:
@@ -182,10 +183,11 @@ the route at start (`OPTCHAT_COMPACTOR` overrides):
   directory, outside any directory with instruction files, whose
   `.claude/settings.json` denies every built-in tool (the interactive ones
   included; a denied tool leaves the model's tool list), disables all hooks
-  and auto-memory. The first prompt
-  is the compactor's system text, the context pieces and the step; each
-  size-loop retry is the next prompt in the same session; the reply text is
-  the line, with a lead-in line ("Here is the line:") dropped. When the node
+  and auto-memory. The first prompt follows the cached layout (see
+  [Compactor cache](#compactor-cache)) when acpmux took the preset's args,
+  else the old layout: the compactor's system text, the context pieces and
+  the step; each size-loop retry is the next prompt in the same session;
+  the reply text is the line, with a lead-in line ("Here is the line:") dropped. When the node
   is built or fails, the session is killed with purge and Claude Code's
   transcript of it is deleted, and host.log gets one line with the node's
   seconds, prompts and token use (`compactor node <id> (<model>): 9.8 s, 1
@@ -220,16 +222,74 @@ compactor transcript was left in either Claude home. Before the deny list
 moved into each slot's project settings, the same probe offered 26 tools
 and cost 37,436 cache-write tokens.
 
-**Cost.** A node pays for its whole view at the cache-write price: about
-48k tokens and $0.12 at full size, and about 4 s, of which about 1.5 s is
-the harness start. Nothing carries the view from one node to the next
-(only Claude Code's own 1.2k-token prefix is read back). Summaries run at
-roughly 1.2 nodes per message, so a full memory costs roughly $0.15 per
-message in compactor calls, $150 a day at 1,000 messages; level-0 nodes run
-one at a time (rule 3), so a burst of tool steps can keep the next turn
-waiting by about 4 s per step. The spec's layout (section 8) would read
-most of each view from the cache; that needs the `api` route with a key on
-an endpoint that takes API calls, or acpmux forwarding `cache_control`.
+**Cost.** In the old layout a node pays for its whole view at the
+cache-write price: about 48k tokens and $0.12 at full size, and about 4 s,
+of which about 1.5 s is the harness start. Nothing carries the view from
+one node to the next (only Claude Code's own 1.2k-token prefix is read
+back). Summaries run at roughly 1.2 nodes per message, so a full memory
+costs roughly $0.15 per message in compactor calls, $150 a day at 1,000
+messages; level-0 nodes run one at a time (rule 3), so a burst of tool
+steps can keep the next turn waiting by about 4 s per step. The cached
+layout cuts a node whose view is unchanged up to the 100k mark to about
+$0.035 (measured below).
+
+## Compactor cache
+
+acpmux with preset `args` and `cache_control` forwarding
+([manaflow-ai/cmux#17283](https://github.com/manaflow-ai/cmux/pull/17283),
+on `feat-cmux-next`) lets each node read most of its view from the cache.
+The compactor preset (Claude harnesses only) carries
+`--system-prompt-file ${cwd}/system.md --tools "" --strict-mcp-config
+--no-session-persistence`; acpmux expands `${cwd}` to the slot directory's
+absolute path (Claude Code would resolve a relative path against its cwd,
+checked live on 2.1.287). A node in the cached layout:
+
+1. `system.md` in the slot: the compactor's system text, a blank line, and
+   the context up to its first cache mark (50k characters). It replaces
+   Claude Code's default system prompt, whose cwd and date lines made every
+   node (8 slot directories) miss the cache, so the cache now crosses slots.
+2. The first prompt: the context from 50k on, one block per piece, with ONE
+   `cache_control` marker (`{"type": "ephemeral"}`) on the piece that ends
+   at the last mark (100k, else 80k; no marker when only 50k exists, since
+   Claude Code's own breakpoint covers the system prompt), then the step.
+   Size-loop retries stay in the session, unchanged.
+
+Measured live on 2026-10-04 on cmux-lawrence-2 (claude-sr through the team
+subrouter, Claude Code 2.1.287, `claude-sonnet-5-5`, a private acpmux daemon
+built from #17283, the blocks built by `cached_prompt`): two consecutive
+nodes of a full-size view (127 KB, marks at 49,857, 79,817 and 99,977),
+identical up to the 100k mark, the second in another slot directory:
+
+| node | seconds | uncached | cache write | cache read | output | cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| first (cold) | 3.9 | 2 | 48,079 | 0 | 160 | $0.122 |
+| next, same view up to 100k | 4.2 | 2 | 10,771 | 37,671 | 46 | $0.035 |
+
+Both sessions reported no tool and no MCP server, and no transcript was
+written. The cache lasts 5 minutes, so it pays only when nodes come close
+together (they do in a burst, which is when cost adds up).
+
+Trade-offs and risks:
+
+- **The 80k mark is lost.** Claude Code places 3 of the API's 4 cache
+  breakpoints itself, also with a replaced system prompt,
+  checked live: three markers of ours got `400 A maximum of 4 blocks with
+  cache_control may be provided. Found 6.` One marker is all a node gets, so
+  it sits at 100k; a node whose view changed between 80k and 100k reads only
+  the system prompt (up to 50k) back, about $0.075 at full size instead of
+  $0.035 (cache research, 2026-10-04).
+- **A fourth Claude Code breakpoint.** If a later Claude Code places all 4,
+  every marked prompt fails with that 400. The compactor then ends the
+  session, retries the node once in a fresh session without the marker, and
+  logs `compactor node <id>: Claude Code refused the cache_control marker
+  (...); retrying without it, and later nodes go without it`; later nodes of
+  that host skip the marker (only the system prompt is cached) until it
+  restarts.
+- **Feature detection.** The host installs the preset with its args; an
+  acpmux from before #17283 refuses the key (`unknown preset key "args"`),
+  host.log says `acpmux refused the args of preset ...; installed without
+  them`, and nodes keep the old layout below. A non-Claude
+  `OPTCHAT_COMPACTOR_HARNESS` gets no args and the old layout too.
 
 **claude-sr resets `CLAUDE_CONFIG_DIR`.** `sr claude proxy` points Claude
 Code at the user's `~/.claude` whatever the session's env says (checked
@@ -251,9 +311,11 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
 
 ## Deviations from the spec
 
-- **acpmux engine only: cache breakpoints in the view (section 8).** acpmux's
-  Claude Code path forwards text blocks without `cache_control`, so a turn
-  rewrites the view in the cache. The native engine places them. Each turn
+- **acpmux engine only: cache breakpoints in the view (section 8).** A
+  turn's blocks carry no `cache_control` (acpmux forwards it since #17283,
+  but turns do not place one yet, and Claude Code's default system prompt
+  with its date and cwd lines comes first), so a turn rewrites the view in
+  the cache. The native engine places them. Each turn
   logs `turn <key> cache: first request read .. written .. uncached ..` to
   host.log either way; the first request's numbers show what crossed turns.
 - **Messages during a turn (section 7, MASTER).** The spec delivers them at
@@ -272,17 +334,17 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
 - **Native engine: refusals.** A refused turn says so. Server-side
   `fallbacks: "default"` is off by default (`OPTCHAT_CHIEF_SERVER_FALLBACK`):
   the team subrouter may not forward its beta header.
-- **Compactor through acpmux (section 4.2, 8).** Claude Code's own system
-  prompt (with its date and environment lines) comes first, and the
-  compactor's system text is the first block of the user prompt instead of
-  the API `system` field. acpmux forwards text blocks without
-  `cache_control`, so the context pieces keep the spec's order and cut
-  points but carry no breakpoints. Claude Code puts its own breakpoint at
-  the end of the prompt, so a node writes its whole prompt (system text,
-  view, step) to the cache and the next node, whose step differs, reads
-  none of that view back: each node pays for its whole view at the cache
-  write price, where the spec's layout would read most of it at the cache
-  read price. Measured live, see Cost above. Each node also pays a harness start.
+- **Compactor through acpmux (section 4.2, 8).** In the cached layout the
+  compactor's system text and the context's first piece are the session's
+  system prompt (Claude Code's default prompt is replaced), and the context
+  carries one breakpoint (100k) where the spec has three (50k, 80k, 100k):
+  Claude Code keeps three of the four for itself (see Compactor cache). In
+  the old layout (an acpmux without preset args) Claude Code's own system
+  prompt (with its date and environment lines) comes first, the compactor's
+  system text is the first block of the user prompt, the context pieces
+  carry no breakpoints, and each node pays for its whole view at the cache
+  write price. Measured live, see Cost and Compactor cache above. Each node
+  also pays a harness start.
   No effort is sent (the harness default) until acpmux's `effort` option is
   checked live; the `api` route still sends `medium`. Size-loop retries
   stay in the same session, so the earlier reply (thinking included) stays
@@ -336,9 +398,10 @@ umask 022; cargo test --release; cargo clippy --release --all-targets -- -D warn
 port (one session per node, size loop in it, purge and transcript deletion,
 one JOBS gate across main and fallback, refusals as acpmux sends them, the
 probe's fallback and isolation checks, per-node token lines, route choice,
-the start-up notice); `tests/audit3.rs` covers interrupts on the acpmux
+the start-up notice, the cached layout's system prompt file and single
+marker, the retry without the marker, the old layout without preset args); `tests/audit3.rs` covers interrupts on the acpmux
 engine and home-scoped turn names, `tests/native.rs` interrupts on the
 native engine;
-`tests/acpmux_wire.rs` and `tests/daemon_wire.rs` run the real clients against
+`tests/acpmux_wire.rs` (preset args and their feature detection included) and `tests/daemon_wire.rs` run the real clients against
 fake servers on Unix sockets; `tests/lock.rs` runs the binary against a held
 lock; `tests/mcp.rs` runs `optchat-chief mcp` against a live test memory.
