@@ -20,7 +20,18 @@ import Foundation
 /// a root, so neither another session nor another local process can swap a
 /// link in for a directory between the check and the use: the directory
 /// already open is the one acted on.
+///
+/// Files are opened with `O_NONBLOCK` and checked with `fstat` before any
+/// read or write: a FIFO, socket or device fails with `EINVAL` at once
+/// instead of waiting for its other end, and `readFile` refuses a file over
+/// `maxReadFileBytes`. No lock is held across operations or sessions: the
+/// descriptor walk is what keeps two sessions on one root, or a session and
+/// another process, from racing each other's checks, so a slow operation
+/// holds only its own session's thread.
 public struct BrowserReplFileSystem: Sendable {
+    /// The largest file `readFile` reads, 64 MiB (the fetch body limit).
+    public static let maxReadFileBytes = 64 << 20
+
     /// The sandbox that authorizes every path.
     public var sandbox: BrowserReplFileSandbox
 
@@ -40,8 +51,6 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// Runs one operation. See `docs/browser-repl/driver-protocol.md` for ops.
     public func perform(_ operation: String, arguments: [String: Any]) -> Result<Any, BrowserReplFileSystemError> {
-        Self.operationLock.lock()
-        defer { Self.operationLock.unlock() }
         do {
             return .success(try run(operation, arguments))
         } catch let error as BrowserReplFileSystemError {
@@ -50,9 +59,6 @@ public struct BrowserReplFileSystem: Sendable {
             return .failure(Self.translate(error, operation: operation, path: arguments["path"] as? String ?? ""))
         }
     }
-
-    /// Held for each operation.
-    private static let operationLock = NSLock()
 
     /// The roots `fs` reaches: the working directory, then the session's
     /// temporary directory.
@@ -84,7 +90,8 @@ public struct BrowserReplFileSystem: Sendable {
             return (try? location.status()) != nil
         case "readFile":
             let display = try raw("path")
-            let file = try openFile(try locate(.read), display: display)
+            let (file, size) = try openFile(try locate(.read), display: display)
+            guard size <= Self.maxReadFileBytes else { throw Self.fileTooLarge(size) }
             return try readAll(file, display: display).base64EncodedString()
         case "writeFile":
             let display = try raw("path")
@@ -92,10 +99,18 @@ public struct BrowserReplFileSystem: Sendable {
             let location = try locate(.write)
             guard let name = location.name else { throw Self.isDirectoryError }
             let append = arguments["append"] as? Bool == true
-            let flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | (append ? O_APPEND : O_TRUNC)
+            // Truncated only once it is known to be a regular file.
+            let flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY | (append ? O_APPEND : 0)
             let descriptor = openat(location.directory.fd, name, flags, 0o666)
-            guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "open", display: display) }
+            guard descriptor >= 0 else {
+                let number = errno
+                // A FIFO without a reader (ENXIO) or a socket.
+                if number == ENXIO || number == EOPNOTSUPP { throw Self.notRegularFile(display, syscall: "open") }
+                throw Self.posixError(number, syscall: "open", display: display)
+            }
             let file = BrowserReplDescriptor(descriptor)
+            try Self.requireRegularFile(file, display: display, syscall: "open")
+            if !append, ftruncate(file.fd, 0) != 0 { throw Self.posixError(errno, syscall: "open", display: display) }
             try writeAll(data, to: file, display: display)
             return NSNull()
         case "mkdir":
@@ -163,7 +178,7 @@ public struct BrowserReplFileSystem: Sendable {
         case "copyFile":
             let fromDisplay = try raw("from")
             let pair = "\(fromDisplay)' -> '\(try raw("to"))"
-            let source = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
+            let (source, _) = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
             let destination = try locate(.write, key: "to")
             guard let name = destination.name else { throw Self.isDirectoryError }
             // Copy next to the destination, then swap it in, so a failed copy
@@ -424,18 +439,49 @@ public struct BrowserReplFileSystem: Sendable {
 
     // MARK: - Files and directories
 
-    /// Opens the file at `location` for reading; a directory fails with `EISDIR`.
-    private func openFile(_ location: Location, display: String, syscall: String = "open") throws -> BrowserReplDescriptor {
+    /// Opens the regular file at `location` for reading and returns its
+    /// size. `O_NONBLOCK` keeps a FIFO from waiting for a writer; anything
+    /// but a regular file then fails (`EISDIR` for a directory, `EINVAL`).
+    private func openFile(_ location: Location, display: String, syscall: String = "open") throws -> (BrowserReplDescriptor, Int) {
         guard let name = location.name else { throw Self.isDirectoryError }
-        let descriptor = openat(location.directory.fd, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
-        guard descriptor >= 0 else { throw Self.posixError(errno, syscall: syscall, display: display) }
+        let descriptor = openat(location.directory.fd, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC | O_NOCTTY)
+        guard descriptor >= 0 else {
+            let number = errno
+            if number == ENXIO || number == EOPNOTSUPP { throw Self.notRegularFile(display, syscall: syscall) }
+            throw Self.posixError(number, syscall: syscall, display: display)
+        }
         let file = BrowserReplDescriptor(descriptor)
-        var info = stat()
-        guard fstat(file.fd, &info) == 0 else { throw Self.posixError(errno, syscall: syscall, display: display) }
-        if (info.st_mode & S_IFMT) == S_IFDIR { throw Self.isDirectoryError }
-        return file
+        return (file, try Self.requireRegularFile(file, display: display, syscall: syscall))
     }
 
+    /// The size of the open regular file; anything else fails.
+    @discardableResult
+    private static func requireRegularFile(_ file: BrowserReplDescriptor, display: String, syscall: String) throws -> Int {
+        var info = stat()
+        guard fstat(file.fd, &info) == 0 else { throw posixError(errno, syscall: syscall, display: display) }
+        switch info.st_mode & S_IFMT {
+        case S_IFREG: return Int(info.st_size)
+        case S_IFDIR: throw isDirectoryError
+        default: throw notRegularFile(display, syscall: syscall)
+        }
+    }
+
+    private static func notRegularFile(_ display: String, syscall: String) -> BrowserReplFileSystemError {
+        BrowserReplFileSystemError(
+            code: "EINVAL",
+            message: "EINVAL: not a regular file (a FIFO, socket or device), \(syscall) '\(display)'"
+        )
+    }
+
+    private static func fileTooLarge(_ size: Int) -> BrowserReplFileSystemError {
+        BrowserReplFileSystemError(
+            code: "ERR_FS_FILE_TOO_LARGE",
+            message: "File size (\(size)) is greater than 64 MiB, the most fs.readFile reads; copy it with fs.copyFile or read it in a tab"
+        )
+    }
+
+    /// Reads the file to its end; past `maxReadFileBytes` (a file that grew
+    /// after its size was checked) it fails.
     private func readAll(_ file: BrowserReplDescriptor, display: String) throws -> Data {
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 1 << 16)
@@ -446,6 +492,7 @@ public struct BrowserReplFileSystem: Sendable {
                 throw Self.posixError(errno, syscall: "read", display: display)
             }
             if count == 0 { return data }
+            guard data.count + count <= Self.maxReadFileBytes else { throw Self.fileTooLarge(data.count + count) }
             data.append(buffer, count: count)
         }
     }
