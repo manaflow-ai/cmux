@@ -329,6 +329,8 @@ export class CloudDO extends OwnerDO<CloudState> {
     const times = Object.values(state.pending).map((p) => p.due_at)
     const prune = this.pruneAt(state)
     if (prune !== null) times.push(prune)
+    const auditDue = this.audit.pruneDueAt()
+    if (auditDue !== null) times.push(auditDue)
     // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
     // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
     if (cloudProviderReady(this.env)) {
@@ -345,6 +347,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     const machines = new Set(Object.values(engine.currentState.pending).filter((p) => p.due_at <= now).map((p) => p.machine))
     for (const m of machines) await this.runMachine(m, now)
     if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
+    if ((this.audit.pruneDueAt() ?? Infinity) <= now) this.audit.prune(now)
     const driver = cloudDriver(this.env, this.sqlStore)
     const team = engine.currentState.team
     if (!driver || !team) return

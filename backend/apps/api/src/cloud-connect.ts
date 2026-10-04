@@ -36,6 +36,11 @@ export const allowedServices = (entity: string, row: MachineRow, p: Principal, p
   return { ok: true, services }
 }
 
+/** Retention of connect/link audit rows: 400 days, above the 365-day policy floor (coordinator decision). */
+export const ACCESS_AUDIT_KEEP_MS = 400 * 86_400_000
+/** Rows deleted per alarm pass, so one wake stays short; the next pass comes at once while old rows remain. */
+export const ACCESS_AUDIT_PRUNE_BATCH = 500
+
 /** Every connect_info and link_token mint, outside the op stream: who, when, what; never a secret. */
 export class AccessAudit {
   constructor(private readonly sql: SqlStore) {
@@ -44,6 +49,19 @@ export class AccessAudit {
 
   record(entry: Record<string, unknown>): void {
     this.sql.exec(`INSERT INTO cloud_access_audit (at, entry) VALUES (?, ?)`, entry.at, JSON.stringify(entry))
+  }
+
+  /** When the oldest row passes the retention window (coordinator decision: 400 days), or null. */
+  pruneDueAt(): number | null {
+    const at = this.sql.exec<{ at: number | null }>(`SELECT min(at) AS at FROM cloud_access_audit`)[0]?.at
+    return at === null || at === undefined ? null : at + ACCESS_AUDIT_KEEP_MS
+  }
+
+  /** Deletes at most `limit` rows older than the retention window; returns how many. */
+  prune(now: number, limit = ACCESS_AUDIT_PRUNE_BATCH): number {
+    const ids = this.sql.exec<{ id: number }>(`SELECT id FROM cloud_access_audit WHERE at < ? ORDER BY at LIMIT ?`, now - ACCESS_AUDIT_KEEP_MS, limit)
+    for (const r of ids) this.sql.exec(`DELETE FROM cloud_access_audit WHERE id = ?`, r.id)
+    return ids.length
   }
 
   list(limit = 100): Array<Record<string, unknown>> {
