@@ -358,14 +358,36 @@ pub struct AppsChanged {
     pub app: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAs {
+    /// The app screen (`presentation.screen`: app or appColumn), through the
+    /// layout owner's `workspace.ensure_app {app, kind}`.
+    Screen,
+    /// A page tab.
+    Tab,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OpenParams {
     pub app: String,
-    /// A command export to run after the page opens.
+    /// Default: `screen` when the manifest has `presentation.screen`, else `tab`.
+    #[serde(rename = "as")]
+    pub open_as: Option<OpenAs>,
+    /// For `as: tab`: the tab drop zone (pane and index) the tab opens in.
+    pub target: Option<TabTarget>,
+    /// A command export to run after the app opens.
     pub command: Option<String>,
     /// Change the caller's view (CLI and MCP default false).
     pub focus: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TabTarget {
+    pub pane: String,
+    pub index: Option<u32>,
 }
 
 #[cfg(test)]
