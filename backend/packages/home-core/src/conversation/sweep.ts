@@ -5,6 +5,7 @@ import { rowsOf } from "./engine-types.ts"
 import { mentionsOf, previewOf, type FanOut, type UnreadCounts } from "./fanout.ts"
 import { formatRfc3339Millis, parseRfc3339Millis } from "./ids.ts"
 import { closeExpired } from "./invite-ops.ts"
+import { unreadFloor } from "./domain.ts"
 import { fanOutItems, projectionItems } from "./outbox.ts"
 import type { Draft } from "./request.ts"
 import { inviteWrites, msgKey, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
@@ -104,8 +105,10 @@ export const reduceSweep = (head: ConversationHead, ctx: ReduceContext, actor: s
 
 /**
  * Stored counts of each current human after `deleted` go, for the humans whose counts drop (a
- * deleted unseen message counts down like a retract). A human with no stored row is skipped: the
- * next commit recounts from the message rows, which no longer hold the deleted messages.
+ * deleted unseen message counts down like a retract). Unseen means above the human's unread floor
+ * (unreadFloor: the read cursor, or the join under since_join), the floor every count uses. A
+ * human with no stored row is skipped: the next commit recounts from the message rows, which no
+ * longer hold the deleted messages.
  *
  * A stored row may be a lower bound: a recount reads at most UNREAD_RECOUNT_LIMIT messages. So the
  * lowered count is never below what the remaining messages hold, counted by one scan of at most
@@ -120,13 +123,14 @@ const countsAfter = (head: ConversationHead, rows: RowReader, deleted: ReadonlyA
     if (participant.kind !== "human" || participant.left_at !== undefined) continue
     const prior = rows.get<UnreadCounts>(TABLE_UNREAD, participant.id)?.row
     if (!prior) continue
-    const cursor = head.read_cursors[participant.id] ?? 0
-    const unseen = deleted.filter((m) => m.author !== participant.id && m.seq > cursor && m.retracted_at === undefined)
+    // The same floor as every count (domain.ts unreadFloor): the read cursor, raised to the join under since_join.
+    const floor = unreadFloor(head, participant.id)
+    const unseen = deleted.filter((m) => m.author !== participant.id && m.seq > floor && m.retracted_at === undefined)
     if (unseen.length === 0) continue
     const mentioned = unseen.filter((m) => mentionsOf(m).has(participant.id)).length
-    // Every row at or below `through` is deleted, and this human's cursor is below `through`: all remaining rows are after it.
+    // Every row at or below `through` is deleted and this human's floor is below `through`, so every remaining row is after the floor.
     remaining ??= rows.range<Message>(TABLE_MSG, { after: through, limit: UNREAD_RECOUNT_LIMIT }).map((r) => r.row)
-    const left = remaining.filter((m) => m.author !== participant.id && m.seq > cursor && m.retracted_at === undefined)
+    const left = remaining.filter((m) => m.author !== participant.id && m.seq > floor && m.retracted_at === undefined)
     counts.set(participant.id, {
       unread: Math.max(prior.unread - unseen.length, left.length),
       mentions: Math.max(prior.mentions - mentioned, left.filter((m) => mentionsOf(m).has(participant.id)).length)
