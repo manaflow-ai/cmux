@@ -48,6 +48,14 @@ extension UpdateCardPresentation.Button {
 extension UpdateCard {
     /// A stable name for scripts (`updates.status.card.kind`).
     public var kind: String {
-        ""
+        switch self {
+        case .checking: "checking"
+        case .downloading: "downloading"
+        case .available: "available"
+        case .ready: "ready"
+        case .waiting: "waiting"
+        case .installing: "installing"
+        case .note: "note"
+        }
     }
 }

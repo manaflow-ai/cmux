@@ -93,6 +93,10 @@ extension AppControl {
             "last_probe_error": status.lastProbeError.map(JSONValue.string) ?? .null,
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
             "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
+            "card": status.card.map { card in
+                .object(["kind": .string(card.kind), "title": .string(card.presentation.title),
+                         "detail": card.presentation.detail.map(JSONValue.string) ?? .null])
+            } ?? .null,
             "log": .array(log.suffix(20).map(JSONValue.string)),
         ])
     }

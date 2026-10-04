@@ -273,7 +273,8 @@ public final class UpdaterService {
             lastProbe: lastProbe,
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
-            testFeedURL: testFeedURL
+            testFeedURL: testFeedURL,
+            card: card
         )
     }
 
