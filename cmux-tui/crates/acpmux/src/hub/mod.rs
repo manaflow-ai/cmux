@@ -20,6 +20,8 @@ mod shutdown;
 mod spawn;
 mod stream;
 mod tap;
+#[cfg(test)]
+mod tap_tests;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
@@ -570,18 +572,36 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
     ) -> EventRecord {
+        self.append_logged(session, dir, kind, msg, host_seq).0
+    }
+
+    /// [`Hub::append_with_host_seq`], and whether THIS record is in the
+    /// store (a purged session counts as stored: nothing is kept for it).
+    /// The tap acknowledges a host entry on this result alone.
+    pub(super) fn append_logged(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+    ) -> (EventRecord, bool) {
         let _order = session.append_lock.lock().unwrap();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let record =
             EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg, host_seq };
         if session.purged.load(Ordering::SeqCst) {
-            return record;
+            return (record, true);
         }
         self.touch(session);
-        if let Err(e) = self.store.append(&session.id, &record) {
-            session.append_errors.fetch_add(1, Ordering::SeqCst);
-            tracing::warn!(session = %session.id, "append failed: {e}");
-        }
+        let stored = match self.store.append(&session.id, &record) {
+            Ok(()) => true,
+            Err(e) => {
+                session.append_errors.fetch_add(1, Ordering::SeqCst);
+                tracing::warn!(session = %session.id, "append failed: {e}");
+                false
+            }
+        };
         {
             let mut m = session.meta.lock().unwrap();
             m.last_seq = seq;
@@ -613,7 +633,7 @@ impl Hub {
             record: record.clone(),
             remote: None,
         });
-        record
+        (record, stored)
     }
 
     /// A client attached or detached. Attaching clears the unread bit.

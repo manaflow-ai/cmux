@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextApps
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextPages
 import Foundation
 import Synchronization
 
@@ -17,11 +18,17 @@ final class AppsService {
     let host: AppHost
     let storage: AppStorageStore
     private let sink = DeferredAppSink()
+    /// The control router once the socket starts (the CodeRouter page's ops run on it).
+    private(set) var controlRouter: ControlRouter?
+    /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
+    private var coderouterPage: CodeRouterPageTab?
     private var fingerprints: [String: Int] = [:]
     private var store: AppStoreWindowController?
     private var storeModel: AppStoreModel?
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
+    /// The React App Store page per tab (Debug Settings `apps.store.surface = web`), else empty.
+    private var webStorePages: [String: PageWebView] = [:]
     /// The App Store tabs (internal page), one store model per tab.
     private(set) lazy var storePages = AppStorePages { [unowned self] in makeStoreModel() }
     /// Runs previews of apps that are not installed (sample data, no grant).
@@ -56,6 +63,7 @@ final class AppsService {
 
     /// Wires the sink to the control router (reads, action.run) and the daemon.
     func attach(router: ControlRouter) {
+        controlRouter = router
         let daemon = services.daemon
         let ledger: @Sendable () async throws -> [ListNotificationsRequest.Entry] = {
             guard let connection = await MainActor.run(body: { daemon.connection }) else {
@@ -74,7 +82,11 @@ final class AppsService {
     /// hold the tab.
     func showStore(appID: String? = nil, installed: Bool = false, focus: Bool = true) {
         if let view = services.pages.show(.appStore, in: services.windows.active, focus: focus) {
-            storePages.present(view.key, appID: appID, installed: installed)
+            if let page = webStorePages[view.key] {
+                page.open(route: Self.storeRoute(appID: appID, installed: installed))
+            } else {
+                storePages.present(view.key, appID: appID, installed: installed)
+            }
             return
         }
         if store == nil {
@@ -98,6 +110,15 @@ final class AppsService {
     /// focus the tab; automation opens it without moving focus.
     func openApp(_ appID: String, command: String? = nil, focus: Bool = true) throws(AppsServiceError) {
         guard let app = registry.app(appID), app.isActive else { throw .unknownApp }
+        if appID == CodeRouterPageTab.appID, command == nil, PageTunables.coderouter.value == .web {
+            let tab = coderouterPage ?? CodeRouterPageTab(services: services)
+            if coderouterPage == nil {
+                coderouterPage = tab
+                services.pages.register(tab)
+            }
+            guard services.pages.show(tab.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+            return
+        }
         guard AppPanePage.opens(app) else { throw .noPage }
         let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
         if appPages[appID] == nil {
@@ -162,9 +183,26 @@ extension AppsService: InternalPageProvider {
     var title: String { AppStoreModel.title }
     var symbol: String { "bag" }
 
-    func makeView(for key: String, in window: WindowController?) -> NSView { storePages.makeView(for: key) }
+    func makeView(for key: String, in window: WindowController?) -> NSView {
+        if let page = PageFactory(services: services).appsWebPage(route: Self.storeRoute(appID: nil, installed: false)) {
+            webStorePages[key] = page
+            return page
+        }
+        return storePages.makeView(for: key)
+    }
 
-    func tabClosed(_ key: String) { storePages.tabClosed(key) }
+    func tabClosed(_ key: String) {
+        webStorePages.removeValue(forKey: key)?.close()
+        storePages.tabClosed(key)
+    }
+
+    /// The React page's fragment for a listing or the Installed tab.
+    nonisolated static func storeRoute(appID: String?, installed: Bool) -> String {
+        if installed { return "#/installed" }
+        guard let appID, var query = URLComponents(string: "x:") else { return "#/discover" }
+        query.queryItems = [URLQueryItem(name: "app", value: appID)]
+        return "#/discover?" + (query.percentEncodedQuery ?? "")
+    }
 }
 
 enum AppsServiceError: Error {
