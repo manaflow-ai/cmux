@@ -20,7 +20,7 @@ state dirs) is removed at the end; anything that existed before is kept.
 
   scripts/cmux-next/update-e2e.py [--feed URL] [--from BUILD] [--to BUILD] [--click] [--keep]
 """
-import argparse, json, os, plistlib, re, shutil, subprocess, sys, tempfile, time, urllib.request
+import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
 
 BUNDLE_ID = "com.cmuxterm.app.nightly"
 SOCKET = "/tmp/cmux-nightly.sock"
@@ -171,15 +171,35 @@ class App:
         return os.path.join(self.path, "Contents/Resources/bin/cmux")
 
     def cli(self, *args, timeout=30):
-        env = {"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
-        return run(self.cli_path, "--socket", SOCKET, *args, timeout=timeout, env=env)
+        env = {"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"}
+        return run(self.cli_path, "--app-socket", SOCKET, *args, timeout=timeout, env=env)
 
-    def rpc(self, method, params=None):
-        r = self.cli("rpc", method, json.dumps(params or {}))
+    def cli_json(self, *args):
+        r = self.cli("--json", *args)
         try:
             return json.loads(r.stdout)
         except ValueError:
             return {"error": (r.stdout + r.stderr).strip()}
+
+    def rpc(self, method, params=None, timeout=10):
+        """One request line on the app control socket (`{"id","method","params"}`)."""
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                sock.settimeout(timeout)
+                sock.connect(SOCKET)
+                sock.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+                data = b""
+                while not data.endswith(b"\n"):
+                    chunk = sock.recv(1 << 16)
+                    if not chunk:
+                        break
+                    data += chunk
+            reply = json.loads(data.decode() or "{}")
+        except (OSError, ValueError) as error:
+            return {"error": str(error)}
+        if reply.get("ok") is False:
+            return {"error": reply.get("error")}
+        return reply.get("result", reply)
 
     def launch(self, log):
         # LaunchServices starts the app in the user's Aqua session even from
@@ -247,15 +267,13 @@ def main():
 
         app = App(path, config)
         record("older build launched, control socket answers", bool(app.launch(log)))
-        ws = app.cli("new-workspace", "--name", "update-e2e", "--focus", "false").stdout.split()
+        app.cli("workspace", "create", "--name", "update-e2e")
+        terminal = wait(lambda: next(iter(app.cli_json("terminal", "list") or []), None), 30)
+        term = terminal.get("id") if isinstance(terminal, dict) else None
         token = f"before-update-{int(time.time())}"
-        surface = None
-        for line in app.cli("tree", "--workspace", ws[1] if len(ws) > 1 else "").stdout.splitlines():
-            m = re.search(r"surface (surface:\d+) \[terminal\]", line)
-            if m:
-                surface = m.group(1)
-        app.cli("send", "--surface", surface, f"echo {token}; echo $$ > {work}/shell.pid\n")
-        record("terminal ran before the update", bool(wait(lambda: token in app.cli("read-screen", "--surface", surface).stdout, 20)))
+        app.cli("terminal", term or "-", "write", "--text", f"echo {token}; echo $$ > {work}/shell.pid\n")
+        screen = lambda: app.cli("terminal", term or "-", "screen", "read").stdout
+        record("terminal ran before the update", bool(term and wait(lambda: token in screen(), 20)), f"terminal {term}")
         shell_pid = wait(lambda: open(f"{work}/shell.pid").read().strip() if os.path.exists(f"{work}/shell.pid") else None, 10)
 
         s, sparkle_log = stage_update(app, "quit path")
@@ -269,12 +287,12 @@ def main():
                f"bundle build {bundle_build(path)}")
         record("relaunched", bool(app.launch(log)))
         record("running the newest build", app.status().get("build") == to_item["build"], app.status().get("build"))
-        record("terminal output kept across the update", token in app.cli("read-screen", "--surface", surface).stdout)
+        record("terminal output kept across the update", bool(wait(lambda: token in screen(), 20)))
         alive = shell_pid and run("kill", "-0", shell_pid).returncode == 0
         record("terminal shell process survived (daemon kept it)", bool(alive), f"pid {shell_pid}")
         token2 = f"after-update-{int(time.time())}"
-        app.cli("send", "--surface", surface, f"echo {token2}\n")
-        record("terminal still answers after the update", bool(wait(lambda: token2 in app.cli("read-screen", "--surface", surface).stdout, 20)))
+        app.cli("terminal", term or "-", "write", "--text", f"echo {token2}\n")
+        record("terminal still answers after the update", bool(wait(lambda: token2 in screen(), 20)))
 
         if opts.click and len(items) > 2:
             app.quit()
