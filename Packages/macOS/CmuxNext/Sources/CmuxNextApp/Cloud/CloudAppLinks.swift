@@ -13,18 +13,30 @@ enum CloudAppLinks {
     /// Runs Cloud app ops on `local`'s current connection.
     static func runner(local: DaemonService) -> CloudAppOpRunner {
         let timeout = connectTimeout
-        return { op, args, key, origin in
+        return { op, args, key, _ in
             guard let connection = await local.connection else {
                 throw CloudLinkError.disconnected(reason: DaemonError.notConnected.description)
             }
+            // TODO(P8): send the connect's origin once the main connection is
+            // the verified cmux app (client hello); until then the daemon
+            // refuses origin user from it (`apps.origin_forbidden`), so every
+            // connect goes as script.
             let request = AppsRunRequest(app: CloudLinkKey.app, op: op, args: .object(args.mapValues(JSONValue.string)),
-                                         idempotencyKey: key, origin: origin == .user ? .user : .script)
+                                         idempotencyKey: key, origin: .script)
             do {
-                return try JSONEncoder().encode(try await connection.request(request, timeout: timeout))
+                return try JSONEncoder().encode(try await connection.request(request, timeout: timeout).value)
             } catch DaemonError.command(_, let message, let code, _, _) {
                 throw CloudAppOpError(code: code ?? "", message: message)
             }
         }
+    }
+
+    /// Subscribes `local`'s connection to app events again: the daemon sends
+    /// them only to a connection that sent an `apps-` request, and a
+    /// reconnected local connection is a new client.
+    static func resubscribe(local: DaemonService) async {
+        guard let connection = local.connection else { return }
+        _ = try? await connection.request(AppsTerminalLinksRequest())
     }
 
     /// The link change in a local daemon event, or nil.

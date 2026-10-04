@@ -10,11 +10,12 @@ struct TestLinkSocket {
     let path: String
     private let fd: Int32
 
-    init(directoryMode: mode_t = 0o700) throws {
+    /// A carrier socket name (`cmux-link-<12 hex>.sock`) unless `name` says otherwise.
+    init(directoryMode: mode_t = 0o700, name: String = "cmux-link-0123456789ab.sock") throws {
         let directory = "/tmp/c13-\(UUID().uuidString.prefix(8))"
         guard mkdir(directory, 0o700) == 0, chmod(directory, directoryMode) == 0 else { throw POSIXError(.EIO) }
         self.directory = directory
-        path = directory + "/l.sock"
+        path = directory + "/" + name
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
