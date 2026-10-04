@@ -56,6 +56,20 @@ def override(
 
 
 class MergeGateDecisionTests(unittest.TestCase):
+    def test_opened_event_seeds_freshness_for_current_head(self) -> None:
+        event = {
+            "action": "opened",
+            "pull_request": {"head": {"sha": HEAD}, "updated_at": PUSHED},
+        }
+        self.assertEqual(merge_gate._event_push_time(event, HEAD, []), PUSHED)
+
+    def test_lifecycle_event_for_old_head_does_not_seed_current_head(self) -> None:
+        event = {
+            "action": "reopened",
+            "pull_request": {"head": {"sha": "old-head"}, "updated_at": PUSHED},
+        }
+        self.assertIsNone(merge_gate._event_push_time(event, HEAD, []))
+
     def test_current_ci_status_success_passes_without_override(self) -> None:
         result = merge_gate.evaluate_gate(
             base(

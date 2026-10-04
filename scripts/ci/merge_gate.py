@@ -364,6 +364,19 @@ def _recorded_push_time(check_runs: Sequence[Any], head_sha: str) -> str | None:
     return max(recorded, default=(0, None))[1]
 
 
+def _event_push_time(event: Mapping[str, Any], head_sha: str, check_runs: Sequence[Any]) -> str | None:
+    """Seed freshness for PR lifecycle events, then use recorded markers."""
+    event_pr = event.get("pull_request")
+    if isinstance(event_pr, Mapping):
+        event_head = event_pr.get("head")
+        event_head_sha = event_head.get("sha") if isinstance(event_head, Mapping) else None
+        if event_head_sha == head_sha and event.get("action") in {"opened", "reopened", "synchronize"}:
+            pushed = event_pr.get("updated_at") or event_pr.get("created_at")
+            if isinstance(pushed, str) and pushed:
+                return pushed
+    return _recorded_push_time(check_runs, head_sha)
+
+
 def _bot_comment(comment: Mapping[str, Any]) -> bool:
     user = comment.get("user") or {}
     if not isinstance(user, Mapping):
@@ -415,12 +428,7 @@ def run() -> int:
     check_payload = gh.request(f"/repos/{repo}/commits/{sha}/check-runs?per_page=100")
     status_payload = gh.request(f"/repos/{repo}/commits/{sha}/status?per_page=100")
     check_runs = check_payload.get("check_runs", []) if isinstance(check_payload, Mapping) else []
-    event_pr = event.get("pull_request") if isinstance(event.get("pull_request"), Mapping) else {}
-    pushed = None
-    if event.get("action") == "synchronize":
-        pushed = event_pr.get("updated_at")
-    if not isinstance(pushed, str) or not pushed:
-        pushed = _recorded_push_time(check_runs, sha)
+    pushed = _event_push_time(event, sha, check_runs)
     rules = gh.request(f"/repos/{repo}/rules/branches/main")
     required = _required_checks({"rules": rules})
     comments = gh.paged(f"/repos/{repo}/issues/{int(pr_number)}/comments")

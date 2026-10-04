@@ -11,7 +11,7 @@ on:
   issue_comment:
     types: [created, edited]
   pull_request_target:
-    types: [synchronize]
+    types: [opened, reopened, synchronize]
 
 env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
@@ -19,10 +19,16 @@ env:
 permissions: {}
 
 concurrency:
-  # Every trigger can describe the same PR with a different identifier. A
-  # repository-wide group keeps check publication and the single diagnostic
-  # comment serialized even when CI completion races a push or comment event.
-  group: merge-gate-${{ github.repository }}
+  # Serialize events for one PR, while allowing independent PRs to publish
+  # their exact-head checks without replacing one another's pending run.
+  group: >-
+    merge-gate-${{ github.repository }}-${{
+      github.event.pull_request.number ||
+      github.event.issue.number ||
+      github.event.workflow_run.pull_requests[0].number ||
+      github.event.check_suite.pull_requests[0].number ||
+      github.run_id
+    }}
   cancel-in-progress: false
 
 jobs:
