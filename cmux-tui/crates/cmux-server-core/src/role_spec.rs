@@ -177,7 +177,10 @@ fn program(entry: &Map<String, Value>) -> Result<Program, String> {
     let program = str_field(entry, "program")?.ok_or("`program` is required")?;
     if program.starts_with('/') {
         let clean = !program.contains('\0')
-            && program.split('/').skip(1).all(|part| !part.is_empty() && part != "." && part != "..");
+            && program
+                .split('/')
+                .skip(1)
+                .all(|part| !part.is_empty() && part != "." && part != "..");
         return if clean {
             Ok(Program::Path(program.to_owned()))
         } else {
@@ -187,7 +190,9 @@ fn program(entry: &Map<String, Value>) -> Result<Program, String> {
     if valid_store_name(program) {
         Ok(Program::Store(program.to_owned()))
     } else {
-        Err(format!("`program` {program:?}: use a file name in the store's bin or an absolute path"))
+        Err(format!(
+            "`program` {program:?}: use a file name in the store's bin or an absolute path"
+        ))
     }
 }
 

@@ -125,9 +125,7 @@ fn config_changes_replace_remove_and_report_invalid_entries() {
     // `a` changes (new args) and `b` is removed.
     sup.apply(set(serde_json::json!({"a": {"program": "a", "args": ["x"]}})));
     let health = wait_for(&sup, "a replaced, b gone", |h| {
-        h.len() == 1
-            && h[0].state == RoleState::Ready
-            && h[0].pid.is_some_and(|pid| pid != pid_a)
+        h.len() == 1 && h[0].state == RoleState::Ready && h[0].pid.is_some_and(|pid| pid != pid_a)
     });
     assert_eq!(health[0].name, "a");
     assert!(!alive(pid_a) && !alive(pid_b));

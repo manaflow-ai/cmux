@@ -122,7 +122,10 @@ mod tests {
         // 7 bytes per line, 2 lines per file, 3 files kept: lines 4..=9.
         assert!(!numbered(&log_path(dir.path(), "chief"), 3).exists());
         let all = tail(dir.path(), "chief", 1 << 20).unwrap();
-        assert_eq!(String::from_utf8(all).unwrap(), "line 4\nline 5\nline 6\nline 7\nline 8\nline 9\n");
+        assert_eq!(
+            String::from_utf8(all).unwrap(),
+            "line 4\nline 5\nline 6\nline 7\nline 8\nline 9\n"
+        );
         let last = tail(dir.path(), "chief", 10).unwrap();
         assert_eq!(String::from_utf8(last).unwrap(), "line 9\n");
         assert!(tail(dir.path(), "other", 10).unwrap().is_empty());

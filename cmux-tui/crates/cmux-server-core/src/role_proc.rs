@@ -39,14 +39,21 @@ pub enum RoleState {
 pub enum Input {
     /// Start (or start again after a stop or a config change).
     Start,
-    Spawned { pid: u32 },
-    SpawnFailed { error: String },
+    Spawned {
+        pid: u32,
+    },
+    SpawnFailed {
+        error: String,
+    },
     /// The role wrote `READY=1`.
     Ready,
     /// The role wrote `STATUS=<text>`.
     StatusText(String),
     /// The process ended. `code` is `None` when a signal ended it.
-    Exited { pid: u32, code: Option<i32> },
+    Exited {
+        pid: u32,
+        code: Option<i32>,
+    },
     /// A wake armed by [`Action::WakeAt`] fired.
     Due,
     /// Stop the role (shutdown, park, config removal).
@@ -58,9 +65,13 @@ pub enum Input {
 pub enum Action {
     Spawn,
     /// SIGTERM to the role's process group.
-    Terminate { pid: u32 },
+    Terminate {
+        pid: u32,
+    },
     /// SIGKILL to the role's process group.
-    Kill { pid: u32 },
+    Kill {
+        pid: u32,
+    },
     /// Call back with [`Input::Due`] at this instant (the latest wins).
     WakeAt(Instant),
 }

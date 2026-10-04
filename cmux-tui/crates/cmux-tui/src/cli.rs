@@ -19,8 +19,8 @@ mod command;
 mod docs;
 mod extra_help;
 mod federation;
-mod lifecycle;
 mod host_mount;
+mod lifecycle;
 pub(crate) use host_mount::{requested as host_requested, run as run_host};
 mod machine_server;
 #[cfg(test)]
