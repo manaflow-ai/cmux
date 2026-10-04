@@ -14,7 +14,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The strip's colors: its pane's scope, subtler while another pane
     /// has focus (`setChromeEmphasis`).
     private let stripScope = ThemeScope(level: .terminal)
-    let contentHost = PaneContentHostView()
+    let contentHost = NSView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
@@ -50,8 +50,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         contentHost.wantsLayer = true
         contentHost.layer?.masksToBounds = true
         addSubview(contentHost)
-        // Crash recovery puts the browser back in this host: re-pin (R109).
-        contentHost.onDidAddSubview = { [weak self] view in self?.contentReturned(view) }
         addSubview(stripView)
         stripScope.root(stripView)
         reveal.hold(stripView, until: .tabs)
