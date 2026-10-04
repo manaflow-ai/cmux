@@ -37,6 +37,8 @@ pub fn random_key() -> PrivateKey {
 #[derive(Debug, Clone, Default)]
 pub struct ServerLog {
     pub connections: usize,
+    /// TCP connections that ended (the client closed or the relay died).
+    pub closed_connections: usize,
     pub auth_attempts: usize,
     pub channels: usize,
     pub pty: Option<(u32, u32)>,
@@ -83,7 +85,12 @@ impl TestServer {
                     allowed: client_key.clone(),
                     line: Vec::new(),
                 };
-                let relay = tokio::spawn(relay(tcp, config.clone(), handler));
+                let relay_log = accept_log.clone();
+                let config = config.clone();
+                let relay = tokio::spawn(async move {
+                    relay(tcp, config, handler).await;
+                    relay_log.lock().expect("log").closed_connections += 1;
+                });
                 accept_relays.lock().expect("relays").push(relay);
             }
         });
@@ -145,6 +152,11 @@ impl Shell {
         let line = String::from_utf8_lossy(&std::mem::take(&mut self.line)).into_owned();
         if let Some(text) = line.strip_prefix("echo ") {
             session.data(channel, format!("{text}\r\n").into_bytes())?;
+        } else if let Some(kib) = line.strip_prefix("flood ") {
+            let kib: usize = kib.trim().parse().unwrap_or(0);
+            for _ in 0..kib {
+                session.data(channel, vec![b'f'; 1024])?;
+            }
         } else if let Some(code) = line.strip_prefix("exit ") {
             session.exit_status_request(channel, code.trim().parse().unwrap_or(1))?;
             session.eof(channel)?;
@@ -259,15 +271,17 @@ impl HostKeyPolicy for KnownKeys {
     }
 }
 
-/// A credential handle over a key made in the test. Counts signatures.
+/// A credential handle over a key made in the test. Counts signatures and
+/// keeps the last requested RSA hash.
 pub struct MemoryCredential {
     key: PrivateKey,
     pub signs: AtomicUsize,
+    pub last_hash: Mutex<Option<HashAlg>>,
 }
 
 impl MemoryCredential {
     pub fn new(key: PrivateKey) -> Self {
-        Self { key, signs: AtomicUsize::new(0) }
+        Self { key, signs: AtomicUsize::new(0), last_hash: Mutex::new(None) }
     }
 }
 
@@ -276,10 +290,15 @@ impl CredentialHandle for MemoryCredential {
         self.key.public_key().clone()
     }
 
-    fn sign(&self, _hash_alg: Option<HashAlg>, data: &[u8]) -> Result<Signature, BackendError> {
+    fn sign(&self, hash_alg: Option<HashAlg>, data: &[u8]) -> Result<Signature, BackendError> {
         use russh::keys::signature::Signer;
         self.signs.fetch_add(1, Ordering::SeqCst);
-        self.key.try_sign(data).map_err(|e| BackendError::Invalid(format!("sign: {e}")))
+        *self.last_hash.lock().expect("hash") = hash_alg;
+        let signed = match self.key.key_data().rsa() {
+            Some(rsa) => (rsa, hash_alg).try_sign(data),
+            None => self.key.try_sign(data),
+        };
+        signed.map_err(|e| BackendError::Invalid(format!("sign: {e}")))
     }
 }
 
@@ -313,7 +332,17 @@ pub struct Fixture {
 }
 
 pub fn fixture(trust: Trust) -> Fixture {
-    let client = random_key();
+    fixture_with(trust, random_key())
+}
+
+/// A 2048-bit RSA client key (the default size is slower to make).
+pub fn rsa_key() -> PrivateKey {
+    use russh::keys::ssh_key::private::{KeypairData, RsaKeypair};
+    let rsa = RsaKeypair::random(&mut rand::rng(), 2048).expect("rsa key");
+    PrivateKey::new(KeypairData::from(rsa), "").expect("rsa private key")
+}
+
+pub fn fixture_with(trust: Trust, client: PrivateKey) -> Fixture {
     let server = TestServer::start(client.public_key().clone());
     let credential = Arc::new(MemoryCredential::new(client));
     let host = server.addr.ip().to_string();
