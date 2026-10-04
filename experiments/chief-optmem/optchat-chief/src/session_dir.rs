@@ -220,7 +220,11 @@ pub fn write_if_changed(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if std::fs::read(path).is_ok_and(|old| old == bytes) {
         return Ok(());
     }
-    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    // Unique per write: two threads of one process (codex compactor nodes
+    // sharing one directory) may write the same file at once.
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp.{}.{n}", std::process::id()));
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path)
 }
