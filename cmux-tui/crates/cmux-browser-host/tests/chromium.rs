@@ -57,12 +57,15 @@ fn serve() -> u16 {
                     "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
                     "/cross" => "<!doctype html><p id=c>cross-origin frame</p>".to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
+                    "/script.js" => "window.__loaded = true;".to_owned(),
+                    "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
                     _ => "<!doctype html><title>404</title>".to_owned(),
                 };
                 let mut stream = stream;
                 let _ = write!(
                     stream,
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    "HTTP/1.1 200 OK\r\nContent-Type: {}; charset=utf-8\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    if path.ends_with(".js") { "text/javascript" } else { "text/html" },
                     body.len()
                 );
             });
@@ -92,12 +95,8 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
     let origin = format!("http://127.0.0.1:{port}");
 
     let started = Instant::now();
-    let chromium = HeadlessChromium::launch(&HeadlessOptions {
-        binary: binary.into(),
-        user_data_dir: None,
-        extra_args: Vec::new(),
-    })
-    .expect("launch Chromium");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
     let events = Arc::new(Mutex::new(Vec::new()));
     let sink = events.clone();
     let driver = CdpDriver::attach_browser(
@@ -267,4 +266,84 @@ fn browser_host_drives_headless_chromium_over_the_pipe() {
             .iter()
             .all(|tab| tab["targetId"] != target.as_str())
     );
+}
+
+/// The runtime's page agent (host::agent_bundle) is in the agent world of
+/// every document the tab loads: the context the driver evaluates agent
+/// calls in must hold it, whichever context Chromium reports last.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn the_agent_world_holds_the_agent_after_every_navigation() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(
+        chromium.connection().clone(),
+        cmux_browser_host::host::agent_bundle(),
+        Arc::new(|_| {}),
+    )
+    .expect("attach to Chromium");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({}))["targetId"].as_str().unwrap().to_owned();
+    for url in [
+        format!("http://localhost:{port}/second"),
+        format!("http://127.0.0.1:{port}/second"),
+        format!("http://localhost:{port}/second?again"),
+        "data:text/html,<p>data</p>".to_owned(),
+        format!("http://localhost:{port}/second?after-data"),
+    ] {
+        call("tab.navigate", json!({"targetId": target, "url": url, "waitUntil": "load"}));
+        let has_agent = call(
+            "frame.evaluate",
+            json!({"targetId": target, "world": "agent", "source": "() => typeof globalThis[Symbol.for('cmux.browserRepl.agent')]"}),
+        );
+        assert_eq!(has_agent, "object", "no page agent in the agent world after loading {url}");
+    }
+}
+
+/// The same through the whole host (gate, QuickJS runtime, headless engine)
+/// as `cmux-browser-host eval` runs a cell: page-agent calls such as
+/// snapshot() work on a page served from localhost and from 127.0.0.1.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn host_sessions_reach_the_page_agent_after_goto() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-agent-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    for origin in [format!("http://localhost:{port}"), format!("http://127.0.0.1:{port}")] {
+        let out = eval(&format!(
+            "await page.goto({:?}); const s = await snapshot(); console.log('agent:' + s.tree.includes('second'));",
+            format!("{origin}/scripted")
+        ));
+        assert!(out.contains("agent:true"), "{origin}: {out}");
+    }
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
 }

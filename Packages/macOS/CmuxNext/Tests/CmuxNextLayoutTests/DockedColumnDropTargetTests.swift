@@ -28,12 +28,14 @@ import Testing
         #expect(target(g, 710) == .pane("p2", .left))
     }
 
-    @Test func theGlassRimTakesNoDrop() {
+    /// tab-dnd (2026-10-04): the rim is no dead zone. It previews the
+    /// docked pane next to it, never the strip pane hidden below it.
+    @Test func theGlassRimDropsOnTheDockedPane() {
         let g = geometry(DockColumn(edge: .right, mode: .overlay), widths: [0.5, 0.5, 0.3], dockIndex: 2)
-        #expect(target(g, 700) == nil)
-        #expect(target(g, 996) == nil)
+        #expect(target(g, 700) == .pane("p2", .left))
+        #expect(target(g, 996) == .pane("p2", .right))
         // The band between the rim and the window edge is covered too.
-        #expect(target(g, 999) == nil)
+        #expect(target(g, 999) == .pane("p2", .right))
     }
 
     @Test func theStripResolvesInItsOwnSpaceBesideADockedColumn() {
@@ -42,8 +44,8 @@ import Testing
         #expect(target(g, 450) == .pane("p1", .center))
         // The gap between c1 and c2 is at strip x 351, view x 649.
         #expect(target(g, 649) == .newColumn(screen: "s", after: "c1"))
-        // The docked band left of the strip is covered: no drop.
-        #expect(target(g, 3) == nil)
+        // The docked band left of the strip is covered: the docked pane takes it.
+        #expect(target(g, 3) == .pane("p0", .left))
         #expect(target(g, 200) == .pane("p0", .center))
     }
 

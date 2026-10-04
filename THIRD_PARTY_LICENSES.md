@@ -391,6 +391,38 @@ has no runtime CDN dependency.
 
 ---
 
+## Code Editor Assets
+
+The cmux-next code editor page (`webviews/src/pages/editor`) bundles the Monaco editor into the
+generated `Resources/markdown-viewer/webviews-app/` bundle (lazy chunks loaded only by that page), with
+Shiki's Monaco adapter. It uses the shiki, vscode-textmate and Oniguruma code listed above.
+
+### Monaco Editor
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2016 - present Microsoft Corporation
+- **Source:** https://github.com/microsoft/monaco-editor (0.57.0), including its codicon font (CC-BY-4.0, https://github.com/microsoft/vscode-codicons)
+
+### marked (vendored in Monaco)
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2011-2024, Christopher Jeffrey (marked v14.0.0)
+- **Source:** https://github.com/markedjs/marked
+
+### DOMPurify (vendored in Monaco)
+
+- **License:** Apache License 2.0 or Mozilla Public License 2.0
+- **Copyright:** Copyright (c) Cure53 and other contributors
+- **Source:** https://github.com/cure53/DOMPurify (3.4.15)
+
+### @shikijs/monaco
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2021 Pine Wu; Copyright (c) 2023 Anthony Fu and Shiki contributors
+- **Source:** https://github.com/shikijs/shiki/tree/main/packages/monaco
+
+---
+
 ## x264 (remote desktop host encoder)
 
 - **License:** GNU General Public License v2.0 or later (GPL-2.0-or-later)

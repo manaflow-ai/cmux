@@ -1,3 +1,5 @@
+// DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../pages/shared/desktop";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -75,7 +77,7 @@ function EventList({ state }: { state: ActivityState }) {
         .slice()
         .reverse()
         .map((event) => (
-          <div className={`event ${event.ok ? "" : "bad"}`} key={event.seq}>
+          <div className={`event selectable ${event.ok ? "" : "bad"}`} key={event.seq}>
             <span>
               {event.kind}
               {event.tool ? ` · ${event.tool}` : ""}

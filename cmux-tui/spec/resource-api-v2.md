@@ -177,6 +177,11 @@ durable view when one exists. Content operations, including input, history,
 screen reads, projection, waiting, and explicit close, address the terminal
 resource and continue to work with zero views.
 
+A terminal an app's byte backend opens (`cmux.terminal.backend/1`) starts
+with zero views and no durable record. Its first `terminal.project` writes
+the durable terminal record in the destination workspace in the same commit;
+later projections reuse that record.
+
 Every supplied ancestor must contain the resolved descendant. A mismatch
 returns `selector.wrong_parent` with the expected and actual parent before a
 read or mutation runs. Selector resolution, containment validation, revision

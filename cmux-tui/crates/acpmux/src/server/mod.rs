@@ -30,6 +30,8 @@ pub struct SubOpts {
 
 pub struct Conn {
     pub id: String,
+    /// The listener this connection came in on.
+    pub origin: Origin,
     name: StdMutex<String>,
     out: mpsc::Sender<String>,
     subs: StdMutex<HashMap<String, SubOpts>>,
@@ -317,7 +319,7 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                     }
                 }
             });
-            serve_connection(hub, in_rx, out_tx).await;
+            serve_connection_with(hub, in_rx, out_tx, Origin::Web).await;
         });
     }
 }
@@ -426,13 +428,37 @@ async fn serve_http(
 
 // ------------------------------------------------------------ connection
 
+/// Where a connection came from. A `Web` connection (the WebSocket
+/// listener: peer daemons, remote clients, the agent pane) is remote-origin:
+/// remote chains build their settings from scratch, so it never starts or
+/// sets a preset that carries harness args or a system prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Origin {
+    /// The local Unix socket.
+    #[default]
+    Local,
+    /// The WebSocket listener.
+    Web,
+}
+
+/// A connection from the local Unix socket.
 pub async fn serve_connection(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+) {
+    serve_connection_with(hub, inbound, out, Origin::Local).await
+}
+
+pub async fn serve_connection_with(
     hub: Arc<Hub>,
     mut inbound: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
+    origin: Origin,
 ) {
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
+        origin,
         name: StdMutex::new(String::new()),
         out,
         subs: StdMutex::new(HashMap::new()),

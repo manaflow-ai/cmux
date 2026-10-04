@@ -165,7 +165,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "palette.searchShortcuts",
             "palette.pro.upgrade", "palette.welcomeChecklist", "sendFeedback", "help.featureFlags",
-            "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
+            "help.documentation", "help.showCrashLogs", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
         ],
         .liveInput: [
@@ -209,6 +209,8 @@ nonisolated extension ActionSurfaceCatalog {
             "history.goTo",
             "home.show",
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
+            // nextWorkspaceGroup/prevWorkspaceGroup: their cliName ("workspace-group next") is the action's
+            // identifier ActionContractTests requires; the CLI verb is deliberately not offered (a focus move).
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",

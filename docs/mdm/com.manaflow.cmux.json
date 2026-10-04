@@ -638,6 +638,18 @@
       "title" : "Padding",
       "type" : "number"
     },
+    "layout.paneSeparation" : {
+      "default" : "borders",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "enum" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "title" : "Separation",
+      "type" : "string"
+    },
     "layout.rows" : {
       "default" : true,
       "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
@@ -999,6 +1011,19 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "sidebar.border" : {
+      "default" : false,
+      "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
+      "title" : "Border",
+      "type" : "boolean"
+    },
+    "sidebar.borderWidth" : {
+      "description" : "sidebar.borderWidth",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Border Width",
+      "type" : "number"
+    },
     "sidebar.bottomBandMaxShare" : {
       "default" : 0.25,
       "description" : "The share of the sidebar the bottom sections fill before they scroll.",
@@ -1094,6 +1119,16 @@
       "title" : "New Tab Opens",
       "type" : "string"
     },
+    "tabs.plusButton" : {
+      "default" : "hover",
+      "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "New Tab Button",
+      "type" : "string"
+    },
     "tasks.layout" : {
       "default" : "inbox",
       "description" : "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
@@ -1145,6 +1180,16 @@
         "standard"
       ],
       "title" : "Titlebar",
+      "type" : "string"
+    },
+    "window.titlebarButtons" : {
+      "default" : "hover",
+      "description" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Titlebar Buttons",
       "type" : "string"
     }
   },

@@ -26,7 +26,7 @@ final class PaletteContentView: NSView {
     private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
     private let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
     private let footer = PaletteFooterView()
-    private let actionsMenuView = PaletteActionsMenuView()
+    let actionsMenuView = PaletteActionsMenuView()
     private let recorderView = PaletteShortcutRecorderView()
     private var recorderHeight: CGFloat = 0
     /// A click on a shortcut recorder choice.
@@ -183,7 +183,7 @@ final class PaletteContentView: NSView {
 
     private func updateMenu(_ state: PaletteActionsMenuState?) {
         guard let state else {
-            if !actionsMenuView.isHidden, !actionsMenuFadingOut { fade(actionsMenuView, in: false) }
+            if !actionsMenuView.isHidden, !actionsMenuFadingOut { animateActionsMenu(appearing: false) }
             return
         }
         actionsMenuView.update(state, alternateID: model.selectedItem?.alternate?.id)
@@ -192,7 +192,7 @@ final class PaletteContentView: NSView {
         let wasHidden = actionsMenuView.isHidden || actionsMenuFadingOut
         needsLayout = true
         layoutSubtreeIfNeeded()
-        if wasHidden { fade(actionsMenuView, in: true) }
+        if wasHidden { animateActionsMenu(appearing: true) }
     }
 
     // MARK: Layout
@@ -295,7 +295,7 @@ final class PaletteContentView: NSView {
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
         Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut)
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), fade: .fadeOut)
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), movementFade: .fadeOut)
         CATransaction.commit()
     }
 
@@ -318,14 +318,27 @@ final class PaletteContentView: NSView {
         return Motion.scale(scale, about: panelCenter, in: layer)
     }
 
-    /// Fades the actions menu. The fade starts from the view's current
-    /// presentation opacity, so a reopen mid-fade does not jump.
-    private func fade(_ view: NSView, in appearing: Bool) {
-        if view.isHidden {
+    /// Shows or hides the Cmd-K Actions menu: it fades and grows from
+    /// `Motion.panelOpenScale` with the `appear` spring about its footer
+    /// corner, and fades out shrinking toward `Motion.panelCloseScale`, as
+    /// the palette does about its center. Both start from what is on screen,
+    /// so a reopen mid-close does not jump; Reduce Motion keeps only the fade.
+    func animateActionsMenu(appearing: Bool) {
+        let view = actionsMenuView
+        let wasHidden = view.isHidden
+        if wasHidden {
             view.alphaValue = 0
             view.isHidden = false
         }
         actionsMenuFadingOut = !appearing
+        if let layer = view.layer {
+            if appearing {
+                Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+                           from: wasHidden ? NSValue(caTransform3D: view.scaled(Motion.panelOpenScale)) : nil)
+            } else {
+                Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: view.scaled(Motion.panelCloseScale)), movementFade: .fadeOut)
+            }
+        }
         Motion.animate(appearing ? .fadeIn : .fadeOut, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
             guard let self, self.actionsMenuFadingOut, !appearing else { return }
             self.actionsMenuFadingOut = false

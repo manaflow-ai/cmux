@@ -295,8 +295,9 @@ select {
   margin: 0 auto;
   padding: 6px 2px 18px;
   background: transparent;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--agent-muted) 28%, transparent) transparent;
+  /* No scrollbar-width or scrollbar-color (R111): in WebKit either one turns the
+     system's overlay scroller (hidden until you scroll) into an always-visible one.
+     The page keeps the scroller the macOS "Show scroll bars" setting asks for. */
 }
 
 .agent-thread {

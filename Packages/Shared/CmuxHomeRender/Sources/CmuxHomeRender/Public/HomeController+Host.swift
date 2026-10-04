@@ -68,10 +68,29 @@ extension HomeController {
     /// frame in viewport points (the morph flies from there).
     @discardableResult
     public func sendHosted(text: String, from field: CGRect) -> HomeIntent? {
+        sendHosted(text: text, attachments: [], from: field)
+    }
+
+    /// A send with attachments: one message whose parts are the
+    /// attachments in order, then the text (when there is any). Each
+    /// attachment flies from its `origin` (the draft thumbnail) when given.
+    @discardableResult
+    public func sendHosted(text: String, attachments: [HomeOutgoingAttachment], from field: CGRect) -> HomeIntent? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let intent = HomeIntent(op: .sendMessage(conversation: conversation, parts: [.text(trimmed)]))
+        var parts = attachments.map { MessagePart.attachment($0.ref) }
+        if !trimmed.isEmpty { parts.append(.text(trimmed)) }
+        guard !parts.isEmpty else { return nil }
+        for attachment in attachments {
+            if let preview = attachment.preview { scene.media.usePreview(preview, for: attachment.ref.hash) }
+            if let files = attachment.files {
+                scene.media.useLocalFile(files.fileURL, poster: files.posterURL, for: attachment.ref.hash)
+            }
+        }
+        let intent = HomeIntent(op: .sendMessage(conversation: conversation, parts: parts))
         pendingSend = (intent, text, toDesign(field))
+        pendingOrigins = Dictionary(uniqueKeysWithValues: attachments.enumerated().compactMap { i, a in
+            a.origin.map { (i, toDesign($0)) }
+        })
         scene.pinned = true
         onIntent(intent)
         onAccessibilityChange()

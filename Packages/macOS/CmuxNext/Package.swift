@@ -44,6 +44,7 @@ import PackageDescription
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
 //   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
 //     handshake; the page talks to acpmux itself; no daemon)
+//   CmuxNextAgentCursor -> CmuxAgentCursor (vendored; agent cursor commands from input events and the layout)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
 //   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, JavaScriptCore
@@ -116,6 +117,8 @@ let package = Package(
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
         .package(path: "../../Shared/CmuxAgentBrands"),
+        // Vendored from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py).
+        .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
         .package(path: "../../Shared/CmuxIrxTransport"),
@@ -358,6 +361,20 @@ let package = Package(
         .testTarget(
             name: "CmuxNextBookmarksTests",
             dependencies: ["CmuxNextBookmarks"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent cursor (plans/cmux-next/agent-cursor.md, R130): maps published
+        // automation.input events through the live layout to cursor commands
+        // for the window overlay. No layers, no timers; the App supplies the
+        // resolver and the layer host.
+        .target(
+            name: "CmuxNextAgentCursor",
+            dependencies: [.product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentCursorTests",
+            dependencies: ["CmuxNextAgentCursor", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
             swiftSettings: uiSwiftSettings
         ),
         // Agent activity (plans/cmux-next/computer-use.md section 7): the

@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadRuntime, runDevRepl, createFsOp } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const ns = loadRuntime();
 const { shape, interactiveOnly, render, diffLines, textChanges, Snapshot } = ns.snapshot;
@@ -228,6 +229,166 @@ test("rewrite: bindings persist across cells, including closures", async () => {
   assert.equal(err.error, "TypeError: boom");
 });
 
+// A promise the test settles, and timers that fire only when the test says,
+// so the cells below interleave in one fixed order on any machine.
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => { resolve = r; });
+  return { promise, resolve };
+}
+function manualTimers() {
+  const pending = [];
+  return { setTimeout: (fn) => pending.push(fn), fire: () => pending.splice(0).forEach((fn) => fn()) };
+}
+
+test("cancel: a cancel for an earlier cell id never ends the cell running now", async () => {
+  const host = { setTimeout, clearTimeout, now: Date.now };
+  const gate = deferred();
+  const repl = createReplSession({ host, globals: [{ gate: gate.promise }] });
+  const first = repl.evaluate("await new Promise(() => {})", { id: 1 });
+  assert.equal(repl.cancel("timed out", 1), true);
+  assert.equal((await first).ok, false);
+  // A late cancel for cell 1 arrives while cell 2 runs.
+  const second = repl.evaluate("await gate", { id: 2 });
+  repl.cancel("timed out", 1);
+  gate.resolve(42);
+  const r = await second;
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.value, 42);
+});
+
+test("cancel: output a cancelled cell prints later does not reach the next cell", async () => {
+  const printed = [];
+  const host = { setTimeout, clearTimeout, now: Date.now };
+  const console = { log: (...a) => printed.push(a.join(" ")) };
+  const timers = manualTimers();
+  const gate = deferred();
+  const repl = createReplSession({ host, globals: [{ console, setTimeout: timers.setTimeout, gate: gate.promise }] });
+  const hung = repl.evaluate("setTimeout(() => console.log('late from cell 1'), 30); await new Promise(() => {})", { id: 1 });
+  repl.cancel("timed out", 1);
+  await hung;
+  // Cell 1's timer fires while cell 2 runs.
+  const running = repl.evaluate("await gate; console.log('cell 2')", { id: 2 });
+  timers.fire();
+  gate.resolve();
+  const next = await running;
+  assert.equal(next.ok, true, next.error);
+  assert.deepEqual(printed, ["cell 2"]);
+});
+
+// A Session over a driver that records calls, with a host whose timers fire
+// only when the test says so.
+function fakeSession() {
+  const timers = [];
+  const calls = [];
+  const host = {
+    setTimeout: (fn) => (timers.push(fn), timers.length),
+    clearTimeout: () => {},
+    now: Date.now,
+    print: () => {},
+  };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      return method === "tab.info" ? { url: "https://example.com/", title: "T", viewport: { width: 1, height: 1 } } : null;
+    },
+    on: () => () => {},
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const fire = () => timers.splice(0).forEach((fn) => fn());
+  return { session, calls, fire };
+}
+
+// How a call stands once the event loop has nothing left to run: the fake
+// driver answers at once and the host's timers fire only on fire(), so a
+// call still "pending" after the queue drains is waiting on something
+// that will never come, with no wall clock involved.
+async function settledState(promise) {
+  const probe = { state: "pending" };
+  promise.then(() => { probe.state = "answered"; }, (e) => { probe.state = "failed: " + e.message; });
+  for (let turn = 0; turn < 100 && probe.state === "pending"; turn++) await new Promise((r) => setImmediate(r));
+  return probe.state;
+}
+
+// cmux replaces a tab's web view when it unloads a hidden page to save
+// memory and later restores it: the new page has new frame ids. Seen live: a
+// call after a forced unload addressed the old main frame and timed out with
+// "Frame ... is detached" instead of running on the restored page.
+test("tab.replaced: calls stop naming the frames of the web view cmux replaced", async () => {
+  const listeners = new Map();
+  const calls = [];
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "tab.info") return { url: "https://example.com/", title: "T", viewport: { width: 1, height: 1 } };
+      if (method === "frame.evaluate") return 2;
+      return null;
+    },
+    on: (event, handler) => (listeners.set(event, handler), () => {}),
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  page._mainFrame._id = "old-main";
+  const child = page._frameFor("old-child", page._mainFrame);
+  listeners.get("tab.replaced")({ targetId: "t1" });
+  assert.equal(child._detached, true);
+  assert.equal(await page.evaluate(() => 1 + 1), 2, "the page is not treated as crashed");
+  const evaluation = calls.find((c) => c.method === "frame.evaluate");
+  assert.notEqual(evaluation.params.frameId, "old-main");
+});
+
+test("handled events: a tab update that never settles holds later calls at most until the bound", async () => {
+  const { session, calls, fire } = fakeSession();
+  const page = session.pageFor("t1");
+  page._handledSync = new Promise(() => {});
+  const first = session.call("tab.info", { targetId: "t1" });
+  await new Promise((r) => setImmediate(r));
+  fire();
+  assert.equal(await settledState(first), "answered");
+  // The tab is not locked: the next call goes straight through.
+  assert.equal(await settledState(session.call("tab.info", { targetId: "t1" })), "answered");
+  assert.equal(calls.filter((c) => c.method === "tab.info").length, 2);
+});
+
+test("handled events: after a dropped update removing the last listener, the empty set is sent again", async () => {
+  const { session, calls, fire } = fakeSession();
+  const page = session.pageFor("t1");
+  const handler = () => {};
+  page.on("dialog", handler);
+  await page._handledSync;
+  // The update that removes the listener is lost (its job never runs).
+  page._handledSync = new Promise(() => {});
+  page.off("dialog", handler);
+  const call = session.call("tab.info", { targetId: "t1" });
+  await new Promise((r) => setImmediate(r));
+  fire();
+  assert.equal(await settledState(call), "answered");
+  const updates = calls.filter((c) => c.method === "tab.handleEvents").map((c) => c.params.events);
+  assert.deepEqual(updates.at(-1), [], JSON.stringify(updates));
+});
+
+test("cancel: a function a cancelled cell defined still prints when a later cell calls it", async () => {
+  const printed = [];
+  const host = { setTimeout, clearTimeout, now: Date.now };
+  const console = { log: (...a) => printed.push(a.join(" ")) };
+  const timers = manualTimers();
+  const gate = deferred();
+  const repl = createReplSession({ host, globals: [{ console, setTimeout: timers.setTimeout, gate: gate.promise }] });
+  const hung = repl.evaluate("function hello() { console.log('hello'); } setTimeout(() => console.log('late from cell 1'), 30); await new Promise(() => {})", { id: 1 });
+  repl.cancel("timed out", 1);
+  await hung;
+  // Cell 1's timer fires while cell 2 runs.
+  const running = repl.evaluate("hello(); await gate; console.log('cell 2')", { id: 2 });
+  timers.fire();
+  gate.resolve();
+  const next = await running;
+  assert.equal(next.ok, true, next.error);
+  assert.deepEqual(printed, ["hello", "cell 2"]);
+});
+
 test("inspect: Node-like formatting; strings print raw at the top level", () => {
   assert.equal(inspect("plain"), "plain");
   assert.equal(inspect({ a: 1, b: ["s", null], c: { d: true } }), "{ a: 1, b: [ 's', null ], c: { d: true } }");
@@ -253,7 +414,7 @@ test("url: the JavaScriptCore fallback matches WHATWG URL for common cases", () 
 });
 
 test("fs sandbox: the session directory and the temp directory only", () => {
-  const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-unit-")));
+  const work = makeTestDir("cmux-repl-unit-");
   try {
     const op = createFsOp({ workDir: work, tmpdir: os.tmpdir() });
     op("writeFile", { path: path.join(work, "a.txt"), base64: Buffer.from("x").toString("base64") });
@@ -264,7 +425,59 @@ test("fs sandbox: the session directory and the temp directory only", () => {
     fs.symlinkSync("/etc", path.join(work, "link"));
     assert.throws(() => op("readFile", { path: path.join(work, "link/hosts") }), (e) => e.code === "EACCES");
   } finally {
-    fs.rmSync(work, { recursive: true, force: true });
+    removeTestDir(work);
+  }
+});
+
+test("fs sandbox: rm, rename and lstat act on a link itself; copy and rename keep the destination on failure", () => {
+  const base = makeTestDir("cmux-repl-unit-");
+  const work = path.join(base, "work");
+  const outside = path.join(base, "outside");
+  fs.mkdirSync(work);
+  fs.mkdirSync(outside);
+  fs.mkdirSync(path.join(base, "tmp"));
+  const secret = path.join(outside, "secret.txt");
+  fs.writeFileSync(secret, "secret");
+  const at = (name) => path.join(work, name);
+  const text = (p) => fs.readFileSync(p, "utf8");
+  try {
+    const op = createFsOp({ workDir: work, tmpdir: path.join(base, "tmp") });
+    const nodeFs = ns.api.createFs({ fsOp: op }, ns.api.createPath(() => work));
+
+    fs.symlinkSync(secret, at("out-link"));
+    assert.equal(op("lstat", { path: "out-link" }).type, "symlink");
+    assert.equal(nodeFs.lstatSync("out-link").isSymbolicLink(), true);
+    assert.throws(() => op("readFile", { path: "out-link" }), (e) => e.code === "EACCES");
+    assert.throws(() => op("writeFile", { path: "out-link", base64: "" }), (e) => e.code === "EACCES");
+    op("rename", { from: "out-link", to: "moved-link" });
+    assert.equal(fs.readlinkSync(at("moved-link")), secret);
+    op("rm", { path: "moved-link" });
+    assert.equal(fs.existsSync(at("moved-link")), false);
+    assert.equal(text(secret), "secret");
+
+    fs.mkdirSync(at("data"));
+    fs.writeFileSync(at("data/keep.txt"), "keep");
+    fs.symlinkSync(at("data"), at("alias"));
+    op("rm", { path: "alias", recursive: true });
+    assert.equal(text(at("data/keep.txt")), "keep");
+
+    fs.symlinkSync(path.join(outside, "missing.txt"), at("dangling"));
+    assert.throws(() => op("writeFile", { path: "dangling", base64: "" }), (e) => e.code === "EACCES");
+    op("rm", { path: "dangling" });
+    assert.equal(fs.existsSync(path.join(outside, "missing.txt")), false);
+
+    fs.writeFileSync(at("dest.txt"), "old");
+    assert.throws(() => op("rename", { from: "missing.txt", to: "dest.txt" }), (e) => e.code === "ENOENT");
+    fs.writeFileSync(at("unreadable.txt"), "new");
+    fs.chmodSync(at("unreadable.txt"), 0o000);
+    assert.throws(() => op("copyFile", { from: "unreadable.txt", to: "dest.txt" }), (e) => e.code === "EACCES");
+    fs.chmodSync(at("unreadable.txt"), 0o644);
+    assert.equal(text(at("dest.txt")), "old");
+    assert.deepEqual(fs.readdirSync(work).sort(), ["data", "dest.txt", "unreadable.txt"]);
+    op("copyFile", { from: "unreadable.txt", to: "dest.txt" });
+    assert.equal(text(at("dest.txt")), "new");
+  } finally {
+    removeTestDir(base);
   }
 });
 
@@ -331,4 +544,50 @@ test("url: the JavaScriptCore fallback's setters match WHATWG URL", () => {
     b[field] = value;
     assert.equal(a.href, b.href, `${field} = ${value}`);
   }
+});
+
+test("frames: without the driver's frame identity, an iframe is not matched to a child frame by its box", async () => {
+  // A driver without frame.contentFrame cannot say which child frame an
+  // <iframe> holds. Two overlapping iframes have the same box, so matching
+  // by geometry could act in the wrong frame; the runtime reports none.
+  const { Frame } = ns.core;
+  const box = { x: 10, y: 10, width: 100, height: 80 };
+  const session = {
+    call: async (method) => {
+      if (method === "frame.contentFrame") throw Object.assign(new Error("Unsupported driver method frame.contentFrame"), { code: "unsupported" });
+      if (method === "frame.evaluate" || method === "frame.ownerBox") return box;
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  let all = [];
+  const page = { _targetId: "t1", _session: session, _blockedError: () => null, _raceDialog: (p) => p, _refreshFrames: async () => {}, frames: () => all };
+  const main = new Frame(page, "", null);
+  all = [main, new Frame(page, "1", main), new Frame(page, "2", main)];
+  assert.equal(await main._contentFrame("h1"), null);
+});
+
+test("network: requests that never finish are not kept without bound", () => {
+  const { session } = fakeSession();
+  const page = session.pageFor("t1");
+  const seen = [];
+  page.on("response", (r) => seen.push(r.request().url()));
+  for (let i = 0; i < 5000; i++) page._onNetwork({ requestId: `r${i}`, url: `https://example.com/${i}`, method: "GET" }, "request");
+  // A page that opens many long-lived requests (streams, long polls) keeps only the newest.
+  assert.ok(page._requests.size <= 1000, `${page._requests.size} requests kept`);
+  // The newest still pairs with its response; an evicted one still reports its own.
+  page._onNetwork({ requestId: "r4999", url: "https://example.com/4999", status: 200 }, "response");
+  page._onNetwork({ requestId: "r0", url: "https://example.com/0", status: 200 }, "response");
+  assert.deepEqual(seen, ["https://example.com/4999", "https://example.com/0"]);
+});
+
+test("snapshot header: page text reaches the caller without controls or escape sequences, and bounded", () => {
+  // A title can carry terminal escapes (here OSC 52, a clipboard write) and C1 controls.
+  const title = "Inbox\u001b]52;c;cHduZWQ=\u0007\u001b[2J\u009b31mRed\u0085\u009d0;spoof\u009c" + "t".repeat(5000);
+  const s = new Snapshot({ header: [`title: ${title}`, "url: https://example.com/"], body: ['- button "Go" [ref=e1]'] });
+  const text = String(s);
+  assert.doesNotMatch(text, /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+  const first = text.split("\n")[0];
+  assert.ok(first.startsWith("title: InboxRedttt"), JSON.stringify(first.slice(0, 40)));
+  assert.ok(first.length <= 600, `title line is ${first.length} characters`);
+  assert.match(text, /\nurl: https:\/\/example\.com\/\n- button "Go" \[ref=e1\]$/);
 });

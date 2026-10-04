@@ -24,6 +24,8 @@ public struct WorkspaceSnapshot: Sendable, Hashable, Decodable {
     public var markedUnread: Bool
     /// `home` for the store's home workspace (`workspace-kind-v1`), else `normal`; nil on older daemons.
     public var kind: String?
+    /// The store's home workspace, which no close path closes (`home_not_closable`).
+    public var isHome: Bool { kind == "home" }
     /// Tabs with an unread marker (`notification-ack-v1`); nil on older daemons.
     public var unreadCount: Int?
     /// Contiguous screen group runs in screen order (`screen-groups-v1`).

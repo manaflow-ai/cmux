@@ -9,8 +9,10 @@ use super::*;
 pub const TAB_SPLIT_RESPAWN_CAPABILITY: &str = "tab-split-respawn-v1";
 
 /// `move-tab-to-split`, with `respawn` when the request carries one.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn split_tab(
     mux: &Arc<Mux>,
+    client: u64,
     surface: SurfaceId,
     pane: PaneId,
     edge: crate::TabDropEdge,
@@ -21,7 +23,7 @@ pub(super) fn split_tab(
     match respawn {
         None => mux.move_tab_to_split(surface, pane, edge, ratio, transaction),
         Some(respawn) => {
-            let respawn = respawn.into_respawn()?;
+            let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
             mux.move_tab_to_split_respawning(surface, pane, edge, ratio, respawn, transaction)
         }
     }
@@ -50,13 +52,17 @@ pub(crate) struct SplitRespawnRequest {
 }
 
 impl SplitRespawnRequest {
-    pub(super) fn into_respawn(self) -> anyhow::Result<crate::mux::SplitRespawn> {
+    pub(super) fn into_respawn(
+        self,
+        frontend_shell: bool,
+    ) -> anyhow::Result<crate::mux::SplitRespawn> {
         match self.kind.as_str() {
             "terminal" => Ok(crate::mux::SplitRespawn::Terminal(placement_spawn_options(
                 self.cwd,
                 self.env.as_ref(),
                 self.terminal_id,
                 self.shell_args,
+                frontend_shell,
             )?)),
             "browser" => {
                 let record = crate::workspace_registry::FrontendBrowserRecord {
@@ -79,14 +85,21 @@ impl SplitRespawnRequest {
     }
 }
 
+/// Whether `client` resolves Ghostty's shell integration itself
+/// (`terminal-frontend-shell-integration-v1`).
+pub(super) fn frontend_shell(mux: &Mux, client: u64) -> bool {
+    mux.control_clients.supports_capability(client, TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY)
+}
+
 pub(super) fn placement_spawn_options(
     cwd: Option<String>,
     env: Option<&BTreeMap<String, String>>,
     terminal_id: Option<String>,
     shell_args: Option<Vec<String>>,
+    frontend_shell: bool,
 ) -> anyhow::Result<crate::TerminalSpawnOptions> {
     let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
-    let argv = shell_argv(&env, shell_args);
+    let argv = shell_argv(&env, shell_args, frontend_shell);
     Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv })
 }
 
@@ -95,20 +108,33 @@ pub(super) fn placement_spawn_options(
 /// shell integration needs (bash `--posix` with `ENV`, nushell `--execute`).
 /// The shell is the terminal's own `SHELL` from its `env` (the frontend
 /// chose the arguments for it), else the daemon's default shell. None or an
-/// empty list keeps the plain default shell.
+/// empty list keeps the plain default shell, which the host integrates.
+/// With `frontend_shell` (`terminal-frontend-shell-integration-v1`) and a
+/// `SHELL` in `env`, the frontend resolved the integration for that shell,
+/// so the shell is always explicit and the host adds nothing; without a
+/// `SHELL` the frontend resolved nothing, and the host integrates as before.
 pub(super) fn shell_argv(
     env: &[(String, String)],
     shell_args: Option<Vec<String>>,
+    frontend_shell: bool,
 ) -> Option<Vec<String>> {
-    let shell_args = shell_args.filter(|arguments| !arguments.is_empty())?;
-    let shell = env
+    let env_shell = env
         .iter()
         .find(|(key, value)| key == "SHELL" && !value.is_empty())
-        .map(|(_, value)| value.clone())
-        .unwrap_or_else(platform::default_shell);
+        .map(|(_, value)| value.clone());
+    let shell_args = match shell_args.filter(|arguments| !arguments.is_empty()) {
+        Some(arguments) => arguments,
+        None if frontend_shell && env_shell.is_some() => Vec::new(),
+        None => return None,
+    };
+    let shell = env_shell.unwrap_or_else(platform::default_shell);
     Some(std::iter::once(shell).chain(shell_args).collect())
 }
 
 #[cfg(test)]
 #[path = "split_respawn_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "shell_args_tests.rs"]
+mod shell_args_tests;

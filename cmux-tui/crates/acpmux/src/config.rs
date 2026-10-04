@@ -135,27 +135,6 @@ impl DeclaredModel {
     }
 }
 
-/// A named bundle: one harness plus the model, effort, policy and env to
-/// start it with. `acpmux run -p NAME`. Explicit flags still win.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Preset {
-    /// A family or a profile name.
-    pub harness: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PermissionPolicy>,
-    /// Wins over the profile's and the family's env. `${cwd}`, `${home}`,
-    /// `${model}` and a leading `~/` expand.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
 /// Session defaults for a family or a single profile (`defaults` in
 /// config.json). Precedence at `session/new`: explicit request, then the
 /// profile's own entry, then its family's entry, then the daemon defaults.
@@ -424,6 +403,10 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
+    /// `pool`: hidden pre-created sessions that make a harness switch
+    /// instant (`hub/pool/`).
+    #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
+    pub pool: PoolConfig,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -609,6 +592,12 @@ impl Config {
         }
         cfg.path = Some(path);
         Ok(cfg)
+    }
+
+    /// Where preset directories live (`presets/` next to config.json); None
+    /// for an in-code config, which then takes no `systemPrompt`.
+    pub fn presets_dir(&self) -> Option<PathBuf> {
+        self.path.as_ref().and_then(|p| p.parent()).map(|d| d.join("presets"))
     }
 
     /// Write back to the file this config came from. No-op for in-code configs.
@@ -975,7 +964,17 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 }
 
 mod codex_adapter;
-pub use codex_adapter::{CODEX_ACP_PACKAGE, codex_through_adapter_package};
+pub use codex_adapter::{
+    CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
+    resolve_adapter_package_bin,
+};
+mod pool;
+pub use pool::PoolConfig;
+mod preset_args;
+pub use preset_args::{
+    Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
+    parse_preset_args, remove_preset_dir, write_system_prompt,
+};
 
 #[cfg(test)]
 mod tests;

@@ -24,6 +24,12 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Per-terminal `env` the convenience spawn calls send when the daemon
     /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
     public var terminalEnvironment: (@Sendable () async -> [String: String])?
+    /// True when `terminalEnvironment` carries Ghostty's shell integration
+    /// resolved from the user's Ghostty config (the local daemon's
+    /// `AppEnvironment.terminalEnvironmentProvider`). The connection then
+    /// echoes `terminal-frontend-shell-integration-v1`, so the daemon does
+    /// not integrate the shell a second time.
+    public var resolvesShellIntegration: Bool
     /// Opens `session.events` after each connect for the daemon's state
     /// resources (`DaemonStore.session`); off sends nothing extra.
     public var sessionEvents: Bool
@@ -40,6 +46,7 @@ public struct DaemonConnectionConfiguration: Sendable {
         snapshotTimeout: Duration? = .seconds(10),
         spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
         terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared(),
+        resolvesShellIntegration: Bool = false,
         sessionEvents: Bool = false
     ) {
         self.clientName = clientName
@@ -53,6 +60,15 @@ public struct DaemonConnectionConfiguration: Sendable {
         self.snapshotTimeout = snapshotTimeout
         self.spawnTimeout = requestTimeout == nil ? nil : spawnTimeout
         self.terminalEnvironment = terminalEnvironment
+        self.resolvesShellIntegration = resolvesShellIntegration && terminalEnvironment != nil
         self.sessionEvents = sessionEvents
+    }
+}
+
+extension DaemonConnectionConfiguration {
+    /// What the connection echoes in `set-client-info`.
+    var handshakeCapabilities: [String] {
+        DaemonCapabilities.shared.handshakeCapabilities(advertisedCapabilities,
+                                                        resolvesShellIntegration: resolvesShellIntegration)
     }
 }

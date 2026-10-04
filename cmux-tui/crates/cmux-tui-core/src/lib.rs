@@ -58,6 +58,8 @@ pub mod sizing_policy;
 mod state;
 mod stream_interrupt;
 mod surface;
+#[cfg(unix)]
+mod terminal_backend;
 mod terminal_end;
 mod terminal_metadata;
 mod workspace_registry;

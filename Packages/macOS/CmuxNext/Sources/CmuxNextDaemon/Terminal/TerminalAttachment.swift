@@ -73,7 +73,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// (`terminal-snapshot-v1`) followed by their scrollback as `history`
     /// snapshots. A READY alone would drop the scrollback at every attach
     /// and grid change, so a host without it gets a byte replay attach.
-    public static let snapshotCapability = "terminal-snapshot-history-v1"
+    public static let snapshotCapability = DaemonCapabilities.shared.terminalSnapshotHistory
 
     /// Opens a connection, attaches in byte mode at `size`, and optionally
     /// claims canonical geometry (the focused view in the key window does).

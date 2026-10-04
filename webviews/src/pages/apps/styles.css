@@ -50,7 +50,6 @@
   border: 1px solid var(--page-separator);
   background: transparent;
   outline: none;
-  user-select: text;
 }
 
 .apps-search:focus {
@@ -501,7 +500,6 @@ code {
   border: 1px solid var(--page-separator);
   font: 11px ui-monospace, "SF Mono", monospace;
   white-space: pre-wrap;
-  user-select: text;
 }
 
 .apps-empty {

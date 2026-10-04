@@ -21,6 +21,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "syntect",
  "thiserror 2.0.19",
  "tokio",
@@ -1097,6 +1098,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-iface"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
 
@@ -1182,6 +1190,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",
+ "cmux-terminal-iface",
  "cmux-tui-cdp",
  "cmux-unix-socket",
  "flate2",

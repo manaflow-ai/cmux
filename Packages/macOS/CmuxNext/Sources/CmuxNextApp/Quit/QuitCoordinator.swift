@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemon
 import CmuxNextSettings
 import os
 
@@ -7,11 +8,14 @@ import os
 /// the local terminals for an interactive quit, decides (`QuitPolicy`),
 /// shows `QuitAlert` when asked to, then completes (`QuitCompletion`):
 /// remember the choice, save and close windows, and for End end the local
-/// terminals and stop the local daemon. Remote sessions are never ended.
+/// terminals and stop the local daemon. A failed end step shows
+/// `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are never ended.
 @MainActor
 final class QuitCoordinator {
     let origins = QuitOriginTracker()
     private(set) var sheet: QuitAlert?
+    /// "Some sessions did not end", while it shows.
+    private(set) var failureAlert: QuitFailureAlert?
     /// A quit is in progress (deciding, asking or completing).
     private(set) var isQuitting = false
     private unowned let services: AppServices
@@ -41,6 +45,7 @@ final class QuitCoordinator {
     /// keep; a quit already completing is left to finish.
     func terminateFromSignal() {
         if let sheet { return sheet.answerKeepingSessions() }
+        if let failureAlert { return failureAlert.answerQuitAnyway() }
         guard !isQuitting else { return }
         requestQuit(.signal)
     }
@@ -110,9 +115,24 @@ final class QuitCoordinator {
                 await services.sidebarSnapshots.flush()
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
+            confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
+            endLocalAgents: { await QuitAgents.end(QuitAgents.environment(services)) },
             stopBrowserEngines: { await services.cache.cef.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)
+    }
+
+    /// Shows "Some sessions did not end" and waits for the answer.
+    private func confirm(_ failures: [EndSessionsFailure]) async -> QuitFailureAnswer {
+        await withCheckedContinuation { continuation in
+            let alert = QuitFailureAlert(failures: failures) { [weak self] answer in
+                self?.failureAlert = nil
+                self?.logger.info("quit end failures answer=\(String(describing: answer), privacy: .public)")
+                continuation.resume(returning: answer)
+            }
+            failureAlert = alert
+            alert.present(in: sheetWindow())
+        }
     }
 
     /// The active shell window when it can carry a sheet.

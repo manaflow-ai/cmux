@@ -10,6 +10,10 @@ final class HomeRowHostView: NSView {
     weak var controller: HomeController?
     /// A click on no bubble (and no drag): the host focuses its message box.
     var onEmptyClick: () -> Void = {}
+    /// A click on a video bubble plays or pauses it (true when it was a video).
+    var onVideoClick: (HomeHit) -> Bool = { _ in false }
+    /// Cancel Upload on my pending send (the parent forwards it to the store).
+    var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
     /// False while the owner is unreachable: nothing queues, so no tapback
     /// picker and no reaction actions (the parent mirrors `isSendEnabled`).
     var reactionsEnabled = true {
@@ -38,6 +42,13 @@ final class HomeRowHostView: NSView {
 
     override var acceptsFirstResponder: Bool { !selection.isEmpty }
 
+    /// A click on a video plays it even while the window is inactive (the
+    /// click that activates the window is not lost); other clicks only activate.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        guard let event, let controller, let hit = controller.hit(at: convert(event.locationInWindow, from: nil)) else { return false }
+        return controller.videoState(for: hit.item, partIndex: hit.partIndex) != nil
+    }
+
     // MARK: Selection across rows (whole messages)
 
     override func mouseDown(with event: NSEvent) {
@@ -58,8 +69,10 @@ final class HomeRowHostView: NSView {
         dragStart = nil
         if !selection.isEmpty { window?.makeFirstResponder(self); return }
         let point = convert(event.locationInWindow, from: nil)
-        if let start, abs(point.y - start.y) <= Self.dragThreshold, abs(point.x - start.x) <= Self.dragThreshold,
-           controller?.hit(at: point) == nil {
+        guard let start, abs(point.y - start.y) <= Self.dragThreshold, abs(point.x - start.x) <= Self.dragThreshold else { return }
+        if let hit = controller?.hit(at: point) {
+            _ = onVideoClick(hit)
+        } else {
             onEmptyClick()
         }
     }
@@ -121,6 +134,13 @@ final class HomeRowHostView: NSView {
         let copy = NSMenuItem(title: HomeStrings.copyMessage, action: #selector(copyMessage(_:)), keyEquivalent: "")
         copy.target = self
         menu.addItem(copy)
+        // Only while a Cancel really stops something: an upload, or a send
+        // that failed. A sent, unanswered message has no Cancel.
+        if hit.isMine, controller.cancellableSend(hit.item) == true {
+            let cancel = NSMenuItem(title: HomeStrings.cancelUpload, action: #selector(cancelUpload(_:)), keyEquivalent: "")
+            cancel.target = self
+            menu.addItem(cancel)
+        }
         return menu
     }
 
@@ -129,6 +149,11 @@ final class HomeRowHostView: NSView {
     func react(_ tapback: Reaction.Tapback, to target: HomeReactionTarget) -> HomeIntent? {
         guard reactionsEnabled else { return nil }
         return controller?.react(tapback, to: target)
+    }
+
+    @objc func cancelUpload(_ sender: Any?) {
+        guard let key = menuHit?.item else { return }
+        _ = onCancelSend(key)
     }
 
     @objc func copyMessage(_ sender: Any?) {
@@ -161,16 +186,32 @@ final class HomeRowHostView: NSView {
         e.setAccessibilityLabel(item.label)
         e.setAccessibilityValue(item.value)
         e.setAccessibilityIdentifier(item.id)
+        var actions: [NSAccessibilityCustomAction] = []
         if let target = controller?.reactionTarget(for: item, isOnline: reactionsEnabled) {
-            e.setAccessibilityCustomActions(HomeReactionStyle().tapbacks.map { tapback in
+            actions = HomeReactionStyle().tapbacks.map { tapback in
                 NSAccessibilityCustomAction(name: HomeReactionStyle().accessibilityName(tapback)) { [weak self] in
                     self?.react(tapback, to: target) != nil
                 }
-            })
+            }
         }
+        if let action = videoAction(item) { actions.insert(action, at: 0) }
+        if !actions.isEmpty { e.setAccessibilityCustomActions(actions) }
         let inWindow = convert(item.frame, to: nil)
         e.setAccessibilityFrame(window?.convertToScreen(inWindow) ?? inWindow)
         return e
+    }
+}
+
+extension HomeRowHostView {
+    /// Play or Pause on a video bubble's accessibility element.
+    func videoAction(_ item: HomeAXItem) -> NSAccessibilityCustomAction? {
+        guard let controller, let hit = controller.hit(at: CGPoint(x: item.frame.midX, y: item.frame.midY)),
+              let key = item.item, hit.item == key,
+              let state = controller.videoState(for: key, partIndex: hit.partIndex) else { return nil }
+        let name = state == .playing ? HomeStrings.pauseVideo : HomeStrings.playVideo
+        return NSAccessibilityCustomAction(name: name) { [weak self] in
+            self?.onVideoClick(hit) ?? false
+        }
     }
 }
 
@@ -178,6 +219,7 @@ extension HomeRowHostView: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(copy(_:)) { return !selection.isEmpty }
         if item.action == #selector(copyMessage(_:)) { return menuHit != nil }
+        if item.action == #selector(cancelUpload(_:)) { return menuHit != nil }
         return true
     }
 }

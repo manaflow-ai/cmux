@@ -243,7 +243,25 @@ to UsageMeterDO (hard cap) and ClickHouse (detail); MySQL holds the monthly summ
    reads `vpc_endpoint`/`gateway` from TeamDO's peer map (lane 12), and mints a `link_token` (signed,
    single host, single install, the allowed services, this epoch, at most 5 minutes). Not bound
    answers `cloud.machine.not_bound`; paused answers the record with `state: paused`.
-4. Revocation: install revocation through UserDO closes links (the token is checked at hello and
+4. Access (decision CLOUD-CONNECT-ACCESS, Cloud owner a9, 2026-10-04): on a team machine, team members
+   may connect by default and an admin can restrict it; on a personal machine only the creator, plus
+   grants the creator can revoke. Policy is per service (daemon, ssh). Agents act as their principal
+   (their owner's access, never more). Every connect_info and every link_token mint is audited.
+5. `cloud.machine.link_token {host, services}` (decision LINK-TOKEN-OP): install principals only, never
+   a session (an app or page caller never holds a link token, decision LINK-RESOLVE); not a read and
+   no idempotency key, because each call mints a fresh short-lived credential; risk execute; audited;
+   never cached or logged. connect_info carries no credential.
+6. Token format (decision LINK-TOKEN-FORMAT, a9, 2026-10-04): compact JWS, EdDSA (Ed25519) through
+   Workers WebCrypto (no hand-written crypto). Header {alg: "EdDSA", kid, typ: "cmux-link+jwt"}; claims
+   iss, aud = host id, sub = install id, svc (services), epoch, iat, exp (at most 300 s after iat), jti
+   (128 random bits), team. Keyset {kid -> public key} goes to the VM at bind and is refreshed on an
+   epoch raise or a rotation; at most 2 active kids. Private keys exist only in CloudDO's signing path:
+   a Worker secret per environment (separate development, staging and production kids; KMS-backed
+   later if required), never logged or cached. The VM daemon checks signature, aud, epoch, exp and
+   refuses a jti it has seen within exp (replay). The backend lead owns the signer, the keyset
+   publication and the shared vectors schemas/link-token/vectors.json (valid, expired, wrong aud,
+   wrong epoch, replay, unknown kid, rotated kid). Target: with bind and connect_info, 2026-10-10.
+7. Revocation: install revocation through UserDO closes links (the token is checked at hello and
    bound to one install); a machine delete emits `cloud.machine.removed` and drops the peer entry.
 
 ## 6. Classic Cloud migration

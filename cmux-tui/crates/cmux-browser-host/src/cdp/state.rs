@@ -50,6 +50,10 @@ pub struct TabState {
     pub main_frame: Option<String>,
     /// Script contexts per frame and world, with the flat session that owns them.
     pub contexts: HashMap<(String, World), (String, i64)>,
+    /// Agent-world contexts known to hold the page agent: (session, context id).
+    /// Chromium can report more than one isolated context with the agent
+    /// world's name for one document, and not every one runs the agent script.
+    pub agent_ready: HashSet<(String, i64)>,
     /// Out-of-process frames: frame id -> its own CDP session.
     pub frame_sessions: HashMap<String, String>,
     /// Loader of the main frame's current document.
@@ -83,6 +87,7 @@ impl TabState {
             opener,
             main_frame: None,
             contexts: HashMap::new(),
+            agent_ready: HashSet::new(),
             frame_sessions: HashMap::new(),
             loader: None,
             lifecycle: HashSet::new(),
@@ -459,6 +464,7 @@ impl State {
             }
             "Runtime.executionContextsCleared" => {
                 tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
+                tab.agent_ready.retain(|(session, _)| session.as_str() != session_id);
             }
             "Page.downloadWillBegin"
                 if params.get("frameId").and_then(Value::as_str) == tab.main_frame.as_deref() =>

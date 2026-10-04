@@ -52,4 +52,44 @@ enum QuitStrings {
     static var endEverything: String {
         String(localized: "quit.button.endEverything", defaultValue: "End Everything", table: "Quit", bundle: .module)
     }
+
+    static var failedTitle: String {
+        String(localized: "quit.failed.title", defaultValue: "Some sessions did not end", table: "Quit", bundle: .module)
+    }
+
+    static func failedCloseWorkspace(_ name: String, _ message: String) -> String {
+        String(localized: "quit.failed.closeWorkspace", defaultValue: "Workspace “\(name)” did not close: \(message)",
+               table: "Quit", bundle: .module)
+    }
+
+    static func failedListWorkspaces(_ message: String) -> String {
+        String(localized: "quit.failed.listWorkspaces", defaultValue: "The workspaces could not be read: \(message)",
+               table: "Quit", bundle: .module)
+    }
+
+    static func failedShutdown(_ message: String) -> String {
+        String(localized: "quit.failed.shutdown", defaultValue: "The terminals did not end: \(message)", table: "Quit", bundle: .module)
+    }
+
+    static func failedEndAgents(_ message: String) -> String {
+        String(localized: "quit.failed.endAgents", defaultValue: "The agents did not end: \(message)", table: "Quit", bundle: .module)
+    }
+
+    static func failedUnsupported(_ capability: String) -> String {
+        String(localized: "quit.failed.unsupported", defaultValue: "This cmux-tui cannot end sessions (\(capability)).",
+               table: "Quit", bundle: .module)
+    }
+
+    static var failedKeepRunning: String {
+        String(localized: "quit.failed.keepRunning", defaultValue: "If you quit anyway, the terminals that did not end keep running.",
+               table: "Quit", bundle: .module)
+    }
+
+    static var retry: String {
+        String(localized: "quit.button.retry", defaultValue: "Retry", table: "Quit", bundle: .module)
+    }
+
+    static var quitAnyway: String {
+        String(localized: "quit.button.quitAnyway", defaultValue: "Quit Anyway", table: "Quit", bundle: .module)
+    }
 }

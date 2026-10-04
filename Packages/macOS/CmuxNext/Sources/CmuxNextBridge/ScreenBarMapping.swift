@@ -53,15 +53,16 @@ public struct ScreenBarMapping {
     }
 
     func icon(_ value: String?, emoji: (String) -> TabIcon) -> TabIcon {
-        guard let value, !value.isEmpty else { return .none }
-        return isSymbolName(value) ? .symbol(value) : emoji(value)
+        switch IconValue(wire: value) {
+        case .symbol(let name)?: .symbol(name)
+        case .emoji(let text)?: emoji(text)
+        case .image?, .svg?: .symbol("photo")
+        case nil: .none
+        }
     }
 
-    /// SF Symbol names are ASCII words joined by dots (`server.rack`,
-    /// `1.circle`); anything else is treated as an emoji.
+    /// Whether `value` is an SF Symbol name (the one icon rule, ``IconValue``).
     public func isSymbolName(_ value: String) -> Bool {
-        !value.isEmpty && value.unicodeScalars.allSatisfy { scalar in
-            scalar.isASCII && (scalar.properties.isAlphabetic || ("0"..."9").contains(scalar) || scalar == ".")
-        }
+        IconValue.isSymbolName(value)
     }
 }

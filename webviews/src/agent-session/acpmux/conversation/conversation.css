@@ -70,6 +70,32 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
+.cv-user__status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--cv-text-muted);
+}
+.cv-user__cancel {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-user__cancel:hover {
+  color: var(--cv-text);
+}
+
 /* ---------- Markdown ---------- */
 
 .cv-md {

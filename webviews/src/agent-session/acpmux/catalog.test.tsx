@@ -21,7 +21,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-const { useHarnessCatalog } = await import("./catalog");
+const { HarnessCatalogCache, useHarnessCatalog } = await import("./catalog");
 type Catalog = import("./catalog").HarnessCatalog;
 
 const codex: Catalog = [{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra" }] }];
@@ -45,7 +45,11 @@ function source(id: number, catalog: Catalog | Error) {
 }
 
 /// Renders `count` pickers that read the catalog and returns what each one saw last.
-function mount(queryClient: InstanceType<typeof QueryClient>, count = 1) {
+function mount(
+  queryClient: InstanceType<typeof QueryClient>,
+  count = 1,
+  cache = new HarnessCatalogCache(() => undefined),
+) {
   const seen: Catalog[] = [];
   const Picker = ({
     index,
@@ -56,7 +60,7 @@ function mount(queryClient: InstanceType<typeof QueryClient>, count = 1) {
     input: ReturnType<typeof source> | undefined;
     fallback: Catalog;
   }) => {
-    seen[index] = useHarnessCatalog(input, fallback);
+    seen[index] = useHarnessCatalog(input, fallback, cache);
     return null;
   };
   const root = createRoot(dom.window.document.getElementById("root")!);
@@ -113,5 +117,71 @@ describe("harness catalog query", () => {
     await settle();
     expect(pane.seen).toEqual([claude]);
     await pane.unmount();
+  });
+
+  test("the cached catalog draws before the first fetch lands, then the fetch replaces it", async () => {
+    const storage = new Map<string, string>();
+    const cache = new HarnessCatalogCache(
+      () =>
+        ({
+          getItem: (key: string) => storage.get(key) ?? null,
+          setItem: (key: string, value: string) => void storage.set(key, value),
+        }) as unknown as Storage,
+    );
+    cache.merge(codex, 1);
+    const pane = mount(new QueryClient({ defaultOptions: { queries: { retry: false } } }), 1, cache);
+    // Before any client: the cache, not the empty snapshot catalog.
+    await pane.render(undefined, []);
+    expect(pane.seen).toEqual([codex]);
+    let release!: () => void;
+    const slow = {
+      id: 1,
+      client: {
+        calls: 0,
+        harnesses: () => new Promise<Catalog>((resolve) => (release = () => resolve(claude))),
+      },
+    };
+    await pane.render(slow, []);
+    expect(pane.seen).toEqual([codex]);
+    await act(async () => release());
+    await settle();
+    expect(pane.seen).toEqual([claude]);
+    // Stored for the next page load.
+    expect(
+      new HarnessCatalogCache(() => ({ getItem: (key: string) => storage.get(key) ?? null }) as never).read()?.catalog,
+    ).toEqual(claude);
+    await pane.unmount();
+  });
+});
+
+describe("harness catalog cache", () => {
+  test("a harness whose models are not probed yet keeps its cached ones; one acpmux dropped goes", () => {
+    const cache = new HarnessCatalogCache(() => undefined);
+    cache.merge(
+      [
+        { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra" }] },
+        { id: "gone", name: "Gone", models: [{ id: "x" }] },
+      ],
+      1,
+    );
+    const merged = cache.merge(
+      [
+        { id: "codex", name: "Codex", models: [] },
+        { id: "claude", name: "Claude", models: [{ id: "opus" }] },
+      ],
+      2,
+    );
+    expect(merged).toEqual([
+      { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra" }] },
+      { id: "claude", name: "Claude", models: [{ id: "opus" }] },
+    ]);
+  });
+
+  test("blocked storage reads as no cache and never throws", () => {
+    const cache = new HarnessCatalogCache(() => {
+      throw new Error("SecurityError");
+    });
+    expect(cache.read()).toBeUndefined();
+    expect(cache.merge(codex, 1)).toEqual(codex);
   });
 });

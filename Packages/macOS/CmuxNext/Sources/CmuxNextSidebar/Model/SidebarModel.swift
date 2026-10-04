@@ -62,6 +62,9 @@ public final class SidebarModel {
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
+    /// The sections another space shows (R99: the page beside the current
+    /// one during a horizontal swipe). Read when a swipe reaches that page.
+    @ObservationIgnored public var spaceSections: ((ProfileKey) -> [SidebarSection])?
     /// Called on every presentation change (the App moves focus out of a
     /// hiding sidebar and persists the window state).
     @ObservationIgnored public var onPresentationChange: ((SidebarPresentation) -> Void)?

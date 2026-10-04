@@ -4,6 +4,7 @@
 import { createRoot } from "react-dom/client";
 import { createDiffViewerLabelResolver, diffViewerLanguage } from "../labels";
 import type { PageClient } from "../pages/shared/pageClient";
+import { UiProvider, languageDirection } from "../ui/UiProvider";
 import { DiffEmptyState } from "./DiffEmptyState";
 import { viewerEmptyStrings } from "./strings";
 
@@ -25,19 +26,21 @@ export function pickDiffConfig(
   return new Promise((resolve) => {
     const root = createRoot(rootElement);
     root.render(
-      <DiffEmptyState
-        client={client}
-        strings={strings}
-        label={label}
-        onOpened={(config) => {
-          // Unmount before the viewer renders into the same element.
-          queueMicrotask(() => {
-            root.unmount();
-            delete document.documentElement.dataset.cmuxDiffEmpty;
-            resolve(config);
-          });
-        }}
-      />,
+      <UiProvider container={rootElement} dir={languageDirection(strings.language)}>
+        <DiffEmptyState
+          client={client}
+          strings={strings}
+          label={label}
+          onOpened={(config) => {
+            // Unmount before the viewer renders into the same element.
+            queueMicrotask(() => {
+              root.unmount();
+              delete document.documentElement.dataset.cmuxDiffEmpty;
+              resolve(config);
+            });
+          }}
+        />
+      </UiProvider>,
     );
   });
 }

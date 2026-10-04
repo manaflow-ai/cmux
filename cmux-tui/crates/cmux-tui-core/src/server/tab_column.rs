@@ -33,6 +33,7 @@ pub(super) struct MoveTabToColumnParams {
 
 pub(super) fn move_tab_to_column(
     mux: &Arc<Mux>,
+    client: u64,
     params: MoveTabToColumnParams,
 ) -> anyhow::Result<Value> {
     let MoveTabToColumnParams {
@@ -53,7 +54,7 @@ pub(super) fn move_tab_to_column(
             mux.move_tab_to_column(surface, anchor, after_column, width, sticky, transaction)?
         }
         Some(respawn) => {
-            let respawn = respawn.into_respawn()?;
+            let respawn = respawn.into_respawn(frontend_shell(mux, client))?;
             let destination = crate::mux::ColumnMove { pane: anchor, after_column, width, sticky };
             mux.move_tab_to_column_respawning(surface, destination, respawn, transaction)?
         }

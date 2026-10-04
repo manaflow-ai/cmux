@@ -45,12 +45,18 @@ enum WorkspaceHandlers {
     /// shows it in the active window, or a new window when none is open.
     static func createAndShow(_ context: AppActionContext, name: String? = nil, cwd: String? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
-        let services = context.services
+        createAndShow(services: context.services, name: name, cwd: cwd, then: configure)
+    }
+
+    /// Same; `newWindow` opens it in a new window (Shift-Return in the
+    /// address bar) instead of the active one.
+    static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, newWindow: Bool = false,
+                              then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let daemon = services.activeDaemon
         let windows = services.windows!
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
-        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        let target = windows.targetWindow(preferring: newWindow ? nil : windows.active?.state.id)
         Task {
             guard let connection = daemon.connection else { return }
             do {

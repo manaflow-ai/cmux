@@ -31,6 +31,7 @@ extension KeyRouter {
         if implied.terminal { bits.insert(.terminalFocused) }
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
+        if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
         var context = KeyContext(bits: bits)
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
         let resolved = focus.resolved

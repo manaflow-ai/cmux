@@ -5,7 +5,7 @@ Design note, 2026-10-01. Owner: the cmux-next browser-use lead. Binding inputs: 
 > **Resume note (parked 2026-10-03, browser-use lead):**
 > 1. Branch `feat-cmux-next-browser-host-b` (head 1471aaaea0c, rebased on feat-cmux-next): REPL VM, policy gate, request interception, MCP port; review round 3 CLEAN; hosted full run 37074766904 FAILED: lint/test (linux) = one clippy unused_qualifications in server.rs (fixed in a later push), test (linux) also cmux-conversation conformance (another lane's crate), one job 'Formatting issues found' (check if ours). Next: rerun `./scripts/verify-cmux-tui-hosted.sh --full`, then push to feat-cmux-next with a COORDINATION line.
 > 2. Branch `feat-cmux-next-wake-post` (head pushed, not landed): POST pages never hibernate (WebKit tracker + CEF shim export). Swift tests green via nx-remote; shim compile UNVERIFIED (nx-remote ssh dropped). Next: `scripts/cmux-next/ensure-cef.sh` + `build-cef-shim.sh` on the build host, gates, then land.
-> 3. Landed today: quit-order fix a73630ec329, SIGPIPE no-op handler 3114269a0cd. Open after landing b: seal tabs (decision 8), owner policy path (fail-closed setup, real-Chromium worker/WebSocket tests), WebRTC, native fetch, conformance 11/33.
+> 3. Landed today: quit-order fix a73630ec329, SIGPIPE no-op handler 3114269a0cd. Open after landing b: seal tabs (decision 8), owner policy path (fail-closed setup, real-Chromium worker/WebSocket tests), WebRTC, native fetch, conformance (measured on the Linux Testbox 2026-10-04: host-headless 3/37 before the agent-world fix, 11/37 after it; the earlier 11/33 note was not reproduced).
 > 4. Waiting on the CEF fork lane: cmux.14 pin (adopt `cmux_tab_duplicate` behind `browser.duplicateRight`), watchdog/signal-handler change.
 > 5. Decided (Lawrence, BR-R3, 264f11c): keep all WebSockets blocked while any domain policy is active. The cmux-conversation conformance red is a base red (fixed by the Home corpus fix), not ours.
 
@@ -213,6 +213,22 @@ Threat that sets the secret path: a same-uid process (an agent in a terminal) mu
 | c3 | App: `CmuxNextBrowserHost` bridge: fetch `browser.host.provider` on daemon connect, dial, `hello` with every tab (`TabAnnounce`), `tab.announced`/`tab.navigated`/`tab.gone` events, WebKit `call` -> `WebKitDriver`, CEF `cdp.attach` -> raw relay via the shim, `tab.access` (`extension_host_access = !AgentExtensionAccess.fromDisk.blockers(store.extensions, url: tab.state.url).isEmpty`, `user_override = TabContentCache.agentMayUseExtensionTab(key)`, resent on URL change and extension store change), lease badge, `user.input`, `markAgentDriven` + password fill off on lease; reconnect after a host restart | CmuxNext (Swift) | module tests with a fake host; live check on cmux-lawrence-2: an agent opens, navigates, snapshots, clicks and types in a visible CEF tab through `browser.repl.eval` |
 
 Order: c1 and c3 in parallel (c3 against a fake host), then c2, then the live check. relay-ext (the `tab.access` rule) lands before c1.
+
+### 6d. Release artifact contract (Linux, for the cmux-next VM image)
+
+The CI lead owns the workflow, signing and the manifest entry; this is the binary contract.
+
+- Targets: `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` (glibc; the VM image's glibc is the floor). One binary per target: `cmux-browser-host`.
+- Build (from `cmux-tui/`, the pinned toolchain in `rust-toolchain.toml`): `CMUX_BUILD_SHA=<40-char commit> cargo build --release --locked -p cmux-browser-host --bin cmux-browser-host --target <triple>`. It needs a C compiler for the target (QuickJS-ng through `rquickjs`); `build.rs` embeds `js/` (no files beside the binary). No runtime dependency other than glibc and libm; Chromium is found at run time (`CMUX_BROWSER_HOST_CHROMIUM`, then `~/.cache/cmux/chromium`, then system paths).
+- Version: `cmux-browser-host version` prints one line `cmux-browser-host <crate version> (<CMUX_BUILD_SHA>)`, exit 0.
+- Smoke (no Chromium needed): `cmux-browser-host version` exits 0 and names the commit; `cmux-browser-host guide` exits 0 with non-empty output; `cmux-browser-host serve --socket "$T/h.sock" &` then `cmux-browser-host list --socket "$T/h.sock"` exits 0 with `{"sessions":[]}`-shaped JSON; then stop the server PID.
+- Run-time switches for Cloud: `CMUX_BROWSER_HOST_HEADLESS=0` (headful Chromium), `CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE=0` (let Chromium throttle background tabs). `--no-sandbox` and `--disable-setuid-sandbox` are always refused.
+
+### 6e. Step c known follow-ups (after c1, 44ce50ad735)
+
+- Provider events go to every session of the provider; filter them per session engine (and per refusal state).
+- Sessions stay bound to the provider connection they opened on; after the app reconnects they must attach to the new one (with c2's lifecycle).
+- No `cdp.detach` when no session uses a CEF tab any more; tie it to the lease (release, session end).
 
 ## 7. Prototype switches (DEV and NIGHTLY)
 

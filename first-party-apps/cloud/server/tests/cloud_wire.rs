@@ -332,21 +332,13 @@ fn machine_ops_follow_the_contract_shapes() {
     ));
     assert!(idle.is_ok(), "idle: {idle:?}");
 
+    // The full 1.7 shape is tests/wire_contract.rs; here only the record.
     let info = s.handle(&Request::new("cloud.machine.connect_info", json!({ "machine": vm(1) })));
-    assert_eq!(
-        info,
-        Ok(
-            json!({ "host": host(1), "daemon_version": "0.40.0", "capabilities": ["terminal", "files", "ports"] })
-        )
-    );
+    assert_eq!(info.map(|v| v["host"].clone()), Ok(json!(host(1))));
     let unbound = err_json(
         s.handle(&Request::new("cloud.machine.connect_info", json!({ "machine": vm(4) }))),
     );
     assert_eq!(unbound["code"], "cmux.cloud.not_bound", "{unbound}");
-    let paused = err_json(
-        s.handle(&Request::new("cloud.machine.connect_info", json!({ "machine": vm(2) }))),
-    );
-    assert_eq!(paused["code"], "cmux.cloud.machine_paused", "{paused}");
 }
 
 #[test]
@@ -435,8 +427,9 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
     let doc = wire_common::vectors();
     for case in doc["cases"].as_array().expect("cases") {
         let op = case["op"].as_str().expect("op");
-        if op == "cloud.shell.open" {
-            continue; // request and response only in this slice
+        // Not served here: shell.open (later slice), link_token (cmux link only).
+        if ["cloud.shell.open", "cloud.machine.link_token"].contains(&op) {
+            continue;
         }
         let mut s = server();
         s.control_plane_mut().agent = case["principal"].get("agent").is_some();

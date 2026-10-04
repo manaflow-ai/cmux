@@ -1,7 +1,7 @@
 import React from "react";
 import { AgentMark } from "../NewTabPage";
 import type { ChatCard } from "./screenModel";
-import { nt } from "./strings";
+import { useNt } from "./strings";
 
 /// "Chats" with "All Chats >" and the recent chats as cards: age, title and the last reply, or
 /// the state when the chat needs the user or dropped. Routines join as a second tab once the
@@ -15,6 +15,7 @@ export function ChatCards({
   onOpen(sessionId: string): void;
   onShowAll(): void;
 }) {
+  const nt = useNt();
   return (
     <section className="nt-chats" aria-label={nt("sections")}>
       <header className="nt-chats-head">

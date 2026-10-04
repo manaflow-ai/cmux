@@ -52,6 +52,17 @@ pub async fn node(addresses: &[IpAddr]) -> Node {
 
 /// A mesh with a given key, for a peer that restarts on a new socket.
 pub async fn node_with_key(addresses: &[IpAddr], private: [u8; 32], public: [u8; 32]) -> Node {
+    node_with_mtu(addresses, private, public, 1380).await
+}
+
+/// A mesh with a given key and inner MTU (1200 for a mesh that may ride a
+/// gateway tunnel).
+pub async fn node_with_mtu(
+    addresses: &[IpAddr],
+    private: [u8; 32],
+    public: [u8; 32],
+    mtu: u16,
+) -> Node {
     let socket = UdpSocket::bind("127.0.0.1:0").await.expect("bind");
     let config = WgMeshConfig {
         private_key: Zeroizing::new(private),
@@ -62,7 +73,7 @@ pub async fn node_with_key(addresses: &[IpAddr], private: [u8; 32], public: [u8;
                 prefix: if address.is_ipv4() { 32 } else { 128 },
             })
             .collect(),
-        mtu: 1380,
+        mtu,
     };
     let mesh = WgMesh::start(config, socket).expect("start mesh");
     let udp = mesh.local_addr().expect("local addr");
@@ -75,7 +86,7 @@ pub fn peer_of(node: &Node, allowed: &[IpAddr], endpoint: bool) -> WgPeer {
         public_key: node.public,
         preshared_key: None,
         allowed_ips: allowed.iter().copied().map(host).collect(),
-        endpoint: endpoint.then_some(node.udp),
+        route: endpoint.then_some(node.udp.into()),
         persistent_keepalive: None,
     }
 }

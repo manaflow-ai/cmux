@@ -18,7 +18,7 @@ enum TabMoves {
                      transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
-        guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, target = pane.handle
         let current = pane.tabs.firstIndex { $0.surface == surface }
@@ -56,16 +56,19 @@ enum TabMoves {
         }
     }
 
-    /// New pane on `edge` of `pane` holding the tab.
+    /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
+    /// caller already chose a split over a new column with the same room
+    /// rule (a drag's preview did, with the emptied source pane removed),
+    /// so the move runs that choice instead of deciding again.
     static func toNewSplit(_ tab: TabModel, pane: PaneModel, edge: PaneEdge, services: AppServices,
-                           respawn: SplitRespawn? = nil,
+                           respawn: SplitRespawn? = nil, roomDecided: Bool = false,
                            transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
-        guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         // With a respawn the source pane stays (it gets the new tab).
-        switch services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil) {
+        switch roomDecided ? SplitRoomDecision.split : services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil) {
         case .split:
             break
         case .newColumn(let afterColumn, _):
@@ -99,7 +102,7 @@ enum TabMoves {
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
-        guard services.daemon(for: pane) === daemon else { return completion(false) }
+        guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
@@ -238,6 +241,12 @@ enum TabMoves {
             completion(ok)
             return ok ? nil : "move-tab-to-workspace failed (see the app log)"
         })
+    }
+
+    /// Workspaces never mix machines: says so and fails the move.
+    static func refuseOtherMachine(_ services: AppServices, _ completion: Completion) {
+        services.registry.refuse(TabDropStrings.otherMachine)
+        completion(false)
     }
 
     /// True (and refused with a message) when `tab` would move between an

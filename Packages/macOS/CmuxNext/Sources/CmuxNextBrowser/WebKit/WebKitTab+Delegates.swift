@@ -21,10 +21,17 @@ extension WebKitTab: WKNavigationDelegate {
         }
 
         let isUserLinkClick = navigationAction.navigationType == .linkActivated
-        if isUserLinkClick, let disposition = Self.newTabDisposition(for: navigationAction), Self.isWebScheme(url) {
-            decisionHandler(.cancel, preferences)
-            emit(.openURL(url, disposition))
-            return
+        if isUserLinkClick, Self.isWebScheme(url) {
+            switch Self.linkClick(flags: navigationAction.modifierFlags, button: navigationAction.buttonNumber) {
+            case .navigate: break
+            case .open(let disposition):
+                decisionHandler(.cancel, preferences)
+                emit(.openURL(url, disposition))
+                return
+            case .download:
+                decisionHandler(.download, preferences)
+                return
+            }
         }
 
         if !Self.isWebScheme(url) {
@@ -111,13 +118,12 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 
-    /// Cmd-click opens in the background, Cmd-Shift-click in the foreground,
-    /// middle click in the background. nil means "navigate in place".
-    static func newTabDisposition(for action: WKNavigationAction) -> BrowserNewTabDisposition? {
-        let flags = action.modifierFlags
-        let isMiddleClick = action.buttonNumber == 2
-        guard flags.contains(.command) || isMiddleClick else { return nil }
-        return flags.contains(.shift) ? .foregroundTab : .backgroundTab
+    /// Where a page-created window goes when a modifier or the link menu
+    /// decided it; nil means the page's own request (a tab or a popup).
+    func newTabDisposition(for action: WKNavigationAction) -> BrowserNewTabDisposition? {
+        if let picked = takeContextMenuDisposition() { return picked }
+        if case .open(let disposition) = Self.linkClick(flags: action.modifierFlags, button: action.buttonNumber) { return disposition }
+        return nil
     }
 
     static func isWebScheme(_ url: URL) -> Bool {
@@ -139,7 +145,7 @@ extension WebKitTab: WKUIDelegate {
     ) -> WKWebView? {
         // Without a host there is nowhere to show the page: block the popup.
         guard hasDelegate, let child = makeChildTab(configuration: configuration) else { return nil }
-        if let explicit = Self.newTabDisposition(for: navigationAction) {
+        if let explicit = newTabDisposition(for: navigationAction) {
             emit(.adoptTab(child, explicit))
         } else if windowFeatures.width != nil || windowFeatures.height != nil {
             // A sized popup (OAuth, payment): a floating panel, with opener.

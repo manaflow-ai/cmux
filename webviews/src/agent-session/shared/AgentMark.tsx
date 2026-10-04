@@ -1,5 +1,6 @@
 import React, { useId, useSyncExternalStore } from "react";
 import { agentBrand, AGENT_BRANDS, type AgentBrandSpec, type BrandTone } from "./agentBrand";
+import { AGENT_BRAND_SMALL_POINT_SIZE } from "./agentBrands.generated";
 
 export { agentBrand };
 
@@ -70,7 +71,12 @@ export function AgentMark({
   const brand = style === "brand";
   // useId's punctuation would need escaping inside url(#…).
   const gradientId = `agent-mark${useId().replace(/[^\w-]/g, "")}`;
-  const spec: AgentBrandSpec | undefined = key ? AGENT_BRANDS[key] : undefined;
+  const full: AgentBrandSpec | undefined = key ? AGENT_BRANDS[key] : undefined;
+  // At small sizes a traced mark draws its owner's simpler art (Hermes Agent's wing).
+  const spec: AgentBrandSpec | undefined =
+    full?.small && size <= AGENT_BRAND_SMALL_POINT_SIZE
+      ? { ...full, viewBox: full.small.viewBox, paths: full.small.paths, overlays: undefined, small: undefined }
+      : full;
   const a11y = label ? { role: "img", "aria-label": label } : { "aria-hidden": true as const };
   if (!spec)
     return (

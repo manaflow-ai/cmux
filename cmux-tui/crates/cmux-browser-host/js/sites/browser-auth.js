@@ -1,13 +1,31 @@
-// sites.browserAuth: a secure sign-in handoff. The agent names the visible credential fields; cmux shows
-// its own sheet on the browser window, the user types there, and the app
-// fills the fields in the page (sites/auth-fill.js). No value passes through
-// the REPL, and the result never contains one.
+// sites.browserAuth: a secure sign-in handoff. The agent names the visible
+// credential fields; cmux shows its own sheet on the browser window, naming the
+// origin of the frame that holds them, the user types there, and the app fills
+// the fields in the page (sites/auth-fill.js). Only password, username and
+// one-time-code fields are filled, checked here and again by the app. No value
+// passes through the REPL and the result never contains one; the page itself,
+// and code the agent runs in the page, can read a filled field like any other.
 (function (root) {
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
   const { URL } = root.CmuxBrowserRepl.core;
   const TYPES = ["text", "email", "password", "tel", "number", "url"];
+  // The credential kind of a field, or null. The app runs the same rule
+  // (sites/auth-fill.js) before it fills anything.
+  const CREDENTIAL_KIND = (el) => {
+    if (!(el instanceof HTMLInputElement)) return null;
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    if (type === "password") return "password";
+    if (!["text", "email", "tel", "number", "url", ""].includes(type)) return null;
+    const tokens = String(el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/);
+    if (tokens.includes("one-time-code")) return "one-time-code";
+    if (tokens.some((t) => ["username", "email", "webauthn"].includes(t)) || type === "email") return "username";
+    const hint = `${el.getAttribute("name") || ""} ${el.id || ""}`;
+    if (/otp|one.?time|passcode|verification.?code|2fa|mfa|totp/i.test(hint)) return "one-time-code";
+    if (/user|login|e-?mail|account/i.test(hint)) return "username";
+    return null;
+  };
 
   S.register(
     "browserAuth",
@@ -44,6 +62,11 @@
             if (!(await loc.isVisible())) return { status: "locator_invalid", locator_error: { field_id: f.id, reason: "not_user_visible" } };
             const tag = await loc.evaluate((el) => (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && !el.disabled && !el.readOnly);
             if (!tag) return { status: "locator_invalid", locator_error: { field_id: f.id, reason: "not_editable_text_field" } };
+            // Only credential fields: a password, username or one-time-code
+            // input, by type, autocomplete or name. A requested password goes
+            // only into a password field.
+            const kind = await loc.evaluate(CREDENTIAL_KIND);
+            if (!kind || (f.type === "password") !== (kind === "password")) return { status: "locator_invalid", locator_error: { field_id: f.id, reason: "not_credential_field" } };
             // The frame that holds the element (a frameLocator chain ends in a child frame).
             const resolved = typeof loc._resolveAll === "function" ? await loc._resolveAll() : null;
             const holder = resolved && resolved.frame;

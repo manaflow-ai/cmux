@@ -46,7 +46,9 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           }}
         />
       </header>
-      {snap.error && snap.connection !== "disconnected" && <output className="apps-error">{snap.error}</output>}
+      {snap.error && snap.connection !== "disconnected" && (
+        <output className="apps-error selectable">{snap.error}</output>
+      )}
       {snap.connection === "disconnected" ? (
         <div className="apps-empty">{t("store.disconnected")}</div>
       ) : snap.tab === "installed" ? (

@@ -21,6 +21,8 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        "window.titlebarButtons",
+        "tabs.plusButton",
         "navigation.historyScope",
         "sidebar.minimalMode",
         "tabs.newTabKind",
@@ -61,6 +63,9 @@ extension SettingsSchema {
         "layout.panePadding",
         "layout.paneCornerRadius",
         "layout.paneBorder",
+        "layout.paneSeparation",
+        "sidebar.border",
+        "sidebar.borderWidth",
         "layout.paneBorderColor",
         "layout.paneBorderWidth",
         "focusRing.enabled",

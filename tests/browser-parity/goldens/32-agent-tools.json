@@ -272,6 +272,10 @@
       "textHidden": true,
       "restored": true
     },
+    "secret-screenshot-concurrent": {
+      "masked": true,
+      "restored": true
+    },
     "secret-needs-domains": "secrets.set: x: domains: expected the domains it may be typed into, such as [\"example.com\"]; a secret without domains is not accepted"
   }
 }

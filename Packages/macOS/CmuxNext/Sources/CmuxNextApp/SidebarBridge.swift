@@ -35,6 +35,8 @@ final class SidebarBridge {
     /// Once incognito, never saved, even after the window leaves the
     /// incognito set on its way out.
     private var everIncognito = false
+    /// Rows of the spaces beside the current one, for swipe pages (R99).
+    let spaceCache = SpaceSectionsCache()
 
     init(services: AppServices, state: WindowState) {
         self.services = services
@@ -93,6 +95,14 @@ final class SidebarBridge {
                  Self.isLaunching(machines.local, registry: registry))
             }) {
                 self?.showProfiles(profiles, active: active, launching: launching)
+            }
+        }
+        // R99: the rows of another space, for the page beside the current one during a swipe.
+        model.spaceSections = { [weak windowState, spaceCache] key in
+            guard let windowState else { return [] }
+            return spaceCache.sections(for: key) {
+                Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
+                              hidesHome: Self.hidesHome(layout.document))
             }
         }
         let state = windowState

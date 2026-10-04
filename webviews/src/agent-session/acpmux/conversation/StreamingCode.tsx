@@ -21,7 +21,7 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
         <span>{languageLabel(lang)}</span>
       </div>
       <div className="cv-codeblock__body">
-        <pre className="cv-code-plain">
+        <pre className="cv-code-plain selectable">
           {lines.map((line, index) => (
             <div key={index} className="cv-code-plain__line">
               {line || "​"}

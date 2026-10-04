@@ -58,6 +58,14 @@ impl TestClient {
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
+    setup_env(policy, BTreeMap::new()).await
+}
+
+/// `setup` with the fake agent's env (FAKE_* switches).
+async fn setup_env(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -65,7 +73,7 @@ async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
         HarnessProfile {
             kind: Default::default(),
             argv: vec!["python3".into(), fake.into()],
-            env: BTreeMap::new(),
+            env,
             description: None,
             fallback: None,
             family: None,
@@ -630,6 +638,7 @@ async fn restart_marks_unknown_outcome() {
                 dir: "mux".into(),
                 kind: "turn_started".into(),
                 msg: json!({"prompt": "lost"}),
+                host_seq: None,
             },
         )
         .unwrap();
@@ -1044,6 +1053,8 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
             effort: None,
             policy: None,
             env: BTreeMap::new(),
+            args: Vec::new(),
+            system_prompt_sha256: None,
             description: None,
         },
     );
@@ -1438,3 +1449,9 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
+
+#[path = "hub_integration/preset_args.rs"]
+mod preset_args;
+
+#[path = "hub_integration/lifecycle_fixes.rs"]
+mod lifecycle_fixes;

@@ -506,3 +506,7 @@ fn server_errors_keep_details_and_events_use_full_names() {
         (json!("cmux/detail"), json!("cmux.detail.notify.changed"), json!({ "n": 1 }))
     );
 }
+
+/// Terminal interface tests; a child module so they share these fixtures.
+#[path = "terminal_ops_tests.rs"]
+mod terminal_ops_tests;
