@@ -451,9 +451,16 @@ impl ConversationStore {
 /// request: a `remote_<install>` actor's op is remote, on the ledger row and
 /// on the message it sends (server-remote-conversations.md section 5).
 fn stamp_origin(commit: &mut cmux_conversation::Commit, actor: &str) -> Option<Origin> {
-        let _ = (commit, actor);
-        None
+    let install = actor.strip_prefix("remote_")?;
+    let origin = Origin::Remote { install: install.to_string() };
+    if let Some(message) = commit.message.as_mut() {
+        message.origin = Some(origin.clone());
     }
+    if let cmux_conversation::Change::Message { message } = &mut commit.change {
+        message.origin = Some(origin.clone());
+    }
+    Some(origin)
+}
 
 fn validate_idempotency_key(key: &str) -> anyhow::Result<()> {
     anyhow::ensure!(

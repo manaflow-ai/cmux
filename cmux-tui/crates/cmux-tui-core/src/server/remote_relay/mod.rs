@@ -101,16 +101,29 @@ impl Mux {
     /// new streams (section 10) is not recorded and the connection is
     /// closed, so every later frame fails closed.
     pub(crate) fn bind_remote_peer(self: &Arc<Self>, client: u64, peer: &LinkPeer) {
-        let _ = (client, peer);
-        unimplemented!("red: server-remote-conversations.md policy not implemented yet")
+        let policy = self.remote_relay().revocation.lock().unwrap().policy(&peer.install);
+        if policy != StreamPolicy::Serve {
+            super::disconnect_client(self, client, false);
+            return;
+        }
+        self.remote_relay().peers.lock().unwrap().insert(client, peer.clone());
+        self.bind_conversation_principal(client, remote_participant(&peer.install));
     }
 
     /// The principal of `client`, or `None` for a remote connection without
     /// a peer record and any other connection that is not trusted local
     /// (refused, never `user_local`).
     pub(super) fn principal(&self, client: u64) -> Option<Principal> {
-        let _ = client;
-        unimplemented!("red: server-remote-conversations.md policy not implemented yet")
+        if let Some(peer) = self.remote_relay().peer(client) {
+            return Some(Principal::Remote(peer));
+        }
+        if !self.control_clients.is_unix(client) {
+            return None;
+        }
+        Some(match self.bound_conversation_participant(client) {
+            Some(participant) => Principal::Agent(participant),
+            None => Principal::Local,
+        })
     }
 
     /// The conversation principal of `client` as a participant id:
@@ -119,8 +132,12 @@ impl Mux {
     /// not trusted local) gets [`NO_PRINCIPAL`], which names no participant,
     /// so it fails closed and never falls back to `user_local`.
     pub(crate) fn conversation_principal(&self, client: u64) -> String {
-        let bindings = self.bound_conversation_participant(client);
-        bindings.unwrap_or_else(|| crate::conversation_store::LOCAL_USER.to_string())
+        match self.principal(client) {
+            Some(Principal::Local) => crate::conversation_store::LOCAL_USER.to_string(),
+            Some(Principal::Agent(participant)) => participant,
+            Some(Principal::Remote(peer)) => remote_participant(&peer.install),
+            None => NO_PRINCIPAL.to_string(),
+        }
     }
 
     /// Install the pairing records (`cmux server pair`) the owner scope
@@ -142,12 +159,25 @@ pub(super) fn intercept(
     cmd: &Command,
     writer: &MessageWriter,
 ) -> Option<anyhow::Result<Value>> {
-        if !mux.control_clients.is_remote(client) {
-            return None;
-        }
-        let _ = (cmd, writer);
-        None
+    if !mux.control_clients.is_remote(client) {
+        return None;
     }
+    Some(match cmd {
+        Command::Identify => Ok(identify()),
+        Command::SetClientInfo { name, capabilities, .. } => {
+            set_client_info(mux, client, name.clone(), capabilities.clone())
+        }
+        Command::Subscribe { tree_events: None, surface: None } => {
+            conversations::subscribe(mux, client, writer)
+        }
+        Command::ConversationList
+        | Command::ConversationSnapshot(_)
+        | Command::ConversationHistory(_)
+        | Command::ConversationOp(_)
+        | Command::ConversationTyping(_) => return None,
+        _ => Err(denied()),
+    })
+}
 
 /// The remote `identify` reply: protocol version and the conversation
 /// capability only. No socket path, pid, state directory, host name, window
@@ -183,16 +213,33 @@ pub(super) fn redact_response(
     response: Response,
     reason: Option<String>,
 ) -> (Response, Option<String>) {
-        let _ = (mux, client);
-        (response, reason)
+    if response.ok || !mux.control_clients.is_remote(client) {
+        return (response, reason);
     }
+    let code = remote_error_code(reason.as_deref(), response.error.as_deref());
+    let response = Response {
+        id: response.id,
+        ok: false,
+        data: None,
+        error: Some(code.to_string()),
+        error_code: Some(code.to_string()),
+        error_delivery: None,
+    };
+    (response, None)
+}
 
 /// The section 8 mapping of a conversation reject `reason` (or a remote
 /// refusal) to the code a peer sees.
 pub(super) fn remote_error_code(reason: Option<&str>, error: Option<&str>) -> &'static str {
-        let _ = (reason, error);
-        unimplemented!("red: server-remote-conversations.md policy not implemented yet")
+    match reason {
+        Some(reason) if DENIED_REJECT_CODES.contains(&reason) => REMOTE_DENIED,
+        Some(reason) => {
+            KEPT_REJECT_CODES.iter().find(|kept| **kept == reason).copied().unwrap_or(REMOTE_ERROR)
+        }
+        None if error == Some(REMOTE_DENIED) => REMOTE_DENIED,
+        None => REMOTE_ERROR,
     }
+}
 
 #[cfg(all(test, unix))]
 mod tests;

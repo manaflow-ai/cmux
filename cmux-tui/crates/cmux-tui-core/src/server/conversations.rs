@@ -304,6 +304,7 @@ pub(super) fn publish_typing(
 pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
     let BindParams { participant, token } = params;
+    anyhow::ensure!(participant.starts_with("agent_"), "only agent participants bind with a token");
     let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
     anyhow::ensure!(valid, "conversation agent token is not valid for {participant}");
     mux.bind_conversation_principal(client, participant.clone());
@@ -319,6 +320,10 @@ pub(super) fn agent_token(
     anyhow::ensure!(
         mux.conversation_principal(client) == LOCAL_USER,
         "only the local user mints agent tokens"
+    );
+    anyhow::ensure!(
+        params.participant.starts_with("agent_"),
+        "agent tokens are only for agent participants"
     );
     let token = mux.with_conversations(|store| store.mint_agent_token(&params.participant))?;
     // A replaced token also ends the connections bound with the old one.
