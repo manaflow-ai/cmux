@@ -127,7 +127,9 @@ fn actor_of_missing(mux: &Mux, key: &str) -> Option<i64> {
 /// Every mutation the v2 dispatcher commits carries an actor: the user's or
 /// the credential's. A mutation path that builds its `WorkspaceMutation`
 /// without `ParsedResourceRequest::mutation` leaves `actor_json` empty and
-/// fails here (identity.md section 3).
+/// fails here (identity.md section 3). Effectful operations (a create that
+/// starts a terminal, terminal input) record effect receipts instead; their
+/// actor comes with the journal-field change (coordinator decision).
 #[test]
 fn every_dispatcher_mutation_records_its_actor() {
     let mux = Mux::new_for_test("launch-credential-every", crate::SurfaceOptions::default());
@@ -154,7 +156,7 @@ fn every_dispatcher_mutation_records_its_actor() {
         request(
             "workspace.create",
             "dispatch-create",
-            json!({"machine":"current","session":"current","initial_content":"terminal"}),
+            json!({"machine":"current","session":"current","initial_content":"empty"}),
             Some(&credential),
         ),
     );
