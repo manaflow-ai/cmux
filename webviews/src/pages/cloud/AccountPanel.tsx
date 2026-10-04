@@ -5,11 +5,11 @@ import { formatDate } from "./model";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 
-function amount(value: number, limit: number | undefined, unit: string, language: string): string {
+/** "42.5 h" or "42.5 h / 300 h", with the unit from the string table. */
+function amount(value: number, limit: number | undefined, unit: string, t: (key: string) => string, language: string) {
   const number = new Intl.NumberFormat(language, { maximumFractionDigits: 1 });
-  return limit === undefined
-    ? `${number.format(value)} ${unit}`
-    : `${number.format(value)} / ${number.format(limit)} ${unit}`;
+  const text = (n: number) => format(t(unit), { value: number.format(n) });
+  return limit === undefined ? text(value) : `${text(value)} / ${text(limit)}`;
 }
 
 export function AccountPanel({ store, state, strings }: { store: CloudStore; state: CloudState; strings: Strings }) {
@@ -30,8 +30,9 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
           <select
             className="cloud-input cloud-team-select"
             value={auth?.team ?? ""}
-            onChange={(event) => void store.selectTeam(event.target.value)}
+            onChange={(event) => event.target.value && void store.selectTeam(event.target.value)}
           >
+            {!teams.some((team) => team.id === auth?.team) && <option value="">{t(L.team)}</option>}
             {teams.map((team) => (
               <option key={team.id} value={team.id}>
                 {team.name}
@@ -59,11 +60,16 @@ export function AccountPanel({ store, state, strings }: { store: CloudStore; sta
           <h3 className="cloud-subsection-title">{t(L.usage)}</h3>
           <dl className="cloud-fields">
             <dt>{t(L.usagePeriod)}</dt>
-            <dd>{`${formatDate(usage.period_start_ms, language, false)} – ${formatDate(usage.period_end_ms, language, false)}`}</dd>
+            <dd>
+              {format(t(L.usageRange), {
+                start: formatDate(usage.period_start_ms, language, false),
+                end: formatDate(usage.period_end_ms, language, false),
+              })}
+            </dd>
             <dt>{t(L.usageCompute)}</dt>
-            <dd>{amount(usage.compute_hours, usage.compute_hours_limit, "h", language)}</dd>
+            <dd>{amount(usage.compute_hours, usage.compute_hours_limit, L.hours, t, language)}</dd>
             <dt>{t(L.usageStorage)}</dt>
-            <dd>{amount(usage.storage_gb, usage.storage_gb_limit, "GB", language)}</dd>
+            <dd>{amount(usage.storage_gb, usage.storage_gb_limit, L.gigabytes, t, language)}</dd>
           </dl>
         </>
       )}

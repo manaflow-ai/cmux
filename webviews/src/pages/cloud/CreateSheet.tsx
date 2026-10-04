@@ -103,7 +103,7 @@ export function CreateSheet({
         )}
         {draft.error && (
           <p className="cloud-sheet-error" role="alert">
-            {draft.error}
+            {t(L.actionFailed)} <span className="cloud-error-detail">{draft.error}</span>
           </p>
         )}
         <div className="cloud-sheet-actions">

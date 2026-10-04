@@ -15,7 +15,16 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
   const { t } = strings;
   const body = () => {
     if (snap.connection === "disconnected")
-      return <div className="cloud-message cloud-disconnected">{t(L.disconnected)}</div>;
+      return (
+        <div className="cloud-message cloud-disconnected">
+          <p>{t(L.disconnected)}</p>
+          {store.canRetry && (
+            <button type="button" className="cloud-button cloud-retry-button" onClick={() => void store.retry()}>
+              {t(L.retry)}
+            </button>
+          )}
+        </div>
+      );
     if (!snap.auth || (snap.loading && snap.rows.length === 0))
       return <div className="cloud-message cloud-loading">{t(L.loading)}</div>;
     if (!snap.auth.signed_in)
@@ -61,7 +70,14 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
           )}
         </section>
         {selected?.machine && snap.detail?.machine === selected.id ? (
-          <MachineDetailView store={store} row={selected} detail={snap.detail} plan={snap.plan} strings={strings} />
+          <MachineDetailView
+            key={selected.id}
+            store={store}
+            row={selected}
+            detail={snap.detail}
+            plan={snap.plan}
+            strings={strings}
+          />
         ) : (
           <div className="cloud-message cloud-detail-placeholder">{t(L.selectMachine)}</div>
         )}
@@ -76,7 +92,10 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
       </header>
       {snap.error && snap.connection !== "disconnected" && (
         <div className="cloud-error" role="alert">
-          <span>{snap.error}</span>
+          <span className="cloud-error-text">
+            <span>{t(L.actionFailed)}</span>
+            <span className="cloud-error-detail">{snap.error}</span>
+          </span>
           <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
             {t(L.dismissError)}
           </button>

@@ -9,6 +9,7 @@ import {
   applyEvent,
   atMachineLimit,
   defaultSize,
+  normalizeMachine,
   settled,
   visibleRows,
   type IntentKind,
@@ -72,8 +73,11 @@ export class CloudStore {
   private readonly listeners = new Set<() => void>();
   private started = false;
   private unwatch?: () => void;
-  /** Watch events that arrive while the first list is in flight. */
-  private buffered: MachineEvent[] | null = null;
+  /**
+   * Bumped by stop, sign-out, team switch and retry. Every async load captures it and drops its
+   * result (and closes its watch) when it changed, so an old account or team never writes state.
+   */
+  private session = 0;
   readonly detail: DetailReader;
 
   constructor(
@@ -114,33 +118,55 @@ export class CloudStore {
   async start(): Promise<void> {
     if (!this.client || this.started) return;
     this.started = true;
+    const session = ++this.session;
     let auth: AuthStatus;
     try {
       auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
     } catch (error) {
+      if (session !== this.session) return;
       this.started = false;
       this.set({ loading: false, ...failure(error) });
       return;
     }
+    if (session !== this.session) return;
     this.set({ auth, connection: "connected" });
-    if (auth.signed_in) await this.loadSignedIn();
+    if (auth.signed_in) await this.loadSignedIn(session);
     else this.set({ loading: false });
   }
 
   stop(): void {
     this.started = false;
-    this.unwatch?.();
-    this.unwatch = undefined;
-    this.buffered = null;
+    this.endSession();
   }
 
+  get canRetry(): boolean {
+    return this.client !== null;
+  }
+
+  /** After a disconnect: drops the old session and starts again (the localized Retry button). */
+  async retry(): Promise<void> {
+    this.stop();
+    this.set({ connection: this.client ? "connecting" : "disconnected", loading: true, error: undefined });
+    await this.start();
+  }
+
+  /** Sign-in is a native browser flow the host runs as origin user (cloud-app.md section 2). */
   async signIn(): Promise<void> {
     if (!this.client || this.state.connection === "disconnected") return;
+    const session = this.session;
     try {
-      await this.client.call(CloudOps.authSignIn, {});
+      const result = await this.client.call<ActionRunResult | null>(ACTION_RUN, {
+        action: CloudOps.authSignIn,
+        args: {},
+      });
+      if (result?.confirmed === false || session !== this.session) return;
       const auth = await this.client.call<AuthStatus>(CloudOps.authStatus, {});
+      if (session !== this.session) return;
       this.set({ auth, error: undefined });
-      if (auth.signed_in) await this.loadSignedIn();
+      if (auth.signed_in) {
+        const next = this.restartSession();
+        await this.loadSignedIn(next);
+      }
     } catch (error) {
       this.set(failure(error));
     }
@@ -149,27 +175,34 @@ export class CloudStore {
   async signOut(): Promise<void> {
     if (!this.canChange()) return;
     try {
-      await this.client!.call(CloudOps.authSignOut, {});
+      const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
+        action: CloudOps.authSignOut,
+        args: {},
+      });
+      if (result?.confirmed === false) return;
     } catch (error) {
       this.set(failure(error));
       return;
     }
-    this.unwatch?.();
-    this.unwatch = undefined;
+    this.restartSession();
+    void this.detail.load(undefined);
     this.set({ ...signedOutState(), auth: { signed_in: false } });
   }
 
   async selectTeam(team: string): Promise<void> {
     if (!this.canChange() || team === this.state.auth?.team) return;
+    const session = this.restartSession();
+    void this.detail.load(undefined);
+    this.set({ ...signedOutState(), loading: true });
     try {
-      await this.client!.call(CloudOps.teamSelect, { team });
+      await this.client!.call(CloudOps.teamSelect, { team, idempotency_key: this.key() });
       const auth = await this.client!.call<AuthStatus>(CloudOps.authStatus, {});
-      this.unwatch?.();
-      this.unwatch = undefined;
-      this.set({ ...signedOutState(), auth, loading: true });
-      if (auth.signed_in) await this.loadSignedIn();
+      if (session !== this.session) return;
+      this.set({ auth });
+      if (auth.signed_in) await this.loadSignedIn(session);
+      else this.set({ loading: false });
     } catch (error) {
-      this.set(failure(error));
+      if (session === this.session) this.set({ loading: false, ...failure(error) });
     }
   }
 
@@ -205,18 +238,23 @@ export class CloudStore {
 
   async submitCreate(): Promise<void> {
     const draft = this.state.create;
-    if (!draft || draft.submitting || !draft.size || !this.canChange()) return;
+    if (!draft || draft.submitting || !this.canChange()) return;
     if (atMachineLimit(this.state.plan, this.state.machines)) return;
     this.set({ create: { ...draft, submitting: true, error: undefined } });
     const name = draft.name.trim();
     this.pushIntent({ key: draft.key, kind: "create", name });
-    const params: CreateMachineParams = { name, size: draft.size, idempotency_key: draft.key };
+    // No size (the plan did not load): the owner picks its default size.
+    const params: CreateMachineParams = { name, idempotency_key: draft.key };
+    if (draft.size) params.size = draft.size;
     if (draft.snapshot_id) params.snapshot_id = draft.snapshot_id;
+    const session = this.session;
     try {
       const machine = await this.client!.call<CloudMachine>(CloudOps.machineCreate, params);
-      this.updateIntent(draft.key, { result_id: machine.id });
+      if (session !== this.session) return;
+      this.updateIntent(draft.key, { result_id: machine.id, replied: true });
       this.set({ create: undefined });
     } catch (error) {
+      if (session !== this.session) return;
       this.dropIntent(draft.key);
       this.set({ create: { ...draft, submitting: false, error: message(error) }, ...failure(error, false) });
     }
@@ -263,6 +301,7 @@ export class CloudStore {
         args: { machine, idempotency_key: key },
       });
       if (result?.confirmed === false) this.dropIntent(key);
+      else this.replied(key, result);
     } catch (error) {
       this.dropIntent(key);
       this.set(failure(error));
@@ -289,24 +328,47 @@ export class CloudStore {
 
   // Internals.
 
-  private async loadSignedIn(): Promise<void> {
+  private endSession(): void {
+    this.session += 1;
+    this.unwatch?.();
+    this.unwatch = undefined;
+  }
+
+  private restartSession(): number {
+    this.endSession();
+    return this.session;
+  }
+
+  /** Watches, then lists once; events that arrive during the list are merged by revision. */
+  private async loadSignedIn(session: number): Promise<void> {
     const client = this.client!;
-    this.buffered = [];
+    let buffer: MachineEvent[] | null = [];
     try {
+      const unwatch = await client.subscribe<MachineEvent>(CloudOps.machineWatch, (event) => {
+        if (session !== this.session) return;
+        if (buffer) buffer.push(event);
+        else this.onEvent(event);
+      });
+      if (session !== this.session) {
+        unwatch();
+        return;
+      }
       this.unwatch?.();
-      this.unwatch = await client.subscribe<MachineEvent>(CloudOps.machineWatch, (event) => this.onEvent(event));
+      this.unwatch = unwatch;
       const result = await client.call<MachineListResult>(CloudOps.machineList, {});
-      let { machines, revision } = result;
-      for (const event of this.buffered ?? []) {
+      if (session !== this.session) return;
+      let machines = result.machines.map(normalizeMachine);
+      let revision = result.revision;
+      for (const event of buffer) {
         if (event.revision <= revision) continue;
         machines = applyEvent(machines, event);
         revision = event.revision;
       }
-      this.buffered = null;
+      buffer = null;
       this.setMirror(machines, revision, { loading: false, connection: "connected", error: undefined });
     } catch (error) {
-      this.buffered = null;
-      this.set({ loading: false, ...failure(error) });
+      buffer = null;
+      if (session === this.session) this.set({ loading: false, ...failure(error) });
       return;
     }
     const [teams, plan, usage] = await Promise.allSettled([
@@ -314,6 +376,7 @@ export class CloudStore {
       client.call<CloudPlan>(CloudOps.planGet, {}),
       client.call<CloudUsage>(CloudOps.usageGet, {}),
     ]);
+    if (session !== this.session) return;
     this.set({
       teams: teams.status === "fulfilled" ? teams.value : [],
       plan: plan.status === "fulfilled" ? plan.value : undefined,
@@ -322,17 +385,31 @@ export class CloudStore {
   }
 
   private onEvent(event: MachineEvent): void {
-    if (this.buffered) {
-      this.buffered.push(event);
+    // An event proves the owner is reachable again.
+    const patch: Partial<CloudState> = this.state.connection === "disconnected" ? { connection: "connected" } : {};
+    if (event.revision <= this.state.revision) {
+      if (patch.connection) this.set(patch);
       return;
     }
-    if (event.revision <= this.state.revision) return;
-    this.setMirror(applyEvent(this.state.machines, event), event.revision);
+    const target = event.type === "removed" ? event.id : event.machine.id;
+    // The echo of an answered intent: the owner's next event for that machine settles it,
+    // whatever value the owner chose (normalized name, failed status, other size name).
+    const pending = this.state.pending.filter((intent) => !(intent.replied && intent.machine === target));
+    if (pending.length !== this.state.pending.length) this.state = { ...this.state, pending };
+    this.setMirror(applyEvent(this.state.machines, event), event.revision, patch);
+  }
+
+  /** The owner answered an intent. A result revision already in the mirror settles it now. */
+  private replied(key: string, result: unknown): void {
+    const revision = (result as { revision?: unknown } | null)?.revision;
+    if (typeof revision === "number" && revision <= this.state.revision) this.dropIntent(key);
+    else this.updateIntent(key, { replied: true });
   }
 
   private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
     const pending = this.state.pending.filter((intent) => !settled(intent, machines));
     const gone = this.state.selection && !machines.some((machine) => machine.id === this.state.selection);
+    if (gone) void this.detail.load(undefined);
     this.set({
       machines,
       revision,
@@ -354,7 +431,7 @@ export class CloudStore {
     const key = this.key();
     this.pushIntent({ key, kind, machine, ...fields });
     try {
-      await this.client!.call(op, { machine, ...params, idempotency_key: key });
+      this.replied(key, await this.client!.call(op, { machine, ...params, idempotency_key: key }));
     } catch (error) {
       this.dropIntent(key);
       this.set(failure(error));

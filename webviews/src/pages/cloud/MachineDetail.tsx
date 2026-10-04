@@ -30,6 +30,10 @@ export interface DetailProps {
   strings: Strings;
 }
 
+// Stable callback ref: React calls it only when the rename field mounts, so later renders (watch
+// events) do not pull focus back to it.
+const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
+
 export function MachineDetailView({ store, row, detail, plan, strings }: DetailProps) {
   const { t, language } = strings;
   const machine = row.machine!;
@@ -49,17 +53,19 @@ export function MachineDetailView({ store, row, detail, plan, strings }: DetailP
   };
   const stats = detail.stats;
   return (
-    <section className="cloud-detail" aria-label={row.title}>
+    <section className="cloud-detail" aria-labelledby="cloud-detail-title">
       <div className="cloud-detail-header">
         <span className={`cloud-status-dot status-${row.status}${busy ? " pending" : ""}`} aria-hidden="true" />
         {renaming === null ? (
-          <h2 className="cloud-detail-title">{row.title}</h2>
+          <h2 id="cloud-detail-title" className="cloud-detail-title">
+            {row.title}
+          </h2>
         ) : (
           <input
             className="cloud-input cloud-rename-input"
             value={renaming}
             aria-label={t(L.rename)}
-            ref={(node) => node?.focus()}
+            ref={focusOnMount}
             onChange={(event) => setRenaming(event.target.value)}
             onKeyDown={renameKeys}
           />
@@ -138,6 +144,9 @@ export function MachineDetailView({ store, row, detail, plan, strings }: DetailP
               void store.setIdlePolicy(machine.id, event.target.value ? Number(event.target.value) : null)
             }
           >
+            {machine.idle_timeout_seconds && !IDLE_CHOICES.includes(machine.idle_timeout_seconds) && (
+              <option value={machine.idle_timeout_seconds}>{idleLabel(machine.idle_timeout_seconds, t)}</option>
+            )}
             {IDLE_CHOICES.map((seconds) => (
               <option key={String(seconds)} value={seconds ?? ""}>
                 {idleLabel(seconds, t)}
@@ -177,12 +186,12 @@ export function MachineDetailView({ store, row, detail, plan, strings }: DetailP
           <Meter
             label={t(L.statMemory)}
             value={percent(stats.memory_used_mb, stats.memory_total_mb)}
-            text={`${formatMegabytes(stats.memory_used_mb ?? 0, language)} / ${formatMegabytes(stats.memory_total_mb ?? 0, language)}`}
+            text={`${formatMegabytes(stats.memory_used_mb ?? 0, t, language)} / ${formatMegabytes(stats.memory_total_mb ?? 0, t, language)}`}
           />
           <Meter
             label={t(L.statDisk)}
             value={percent(stats.disk_used_mb, stats.disk_total_mb)}
-            text={`${formatMegabytes(stats.disk_used_mb ?? 0, language)} / ${formatMegabytes(stats.disk_total_mb ?? 0, language)}`}
+            text={`${formatMegabytes(stats.disk_used_mb ?? 0, t, language)} / ${formatMegabytes(stats.disk_total_mb ?? 0, t, language)}`}
           />
         </div>
       ) : (
