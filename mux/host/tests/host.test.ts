@@ -62,6 +62,44 @@ describe("daemon client vs the fake daemon", () => {
 });
 
 describe("one Chief conversation", () => {
+  const appUser = { id: USER_LOCAL, kind: "human" as const, display_name: "Old Name" };
+  const oldMux = { id: AGENT_MUX, kind: "agent" as const, display_name: "mux", agent_class: "mux" as const, acp_session: "mux" };
+
+  test("an old install's Home conversation (key home-chief, other title and names) is adopted, not created again", async () => {
+    const w = await setup();
+    const home = w.daemon.createConversation("Home", [appUser, oldMux], "home-chief");
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.conversationIds).toEqual([home]);
+    w.daemon.send(home, USER_LOCAL, "hi");
+    await w.daemon.until(() => muxReplies(w.daemon.messages(home)).length === 1);
+  });
+
+  test("of two conversations with the Chief, the oldest is the Chief conversation (the app uses the same rule)", async () => {
+    const w = await setup();
+    const older = w.daemon.createConversation("mux", [appUser, oldMux], "mux-home-default");
+    w.daemon.createConversation("Chief", [appUser, oldMux], "home-chief");
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.conversationIds.length).toBe(2);
+    w.daemon.send(older, USER_LOCAL, "hi");
+    await w.daemon.until(() => muxReplies(w.daemon.messages(older)).length === 1);
+    expect(w.lines.some((line) => line.includes(older))).toBe(true);
+  });
+
+  test("a create refused as idempotency_conflict lists again, adopts by the same rule and logs the mismatch", async () => {
+    const w = await setup();
+    const home = w.daemon.createConversation("Home", [appUser, oldMux], "home-chief");
+    w.daemon.hideOnceFromList.add(home);
+    const host = w.host();
+    host.start();
+    await host.ready;
+    expect(w.daemon.conversationIds).toEqual([home]);
+    expect(w.lines.some((line) => line.includes("idempotency_conflict"))).toBe(true);
+  });
+
   test("the app's Home Chief conversation (key home-chief) is the Chief's default: no second conversation", async () => {
     const w = await setup();
     const chief = w.daemon.createConversation(

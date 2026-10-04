@@ -7,7 +7,7 @@
 import type { AcpmuxEvent, SessionSummary } from "../src/core/acp.ts";
 import { AGENT_MUX, type Message, type Participant, type Summary, USER_LOCAL } from "../src/core/conversation.ts";
 import { Core, type Effect, type Input } from "../src/core/core.ts";
-import { CORPUS_FORMAT, type Corpus, corpusRules, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
+import { CORPUS_FORMAT, type Corpus, corpusRules, type SelectionCase, type CorpusCase, type CorpusStep, type MemoryCase, type MemoryFunction, memoryResult, plain } from "../src/core/corpus.ts";
 import { PARENT_TAG } from "../src/core/rules.ts";
 import { type ChildRecord, type HostStateData, loadState } from "../src/core/state.ts";
 
@@ -1121,6 +1121,23 @@ function promptRetryCases(): CorpusCase[] {
   }
 
   {
+    // Acceptance seen in the attach replay belongs to the old connection (acpmux dropped its
+    // queue with it); the connect resends the prompt, and a refusal of that resend retries.
+    const c = new CaseBuilder("prompts: a prompt accepted only in the attach replay and refused after the resend retries on the clock", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      prompts: { m_conv_a_1: { conversation: "conv_a", text: "[conversation conv_a from Me] hi", seq: 1, order: 1 } },
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a", [ME, MUX], 1) }, []);
+    c.step(
+      { kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [ev(1, "turn_started"), ev(2, "queued", { promptId: "m_conv_a_1" })] },
+      ["typing", "prompt", "list_conversations"],
+    );
+    c.step({ kind: "prompt_settled", prompt_id: "m_conv_a_1", rejected: true, error: "busy" } as Input, ["arm_timer"]);
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("prompts: an empty refusal text reads as refused");
     boot(c);
     const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
@@ -1770,6 +1787,22 @@ export const NOTES = [
   "A connected input while that port is up counts as a disconnect first. A child's session_changed inputs wait behind its pending finish (fetch_child_events) and are replayed in order.",
 ];
 
+/** The Chief conversation rule: the oldest local conversation with agent_mux (created_at, then id). */
+function selectionCases(): SelectionCase[] {
+  const at = (iso: string, id: string, participants: Participant[] = [ME, MUX], owner = "local"): Summary => ({ ...summary(id, participants), owner, created_at: iso, updated_at: iso });
+  return [
+    { name: "none: create home-chief", conversations: [], selected: null },
+    { name: "no conversation with the Chief: create home-chief", conversations: [at("2026-10-01T00:00:00.000Z", "conv_b", [ME, ANA])], selected: null },
+    {
+      name: "the oldest conversation with the Chief, whatever its title or list order",
+      conversations: [at("2026-10-02T00:00:00.000Z", "conv_new"), at("2026-10-01T00:00:00.000Z", "conv_old"), at("2026-09-30T00:00:00.000Z", "conv_ana", [ME, ANA])],
+      selected: "conv_old",
+    },
+    { name: "a tie in created_at goes to the smaller id", conversations: [at("2026-10-01T00:00:00.000Z", "conv_z"), at("2026-10-01T00:00:00.000Z", "conv_a")], selected: "conv_a" },
+    { name: "a conversation another owner holds is not the local Chief's", conversations: [at("2026-09-01T00:00:00.000Z", "conv_cloud", [ME, MUX], "cloud"), at("2026-10-01T00:00:00.000Z", "conv_local")], selected: "conv_local" },
+  ];
+}
+
 export async function buildCorpus(): Promise<Corpus> {
   const cases = [...wakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...promptRetryCases(), ...outboxCases(), ...childCases()];
   const names = new Set<string>();
@@ -1779,5 +1812,5 @@ export async function buildCorpus(): Promise<Corpus> {
   }
   const memory = await memoryCases();
   checkMemory(memory);
-  return { format: CORPUS_FORMAT, notes: NOTES, rules: corpusRules(), cases, memory };
+  return { format: CORPUS_FORMAT, notes: NOTES, rules: corpusRules(), selection: selectionCases(), cases, memory };
 }

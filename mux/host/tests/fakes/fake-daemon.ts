@@ -38,6 +38,10 @@ export class FakeDaemon {
   private readonly subscribers = new Set<Socket>();
   private readonly conversations = new Map<string, Conversation>();
   private readonly createKeys = new Map<string, string>();
+  /** createKey -> the request fingerprint of its first create. */
+  private readonly createFingerprints = new Map<string, string>();
+  /** Conversation ids the next conversation-list leaves out (a create race in tests). */
+  readonly hideOnceFromList = new Set<string>();
   private nextConv = 1;
   private nextMsg = 1;
   private listeners: (() => void)[] = [];
@@ -181,12 +185,16 @@ export class FakeDaemon {
     switch (request.cmd) {
       case "identify":
         return { app: "fake-daemon", version: "0.0.0", protocol: 2, capabilities: this.capabilities, session: "test", pid: process.pid };
-      case "conversation-list":
+      case "conversation-list": {
+        const hidden = new Set(this.hideOnceFromList);
+        this.hideOnceFromList.clear();
         return {
           conversations: [...this.conversations.values()]
             .map((c) => c.summary)
+            .filter((s) => !hidden.has(s.id))
             .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
         };
+      }
       case "conversation-create":
         return this.create(request);
       case "conversation-snapshot": {
@@ -226,8 +234,14 @@ export class FakeDaemon {
 
   private create(request: Request): unknown {
     const key = String(request.idempotency_key);
+    // The owner fingerprints {actor, title, participants} per key (conversation_store.rs create).
+    const fingerprint = JSON.stringify({ actor: request.actor, title: request.title, participants: request.participants });
     const existing = this.createKeys.get(key);
-    if (existing) return { conversation: this.get(existing).summary, replayed: true };
+    if (existing) {
+      if (this.createFingerprints.get(key) !== fingerprint) throw new Reject("idempotency_conflict");
+      return { conversation: this.get(existing).summary, replayed: true };
+    }
+    this.createFingerprints.set(key, fingerprint);
     const now = new Date().toISOString();
     // Owner-assigned ids are unique across daemon restarts (a counter plus a random tail).
     const id = `conv_${String(this.nextConv++).padStart(4, "0")}${randomTail(22)}`;

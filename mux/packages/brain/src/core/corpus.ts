@@ -3,7 +3,8 @@ import { Core, type Effect, type Input } from "./core.ts";
 import type { HostStateData } from "./state.ts";
 import { plain } from "./text.ts";
 import { AGENT_MUX, USER_LOCAL } from "./conversation.ts";
-import { CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME } from "./rules.ts";
+import { CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME, selectChiefConversation } from "./rules.ts";
+import type { Summary } from "./conversation.ts";
 
 export { plain };
 
@@ -39,6 +40,12 @@ export interface CorpusCase {
 
 export type MemoryFunction = "to_lines" | "decompose" | "wake_cover" | "wake" | "zoom";
 
+export interface SelectionCase {
+  name: string;
+  conversations: Summary[];
+  selected: string | null;
+}
+
 export interface MemoryCase {
   name: string;
   fn: MemoryFunction;
@@ -55,6 +62,8 @@ export interface Corpus {
    * conversation, decision c), the session name and the participant ids.
    */
   rules?: Record<string, string>;
+  /** The Chief conversation rule (rules.ts selectChiefConversation): a list and the id it selects (null: create home-chief). */
+  selection?: SelectionCase[];
   cases: CorpusCase[];
   memory: MemoryCase[];
 }
@@ -148,6 +157,10 @@ export async function runMemoryCase(c: MemoryCase): Promise<string | undefined> 
 export async function runCorpus(corpus: Corpus): Promise<string[]> {
   if (corpus.format !== CORPUS_FORMAT) return [`format ${corpus.format} is not ${CORPUS_FORMAT}`];
   const failures: string[] = [];
+  for (const c of corpus.selection ?? []) {
+    const got = selectChiefConversation(c.conversations)?.id ?? null;
+    if (got !== c.selected) failures.push(`${c.name}: selects ${got}, want ${c.selected}`);
+  }
   if (!jsonEqual(corpus.rules, corpusRules())) failures.push(`rules differ: want ${JSON.stringify(corpus.rules)} got ${JSON.stringify(corpusRules())}`);
   for (const c of corpus.cases) {
     const failure = runCase(c);
