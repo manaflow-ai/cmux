@@ -114,6 +114,7 @@ private extension View {
     @ViewBuilder
     func cloudWelcomeGlassPanel(cornerRadius: CGFloat) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             self.glassEffect(.regular, in: shape)
         } else {
@@ -121,5 +122,10 @@ private extension View {
                 .background(shape.fill(Color.primary.opacity(0.06)))
                 .overlay(shape.strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.5))
         }
+        #else
+        self
+            .background(shape.fill(Color.primary.opacity(0.06)))
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.14), lineWidth: 0.5))
+        #endif
     }
 }

@@ -10,6 +10,10 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     static let seenDefaultsKey = "cmux.cloud.welcome.seen"
 
     private var window: NSWindow?
+    /// Launch presentation is considered once, at the first main window. A
+    /// window opened later (Cmd+N an hour in) must not pop the welcome up just
+    /// because remote flags arrived since; an unseen welcome waits for next launch.
+    private var didConsiderLaunchPresentation = false
 
     /// Cloud has to be offered on this Mac and still be off; `seen` makes it once.
     nonisolated static func shouldPresentAutomatically(
@@ -23,6 +27,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
     /// Presents at launch when it applies, and marks it seen on the way so a
     /// quit or crash while it is open does not show it again.
     func presentIfNeeded(over parent: NSWindow?, defaults: UserDefaults = .standard) {
+        guard !didConsiderLaunchPresentation else { return }
+        didConsiderLaunchPresentation = true
         guard Self.shouldPresentAutomatically(
             seen: defaults.bool(forKey: Self.seenDefaultsKey),
             cloudAvailable: CloudMachinesFeature.isAvailable,
@@ -66,6 +72,8 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
         window.backgroundColor = .clear
         window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
         window.standardWindowButton(.zoomButton)?.isEnabled = false
+        window.contentView = hosting
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             // The window is the glass: content goes inside it, edge to edge, and the
             // window's own frame rounds the corners.
@@ -73,9 +81,11 @@ final class CloudWelcomeWindowController: NSObject, NSWindowDelegate {
             glass.style = .regular
             glass.contentView = hosting
             window.contentView = glass
-        } else {
-            window.contentView = hosting
         }
+        #endif
+        // Size from the hosted view once it is in the window, so nothing clips.
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.setContentSize(hosting.fittingSize)
         window.delegate = self
         return window
     }

@@ -25,10 +25,10 @@ enum CloudMachinesEnablementPhase: Equatable {
 /// untouched after ``CloudActivationCoordinator/State/enabled`` and gives
 /// every setup outcome a recoverable action where one exists.
 ///
-/// Before setup starts (Enable for Pro, Upgrade for Free) it reads like the
-/// welcome window: a preview built from the Cloud tree's own rows, a bold
-/// title, the three reasons, one capsule action and the plan note. Every other
-/// outcome is a centered status: symbol, title, one line, its action.
+/// Before setup starts (Enable for Pro, Upgrade for Free) it introduces Cloud:
+/// the app icon with a Cloud badge, a title for the plan, four reasons, one
+/// action and the plan note. Every other outcome is a centered status: symbol,
+/// title, one line, its action.
 ///
 /// The screen paints the panel's opaque chrome color. The right sidebar's
 /// backdrop is a behind-window material (or the translucent window fill when
@@ -64,7 +64,7 @@ struct CloudMachinesEnablementView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     if isIntroduction {
-                        CloudMachinesEnablementBanner()
+                        CloudMachinesEnablementBanner(ringColor: chromeBackgroundColor)
                     }
                     content
                         .padding(.horizontal, 20)
@@ -381,20 +381,17 @@ struct CloudMachinesEnablementView: View {
         }
     }
 
-    /// The welcome window's buttons: large capsules, the primary one blue even
-    /// in an inactive window.
+    /// Large buttons, the primary one blue even in an inactive window.
     @ViewBuilder
     private func actionButton(
         _ label: String,
         prominent: Bool,
-        fullWidth: Bool = false,
         identifier: String,
         action: @escaping () -> Void
     ) -> some View {
         let button = Button(action: action) {
             Text(label)
-                .padding(.horizontal, fullWidth ? 0 : 6)
-                .frame(maxWidth: fullWidth ? .infinity : nil)
+                .padding(.horizontal, 6)
         }
         // No shape here: the right sidebar gives every button its 6pt radius
         // (rightSidebarButtonBorderShape on the panel).
@@ -423,6 +420,9 @@ extension View {
 /// The top of the introduction: the app's icon with a Cloud badge, straight on
 /// the sidebar background.
 private struct CloudMachinesEnablementBanner: View {
+    /// The screen's background, so the badge's ring reads as a cut-out.
+    let ringColor: NSColor
+
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             Image(nsImage: NSApp.applicationIconImage)
@@ -433,7 +433,7 @@ private struct CloudMachinesEnablementBanner: View {
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(Color.accentColor))
-                .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 2.5))
+                .overlay(Circle().strokeBorder(Color(nsColor: ringColor), lineWidth: 2.5))
                 .offset(x: 6, y: 4)
         }
         .frame(maxWidth: .infinity)

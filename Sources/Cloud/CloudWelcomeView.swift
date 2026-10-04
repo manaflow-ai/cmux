@@ -46,6 +46,9 @@ struct CloudWelcomeView: View {
         }
         .frame(width: Self.windowWidth)
         .background(windowBackground)
+        // The title row clears the traffic lights with its own padding; without
+        // this the titlebar inset would push the content down and clip the footer.
+        .ignoresSafeArea()
         .accessibilityIdentifier("CloudWelcomeWindow")
     }
 
@@ -56,12 +59,15 @@ struct CloudWelcomeView: View {
     /// window edge, and a ghost of the title). Earlier macOS gets the window material.
     @ViewBuilder
     private var windowBackground: some View {
+        #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             Color.clear
         } else {
             CloudWelcomeVisualEffect()
-                .ignoresSafeArea()
         }
+        #else
+        CloudWelcomeVisualEffect()
+        #endif
     }
 
     private var panel: some View {
@@ -128,7 +134,7 @@ struct CloudWelcomeView: View {
             HStack(alignment: .center, spacing: 10) {
                 Text(verbatim: "cmux cloud")
                     .cmuxFont(size: 30, weight: .bold)
-                Text(String(localized: "cloud.welcome.newBadge", defaultValue: "New").lowercased())
+                Text(String(localized: "cloud.welcome.newBadge", defaultValue: "New").lowercased(with: .current))
                     .cmuxFont(size: 12, weight: .medium)
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 8)
@@ -170,7 +176,8 @@ struct CloudWelcomeView: View {
             .buttonBorderShape(.capsule)
             .controlSize(.large)
             .environment(\.controlActiveState, .key)
-            .keyboardShortcut(.defaultAction)
+            // No Return shortcut: the window appears on its own at launch, and a
+            // Return meant for the terminal must not enable Cloud or open pricing.
             .accessibilityIdentifier("CloudWelcomePrimaryButton")
         }
     }
