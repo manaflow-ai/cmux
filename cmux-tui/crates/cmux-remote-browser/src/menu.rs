@@ -86,8 +86,45 @@ impl Default for MenuTokens {
 impl MenuTokens {
     /// Applies one input. On a reject the state is unchanged.
     pub fn apply(&mut self, input: MenuInput) -> Result<MenuOutcome, MenuReject> {
-        let out = MenuOutcome::default();
-        let _ = input;
+        let mut out = MenuOutcome::default();
+        match input {
+            MenuInput::Show { kind, item_ids, item_count, multiple } => {
+                if let Some(old) = self.open.take() {
+                    out.effects.push(MenuEffect::ChromeCancel { token: old.token });
+                    out.effects.push(MenuEffect::ViewerCancel { token: old.token });
+                }
+                let token = self.next_token;
+                self.next_token += 1;
+                self.open = Some(OpenMenu { token, kind, item_ids, item_count, multiple });
+                out.effects.push(MenuEffect::ViewerShow { token });
+            }
+            MenuInput::Result { token, choice } => match &self.open {
+                Some(open) if open.token == token => {
+                    if !choice_is_valid(open, &choice) {
+                        return Err(MenuReject::InvalidChoice);
+                    }
+                    self.open = None;
+                    out.effects.push(MenuEffect::ChromeContinue { token, choice });
+                }
+                _ if token != 0 && token < self.next_token => out.note = Some(MenuNote::Duplicate),
+                _ => return Err(MenuReject::UnknownToken),
+            },
+            MenuInput::PageCancel { token } => match &self.open {
+                Some(open) if open.token == token => {
+                    self.open = None;
+                    out.effects.push(MenuEffect::ViewerCancel { token });
+                }
+                _ => out.note = Some(MenuNote::Stale),
+            },
+            MenuInput::ViewerGone => {
+                if let Some(open) = self.open.take() {
+                    out.effects.push(MenuEffect::ChromeContinue {
+                        token: open.token,
+                        choice: MenuChoice::Cancel,
+                    });
+                }
+            }
+        }
         Ok(out)
     }
 }

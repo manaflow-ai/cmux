@@ -78,7 +78,12 @@ pub struct Session {
 
 impl Default for Session {
     fn default() -> Self {
-        Self { state: SessionState::Idle, viewers: BTreeMap::new(), applied: None, capturing: false }
+        Self {
+            state: SessionState::Idle,
+            viewers: BTreeMap::new(),
+            applied: None,
+            capturing: false,
+        }
     }
 }
 
@@ -88,15 +93,13 @@ impl Session {
     /// largest scale. `None` without viewers.
     pub fn canonical_screen(&self) -> Option<ScreenSize> {
         let any_visible = self.viewers.values().any(|v| v.visible);
-        self.viewers
-            .values()
-            .filter(|v| v.visible || !any_visible)
-            .map(|v| v.screen)
-            .reduce(|a, b| ScreenSize {
+        self.viewers.values().filter(|v| v.visible || !any_visible).map(|v| v.screen).reduce(
+            |a, b| ScreenSize {
                 css_width: a.css_width.min(b.css_width),
                 css_height: a.css_height.min(b.css_height),
                 scale: a.scale.max(b.scale),
-            })
+            },
+        )
     }
 
     fn any_visible(&self) -> bool {
@@ -144,8 +147,13 @@ impl Session {
 
     /// Applies one input. On a reject the session is unchanged.
     pub fn apply(&mut self, input: SessionInput) -> Result<Vec<SessionEffect>, SessionReject> {
-        let _ = input;
-        Ok(Vec::new())
+        if self.state == SessionState::Closed {
+            return Err(SessionReject::Closed);
+        }
+        let mut next = self.clone();
+        let effects = next.step(input)?;
+        *self = next;
+        Ok(effects)
     }
 
     fn step(&mut self, input: SessionInput) -> Result<Vec<SessionEffect>, SessionReject> {
@@ -180,7 +188,8 @@ impl Session {
                 }
             }
             SessionInput::Visibility { viewer, visible } => {
-                self.viewers.get_mut(&viewer).ok_or(SessionReject::UnknownViewer)?.visible = visible;
+                self.viewers.get_mut(&viewer).ok_or(SessionReject::UnknownViewer)?.visible =
+                    visible;
                 self.push_screen_if_changed(&mut effects);
                 self.follow_visibility(&mut effects);
             }

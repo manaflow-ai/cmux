@@ -65,6 +65,38 @@ pub fn resolve(
     remote: Option<&CookieVersion>,
     ctx: &SyncContext,
 ) -> SyncOutcome {
-    let _ = (local, remote, ctx);
-    SyncOutcome::NoopEqual
+    if !ctx.granted_sites.iter().any(|s| s == &ctx.site) {
+        return SyncOutcome::DropNotGranted;
+    }
+    let l = normalize(local, ctx.now_us);
+    let r = normalize(remote, ctx.now_us);
+    let equal = match (&l, &r) {
+        (None, None) => true,
+        (Some(a), None) | (None, Some(a)) => a.deleted,
+        (Some(a), Some(b)) => {
+            a.deleted == b.deleted && (a.deleted || a.version.value == b.version.value)
+        }
+    };
+    if equal {
+        return SyncOutcome::NoopEqual;
+    }
+    if ctx.phase == SyncPhase::Initial && live(&l) && live(&r) {
+        return SyncOutcome::Prompt;
+    }
+    match (&l, &r) {
+        (Some(_), None) => SyncOutcome::KeepLocal,
+        (None, Some(_)) => SyncOutcome::TakeRemote,
+        (Some(a), Some(b)) => {
+            let key = |n: &Norm<'_>| {
+                (
+                    n.version.last_update_us,
+                    n.version.origin.clone(),
+                    n.deleted,
+                    n.version.value.clone(),
+                )
+            };
+            if key(b) > key(a) { SyncOutcome::TakeRemote } else { SyncOutcome::KeepLocal }
+        }
+        (None, None) => SyncOutcome::NoopEqual,
+    }
 }

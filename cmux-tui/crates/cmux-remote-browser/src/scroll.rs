@@ -68,12 +68,62 @@ pub enum ScrollReject {
 impl Scroller {
     /// Applies one input. On a reject the state is unchanged.
     pub fn apply(&mut self, input: ScrollInput) -> Result<Vec<ScrollEffect>, ScrollReject> {
-        let effects = Vec::new();
-        let _ = input;
+        let mut effects = Vec::new();
+        match input {
+            ScrollInput::Claim { gesture } => self.writer = Writer::Client { gesture },
+            ScrollInput::Update { gesture, offset } => {
+                self.require_writer(gesture)?;
+                self.offset = self.clamp(offset);
+                effects.push(ScrollEffect::ApplyToPage { offset: self.offset });
+            }
+            ScrollInput::Release { gesture, offset } => {
+                self.require_writer(gesture)?;
+                self.writer = Writer::Server;
+                self.offset = self.clamp(offset);
+                if let Some(pending) = self.pending.take() {
+                    self.offset = self.clamp(pending);
+                    self.seq += 1;
+                    effects.push(ScrollEffect::ApplyToPage { offset: self.offset });
+                    effects.push(ScrollEffect::SendOffset { offset: self.offset, seq: self.seq });
+                } else {
+                    effects.push(ScrollEffect::ApplyToPage { offset: self.offset });
+                }
+            }
+            ScrollInput::Programmatic { offset } => match self.writer {
+                Writer::Server => {
+                    self.offset = self.clamp(offset);
+                    self.seq += 1;
+                    effects.push(ScrollEffect::SendOffset { offset: self.offset, seq: self.seq });
+                }
+                Writer::Client { .. } => self.pending = Some(offset),
+            },
+            ScrollInput::Extent { max } => {
+                self.max = max.max(0.0);
+                let clamped = self.clamp(self.offset);
+                let changed = clamped != self.offset;
+                self.offset = clamped;
+                self.pending = self.pending.map(|p| self.clamp(p));
+                match self.writer {
+                    Writer::Server if changed => {
+                        self.seq += 1;
+                        effects
+                            .push(ScrollEffect::SendOffset { offset: self.offset, seq: self.seq });
+                    }
+                    Writer::Server => {}
+                    Writer::Client { .. } => {
+                        effects.push(ScrollEffect::SendExtent { max: self.max });
+                    }
+                }
+            }
+        }
         Ok(effects)
     }
 
     fn require_writer(&self, gesture: u32) -> Result<(), ScrollReject> {
-        if self.writer == (Writer::Client { gesture }) { Ok(()) } else { Err(ScrollReject::NotWriter) }
+        if self.writer == (Writer::Client { gesture }) {
+            Ok(())
+        } else {
+            Err(ScrollReject::NotWriter)
+        }
     }
 }
