@@ -12,10 +12,20 @@ public import Foundation
 /// default, cookies for every URL), `same-origin` (only for URLs on the
 /// requesting page's origin) and `omit` (none sent, none stored). The
 /// session's domain policy is checked for the first URL and for every
-/// redirect hop. A body larger than `maxBodyBytes` fails the fetch.
+/// redirect hop. A body larger than `maxBodyBytes` fails the fetch, and so
+/// does a body that would take the bodies all of the fetcher's requests
+/// hold at once past its `BrowserReplFetchBudget`. A fetch that has not
+/// finished after `resourceTimeout` fails, so a body that never ends (an
+/// event stream) cannot hold its connection for good.
 public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     /// The largest response body a fetch returns, 64 MiB.
     public static let defaultMaxBodyBytes = 64 << 20
+
+    /// The most response body bytes one fetcher's requests hold at once, 128 MiB.
+    public static let defaultMaxBufferedBytes = 128 << 20
+
+    /// The longest a fetch may take from start to its last byte, 10 minutes.
+    public static let resourceTimeout: TimeInterval = 600
 
     private struct TaskInfo {
         let targetID: String?
@@ -26,6 +36,9 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
 
     private let driver: any BrowserReplDriver
     private let maxBodyBytes: Int
+    /// The bytes of the bodies this fetcher's requests hold, received and
+    /// not yet released.
+    public let bodyBudget: BrowserReplFetchBudget
     private var session: URLSession!
     private let lock = NSLock()
     private var tasks: [Int: TaskInfo] = [:]
@@ -36,16 +49,24 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
 
     /// - Parameters:
     ///   - maxBodyBytes: The largest body returned.
+    ///   - maxBufferedBytes: The most body bytes all requests hold at once.
     ///   - protocolClasses: URL protocols to try first (tests stub the network).
-    public init(driver: any BrowserReplDriver, maxBodyBytes: Int = defaultMaxBodyBytes, protocolClasses: [AnyClass]? = nil) {
+    public init(
+        driver: any BrowserReplDriver,
+        maxBodyBytes: Int = defaultMaxBodyBytes,
+        maxBufferedBytes: Int = defaultMaxBufferedBytes,
+        protocolClasses: [AnyClass]? = nil
+    ) {
         self.driver = driver
         self.maxBodyBytes = maxBodyBytes
+        self.bodyBudget = BrowserReplFetchBudget(limit: maxBufferedBytes)
         super.init()
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = Self.resourceTimeout
         if let protocolClasses {
             configuration.protocolClasses = protocolClasses + (configuration.protocolClasses ?? [])
         }
@@ -81,19 +102,32 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     /// credentials?: "include" | "same-origin" | "omit", origin? }`, where
     /// `origin` is the requesting page's origin for `same-origin`.
     public func fetch(requestJSON: String) async -> Result<String, BrowserReplDriverError> {
+        let (result, held) = await fetchHoldingBody(requestJSON: requestJSON, onResponse: nil)
+        bodyBudget.release(held)
+        return result
+    }
+
+    /// Performs one request like ``fetch(requestJSON:)``, but the returned
+    /// body's bytes stay counted in ``bodyBudget`` until the caller releases
+    /// `heldBytes` (once the body has left its hands). `onResponse` runs
+    /// once the final response's headers arrived, before its body.
+    func fetchHoldingBody(
+        requestJSON: String,
+        onResponse: (@Sendable () -> Void)?
+    ) async -> (result: Result<String, BrowserReplDriverError>, heldBytes: Int) {
         let request = JSONSerialization.browserReplObject(requestJSON)
         guard let urlString = request["url"] as? String,
               let url = URL(string: urlString),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else {
-            return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: only http(s) URLs are supported"))
+            return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: only http(s) URLs are supported")), 0)
         }
         if let reason = reason(url) {
-            return .failure(BrowserReplDriverError(code: "blocked", message: "fetch: \(urlString) is blocked: \(reason)"))
+            return (.failure(BrowserReplDriverError(code: "blocked", message: "fetch: \(urlString) is blocked: \(reason)")), 0)
         }
         let credentials = request["credentials"] as? String ?? "include"
         guard ["include", "same-origin", "omit"].contains(credentials) else {
-            return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: credentials: expected include, same-origin or omit, got \(credentials)"))
+            return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: credentials: expected include, same-origin or omit, got \(credentials)")), 0)
         }
         let info = TaskInfo(targetID: request["targetId"] as? String, credentials: credentials, origin: request["origin"] as? String)
         var urlRequest = URLRequest(url: url)
@@ -118,11 +152,12 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             tasks[task.taskIdentifier] = info
             return task
         }
-        guard let task = created else { return .failure(Self.closedError) }
+        guard let task = created else { return (.failure(Self.closedError), 0) }
         do {
-            let (data, response) = try await data(for: task)
+            let (data, response) = try await data(for: task, onResponse: onResponse)
             guard let http = response as? HTTPURLResponse else {
-                return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: non-HTTP response"))
+                bodyBudget.release(data.count)
+                return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch: non-HTTP response")), 0)
             }
             if Self.sendsCookies(info, to: http.url ?? url) {
                 await storeCookies(from: http, targetID: info.targetID)
@@ -139,12 +174,18 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
                 "bodyBase64": data.base64EncodedString(),
                 "redirected": http.url != url,
             ]
-            return .success(JSONSerialization.browserReplString(result) ?? "null")
+            return (.success(JSONSerialization.browserReplString(result) ?? "null"), data.count)
         } catch let error as BrowserReplDriverError {
-            return .failure(error)
+            return (.failure(error), 0)
         } catch {
-            if lock.withLock({ isInvalidated }) { return .failure(Self.closedError) }
-            return .failure(BrowserReplDriverError(code: "invalid", message: "fetch failed: \(error.localizedDescription)"))
+            if lock.withLock({ isInvalidated }) { return (.failure(Self.closedError), 0) }
+            if (error as? URLError)?.code == .timedOut {
+                return (.failure(BrowserReplDriverError(
+                    code: "timeout",
+                    message: "fetch: \(urlString) timed out (a fetch may take at most \(Int(Self.resourceTimeout)) s, and wait at most 60 s for data)"
+                )), 0)
+            }
+            return (.failure(BrowserReplDriverError(code: "invalid", message: "fetch failed: \(error.localizedDescription)")), 0)
         }
     }
 
@@ -163,8 +204,8 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         }
     }
 
-    private func data(for task: URLSessionDataTask) async throws -> (Data, URLResponse) {
-        let collector = FetchCollector(limit: maxBodyBytes)
+    private func data(for task: URLSessionDataTask, onResponse: (@Sendable () -> Void)?) async throws -> (Data, URLResponse) {
+        let collector = FetchCollector(limit: maxBodyBytes, budget: bodyBudget, onResponse: onResponse)
         lock.withLock { collectors[task.taskIdentifier] = collector }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -182,6 +223,16 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         lock.lock()
         defer { lock.unlock() }
         return collectors[task.taskIdentifier]
+    }
+
+    public func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+    ) {
+        collector(for: dataTask)?.responseArrived()
+        completionHandler(.allow)
     }
 
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
@@ -265,59 +316,135 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     }
 }
 
-private final class FetchCollector: @unchecked Sendable {
+/// The bytes of response bodies a fetcher's requests hold at once.
+///
+/// A fetch reserves each chunk as it arrives and fails when the total
+/// would pass `limit`; the bytes go back when the fetch fails or the
+/// holder of its body releases them.
+public final class BrowserReplFetchBudget: @unchecked Sendable {
+    /// The most bytes held at once.
+    public let limit: Int
     private let lock = NSLock()
-    private var data = Data()
-    private let limit: Int
-    private var tooLarge = false
-    var continuation: CheckedContinuation<(Data, URLResponse), any Error>?
+    private var used = 0
 
-    init(limit: Int) {
+    public init(limit: Int) {
         self.limit = limit
     }
 
-    /// Appends a chunk; false once the body is over the limit.
+    /// The bytes held now.
+    public var heldBytes: Int { lock.withLock { used } }
+
+    /// Takes `count` bytes; false, taking nothing, past the limit.
+    func reserve(_ count: Int) -> Bool {
+        lock.withLock {
+            guard used + count <= limit else { return false }
+            used += count
+            return true
+        }
+    }
+
+    /// Gives back `count` bytes.
+    public func release(_ count: Int) {
+        guard count > 0 else { return }
+        lock.withLock { used = max(0, used - count) }
+    }
+
+    static func describe(_ bytes: Int) -> String {
+        bytes >= 1 << 20 ? "\(bytes >> 20) MiB" : "\(bytes) bytes"
+    }
+}
+
+private final class FetchCollector: @unchecked Sendable {
+    private enum Overflow {
+        case body
+        case budget
+    }
+
+    private let lock = NSLock()
+    private var data = Data()
+    private let limit: Int
+    private let budget: BrowserReplFetchBudget
+    private var overflow: Overflow?
+    private var onResponse: (@Sendable () -> Void)?
+    var continuation: CheckedContinuation<(Data, URLResponse), any Error>?
+
+    init(limit: Int, budget: BrowserReplFetchBudget, onResponse: (@Sendable () -> Void)?) {
+        self.limit = limit
+        self.budget = budget
+        self.onResponse = onResponse
+    }
+
+    /// The final response's headers arrived; runs `onResponse` once.
+    func responseArrived() {
+        let callback: (@Sendable () -> Void)? = lock.withLock {
+            defer { onResponse = nil }
+            return onResponse
+        }
+        callback?()
+    }
+
+    /// Appends a chunk; false once the body is over the limit or the budget.
     func append(_ chunk: Data) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard !tooLarge else { return false }
+        guard overflow == nil else { return false }
         if data.count + chunk.count > limit {
-            tooLarge = true
-            data = Data()
-            return false
+            overflow = .body
+        } else if !budget.reserve(chunk.count) {
+            overflow = .budget
+        } else {
+            data.append(chunk)
+            return true
         }
-        data.append(chunk)
-        return true
+        budget.release(data.count)
+        data = Data()
+        return false
     }
 
-    func fail(_ error: any Error) {
+    /// Ends the fetch without a body; the bytes it held go back.
+    private func takeForFailure() -> CheckedContinuation<(Data, URLResponse), any Error>? {
         lock.lock()
         let continuation = self.continuation
         self.continuation = nil
+        budget.release(data.count)
+        data = Data()
         lock.unlock()
-        continuation?.resume(throwing: error)
+        return continuation
+    }
+
+    func fail(_ error: any Error) {
+        takeForFailure()?.resume(throwing: error)
     }
 
     func finish(response: URLResponse?, error: (any Error)?) {
         lock.lock()
-        let continuation = self.continuation
-        self.continuation = nil
-        let body = data
-        let tooLarge = self.tooLarge
-        let limit = self.limit
+        let overflow = self.overflow
         lock.unlock()
-        if tooLarge {
-            let mebibytes = limit >= 1 << 20 ? "\(limit >> 20) MiB" : "\(limit) bytes"
-            continuation?.resume(throwing: BrowserReplDriverError(
+        switch overflow {
+        case .body?:
+            takeForFailure()?.resume(throwing: BrowserReplDriverError(
                 code: "invalid",
-                message: "fetch: the response body is larger than \(mebibytes); download it in a tab (page.waitForEvent(\"download\")) instead"
+                message: "fetch: the response body is larger than \(BrowserReplFetchBudget.describe(limit)); download it in a tab (page.waitForEvent(\"download\")) instead"
             ))
-        } else if let error {
-            continuation?.resume(throwing: error)
-        } else if let response {
-            continuation?.resume(returning: (body, response))
-        } else {
-            continuation?.resume(throwing: URLError(.badServerResponse))
+        case .budget?:
+            takeForFailure()?.resume(throwing: BrowserReplDriverError(
+                code: "invalid",
+                message: "fetch: the session's fetches would hold more than \(BrowserReplFetchBudget.describe(budget.limit)) of response bodies at once; await some before starting more, or download large files in a tab (page.waitForEvent(\"download\"))"
+            ))
+        case nil:
+            if let error {
+                takeForFailure()?.resume(throwing: error)
+            } else if let response {
+                // The body's bytes stay reserved; the fetcher's caller releases them.
+                lock.lock()
+                let continuation = self.continuation
+                self.continuation = nil
+                let body = data
+                lock.unlock()
+                continuation?.resume(returning: (body, response))
+            } else {
+                takeForFailure()?.resume(throwing: URLError(.badServerResponse))
+            }
         }
     }
 }

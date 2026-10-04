@@ -69,9 +69,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// cell's timeout cancels the fetches it started.
     private var inFlight: [Int: InFlightWork] = [:]
     private var nextInFlightID = 0
-    /// Fetches running now, at most `maxConcurrentFetches`.
-    private var runningFetches = 0
-    /// Fetches waiting for a running one to finish, oldest first.
+    /// Fetches started and not yet delivered to the runtime, at most
+    /// `maxOpenFetches`.
+    private var openFetches = 0
+    /// The open fetches still waiting for their response's headers, at
+    /// most `maxConcurrentFetches`; a fetch leaves this set when its
+    /// headers arrive, so a body that never ends holds no slot here.
+    private var requestPhaseFetches: Set<Int> = []
+    /// Fetches waiting for a slot, oldest first, at most `maxQueuedFetches`.
     private var queuedFetches: [PendingFetch] = []
     /// The per-session temporary directory created when no cwd was given.
     private let ownedWorkingDirectory: String?
@@ -206,10 +211,21 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
     }
 
-    /// The most fetches one session runs at once. Each holds up to
-    /// `BrowserReplFetcher.defaultMaxBodyBytes` of body, so this also bounds
-    /// a session's fetch buffers; later fetches wait in order.
+    /// The most fetches one session has waiting for their response's
+    /// headers at once; later fetches wait in order. A fetch whose headers
+    /// arrived leaves its slot, so un-awaited fetches of bodies that never
+    /// end (event streams) cannot hold every slot.
     static let maxConcurrentFetches = 16
+
+    /// The most fetches one session has open at once (waiting for headers,
+    /// receiving a body, or holding a body the runtime has not taken yet),
+    /// which bounds its connections. The bodies they hold at once are
+    /// bounded by the fetcher's `BrowserReplFetchBudget`, and each fetch by
+    /// `BrowserReplFetcher.resourceTimeout`.
+    static let maxOpenFetches = 64
+
+    /// The most fetches one session queues for a slot; past it a fetch fails at once.
+    static let maxQueuedFetches = 256
 
     /// The most timers a session has scheduled, or fired with their callback
     /// not yet run, at once; `setTimer` returns false past it.
@@ -413,7 +429,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         let tasks = inFlight.values.map(\.task)
         inFlight.removeAll()
         queuedFetches.removeAll()
-        runningFetches = 0
+        openFetches = 0
+        requestPhaseFetches.removeAll()
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -488,49 +505,90 @@ public final class BrowserReplSession: @unchecked Sendable {
         message: "fetch: cancelled because the cell that started it timed out"
     )
 
-    /// Runs the fetch now, or queues it while `maxConcurrentFetches` run.
-    /// Returns false when the session is closed. The evaluation running
-    /// when the runtime asked owns the fetch, so its timeout cancels it.
-    private func startOrQueueFetch(callID: Int, requestJSON: String) -> Bool {
+    /// Runs the fetch now, or queues it while the slots are taken. Returns
+    /// why it was refused (the session is closed, or the queue is full), or
+    /// nil. The evaluation running when the runtime asked owns the fetch, so
+    /// its timeout cancels it.
+    private func startOrQueueFetch(callID: Int, requestJSON: String) -> BrowserReplDriverError? {
         stateLock.withLock {
-            guard !closed else { return false }
+            guard !closed else { return Self.closedError }
             let fetch = PendingFetch(callID: callID, requestJSON: requestJSON, evalID: currentEval?.id)
-            if runningFetches < Self.maxConcurrentFetches {
+            if queuedFetches.isEmpty, hasFetchSlotLocked {
                 startFetchLocked(fetch)
-            } else {
+            } else if queuedFetches.count < Self.maxQueuedFetches {
                 queuedFetches.append(fetch)
+            } else {
+                return BrowserReplDriverError(
+                    code: "invalid",
+                    message: "fetch: \(Self.maxQueuedFetches) fetches are already waiting for one of the session's \(Self.maxConcurrentFetches) fetch slots; await some before starting more"
+                )
             }
-            return true
+            return nil
         }
+    }
+
+    /// Whether a fetch can start now. Call with `stateLock` held.
+    private var hasFetchSlotLocked: Bool {
+        requestPhaseFetches.count < Self.maxConcurrentFetches && openFetches < Self.maxOpenFetches
     }
 
     /// Starts `fetch` as an in-flight task. Call with `stateLock` held.
     private func startFetchLocked(_ fetch: PendingFetch) {
-        runningFetches += 1
         nextInFlightID += 1
         let taskID = nextInFlightID
+        openFetches += 1
+        requestPhaseFetches.insert(taskID)
         let fetcher = self.fetcher
         let boundary = self.boundary
         // The task finishes itself; it waits for the lock held here, so the
-        // entry exists before the removal runs.
+        // entry exists before the removal runs. Its slot and the bytes of
+        // its body are held until the runtime has the result, so results
+        // the busy JS thread has not taken yet stay bounded too.
         let task = Task { [weak self] in
-            let result = boundary.redactFetch(await fetcher.fetch(requestJSON: fetch.requestJSON))
-            guard let self else { return }
-            self.thread.perform { [weak self] in self?.resolveCall(fetch.callID, result) }
-            self.fetchFinished(taskID)
+            let (raw, heldBytes) = await fetcher.fetchHoldingBody(requestJSON: fetch.requestJSON) { [weak self] in
+                self?.fetchReceivedHeaders(taskID)
+            }
+            let result = boundary.redactFetch(raw)
+            guard let self else {
+                fetcher.bodyBudget.release(heldBytes)
+                return
+            }
+            let delivered = self.thread.perform { [weak self] in
+                self?.resolveCall(fetch.callID, result)
+                fetcher.bodyBudget.release(heldBytes)
+                self?.fetchFinished(taskID)
+            }
+            if !delivered {
+                fetcher.bodyBudget.release(heldBytes)
+                self.fetchFinished(taskID)
+            }
         }
         inFlight[taskID] = InFlightWork(task: task, evalID: fetch.evalID, isFetch: true)
     }
 
-    /// Frees the finished fetch's slot and starts the oldest queued one.
+    /// The fetch's response headers arrived: it leaves its slot.
+    private func fetchReceivedHeaders(_ taskID: Int) {
+        stateLock.withLock {
+            guard requestPhaseFetches.remove(taskID) != nil else { return }
+            startQueuedFetchesLocked()
+        }
+    }
+
+    /// Frees the finished fetch's slot and starts queued ones.
     private func fetchFinished(_ taskID: Int) {
         stateLock.withLock {
             // close() already dropped every entry and the queue.
             guard inFlight.removeValue(forKey: taskID) != nil else { return }
-            runningFetches -= 1
-            if !closed, !queuedFetches.isEmpty {
-                startFetchLocked(queuedFetches.removeFirst())
-            }
+            openFetches -= 1
+            requestPhaseFetches.remove(taskID)
+            startQueuedFetchesLocked()
+        }
+    }
+
+    /// Starts the oldest queued fetches while slots are free. Call with `stateLock` held.
+    private func startQueuedFetchesLocked() {
+        while !closed, !queuedFetches.isEmpty, hasFetchSlotLocked {
+            startFetchLocked(queuedFetches.removeFirst())
         }
     }
 
@@ -793,8 +851,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
-            if !self.startOrQueueFetch(callID: Int(callID), requestJSON: request?.toString() ?? "{}") {
-                self.resolveCall(Int(callID), .failure(Self.closedError))
+            if let refusal = self.startOrQueueFetch(callID: Int(callID), requestJSON: request?.toString() ?? "{}") {
+                self.resolveCall(Int(callID), .failure(refusal))
             }
         }
         let fs: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
