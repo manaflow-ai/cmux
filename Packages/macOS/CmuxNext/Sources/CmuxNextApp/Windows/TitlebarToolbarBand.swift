@@ -17,6 +17,8 @@ final class TitlebarToolbarBand: NSView {
     var onToggleSidebar: (() -> Void)?
     /// Runs Back or Forward (`focusHistoryBack` / `focusHistoryForward`).
     var onHistory: ((LocationTrailDirection) -> Void)?
+    /// The window's LocationTrailService observer token.
+    var historyObserver: Int?
     /// The list a right-click or long press shows (`history.goTo` per row).
     var historyMenu: ((LocationTrailDirection) -> NSMenu?)?
 
@@ -39,6 +41,12 @@ final class TitlebarToolbarBand: NSView {
     /// The Back or Forward button.
     func historyButton(_ direction: LocationTrailDirection) -> TitlebarBandButton {
         direction == .back ? backButton : forwardButton
+    }
+
+    /// Back and Forward are enabled only when the trail has somewhere to go.
+    func setHistoryEnabled(back: Bool, forward: Bool) {
+        backButton.isEnabled = back
+        forwardButton.isEnabled = forward
     }
 
     /// Names Back and Forward with their actions' titles and keys.

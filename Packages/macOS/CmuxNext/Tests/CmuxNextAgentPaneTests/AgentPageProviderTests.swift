@@ -36,6 +36,14 @@ import Testing
         #expect(!PageDescriptor.agent.owns(URL(string: "cmux-agent://pane/")))
     }
 
+    /// The page reaches acpmux on loopback and shows loopback previews; nothing else on the network.
+    @Test func theAgentPageCSPAllowsOnlyLoopback() {
+        let header = PageDescriptor.agent.csp.header
+        #expect(header.contains("connect-src ws://127.0.0.1:* ws://localhost:*"))
+        #expect(header.contains("frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"))
+        #expect(header.hasPrefix("default-src 'none'"))
+    }
+
     /// The page reaches nothing outside its namespace: no shared native op, no other page's ops.
     @Test func opsOutsideTheAgentNamespaceAreRefused() async {
         let (router, box) = router(AgentPaneModel(host: MockAgentPaneHost()))

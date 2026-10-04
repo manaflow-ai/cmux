@@ -3,6 +3,8 @@ import { ServerRevoke, type Host } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
 import { appendAudit } from "./team-audit.ts"
 import type { TeamState } from "./team.ts"
+import type { RowReader, RowWrite } from "@cmux/ownership"
+import { hostByInstall, hostDelete, hostOf, hostUpsert, memberOf, roleOf } from "./team-members.ts"
 
 /**
  * Servers in the team directory (plans/cmux-next/server.md 6). A server is a
@@ -15,7 +17,7 @@ import type { TeamState } from "./team.ts"
  */
 
 type Row = { kind: string; entity: string; payload: unknown }
-type Out = ReturnType<typeof reject> | { ok: true; state: TeamState; value: unknown; changed?: boolean; outbox?: Array<Row> }
+type Out = ReturnType<typeof reject> | { ok: true; state: TeamState; value: unknown; changed?: boolean; outbox?: Array<Row>; writes?: ReadonlyArray<RowWrite> }
 
 /** Commits the change, its projection row and one audit record together (spec/enterprise.md 6). */
 const audited = (state: TeamState, ctx: ReduceContext, op: string, value: unknown, row: Row, summary: string, detail: unknown): Out => {
@@ -24,10 +26,13 @@ const audited = (state: TeamState, ctx: ReduceContext, op: string, value: unknow
 }
 
 /** Who may add a server to this team: its owners and admins (team policy `servers.memberEnroll` comes later). */
-export const mayEnrollServer = (state: TeamState, user: string | undefined): boolean => {
-  const role = user ? state.members[user]?.role : undefined
+export const mayEnrollServer = (state: TeamState, user: string | undefined, rows?: RowReader): boolean => {
+  const role = roleOf(state, rows, user)
   return role === "owner" || role === "admin"
 }
+
+/** An ok result plus row writes (members and hosts are rows, team-members.ts). */
+const withWrites = (out: Out, writes: ReadonlyArray<RowWrite>): Out => (out.ok ? { ...out, writes: [...(out.writes ?? []), ...writes] } : out)
 
 export const SERVER_TAG = "tag:server"
 
@@ -60,14 +65,14 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
   if (!state.team) return reject("validation.invalid", "team not initialized")
   const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string }
   // One host per install: a replayed or repeated approval of the same install keeps the host id.
-  const existing = Object.values(state.hosts).find((h) => h.enrolled_by === v.install)
+  const existing = hostByInstall(state, ctx.rows, v.install)
   if (existing && existing.kind !== "server") return reject("validation.invalid", "this install is already a device host")
-  if (!mayEnrollServer(state, v.approved_by)) {
+  if (!mayEnrollServer(state, v.approved_by, ctx.rows)) {
     // A host already exists: an earlier commit decided this enrollment; server.revoke owns that host.
     if (existing) return reject("auth.forbidden", ENROLL_REFUSED)
     return refuseEnrollment(state, ctx, v)
   }
-  if (!state.members[v.owner_user]) return reject("auth.forbidden", "the server owner is not a member of this team")
+  if (!memberOf(state, ctx.rows, v.owner_user)) return reject("auth.forbidden", "the server owner is not a member of this team")
   const host: typeof Host.Type = {
     id: existing?.id ?? ctx.newId("host"),
     name: v.name,
@@ -80,13 +85,16 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
     tags: [SERVER_TAG]
   }
   if (existing && JSON.stringify(existing) === JSON.stringify(host)) return { ok: true, state, value: host, changed: false }
-  const next = { ...state, hosts: { ...state.hosts, [host.id]: host } }
-  return audited(next, ctx, "server.enrolled", host, { kind: "host.upsert", entity: host.id, payload: { ...host, team: state.team.id } }, `server ${host.name} paired`, {
-    host: host.id,
-    install: v.install,
-    owner_user: v.owner_user,
-    approved_by: v.approved_by
-  })
+  const next = { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1) }
+  return withWrites(
+    audited(next, ctx, "server.enrolled", host, { kind: "host.upsert", entity: host.id, payload: { ...host, team: state.team.id } }, `server ${host.name} paired`, {
+      host: host.id,
+      install: v.install,
+      owner_user: v.owner_user,
+      approved_by: v.approved_by
+    }),
+    hostUpsert(host)
+  )
 }
 
 /**
@@ -116,17 +124,20 @@ export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: Reduc
   if (p.kind !== "session" || p.agent) return reject("auth.forbidden", "only a signed-in user may revoke a server")
   const d = decodeParams<typeof ServerRevoke.params.Type>(ServerRevoke, params)
   if (!d.ok) return d
-  const host = state.hosts[d.value.host]
+  const host = hostOf(state, ctx.rows, d.value.host)
   if (!host || host.kind !== "server") return reject("selector.not_found", "server not found")
-  const role = p.user ? state.members[p.user]?.role : undefined
+  const role = roleOf(state, ctx.rows, p.user)
   if (host.owner_user !== p.user && role !== "owner" && role !== "admin") return reject("auth.forbidden", "only the server owner or a team admin may revoke it")
-  const { [host.id]: _gone, ...rest } = state.hosts
+  const legacy = state.hosts?.[host.id] ? (({ [host.id]: _gone, ...rest }) => ({ hosts: rest }))(state.hosts) : {}
   // The install revocation commits here as a pending item; TeamDO pushes it to the owner's UserDO and retries until confirmed.
   const pending: ServerRevocation = { install: host.enrolled_by, owner_user: host.owner_user, by: p.user!, at: ctx.now }
-  const next = { ...state, hosts: rest, server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending } }
-  return audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }, `server ${host.name} revoked`, {
-    host: host.id,
-    install: host.enrolled_by,
-    by: p.user
-  })
+  const next = { ...state, ...legacy, host_count: Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending } }
+  return withWrites(
+    audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }, `server ${host.name} revoked`, {
+      host: host.id,
+      install: host.enrolled_by,
+      by: p.user
+    }),
+    hostDelete(host)
+  )
 }

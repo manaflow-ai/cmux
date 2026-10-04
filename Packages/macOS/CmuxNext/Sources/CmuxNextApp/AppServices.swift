@@ -238,7 +238,7 @@ final class AppServices {
         cache.pageRequests.services = self
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
-        keyRouter.whichKey = WhichKeyController(registry: registry)
+        keyRouter.whichKey = WhichKeyController()
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in

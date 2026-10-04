@@ -146,6 +146,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
+        if let keyRecorder, keyRecorder(event, window) {
+            cancelChord()
+            return true
+        }
         // A shortcut recording in a Settings tab takes every key first.
         if let window, services?.windows.owner(of: window) != nil, services?.settingsWindow.handlePaneRecorderKey(event) == true {
             chords.cancel()
@@ -247,6 +252,10 @@ final class KeyRouter: BrowserKeyRouting {
         return true
     }
 
+    /// Set while the Keyboard Shortcuts page records keys: returns whether
+    /// it took the key-down (only its own window's keys).
+    var keyRecorder: ((NSEvent, NSWindow?) -> Bool)?
+
     /// The last intercepted action and window (for `debug.key`).
     private(set) var lastInterception: (action: ActionID, window: String)?
 
@@ -287,22 +296,12 @@ final class KeyRouter: BrowserKeyRouting {
         let runnable: (ActionID) -> Bool = { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) }
         // Keyed by the shell window, as focus settles report it: a Chromium
         // page window is a child of the shell.
-        let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved, prefix: { event in
-            let shortcuts = ActionRegistry.shortcuts(for: event)
-            if let first = shortcuts.first(where: { table.continues([$0], in: context, isRunnable: runnable) }) { return first }
-            // The leader arms whenever some binding sits under it, so its
-            // overlay can say what Cmd-J offers here.
-            return shortcuts.contains(LeaderLayer.prefix) && !table.entries(after: [LeaderLayer.prefix]).isEmpty ? LeaderLayer.prefix : nil
-        }, complete: { prefix, event in
-            for shortcut in ActionRegistry.shortcuts(for: event) {
-                if let winner = table.resolve([prefix, shortcut], in: context, isRunnable: runnable).winner {
-                    return (winner.command, winner.argument)
-                }
-            }
-            return nil
-        }, canArm: { Self.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
-        if let leader = chords.leaderPrefix, let shell = controller.window {
-            whichKey?.show(after: leader, in: shell)
+        let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved, table: table,
+                               context: context, isRunnable: runnable,
+                               canArm: { Self.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
+        if let keys = chords.armedKeys, let shell = controller.window {
+            let rows = WhichKeyListing.rows(after: keys, table: table, context: context, isRunnable: runnable, registry: registry)
+            whichKey?.show(after: keys, rows: rows, in: shell)
         } else {
             whichKey?.hide()
         }
@@ -311,9 +310,9 @@ final class KeyRouter: BrowserKeyRouting {
             return nil
         case .armed, .dismissed:
             return true
-        case .run(let id, let argument):
+        case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id)
-            RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument), keyContext: bits)
+            RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
             return true
         case .mismatch:
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }

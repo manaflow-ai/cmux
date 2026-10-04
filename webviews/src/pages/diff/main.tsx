@@ -1,7 +1,7 @@
 // The diff viewer page of the shared page host (`cmux-page://cmux.diff/`, diff-host.md S3). The
 // host embeds no config: the surface asks `cmux.diff.config` over the cmuxPage bridge and renders
-// when it answers. scripts/cmux-next/build-diff-page-web.sh bundles this entry with the highlight
-// worker and the lazy shiki chunks.
+// when it answers. webviews/diff-page.html loads it; the one webviews-app build emits both, next to
+// the shared chunks, highlight worker and WASM.
 //
 // The surface is a dynamic import, as in src/main.tsx: it lands in `chunks/diffSurface.mjs`, and
 // the worker pool resolves `./diff-worker.mjs` beside that chunk.

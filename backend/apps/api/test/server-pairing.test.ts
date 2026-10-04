@@ -1,4 +1,4 @@
-import type { ReduceContext } from "@cmux/ownership"
+import { MemoryRows, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { codeFromRandom, displayCode, normalizeCode } from "../src/domains/pairing.ts"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
@@ -11,17 +11,25 @@ const MEMBER = "user_00000000000000000002"
 const TEAM = "team_00000000000000000001"
 const INSTALL = "inst_00000000000000000009"
 const WG = "q".repeat(43) + "="
-const base = (): TeamState => ({
+// Members and hosts are rows ((f)): each test's reductions share one row store.
+let rows = new MemoryRows()
+const base = (): TeamState => ((rows = new MemoryRows()), {
   team: { id: TEAM, kind: "personal", display_name: "Acme" },
   members: { [OWNER]: { user: OWNER, role: "owner", display_name: "o" }, [MEMBER]: { user: MEMBER, role: "member", display_name: "m" } },
   hosts: {}
 })
+const reduce: typeof teamDomain.reduce = (st, op, params, c) => {
+  const r = teamDomain.reduce(st, op, params, c)
+  if (r.ok && r.writes) rows.apply(r.writes)
+  return r
+}
 let txn = 0
 const ctx = (user: string | null, extra: Partial<ReduceContext["principal"]> = {}): ReduceContext => ({
   principal: user ? { identity: `user:${user}`, user, team: TEAM, kind: "session", ...extra } : { identity: "system:test", kind: "system" },
   now: 1_000_000 + txn,
   tx: `tx${++txn}`,
-  newId: (p) => `${p}_${String(txn).padStart(20, "0")}`
+  newId: (p) => `${p}_${String(txn).padStart(20, "0")}`,
+  rows
 })
 const enrolled = { install: INSTALL, name: "Studio", platform: "linux", wg_public_key: WG, owner_user: OWNER, approved_by: OWNER }
 
@@ -40,28 +48,28 @@ describe("pairing codes (shared golden with cmux-server-core)", () => {
 
 describe("servers in the team directory (TeamDO reducer)", () => {
   it("adds a server host with tag:server once, with an audit record, and only from a system op", () => {
-    const r = teamDomain.reduce(base(), "server.enrolled", enrolled, ctx(null))
+    const r = reduce(base(), "server.enrolled", enrolled, ctx(null))
     if (!r.ok) throw new Error(r.message)
     expect(r.value).toMatchObject({ kind: "server", tags: ["tag:server"], owner_user: OWNER, enrolled_by: INSTALL, wg_public_key: WG })
     expect(r.outbox?.map((o) => o.kind)).toEqual(["host.upsert", "audit.append"])
-    const again = teamDomain.reduce(r.state as TeamState, "server.enrolled", enrolled, ctx(null))
+    const again = reduce(r.state as TeamState, "server.enrolled", enrolled, ctx(null))
     expect(again).toMatchObject({ ok: true, changed: false })
-    expect(teamDomain.reduce(base(), "server.enrolled", enrolled, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(reduce(base(), "server.enrolled", enrolled, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 
   it("revokes only for the owner or an admin, never an agent, and only server hosts", () => {
-    const r = teamDomain.reduce(base(), "server.enrolled", enrolled, ctx(null))
+    const r = reduce(base(), "server.enrolled", enrolled, ctx(null))
     if (!r.ok) throw new Error(r.message)
     const state = r.state as TeamState
     const host = (r.value as { id: string }).id
-    expect(teamDomain.reduce(state, "server.revoke", { host }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    expect(teamDomain.reduce(state, "server.revoke", { host }, ctx(OWNER, { agent: "agent_x" }))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    const gone = teamDomain.reduce(state, "server.revoke", { host }, ctx(OWNER))
+    expect(reduce(state, "server.revoke", { host }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(reduce(state, "server.revoke", { host }, ctx(OWNER, { agent: "agent_x" }))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const gone = reduce(state, "server.revoke", { host }, ctx(OWNER))
     if (!gone.ok) throw new Error(gone.message)
     expect(gone.value).toEqual({ host, install: INSTALL, owner_user: OWNER })
-    expect((gone.state as TeamState).hosts[host]).toBeUndefined()
+    expect(rows.get("host", host)).toBeUndefined()
     expect((gone.state as TeamState).server_revocations?.[INSTALL]).toMatchObject({ install: INSTALL, owner_user: OWNER, by: OWNER })
-    const confirmed = teamDomain.reduce(gone.state as TeamState, "server.install_revoked", { install: INSTALL }, ctx(null))
+    const confirmed = reduce(gone.state as TeamState, "server.install_revoked", { install: INSTALL }, ctx(null))
     if (!confirmed.ok) throw new Error(confirmed.message)
     expect((confirmed.state as TeamState).server_revocations?.[INSTALL]).toBeUndefined()
     expect(gone.outbox?.map((o) => o.kind)).toEqual(["host.delete", "audit.append"])
@@ -71,28 +79,28 @@ describe("servers in the team directory (TeamDO reducer)", () => {
 describe("approver role loss (server.enrolled reducer)", () => {
   it("refuses an approver who lost the role and revokes the install in the same commit; the refusal replays", () => {
     const lost = { ...enrolled, owner_user: MEMBER, approved_by: MEMBER }
-    const r = teamDomain.reduce(base(), "server.enrolled", lost, ctx(null))
+    const r = reduce(base(), "server.enrolled", lost, ctx(null))
     if (!r.ok) throw new Error(r.message)
     expect(r.value).toMatchObject({ refused: true, install: INSTALL })
     const state = r.state as TeamState
-    expect(Object.values(state.hosts)).toHaveLength(0)
+    expect(rows.get("host_by_install", INSTALL)).toBeUndefined()
     expect(state.server_revocations?.[INSTALL]).toMatchObject({ install: INSTALL, owner_user: MEMBER, by: MEMBER })
     expect(r.outbox?.map((o) => o.kind)).toEqual(["audit.append"])
     expect(r.outbox?.[0]?.payload).toMatchObject({ op: "server.enroll_refused", detail: { install: INSTALL, refused: true } })
-    expect(teamDomain.reduce(state, "server.enrolled", lost, ctx(null))).toMatchObject({ ok: true, changed: false, value: { refused: true } })
+    expect(reduce(state, "server.enrolled", lost, ctx(null))).toMatchObject({ ok: true, changed: false, value: { refused: true } })
     // Removed from the team entirely: the same refusal and revocation.
     const gone = "user_00000000000000000077"
-    const removed = teamDomain.reduce(base(), "server.enrolled", { ...enrolled, owner_user: gone, approved_by: gone }, ctx(null))
+    const removed = reduce(base(), "server.enrolled", { ...enrolled, owner_user: gone, approved_by: gone }, ctx(null))
     if (!removed.ok) throw new Error(removed.message)
     expect((removed.state as TeamState).server_revocations?.[INSTALL]).toMatchObject({ owner_user: gone })
   })
 
   it("keeps a host committed while the approver had the role; a later refusal changes nothing", () => {
-    const r = teamDomain.reduce(base(), "server.enrolled", enrolled, ctx(null))
+    const r = reduce(base(), "server.enrolled", enrolled, ctx(null))
     if (!r.ok) throw new Error(r.message)
     const state = r.state as TeamState
-    const demoted: TeamState = { ...state, members: { ...state.members, [OWNER]: { ...state.members[OWNER]!, role: "member" } } }
-    expect(teamDomain.reduce(demoted, "server.enrolled", enrolled, ctx(null))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    rows.apply([{ table: "member", op: "upsert", key: OWNER, n: null, row: { user: OWNER, role: "member", display_name: "o" } }])
+    expect(reduce(state, "server.enrolled", enrolled, ctx(null))).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 })
 

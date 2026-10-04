@@ -5,6 +5,8 @@ import type { TeamState } from "./domains/team.ts"
 import { activationProblem } from "./domains/team-sso.ts"
 import { open, seal, type SealedSecret } from "./integrations/crypto.ts"
 import type { DomainReply, Http } from "./team-domain-external.ts"
+import type { RowReader } from "@cmux/ownership"
+import { hostByInstall, memberOf, roleOf } from "./domains/team-members.ts"
 
 const enc = new TextEncoder()
 /** Binds a sealed client secret to its team, connection and generation. */
@@ -12,6 +14,8 @@ const aad = (team: string, connection: string, generation: number) => enc.encode
 
 export interface SsoExternalDeps {
   readonly state: TeamState
+  /** TeamDO rows (members and hosts, team-members.ts). */
+  readonly rows?: RowReader
   readonly team: string
   readonly stream: string
   readonly http: Http
@@ -75,7 +79,7 @@ const discovery = async (http: Http, issuer: string) => {
 export const ssoExternal = async (deps: SsoExternalDeps, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> => {
   const base = { op: frame.op, transaction: "", idempotency_key: frame.idempotency_key, stream: deps.stream, sequence: 0, replayed: false }
   const fail = (code: string, message: string, retryable = false): DomainReply => ({ ...base, ok: false, error: { code, message, retryable } })
-  const role = principal.user ? deps.state.members[principal.user]?.role : undefined
+  const role = roleOf(deps.state, deps.rows, principal.user)
   if (principal.kind !== "session" || principal.agent) return fail("auth.forbidden", "SSO changes need a person's session")
   if (role !== "owner" && role !== "admin") return fail("auth.forbidden", "only team owners and admins may change SSO connections")
   const commit = (op: string, params: unknown, key: string): DomainReply => {

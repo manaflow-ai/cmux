@@ -1425,9 +1425,17 @@
       "scope": "team:read",
       "class": "read"
     },
+    "team.hosts.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
     "team.integration.release_lock": {
       "scope": "team:write",
       "class": "mutation"
+    },
+    "team.members.list": {
+      "scope": "team:read",
+      "class": "read"
     },
     "team.policy.get": {
       "scope": "team:read",

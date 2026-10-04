@@ -108,6 +108,10 @@ env:
   # The cmux-next track (branch `nightly-next`). The feed base must never be
   # main's nightly or RC feed; scripts/ci/nightly-next-guard.py refuses it.
   NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
+  # cmux-next's own version line (CFBundleShortVersionString
+  # <this>-nightly.<build>); main's nightly and RC keep the project version.
+  # scripts/ci/nightly_version.py owns the rule.
+  NIGHTLY_NEXT_MARKETING_VERSION: "1.0.0"
   NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
   NIGHTLY_NEXT_R2_PREFIX: nightly-next/
   # SUPublicEDKey of the cmux-next track. The build refuses a
@@ -1275,7 +1279,19 @@ jobs:
           app="build-universal/Build/Products/Release/cmux.app"
           base_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
           build="${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
-          version="${base_version}-${{ needs.decide.outputs.channel }}.${build}"
+          track="${{ needs.decide.outputs.track }}"
+          version="$(python3 scripts/ci/nightly_version.py marketing --track "$track" \
+            --project-version "$base_version" --build "$build" --next-base "$NIGHTLY_NEXT_MARKETING_VERSION")"
+          if [[ "$track" == "nightly-next" && "${{ needs.decide.outputs.should_publish }}" == "true" ]]; then
+            # cmux-next and main's NIGHTLY install as the same app, so a published
+            # cmux-next build must be above every build on both feeds: no feed
+            # ever offers a downgrade after a switch between the two.
+            feeds=()
+            for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
+              feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
+            done
+            python3 scripts/ci/nightly_version.py check-build --build "$build" "${feeds[@]}"
+          fi
           ./scripts/build_remote_daemon_release_assets.sh \
             --version "$version" --release-tag "${{ needs.decide.outputs.release_tag }}" \
             --repo "$GITHUB_REPOSITORY" --asset-suffix "$build" --output-dir remote-daemon-assets
