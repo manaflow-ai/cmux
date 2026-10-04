@@ -81,12 +81,6 @@ struct CloudTreeMachineDetailLayout {
             }
         }
         node.children.forEach(collect)
-        // While the machine connects, Ports, Terminals and Displays have
-        // nothing current to show, so only Resources (fleet telemetry, which
-        // does not need the link) keeps its tab.
-        if node.children.contains(where: Self.containsConnectingPlaceholder) {
-            for tab in [CloudTreeMachineDetailTab.ports, .terminals, .displays] { pools[tab] = nil }
-        }
         let tabs = CloudTreeMachineDetailTab.allCases.filter { pools[$0] != nil }
         if !tabs.isEmpty {
             let row = tabRow(machine: machine, tabs: tabs, pools: pools)
@@ -166,15 +160,6 @@ struct CloudTreeMachineDetailLayout {
         }
         row.workspaceLabel = names.isEmpty ? nil : names.joined(separator: ", ")
         return CloudTreeNode(id: node.id, kind: .terminal(row), children: node.children, isPinned: node.isPinned)
-    }
-
-    private static func isConnectingPlaceholder(_ node: CloudTreeNode) -> Bool {
-        if case .placeholder(_, let placeholder) = node.kind { return placeholder.style == .connecting }
-        return false
-    }
-
-    private static func containsConnectingPlaceholder(_ node: CloudTreeNode) -> Bool {
-        isConnectingPlaceholder(node) || node.children.contains(where: containsConnectingPlaceholder)
     }
 
     private static func baseID(_ machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)" }

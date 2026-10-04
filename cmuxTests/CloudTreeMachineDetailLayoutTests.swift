@@ -50,8 +50,8 @@ struct CloudTreeMachineDetailLayoutTests {
         #expect(tabsRow.children.count == 2)
     }
 
-    @Test("A connecting machine shows Connecting… and none of the link's tabs")
-    func connectingMachineHidesLinkTabs() throws {
+    @Test("A connecting machine keeps its stable detail tabs")
+    func connectingMachineKeepsDetailTabs() throws {
         let fixture = CloudSidebarOrderingFixture()
         defer { fixture.close() }
         let snapshot = SurfaceCatalogSnapshot(machines: [SurfaceMachineInfo(
@@ -65,9 +65,12 @@ struct CloudTreeMachineDetailLayoutTests {
             if case .placeholder(_, let placeholder) = node.kind { return placeholder.style == .connecting }
             return false
         })
-        // Ports, Terminals and Displays wait for the link; with no fleet
-        // telemetry there is no Resources either, so no tab row at all.
-        #expect(!machine.children.contains { $0.structureTag == "machineDetailTabs" })
+        let tabsRow = try #require(machine.children.first { $0.structureTag == "machineDetailTabs" })
+        guard case .machineDetailTabs(let tabs) = tabsRow.kind else {
+            Issue.record("connecting machine should retain its detail controls")
+            return
+        }
+        #expect(tabs.tabs == [.ports, .resources])
     }
 
     @Test("Opening Terminals shows New Terminal, then every terminal labelled with its workspace")
