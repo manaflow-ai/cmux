@@ -115,16 +115,21 @@ pub(crate) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<FrontendBrowserReuse>().map(|error| error.code().to_string())
 }
 
-/// Refuses a browser creation under `browser_id` when a tab ever committed
-/// it, so no retry or caller binds one browser id to two tabs.
-pub(crate) fn ensure_browser_unbound(
-    connection: &Connection,
-    browser_id: &str,
-) -> anyhow::Result<()> {
-    if browser_committed(connection, browser_id)? {
-        return Err(FrontendBrowserReuse::Bound(browser_id.to_string()).into());
+impl Mux {
+    /// The `frontend_browser_id` of a browser creation (`tab.create_browser`),
+    /// parsed. Refused (`frontend_browser_bound`) before any receipt when a
+    /// tab ever committed it, so no retry or caller binds one browser id to
+    /// two tabs.
+    pub(crate) fn unbound_frontend_browser_id(
+        connection: &Connection,
+        browser_id: &str,
+    ) -> anyhow::Result<BrowserPublicId> {
+        let id = BrowserPublicId::parse(browser_id.to_string())?;
+        if browser_committed(connection, id.as_str())? {
+            return Err(FrontendBrowserReuse::Bound(id.to_string()).into());
+        }
+        Ok(id)
     }
-    Ok(())
 }
 
 /// A created or replayed frontend browser tab.

@@ -4116,16 +4116,8 @@ impl Mux {
         if creates == Some(CreatedIdentityKind::Browser) {
             // A frontend-rendered browser registers its content id before
             // the tab commits, so the creation must use that exact id.
-            // Refused before any receipt when a tab ever committed that id.
             let browser_id = match fields.get("frontend_browser_id").and_then(Value::as_str) {
-                Some(id) => {
-                    let id = BrowserPublicId::parse(id.to_string())?;
-                    crate::state::frontend_browser_keys::ensure_browser_unbound(
-                        &registry.connection,
-                        id.as_str(),
-                    )?;
-                    id
-                }
+                Some(id) => Mux::unbound_frontend_browser_id(&registry.connection, id)?,
                 None => BrowserPublicId::random()?,
             };
             intent["browser_reservation"] = json!({
