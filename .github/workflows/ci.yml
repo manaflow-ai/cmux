@@ -1717,9 +1717,9 @@ jobs:
     # the fleet controller is tailnet-only.
     # <!-- cmux:dogfood-build -->
     name: "Dogfood build #${{ github.event.pull_request.number }}"
-    needs: changes
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.changes.outputs.macos != 'false' }}
-    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}
+    needs: [changes, static-preflight]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'feat-cmux-next' && contains(github.event.pull_request.labels.*.name, 'dev-build') && github.event.action != 'unlabeled' && (github.event.action != 'labeled' || github.event.label.name == 'dev-build') && github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     # This job is intentionally outside ci-status, so a build or publication
     # failure is visible without becoming a merge requirement.
@@ -1737,6 +1737,9 @@ jobs:
 
       - name: Download the pinned GhosttyKit
         run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Build and package the production-authenticated app
         id: artifact
