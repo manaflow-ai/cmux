@@ -179,7 +179,11 @@ ${body}
 <script>
 // As in the editors: the Share button (no id) renders a moment after the title.
 // As live: an unlabeled wrapper carries the id; the inner button the label.
-setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div id="docs-titlebar-share-client-button"><div role="button" aria-label="Share. ${esc(file.shareText || (file.shared ? "Anyone with the link can view" : "Private to only me"))}. "> <span>Share</span></div></div>'; }, 600);
+setTimeout(() => { document.getElementById("share-slot").innerHTML = '<div id="docs-titlebar-share-client-button">${file.decoyShare === "inside" ? '<span aria-label="Share. Private to only me. "></span>' : ""}<div role="button" aria-label="Share. ${esc(file.shareText || (file.shared ? "Anyone with the link can view" : "Private to only me"))}. "> <span>Share</span></div></div>'; }, 600);
+// decoyShare: a script (or another session) puts a label that says
+// private where the old reader looked: anywhere in the page before the
+// button ("page"), or a second label inside the button ("inside").
+${file.decoyShare === "page" ? `document.getElementById("docs-titlebar").insertAdjacentHTML("afterbegin", '<div aria-label="Share. Private to only me. "></div>');` : ""}
 const post = (path, data) => fetch(location.pathname.replace(/\\/edit$/, "") + "/__mock/" + path, { method: "POST", body: JSON.stringify(data) });
 // As live in Docs: a rename typed while the editor is still loading is lost.
 const loadedAt = Date.now();
