@@ -369,6 +369,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   cookies), files written and read back (a page's download), output lines
   and errors.
   A TOTP secret's typed value is its code, masked as that literal.
+  A value that reads as a number (`0042`, `0012345678`, `3.140`) is also
+  masked where a result holds it as a JSON number (`Number(value)` drops
+  leading zeros), whatever its length.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
   is outside it, as it is within one session. Accepted by the threat

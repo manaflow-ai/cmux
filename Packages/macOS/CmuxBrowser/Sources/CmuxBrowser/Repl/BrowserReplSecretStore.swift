@@ -64,6 +64,10 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// Every value the session held, its current and retired ones.
     private var heldValues: Set<String> = []
     private var values: [BrowserReplSecretScanner.Value] = []
+    /// The mask of each held value that reads as a number (`0042`,
+    /// `0012345678`, `3.140`), by the number's bits: a page that converts
+    /// the value with `Number()` returns it as a JSON number.
+    private var numericMasks: [UInt64: String] = [:]
     private var totpKeys: [(name: String, key: Data, domains: [BrowserReplDomainPattern])] = []
     private var codeCache: (window: Int64, codes: [ValidCodes])?
 
@@ -336,6 +340,26 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         // Each value was compiled when it was registered; a change only reorders.
         values = masked.map(\.compiled)
             .sorted { $0.utf8.count > $1.utf8.count }
+        numericMasks = [:]
+        for entry in masked where !entry.totp {
+            guard let number = Self.numericValue(entry.value) else { continue }
+            numericMasks[Self.numericKey(number)] = numericMasks[Self.numericKey(number)] ?? "<secret:\(entry.maskName)>"
+        }
+    }
+
+    /// The number JavaScript's `Number()` gives a value that is a decimal
+    /// literal (digits with an optional sign, point and exponent, spaces
+    /// around it), or `nil` for any other value.
+    static func numericValue(_ value: String) -> Double? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.range(of: #"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$"#, options: .regularExpression) != nil,
+              let number = Double(trimmed), number.isFinite else { return nil }
+        return number
+    }
+
+    /// `number`'s key in ``numericMasks``; `-0` is `0`.
+    private static func numericKey(_ number: Double) -> UInt64 {
+        (number == 0 ? 0 : number).bitPattern
     }
 
     /// The scanner for the values registered now and the TOTP codes valid
@@ -428,8 +452,16 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             for (key, item) in object { out[try redact(key, at: date, budget: &budget)] = try redactValue(item, at: date, budget: &budget) }
             return out
         case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
-            // A page can read a code as a number (`Number(field.value)`),
-            // which drops a leading zero.
+            // A page can read a value as a number (`Number(field.value)`),
+            // which drops leading zeros: a held value that is this number
+            // is masked whatever its length.
+            let double = number.doubleValue
+            if double.isFinite, let mask = lock.withLock({ numericMasks[Self.numericKey(double)] }) {
+                budget -= max(0, mask.utf8.count - number.stringValue.utf8.count)
+                guard budget >= 0 else { throw invalid(Self.limitMessage(number.stringValue.utf8.count)) }
+                return mask
+            }
+            // A TOTP code it reads that way drops a leading zero too.
             var forms = [number.stringValue]
             let integer = number.int64Value
             if Double(integer) == number.doubleValue, (0..<1_000_000).contains(integer) {
