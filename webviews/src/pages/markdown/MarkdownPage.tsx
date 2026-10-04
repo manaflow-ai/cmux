@@ -2,7 +2,7 @@
 // file renders it: a toolbar (file, save status, rich text or source), the conflict banner, and the
 // editor or the source text. The editor mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
-import { useSyncExternalStore, type ChangeEvent } from "react";
+import { useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { L } from "./strings";
 import type { MarkdownMode, MarkdownStore } from "./store";
@@ -12,15 +12,22 @@ export interface MarkdownPageProps {
   strings: Strings;
   /** Mounts the rich text editor into its element (and unmounts it on null). */
   editorRef: (element: HTMLDivElement | null) => void;
+  /** The page with no file (store phase `empty`): the viewer empty state. */
+  emptyState?: () => ReactNode;
+  /** The link history (the same as the `back` and `forward` page commands). */
+  onBack?(): void;
+  onForward?(): void;
 }
 
 function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-export function MarkdownPage({ store, strings, editorRef }: MarkdownPageProps) {
+export function MarkdownPage({ store, strings, editorRef, emptyState, onBack, onForward }: MarkdownPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const { t } = strings;
+
+  if (state.phase === "empty" && emptyState) return emptyState();
 
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (
@@ -42,6 +49,30 @@ export function MarkdownPage({ store, strings, editorRef }: MarkdownPageProps) {
   return (
     <div className="md-page" data-mode={state.mode} data-status={state.status} data-read-only={state.readOnly}>
       <header className="md-toolbar">
+        {state.canBack || state.canForward ? (
+          <span className="md-history">
+            <button
+              type="button"
+              className="md-history-button"
+              aria-label={t(L.back)}
+              title={t(L.back)}
+              disabled={!state.canBack}
+              onClick={onBack}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              className="md-history-button"
+              aria-label={t(L.forward)}
+              title={t(L.forward)}
+              disabled={!state.canForward}
+              onClick={onForward}
+            >
+              ›
+            </button>
+          </span>
+        ) : null}
         <span className="md-file" title={path}>
           {state.phase === "loading" ? t(L.loading) : fileName(path)}
         </span>

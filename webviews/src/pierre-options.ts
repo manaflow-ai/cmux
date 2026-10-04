@@ -15,7 +15,7 @@ export type DiffViewerOptions = {
 };
 
 /** Height of a file header row; also the virtualizer's header metric. */
-export const DIFF_FILE_HEADER_HEIGHT = 32;
+export const DIFF_FILE_HEADER_HEIGHT = 38;
 
 export function codeViewOptions(options: DiffViewerOptions, appearance: DiffViewerAppearance): CodeViewOptions<any> {
   return {
@@ -162,40 +162,37 @@ export function fileTreeUnsafeCSS(): string {
       min-height: 0;
       background-color: var(--cmux-diff-solid-bg);
     }
-    [data-file-tree-search-container][data-open='false'] {
-      display: none;
-    }
-    [data-file-tree-search-container] {
-      margin: 0 4px 6px 0;
-      padding: 0 5px 6px 1px;
-      border-bottom: 1px solid var(--trees-border-color);
-    }
     [data-file-tree-virtualized-scroll='true'] {
       height: 100%;
       min-height: 0;
       overflow: auto;
       background-color: var(--cmux-diff-solid-bg);
       padding-inline-start: 0;
-      padding-inline-end: 2px;
-      margin-inline-end: 2px;
+      padding-inline-end: 0;
       scrollbar-gutter: stable;
     }
     [data-item-section='content'] {
       flex: 1 1 auto;
       min-width: 0;
     }
-    /* +N -N change counts (the row decoration), right-aligned and tabular. A
-       one-sided count takes the row's added or deleted status color. */
+    /* R139: rows are chrome, an arrow cursor like a native source list. */
+    [data-type='item'] {
+      cursor: default;
+    }
+    /* Folder names are bright, file names dim (the selected row is bright
+       through --trees-selected-fg). The tree has no folder color variable. */
+    [data-item-type='folder'] > [data-item-section='content'] {
+      color: var(--trees-selected-fg);
+    }
+    /* "+N -N" (the row decoration, file-tree-stats.ts), right-aligned. */
     [data-item-section='decoration'] {
       flex: 0 0 auto;
+      padding-inline-end: 1.5px;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
-    [data-item-git-status='added'] > [data-item-section='decoration'] {
-      color: var(--trees-status-added);
-    }
-    [data-item-git-status='deleted'] > [data-item-section='decoration'] {
-      color: var(--trees-status-deleted);
+    [data-item-section='decoration'] svg {
+      display: block;
     }
     [data-file-tree-sticky-overlay-content] {
       background-color: var(--cmux-diff-solid-bg) !important;

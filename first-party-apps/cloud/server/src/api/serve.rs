@@ -68,6 +68,16 @@ fn answer<R: BufRead, W: Write>(
             Ok(request) => result_line(id.clone(), server.handle_from_loop(&request, &id)?),
             Err(e) => invalid(id, &e.to_string()),
         },
+        // A team wire event (api::events): it changes the projection, its
+        // watch events follow at once; it gets no line.
+        Some("team.event") => {
+            let event = message.get("event").and_then(Value::as_str).unwrap_or_default();
+            let data = message.get("data").cloned().unwrap_or(Value::Null);
+            if let Err(error) = server.team_event(event, &data) {
+                eprintln!("cmux-cloud: ignored a team event: {error}");
+            }
+            return None;
+        }
         // A relay answer that no call waits for (late or unknown): never
         // answer it, so the host cannot take it for one of its own ops.
         Some(t) if t.starts_with("relay.") => {

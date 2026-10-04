@@ -12,7 +12,7 @@ import Testing
 
     @Test func aSplitScreenHasOneImplicitColumnHoldingItsTree() {
         let model = model()
-        let column = try! #require(model.stickyColumn(containing: "b"))
+        let column = try! #require(model.dockColumn(containing: "b"))
         #expect(column.root.panes == ["a", "b"])
         #expect(column.id == model.screens[0].implicitColumnID)
     }
@@ -20,11 +20,11 @@ import Testing
     @Test func pinningTheOnlyColumnRefusesBecauseOneColumnMustScroll() {
         let model = model()
         let column = model.screens[0].implicitColumnID
-        #expect(model.validateSticky(StickyColumn(), for: column) == .lastScrollingColumn)
-        #expect(model.validateSticky(nil, for: column) == .unchanged)
+        #expect(model.validateDock(DockColumn(), for: column) == .lastScrollingColumn)
+        #expect(model.validateDock(nil, for: column) == .unchanged)
     }
 
     @Test func anUnknownColumnIsReportedAsUnknown() {
-        #expect(model().setColumnSticky("zz", StickyColumn()) == .unknownColumn)
+        #expect(model().setColumnDock("zz", DockColumn()) == .unknownColumn)
     }
 }

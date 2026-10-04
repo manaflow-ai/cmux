@@ -47,7 +47,7 @@ fn bad_paths_never_reach_the_cloud_api() {
             assert_eq!(err.code, "cmux.cloud.invalid_args", "{name} {bad:?}");
         }
     }
-    assert!(rig.server.control_plane().calls.is_empty(), "no call left this machine");
+    assert!(rig.server.control_plane().no_calls(), "no call left this machine");
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn write_refuses_a_base_revision_bad_base64_and_too_much_data() {
         .handle(&op("cloud.fs.write", args(json!({"dataBase64": huge}))).key("w-3"))
         .unwrap_err();
     assert_eq!(err.code, "cmux.cloud.file_too_large");
-    assert!(rig.server.control_plane().calls.is_empty());
+    assert!(rig.server.control_plane().no_calls());
 }
 
 #[test]

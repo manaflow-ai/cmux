@@ -58,8 +58,8 @@ export function schemaKeys(schemaFile) {
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 // The History table moves next to the page when the Swift page is deleted (react-pages.md H4).
 export const PAGES = {
-  // Every key the settings schema names (CmuxNextSettings catalog) and every `settingsPage.` key
-  // (CmuxNextSettingsWindow catalog); merged from the Settings lead's generate-strings.mjs with the
+  // Every key the settings schema names (CmuxNextSettings catalog), every `settingsPage.` and
+  // `settingsWindow.` key (CmuxNextSettingsWindow catalog); merged from the Settings lead's generate-strings.mjs with the
   // same output.
   settings: {
     out: "webviews/src/pages/settings/generated/strings.json",
@@ -70,7 +70,12 @@ export const PAGES = {
       },
       {
         file: `${sources}/CmuxNextSettingsWindow/Localizable.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("settingsPage.")),
+        // `settingsWindow.` keys too: the page draws the Swift window's cards (R82 commits 2-5).
+        keys: (all) => all.filter((key) => key.startsWith("settingsPage.") || key.startsWith("settingsWindow.")),
+      },
+      {
+        file: `${sources}/CmuxNextActions/BrowserProfileActions.xcstrings`,
+        keys: () => ["action.browserProfile.manageExtensions"],
       },
     ],
   },
@@ -99,10 +104,20 @@ export const PAGES = {
     out: "webviews/src/pages/cloud/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/cloud/Localizable.xcstrings" }],
   },
+  // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
+  "icon-picker": {
+    out: "webviews/src/pages/icon-picker/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/icon-picker/Localizable.xcstrings" }],
+  },
   // The markdown editor (cmux-page://cmux.markdown/) has no Swift page; its table lives next to it.
   markdown: {
     out: "webviews/src/pages/markdown/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/markdown/Localizable.xcstrings" }],
+  },
+  // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
+  viewerEmpty: {
+    out: "webviews/src/viewer-empty/generated/strings.json",
+    catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
   },
 };
 

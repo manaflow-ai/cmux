@@ -60,6 +60,10 @@ export type MarkdownFiles = {
   link(from: string, raw: string | null | undefined): string | undefined;
   /** Whether the editor may save `file`: below the root (a read-only root's files are not). */
   writable(file: string): boolean;
+  /** `cmux.markdown.resolveLinks` for one relative path of `from`: any file or folder below a root. */
+  target(from: string, relative: string): { exists: boolean; path?: string; kind?: "markdown" | "file" | "directory" };
+  /** `cmux.markdown.listFiles`: relative paths in `from`'s folder (and below) starting with `prefix`. */
+  list(from: string, prefix: string, limit?: number): string[];
 };
 
 /// Resolves markdown files for the dev host: only regular markdown files whose real path is
@@ -101,6 +105,42 @@ export function markdownFiles(root: string, defaultFile: string, readOnlyRoots: 
       return allowed(path.resolve(path.dirname(base), target));
     },
     writable: (file) => below(file, realRoot),
+    target(from, relative) {
+      const base = file(from);
+      if (!base || !relative || relative.startsWith("/")) return { exists: false };
+      const candidate = path.resolve(path.dirname(base), relative);
+      let real: string;
+      try {
+        real = fs.realpathSync(candidate);
+      } catch {
+        return { exists: false, path: candidate };
+      }
+      if (!(below(real, realRoot) || realReadOnly.some((root) => below(real, root)))) return { exists: false };
+      const stat = fs.statSync(real);
+      const kind = stat.isDirectory() ? "directory" : isMarkdownPath(real) ? "markdown" : "file";
+      return { exists: true, path: real, kind };
+    },
+    list(from, prefix, limit = 50) {
+      const base = file(from);
+      if (!base || prefix.startsWith("/") || prefix.split("/").includes("..")) return [];
+      const slash = prefix.lastIndexOf("/");
+      const folder = prefix.slice(0, slash + 1);
+      const start = prefix.slice(slash + 1).toLowerCase();
+      const directory = path.resolve(path.dirname(base), folder || ".");
+      if (!below(`${directory}/`, realRoot) && directory !== realRoot) return [];
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(directory, { withFileTypes: true });
+      } catch {
+        return [];
+      }
+      return entries
+        .filter((entry) => !entry.name.startsWith(".") && entry.name !== "node_modules")
+        .filter((entry) => entry.name.toLowerCase().startsWith(start))
+        .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
+        .slice(0, limit)
+        .map((entry) => `${folder}${entry.name}${entry.isDirectory() ? "/" : ""}`);
+    },
   };
 }
 

@@ -103,7 +103,25 @@ Important detail: in Chrome, `credentials_enable_service = false` stops saving o
 
 ### 3.4 Extension password managers in agent-driven tabs (gap, needs a fork export)
 
-Extensions inject content scripts into every tab, including agent-driven ones. An agent's synthesized click on an extension's inline menu, or an extension's "autofill on page load", fills a password that the agent's `evaluate` can read. cmux's fill switch covers only Chromium's own manager. Proposal: fork `cmux_tab_set_extension_access(browser_id, 0)`: no content scripts, no `scripting.executeScript`/`tabs.executeScript`, no `tabs.sendMessage` to that tab's frames, set before the first navigation like the fill switch and inherited by popups. Alternative without a fork change: refuse to mark a tab agent-driven while a password manager extension is enabled in its profile (blunt). Decision P6.
+Extensions inject content scripts into every tab, including agent-driven ones. An agent's synthesized click on an extension's inline menu, or an extension's "autofill on page load", fills a password that the agent's `evaluate` can read. cmux's fill switch covers only Chromium's own manager. Proposal: fork `cmux_tab_set_extension_access(browser_id, 0)`: no content scripts, no `scripting.executeScript`/`tabs.executeScript`, no `tabs.sendMessage` to that tab's frames, set before the first navigation like the fill switch and inherited by popups. Alternative without a fork change: refuse to mark a tab agent-driven while a password manager extension is enabled in its profile (blunt). Decision P6 (decided 2026-10-04: fork block in cmux.17, interim app rule now; design in 3.4.1).
+
+### 3.4.1 Fork P6 design (cmux.17): `cmux_tab_set_extension_access`
+
+Interim rule shipped in the app (9e4b05fcaf3, fbcb6b2d398, the agent profile): an agent may drive a page only when no enabled extension of the tab's profile can reach it, or the person allowed it per tab, or the tab is in the clean agent profile. P6 replaces the refusal with a block, so agents can use tabs in the person's profiles without extensions reaching them.
+
+Export (fork API 18): `int cmux_tab_set_extension_access(int browser_id, int allowed)`. Per WebContents, kept as WebContents user data like the password fill switch (`kCmuxEmbedderNoExtensionsKey`); set before the first navigation of every agent-driven tab and inherited by popups and adopted tabs (the app already marks those). Returns 1 when the tab exists.
+
+What `allowed = 0` blocks, each with a fork embedder test (an unpacked MV3 test extension with `<all_urls>` host permissions, a content script that writes a marker into `document.title`, a background worker that tries each API):
+1. Manifest content scripts and CSS: renderer side. A new `extensions::mojom::LocalFrame::SetExtensionScriptsBlocked(bool)` sent by `ExtensionWebContentsObserver` for every frame of a blocked WebContents in `ReadyToCommitNavigation` (before document start, so the first document is covered) and on `RenderFrameCreated`. `ExtensionFrameHelper` stores it; `ScriptInjectionManager::InjectScripts` drops pending and user-script injections for a blocked frame, and `UserScriptSetManager::GetAllInjections` returns none. Test: the marker never appears in a blocked tab; it appears in a normal tab of the same profile.
+2. Programmatic injection: `scripting.executeScript`, `scripting.insertCSS`, `tabs.executeScript`, `tabs.insertCSS`. Browser side in `ScriptExecutor::ExecuteScript` (and the scripting API's target resolution): fail with "Cannot access this tab" for a blocked WebContents. Test: the worker's calls reject.
+3. Messaging into the tab: `tabs.sendMessage`, `tabs.connect`. Browser side in `MessageService` when it opens a channel to a tab's frames. Test: the call rejects with "Could not establish connection".
+4. Extension frames inside the page (password manager inline menus are `chrome-extension://` iframes): a navigation throttle on the blocked WebContents cancels subframe navigations to `chrome-extension:` (the app's main-frame guard already covers main frames). Test: an `<iframe src="chrome-extension://<id>/x.html">` in a blocked tab never loads.
+5. `chrome.debugger.attach` to the tab and `tabs.captureVisibleTab` for it: refused for a blocked WebContents. Test: both reject.
+6. Not blocked, by design and stated in the header: `webRequest`/`declarativeNetRequest` see the tab's network requests (a form POST body can carry a typed value; the Secure sign-in sheet's fill goes through such a POST); `tabs.query`/`tabs.get` return the tab's URL and title. The app's agent marking does not change cookies.
+
+Runtime changes: turning the block on applies to documents committed after the call; the app already rebuilds a live page at the agent's first touch (`TabContentCache.rebuildForAgent`), so no extension script from before stays. Turning it off (the person takes the tab back) applies after the next navigation.
+
+When cmux.17 ships: the app calls the switch next to `cmux_tab_set_password_fill` in `markAgentDriven`, `extension_host_access` in the relay becomes false for blocked tabs, the interim refusal and the per-tab override stay as the fallback for forks below API 18, and Settings may offer "Let extensions run in agent tabs" (default off) later.
 
 ### 3.5 Check with real extensions (fleet, throwaway signed-out profiles only)
 

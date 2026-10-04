@@ -17,7 +17,12 @@ public nonisolated enum SidebarTunables {
         help: "Upper share of a section header that drops at the end of the previous section.",
         default: 0.35, range: 0...0.8, step: 0.01, unit: .fraction, code: "SidebarTunables.sectionTopFraction")
 
+    public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
+        "sidebar.agentMark", .sidebar, "Agent mark",
+        help: "Where a workspace row draws the brand mark of an agent working or waiting in it (R79 prototype).",
+        default: .off, code: "SidebarTunables.agentMark")
+
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction].map(\.descriptor) + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction].map(\.descriptor) + [agentMark.descriptor] + SidebarSectionTunables.all
     }
 }

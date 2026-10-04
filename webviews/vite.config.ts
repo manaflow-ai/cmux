@@ -1,4 +1,4 @@
-import react from "@vitejs/plugin-react";
+import { reactWithCompiler } from "./reactCompiler.mjs";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite-plus";
 import { cmuxCheckConfig } from "../config/vite-plus/check";
@@ -24,6 +24,8 @@ export default defineConfig({
       "src/agent-session/acpmux/icons/cmuxIcons.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
+      // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
+      "src/icon-picker/generated/**",
       // The markdown round-trip corpus: real files whose exact bytes the editor must preserve.
       "test/fixtures/markdown-roundtrip/**",
     ],
@@ -36,12 +38,8 @@ export default defineConfig({
   plugins: [
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
-    react({
-      babel: {
-        // React Compiler. React 19 ships the required react/compiler-runtime.
-        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
-      },
-    }),
+    // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
+    ...reactWithCompiler(),
     tailwindcss(),
     {
       // Vite writes root-absolute script URLs into `diff-page.html` and `markdown-page.html`; make

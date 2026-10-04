@@ -1,7 +1,8 @@
 /** Home attachments: one small preview image per image slot and the URL route's `variant=preview` (home-messaging.md section 10.1). */
 import { describe, expect, it } from "vitest"
-import { runDurableObjectAlarm } from "cloudflare:test"
+
 import { attachmentPart, bytesOf, group, intent, op, post, put, runInDurableObject, sha, signIn, testEnv, urlFor, worker, type Who } from "./home-attachments-support.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 const VIDEO = { mime_type: "video/mp4", name: "clip.mp4", duration_ms: 1500 }
 const previewOf = (b: Uint8Array, mime = "image/webp") => ({ sha256: sha(b), byte_count: b.byteLength, mime_type: mime })
@@ -138,7 +139,7 @@ describe("Home attachments: image previews", { timeout: 120_000 }, () => {
     expect(await left()).toHaveLength(2)
     expect((await previewUrl(alice, g.id, hash)).status).toBe(200)
     await runInDurableObject(doStub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_objects SET created_at = ?", Date.now() - 25 * 3_600_000))
-    await runDurableObjectAlarm(doStub)
+    await fireAlarm(doStub)
     expect(await left()).toEqual([])
     expect(await storedBytes(alice)).toBe(0)
   })

@@ -6,7 +6,7 @@ rust-file	cmux-tui/bindings/examples/rust-agent-screen-detection/src/process.rs	
 rust-file	cmux-tui/bindings/rust/src/client.rs	1106	70
 rust-file	cmux-tui/bindings/rust/src/resource/client.rs	1142	52
 rust-file	cmux-tui/bindings/rust/src/resource/handles.rs	2708	278
-rust-file	cmux-tui/bindings/rust/src/resource/model.rs	1705	54
+rust-file	cmux-tui/bindings/rust/src/resource/model.rs	1611	52
 rust-file	cmux-tui/bindings/rust/src/resource/typed_stream.rs	1465	77
 rust-file	cmux-tui/bindings/rust/src/resource/wire.rs	797	63
 rust-file	cmux-tui/bindings/rust/tests/mock_server.rs	2863	55
@@ -62,7 +62,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2820	83
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1940	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource.rs	1528	54
-rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27745	793
+rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	27738	790
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	10757	435
 rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_protocol.rs	1234	54
@@ -107,7 +107,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/ui/terminal_grid.rs	1115	43
 rust-file	cmux-tui/crates/cmux-tui/tests/cli.rs	3870	122
 rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5584	110
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
-rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	4846	224
+rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3335	168
 swift-type	CmuxNextApp/WindowManager	1131	0
 swift-type	CmuxNextDaemon/DaemonConnection	1477	0
 swift-type	CmuxNextTabs/TabStripView	2116	0

@@ -1377,6 +1377,109 @@ describe("direct client session state", () => {
     await settle();
     expect(latest().rows.filter((row) => row.kind === "assistant")).toEqual([]);
   });
+
+  const chunkEvent = (seq: number, text: string) => ({
+    sessionId: "a",
+    seq,
+    at: seq,
+    dir: "in",
+    kind: "agent_message_chunk",
+    msg: {
+      method: "session/update",
+      params: { sessionId: "a", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
+    },
+  });
+
+  test("deltas that land in one display frame make one snapshot, in order", async () => {
+    const frames: (() => void)[] = [];
+    const previous = AcpmuxDirectClient.scheduleFrame;
+    AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
+    try {
+      const client = await connect();
+      await settle();
+      for (const run of frames.splice(0)) run();
+      const before = snapshots.length;
+      for (let seq = 7; seq < 12; seq += 1) ScriptedSocket.current.notify("_acpmux/event", chunkEvent(seq, `${seq} `));
+      await settle();
+      expect(snapshots.length).toBe(before);
+      expect(frames).toHaveLength(1);
+      frames.shift()!();
+      expect(snapshots.length).toBe(before + 1);
+      expect(texts()).toEqual(["a five", "a six", "7 8 9 10 11 "]);
+      client.close();
+    } finally {
+      AcpmuxDirectClient.scheduleFrame = previous;
+    }
+  });
+
+  test("a streamed thought is one item that grows, not one item per chunk", async () => {
+    const thought = (seq: number, text: string): EventRecord => ({
+      sessionId: "a",
+      seq,
+      at: seq,
+      dir: "in",
+      kind: "agent_thought_chunk",
+      msg: {
+        method: "session/update",
+        params: { sessionId: "a", update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } } },
+      },
+    });
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? {
+            session: { sessionId: "a", status: "idle" },
+            events: [
+              userEvent("a", 6, "prompt"),
+              thought(7, "Looking at "),
+              thought(8, "the code"),
+              thought(9, " now."),
+            ],
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    const client = await connect();
+    await settle();
+    const activity = latest().rows.find((row) => row.kind === "activity");
+    expect(activity?.items).toEqual([{ kind: "thought", text: "Looking at the code now." }]);
+    client.close();
+  });
+
+  test("rows keep the daemon's event order even when wall-clock times disagree", async () => {
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? {
+            session: { sessionId: "a", status: "idle" },
+            // The reply's time stamp is earlier than its prompt's (two clocks, or one millisecond).
+            events: [
+              { ...userEvent("a", 6, "prompt"), at: 2_000 },
+              { ...chunkEvent(7, "reply"), at: 1_000 },
+            ],
+          }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    const client = await connect();
+    await settle();
+    expect(texts()).toEqual(["prompt", "reply"]);
+    client.close();
+  });
+
+  test("without a display (no frame scheduler) each delta snapshots at once", async () => {
+    const previous = AcpmuxDirectClient.scheduleFrame;
+    AcpmuxDirectClient.scheduleFrame = undefined;
+    try {
+      const client = await connect();
+      await settle();
+      const before = snapshots.length;
+      ScriptedSocket.current.notify("_acpmux/event", chunkEvent(7, "hi"));
+      await settle();
+      expect(snapshots.length).toBe(before + 1);
+      client.close();
+    } finally {
+      AcpmuxDirectClient.scheduleFrame = previous;
+    }
+  });
 });
 
 /// acpmux serves no git methods, so the changes view's reads go to the native host, which runs

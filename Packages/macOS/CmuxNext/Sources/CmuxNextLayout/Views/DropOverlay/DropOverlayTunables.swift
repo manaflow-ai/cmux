@@ -126,7 +126,7 @@ public nonisolated enum LayoutTunables {
         help: "Draws the current screen as another layout model (plans/cmux-next/layout-model.md). View only; nothing is saved.",
         default: .off, code: "LayoutTunables.prototypeModel")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
-        "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right sticky column docks to.",
+        "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
 
     public static let prototypeOrientation = Tunable<LayoutPrototypeOrientation>.choice(
@@ -136,7 +136,7 @@ public nonisolated enum LayoutTunables {
 
     public static let prototypeDockMode = Tunable<LayoutPrototypeDockMode>.choice(
         "layout.prototype.dockMode", .panes, "Prototype dock mode",
-        help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real sticky columns keep their own mode).",
+        help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real docked columns keep their own mode).",
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
     public static var all: [TunableDescriptor] {

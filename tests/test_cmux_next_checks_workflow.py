@@ -196,5 +196,43 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("Packages/macOS/CmuxNext/*", route_script)
         self.assertIn("Packages/*", route_script)
 
+
+RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
+
+
+def can_run_on_owned_runner(job: dict) -> bool:
+    """A runs-on that reads a repository variable can resolve to a mini (glaeda-*)."""
+    return "vars." in str(job.get("runs-on", ""))
+
+
+class ReusedWorkspaceSubmodules(unittest.TestCase):
+    """A reused mini workspace keeps the previous job's submodule checkouts.
+
+    actions/checkout with `submodules: false` moves the superproject but leaves
+    ghostty at the last branch's commit, so pin-cmux-tui.sh fetch saw ` M ghostty`
+    and refused the checkout (run 37198483749). Every such checkout on a job
+    that can run on a mini is followed at once by the reset step.
+    """
+
+    def test_every_submodule_free_checkout_on_an_owned_runner_resets_submodules(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        checked = []
+        for job_id, job in jobs.items():
+            if not can_run_on_owned_runner(job):
+                continue
+            job_steps = job.get("steps", [])
+            for index, step in enumerate(job_steps):
+                if not str(step.get("uses", "")).startswith("actions/checkout@"):
+                    continue
+                if str(step.get("with", {}).get("submodules", False)).lower() in ("true", "recursive"):
+                    continue
+                checked.append(job_id)
+                with self.subTest(job=job_id):
+                    following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
+                    self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
+                                  "the step after checkout must drop stale submodule checkouts")
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "release-compile", "swift-test"])
+
+
 if __name__ == "__main__":
     unittest.main()

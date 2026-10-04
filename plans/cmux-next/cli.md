@@ -199,7 +199,7 @@ the CLI requests that came with the merge, with the decision taken.
 | 6ed2890368a | Lawrence Chen | terminal command history (`set-terminal-command-history`) | deferred: no CLI verb yet (app setting `history.terminalCommands`) |
 | c8779bdd6f3 | Lawrence Chen | `tab new` of the focused pane's kind | ported: `tab new` (`newTab.sameKind`) and `tab new-terminal` (`newSurface`) are app actions with `cli: true` |
 | quit flags | Lawrence Chen | `app quit --keep-sessions|--end-sessions|--end-everything` | ported: `quit` is `cli: true`; a bare flag is true and flags map to camelCase arguments |
-| 43478eb63bd | sticky-column lead | `column make-sticky|make-sticky-left|unstick|toggle-sticky-overlay`, `settings toggle-column-scrollbar` | ported: app actions with `cli: true`; `column` reaches the app fallback and `settings <verb>` other than get/set/unset falls through to actions; `sticky-columns-v1` stays awaiting the pin |
+| 43478eb63bd | docked-column lead | `column make-dock|make-dock-left|unstick|toggle-dock-overlay`, `settings toggle-column-scrollbar` | ported: app actions with `cli: true`; `column` reaches the app fallback and `settings <verb>` other than get/set/unset falls through to actions; `sticky-columns-v1` stays awaiting the pin |
 | ca831d42829, fa5e63276d5, 61128c6ca92, 7ba97404a02 | Lawrence Chen, Leo, Austin Wang | compile fix, test timing, SSH/Mosh launcher, pool VMs | not needed: Swift CLI internals and verbs outside the curated surface |
 | 5e33b84e085, 258c2ee9b11 | Leo | `cmux agent message` (and over the SSH relay) | deferred: Remaining 10 |
 | 7bce471a35f | Leo | `cmux agent hibernate|wake` | ported: `tab hibernate|wake` (`hibernateTab`/`wakeTab`, `cli: true`) |

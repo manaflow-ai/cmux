@@ -1,7 +1,8 @@
 import { env, exports } from "cloudflare:workers"
-import { evictDurableObject, introspectWorkflowInstance, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { evictDurableObject, introspectWorkflowInstance, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { fireAlarm } from "./setup/alarm.ts"
 
 const testEnv = env as unknown as {
   STACK_PROJECT_ID: string
@@ -85,7 +86,7 @@ describe("automations end to end (workerd)", () => {
         await m.disableSleeps()
       })
       // The commit set the alarm; run it now: it dispatches the queued run as Workflow instance `runId`.
-      await runDurableObjectAlarm(scheduler(team))
+      await fireAlarm(scheduler(team))
       await instance.waitForStatus("complete")
     } finally {
       await instance[Symbol.asyncDispose]()
@@ -241,12 +242,12 @@ describe("webhook triggers (workerd)", () => {
     })
     const instance = await introspectWorkflowInstance(testEnv.AUTOMATION_RUN, runId)
     try {
-      await runDurableObjectAlarm(scheduler(team))
+      await fireAlarm(scheduler(team))
       await instance.waitForStatus("complete")
     } finally {
       await instance[Symbol.asyncDispose]()
     }
-    await runDurableObjectAlarm(scheduler(team))
+    await fireAlarm(scheduler(team))
     const runs = await read(token, "automation.runs.list", { automation })
     expect(runs.json.value.runs).toHaveLength(2)
     expect(runs.json.value.runs.find((r: any) => r.id === runId)).toMatchObject({ state: "succeeded", trigger: { type: "webhook", delivery_id: first.json.delivery } })
@@ -291,7 +292,7 @@ describe("webhook triggers (workerd)", () => {
     const run = (await op(token, "automation.run", { automation })).json.value.id as string
     const wf = await introspectWorkflowInstance(testEnv.AUTOMATION_RUN, run)
     try {
-      await runDurableObjectAlarm(scheduler(team))
+      await fireAlarm(scheduler(team))
       await wf.waitForStepResult({ name: "cmux:sleeping-0" })
       await inDO(scheduler(team), async (instance) => {
         const rec = instance.boundEngine.currentState.runs[run]

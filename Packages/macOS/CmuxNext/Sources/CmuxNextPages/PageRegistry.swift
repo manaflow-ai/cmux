@@ -2,7 +2,8 @@ import AppKit
 
 /// The live page views, for the generic page debug verb and the key dispatcher's lookups.
 @MainActor
-public enum PageRegistry {
+public struct PageRegistry {
+    public init() {}
     private static let views = NSHashTable<PageWebView>.weakObjects()
 
     static func add(_ view: PageWebView) { views.add(view) }

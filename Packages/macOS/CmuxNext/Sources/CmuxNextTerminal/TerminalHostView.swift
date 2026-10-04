@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextTerminalFind
+import Observation
 
 /// Container the App embeds. Holds the current surface view (swapped on
 /// replay) and paints the terminal's background (its theme's, else the
@@ -54,7 +55,23 @@ public final class TerminalHostView: NSView {
 
     /// Pins the session's find bar to the top-trailing corner, above the
     /// surface and the status banner.
+    /// The find bar is built the first time find opens, not with the
+    /// terminal: its glass panel, stack and buttons cost about 5 ms of main
+    /// thread per new terminal (R81 trace), most of a 120 Hz frame.
     func attachFind(_ find: TerminalFindController) {
+        if find.isPresented { return installFindBar(find) }
+        withObservationTracking {
+            _ = find.isPresented
+        } onChange: { [weak self, weak find] in
+            Task { @MainActor in
+                guard let self, let find else { return }
+                self.attachFind(find)
+            }
+        }
+    }
+
+    private func installFindBar(_ find: TerminalFindController) {
+        guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
         let bar = TerminalFindBarView(find: find)
         addSubview(bar, positioned: .above, relativeTo: banner)
         NSLayoutConstraint.activate([

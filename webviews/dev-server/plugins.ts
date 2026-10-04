@@ -9,6 +9,10 @@
 //   /history/ /apps/ /cloud/ /keybindings/  React pages (src/pages/<page>/index.html); `?mock` uses the page's in-memory provider
 // scripts/agent-pane/dev-slot.sh runs one per slot next to a standalone acpmux daemon.
 //
+// `/diff/?pick` and `/markdown?pick` show the empty states (src/viewer-empty): recents, the
+// fallback folder and file picker, drag and drop. Their recents live in a JSON file in the state
+// folder (CMUX_WEBVIEWS_DEV_STATE_DIR, the slot's folder under dev-slot.sh).
+//
 // Env: CMUX_WEBVIEWS_DEV_PORT (default 4200). Diff: CMUX_DIFF_SIDECAR (else the newest one in a
 // built app), CMUX_DIFF_DEV_CMUX, CMUX_DIFF_DEV_REPO (the repo above webviews/), CMUX_DIFF_DEV_BASE
 // (HEAD~5). Markdown: CMUX_MARKDOWN_DEV_ROOT (the repo above webviews/, writable),
@@ -33,6 +37,18 @@ import {
 } from "./diffHost";
 import { diffLanguagesDirectory, readDiffLanguagePack } from "./diffLanguages";
 import {
+  ListingRefused,
+  allowedPath,
+  defaultBranchBase,
+  devRecents,
+  devStateDirectory,
+  gitTopLevel,
+  listPickerDirectory,
+  sourceKind,
+  sourceQuery,
+  withBranch,
+} from "./viewerEmptyHost";
+import {
   PAGE_LIBS,
   SHELL_LIBS,
   SHELL_PLACEHOLDERS,
@@ -40,6 +56,7 @@ import {
   markdownAsset,
   markdownFiles,
   cmuxConfigFile,
+  isMarkdownPath,
   readMarkdown,
   readMarkdownLook,
   saveMarkdown,
@@ -53,8 +70,19 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
-  return [devServerShell(), agentPaneHost(), pagesHost(), diffHost(), markdownHost()];
+  return [devServerShell(), agentPaneHost(), pagesHost(), viewerEmptyHost(), diffHost(), markdownHost()];
 }
+
+let recentsStore: ReturnType<typeof devRecents> | undefined;
+
+/// The recent repositories and markdown files of this server (one file in its state folder).
+function viewerRecents(port: number) {
+  recentsStore ??= devRecents(devStateDirectory(port));
+  return recentsStore;
+}
+
+/// The folders the fallback picker may list and the empty states may open: the user's home.
+const viewerRoots = () => [fs.realpathSync(os.homedir())];
 
 function send(response: ServerResponse, status: number, type: string, body: string): void {
   response.statusCode = status;
@@ -84,7 +112,8 @@ const indexPage = `<!doctype html>
 <h1>cmux webviews (dev)</h1>
 <ul>
 <li><a href="/diff/">/diff/</a>: diff viewer, <code>?source=branch&amp;base=HEAD~5</code>, <code>?source=unstaged|staged</code>, <code>&amp;layout=unified</code></li>
-<li><a href="/markdown">/markdown</a>: markdown editor, <code>?file=&lt;path&gt;</code>; <a href="/markdown/viewer">/markdown/viewer</a>: the classic viewer shell</li>
+<li><a href="/diff/?pick">/diff/?pick</a>: the diff viewer's empty state (recent repositories, folder picker, drop)</li>
+<li><a href="/markdown">/markdown</a>: markdown editor, <code>?file=&lt;path&gt;</code>; <a href="/markdown?pick">/markdown?pick</a>: its empty state; <a href="/markdown/viewer">/markdown/viewer</a>: the classic viewer shell</li>
 <li><a href="/history/?mock">/history/?mock</a>: History page against the in-page mock provider</li>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
@@ -266,6 +295,55 @@ function newestAppBinary(name: string): string | undefined {
   return best?.path;
 }
 
+/// POST /__cmux-viewer/op: the dev host of the empty states. `cmux.picker.list` lists one folder
+/// for the fallback picker (inside the home folder only); `cmux.diff.recents` and
+/// `cmux.markdown.recents` answer the recents file. The open ops live with their page hosts.
+function viewerEmptyHost(): Plugin {
+  return {
+    name: "cmux-dev-viewer-empty",
+    apply: "serve",
+    configureServer(server) {
+      const port = () => server.config.server.port ?? DEV_SERVER_PORT;
+      server.middlewares.use(async (request, response, next) => {
+        const url = new URL(request.url ?? "/", "http://localhost");
+        if (url.pathname !== "/__cmux-viewer/op") return next();
+        const refused = rpcRequestStatus(request, port());
+        if (refused) return send(response, refused, "text/plain", "");
+        const reply = (status: number, body: unknown) =>
+          send(response, status, "application/json", JSON.stringify(body));
+        try {
+          const { op, params = {} } = JSON.parse((await readBody(request)).toString("utf8")) as {
+            op?: string;
+            params?: Record<string, unknown>;
+          };
+          const home = fs.realpathSync(os.homedir());
+          if (op === "cmux.picker.list") {
+            const listing = listPickerDirectory(typeof params.path === "string" ? params.path : null, {
+              roots: viewerRoots(),
+              home,
+              mode: params.mode === "file" ? "file" : "folder",
+              hidden: params.hidden === true,
+            });
+            return reply(200, listing);
+          }
+          if (op === "cmux.diff.recents") {
+            return reply(200, { home, items: viewerRecents(port()).list("diff").map(withBranch) });
+          }
+          if (op === "cmux.markdown.recents") {
+            return reply(200, { home, items: viewerRecents(port()).list("markdown") });
+          }
+          return reply(404, { code: "cmux.protocol.unknown_op", message: String(op) });
+        } catch (error) {
+          if (error instanceof ListingRefused)
+            return reply(403, { code: "cmux.picker.refused", message: error.message });
+          server.config.logger.error(`cmux viewer dev: ${errorText(error)}`);
+          return reply(500, { code: "cmux.page.failed", message: String(error) });
+        }
+      });
+    },
+  };
+}
+
 type SidecarHost = { sidecar: string; cmux: string; root: string; token: string; protocolVersion: number };
 
 /// The diff viewer: /diff/ is index.html with src/diff/dev.ts as its entry. The server plays
@@ -280,6 +358,27 @@ function diffHost(): Plugin {
   const inlineStylesStub = "\0cmux-diff-dev-inline-styles";
   let host: SidecarHost | undefined;
   let cleanup = () => {};
+  // The repositories the dev token authorizes: this repo, plus each one the empty state opened.
+  const allowedRepos = new Set([repo]);
+  const writeSession = (active: { root: string; token: string }) =>
+    fs.writeFileSync(
+      path.join(active.root, ".branch-session-dev.json"),
+      JSON.stringify({ token: active.token, groupID: "dev", allowedRepoRoots: [...allowedRepos] }),
+      { mode: 0o600 },
+    );
+  const allowRepo = (top: string) => {
+    if (allowedRepos.has(top)) return;
+    allowedRepos.add(top);
+    if (host) writeSession(host);
+  };
+  /// The repository of a `?repo=` request: a git top level inside the home folder.
+  const requestedRepo = (value: string | null): string | undefined => {
+    if (!value) return repo;
+    const top = gitTopLevel(value);
+    if (!top || !allowedPath(top, viewerRoots())) return undefined;
+    allowRepo(top);
+    return top;
+  };
 
   // Started on the first diff request, so the other surfaces run without a sidecar.
   function sidecarHost(): SidecarHost {
@@ -294,11 +393,7 @@ function diffHost(): Plugin {
     cleanup = () => fs.rmSync(root, { recursive: true, force: true });
     process.once("exit", cleanup);
     const token = randomBytes(24).toString("hex");
-    fs.writeFileSync(
-      path.join(root, ".branch-session-dev.json"),
-      JSON.stringify({ token, groupID: "dev", allowedRepoRoots: [repo] }),
-      { mode: 0o600 },
-    );
+    writeSession({ root, token });
     // The sidecar appends each session's patch to the token's manifest and refuses to create one;
     // the CLI seeds it with the viewer page, so seed it with a placeholder page entry.
     const page = path.join(root, "viewer.html");
@@ -388,9 +483,32 @@ function diffHost(): Plugin {
         if (!isLoopbackHost(request.headers.host, port())) return send(response, 403, "text/plain", "");
         try {
           if (url.pathname === "/__cmux-diff/config") {
-            const config = payloadFor(sidecarHost(), repo, defaultBase, url.searchParams);
+            const target = requestedRepo(url.searchParams.get("repo"));
+            if (!target) return send(response, 403, "text/plain", "not a git repository in the home folder");
+            const base = target === repo ? defaultBase : defaultBranchBase(target);
+            const config = payloadFor(sidecarHost(), target, base, url.searchParams);
             (config.payload as Record<string, unknown>).languages = readDiffLanguagePack(diffLanguagesDirectory());
+            viewerRecents(port()).record("diff", { path: target, source: sourceKind(config.payload.sessionSource) });
             return send(response, 200, "application/json", JSON.stringify(config));
+          }
+          if (url.pathname === "/__cmux-diff/open") {
+            // The empty state's `cmux.diff.open {path, source}`: the config of that repository.
+            const refused = rpcRequestStatus(request, port());
+            if (refused) return send(response, refused, "text/plain", "");
+            const { params = {} } = JSON.parse((await readBody(request)).toString("utf8")) as {
+              params?: { path?: unknown; source?: unknown };
+            };
+            const top = typeof params.path === "string" ? gitTopLevel(params.path) : undefined;
+            const pageError = (status: number, code: string) =>
+              send(response, status, "application/json", JSON.stringify({ code, message: String(params.path) }));
+            if (!top) return pageError(400, "cmux.diff.not_a_repo");
+            if (!allowedPath(top, viewerRoots())) return pageError(403, "cmux.diff.refused");
+            allowRepo(top);
+            const query = sourceQuery(params.source, top, () => (top === repo ? defaultBase : defaultBranchBase(top)));
+            const config = payloadFor(sidecarHost(), top, query.get("base") ?? defaultBase, query);
+            (config.payload as Record<string, unknown>).languages = readDiffLanguagePack(diffLanguagesDirectory());
+            viewerRecents(port()).record("diff", { path: top, source: sourceKind(config.payload.sessionSource) });
+            return send(response, 200, "application/json", JSON.stringify({ ...config, devQuery: query.toString() }));
           }
           if (url.pathname === "/__cmux-diff/rpc") {
             const refused = rpcRequestStatus(request, port());
@@ -433,7 +551,8 @@ function markdownHost(): Plugin {
   const files = markdownFiles(
     process.env.CMUX_MARKDOWN_DEV_ROOT || repoRoot,
     process.env.CMUX_MARKDOWN_DEV_FILE || path.join(webviewsRoot, "src/agent-session/acpmux/README.md"),
-    (process.env.CMUX_MARKDOWN_DEV_READONLY_ROOTS ?? "").split(":").filter(Boolean),
+    // The empty state may open any markdown file in the home folder; outside the root it is read only.
+    [...(process.env.CMUX_MARKDOWN_DEV_READONLY_ROOTS ?? "").split(":").filter(Boolean), os.homedir()],
   );
   const watchedAssets = new Set([
     shellPath,
@@ -447,6 +566,14 @@ function markdownHost(): Plugin {
     if (watchedFiles.has(file)) return;
     watchedFiles.add(file);
     server.watcher.add(file);
+  };
+
+  const markdownPage = async (server: ViteDevServer, originalUrl: string | undefined) => {
+    const html = fs
+      .readFileSync(path.join(webviewsRoot, "markdown-page.html"), "utf8")
+      .replace('src="./src/', 'src="/src/')
+      .replace("<body>", '<body>\n    <script type="module" src="/src/pages/markdown/devBridge.ts"></script>');
+    return server.transformIndexHtml("/markdown-page.html", html, originalUrl);
   };
 
   type OpReply = { status: number; body: unknown };
@@ -463,6 +590,7 @@ function markdownHost(): Plugin {
           : pageError(404, "cmux.markdown.not_found", file);
       watch(server, file);
       if (op === "cmux.markdown.read") return { status: 200, body: { text: content.text, hash: content.hash } };
+      viewerRecents(server.config.server.port ?? DEV_SERVER_PORT).record("markdown", { path: file });
       return {
         status: 200,
         body: {
@@ -484,13 +612,27 @@ function markdownHost(): Plugin {
       if (outcome.ok) return { status: 200, body: { hash: outcome.hash } };
       return pageError(409, outcome.code, outcome.code, "details" in outcome ? outcome.details : undefined);
     }
+    if (op === "cmux.markdown.resolveLinks") {
+      const paths = Array.isArray(params.paths)
+        ? params.paths.filter((entry): entry is string => typeof entry === "string")
+        : [];
+      return {
+        status: 200,
+        body: { links: Object.fromEntries(paths.slice(0, 500).map((entry) => [entry, files.target(file, entry)])) },
+      };
+    }
+    if (op === "cmux.markdown.listFiles") {
+      return {
+        status: 200,
+        body: { entries: files.list(file, typeof params.prefix === "string" ? params.prefix : "") },
+      };
+    }
     if (op === "cmux.markdown.openLink") {
-      // The dev stand-in for the app: a markdown file below the root opens in this page, anything
-      // else the browser opens.
+      // The dev stand-in for the app: the browser opens http(s) and mailto: links. Markdown files
+      // open in the page itself (cmux.markdown.open); other files have no viewer in dev.
       const href = typeof params.href === "string" ? params.href : "";
-      if (/^[a-z][a-z0-9+.-]*:/i.test(href)) return { status: 200, body: { url: href } };
-      const target = files.link(file, href);
-      return { status: 200, body: target ? { navigate: `/markdown?file=${encodeURIComponent(target)}` } : {} };
+      if (params.kind === "external" || params.kind === "mail") return { status: 200, body: { url: href } };
+      return { status: 200, body: {} };
     }
     return pageError(404, "cmux.protocol.unknown_op", op);
   };
@@ -525,6 +667,14 @@ function markdownHost(): Plugin {
       }
       server.middlewares.use(async (request, response, next) => {
         const url = new URL(request.url ?? "/", "http://localhost");
+        if ((url.pathname === "/markdown" || url.pathname === "/markdown/") && url.searchParams.has("pick")) {
+          // The empty state: the page with no file; the dev bridge answers `cmux.markdown.config`.
+          try {
+            return send(response, 200, "text/html; charset=utf-8", await markdownPage(server, request.originalUrl));
+          } catch (error) {
+            return next(error);
+          }
+        }
         if (url.pathname === "/markdown" || url.pathname === "/markdown/") {
           const file = files.file(url.searchParams.get("file") ?? "");
           if (!file) return send(response, 404, "text/plain", `not a markdown file under ${files.root}`);
@@ -532,12 +682,7 @@ function markdownHost(): Plugin {
             return redirect(response, `/markdown?file=${encodeURIComponent(file)}`);
           }
           try {
-            let html = fs.readFileSync(path.join(webviewsRoot, "markdown-page.html"), "utf8");
-            html = html
-              .replace('src="./src/', 'src="/src/')
-              .replace("<body>", '<body>\n    <script type="module" src="/src/pages/markdown/devBridge.ts"></script>');
-            html = await server.transformIndexHtml("/markdown-page.html", html, request.originalUrl);
-            return send(response, 200, "text/html; charset=utf-8", html);
+            return send(response, 200, "text/html; charset=utf-8", await markdownPage(server, request.originalUrl));
           } catch (error) {
             return next(error);
           }
@@ -562,6 +707,17 @@ function markdownHost(): Plugin {
               op?: string;
               params?: Record<string, unknown>;
             };
+            if (body.op === "cmux.markdown.open") {
+              // The empty state's `cmux.markdown.open {path}`: the config of that file.
+              const requested = typeof body.params?.path === "string" ? body.params.path : "";
+              const opened = files.file(requested);
+              if (!opened) {
+                const code = isMarkdownPath(requested) ? "cmux.markdown.not_found" : "cmux.markdown.not_markdown";
+                return send(response, 404, "application/json", JSON.stringify({ code, message: requested }));
+              }
+              const reply = runOp(server, opened, "cmux.markdown.config", {});
+              return send(response, reply.status, "application/json", JSON.stringify(reply.body));
+            }
             const file = files.file(body.file ?? "");
             if (!file)
               return send(response, 404, "application/json", JSON.stringify({ code: "cmux.markdown.not_found" }));

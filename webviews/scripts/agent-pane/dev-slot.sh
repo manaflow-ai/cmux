@@ -47,6 +47,9 @@ done
 home="/tmp/acpdev-$slot"
 daemon_port=$((47900 + slot))
 vite_port=$((4180 + slot))
+# 4190 is on the WHATWG fetch "bad ports" list, so browsers (WebKit, Chromium) and Node refuse it.
+# Slot 10 moves outside the 4180-4279 range instead of shifting every later slot.
+[[ "$vite_port" == 4190 ]] && vite_port=4280
 vite_origin="http://127.0.0.1:$vite_port"
 
 stop_pid() {
@@ -136,7 +139,9 @@ PY
     if [[ -n "$sidecar" ]]; then echo "cmux-diff-sidecar: $sidecar"; else echo "no cmux-diff-sidecar: /diff/ fails until CMUX_DIFF_SIDECAR_BIN is set" >&2; fi
     [[ -d "$WEBVIEWS/node_modules" ]] || (cd "$WEBVIEWS" && bun install --frozen-lockfile >/dev/null)
     # Detached with no inherited stdio, so the caller's shell returns.
-    (cd "$WEBVIEWS" && CMUX_WEBVIEWS_DEV_PORT="$vite_port" CMUX_DIFF_SIDECAR="$sidecar" nohup bun run dev \
+    # The slot's folder also keeps the viewer empty states' recents (viewer-recents.json).
+    (cd "$WEBVIEWS" && CMUX_WEBVIEWS_DEV_PORT="$vite_port" CMUX_DIFF_SIDECAR="$sidecar" \
+      CMUX_WEBVIEWS_DEV_STATE_DIR="$home" nohup bun run dev \
       </dev/null >"$home/vite.log" 2>&1 & echo $! >"$home/vite.pid")
     wait_port "$vite_port" "$home/vite.log"
     echo "logs: $home/daemon.log $home/vite.log"

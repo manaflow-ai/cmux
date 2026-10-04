@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The title row of a titled sticky section. A click collapses or expands
+/// The title row of a titled pinned section. A click collapses or expands
 /// it; the chevron shows on hover and while collapsed.
 final class SidebarSectionHeaderView: NSView {
     var onPress: (() -> Void)?

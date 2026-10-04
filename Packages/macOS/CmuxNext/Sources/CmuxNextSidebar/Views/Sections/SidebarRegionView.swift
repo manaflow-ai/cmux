@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// One sticky region (top or bottom) of the sidebar: the item sections of
+/// One pinned region (top or bottom) of the sidebar: the item sections of
 /// that region, drawn in the current look variant. It sizes to its content;
 /// `SidebarView` puts it in a scroll view capped by the region's share.
 final class SidebarRegionView: NSView {

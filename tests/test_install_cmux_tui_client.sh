@@ -284,6 +284,57 @@ grep -q 'unsupported cmux-tui architecture' "$TEST_DIR/unknown-arch.log"
 [[ ! -s "$EVENTS" ]]
 echo "PASS: unsupported architecture fails before network access"
 
+# The app host (apps-v1) installs beside the client when the manifest has it,
+# and a manifest without it removes a copy left by an earlier install.
+printf 'app host arm\n' > "$SERVE/cmux-tui-app-host-aarch64-apple-darwin"
+printf 'app host intel\n' > "$SERVE/cmux-tui-app-host-x86_64-apple-darwin"
+MANIFEST_WITHOUT_APP_HOST="$(cat "$SERVE/manifest.json")"
+APP_HOST_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-app-host-aarch64-apple-darwin")"
+APP_HOST_X64_SHA="$(slice_sha "$SERVE/cmux-tui-app-host-x86_64-apple-darwin")"
+cat > "$SERVE/manifest.json" <<JSON
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-app-host-aarch64-apple-darwin":"$APP_HOST_ARM_SHA","cmux-tui-app-host-x86_64-apple-darwin":"$APP_HOST_X64_SHA"}}
+JSON
+APP_HOST_APP="$TEST_DIR/AppHost.app"
+install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-arm.log" 2>&1
+cmp "$SERVE/cmux-tui-app-host-aarch64-apple-darwin" "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host"
+[ -x "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host" ]
+install_remote "$TEST_DIR/AppHostUniversal.app" > "$TEST_DIR/app-host-universal.log" 2>&1
+grep -q '^lipo -create .*cmux-tui-app-host-aarch64-apple-darwin' "$EVENTS"
+[ -x "$TEST_DIR/AppHostUniversal.app/Contents/Resources/bin/cmux-app-host" ]
+printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
+install_remote "$APP_HOST_APP" --arch arm64 > "$TEST_DIR/app-host-gone.log" 2>&1
+[ ! -e "$APP_HOST_APP/Contents/Resources/bin/cmux-app-host" ]
+grep -q 'publishes no cmux-app-host' "$TEST_DIR/app-host-gone.log"
+echo "PASS: the app host installs from the same build and a build without one removes it"
+
+# The Cloud app server (cmux/cloud) installs beside the app host as bin/cmux-cloud the
+# same way; a wrong sha256 is refused and leaves no binary; a build without it removes it.
+printf 'cloud arm\n' > "$SERVE/cmux-tui-cloud-server-aarch64-apple-darwin"
+printf 'cloud intel\n' > "$SERVE/cmux-tui-cloud-server-x86_64-apple-darwin"
+CLOUD_ARM_SHA="$(slice_sha "$SERVE/cmux-tui-cloud-server-aarch64-apple-darwin")"
+CLOUD_X64_SHA="$(slice_sha "$SERVE/cmux-tui-cloud-server-x86_64-apple-darwin")"
+cloud_manifest() {
+  cat > "$SERVE/manifest.json" <<JSON
+{"commit":"$COMMIT","binaries":{"cmux-tui-aarch64-apple-darwin":"$ARM_SHA","cmux-tui-x86_64-apple-darwin":"$X64_SHA","cmux-tui-aarch64-unknown-linux-musl":"$ARM_SHA","cmux-tui-x86_64-unknown-linux-musl":"$ARM_SHA","cmux-tui-cloud-server-aarch64-apple-darwin":"$1","cmux-tui-cloud-server-x86_64-apple-darwin":"$CLOUD_X64_SHA"}}
+JSON
+}
+CLOUD_APP="$TEST_DIR/Cloud.app"
+cloud_manifest "$CLOUD_ARM_SHA"
+install_remote "$CLOUD_APP" --arch arm64 > "$TEST_DIR/cloud-arm.log" 2>&1
+cmp "$SERVE/cmux-tui-cloud-server-aarch64-apple-darwin" "$CLOUD_APP/Contents/Resources/bin/cmux-cloud"
+[ -x "$CLOUD_APP/Contents/Resources/bin/cmux-cloud" ]
+[ ! -e "$CLOUD_APP/Contents/Resources/bin/cmux-app-host" ]
+cloud_manifest "$(printf '0%.0s' {1..64})"
+if install_remote "$TEST_DIR/CloudBad.app" --arch arm64 > "$TEST_DIR/cloud-bad.log" 2>&1; then
+  echo "FAIL: a wrong cmux-cloud sha256 was accepted" >&2; exit 1
+fi
+[ ! -e "$TEST_DIR/CloudBad.app/Contents/Resources/bin/cmux-cloud" ]
+printf '%s\n' "$MANIFEST_WITHOUT_APP_HOST" > "$SERVE/manifest.json"
+install_remote "$CLOUD_APP" --arch arm64 > "$TEST_DIR/cloud-gone.log" 2>&1
+[ ! -e "$CLOUD_APP/Contents/Resources/bin/cmux-cloud" ]
+grep -q 'publishes no cmux-cloud' "$TEST_DIR/cloud-gone.log"
+echo "PASS: the Cloud app server installs from the same build, a wrong sha256 is refused, and a build without one removes it"
+
 # Native means the hardware architecture, including an Intel process translated
 # by Rosetta on Apple Silicon. Exercise through the actual installer entry point.
 cat > "$FAKEBIN/uname" <<'SH'

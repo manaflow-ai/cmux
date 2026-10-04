@@ -21,6 +21,16 @@ import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } 
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
 import {
+  brokenLinkPlugin,
+  caretAt,
+  hoverCardPlugin,
+  LinkPopover,
+  pasteLinkPlugin,
+  refreshLinks,
+  type LinkHost,
+} from "./linkEditing";
+import { findHeading } from "./links";
+import {
   RAW_NODE,
   parseSourceMap,
   rawNode,
@@ -46,6 +56,8 @@ export interface MarkdownEditorHost {
   label(key: EditorLabel): string;
   /** Sanitized HTML for an HTML block's preview. */
   htmlPreview?(html: string): DocumentFragment | null;
+  /** Link checks, hover card strings and path completion. */
+  links?: LinkHost;
 }
 
 export type EditorLabel = "frontmatter" | "html" | "definition" | "source" | "plainText";
@@ -125,8 +137,16 @@ const referenceLinkSchema = linkSchema.extendSchema((previous) => (ctx) => {
       match: base.toMarkdown.match,
       runner: (state, mark, node) => {
         const reference = mark.attrs.reference as Record<string, string> | null;
-        if (reference) state.withMark(mark, "linkReference", undefined, { ...reference });
-        else base.toMarkdown.runner(state, mark, node);
+        if (!reference) return base.toMarkdown.runner(state, mark, node);
+        // `[text]` and `[text][]` use the text as the label: once the text changes, write the
+        // full form `[text][label]` so the link keeps its definition.
+        const same = (a: string, b: string) =>
+          a.trim().toLowerCase().replace(/\s+/g, " ") === b.trim().toLowerCase().replace(/\s+/g, " ");
+        const referenceType =
+          reference.referenceType !== "full" && !same(node.textContent, reference.label)
+            ? "full"
+            : reference.referenceType;
+        state.withMark(mark, "linkReference", undefined, { ...reference, referenceType });
       },
     },
   };
@@ -195,6 +215,11 @@ export class MarkdownEditor {
           editable: () => !this.readOnly,
           attributes: { class: "md-prose", spellcheck: "true" },
           nodeViews: nodeViews(host),
+          // Cmd-click on a link or footnote follows it (the DOM click below); here it must not
+          // also make ProseMirror select the clicked node, as a modifier click does.
+          handleClick: (_view, _pos, event) =>
+            event.metaKey &&
+            !!(event.target as Element | null)?.closest?.('a[href], sup[data-type="footnote_reference"]'),
           handleDOMEvents: {
             click: (_view, event) => this.handleClick(event),
             auxclick: (_view, event) => this.handleClick(event),
@@ -206,11 +231,14 @@ export class MarkdownEditor {
       .use(referenceLinkSchema)
       .use(referenceImageSchema)
       .use(history)
+      // Before Milkdown's clipboard, so a pasted URL becomes a link.
+      .use(pasteLinkPlugin(() => this.readOnly))
       .use(clipboard)
       .use(rawSchema)
       .use(activeBlockPlugin)
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
       .use(codeHighlightPlugin(host));
+    if (host.links) editor.use(brokenLinkPlugin(host.links)).use(hoverCardPlugin(host.links, () => this.readOnly));
     await editor.create();
     this.editor = editor;
     editor.action((ctx) => {
@@ -224,6 +252,7 @@ export class MarkdownEditor {
   private handleClick(event: MouseEvent): boolean {
     const target = event.target as Element | null;
     if (event.type === "click" && this.toggleTask(target, event)) return true;
+    if (event.type === "click" && this.followFootnote(target, event)) return true;
     const anchor = target?.closest?.("a[href]");
     if (!anchor) return false;
     // A link never navigates the page. It opens with Cmd-click, or a plain click when read only.
@@ -233,6 +262,72 @@ export class MarkdownEditor {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Footnotes jump both ways: following a reference (Cmd-click, or a click when read only) goes to
+   * its definition, and a click on a definition's label goes back to the first reference.
+   */
+  private followFootnote(target: Element | null, event: MouseEvent): boolean {
+    const root = this.view?.dom;
+    if (!root || !target) return false;
+    const reference = target.closest?.('sup[data-type="footnote_reference"]');
+    if (reference && (event.metaKey || this.readOnly)) {
+      const label = reference.getAttribute("data-label") ?? "";
+      const definition = [...root.querySelectorAll('[data-type="footnote_definition"]')].find(
+        (element) => element.getAttribute("data-label") === label,
+      );
+      if (!definition) return false;
+      event.preventDefault();
+      this.scrollTo(definition);
+      return true;
+    }
+    const term = target.closest?.('[data-type="footnote_definition"] > dt');
+    if (term) {
+      const label = term.parentElement?.getAttribute("data-label") ?? "";
+      const first = [...root.querySelectorAll('sup[data-type="footnote_reference"]')].find(
+        (element) => element.getAttribute("data-label") === label,
+      );
+      if (!first) return false;
+      event.preventDefault();
+      this.scrollTo(first);
+      const view = this.view!;
+      caretAt(view, view.posAtDOM(first, 0) + 1);
+      return true;
+    }
+    return false;
+  }
+
+  private scrollTo(element: Element): void {
+    const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+    element.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  }
+
+  /** Scrolls to the heading a `#anchor` names (GitHub slugs, with `-1` for repeats). */
+  scrollToAnchor(anchor: string): boolean {
+    const view = this.view;
+    if (!view) return false;
+    const heading = findHeading(view.state.doc, anchor);
+    const dom = heading ? view.nodeDOM(heading.pos) : null;
+    if (!(dom instanceof Element)) return false;
+    this.scrollTo(dom);
+    return true;
+  }
+
+  /** Re-checks broken-link marks (the host answered). */
+  refreshLinks(): void {
+    if (this.view && this.options.host.links) refreshLinks(this.view);
+  }
+
+  private popover: LinkPopover | null = null;
+
+  /** The link popover on the selection (the `link` page command, Cmd-K). */
+  openLinkPopover(): void {
+    const view = this.view;
+    const links = this.options.host.links;
+    if (!view || !links || this.readOnly) return;
+    this.popover ??= new LinkPopover(view, links);
+    this.popover.show();
   }
 
   /** A click on a task item's box (left of its text) checks or unchecks it. */

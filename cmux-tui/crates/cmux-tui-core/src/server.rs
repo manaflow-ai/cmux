@@ -85,13 +85,24 @@ use crate::{
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
+#[cfg(unix)]
+mod apps;
+#[cfg(unix)]
+pub use apps::start_apps_when_ready;
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[path = "server/window_title.rs"]
+mod window_title;
+use window_title::sanitize_window_title;
+pub use window_title::window_title_osc;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod admission;
+mod line_connection;
+use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod bookmarks;
 mod browser_profiles;
 mod conversation_tabs_wire;
@@ -101,6 +112,8 @@ mod home;
 mod launch_snapshot;
 mod personal;
 mod raw_tab;
+#[cfg(unix)]
+mod remote_entry;
 mod responses;
 mod rows;
 mod screen_json;
@@ -111,6 +124,10 @@ mod websocket_listener;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
+};
+#[cfg(unix)]
+pub use remote_entry::{
+    DenyAllGate, LinkVerifier, RemoteEntryServer, RemoteGate, RemotePeer, serve_remote_entry,
 };
 use responses::{
     response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
@@ -478,6 +495,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
     }
     #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
     capabilities.push(crate::image_paste::CAPABILITY);
+    capabilities.extend(crate::apps::advertised());
     capabilities
 }
 
@@ -5020,6 +5038,8 @@ const RETIRED_VIEW_LEASE_CAPACITY: usize = 1024;
 enum ClientTransport {
     Unix,
     WebSocket,
+    /// A `cmux link` peer stream through the remote entry (remote_entry.rs).
+    Remote,
 }
 
 impl ClientTransport {
@@ -5027,6 +5047,7 @@ impl ClientTransport {
         match self {
             Self::Unix => "unix",
             Self::WebSocket => "ws",
+            Self::Remote => "remote",
         }
     }
 }
@@ -5281,6 +5302,7 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped loopback streams (`loopback-forward-v1`).
     loopback: loopback_forward::LoopbackForwarder,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
+    apps: crate::apps::AppsSlot,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -5295,6 +5317,7 @@ impl ClientRegistry {
             url_opens: url_open::URLRequests::default(),
             loopback: loopback_forward::LoopbackForwarder::default(),
             snapshot_viewers: Default::default(),
+            apps: crate::apps::AppsSlot::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -5717,6 +5740,7 @@ impl ClientRegistry {
                 transport: match record.transport {
                     ClientTransport::Unix => "unix",
                     ClientTransport::WebSocket => "websocket",
+                    ClientTransport::Remote => "remote",
                 },
                 connected_seconds: record.connected_at.elapsed().as_secs(),
                 name: record.name.clone(),
@@ -6345,6 +6369,7 @@ impl ClientRegistry {
     fn remove(&self, client: u64) -> Option<ClientRecord> {
         self.url_opens.disconnect(client);
         self.loopback.disconnect(client);
+        self.apps.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
@@ -6465,6 +6490,8 @@ impl PendingServer {
     /// Publish lifecycle readiness and transfer socket cleanup to the caller.
     pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
         self.mux.mark_server_lifecycle_ready();
+        #[cfg(unix)]
+        start_apps_when_ready(&self.mux);
         Ok(self.path.take().expect("pending server path is available"))
     }
 
@@ -6812,105 +6839,9 @@ pub use websocket_listener::{
     serve_websocket_with_access,
 };
 
-pub fn window_title_osc(title: &str) -> Vec<u8> {
-    let title = sanitize_window_title(title);
-    format!("\x1b]0;{title}\x07\x1b]2;{title}\x07").into_bytes()
-}
-
-fn sanitize_window_title(title: &str) -> String {
-    title
-        .chars()
-        .map(|ch| match ch {
-            '\u{00}'..='\u{1f}' | '\u{7f}' => ' ',
-            _ => ch,
-        })
-        .collect()
-}
-
 #[cfg(test)]
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
     handle_connection_with_permit(mux, stream, Arc::new(RenderService::new()), None);
-}
-
-fn handle_connection_with_permit(
-    mux: Arc<Mux>,
-    stream: Box<dyn transport::Stream>,
-    render_service: Arc<RenderService>,
-    connection_permit: Option<ConnectionPermit>,
-) {
-    let Ok(mut write_half) = stream.try_clone_box() else { return };
-    let Ok(control) = write_half.try_clone_box() else { return };
-    if write_half.set_write_timeout(Some(STREAM_WRITE_TIMEOUT)).is_err() {
-        return;
-    }
-    let outbound = Arc::new(BoundedOutbound::default());
-    let writer = MessageWriter::new_with_render_service(
-        QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
-        render_service,
-    );
-    let writer_outbound = outbound;
-    let writer_close = writer.clone();
-    let Ok(writer_thread) =
-        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            while let Some(item) = writer_outbound.recv() {
-                if write_line_outbound_item(&mut *write_half, item).is_err() {
-                    writer_outbound.close();
-                    let _ = write_half.shutdown(Shutdown::Both);
-                    break;
-                }
-            }
-            writer_close.close();
-            let _ = write_half.shutdown(Shutdown::Both);
-        })
-    else {
-        writer.close();
-        return;
-    };
-    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        connection_permit.clone(),
-    ));
-    let mut reader = BufReader::new(stream);
-    let mut drain_accepted = true;
-    loop {
-        let mut line = String::new();
-        // read_line includes the trailing LF. Read one byte beyond the largest
-        // valid payload plus its delimiter so an oversized payload is visible.
-        let read = match reader.by_ref().take((MAX_JSON_LINE_BYTES + 2) as u64).read_line(&mut line)
-        {
-            Ok(read) => read,
-            Err(_) => {
-                drain_accepted = false;
-                break;
-            }
-        };
-        if read == 0 {
-            break;
-        }
-        if json_line_payload_len(&line) > MAX_JSON_LINE_BYTES {
-            drain_accepted = false;
-            break;
-        }
-        if line.trim().is_empty() {
-            zeroize_string(&mut line);
-            continue;
-        }
-        let keep_open = handle_connection_message(&mux, client, &line, &writer, &surface_scheduler);
-        zeroize_string(&mut line);
-        if !keep_open {
-            drain_accepted = false;
-            break;
-        }
-    }
-    if drain_accepted {
-        surface_scheduler.finish_and_wait();
-    } else {
-        let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
-    }
-    disconnect_client(&mux, client, false);
-    let _ = writer_thread.join();
-    drop(connection_permit);
 }
 
 fn json_line_payload_len(line: &str) -> usize {
@@ -10529,7 +10460,7 @@ fn send_resource_stream_item(
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
                 "cursor":cursor,
-                "item":item,
+                "item":writer.project_conversation_tab_item(item),
             }),
             outbound,
         )
@@ -10645,6 +10576,10 @@ fn handle_connection_message(
         return handle_resource_connection_message(mux, client, message, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     let request = match serde_json::from_str::<Request>(message) {
@@ -27603,12 +27538,6 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::WindowTitleRequested(title)) if title.is_empty()
         ));
-    }
-
-    #[test]
-    fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
-        assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
-        assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
     }
 
     #[test]

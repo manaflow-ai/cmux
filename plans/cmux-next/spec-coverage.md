@@ -49,7 +49,7 @@ Source: spec/sidebar-sections.md, spec/visuals/**, spec/plan-tab-search.md, spec
 | Item (source) | Status | Evidence / owner | Note |
 | --- | --- | --- | --- |
 | Document model, reducer, invariants L1-L6 (s4, phase 1) | DONE | 9c2d458fb75, 96e8343fec6 | Pure Swift reducer with tests. |
-| Three regions, sticky bands, looks (s1, phase 2) | DONE | 9ef77a69a9b, 3c7de1001eb | - |
+| Three regions, pinned bands, looks (s1, phase 2) | DONE | 9ef77a69a9b, 3c7de1001eb | - |
 | Name "sections", quiet default, other looks selectable (S10) | DONE | 4cf5428b947, f9373809a84 | - |
 | Bottom band on one line: Settings left, account icon right (S11) | SUPERSEDED | f9373809a84 | Leo 2026-10-03: the rail is on by default; the bottom band holds only the account, and Settings and Customize Appearance sit under the rail's More menu (sidebar-sections.md 11). The old layout is `SidebarLayoutDocument.preRailDefaults`. |
 | Per-section arrangement list, inline, grid; pinned tiles (S12) | DONE | f9373809a84, d7160cb104b | - |
@@ -118,7 +118,7 @@ Source: spec/sidebar-sections.md, spec/visuals/**, spec/plan-tab-search.md, spec
 | Daemon `edge-docks-v1` (L3 step 3) | IN PROGRESS | coordinator: layout model lead | Branch docks 62a636157e9 WIP. |
 | Drop edge bands, vertical reveal for top/bottom docks | IN PROGRESS | coordinator: layout model lead | Waits for edge-docks-v1 and rows. |
 | Dock surfaces and actions (L3 step 5) | IN PROGRESS | coordinator: layout model lead | Not started. |
-| Excellent left/right sticky columns (L1) | DONE | 1af7d77913d | sticky-columns-v1. |
+| Excellent left/right docked columns (L1) | DONE | 1af7d77913d | sticky-columns-v1. |
 | Column-major and row-major both exist (L2) | IN PROGRESS | coordinator: rows lead + layout model lead | Orientation landed. rows-v1 and InsertRow unlanded. |
 
 ### Search Tabs

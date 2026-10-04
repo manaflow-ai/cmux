@@ -382,8 +382,9 @@ public final class Options {
     /**
      * Pins, unpins, or resizes one viewport column ({@code column.update}).
      * {@code column} is the column's split ID. Set {@code sticky},
-     * {@code width}, or both; {@code edge} ("left" or "right") and
-     * {@code mode} ("docked" or "overlay") apply only when sticky is true.
+     * {@code width}, or both; {@code edge} ("left", "right", "top" or
+     * "bottom") and {@code mode} ("docked" or "overlay") apply only when
+     * sticky is true.
      */
     public record ColumnUpdate(
         Mutation mutation,

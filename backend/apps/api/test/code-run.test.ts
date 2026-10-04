@@ -1,9 +1,10 @@
 import { env, exports } from "cloudflare:workers"
-import { introspectWorkflowInstance, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { introspectWorkflowInstance, runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { testBundles } from "../src/code-run.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /** Slice 3 (plans/cmux-next/automations-plan.md): Tier 1 code runs in a Dynamic Worker, metered and capped. */
 
@@ -55,7 +56,7 @@ const runOnce = async (user: string, commit: string, bundle: string, before?: (t
   const runId = run.value.id as string
   const instance = await introspectWorkflowInstance(testEnv.AUTOMATION_RUN, runId)
   try {
-    await runDurableObjectAlarm(scheduler)
+    await fireAlarm(scheduler)
     await instance.waitForStatus("complete")
   } finally {
     await instance[Symbol.asyncDispose]()

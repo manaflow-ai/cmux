@@ -1,93 +1,64 @@
-//! A machine leaves the projection on a 404 only when the 404 carries the
-//! Cloud API's `vm_not_found` code. A bare 404 (a missing route) or a 404
-//! with another code leaves the projection as it was; the op answers its
-//! typed `not_found` with the status and the upstream code.
+//! `cloud.machine.not_found` means the machine is gone: a get or a delete
+//! that answers it removes the machine from the projection, once. Any other
+//! error leaves the projection as it is.
 
 mod common;
 
 use cmux_cloud::ops::WatchEvent;
 use cmux_cloud::{Origin, Request, Server};
-use common::FakeControlPlane;
-use serde_json::{Value, json};
+use common::{FakeControlPlane, vm};
+use serde_json::json;
 
 fn listed() -> Server<FakeControlPlane> {
-    let mut s = Server::new(FakeControlPlane::with(&["vm-list"]));
+    let mut s = Server::new(FakeControlPlane::with(&[]));
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
-    assert!(s.projection().get("vm-alpha01").is_some());
     s.take_events();
     s
 }
 
-fn get() -> Request {
-    Request::new("cloud.machine.get", json!({ "machine": "vm-alpha01" }))
-}
-
-fn delete(key: &str) -> Request {
-    Request::new("cloud.machine.delete", json!({ "machine": "vm-alpha01" }))
-        .origin(Origin::User)
-        .key(key)
-}
-
 fn removed(events: &[WatchEvent]) -> usize {
-    events
-        .iter()
-        .filter(|e| matches!(e, WatchEvent::Removed { id, .. } if id == "vm-alpha01"))
-        .count()
-}
-
-fn answer(s: &mut Server<FakeControlPlane>, method: &str, body: Value) {
-    s.control_plane_mut().respond(method, "/api/vm/vm-alpha01", 404, body);
+    events.iter().filter(|e| matches!(e, WatchEvent::Removed { .. })).count()
 }
 
 #[test]
-fn a_get_with_a_bare_404_keeps_the_machine_and_emits_nothing() {
-    for body in [json!({}), json!({ "error": "vm_snapshot_not_found" })] {
-        let mut s = listed();
-        answer(&mut s, "GET", body.clone());
-        let error = s.handle(&get()).unwrap_err();
-        assert_eq!(error.code, "cmux.cloud.not_found");
-        assert_eq!(error.status, Some(404));
-        assert_eq!(error.upstream_code.as_deref(), body["error"].as_str());
-        assert!(s.projection().get("vm-alpha01").is_some(), "{body}: the machine stays");
-        assert!(s.take_events().is_empty(), "{body}: no watch event");
-    }
-}
-
-#[test]
-fn a_get_with_vm_not_found_removes_the_machine_once() {
+fn a_get_with_not_found_removes_the_machine_once() {
     let mut s = listed();
-    answer(&mut s, "GET", json!({ "error": "vm_not_found", "message": "Not found." }));
-    let error = s.handle(&get()).unwrap_err();
-    assert_eq!(
-        (error.code, error.upstream_code.as_deref()),
-        ("cmux.cloud.not_found", Some("vm_not_found"))
-    );
-    assert!(s.projection().get("vm-alpha01").is_none(), "the machine is gone");
-    assert_eq!(removed(&s.take_events()), 1, "exactly one removed event");
-    s.handle(&get()).unwrap_err();
+    let get = Request::new("cloud.machine.get", json!({ "machine": vm(3) }));
+    assert_eq!(s.handle(&get).unwrap_err().code, "cmux.cloud.not_found");
+    assert!(s.projection().get(&vm(3)).is_none());
+    assert_eq!(removed(&s.take_events()), 1);
+    assert_eq!(s.handle(&get).unwrap_err().code, "cmux.cloud.not_found");
     assert!(s.take_events().is_empty(), "removed once");
 }
 
 #[test]
-fn a_delete_with_a_bare_404_keeps_the_machine_and_emits_nothing() {
-    for (n, body) in
-        [json!({}), json!({ "error": "vm_snapshot_not_found" })].into_iter().enumerate()
-    {
-        let mut s = listed();
-        answer(&mut s, "DELETE", body.clone());
-        let error = s.handle(&delete(&format!("d-{n}"))).unwrap_err();
-        assert_eq!(error.code, "cmux.cloud.not_found");
-        assert_eq!(error.status, Some(404));
-        assert!(s.projection().get("vm-alpha01").is_some(), "{body}: the machine stays");
-        assert!(s.take_events().is_empty(), "{body}: no watch event");
-    }
+fn a_delete_with_not_found_removes_the_machine_once() {
+    let mut s = listed();
+    s.control_plane_mut().wire.answer(
+        "cloud.machine.delete",
+        json!({ "machine": vm(1) }),
+        Some("d-1"),
+        json!({ "error": { "code": "cloud.machine.not_found", "message": "gone", "retryable": false } }),
+    );
+    let req = Request::new("cloud.machine.delete", json!({ "machine": vm(1) }))
+        .origin(Origin::User)
+        .key("d-1");
+    assert_eq!(s.handle(&req).unwrap_err().code, "cmux.cloud.not_found");
+    assert!(s.projection().get(&vm(1)).is_none());
+    assert_eq!(removed(&s.take_events()), 1);
 }
 
 #[test]
-fn a_delete_with_vm_not_found_removes_the_machine_once() {
+fn another_error_keeps_the_machine_and_emits_nothing() {
     let mut s = listed();
-    answer(&mut s, "DELETE", json!({ "error": "vm_not_found" }));
-    assert_eq!(s.handle(&delete("d-1")).unwrap_err().code, "cmux.cloud.not_found");
-    assert!(s.projection().get("vm-alpha01").is_none());
-    assert_eq!(removed(&s.take_events()), 1);
+    s.control_plane_mut().wire.answer(
+        "cloud.machine.get",
+        json!({ "machine": vm(1) }),
+        None,
+        json!({ "error": { "code": "selector.not_found", "message": "no route", "retryable": false } }),
+    );
+    let get = Request::new("cloud.machine.get", json!({ "machine": vm(1) }));
+    assert_eq!(s.handle(&get).unwrap_err().code, "cmux.cloud.not_found");
+    assert!(s.projection().get(&vm(1)).is_some(), "only the machine's own code removes it");
+    assert!(s.take_events().is_empty());
 }

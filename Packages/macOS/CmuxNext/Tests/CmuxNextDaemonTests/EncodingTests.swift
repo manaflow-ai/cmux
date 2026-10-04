@@ -127,12 +127,12 @@ import Testing
         #expect(byPane["sticky"] == nil)
         // A pinned new column (edge-docks-v1) carries the pin as {edge, mode}.
         let docked = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.3,
-                                                       sticky: StickySnapshot(edge: .bottom, mode: .overlay)))
+                                                       dock: DockSnapshot(edge: .bottom, mode: .overlay)))
         #expect(docked["sticky"]?["edge"] == .string("bottom"))
         #expect(docked["sticky"]?["mode"] == .string("overlay"))
         // Docking a pane's only tab leaves a fresh terminal (tab-column-respawn-v1).
         let respawned = try object(MoveTabToColumnRespawnRequest(
-            MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.4, sticky: StickySnapshot(edge: .right, mode: .docked)),
+            MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.4, dock: DockSnapshot(edge: .right, mode: .docked)),
             respawn: .terminal(SpawnOptions(cwd: "/tmp"))))
         #expect(respawned["cmd"] == .string("move-tab-to-column"))
         #expect(respawned["sticky"]?["edge"] == .string("right"))
