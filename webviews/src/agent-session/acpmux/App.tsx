@@ -445,6 +445,21 @@ const defaultRegistry: NativeRegistry = {
 type DrawnHeight = { version: number; width: number; height: number };
 type ReportDrawn = (id: string, version: number, height: number) => void;
 
+/// Whether `updates` change any drawn height in `current`.
+function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
+  for (const [id, entry] of updates) {
+    const old = current.get(id);
+    if (
+      !old ||
+      old.version !== entry.version ||
+      old.width !== entry.width ||
+      Math.abs(old.height - entry.height) >= 0.5
+    )
+      return true;
+  }
+  return false;
+}
+
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
@@ -559,6 +574,8 @@ export function VirtualTranscript({
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
+  const drawnRef = useRef(drawn);
+  drawnRef.current = drawn;
   const rowWidthRef = useRef(transcriptRowWidth(width));
   rowWidthRef.current = transcriptRowWidth(width);
   const rowsRef = useRef(rows);
@@ -611,8 +628,11 @@ export function VirtualTranscript({
               if (row && row.id === target.dataset.rowId)
                 reportDrawn(row.id, row.version, target.getBoundingClientRect().height);
             }
-            // A late size change (a font loading) must not paint a frame of overlap first.
-            flushSync(flushDrawn);
+            // A late size change (a font loading) must not paint a frame of overlap first. Sizes
+            // that did not change render nothing: a synchronous render here for nothing was the
+            // "ResizeObserver loop completed with undelivered notifications" while streaming.
+            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
+            else flushSync(flushDrawn);
           }),
     [reportDrawn, flushDrawn],
   );
