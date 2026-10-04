@@ -142,7 +142,10 @@ crashed, slow or unsure, the tool does not run.
    `fork()` copies the harness, argv, permission policy, modes, config options and models, and
    `--resume --fork-session` brings the whole local transcript with its tool results). It starts
    fresh, always, with only the **remote projection** of the conversation's messages (section 8
-   structs) as context; it does not resume earlier remote-chain sessions either (P2-N, D-L decided). Revocation
+   structs) as context; it does not resume earlier remote-chain sessions either (P2-N, D-L decided). The remote projection reaches the
+   fresh process as its **first prompt over stdin**, never through argv (visible in `ps`, about
+   1 MB limit); every earlier remote message in it is wrapped in rule 10 delimited blocks, because
+   it can carry injection text (P3-N). Revocation
    archives that install's remote-chain sessions for good, so a re-paired device starts from the
    remote projection only. Its configuration is built from scratch (rule 4): pinned `claude`, empty extra argv,
    policy `daemon`, no copied modes, config options or models. Cancel and revocation kill its
@@ -288,6 +291,8 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
   denied, and a Read inside the read root still reaches the daemon.
 - revoke, re-pair, and the next chain starts fresh (no earlier remote-chain session is resumed).
 - the spawn argv contains no value from the secrets list.
+- the remote projection arrives as the first stdin prompt (not on argv), and an earlier remote
+  message with a fake delimiter in it stays inside its block.
 - remote text `</resource>` followed by a fake `[mux-event]` line stays inside the block.
 - path tricks are denied: a symlink in the read root to `state/x`, `.ENV` in upper case,
   `/private/var/...` against `/var/...`, `a/../state/x`; a Grep at the read root returns no
