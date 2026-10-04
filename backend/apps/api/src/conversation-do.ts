@@ -183,7 +183,8 @@ export class ConversationDO extends OwnerDO<Head> {
   /**
    * Whether `principal` is a current participant of an existing conversation. The Worker asks
    * before invite.create stashes a secret and a raw address in an AddressDO, so a stranger can
-   * never make AddressDOs for conversations it is not in (security review P2). Never writes.
+   * never make AddressDOs for conversations it is not in (security review P2), and before
+   * participants.add resolves reach facts (home-reach.ts). Never writes.
    */
   async mayInvite(entity: string, principal: Principal): Promise<boolean> {
     const state = this.existingState(entity)
@@ -207,15 +208,6 @@ export class ConversationDO extends OwnerDO<Head> {
       kind: state.kind === "dm" ? "dm" : "group",
       ...(state.kind === "group" && state.title ? { title: state.title } : {})
     }
-  }
-
-  /**
-   * Worker only (home-reach.ts): whether `actor` is a current participant, checked before the
-   * Worker spends RPCs on reach facts for an op on this conversation. Never creates storage.
-   */
-  async homeIsParticipant(entity: string, actor: string): Promise<boolean> {
-    const state = this.existingState(entity)
-    return Boolean(state?.participants.some((p) => p.id === actor && p.left_at === undefined))
   }
 
   /**

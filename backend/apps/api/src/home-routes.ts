@@ -198,7 +198,7 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       const added = (rest as { participant?: { id?: unknown } }).participant
       // Reach facts only for a current participant: anyone else is refused by the owner without
       // RPCs to other owners, and cannot probe a target's setting through any conversation id.
-      const member = frame.op === "participants.add" && (await isParticipant(env, conversation, actorOf(principal)))
+      const member = frame.op === "participants.add" && (await isParticipant(env, conversation, principal))
       const who = frame.op === "participants.add" ? (member ? await withReach(env, await withOwnedAgents(env, principal), [added?.id]) : await withOwnedAgents(env, principal)) : principal
       return conversationStub(env, conversation).submit(conversation, who, { ...frame, params: rest })
     }
