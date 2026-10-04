@@ -1,30 +1,80 @@
-//! `closed.reopen`: recreate a recently closed tab, screen, or workspace
-//! from its closed-history record (`closed-history-v1`).
+//! `closed.reopen`: recreate a recently closed group (`closed-history-v2`,
+//! plans/cmux-next/reopen-closed.md) from its record: every member, or the
+//! chosen ones, in their stored order.
 //!
-//! A tab reopens in its pane when that pane is live, else in the focused
-//! pane of its workspace, else in the session's focused pane; a terminal
-//! that still runs gets a new view, any other terminal starts in its
-//! recorded directory. A screen reopens in its workspace (a new workspace
-//! when that is gone); a workspace reopens as a new workspace. The record
-//! leaves the history in the commit that stores the request's result, so a
-//! retry with the same key replays it.
+//! Without a `closed` id the request takes the newest group of its `window`
+//! (Cmd-Shift-T), else the newest group no live window owns. A tab reopens
+//! in its pane at its old index when that pane is live, else in the
+//! focused pane of its workspace, else in the session's focused pane; a
+//! terminal that still runs gets a new view, any other terminal starts in
+//! its recorded directory. A screen reopens in its workspace (a new
+//! workspace when that is gone); a workspace reopens as a new workspace.
+//! The restored members leave the history in the commit that stores the
+//! request's result, so a retry with the same key replays it.
 
 use crate::mux::tab_groups::pane_by_public_id;
 use crate::mux::tab_strip::StripRequest;
 use crate::mux::*;
-use crate::state::closed_history_store::{closed_record, remove_closed};
+use crate::state::closed_history_query::{
+    closed_record, keep_members, newest_for_window, remove_closed,
+};
 use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
-use crate::state::store::{StateChanges, StateCommit, state_delete};
+use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 
 const OPERATION: &str = "closed.reopen";
+
+/// What a `closed.reopen` request names.
+#[derive(Default)]
+pub(crate) struct ReopenRequest {
+    /// The group; None: the newest group in `window`'s scope.
+    pub(crate) closed: Option<String>,
+    /// The caller's window record id (`install/window`).
+    pub(crate) window: Option<String>,
+    /// Member indexes to restore; None: every member.
+    pub(crate) members: Option<Vec<usize>>,
+}
+
+impl ReopenRequest {
+    /// The idempotency fingerprint. A request that names only `closed`
+    /// keeps the v1 fingerprint, so a retry across an upgrade replays.
+    fn fingerprint(&self) -> Value {
+        let mut fingerprint = serde_json::json!({"operation": OPERATION, "closed": self.closed});
+        if let Some(window) = &self.window {
+            fingerprint["window"] = serde_json::json!(window);
+        }
+        if let Some(members) = &self.members {
+            fingerprint["members"] = serde_json::json!(members);
+        }
+        fingerprint
+    }
+}
 
 /// What a reopen created, in public ids.
 #[derive(Default)]
 struct Reopened {
-    workspace: Option<String>,
+    workspaces: Vec<String>,
     screens: Vec<String>,
     tabs: Vec<String>,
+}
+
+impl Reopened {
+    fn note_workspace(&mut self, workspace: String) {
+        if !self.workspaces.contains(&workspace) {
+            self.workspaces.push(workspace);
+        }
+    }
+}
+
+/// Split `members` into the ones to restore and the ones to keep.
+fn choose(members: Vec<Value>, chosen: Option<&[usize]>) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
+    let Some(chosen) = chosen else { return Ok((members, Vec::new())) };
+    if let Some(bad) = chosen.iter().find(|index| **index >= members.len()) {
+        anyhow::bail!("bad request: member {bad} is out of range (the group has {})", members.len());
+    }
+    let (restore, keep): (Vec<_>, Vec<_>) =
+        members.into_iter().enumerate().partition(|(index, _)| chosen.contains(index));
+    Ok((restore.into_iter().map(|(_, m)| m).collect(), keep.into_iter().map(|(_, m)| m).collect()))
 }
 
 impl Mux {
@@ -32,9 +82,9 @@ impl Mux {
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
         expected_revision: Option<u64>,
-        closed_id: &str,
+        request: &ReopenRequest,
     ) -> anyhow::Result<StateCommit> {
-        let fingerprint = serde_json::json!({"operation": OPERATION, "closed": closed_id});
+        let fingerprint = request.fingerprint();
         if let Some(replay) = self.workspace_registry.lock().unwrap().replay_resource_patch(
             mutation,
             OPERATION,
@@ -42,18 +92,23 @@ impl Mux {
         )? {
             return Ok(replay.into());
         }
+        let closed_id = match &request.closed {
+            Some(closed) => closed.clone(),
+            None => self
+                .read_registry_state(|connection| newest_for_window(connection, request.window.as_deref()))?
+                .ok_or_else(|| state_not_found("closed", "newest"))?,
+        };
         let record = self
-            .read_registry_state(|connection| closed_record(connection, closed_id))?
-            .ok_or_else(|| state_not_found("closed", closed_id))?;
-        let kind = record["kind"].as_str().unwrap_or_default().to_string();
+            .read_registry_state(|connection| closed_record(connection, &closed_id))?
+            .ok_or_else(|| state_not_found("closed", &closed_id))?;
+        let members = record["members"].as_array().cloned().unwrap_or_default();
+        let (restore, keep) = choose(members, request.members.as_deref())?;
         let mut reopened = Reopened::default();
-        match kind.as_str() {
-            "tab" => self.reopen_closed_tab(&record, &mut reopened)?,
-            "screen" => self.reopen_closed_screen(&record, &mut reopened)?,
-            "workspace" => self.reopen_closed_workspace(&record, &mut reopened)?,
-            other => anyhow::bail!("closed item {closed_id} has unknown kind {other}"),
+        for member in &restore {
+            self.reopen_member(&closed_id, member, &mut reopened)?;
         }
-        let workspace = reopened.workspace.context("reopened item has no workspace")?;
+        let workspace = reopened.workspaces.first().cloned().context("reopened item has no workspace")?;
+        let kind = record["kind"].as_str().unwrap_or_default().to_string();
         self.commit_state(
             mutation,
             OPERATION,
@@ -61,19 +116,42 @@ impl Mux {
             expected_revision,
             StateEffects::EVENTS_ONLY,
             |transaction, _| {
-                remove_closed(transaction, closed_id)?;
+                let remaining = keep.len();
+                let change = if keep.is_empty() {
+                    remove_closed(transaction, &closed_id)?;
+                    state_delete("closed", &closed_id)
+                } else {
+                    let item = keep_members(transaction, &closed_id, record.clone(), keep.clone())?;
+                    state_upsert("closed", &closed_id, item)
+                };
                 Ok(StateChanges::new(
                     serde_json::json!({
                         "closed_id": closed_id,
                         "kind": kind,
                         "workspace_id": workspace,
+                        "workspace_ids": reopened.workspaces,
                         "screen_ids": reopened.screens,
                         "tab_ids": reopened.tabs,
+                        "remaining": remaining,
                     }),
-                    vec![state_delete("closed", closed_id)],
+                    vec![change],
                 ))
             },
         )
+    }
+
+    fn reopen_member(
+        self: &Arc<Self>,
+        closed_id: &str,
+        member: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
+        match member["kind"].as_str() {
+            Some("tab") => self.reopen_closed_tab(member, reopened),
+            Some("screen") => self.reopen_closed_screen(member, reopened),
+            Some("workspace") => self.reopen_closed_workspace(member, reopened),
+            other => anyhow::bail!("closed item {closed_id} has a member of unknown kind {other:?}"),
+        }
     }
 
     fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {
@@ -195,13 +273,33 @@ impl Mux {
                 self.reopen_tab_record(pane, tab, true)?
             }
         };
+        self.restore_tab_index(surface, record, tab);
         let pane =
             self.with_state(|state| state.pane_of(surface)).context("reopened tab has no pane")?;
         let (workspace, screen) = self.public_screen_of_pane(pane)?;
-        reopened.workspace = Some(workspace);
+        reopened.note_workspace(workspace);
         reopened.screens.push(screen);
         reopened.tabs.push(self.public_tab_of(surface)?);
         Ok(())
+    }
+
+    /// Put a tab that reopened in its own pane back at its recorded index
+    /// (clamped). A pinned tab keeps the place its pin gave it.
+    fn restore_tab_index(self: &Arc<Self>, surface: SurfaceId, record: &Value, tab: &Value) {
+        if tab["pinned"].as_bool() == Some(true) {
+            return;
+        }
+        let Some(index) = record["index"].as_u64().and_then(|index| usize::try_from(index).ok())
+        else {
+            return;
+        };
+        let original = self.with_state(|state| {
+            let pane = record["pane_id"].as_str().and_then(|pane| pane_by_public_id(state, pane))?;
+            (state.pane_of(surface) == Some(pane)).then_some(pane)
+        });
+        if let Some(pane) = original {
+            self.move_tab(surface, pane, index);
+        }
     }
 
     /// Fill a fresh screen whose first terminal tab `first` already exists.
@@ -216,7 +314,7 @@ impl Mux {
         let pane =
             self.with_state(|state| state.pane_of(first)).context("new screen has no pane")?;
         let (workspace, screen_id) = self.public_screen_of_pane(pane)?;
-        reopened.workspace.get_or_insert(workspace);
+        reopened.note_workspace(workspace);
         reopened.screens.push(screen_id);
         if let Some(name) = screen["name"].as_str()
             && let Some(slot) = self.with_state(|state| {
@@ -302,7 +400,7 @@ impl Mux {
                 .with_state(|state| state.pane_of(first.id))
                 .context("new workspace has no pane")?;
             let (workspace, screen) = self.public_screen_of_pane(pane)?;
-            reopened.workspace = Some(workspace);
+            reopened.note_workspace(workspace);
             reopened.screens.push(screen);
             reopened.tabs.push(self.public_tab_of(first.id)?);
         }

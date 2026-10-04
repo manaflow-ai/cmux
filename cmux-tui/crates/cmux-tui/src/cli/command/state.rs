@@ -675,23 +675,47 @@ pub(super) fn parse_screen_group(
 
 // closed
 
-/// `closed list` and `closed <id> reopen`: recently closed tabs, screens and
-/// workspaces of the session.
+/// `closed list [--window W] [--limit N]`, `closed reopen [--window W]`
+/// (the newest group of that window: Cmd-Shift-T) and
+/// `closed <id> reopen [--members 0,2]`: the closed groups of the session.
 pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     let mut params = Params::default();
     let operation = match words {
-        ["list"] => Op::ClosedList,
+        ["list"] => {
+            insert_optional_string(&mut params.fields, flags, "window", "window");
+            if let Some(limit) = flags.take("limit") {
+                super::insert_bounded_u32(&mut params.fields, "limit", "--limit", limit, 1, 1000)?;
+            }
+            Op::ClosedList
+        }
+        ["reopen"] => {
+            insert_optional_string(&mut params.fields, flags, "window", "window");
+            Op::ClosedReopen
+        }
         [closed, "reopen"] => {
             if closed.is_empty() || closed.len() > 64 {
                 return Err(UsageError::new("closed id must contain 1 to 64 UTF-8 bytes"));
             }
             params.insert("closed", Value::String((*closed).into()));
+            if let Some(members) = flags.take("members") {
+                params.insert("members", closed_members(&members)?);
+            }
             Op::ClosedReopen
         }
         _ => return usage("closed action"),
     };
     params.send(operation, &selectors, flags)
+}
+
+/// `--members 0,2`: member indexes of a closed group.
+fn closed_members(value: &str) -> Result<Value, UsageError> {
+    let members = value
+        .split(',')
+        .map(|member| member.trim().parse::<u32>().map(Value::from))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| UsageError::new("--members must be member indexes like 0,2"))?;
+    Ok(Value::Array(members))
 }
 
 #[cfg(test)]
