@@ -26,7 +26,8 @@ fn parsed_request(
         "params":params,
         "idempotency_key":idempotency_key,
     });
-    parse_resource_request(&serde_json::to_string(&envelope).unwrap()).unwrap()
+    parse_resource_request(&serde_json::to_string(&envelope).unwrap())
+        .unwrap_or_else(|e| panic!("{operation} {params:?}: {e:?}", params = envelope["params"]))
 }
 
 fn session() -> ResourceSelectors {
