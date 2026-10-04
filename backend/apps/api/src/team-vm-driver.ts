@@ -15,6 +15,8 @@ export interface TeamVmDriver {
   lookup(name: string): Promise<{ readonly id: string; readonly team: string | null } | null>
   /** Deletes the VM with this provider id; a VM already gone counts as deleted. Callers pass ledger ids only. */
   deleteVm(id: string): Promise<void>
+  /** One page of the provider account's VMs (report-only callers; never used to adopt or delete). */
+  listPage(limit: number, offset: number): Promise<{ readonly vms: ReadonlyArray<{ readonly id: string; readonly slug: string | null }>; readonly total: number }>
 }
 
 export class DriverError extends Error {
@@ -127,6 +129,14 @@ export class FreestyleDriver implements TeamVmDriver {
     if (gone.status === 404 || (gone.status >= 200 && gone.status < 300)) return
     this.fail(gone.status, gone.json, "delete VM")
   }
+
+  /** GET /v5/vms?limit&offset answers { vms: VmData[], totalCount } (freestyle SDK 0.2.16, ListVmsOptions / ListVmsResult). */
+  async listPage(limit: number, offset: number) {
+    const got = await this.call("GET", `/v5/vms?limit=${limit}&offset=${offset}`)
+    if (got.status !== 200 || !Array.isArray(got.json.vms)) this.fail(got.status, got.json, "list VMs")
+    const vms = (got.json.vms as Array<Record<string, unknown>>).filter((v) => nonEmpty(v.id)).map((v) => ({ id: v.id as string, slug: typeof v.slug === "string" ? v.slug : null }))
+    return { vms, total: typeof got.json.totalCount === "number" ? got.json.totalCount : vms.length }
+  }
 }
 
 /**
@@ -188,6 +198,13 @@ export class FakeDriver implements TeamVmDriver {
   async deleteVm(id: string) {
     this.maybeFail()
     this.sql.exec(`DELETE FROM fake_vm WHERE id = ?`, id)
+  }
+
+  async listPage(limit: number, offset: number) {
+    this.maybeFail()
+    const vms = this.sql.exec<{ id: string; slug: string }>(`SELECT id, slug FROM fake_vm ORDER BY slug LIMIT ? OFFSET ?`, limit, offset)
+    const total = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM fake_vm`)[0]!.n
+    return { vms, total }
   }
 }
 
