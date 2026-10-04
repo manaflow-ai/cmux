@@ -37,19 +37,37 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
-            var pane = context.scope(invocation).pane
-            // Cmd-I is also the entry point when a workspace is settling and
-            // has no focused pane yet. Reuse Cmd-T's shared path to repair or
-            // create the active workspace's first usable pane, then resolve it
-            // again before opening the agent tab. Explicit targets still fail
-            // normally instead of silently switching panes.
-            if pane == nil, invocation.target == nil {
-                _ = context.registry.perform("newTab.sameKind", invocation: invocation)
-                pane = context.scope(invocation).pane
+            if let pane = context.scope(invocation).pane {
+                openNewAgentChat(in: pane, invocation: invocation, context: context)
+                return
             }
-            guard let pane else { return context.refuse(MiscHandlerStrings.noPane) }
-            if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
-            pane.newAgentTab()
+            // Cmd-I is also the entry point while a workspace is settling and
+            // has no mounted pane yet. Reuse Cmd-T's shared path to repair or
+            // create the active workspace's first usable pane, then wait for
+            // its controller before opening the agent tab. Explicit targets
+            // still fail normally instead of silently switching panes.
+            guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
+            _ = context.registry.perform("newTab.sameKind", invocation: invocation)
+            context.registry.track(Task { @MainActor in
+                for attempt in 0..<100 {
+                    if let pane = context.scope(invocation).pane {
+                        openNewAgentChat(in: pane, invocation: invocation, context: context)
+                        return nil
+                    }
+                    // A workspace with no mounted pane cannot satisfy
+                    // newTab.sameKind yet. After a short settle window, use
+                    // the shared new-workspace path with a valid cwd; it
+                    // creates the active workspace and its first terminal.
+                    if attempt == 5 {
+                        var workspaceInvocation = invocation
+                        workspaceInvocation.arguments["cwd"] = .string(FileManager.default.homeDirectoryForCurrentUser.path)
+                        _ = context.registry.perform("newTab", invocation: workspaceInvocation)
+                    }
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                context.refuse(MiscHandlerStrings.noPane)
+                return ActionWorkFailure(MiscHandlerStrings.noPane)
+            })
         }
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
@@ -118,6 +136,11 @@ enum AgentHandlers {
             ["palette.computerUse.setup", "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
             ActionFailure(message: MiscHandlerStrings.computerUse)
         )
+    }
+
+    private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
+        if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
+        pane.newAgentTab()
     }
 
     /// The shell line that forks `session`, or nil for agents without fork
