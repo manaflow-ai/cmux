@@ -28,6 +28,7 @@ members = [
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
+    "crates/cmux-git",
     "crates/cmux-tui-core",
     "crates/cmux-layout-reducer",
     "crates/cmux-unix-socket",
@@ -64,6 +65,7 @@ default-members = [
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
+    "crates/cmux-git",
     "crates/cmux-tui-core",
     "crates/cmux-layout-reducer",
     "crates/cmux-pty",
@@ -111,6 +113,7 @@ redundant_clone = "warn"
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
+cmux-git = { path = "crates/cmux-git" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }

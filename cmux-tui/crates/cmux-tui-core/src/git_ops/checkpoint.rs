@@ -101,7 +101,7 @@ fn target(
     mint: bool,
 ) -> Result<Option<Target>, ResourceError> {
     let directory = super::target::directory(mux, request, operation)?;
-    let repository = Repository::open(&directory, operation)?;
+    let repository = super::open_repository(&directory, operation)?;
     let layout = Layout::locate(&repository, operation)?;
     let ids = if mint {
         store.identify(&layout.common_dir, &layout.git_dir).map(Some)

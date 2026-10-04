@@ -7,25 +7,22 @@
 mod checkpoint;
 mod diff;
 mod files;
-mod parse;
-mod run;
 mod target;
 #[cfg(test)]
 mod tests;
-mod write_run;
 
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
+use cmux_git::run::GitFailure;
+use cmux_git::{OpenError, Repository, parse, run, write_run};
 use serde_json::{Value, json};
 
 use crate::Mux;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
-use run::{GitFailure, GitOutput, run_git};
 
-const MAX_SMALL_OUTPUT_BYTES: usize = 64 * 1024;
+const MAX_SMALL_OUTPUT_BYTES: usize = cmux_git::MAX_SMALL_OUTPUT_BYTES;
 const MAX_STATUS_BYTES: usize = 256 * 1024;
 
 /// Advertised in identify: the session host owns `git.checkpoint.create`,
@@ -59,7 +56,7 @@ pub(crate) fn dispatch(
         other => unreachable!("git_ops does not handle {other:?}"),
     };
     let directory = target::directory(mux, &request, operation)?;
-    let repository = Repository::open(&directory, operation)?;
+    let repository = open_repository(&directory, operation)?;
     match operation {
         "git.diff" => diff::read(&repository, &request.fields),
         "git.files.search" => files::search(&repository, &directory, &request.fields),
@@ -67,112 +64,12 @@ pub(crate) fn dispatch(
     }
 }
 
-/// A repository's top level, which every run works from, and the config
-/// overrides every run carries.
-struct Repository {
-    root: PathBuf,
-    overrides: Vec<String>,
-}
-
-impl Repository {
-    fn open(directory: &Path, operation: &'static str) -> Result<Self, ResourceError> {
-        let arguments = ["rev-parse", "--show-toplevel"];
-        let output = match run_git(directory, &[], &arguments, MAX_SMALL_OUTPUT_BYTES) {
-            Ok(output) => output,
-            Err(GitFailure::Exit(stderr)) if stderr.contains("not a git repository") => {
-                return Err(not_a_repository(operation, directory));
-            }
-            Err(failure) => return Err(git_failed(operation, &failure)),
-        };
-        let root = String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string();
-        if root.is_empty() {
-            return Err(not_a_repository(operation, directory));
-        }
-        let root = PathBuf::from(root);
-        let overrides =
-            filter_overrides(&root).map_err(|failure| git_failed(operation, &failure))?;
-        Ok(Self { root, overrides })
-    }
-
-    fn run(&self, arguments: &[&str], max_stdout: usize) -> Result<GitOutput, GitFailure> {
-        run_git(&self.root, &self.overrides, arguments, max_stdout)
-    }
-
-    /// The commit a revision names, or `None`.
-    fn commit(&self, revision: &str) -> Option<String> {
-        let revision = format!("{revision}^{{commit}}");
-        let arguments = ["rev-parse", "--verify", "--quiet", "--end-of-options", revision.as_str()];
-        let output = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES).ok()?;
-        let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        (!commit.is_empty()).then_some(commit)
-    }
-
-    /// The empty tree in this repository's hash, to compare against before
-    /// the first commit.
-    fn empty_tree(&self) -> Result<String, GitFailure> {
-        let output = self.run(&["hash-object", "-t", "tree", "--stdin"], MAX_SMALL_OUTPUT_BYTES)?;
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-    }
-
-    /// The branch the branch scope compares with, as (ref, short name):
-    /// origin's default branch, else origin/main, origin/master, main or
-    /// master.
-    fn base_branch(&self) -> Option<(String, String)> {
-        let arguments = ["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"];
-        if let Ok(output) = self.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
-            let reference = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if let Some(short) = reference.strip_prefix("refs/remotes/")
-                && self.commit(&reference).is_some()
-            {
-                return Some((reference.clone(), short.to_string()));
-            }
-        }
-        [
-            ("refs/remotes/origin/main", "origin/main"),
-            ("refs/remotes/origin/master", "origin/master"),
-            ("refs/heads/main", "main"),
-            ("refs/heads/master", "master"),
-        ]
-        .into_iter()
-        .find(|(reference, _)| self.commit(reference).is_some())
-        .map(|(reference, short)| (reference.to_string(), short.to_string()))
-    }
-}
-
-/// A filter driver runs a program on file contents (`clean`, `smudge`,
-/// `process`), and diffing the working tree would run it. A read never needs
-/// one, so every configured driver is blanked: an empty command is no filter,
-/// and nothing is required.
-fn filter_overrides(root: &Path) -> Result<Vec<String>, GitFailure> {
-    let pattern = r"^filter\..*\.(clean|smudge|process|required)$";
-    let arguments = ["config", "--null", "--name-only", "--get-regexp", pattern];
-    let output = match run_git(root, &[], &arguments, MAX_SMALL_OUTPUT_BYTES) {
-        Ok(output) if output.truncated => {
-            return Err(GitFailure::Exit("too many filter drivers configured".to_string()));
-        }
-        Ok(output) => output,
-        // `--get-regexp` exits 1 when nothing matches.
-        Err(GitFailure::Exit(stderr)) if stderr.is_empty() => return Ok(Vec::new()),
-        Err(failure) => return Err(failure),
-    };
-    let drivers = parse::file_list(&output.stdout)
-        .into_iter()
-        .filter_map(|key| {
-            let (driver, _) = key.strip_prefix("filter.")?.rsplit_once('.')?;
-            Some(driver.to_string())
-        })
-        .collect::<BTreeSet<_>>();
-    Ok(drivers
-        .into_iter()
-        .flat_map(|driver| {
-            [
-                format!("filter.{driver}.clean="),
-                format!("filter.{driver}.smudge="),
-                format!("filter.{driver}.process="),
-                format!("filter.{driver}.required=false"),
-            ]
-        })
-        .collect())
+/// The repository `directory` is in, as `operation`'s errors.
+fn open_repository(directory: &Path, operation: &'static str) -> Result<Repository, ResourceError> {
+    Repository::open(directory).map_err(|error| match error {
+        OpenError::NotARepository => not_a_repository(operation, directory),
+        OpenError::Git(failure) => git_failed(operation, &failure),
+    })
 }
 
 fn status(repository: &Repository) -> Result<Value, ResourceError> {

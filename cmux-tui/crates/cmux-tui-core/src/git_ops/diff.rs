@@ -6,10 +6,11 @@ use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path};
 
+use cmux_git::diff::{Comparison, ScopeError, diff_args, untracked_args};
+use cmux_git::run::GitOutput;
 use serde_json::{Map, Value, json};
 
-use super::run::{GitFailure, GitOutput};
-use super::{MAX_SMALL_OUTPUT_BYTES, Repository, clamp, git_failed, parse};
+use super::{Repository, clamp, git_failed, parse};
 use crate::resource::ResourceError;
 
 const OPERATION: &str = "git.diff";
@@ -27,19 +28,6 @@ const MAX_UNTRACKED_FILES: usize = 200;
 const MAX_UNTRACKED_FILE_BYTES: u64 = 2 * 1024 * 1024;
 /// git's own test for a binary file: a NUL in the first 8000 bytes.
 const BINARY_PROBE_BYTES: usize = 8000;
-
-/// What a scope compares.
-struct Comparison {
-    /// The operation errors name.
-    operation: &'static str,
-    /// The `git diff` revisions; `None` when there is nothing tracked to
-    /// compare (committed, before the first commit).
-    revisions: Option<Vec<String>>,
-    cached: bool,
-    untracked: bool,
-    head: Option<String>,
-    base: Option<String>,
-}
 
 #[derive(Debug)]
 struct ChangedFile {
@@ -101,7 +89,7 @@ pub(super) fn read(
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
     pathspecs(fields)?;
     let comparison = comparison(repository, scope)?;
-    let mut value = report(repository, &comparison, fields)?;
+    let mut value = report(repository, &comparison, OPERATION, fields)?;
     value["scope"] = json!(scope);
     Ok(value)
 }
@@ -114,21 +102,15 @@ pub(in crate::git_ops) fn between(
     fields: &Map<String, Value>,
     operation: &'static str,
 ) -> Result<Value, ResourceError> {
-    let comparison = Comparison {
-        operation,
-        revisions: Some(vec![from, to]),
-        cached: false,
-        untracked: false,
-        head: repository.commit("HEAD"),
-        base: None,
-    };
-    report(repository, &comparison, fields)
+    let comparison = cmux_git::diff::between(repository, from, to);
+    report(repository, &comparison, operation, fields)
 }
 
 /// The changed files a comparison finds, with counts and bounded patches.
 fn report(
     repository: &Repository,
     comparison: &Comparison,
+    operation: &'static str,
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
     let include_patch = fields.get("include_patch").and_then(Value::as_bool).unwrap_or(false);
@@ -136,11 +118,11 @@ fn report(
     let max_files = limit(fields, "max_files", 500);
     let paths = pathspecs(fields)?;
 
-    let mut files = tracked(repository, comparison, &paths)?;
+    let mut files = tracked(repository, comparison, operation, &paths)?;
     let mut untracked_skipped = 0;
     if comparison.untracked {
         let listing =
-            git(repository, comparison.operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
+            git(repository, operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
         let mut names = parse::file_list(&listing.stdout);
         if listing.truncated {
             // The last name may be cut short.
@@ -164,7 +146,7 @@ fn report(
         } else {
             returned_paths(&files).chunks(PATCH_BATCH).map(<[String]>::to_vec).collect()
         };
-        attach_patches(repository, comparison, &batches, &mut files, max_patch_bytes)?;
+        attach_patches(repository, comparison, operation, &batches, &mut files, max_patch_bytes)?;
     }
 
     let mut value = json!({
@@ -187,89 +169,36 @@ fn report(
     Ok(value)
 }
 
+/// A scope's comparison, with `git.diff`'s errors.
 fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, ResourceError> {
-    let head = repository.commit("HEAD");
-    let empty_tree = || repository.empty_tree().map_err(|failure| git_failed(OPERATION, &failure));
-    let compare =
-        |revisions: Vec<String>, cached: bool, untracked: bool, base: Option<String>| Comparison {
-            operation: OPERATION,
-            revisions: Some(revisions),
-            cached,
-            untracked,
-            head: head.clone(),
-            base,
-        };
-    Ok(match scope {
-        "uncommitted" => {
-            let tree = match &head {
-                Some(head) => head.clone(),
-                None => empty_tree()?,
-            };
-            compare(vec![tree], false, true, None)
+    cmux_git::diff::comparison(repository, scope).map_err(|error| match error {
+        ScopeError::UnknownScope(other) => {
+            ResourceError::validation_invalid(Some("scope"), format!("unknown scope {other:?}"))
         }
-        "unstaged" => compare(Vec::new(), false, true, None),
-        "staged" => compare(Vec::new(), true, false, None),
-        "committed" => match &head {
-            None => Comparison {
-                operation: OPERATION,
-                revisions: None,
-                cached: false,
-                untracked: false,
-                head: None,
-                base: None,
-            },
-            Some(commit) => {
-                let parent = repository.commit(&format!("{commit}^1"));
-                let from = match &parent {
-                    Some(parent) => parent.clone(),
-                    None => empty_tree()?,
-                };
-                compare(vec![from, commit.clone()], false, false, parent)
-            }
-        },
-        "branch" => {
-            let merge_base = merge_base(repository)?;
-            compare(vec![merge_base.clone()], false, true, Some(merge_base))
-        }
-        other => {
-            return Err(ResourceError::validation_invalid(
-                Some("scope"),
-                format!("unknown scope {other:?}"),
-            ));
-        }
-    })
-}
-
-fn merge_base(repository: &Repository) -> Result<String, ResourceError> {
-    let Some((reference, short)) = repository.base_branch() else {
-        return Err(ResourceError::operation_failed(
+        ScopeError::NoBaseBranch => ResourceError::operation_failed(
             OPERATION,
             "no base branch: origin's default branch, main and master are all missing",
             json!({"code":"no_base_branch"}),
-        ));
-    };
-    let arguments = ["merge-base", "HEAD", reference.as_str()];
-    match repository.run(&arguments, MAX_SMALL_OUTPUT_BYTES) {
-        Ok(output) => Ok(String::from_utf8_lossy(&output.stdout).trim().to_string()),
-        Err(GitFailure::Exit(_)) => Err(ResourceError::operation_failed(
+        ),
+        ScopeError::NoMergeBase { base } => ResourceError::operation_failed(
             OPERATION,
-            format!("HEAD and {short} have no common commit"),
-            json!({"code":"no_merge_base","base":short}),
-        )),
-        Err(failure) => Err(git_failed(OPERATION, &failure)),
-    }
+            format!("HEAD and {base} have no common commit"),
+            json!({"code":"no_merge_base","base":base}),
+        ),
+        ScopeError::Git(failure) => git_failed(OPERATION, &failure),
+    })
 }
 
 /// The tracked files the comparison changes, with their counts.
 fn tracked(
     repository: &Repository,
     comparison: &Comparison,
+    operation: &'static str,
     paths: &[String],
 ) -> Result<Vec<ChangedFile>, ResourceError> {
     if comparison.revisions.is_none() {
         return Ok(Vec::new());
     }
-    let operation = comparison.operation;
     let statuses =
         listing(repository, operation, &diff_args(comparison, &["--name-status", "-z"], paths))?;
     let counts =
@@ -316,6 +245,7 @@ fn listing(
 fn attach_patches(
     repository: &Repository,
     comparison: &Comparison,
+    operation: &'static str,
     batches: &[Vec<String>],
     files: &mut [ChangedFile],
     max_patch_bytes: usize,
@@ -332,7 +262,7 @@ fn attach_patches(
             break;
         }
         let arguments = diff_args(comparison, &["--patch"], batch);
-        let output = git(repository, comparison.operation, &arguments, MAX_PATCH_OUTPUT_BYTES)?;
+        let output = git(repository, operation, &arguments, MAX_PATCH_OUTPUT_BYTES)?;
         let sections = parse::patches(&output.stdout);
         if output.truncated {
             incomplete = true;
@@ -355,40 +285,6 @@ fn attach_patches(
         }
     }
     Ok(())
-}
-
-fn diff_args<'a>(
-    comparison: &'a Comparison,
-    mode: &[&'a str],
-    paths: &'a [String],
-) -> Vec<&'a str> {
-    let mut args = vec![
-        "diff",
-        "--no-color",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-relative",
-        "--ignore-submodules=dirty",
-        "-M",
-        "--src-prefix=a/",
-        "--dst-prefix=b/",
-    ];
-    args.extend_from_slice(mode);
-    if comparison.cached {
-        args.push("--cached");
-    }
-    if let Some(revisions) = &comparison.revisions {
-        args.extend(revisions.iter().map(String::as_str));
-    }
-    args.push("--");
-    args.extend(paths.iter().map(String::as_str));
-    args
-}
-
-fn untracked_args(paths: &[String]) -> Vec<&str> {
-    let mut args = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];
-    args.extend(paths.iter().map(String::as_str));
-    args
 }
 
 /// The returned files' paths, with a rename's old path so git still pairs it.
