@@ -16,5 +16,9 @@ nonisolated enum AppsAppStrings {
     static var tabUnavailable: String {
         String(localized: "apps.tab.unavailable", defaultValue: "This app is not installed or has no page", table: "Handlers", bundle: .module)
     }
+    /// An app's companion workspace: "Home Tabs" (`AppTabsTitle`).
+    static func tabsWorkspace(_ app: String) -> String {
+        String(format: String(localized: "apps.tabsWorkspace.format", defaultValue: "%@ Tabs", table: "Handlers", bundle: .module), app)
+    }
     static var run: String { String(localized: "apps.commands.run", defaultValue: "Run", table: "Handlers", bundle: .module) }
 }

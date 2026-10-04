@@ -1,5 +1,7 @@
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextSidebar
 import Foundation
 import Testing
 
@@ -38,5 +40,13 @@ struct AppTabsTitleTests {
         #expect(AppTabsTitle.title(for: try workspace(#""name":"Home Tabs","kind":"normal","app":"home""#), names: names) == nil)
         #expect(AppTabsTitle.title(for: try workspace(#""name":"Mail Tabs","kind":"app_tabs","app":"mail""#), names: names) == nil)
         #expect(AppTabsTitle.title(for: try workspace(#""name":"Home Tabs","kind":"app_tabs""#), names: names) == nil)
+    }
+
+    /// The sidebar row shows the title the app gives (the row mapping's
+    /// override), else the workspace's own name.
+    @Test func theSidebarRowShowsTheAppsTitle() throws {
+        let w = try workspace(#""name":"Home Tabs","kind":"app_tabs","app":"home""#)
+        #expect(SidebarMapping.shared.row(w, machine: .local, title: AppTabsTitle.title(for: w, names: names)).title == "Accueil Tabs")
+        #expect(SidebarMapping.shared.row(w, machine: .local).title == "Home Tabs")
     }
 }

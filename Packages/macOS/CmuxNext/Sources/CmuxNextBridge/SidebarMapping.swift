@@ -17,14 +17,15 @@ public struct SidebarMapping {
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
-                                statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
+                                statusLine: (String) -> String? = { _ in nil },
+                                title: (WorkspaceModel) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
             // top section shows; it is not also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
-                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread) }
+                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, title: title($0)) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -41,14 +42,17 @@ public struct SidebarMapping {
     }
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
-    public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true) -> SidebarWorkspace {
+    /// `title` replaces the workspace's own name (an app's companion
+    /// workspace with its default name, `AppTabsTitle`).
+    public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
+                    title: String? = nil) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
-            title: workspace.displayName,
+            title: title ?? workspace.displayName,
             subtitle: subtitle(tabs),
             // The hooks' status line, else the daemon's workspace status (state resources).
             status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },

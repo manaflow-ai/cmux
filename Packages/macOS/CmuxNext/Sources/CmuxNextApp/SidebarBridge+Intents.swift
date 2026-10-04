@@ -192,7 +192,8 @@ extension SidebarBridge {
     func resync() {
         guard let state else { return }
         model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
-                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document))
+                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document),
+                                       title: services.apps.appTabsTitle)
         model.profiles = Self.profiles(services.machines.local.store)
     }
 
