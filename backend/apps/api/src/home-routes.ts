@@ -156,6 +156,20 @@ const replayDecided = async (env: Env, principal: Principal, frame: OpFrame): Pr
   return (await stub.homeDecided(target.id, principal, frame.idempotency_key)) ? stub.submit(target.id, principal, target.frame) : null
 }
 
+/**
+ * dm.open with a user peer after a budget refusal: the caller's existing DM with that peer (inbox
+ * `peer` index, one RPC to the caller's own UserDO) still opens, with no charge and no reach; the
+ * owner answers an existing id with its summary and writes nothing. Null when there is none.
+ */
+const reopenDm = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult | null> => {
+  const peer = (frame.params as { peer?: unknown } | undefined)?.peer
+  if (frame.op !== "dm.open" || typeof peer !== "string" || !peer.startsWith("user_") || !principal.user) return null
+  const inbox = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readInbox(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { conversation?: string | null } }> }
+  const found = await inbox.readInbox(principal.user, principal, "inbox.dm_peer", { peer })
+  const id = found.ok ? found.value?.conversation : null
+  return id ? conversationStub(env, id).submit(id, principal, { ...frame, params: { id, participants: [] } }) : null
+}
+
 /** A Home ConversationDO mutation from the public API; the principal is already resolved (grant classes). */
 export const conversationMutate = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult> => {
   const params = (frame.params ?? {}) as Record<string, unknown>
@@ -166,7 +180,7 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
     const gate = await takeHomeRate(env, principal, actorOf(principal), rateOp)
     if (!gate.ok && "not_ready" in gate) return reject(key, HOME_USER_NOT_READY, "call user.ensure once before Home conversation ops")
     if (!gate.ok) {
-      const replayed = await replayDecided(env, principal, frame)
+      const replayed = (await replayDecided(env, principal, frame)) ?? (await reopenDm(env, principal, frame))
       if (replayed) return replayed
       const message = `too many ${frame.op} requests; retry in ${Math.ceil(gate.retry_after_ms / 1000)} s`
       return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: HOME_RATE_LIMITED, message, retryable: true, replayed: false, details: { retry_after_ms: gate.retry_after_ms } } as OwnerFrame] }

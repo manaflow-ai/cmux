@@ -122,7 +122,8 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     const rec = recordingEnv()
     const refused = await conversationMutate(rec.env, sessionPrincipal(eve), { t: "op", op: "dm.open", params: { peer: fay.user }, idempotency_key: crypto.randomUUID() })
     expect(rejectOf(refused)).toMatchObject({ code: "home.rate_limited", retryable: true })
-    expect(rec.calls).toEqual([])
+    // Only the caller's own inbox is asked for an existing DM to reopen; no reach RPC to anyone else.
+    expect(rec.calls).toEqual(["user.readInbox"])
   })
 
   it("all of an owner's chiefs share one total budget: archived and new chiefs get no fresh budget past 3x the per-actor limit", async () => {
