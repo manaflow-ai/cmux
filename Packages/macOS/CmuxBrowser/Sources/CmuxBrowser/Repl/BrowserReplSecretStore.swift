@@ -90,6 +90,10 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// retired (deleted, cleared or replaced ones stay masked), so the
     /// values every redaction matches stay bounded.
     public static let maximumValuesPerSession = 1024
+    /// The most distinct domains one value is registered for over a
+    /// session's life, under all its names, current and retired: a retired
+    /// value stays a capture mask on every one of them.
+    public static let maximumDomainsPerValue = 1024
 
     /// Secrets registered through `set`, not values other sessions typed.
     private var registered: Set<String> = []
@@ -120,6 +124,13 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             }
             if !heldValues.contains(value), heldValues.count >= Self.maximumValuesPerSession {
                 throw invalid("\(title): \(name): a session holds at most \(Self.maximumValuesPerSession) secret values over its life (deleted and replaced ones stay masked); reset the session (cmux browser repl reset NAME) for new ones")
+            }
+            var valueDomains = Set(domains.map(\.raw))
+            for entry in order.compactMap({ entries[$0] }) + retired where entry.value == value {
+                valueDomains.formUnion(entry.domains.map(\.raw))
+            }
+            if valueDomains.count > Self.maximumDomainsPerValue {
+                throw invalid("\(title): \(name): a value is registered for at most \(Self.maximumDomainsPerValue) domains over the session's life (deleted and replaced registrations stay masked); reset the session (cmux browser repl reset NAME) for others")
             }
             registered.insert(name)
             heldValues.insert(value)
@@ -282,11 +293,18 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// one-character secret would otherwise grow up to 73 times.
     public static let maximumGrowth = 8 << 20
 
-    /// Keeps `entry`'s value masked after its name lets go of it. Call
-    /// with `lock` held.
+    /// Keeps `entry`'s value masked after its name lets go of it, on its
+    /// domains and on those of every earlier retirement of the same value
+    /// (one entry per value holds their union). Call with `lock` held.
     private func retireLocked(_ entry: Entry) {
-        guard !retired.contains(where: { $0.value == entry.value && $0.totp == entry.totp }) else { return }
-        retired.append(entry)
+        guard let index = retired.firstIndex(where: { $0.value == entry.value && $0.totp == entry.totp }) else {
+            retired.append(entry)
+            return
+        }
+        let kept = retired[index]
+        let added = entry.domains.filter { domain in !kept.domains.contains { $0.raw == domain.raw } }
+        guard !added.isEmpty else { return }
+        retired[index] = Entry(name: kept.name, value: kept.value, domains: kept.domains + added, totp: kept.totp, maskName: kept.maskName)
     }
 
     private func rebuildLocked() {

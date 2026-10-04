@@ -351,9 +351,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   `secrets.clear` and replacing a secret's value stop the old value from
   being typed or listed, but it stays masked (in text, files and captures)
   for the session's life, since the agent never saw it and its source (a
-  secrets file) may still hold it; a session holds at most 1,024 distinct
+  secrets file) may still hold it, in captures on every domain any of its
+  registrations named; a session holds at most 1,024 distinct
   values over its life, current and retired, and a new one past that is
-  refused until a reset. Each masking pass tries,
+  refused until a reset, and one value is registered for at most 1,024
+  domains over its life. Each masking pass tries,
   at each position, only the values whose first byte can start there (the
   byte, or the first byte of the character an escape there stands for),
   and stops after comparing 64 bytes per byte of its input past a 1 MiB

@@ -231,7 +231,7 @@ struct BrowserReplDomainPolicyTests {
         // The domains one value is kept masked on stay bounded: a value
         // registered over more than that many domains is refused, never
         // dropped from a mask.
-        let limit = 1024 // BrowserReplSecretStore.maximumDomainsPerValue
+        let limit = BrowserReplSecretStore.maximumDomainsPerValue
         let perSet = BrowserReplSecretStore.maximumDomains
         for round in 0..<(limit / perSet) {
             let domains = (0..<perSet).map { "d\(round)-\($0).example" }
