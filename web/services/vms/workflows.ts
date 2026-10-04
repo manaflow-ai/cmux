@@ -3767,14 +3767,14 @@ function fileVm<A>(input: VmFileInput, run: (provider: VmProviderGatewayShape, v
 export function listVmFiles(input: VmFileInput, path: string): VmWorkflowProgram<VMFileEntry[]> {
   return fileVm(input, (providers, vm) => {
     if (!providers.listFiles) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "listFiles" }));
-    return providers.listFiles(vm.provider, input.providerVmId, path);
+    return providers.listFiles(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
   });
 }
 
 export function readVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileContents> {
   return fileVm(input, (providers, vm) => {
     if (!providers.readFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "readFile" }));
-    return providers.readFile(vm.provider, input.providerVmId, path);
+    return providers.readFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
   });
 }
 
@@ -3802,11 +3802,7 @@ export function removeVmFile(input: VmFileInput, path: string): VmWorkflowProgra
     const remove = providers.removeFile
     if (!remove) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "removeFile" }));
     const stat: Effect.Effect<unknown, VmProviderOperationError | VmFileNotFoundError> = providers.statFile
-      ? providers.statFile(vm.provider, input.providerVmId, path).pipe(
-          Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFileNotFoundError> =>
-            isMissingFileError(err.cause) ? Effect.fail(new VmFileNotFoundError({ path })) : Effect.fail(err),
-          ),
-        )
+      ? providers.statFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path))
       : Effect.void
     return stat.pipe(Effect.flatMap(() => remove(vm.provider, input.providerVmId, path)));
   });
@@ -3819,10 +3815,20 @@ function isMissingFileError(cause: unknown): boolean {
   return /No such file or directory|os error 2\b/.test(message)
 }
 
+/** Maps the guest's ENOENT to VmFileNotFoundError (404 vm_file_not_found); other failures pass through. */
+function missingFileAsNotFound(path: string) {
+  return <A>(effect: Effect.Effect<A, VmProviderOperationError>): Effect.Effect<A, VmProviderOperationError | VmFileNotFoundError> =>
+    effect.pipe(
+      Effect.catchAll((err): Effect.Effect<never, VmProviderOperationError | VmFileNotFoundError> =>
+        isMissingFileError(err.cause) ? Effect.fail(new VmFileNotFoundError({ path })) : Effect.fail(err),
+      ),
+    )
+}
+
 export function statVmFile(input: VmFileInput, path: string): VmWorkflowProgram<VMFileStat> {
   return fileVm(input, (providers, vm) => {
     if (!providers.statFile) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "statFile" }));
-    return providers.statFile(vm.provider, input.providerVmId, path);
+    return providers.statFile(vm.provider, input.providerVmId, path).pipe(missingFileAsNotFound(path));
   });
 }
 

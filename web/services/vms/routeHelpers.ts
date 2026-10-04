@@ -738,6 +738,7 @@ const vmFileNotFoundResponse = (error: VmFileNotFoundError): Response =>
     status: 404,
     message: "This path does not exist on the Cloud VM.",
     action: "Check the path; a retried delete of a removed file is already done.",
+    displayTitle: "File not found",
     details: { path: error.path },
   });
 
