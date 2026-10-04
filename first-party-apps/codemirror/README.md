@@ -2,7 +2,7 @@
 
 A light code editor for files and documents in cmux, built on [CodeMirror 6](https://codemirror.net/) (MIT). It implements `cmux.editor/1` as a web pane: edit a document handle, dirty dot, Save (Cmd-S in the editor and the palette command), external changes, conflicts with Compare / Keep Mine / Use Disk Version, read-only mode, language from the document type, and a diff mode (side by side and inline) for the Diffs app. It is the default editor that Diffs embeds.
 
-The sibling app `cmux/monaco` is the same design on the Monaco editor. Both share one controller (`src/shared/`), one string table and one test suite; only `web-src/adapter.ts` differs. The shared files are vendored copies kept identical by `test/shared.test.ts`.
+The Monaco prototype that shared this design retired; cmux-next's file viewer and editor is the Monaco editor page (webviews/src/pages/editor).
 
 Status: prototype. Web panes, documents and the bridge are proposed (app platform critique C2, C6; plan section 12 V3, V7). Manifest v2: `cmux-app.v2.json` and `catalog/` (section Manifest v2).
 

@@ -1,4 +1,4 @@
-// Shared by the editor apps (identical in first-party-apps/{monaco,codemirror}).
+// Shared by the editor apps (identical in first-party-apps/codemirror).
 // String tables shaped like platform v2 app l10n (`strings/<lang>.json`,
 // `cmux.t(key)`), bundled into the app scripts until the runtime loads them.
 // `t(key, english, vars)` returns the string for the current language with

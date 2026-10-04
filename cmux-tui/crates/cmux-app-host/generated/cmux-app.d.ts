@@ -848,18 +848,6 @@ interface CmuxGlobal {
     /** `message.send` (mutation, scope `message:write`): Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. */
     send: CmuxOp<{ conversation: Cmux.ConversationId; client_msg_id: Cmux.ClientToken; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
-  monaco: {
-    /** `monaco.cycle_variant` (mutation, scope `monaco:write`, owner `app:cmux/monaco`): Switch to the next Monaco design variant (DEV and NIGHTLY). */
-    cycle_variant: CmuxOp<Record<string, never>, unknown>
-    /** `monaco.open` (mutation, scope `monaco:write`, owner `app:cmux/monaco`): Open a file or a document handle in a Monaco editor pane. */
-    open: CmuxOp<{ uri?: string; doc?: string }, unknown>
-    /** `monaco.revert` (mutation, scope `monaco:write`, owner `app:cmux/monaco`): Drop unsaved edits and show the saved revision of the document. */
-    revert: CmuxOp<{ doc?: string }, unknown>
-    /** `monaco.save` (mutation, scope `monaco:write`, owner `app:cmux/monaco`): Save the focused editor's document, or the document handle given. */
-    save: CmuxOp<{ doc?: string }, unknown>
-    /** `monaco.toggle_read_only` (mutation, scope `monaco:write`, owner `app:cmux/monaco`): Turn read-only mode on or off in the focused editor. */
-    toggle_read_only: CmuxOp<Record<string, never>, unknown>
-  }
   mux: {
     /** `mux.ack` (mutation, scope `mux:write`): The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor). */
     ack: CmuxOp<{ agent: Cmux.AgentId; conversation: Cmux.ConversationId; seq: number; expected_revision?: string }, Cmux.MutationResult<{ cursor: number; cleared?: number }>>

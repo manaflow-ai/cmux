@@ -1,5 +1,5 @@
 // PROPOSED platform interface `cmux.editor/1` (app platform critique C1, C3).
-// Vendored copy; identical in first-party-apps/{diffs,monaco,codemirror}.
+// Vendored copy; identical in first-party-apps/{diffs,codemirror}.
 //
 // An editor app implements this interface in a web pane. The shell mounts it
 // as a pane ("open with") or as an embed inside another app's pane (Diffs). The

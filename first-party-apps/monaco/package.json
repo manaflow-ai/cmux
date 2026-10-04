@@ -1,9 +1,0 @@
-{
-  "name": "@cmux-first-party/monaco",
-  "private": true,
-  "license": "MIT",
-  "description": "Web pane bundle dependencies of the cmux/monaco app.",
-  "dependencies": {
-    "monaco-editor": "0.57.0"
-  }
-}

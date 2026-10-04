@@ -813,26 +813,6 @@
       "scope": "message:write",
       "class": "mutation"
     },
-    "monaco.cycle_variant": {
-      "scope": "monaco:write",
-      "class": "mutation"
-    },
-    "monaco.open": {
-      "scope": "monaco:write",
-      "class": "mutation"
-    },
-    "monaco.revert": {
-      "scope": "monaco:write",
-      "class": "mutation"
-    },
-    "monaco.save": {
-      "scope": "monaco:write",
-      "class": "mutation"
-    },
-    "monaco.toggle_read_only": {
-      "scope": "monaco:write",
-      "class": "mutation"
-    },
     "mux.ack": {
       "scope": "mux:write",
       "class": "mutation"

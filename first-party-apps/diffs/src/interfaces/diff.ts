@@ -1,6 +1,6 @@
 // PROPOSED platform interfaces `cmux.diff.renderer/1` and `cmux.diff.source/1`
 // and the diff resource (app platform critique C1, C4).
-// Vendored copy; identical in first-party-apps/{diffs,monaco,codemirror}.
+// Vendored copy; identical in first-party-apps/{diffs,codemirror}.
 //
 // A diff is a resource (`diff_…`) owned by its producer: git (the session host),
 // an agent (`diff.propose`), an automation run (`diff.publish`) or the user.

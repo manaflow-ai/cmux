@@ -1,5 +1,5 @@
 // Language ids (shared by the editor apps; identical copies in
-// first-party-apps/{monaco,codemirror}/src/shared). The document type's
+// first-party-apps/codemirror/src/shared). The document type's
 // language id wins; a path's extension is the fallback for diffs.
 
 const BY_EXTENSION: Record<string, string> = {

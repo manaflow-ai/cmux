@@ -16,17 +16,8 @@ const same = (rel: string, a: string, b: string) => {
 }
 
 describe("vendored copies are identical", () => {
-  test("interfaces in diffs, monaco and codemirror", () => {
-    same("src/interfaces", "codemirror", "monaco")
+  test("interfaces in diffs and codemirror", () => {
     same("src/interfaces", "codemirror", "diffs")
-  })
-  test("shared editor code, strings and command script in monaco and codemirror", () => {
-    same("src/shared", "codemirror", "monaco")
-    same("strings", "codemirror", "monaco")
-    same("test", "codemirror", "monaco")
-    for (const f of ["src/main.ts", "src/l10n.ts", "build-web.ts", "notices.ts", "bunfig.toml", "web-src/index.html"]) {
-      if (existsSync(join(apps, "monaco", f))) expect([f, readFileSync(join(apps, "codemirror", f), "utf8") === readFileSync(join(apps, "monaco", f), "utf8")]).toEqual([f, true])
-    }
   })
 })
 
