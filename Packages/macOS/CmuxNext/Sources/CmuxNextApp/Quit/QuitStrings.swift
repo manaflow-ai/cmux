@@ -71,6 +71,10 @@ enum QuitStrings {
         String(localized: "quit.failed.shutdown", defaultValue: "The terminals did not end: \(message)", table: "Quit", bundle: .module)
     }
 
+    static func failedEndAgents(_ message: String) -> String {
+        String(localized: "quit.failed.endAgents", defaultValue: "The agents did not end: \(message)", table: "Quit", bundle: .module)
+    }
+
     static func failedUnsupported(_ capability: String) -> String {
         String(localized: "quit.failed.unsupported", defaultValue: "This cmux-tui cannot end sessions (\(capability)).",
                table: "Quit", bundle: .module)

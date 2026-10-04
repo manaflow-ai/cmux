@@ -26,6 +26,9 @@ public struct EndSessionsFailure: Sendable, Equatable {
         case shutdownDaemon
         /// The daemon cannot end sessions (no `terminal-reap-v1`).
         case unsupported
+        /// The local acpmux daemon did not end its agents (`_acpmux/shutdown
+        /// endAgents`), or did not exit in time.
+        case endAgents
     }
 
     public var step: Step
