@@ -25,9 +25,11 @@ mod sticky_columns;
 pub(crate) mod tab_drag;
 pub(crate) mod tab_groups;
 pub(crate) mod tab_strip;
+mod tab_workspace_name;
 
 pub(crate) use crate::state::{PersonalChange, ScreenChange, WorkspaceStatusChange};
 pub(crate) use tab_strip::StripRequest;
+mod pending_terminals;
 mod terminal_directory;
 mod terminal_exit;
 mod terminal_move_topology;
@@ -44,7 +46,8 @@ use agent_hook_errors::{
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
 pub use presentation::{
-    TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations, WorkspaceGroupChange,
+    PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
+    WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
@@ -2685,6 +2688,13 @@ pub struct Mux {
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Terminals with a possibly live host and no runtime surface (R41),
+    /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
+    /// the host terminal id. A leaf lock: nothing else is locked under it.
+    pending_terminals: Mutex<HashMap<String, (String, PendingTerminal)>>,
+    /// Typed ends (`TerminalEnd::wire_json`) of ended terminals that have no
+    /// runtime surface, keyed by public terminal id. A leaf lock.
+    terminal_ends: Mutex<HashMap<String, Value>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
@@ -3121,6 +3131,8 @@ impl Mux {
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            pending_terminals: Mutex::new(HashMap::new()),
+            terminal_ends: Mutex::new(HashMap::new()),
             terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
@@ -3692,8 +3704,11 @@ impl Mux {
                     } else {
                         // Socket loss and descriptor pressure are not process
                         // death proof. Keep the capability and retry the same
-                        // host rather than spawning a replacement shell.
+                        // host rather than spawning a replacement shell. The
+                        // tab has no surface meanwhile; it is adopting, not
+                        // dead (R41).
                         handled_terminals.insert(terminal_id.clone());
+                        self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
                     }
                     continue;
@@ -3720,6 +3735,7 @@ impl Mux {
                         &record,
                     );
                 } else {
+                    self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                     self.schedule_terminal_adoption(options.clone(), record, record_path);
                 }
                 continue;
@@ -3728,6 +3744,8 @@ impl Mux {
             handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
         }
+
+        self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
 
         // No launcher survives a daemon restart. A durable lifecycle row
         // without a host-owned record therefore represents a closed crash
@@ -3741,6 +3759,7 @@ impl Mux {
             }
             if terminal.lifecycle == TerminalLifecycle::Exited {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
+                self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
             self.mark_terminal_ended(
@@ -3914,6 +3933,7 @@ impl Mux {
         reason: &str,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
+        self.clear_pending_terminal(terminal_id);
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -3955,6 +3975,7 @@ impl Mux {
             )?;
         }
         self.detach_exited_terminal_topology(terminal_id)?;
+        self.record_terminal_end(terminal_id);
         Ok(())
     }
 
@@ -4044,6 +4065,10 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // Clients read tab liveness from the tree: an adopting tab is live now.
+        if self.clear_pending_terminal(terminal_id) {
+            self.emit(MuxEvent::TreeChanged);
+        }
         // Adoption makes the terminal's resource surface available. Retry
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
@@ -4320,10 +4345,12 @@ impl Mux {
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
                 }
+                mux.clear_adopting_marker(&terminal_id);
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
             });
         if spawn_result.is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
+            self.clear_pending_terminal(&cleanup_id);
         }
     }
 
@@ -10773,6 +10800,7 @@ impl Mux {
     ) {
         #[cfg(unix)]
         {
+            self.clear_pending_terminal(terminal_id);
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             let Some(root) = root else { return };
             terminate_discovered_terminal_host_in(&root, terminal_id, incarnation);
@@ -18713,6 +18741,7 @@ fn terminate_discovered_terminal_host_in(
             schedule_terminal_host_record_cleanup(record, path);
         }
     }
+    pending_terminals::terminate_unadoptable_hosts_in(root, terminal_id);
     let record_path = root.join(format!("{terminal_id}.json"));
     let _ = acknowledge_terminal_exit_sidecar(&record_path, terminal_id, incarnation);
 }

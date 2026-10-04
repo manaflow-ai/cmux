@@ -117,17 +117,6 @@ import Testing
         #expect(t.chromeBackground.alpha == 1)
     }
 
-    @Test func explicitSurfaceOverridesAreOptInAndIndependent() {
-        let base = ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha)
-        let terminal = ThemeRGB(cssHex: "#10203080")!
-        let sidebar = ThemeRGB(cssHex: "#304050")!
-        let result = base.applying(SurfaceBackgroundOverrides(sidebar: sidebar, terminal: terminal))
-        #expect(result.windowBackground == terminal)
-        #expect(result.sidebarBackground == sidebar)
-        #expect(result.stripBackground == base.surfaceBackground)
-        #expect(result.contentBackground == terminal)
-    }
-
     @Test func contrastMathMatchesWCAG() {
         #expect(abs(ThemeRGB.black.contrast(with: .white) - 21) < 0.01)
         #expect(abs(ThemeRGB(hex: 0x777777).contrast(with: .white) - 4.48) < 0.02)

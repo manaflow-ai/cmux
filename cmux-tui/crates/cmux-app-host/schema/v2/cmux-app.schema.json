@@ -160,6 +160,22 @@
       "$ref": "#/$defs/path",
       "description": "Catalog fragment (operation-catalog format): the app's ops, events and their surfaces (V1)."
     },
+    "cli": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "description": "The app's short CLI name: `cmux <name> <verb>` runs the op whose catalog `cli.path` is <verb>. `cmux apps run <id> <verb>` always works. Built-in and reserved words (cli-reserved.json) are refused.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 24,
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+        }
+      }
+    },
     "implements": {
       "type": "object",
       "maxProperties": 32,

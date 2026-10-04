@@ -21,6 +21,9 @@ final class TerminalThemeSetting {
         var theme: String?
         var font: GhosttyRuntime.FontOverride
         var background: WindowBackgroundOverride
+        /// `appearance.surfaces.terminal` is set: surfaces draw a
+        /// transparent default background (`GhosttyRuntimeSurfacePolicy`).
+        var terminalOverridden = false
     }
 
     private let backdropScope: ThemeScope
@@ -40,8 +43,10 @@ final class TerminalThemeSetting {
                 let font = GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize)
                 self?.backdropScope.setBackdropSelection(snapshot.backdropSelection)
                 self?.backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
-                self?.backdropScope.setSurfaceBackgroundOverrides(snapshot.surfaceBackgrounds)
-                self?.apply(State(theme: snapshot.appTheme, font: font, background: snapshot.windowBackground))
+                // Per-surface backgrounds (R55): every owner repaints from them.
+                self?.backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
+                self?.apply(State(theme: snapshot.appTheme, font: font, background: snapshot.windowBackground,
+                                  terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal))
             }
         }
     }
@@ -63,6 +68,7 @@ final class TerminalThemeSetting {
         let family = state.font.family?.trimmingCharacters(in: .whitespaces) ?? ""
         DesignSettings.shared.terminalFontFamily = family.isEmpty ? nil : family
         GhosttyRuntime.backgroundOverride = state.background
+        GhosttyRuntime.terminalBackgroundOverridden = state.terminalOverridden
         // At launch with no overrides the config already loaded as is.
         if !(first && state == State(theme: nil, font: .init(), background: .init())) { GhosttyRuntime.shared.reloadConfig() }
     }

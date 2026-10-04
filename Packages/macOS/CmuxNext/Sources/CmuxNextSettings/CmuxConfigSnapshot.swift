@@ -85,6 +85,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
     /// `layout.frameOrientation`: which docks own the frame's corners.
     public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
+    /// `layout.rows`: rows on (default) or off (plans/cmux-next/rows.md O1).
+    public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
@@ -98,6 +100,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
     /// nil (Ghostty's values) when unset or invalid.
     public var windowBackground = WindowBackgroundOverride()
+    /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
+    /// (every surface shows the window's backdrop) when unset or invalid.
+    public var surfaceBackgrounds = SurfaceBackgrounds.none
     /// `appearance.backdropArt`; nil disables the bundled painting.
     public var backdropArt: BackdropArt?
     /// `appearance.background`; nil leaves the desktop untouched.
@@ -107,8 +112,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
-    /// `appearance.surfaceBackgrounds`; unset entries follow the theme ground.
-    public var surfaceBackgrounds = SurfaceBackgroundOverrides()
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -140,6 +143,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFontSize: Double?
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
+    /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
+    public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -211,11 +216,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art }
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
-        snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
@@ -250,6 +255,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
+        let (historyScope, historyScopeDiagnostic) = NavigationHistoryScopeSetting.parse(root)
+        snapshot.navigationHistoryScope = historyScope
+        if let historyScopeDiagnostic { snapshot.diagnostics.append(historyScopeDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)

@@ -106,6 +106,9 @@ final class AppServices {
     let closedScreens = ClosedScreenHistory()
     /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
     var newTabKinds = NewTabKindMemory()
+    /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
+    let newTabChoices = NewTabChoiceMemory()
+    let newTabTypeAhead = NewTabTypeAhead()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.

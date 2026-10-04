@@ -28,12 +28,21 @@ public final class ThemeScope {
         return nil
     }
     public var appearanceTuning: AppearanceTuning { selectedAppearanceTuning ?? parent?.appearanceTuning ?? .identity }
-    public var surfaceBackgroundOverrides: SurfaceBackgroundOverrides {
-        selectedSurfaceBackgroundOverrides ?? parent?.surfaceBackgroundOverrides ?? SurfaceBackgroundOverrides()
-    }
     private var selectedBackdropSelection: BackdropSelection?
     private var selectedAppearanceTuning: AppearanceTuning?
-    private var selectedSurfaceBackgroundOverrides: SurfaceBackgroundOverrides?
+    /// The user's per-surface backgrounds (`appearance.surfaces`), inherited
+    /// like art: one app-wide setting, read by every surface's owner through
+    /// `Palette.fill(for:)`.
+    public var surfaceBackgrounds: SurfaceBackgrounds { selectedSurfaceBackgrounds ?? parent?.surfaceBackgrounds ?? .none }
+    private var selectedSurfaceBackgrounds: SurfaceBackgrounds?
+
+    /// Changes the per-surface backgrounds and repaints this scope and its
+    /// descendants (every owner re-reads its fill in its theme hook).
+    public func setSurfaceBackgrounds(_ backgrounds: SurfaceBackgrounds) {
+        guard selectedSurfaceBackgrounds != backgrounds else { return }
+        selectedSurfaceBackgrounds = backgrounds
+        repaintBackdropArt()
+    }
 
     /// Changes art and repaints this scope and its descendants without a
     /// Ghostty reload or changing any terminal colors.
@@ -59,20 +68,6 @@ public final class ThemeScope {
         repaintBackdropArt()
     }
 
-    /// Sets optional per-surface colors; nil entries inherit the theme ground.
-    public func setSurfaceBackgroundOverrides(_ overrides: SurfaceBackgroundOverrides?) {
-        guard !sameSurfaceOverrides(selectedSurfaceBackgroundOverrides, overrides) else { return }
-        selectedSurfaceBackgroundOverrides = overrides
-        repaintBackdropArt()
-    }
-
-    private func sameSurfaceOverrides(_ lhs: SurfaceBackgroundOverrides?, _ rhs: SurfaceBackgroundOverrides?) -> Bool {
-        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
-        return lhs.sidebar == rhs.sidebar && lhs.tabStrip == rhs.tabStrip && lhs.terminal == rhs.terminal
-            && lhs.browser == rhs.browser && lhs.internalPage == rhs.internalPage && lhs.agentPane == rhs.agentPane
-            && lhs.splitDivider == rhs.splitDivider && lhs.settings == rhs.settings
-    }
-
     private func repaintBackdropArt() {
         repaint(animated: false)
         for responder in responders.allObjects {
@@ -94,10 +89,9 @@ public final class ThemeScope {
     /// own, else its own. A light workspace in a dark room never turns the
     /// window's chrome light.
     public var tokens: ThemeTokens {
-        guard let shown else { return ownTokens.applying(surfaceBackgroundOverrides).emphasized(emphasis) }
+        guard let shown else { return ownTokens.emphasized(emphasis) }
         let candidate = shown.tokens
-        return (candidate.isDark == ownTokens.isDark ? candidate : ownTokens)
-            .applying(surfaceBackgroundOverrides).emphasized(emphasis)
+        return (candidate.isDark == ownTokens.isDark ? candidate : ownTokens).emphasized(emphasis)
     }
     /// How strongly this scope's own views draw (a pane's tab strip in an
     /// unfocused pane: `ChromeEmphasis`). Children keep the plain colors.

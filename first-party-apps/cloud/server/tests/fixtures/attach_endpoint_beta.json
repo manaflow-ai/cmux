@@ -1,0 +1,19 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/attach-endpoint/route.ts with transport cmux-remote (web/services/vms/drivers/types.ts CmuxRemoteAttachEndpoint). The token is a fake test value; the server must never keep or pass it.",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/vm-beta02/attach-endpoint"
+  },
+  "status": 200,
+  "body": {
+    "transport": "cmux-remote",
+    "route": "ws://10.200.0.2:1337/v1/link",
+    "token": "fake-attach-token-must-not-leak",
+    "expiresAtUnix": 1791100000,
+    "session": "cloud",
+    "trustedCarrier": true,
+    "networkAddresses": {
+      "ipv4": "10.200.0.2"
+    }
+  }
+}

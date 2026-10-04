@@ -245,6 +245,9 @@ pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
 pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
+/// Optional `name` on `move-tab-to-new-workspace`: the new workspace takes
+/// it in the same commit (else the default `workspace-N`).
+pub const TAB_WORKSPACE_NAME_CAPABILITY: &str = "tab-workspace-name-v1";
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
@@ -292,6 +295,12 @@ pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
 /// workspaces, and workspace status, progress and log, with `extra.state` on session
 /// snapshots and `state_upsert`/`state_delete` changes on `session.events`.
 pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
+/// Terminal tabs report `terminal_state` (`running`, `adopting`, `reconnecting`,
+/// `failed`, `unadoptable`, `exited`), `host_record_version` for an unadoptable
+/// host, and `end`, the typed end of a dead terminal (`exited`, `signaled`,
+/// `host_lost` with a stable `reason`, `launch_failed`). A tab is `dead` only
+/// when its terminal ended (plans/cmux-next/durable-sessions.md section 7).
+pub const TERMINAL_STATE_CAPABILITY: &str = "terminal-state-v1";
 /// `window_record.list|put|delete`: one personal record per app window with
 /// a per-record revision (OWNERSHIP-PRINCIPLES single writer).
 pub const WINDOW_RECORDS_CAPABILITY: &str = "window-records-v1";
@@ -434,6 +443,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
         TAB_DRAG_CAPABILITY,
+        TAB_WORKSPACE_NAME_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
         TAB_COLUMN_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
@@ -455,6 +465,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
+        TERMINAL_STATE_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
@@ -2006,6 +2017,8 @@ enum Command {
         group: Option<String>,
         #[serde(default)]
         index: Option<usize>,
+        #[serde(default)]
+        name: Option<String>,
         #[serde(default)]
         transaction: Option<String>,
     },
@@ -11303,9 +11316,54 @@ fn pane_json(
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
                 .map(|kept| json!({"cwd": kept.cwd}));
+            // R41: a terminal tab with no runtime surface is dead only when
+            // its terminal really ended; a host still being adopted, or one
+            // this build cannot adopt, keeps running its shell.
+            let content_terminal = state.resource_indexes.content_ids.get(sid).and_then(|content| {
+                match content {
+                    ContentPublicId::Terminal(id) => Some(id.as_str()),
+                    ContentPublicId::Browser(_) => None,
+                }
+            });
+            let pending_terminal = surface
+                .is_none()
+                .then(|| content_terminal.and_then(|id| notifications.pending_terminals.get(id)))
+                .flatten();
+            let is_terminal_tab = surface.map_or(content_terminal.is_some(), |surface| {
+                surface.kind() == SurfaceKind::Pty
+            });
+            let dead = surface.map(|s| s.is_dead()).unwrap_or(pending_terminal.is_none());
+            let terminal_state = match (pending_terminal, is_terminal_tab) {
+                (Some(pending), _) => Some(pending.state()),
+                (None, false) => None,
+                (None, true) if dead => Some("exited"),
+                (None, true) => Some(
+                    match surface.and_then(|surface| surface.terminal_host_connection_state()) {
+                        Some(crate::surface::TerminalHostConnectionState::Reconnecting) => "reconnecting",
+                        Some(crate::surface::TerminalHostConnectionState::Failed) => "failed",
+                        _ => "running",
+                    },
+                ),
+            };
+            let host_record_version = match pending_terminal {
+                Some(crate::mux::PendingTerminal::Unadoptable { record_version }) => *record_version,
+                _ => None,
+            };
+            // Why a dead terminal ended: its runtime's end, else the durable
+            // receipt of a terminal that has no runtime here.
+            let end = if !dead || !is_terminal_tab {
+                None
+            } else {
+                surface
+                    .and_then(|surface| surface.terminal_end())
+                    .map(|end| end.wire_json())
+                    .or_else(|| content_terminal.and_then(|id| notifications.terminal_ends.get(id).cloned()))
+            };
             let mut tab = json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
+                "terminal_state": terminal_state,
+                "host_record_version": host_record_version,
                 "group": group_of(sid),
                 "pinned": pinned,
                 "relaunch": relaunch,
@@ -11335,7 +11393,9 @@ fn pane_json(
                     let (c, r) = s.size();
                     json!({"cols": c, "rows": r})
                 }),
-                "dead": surface.map(|s| s.is_dead()).unwrap_or(true),
+                "dead": dead,
+                // Why a dead terminal ended (R41, terminal-state-v1).
+                "end": end,
             });
             raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
             tab
@@ -14343,10 +14403,10 @@ fn handle_command_with_cancellation(
         Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, params),
         Command::NewRow(params) => rows::new_row(mux, params),
         Command::SetRowHeights(params) => rows::set_row_heights(mux, client, params),
-        Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
+        Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
-            let workspace = mux.move_tab_to_new_workspace(surface, group.clone(), index)?;
+            let workspace = mux.move_tab_to_new_workspace(surface, group.clone(), index, name)?;
             mux.emit_tab_changed_for_transaction(surface, transaction.map(Arc::from));
             let (key, workspace_index) = mux
                 .with_state(|state| {
@@ -24506,9 +24566,13 @@ mod tests {
         assert_eq!(moved["moved"], true);
         let created = run_json_command(
             &mux,
-            json!({"cmd":"move-tab-to-new-workspace","surface":third,"transaction":"tx-new"}),
+            json!({"cmd":"move-tab-to-new-workspace","surface":third,"name":"vim","transaction":"tx-new"}),
         )
         .unwrap();
+        assert!(advertised_capabilities(false).contains(&TAB_WORKSPACE_NAME_CAPABILITY));
+        let named = created["workspace"].as_u64();
+        let name = mux.with_state(|state| state.workspace_by_id(named?).map(|w| w.name.clone()));
+        assert_eq!(name.as_deref(), Some("vim"));
         assert!(created["workspace"].as_u64().is_some());
         assert!(created["key"].as_str().is_some());
         assert!(
@@ -27183,6 +27247,7 @@ mod tests {
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
             STATE_RESOURCES_CAPABILITY,
             WINDOW_RECORDS_CAPABILITY,
+            TERMINAL_STATE_CAPABILITY,
             FRONTEND_BROWSER_OWNER_CAPABILITY,
             crate::git_ops::CHECKPOINTS_CAPABILITY,
             crate::git_ops::FILES_SEARCH_CAPABILITY,

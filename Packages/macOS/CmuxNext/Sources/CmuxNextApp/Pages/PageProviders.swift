@@ -73,7 +73,7 @@ final class DaemonPageRelay: PageProvider {
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op.hasPrefix("cmux.") else { throw PageError.unknownOp(op) }
         guard let connection = services.machines.local.connection else {
-            throw PageError(code: "cmux.protocol.transport", message: "cmux-tui is not connected", retryable: true)
+            throw PageError.closed
         }
         var members = params.objectValue ?? [:]
         let key = members.removeValue(forKey: "idempotency_key")?.stringValue
@@ -101,8 +101,10 @@ final class DaemonPageRelay: PageProvider {
             let pageCode = code.map { $0.hasPrefix("cmux.") ? $0 : "cmux." + $0 } ?? "cmux.daemon.failed"
             return PageError(code: pageCode, message: message, retryable: retryable ?? false,
                              details: details.flatMap { try? pageValue($0) })
-        case .notConnected, .connectionClosed, .daemonShutdown, .timedOut:
-            return PageError(code: "cmux.protocol.transport", message: error.description, retryable: true)
+        case .notConnected, .connectionClosed, .daemonShutdown:
+            return PageError(code: "cmux.protocol.closed", message: error.description, retryable: true)
+        case .timedOut:
+            return PageError(code: "cmux.protocol.timeout", message: error.description, retryable: true)
         default:
             return PageError(code: "cmux.daemon.failed", message: error.description)
         }
@@ -113,8 +115,10 @@ extension AppServices {
     /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
     /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
     func historyWebPage() -> PageWebView? {
-        guard PageTunables.history.value == .web else { return nil }
-        return PageWebView(descriptor: .history, routes: pageRoutes(for: .history))
+        guard PageTunables.history.value == .web,
+              let page = PageWebView(descriptor: .history, routes: pageRoutes(for: .history)) else { return nil }
+        PageConnectionWatch(page: page, store: machines.local.store).start()
+        return page
     }
 
     /// The routes of `page`: its namespaces to the daemon relay, `cmux.app.` to the native ops.

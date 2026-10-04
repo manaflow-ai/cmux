@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import Observation
 
 /// The toolbar band in the window's top row, right of the traffic lights
 /// (R68/R69, spec titlebar-area.md): the sidebar toggle first, at a fixed
@@ -39,6 +40,24 @@ final class TitlebarToolbarBand: NSView {
     func describeToggle(title: String, shortcut: String?) {
         sidebarToggle.setAccessibilityLabel(title)
         sidebarToggle.toolTip = shortcut.map { "\(title) (\($0))" } ?? title
+    }
+
+    private var descriptionObservation: Task<Void, Never>?
+
+    /// Keeps the toggle's title and key current: a rebind (cmux.json,
+    /// Settings) shows at once (R68 follow-up).
+    func followToggleDescription(title: @escaping @MainActor () -> String, shortcut: @escaping @MainActor () -> String?) {
+        descriptionObservation?.cancel()
+        // task-owner: the band (cancelled in deinit); event-driven (Observation)
+        descriptionObservation = Task { [weak self] in
+            for await (title, shortcut) in Observations({ (title(), shortcut()) }) {
+                self?.describeToggle(title: title, shortcut: shortcut)
+            }
+        }
+    }
+
+    isolated deinit {
+        descriptionObservation?.cancel()
     }
 }
 

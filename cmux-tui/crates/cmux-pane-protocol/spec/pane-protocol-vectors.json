@@ -1,0 +1,2464 @@
+{
+  "admission": {
+    "cases": [
+      {
+        "app": "cmux.git",
+        "ir_sha256": "router",
+        "name": "first party with the router's IR",
+        "result": "ok"
+      },
+      {
+        "app": "cmux.git",
+        "ir_sha256": "00",
+        "name": "first party with another IR",
+        "result": "cmux.protocol.bad_message:ir_mismatch"
+      },
+      {
+        "app": "octo.diff_tools",
+        "ir_sha256": "00",
+        "name": "third party with its own fragment digest",
+        "result": "ok"
+      }
+    ],
+    "router_ir_sha256": "ee9e9d8e3022cbc58a4361141a3f344055edcf828c9b517ad743ffdd5a7ffe07",
+    "rule": "ir_sha256 \"router\" stands for router_ir_sha256"
+  },
+  "fragments": [
+    {
+      "decision": 14,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.list",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoListParams"
+            },
+            "result": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoListParams": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        }
+      },
+      "name": "third-party fragment",
+      "valid": true
+    },
+    {
+      "decision": 9,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.list",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoListParams"
+            },
+            "result": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoListParams": {
+            "additionalProperties": false,
+            "patternProperties": {},
+            "properties": {},
+            "type": "object"
+          }
+        }
+      },
+      "name": "unsupported keyword",
+      "valid": false
+    },
+    {
+      "decision": 14,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "cmux.git.steal",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoListParams"
+            },
+            "result": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoListParams": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        }
+      },
+      "name": "op in a namespace the app does not own",
+      "valid": false
+    },
+    {
+      "decision": 18,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "aliases": [
+              "difftools.list"
+            ],
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.list",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoListParams"
+            },
+            "result": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoListParams": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        }
+      },
+      "name": "third-party op with aliases",
+      "valid": false
+    },
+    {
+      "decision": 18,
+      "fragment": {
+        "ops": [
+          {
+            "aliases": [
+              "workspace.list"
+            ],
+            "errors": [],
+            "kind": "read",
+            "name": "cmux.workspace.list",
+            "owner": "first-party",
+            "params": {
+              "type": "object"
+            },
+            "result": {
+              "type": "object"
+            },
+            "scope": "workspace:read"
+          }
+        ]
+      },
+      "name": "first-party alias for an old wire name",
+      "valid": true
+    },
+    {
+      "decision": 18,
+      "fragment": {
+        "ops": [
+          {
+            "aliases": [
+              "cmux.git.status"
+            ],
+            "errors": [],
+            "kind": "read",
+            "name": "cmux.workspace.list",
+            "owner": "first-party",
+            "params": {
+              "type": "object"
+            },
+            "result": {
+              "type": "object"
+            },
+            "scope": "workspace:read"
+          }
+        ]
+      },
+      "name": "first-party alias that names an existing op",
+      "valid": false
+    },
+    {
+      "decision": 19,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.list",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoListParams"
+            },
+            "result": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoListParams": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^[a-z0-9_]+$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "name": "portable pattern",
+      "valid": true
+    },
+    {
+      "decision": 19,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.list",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoListParams"
+            },
+            "result": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoListParams": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^(?=a)a$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "name": "lookahead pattern",
+      "valid": false
+    },
+    {
+      "decision": 19,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.list",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoListParams"
+            },
+            "result": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoListParams": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "pattern": "^(a)\\1$",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      "name": "backreference pattern",
+      "valid": false
+    },
+    {
+      "decision": 9,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.list",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoListParams"
+            },
+            "result": {
+              "allOf": [
+                {
+                  "type": "array"
+                },
+                {
+                  "maxItems": 3
+                }
+              ]
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoListParams": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          }
+        }
+      },
+      "name": "multi-schema allOf",
+      "valid": false
+    },
+    {
+      "decision": 21,
+      "expect": {
+        "mcp": {
+          "expose": "opt_in",
+          "group": "diff"
+        },
+        "op": "octo.diff_tools.diff.get",
+        "secret_output": false
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "cli": {
+              "path": "diff get",
+              "positional": [
+                "id"
+              ],
+              "visible": true
+            },
+            "errors": [],
+            "kind": "read",
+            "mcp": {
+              "expose": "opt_in",
+              "group": "diff"
+            },
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "op with scope, mcp and cli",
+      "valid": true
+    },
+    {
+      "decision": 21,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "mcp": {
+              "expose": "always"
+            },
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "mcp.expose outside the enum",
+      "valid": false
+    },
+    {
+      "decision": 21,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "cli": {
+              "path": "Diff_Get",
+              "visible": true
+            },
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "bad cli.path",
+      "valid": false
+    },
+    {
+      "decision": 21,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "mcp": {
+              "expose": "default"
+            },
+            "name": "octo.diff_tools.diff-x.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          },
+          {
+            "errors": [],
+            "kind": "read",
+            "mcp": {
+              "expose": "default"
+            },
+            "name": "octo.diff_tools.diff.x-get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "two ops with the same MCP tool name",
+      "valid": false
+    },
+    {
+      "decision": 21,
+      "expect": {
+        "op": "octo.diff_tools.auth.get",
+        "secret_output": true
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "mcp": {
+              "expose": "default"
+            },
+            "name": "octo.diff_tools.auth.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "additionalProperties": false,
+              "properties": {
+                "credential": {
+                  "$ref": "#/types/OctoCredential"
+                }
+              },
+              "required": [
+                "credential"
+              ],
+              "type": "object"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "nested x-cmux-secret gives secret_output",
+      "valid": true
+    },
+    {
+      "decision": 21,
+      "expect": {
+        "mcp": {
+          "expose": "never"
+        },
+        "op": "octo.diff_tools.diff.get",
+        "paths": [],
+        "secret_output": false
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "an op without mcp is never exposed",
+      "valid": true
+    },
+    {
+      "decision": 22,
+      "expect": {
+        "op": "octo.diff_tools.file.get",
+        "paths": [
+          "id"
+        ]
+      },
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.file.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "paths": [
+              "id"
+            ],
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "path param that is a string param",
+      "valid": true
+    },
+    {
+      "decision": 22,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.file.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "paths": [
+              "nope"
+            ],
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "path param that is not a param",
+      "valid": false
+    },
+    {
+      "decision": 22,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.file.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "paths": [
+              "count"
+            ],
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "path param that is not a string",
+      "valid": false
+    },
+    {
+      "decision": 26,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "op name with only a verb below its namespace",
+      "valid": false
+    },
+    {
+      "decision": 23,
+      "fragment": {
+        "namespaces": [
+          {
+            "name": "octo.diff_tools",
+            "owner": "app:octo.diff_tools"
+          }
+        ],
+        "ops": [
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff-x.get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          },
+          {
+            "errors": [],
+            "kind": "read",
+            "name": "octo.diff_tools.diff.x-get",
+            "owner": "app:octo.diff_tools",
+            "params": {
+              "$ref": "#/types/OctoGetParams"
+            },
+            "result": {
+              "type": "string"
+            },
+            "scope": "octo.diff_tools:use"
+          }
+        ],
+        "types": {
+          "OctoCredential": {
+            "additionalProperties": false,
+            "properties": {
+              "token": {
+                "type": "string",
+                "x-cmux-secret": true
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "type": "object"
+          },
+          "OctoGetParams": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          }
+        }
+      },
+      "name": "two never-exposed ops with the same MCP tool name",
+      "valid": false
+    }
+  ],
+  "ir_keywords": {
+    "annotations": [
+      "$schema",
+      "$id",
+      "$comment",
+      "title",
+      "description",
+      "default",
+      "examples",
+      "deprecated",
+      "readOnly",
+      "writeOnly"
+    ],
+    "decision": 9,
+    "supported": [
+      "type",
+      "$ref",
+      "properties",
+      "required",
+      "additionalProperties",
+      "items",
+      "enum",
+      "const",
+      "anyOf",
+      "oneOf",
+      "allOf",
+      "minimum",
+      "maximum",
+      "exclusiveMinimum",
+      "exclusiveMaximum",
+      "minLength",
+      "maxLength",
+      "pattern",
+      "minItems",
+      "maxItems",
+      "format",
+      "x-cmux-secret"
+    ]
+  },
+  "roots": {
+    "cases": [
+      {
+        "allowed": true,
+        "decision": 20,
+        "name": "path inside a root",
+        "path": "$BASE/root/sub",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": true,
+        "decision": 20,
+        "name": "the root itself",
+        "path": "$BASE/root",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": true,
+        "decision": 20,
+        "name": "symlink that stays inside",
+        "path": "$BASE/root/inner",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": true,
+        "decision": 20,
+        "name": "dot-dot that stays inside",
+        "path": "$BASE/root/sub/..",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": false,
+        "decision": 20,
+        "name": "path outside every root",
+        "path": "$BASE/outside",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": false,
+        "decision": 20,
+        "name": "symlink that escapes",
+        "path": "$BASE/root/link",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": false,
+        "decision": 20,
+        "name": "dot-dot traversal out of the root",
+        "path": "$BASE/root/sub/../../outside",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": false,
+        "decision": 20,
+        "name": "sibling sharing the root's name as a prefix",
+        "path": "$BASE/rootx",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": false,
+        "decision": 20,
+        "name": "relative path",
+        "path": "root/sub",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": false,
+        "decision": 20,
+        "name": "path that does not exist",
+        "path": "$BASE/root/missing",
+        "roots": [
+          "$BASE/root"
+        ]
+      },
+      {
+        "allowed": false,
+        "decision": 20,
+        "name": "missing roots claim",
+        "path": "$BASE/root/sub",
+        "roots": []
+      }
+    ],
+    "layout": {
+      "dirs": [
+        "root/sub",
+        "rootx",
+        "outside"
+      ],
+      "symlinks": [
+        {
+          "path": "root/link",
+          "target": "../outside"
+        },
+        {
+          "path": "root/inner",
+          "target": "sub"
+        }
+      ]
+    },
+    "refusal_code": "cmux.protocol.forbidden"
+  },
+  "session": [
+    {
+      "decision": 5,
+      "expect": [
+        {
+          "code": "cmux.protocol.auth_refused",
+          "id": 0,
+          "t": "err"
+        }
+      ],
+      "name": "call before auth is refused with err id 0",
+      "send": [
+        "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":\"x\"}}"
+      ]
+    },
+    {
+      "decision": 5,
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "id": 1,
+          "t": "ok",
+          "value": {
+            "message": "hello, v"
+          }
+        }
+      ],
+      "name": "auth ack, then a call",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":\"v\"}}"
+      ]
+    },
+    {
+      "decision": 6,
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.invalid_params",
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "invalid params",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":1}}"
+      ]
+    },
+    {
+      "decision": 7,
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.unknown_op",
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "an op not in the IR",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"call\",\"id\":1,\"op\":\"com.example.hello.greet.shout\",\"params\":{}}"
+      ]
+    },
+    {
+      "decision": 7,
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.unknown_stream",
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "an event stream not in the IR",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"sub\",\"id\":1,\"stream\":\"com.example.hello.greet.nope\"}"
+      ]
+    },
+    {
+      "decision": 4,
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "id": 1,
+          "t": "ok"
+        },
+        {
+          "data": {
+            "message": "tick 1"
+          },
+          "seq": 1,
+          "t": "ev"
+        },
+        {
+          "data": {
+            "message": "tick 2"
+          },
+          "seq": 2,
+          "t": "ev"
+        },
+        {
+          "data": {
+            "message": "tick 3"
+          },
+          "seq": 3,
+          "t": "ev"
+        }
+      ],
+      "name": "seq starts at 1",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"sub\",\"id\":1,\"stream\":\"com.example.hello.greet.ticks\"}"
+      ]
+    },
+    {
+      "decision": 3,
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.stream_aborted",
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "the connecting side may not open an even stream id",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"open\",\"id\":1,\"stream\":2,\"op\":\"com.example.hello.greet.say\"}"
+      ]
+    },
+    {
+      "decision": 1,
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.unknown_op",
+          "id": 1,
+          "t": "err"
+        }
+      ],
+      "name": "open of an op that is not a stream op",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"open\",\"id\":1,\"stream\":1,\"op\":\"com.example.hello.greet.say\"}"
+      ]
+    },
+    {
+      "decision": 12,
+      "expect": [
+        {
+          "id": 0,
+          "t": "ok"
+        },
+        {
+          "code": "cmux.protocol.bad_message",
+          "id": 0,
+          "t": "err"
+        }
+      ],
+      "name": "an id above 2^53-1 is a bad message",
+      "send": [
+        "{\"t\":\"auth\",\"token\":\"eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzZXNzaW9uLXZlY3RvcnMiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY29tLmV4YW1wbGUuaGVsbG8iXSwic2NvcGVzIjpbImNvbS5leGFtcGxlLmhlbGxvOnVzZSJdLCJhdWQiOiJjb20uZXhhbXBsZS5oZWxsbyIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.Lj1PYSUXoJGSDbzAeyfwrr4EnJ7aeWq7ZFt79gaqW9rzOCWWk_AHQYyhwhVTcmbXG6P6ynko7J1NGqBr1ReYBw\"}",
+        "{\"t\":\"call\",\"id\":9007199254740992,\"op\":\"com.example.hello.greet.say\",\"params\":{\"name\":\"x\"}}"
+      ]
+    }
+  ],
+  "token": {
+    "allows": [
+      {
+        "allowed": true,
+        "op": "cmux.git.status",
+        "scope": "git:read"
+      },
+      {
+        "allowed": false,
+        "op": "cmux.git.status",
+        "scope": "git:write"
+      },
+      {
+        "allowed": false,
+        "op": "cmux.gitx.status",
+        "scope": "git:read"
+      },
+      {
+        "allowed": false,
+        "op": "com.example.hello.greet.say",
+        "scope": "git:read"
+      }
+    ],
+    "checks": [
+      {
+        "aud": "cmux.git",
+        "name": "valid",
+        "now": 1700000000,
+        "origin": "http://127.0.0.1:4100",
+        "result": "ok",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.DBijqGEnsxYHntuCFjH3ccmgV63RjkVmSctkB7N0u6rwwnLJXmog21zP7uS3b-2Kb53XaWpeemrKrtiCYpKADg"
+      },
+      {
+        "aud": "cmux.git",
+        "name": "expired",
+        "now": 4102444800,
+        "origin": "http://127.0.0.1:4100",
+        "result": "expired",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.DBijqGEnsxYHntuCFjH3ccmgV63RjkVmSctkB7N0u6rwwnLJXmog21zP7uS3b-2Kb53XaWpeemrKrtiCYpKADg"
+      },
+      {
+        "aud": "com.example.hello",
+        "name": "other audience",
+        "now": 1700000000,
+        "origin": "http://127.0.0.1:4100",
+        "result": "wrong_audience",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.DBijqGEnsxYHntuCFjH3ccmgV63RjkVmSctkB7N0u6rwwnLJXmog21zP7uS3b-2Kb53XaWpeemrKrtiCYpKADg"
+      },
+      {
+        "aud": "cmux.git",
+        "name": "other origin",
+        "now": 1700000000,
+        "origin": "http://evil.test",
+        "result": "wrong_origin",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.DBijqGEnsxYHntuCFjH3ccmgV63RjkVmSctkB7N0u6rwwnLJXmog21zP7uS3b-2Kb53XaWpeemrKrtiCYpKADg"
+      },
+      {
+        "aud": "cmux.git",
+        "name": "browser token on a native connection",
+        "now": 1700000000,
+        "origin": null,
+        "result": "ok",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.DBijqGEnsxYHntuCFjH3ccmgV63RjkVmSctkB7N0u6rwwnLJXmog21zP7uS3b-2Kb53XaWpeemrKrtiCYpKADg"
+      },
+      {
+        "aud": "cmux.git",
+        "name": "native token",
+        "now": 1700000000,
+        "origin": null,
+        "result": "ok",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.HlwBPsD5PZqZBdlouChJRhjpup069warbS7zUOUmKNoLhdcZeYYF-tIO2dlt7YdP9yl-lXXfCfl-YGnu2ylyDA"
+      },
+      {
+        "aud": "cmux.git",
+        "name": "native token from a browser",
+        "now": 1700000000,
+        "origin": "http://127.0.0.1:4100",
+        "result": "wrong_origin",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.HlwBPsD5PZqZBdlouChJRhjpup069warbS7zUOUmKNoLhdcZeYYF-tIO2dlt7YdP9yl-lXXfCfl-YGnu2ylyDA"
+      },
+      {
+        "aud": "cmux.git",
+        "decision": 10,
+        "name": "signed by another key",
+        "now": 1700000000,
+        "origin": "http://127.0.0.1:4100",
+        "result": "bad_signature",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.0V9nPDjsPYp4Ksgaph7LpE9cfsSPrevnCvoE4XcazJvLNEEBmr8rhLgX9XfIA-I0BpddDjTVANVgI7Kmf2wfAw"
+      },
+      {
+        "aud": "cmux.git",
+        "decision": 10,
+        "name": "tampered claims",
+        "now": 1700000000,
+        "origin": "http://127.0.0.1:4100",
+        "result": "bad_signature",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyAzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.DBijqGEnsxYHntuCFjH3ccmgV63RjkVmSctkB7N0u6rwwnLJXmog21zP7uS3b-2Kb53XaWpeemrKrtiCYpKADg"
+      },
+      {
+        "aud": "cmux.git",
+        "decision": 10,
+        "name": "alg none",
+        "now": 1700000000,
+        "origin": "http://127.0.0.1:4100",
+        "result": "wrong_header",
+        "token": "eyJhbGciOiJub25lIiwidHlwIjoiY211eC1jYXArand0In0.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.DBijqGEnsxYHntuCFjH3ccmgV63RjkVmSctkB7N0u6rwwnLJXmog21zP7uS3b-2Kb53XaWpeemrKrtiCYpKADg"
+      },
+      {
+        "aud": "cmux.git",
+        "decision": 10,
+        "name": "two segments",
+        "now": 1700000000,
+        "origin": "http://127.0.0.1:4100",
+        "result": "malformed",
+        "token": "e30.e30"
+      },
+      {
+        "aud": "router",
+        "decision": 16,
+        "name": "page token, bundled page origin",
+        "now": 1700000000,
+        "origin": "cmux-page://cmux.settings",
+        "result": "ok",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJwYWdlIjoiY211eC5zZXR0aW5ncyIsImFwcCI6ImNtdXguYWdlbnQiLCJucyI6W10sInNjb3BlcyI6WyJzZXR0aW5nczpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJjbXV4LXBhZ2U6Ly9jbXV4LnNldHRpbmdzIiwiYXVkIjoicm91dGVyIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.F8BCIEl_sW6spRettmaeQImNQB4KEe3JOG9nU3uZ-oB-zEY7gJ5YGk26LDaUoEtSw4XJncBVkX8VaHYOoycACQ"
+      },
+      {
+        "aud": "router",
+        "decision": 16,
+        "name": "page token, another page's origin",
+        "now": 1700000000,
+        "origin": "cmux-page://com.evil.page",
+        "result": "wrong_origin",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJwYWdlIjoiY211eC5zZXR0aW5ncyIsImFwcCI6ImNtdXguYWdlbnQiLCJucyI6W10sInNjb3BlcyI6WyJzZXR0aW5nczpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJjbXV4LXBhZ2U6Ly9jbXV4LnNldHRpbmdzIiwiYXVkIjoicm91dGVyIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.F8BCIEl_sW6spRettmaeQImNQB4KEe3JOG9nU3uZ-oB-zEY7gJ5YGk26LDaUoEtSw4XJncBVkX8VaHYOoycACQ"
+      },
+      {
+        "aud": "router",
+        "decision": 16,
+        "name": "page token, dev origin",
+        "now": 1700000000,
+        "origin": "http://127.0.0.1:4100",
+        "result": "wrong_origin",
+        "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJwYWdlIjoiY211eC5zZXR0aW5ncyIsImFwcCI6ImNtdXguYWdlbnQiLCJucyI6W10sInNjb3BlcyI6WyJzZXR0aW5nczpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJjbXV4LXBhZ2U6Ly9jbXV4LnNldHRpbmdzIiwiYXVkIjoicm91dGVyIiwiZXhwIjo0MTAyNDQ0ODAwLCJpYXQiOjE3MDAwMDAwMDB9.F8BCIEl_sW6spRettmaeQImNQB4KEe3JOG9nU3uZ-oB-zEY7gJ5YGk26LDaUoEtSw4XJncBVkX8VaHYOoycACQ"
+      }
+    ],
+    "claims": {
+      "app": "cmux.agent",
+      "aud": "cmux.git",
+      "exp": 4102444800,
+      "iat": 1700000000,
+      "ns": [
+        "cmux.git"
+      ],
+      "origin": "http://127.0.0.1:4100",
+      "roots": [
+        "/home/user/repo"
+      ],
+      "scopes": [
+        "git:read"
+      ],
+      "sub": "surface-1"
+    },
+    "decision": 10,
+    "format": "compact JWS: base64url(header).base64url(claims).base64url(ed25519 over 'header.claims'), no padding",
+    "header": {
+      "alg": "EdDSA",
+      "typ": "cmux-cap+jwt"
+    },
+    "origin_rule": "a connection with an Origin requires claims.origin to equal it exactly; a connection without one (native peer) skips the origin check",
+    "public_key_hex": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+    "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImNtdXgtY2FwK2p3dCJ9.eyJzdWIiOiJzdXJmYWNlLTEiLCJhcHAiOiJjbXV4LmFnZW50IiwibnMiOlsiY211eC5naXQiXSwic2NvcGVzIjpbImdpdDpyZWFkIl0sInJvb3RzIjpbIi9ob21lL3VzZXIvcmVwbyJdLCJvcmlnaW4iOiJodHRwOi8vMTI3LjAuMC4xOjQxMDAiLCJhdWQiOiJjbXV4LmdpdCIsImV4cCI6NDEwMjQ0NDgwMCwiaWF0IjoxNzAwMDAwMDAwfQ.DBijqGEnsxYHntuCFjH3ccmgV63RjkVmSctkB7N0u6rwwnLJXmog21zP7uS3b-2Kb53XaWpeemrKrtiCYpKADg"
+  },
+  "transport_envelopes": [
+    {
+      "name": "auth",
+      "text": "{\"t\":\"auth\",\"token\":\"e30.e30.e30\"}",
+      "valid": true
+    },
+    {
+      "decision": 8,
+      "name": "bye (MessagePort only)",
+      "text": "{\"t\":\"bye\"}",
+      "valid": true
+    }
+  ],
+  "unix_framing": [
+    {
+      "hex": "000000157b2274223a2263616e63656c222c226964223a317d",
+      "kind": "text",
+      "name": "text message",
+      "text": "{\"t\":\"cancel\",\"id\":1}",
+      "valid": true
+    },
+    {
+      "hex": "00000000",
+      "kind": "text",
+      "name": "empty text message",
+      "text": "",
+      "valid": true
+    },
+    {
+      "data_frame": {
+        "credit": 4096,
+        "payload_hex": "68656c6c6f",
+        "stream": 5
+      },
+      "hex": "8000000d000000050000100068656c6c6f",
+      "kind": "binary",
+      "name": "binary message (bit 31 set) carrying a data frame",
+      "valid": true
+    },
+    {
+      "header_only": true,
+      "hex": "01000000",
+      "name": "largest allowed length header",
+      "valid": true
+    },
+    {
+      "header_only": true,
+      "hex": "01000001",
+      "name": "length above 16 MiB",
+      "valid": false
+    },
+    {
+      "header_only": true,
+      "hex": "81000001",
+      "name": "binary flag with length above 16 MiB",
+      "valid": false
+    },
+    {
+      "hex": "00000002c328",
+      "kind": "text",
+      "name": "text that is not UTF-8",
+      "valid": false
+    }
+  ],
+  "vectors": [
+    {
+      "encoded": "{\"t\":\"call\",\"id\":1,\"op\":\"cmux.git.status\",\"params\":{\"cwd\":\"/repo\"}}",
+      "kind": "envelope",
+      "name": "call",
+      "text": "{\"t\":\"call\",\"id\":1,\"op\":\"cmux.git.status\",\"params\":{\"cwd\":\"/repo\"}}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"call\",\"id\":2,\"op\":\"cmux.git.status\",\"params\":{}}",
+      "kind": "envelope",
+      "name": "call without params",
+      "text": "{\"t\":\"call\",\"id\":2,\"op\":\"cmux.git.status\"}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"call\",\"id\":3,\"op\":\"cmux.git.diff\",\"params\":{\"cwd\":\"/r\"},\"cap\":\"h1\"}",
+      "kind": "envelope",
+      "name": "call with cap",
+      "text": "{\"t\":\"call\",\"id\":3,\"op\":\"cmux.git.diff\",\"params\":{\"cwd\":\"/r\"},\"cap\":\"h1\"}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"call\",\"id\":4,\"op\":\"cmux.git.status\",\"params\":[]}",
+      "kind": "envelope",
+      "name": "call with non-object params (the session rejects them)",
+      "text": "{\"t\":\"call\",\"id\":4,\"op\":\"cmux.git.status\",\"params\":[]}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"ok\",\"id\":1,\"value\":{\"branch\":\"main\",\"files\":[]}}",
+      "kind": "envelope",
+      "name": "ok",
+      "text": "{\"t\":\"ok\",\"id\":1,\"value\":{\"branch\":\"main\",\"files\":[]}}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"ok\",\"id\":1,\"value\":null}",
+      "kind": "envelope",
+      "name": "ok without value",
+      "text": "{\"t\":\"ok\",\"id\":1}",
+      "valid": true
+    },
+    {
+      "decision": 5,
+      "encoded": "{\"t\":\"ok\",\"id\":0,\"value\":null}",
+      "kind": "envelope",
+      "name": "auth ack is ok id 0",
+      "text": "{\"t\":\"ok\",\"id\":0}",
+      "valid": true
+    },
+    {
+      "decision": 5,
+      "encoded": "{\"t\":\"err\",\"id\":0,\"code\":\"cmux.protocol.auth_refused\",\"message\":\"bad token\",\"retryable\":false}",
+      "kind": "envelope",
+      "name": "auth refusal is err id 0",
+      "text": "{\"t\":\"err\",\"id\":0,\"code\":\"cmux.protocol.auth_refused\",\"message\":\"bad token\",\"retryable\":false}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"err\",\"id\":1,\"code\":\"cmux.git.not_a_repo\",\"message\":\"no repo\",\"retryable\":false}",
+      "kind": "envelope",
+      "name": "err",
+      "text": "{\"t\":\"err\",\"id\":1,\"code\":\"cmux.git.not_a_repo\",\"message\":\"no repo\",\"retryable\":false}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"err\",\"id\":1,\"code\":\"cmux.protocol.internal\",\"message\":\"x\",\"retryable\":true,\"details\":{\"k\":1}}",
+      "kind": "envelope",
+      "name": "err with details",
+      "text": "{\"t\":\"err\",\"id\":1,\"code\":\"cmux.protocol.internal\",\"message\":\"x\",\"retryable\":true,\"details\":{\"k\":1}}",
+      "valid": true
+    },
+    {
+      "decision": 13,
+      "encoded": "{\"t\":\"err\",\"id\":2,\"code\":\"cmux.protocol.forbidden\",\"message\":\"no scope\",\"retryable\":false}",
+      "kind": "envelope",
+      "name": "session code forbidden",
+      "text": "{\"t\":\"err\",\"id\":2,\"code\":\"cmux.protocol.forbidden\",\"message\":\"no scope\",\"retryable\":false}",
+      "valid": true
+    },
+    {
+      "decision": 13,
+      "encoded": "{\"t\":\"err\",\"id\":2,\"code\":\"cmux.protocol.busy\",\"message\":\"overloaded\",\"retryable\":true}",
+      "kind": "envelope",
+      "name": "session code busy",
+      "text": "{\"t\":\"err\",\"id\":2,\"code\":\"cmux.protocol.busy\",\"message\":\"overloaded\",\"retryable\":true}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"sub\",\"id\":4,\"stream\":\"cmux.git.status.changed\",\"filter\":{\"cwd\":\"/r\"}}",
+      "kind": "envelope",
+      "name": "sub",
+      "text": "{\"t\":\"sub\",\"id\":4,\"stream\":\"cmux.git.status.changed\",\"filter\":{\"cwd\":\"/r\"}}",
+      "valid": true
+    },
+    {
+      "decision": 4,
+      "encoded": "{\"t\":\"ev\",\"sub\":1,\"seq\":1,\"data\":{\"branch\":null,\"files\":[]}}",
+      "kind": "envelope",
+      "name": "ev seq starts at 1",
+      "text": "{\"t\":\"ev\",\"sub\":1,\"seq\":1,\"data\":{\"branch\":null,\"files\":[]}}",
+      "valid": true
+    },
+    {
+      "decision": 15,
+      "encoded": "{\"t\":\"ev\",\"sub\":1,\"seq\":7,\"data\":{\"branch\":null,\"files\":[]},\"gap\":true}",
+      "kind": "envelope",
+      "name": "ev after a drop carries gap",
+      "text": "{\"t\":\"ev\",\"sub\":1,\"seq\":7,\"data\":{\"branch\":null,\"files\":[]},\"gap\":true}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"unsub\",\"sub\":1}",
+      "kind": "envelope",
+      "name": "unsub",
+      "text": "{\"t\":\"unsub\",\"sub\":1}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"cancel\",\"id\":1}",
+      "kind": "envelope",
+      "name": "cancel",
+      "text": "{\"t\":\"cancel\",\"id\":1}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"release\",\"handle\":\"h1\"}",
+      "kind": "envelope",
+      "name": "release",
+      "text": "{\"t\":\"release\",\"handle\":\"h1\"}",
+      "valid": true
+    },
+    {
+      "decision": 1,
+      "encoded": "{\"t\":\"open\",\"id\":5,\"stream\":1,\"op\":\"cmux.fs.file.read\",\"params\":{\"path\":\"/a\"}}",
+      "kind": "envelope",
+      "name": "open carries id and params",
+      "text": "{\"t\":\"open\",\"id\":5,\"stream\":1,\"op\":\"cmux.fs.file.read\",\"params\":{\"path\":\"/a\"}}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"credit\",\"stream\":1,\"bytes\":65536}",
+      "kind": "envelope",
+      "name": "credit",
+      "text": "{\"t\":\"credit\",\"stream\":1,\"bytes\":65536}",
+      "valid": true
+    },
+    {
+      "decision": 2,
+      "encoded": "{\"t\":\"end\",\"stream\":1}",
+      "kind": "envelope",
+      "name": "end",
+      "text": "{\"t\":\"end\",\"stream\":1}",
+      "valid": true
+    },
+    {
+      "decision": 2,
+      "encoded": "{\"t\":\"end\",\"stream\":1,\"code\":\"cmux.protocol.stream_aborted\",\"message\":\"gone\"}",
+      "kind": "envelope",
+      "name": "end as abort",
+      "text": "{\"t\":\"end\",\"stream\":1,\"code\":\"cmux.protocol.stream_aborted\",\"message\":\"gone\"}",
+      "valid": true
+    },
+    {
+      "encoded": "{\"t\":\"cancel\",\"id\":1}",
+      "kind": "envelope",
+      "name": "unknown field is ignored",
+      "text": "{\"t\":\"cancel\",\"id\":1,\"future\":true}",
+      "valid": true
+    },
+    {
+      "decision": 12,
+      "encoded": "{\"t\":\"cancel\",\"id\":9007199254740991}",
+      "kind": "envelope",
+      "name": "max id 2^53-1",
+      "text": "{\"t\":\"cancel\",\"id\":9007199254740991}",
+      "valid": true
+    },
+    {
+      "decision": 12,
+      "encoded": "{\"t\":\"credit\",\"stream\":4294967295,\"bytes\":1}",
+      "kind": "envelope",
+      "name": "max stream id 2^32-1",
+      "text": "{\"t\":\"credit\",\"stream\":4294967295,\"bytes\":1}",
+      "valid": true
+    },
+    {
+      "kind": "envelope",
+      "name": "not json",
+      "text": "{",
+      "valid": false
+    },
+    {
+      "kind": "envelope",
+      "name": "not an object",
+      "text": "[1]",
+      "valid": false
+    },
+    {
+      "kind": "envelope",
+      "name": "unknown kind",
+      "text": "{\"t\":\"bogus\",\"id\":1}",
+      "valid": false
+    },
+    {
+      "kind": "envelope",
+      "name": "missing t",
+      "text": "{\"id\":1}",
+      "valid": false
+    },
+    {
+      "decision": 12,
+      "kind": "envelope",
+      "name": "call id 0",
+      "text": "{\"t\":\"call\",\"id\":0,\"op\":\"cmux.git.status\"}",
+      "valid": false
+    },
+    {
+      "decision": 12,
+      "kind": "envelope",
+      "name": "id above 2^53-1",
+      "text": "{\"t\":\"cancel\",\"id\":9007199254740992}",
+      "valid": false
+    },
+    {
+      "decision": 12,
+      "kind": "envelope",
+      "name": "negative id",
+      "text": "{\"t\":\"cancel\",\"id\":-1}",
+      "valid": false
+    },
+    {
+      "decision": 12,
+      "kind": "envelope",
+      "name": "fractional id",
+      "text": "{\"t\":\"cancel\",\"id\":1.5}",
+      "valid": false
+    },
+    {
+      "decision": 12,
+      "kind": "envelope",
+      "name": "ev seq 0",
+      "text": "{\"t\":\"ev\",\"sub\":1,\"seq\":0,\"data\":null}",
+      "valid": false
+    },
+    {
+      "decision": 12,
+      "kind": "envelope",
+      "name": "open stream 0",
+      "text": "{\"t\":\"open\",\"id\":1,\"stream\":0,\"op\":\"cmux.fs.file.read\"}",
+      "valid": false
+    },
+    {
+      "decision": 1,
+      "kind": "envelope",
+      "name": "open without id",
+      "text": "{\"t\":\"open\",\"stream\":1,\"op\":\"cmux.fs.file.read\"}",
+      "valid": false
+    },
+    {
+      "decision": 2,
+      "kind": "envelope",
+      "name": "end without stream",
+      "text": "{\"t\":\"end\"}",
+      "valid": false
+    },
+    {
+      "decision": 15,
+      "kind": "envelope",
+      "name": "gap that is not a boolean",
+      "text": "{\"t\":\"ev\",\"sub\":1,\"seq\":1,\"data\":null,\"gap\":\"yes\"}",
+      "valid": false
+    },
+    {
+      "kind": "envelope",
+      "name": "err without retryable",
+      "text": "{\"t\":\"err\",\"id\":1,\"code\":\"c.d.e\",\"message\":\"x\"}",
+      "valid": false
+    },
+    {
+      "kind": "envelope",
+      "name": "err without code",
+      "text": "{\"t\":\"err\",\"id\":1,\"message\":\"x\",\"retryable\":false}",
+      "valid": false
+    },
+    {
+      "kind": "envelope",
+      "name": "details not an object",
+      "text": "{\"t\":\"err\",\"id\":1,\"code\":\"c\",\"message\":\"x\",\"retryable\":false,\"details\":[1]}",
+      "valid": false
+    },
+    {
+      "kind": "envelope",
+      "name": "filter not an object",
+      "text": "{\"t\":\"sub\",\"id\":1,\"stream\":\"a.b.c\",\"filter\":1}",
+      "valid": false
+    },
+    {
+      "decision": 12,
+      "kind": "envelope",
+      "name": "stream id 2^32 (above u32)",
+      "text": "{\"t\":\"credit\",\"stream\":4294967296,\"bytes\":1}",
+      "valid": false
+    },
+    {
+      "decision": 12,
+      "kind": "envelope",
+      "name": "open stream id 2^32",
+      "text": "{\"t\":\"open\",\"id\":1,\"stream\":4294967296,\"op\":\"cmux.fs.file.read\"}",
+      "valid": false
+    },
+    {
+      "credit": 4096,
+      "hex": "000000050000100068656c6c6f",
+      "kind": "data_frame",
+      "name": "data frame",
+      "payload_hex": "68656c6c6f",
+      "stream": 5,
+      "valid": true
+    },
+    {
+      "credit": 0,
+      "hex": "0000000200000000",
+      "kind": "data_frame",
+      "name": "empty payload",
+      "payload_hex": "",
+      "stream": 2,
+      "valid": true
+    },
+    {
+      "hex": "00000005000010",
+      "kind": "data_frame",
+      "name": "shorter than the 8-byte header",
+      "valid": false
+    },
+    {
+      "kind": "validation",
+      "name": "status params",
+      "type": "GitStatusParams",
+      "valid": true,
+      "value": {
+        "cwd": "/repo"
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "status params without cwd",
+      "type": "GitStatusParams",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "kind": "validation",
+      "name": "status params with extra field",
+      "type": "GitStatusParams",
+      "valid": false,
+      "value": {
+        "cwd": "/r",
+        "x": 1
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "status params with numeric cwd",
+      "type": "GitStatusParams",
+      "valid": false,
+      "value": {
+        "cwd": 5
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "diff params minimal",
+      "type": "GitDiffParams",
+      "valid": true,
+      "value": {
+        "cwd": "/r"
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "diff params full",
+      "type": "GitDiffParams",
+      "valid": true,
+      "value": {
+        "base": null,
+        "cwd": "/r",
+        "include_patch": true
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "diff params with string bool",
+      "type": "GitDiffParams",
+      "valid": false,
+      "value": {
+        "cwd": "/r",
+        "include_patch": "yes"
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "status detached",
+      "type": "GitStatus",
+      "valid": true,
+      "value": {
+        "branch": null,
+        "files": []
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "status with a file",
+      "type": "GitStatus",
+      "valid": true,
+      "value": {
+        "branch": "main",
+        "files": [
+          {
+            "index": "M",
+            "path": "a",
+            "worktree": " "
+          }
+        ]
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "status without branch",
+      "type": "GitStatus",
+      "valid": false,
+      "value": {
+        "files": []
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "status file missing worktree",
+      "type": "GitStatus",
+      "valid": false,
+      "value": {
+        "branch": "m",
+        "files": [
+          {
+            "index": "M",
+            "path": "a"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "diff file",
+      "type": "GitDiff",
+      "valid": true,
+      "value": {
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 0,
+            "path": "a"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "diff file with patch",
+      "type": "GitDiff",
+      "valid": true,
+      "value": {
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 0,
+            "patch": "+x\n",
+            "path": "a"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "diff file with negative count",
+      "type": "GitDiff",
+      "valid": false,
+      "value": {
+        "files": [
+          {
+            "additions": -1,
+            "deletions": 0,
+            "path": "a"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "diff file with fractional count",
+      "type": "GitDiff",
+      "valid": false,
+      "value": {
+        "files": [
+          {
+            "additions": 1.5,
+            "deletions": 0,
+            "path": "a"
+          }
+        ]
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "hello params",
+      "type": "HelloParams",
+      "valid": true,
+      "value": {
+        "name": "x"
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "hello params with extra field",
+      "type": "HelloParams",
+      "valid": false,
+      "value": {
+        "n": 1,
+        "name": "x"
+      }
+    },
+    {
+      "kind": "validation",
+      "name": "hello result",
+      "type": "HelloResult",
+      "valid": true,
+      "value": {
+        "message": "hi"
+      }
+    },
+    {
+      "decision": 11,
+      "kind": "validation",
+      "name": "provider hello",
+      "type": "ProviderHello",
+      "valid": true,
+      "value": {
+        "app": "com.example.hello",
+        "endpoints": [
+          {
+            "kind": "ws",
+            "url": "ws://127.0.0.1:4100/"
+          }
+        ],
+        "events": [],
+        "interfaces": [],
+        "ir": {
+          "sha256": "00",
+          "version": "0.1.0"
+        },
+        "namespaces": [
+          "com.example.hello"
+        ],
+        "ops": [
+          {
+            "kind": "read",
+            "name": "com.example.hello.greet.say",
+            "scope": "com.example.hello:use"
+          }
+        ],
+        "proto": "cmux.pane/0"
+      }
+    },
+    {
+      "decision": 11,
+      "kind": "validation",
+      "name": "provider hello with ops as strings",
+      "type": "ProviderHello",
+      "valid": false,
+      "value": {
+        "app": "com.example.hello",
+        "endpoints": [
+          {
+            "kind": "ws",
+            "url": "ws://127.0.0.1:4100/"
+          }
+        ],
+        "events": [],
+        "interfaces": [],
+        "ir": {
+          "sha256": "00",
+          "version": "0.1.0"
+        },
+        "namespaces": [
+          "com.example.hello"
+        ],
+        "ops": [
+          "com.example.hello.greet.say"
+        ],
+        "proto": "cmux.pane/0"
+      }
+    },
+    {
+      "decision": 11,
+      "kind": "validation",
+      "name": "provider hello with ir as a string",
+      "type": "ProviderHello",
+      "valid": false,
+      "value": {
+        "app": "com.example.hello",
+        "endpoints": [
+          {
+            "kind": "ws",
+            "url": "ws://127.0.0.1:4100/"
+          }
+        ],
+        "events": [],
+        "interfaces": [],
+        "ir": "sha256:00",
+        "namespaces": [
+          "com.example.hello"
+        ],
+        "ops": [
+          {
+            "kind": "read",
+            "name": "com.example.hello.greet.say",
+            "scope": "com.example.hello:use"
+          }
+        ],
+        "proto": "cmux.pane/0"
+      }
+    },
+    {
+      "decision": 11,
+      "kind": "validation",
+      "name": "welcome",
+      "type": "ProviderWelcome",
+      "valid": true,
+      "value": {
+        "provider": "com.example.hello",
+        "router_key": "AAAA"
+      }
+    },
+    {
+      "decision": 11,
+      "kind": "validation",
+      "name": "welcome with extra field",
+      "type": "ProviderWelcome",
+      "valid": false,
+      "value": {
+        "provider": "p",
+        "router_key": "AAAA",
+        "x": 1
+      }
+    },
+    {
+      "decision": 14,
+      "kind": "validation",
+      "name": "resolve result names the provider's IR digest",
+      "type": "ResolveResult",
+      "valid": true,
+      "value": {
+        "app_id": "a.b",
+        "endpoint": {
+          "kind": "ws",
+          "url": "ws://127.0.0.1:1/"
+        },
+        "exp": null,
+        "ir": "00",
+        "namespace": "a.b",
+        "token": null
+      }
+    },
+    {
+      "decision": 14,
+      "kind": "validation",
+      "name": "resolve result without ir",
+      "type": "ResolveResult",
+      "valid": false,
+      "value": {
+        "app_id": "a.b",
+        "endpoint": {
+          "kind": "ws",
+          "url": "ws://127.0.0.1:1/"
+        },
+        "exp": null,
+        "namespace": "a.b",
+        "token": null
+      }
+    },
+    {
+      "decision": 16,
+      "kind": "validation",
+      "name": "page manifest",
+      "type": "PageManifest",
+      "valid": true,
+      "value": {
+        "consumes": [
+          "cmux.settings/1",
+          "cmux.git.status"
+        ],
+        "engines": [
+          "webkit",
+          "cef",
+          "browser"
+        ],
+        "entry": "pages/settings/index.html",
+        "id": "cmux.settings",
+        "namespace": "cmux.settings",
+        "provider": {
+          "kind": "daemon-module"
+        },
+        "route": "/settings",
+        "scopes": [
+          "settings:read",
+          "settings:write"
+        ]
+      }
+    },
+    {
+      "decision": 16,
+      "kind": "validation",
+      "name": "page manifest with an unknown engine",
+      "type": "PageManifest",
+      "valid": false,
+      "value": {
+        "engines": [
+          "gecko"
+        ],
+        "entry": "e",
+        "id": "cmux.settings",
+        "namespace": "cmux.settings",
+        "provider": {
+          "kind": "daemon-module"
+        },
+        "route": "/settings"
+      }
+    }
+  ],
+  "version": "0.1.0"
+}

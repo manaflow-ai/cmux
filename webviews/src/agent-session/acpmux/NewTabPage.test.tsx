@@ -51,12 +51,12 @@ const snapshot: AcpmuxSnapshot = {
 
 test("the handshake's newTab becomes the page's kind, hotkeys and folder", () => {
   expect(newTabHost({})).toBeUndefined();
-  expect(newTabHost({ newTab: true })).toEqual({ hotkeys: {}, initialKind: "agent" });
+  expect(newTabHost({ newTab: true })).toEqual({ hotkeys: {}, initialKind: "agent", layout: "b" });
   expect(
     newTabHost({
       newTab: { kind: "browser", hotkeys: { terminal: "⌃⇧⌘T", agent: "", spreadsheet: "x" }, cwd: "~/code" },
     }),
-  ).toEqual({ hotkeys: { terminal: "⌃⇧⌘T" }, initialKind: "browser", cwd: "~/code" });
+  ).toEqual({ hotkeys: { terminal: "⌃⇧⌘T" }, initialKind: "browser", cwd: "~/code", layout: "b" });
   expect(newTabHost({ newTab: { kind: "spreadsheet" } })?.initialKind).toBe("agent");
 });
 

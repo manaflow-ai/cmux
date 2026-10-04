@@ -4095,6 +4095,36 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "pane new-row",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "d",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "newRow",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Row",
+      "title_key" : "action.newRow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "pane split-down",
       "context_menu" : "offered",
       "context_menus" : [
@@ -17298,6 +17328,29 @@
       },
       "title" : "Reopen Last Closed Item",
       "title_key" : "action.history.reopen",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "action history-go-to",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "history.goTo",
+      "mcp" : "focusMove",
+      "palette" : "focusMove",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Go to Location",
+      "title_key" : "action.history.goTo",
       "title_table" : "HistoryActions"
     },
     {

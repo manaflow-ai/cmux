@@ -63,6 +63,22 @@ export const PAGES = {
     out: "webviews/src/pages/history/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextHistory/Resources/Localizable.xcstrings` }],
   },
+  // The App Store page reads the `store.` keys of the app platform's table until the Swift store
+  // is deleted (react-pages.md A3); then the table moves next to the page.
+  apps: {
+    out: "webviews/src/pages/apps/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("store.")),
+      },
+    ],
+  },
+  // Cloud has no Swift page, so its table lives next to the page.
+  cloud: {
+    out: "webviews/src/pages/cloud/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/cloud/Localizable.xcstrings" }],
+  },
 };
 
 export function generate(page) {

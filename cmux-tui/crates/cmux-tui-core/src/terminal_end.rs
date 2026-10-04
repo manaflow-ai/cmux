@@ -46,6 +46,23 @@ pub(crate) enum TerminalEnd {
     LaunchFailed(TerminalExit),
 }
 
+/// Stable reason codes for a host loss, from the free-form reasons the owner
+/// records. Unknown text maps to `other`; the raw text stays in `detail`.
+fn host_lost_reason(detail: &str) -> &'static str {
+    match detail {
+        "missing-host-record" => "missing_record",
+        "host-incarnation-mismatch" => "incarnation_mismatch",
+        "host-process-ended-before-adoption" => "dead_before_adoption",
+        "host-exited-during-adoption" => "died_during_adoption",
+        "terminal host ended without a durable exit sidecar" => "died_without_exit_status",
+        "terminal exit receipt is missing" => "missing_exit_receipt",
+        "unadoptable-host-ended" => "unadoptable_host_ended",
+        // A signal exit during a session shutdown (logout): "session-shutdown: signal N".
+        _ if detail.starts_with("session-shutdown") => "session_shutdown",
+        _ => "other",
+    }
+}
+
 /// Evidence that a terminal's views may go: its process ended, or its owner
 /// abandoned the launch. Constructed only by [`TerminalEnd::detach_proof`];
 /// required by the exit-detach projection.
@@ -89,6 +106,47 @@ impl TerminalEnd {
         }
     }
 
+    /// The typed end clients show (tab JSON `end`; R41,
+    /// plans/cmux-next/durable-sessions.md section 7). `kind` is `exited`,
+    /// `signaled`, `host_lost` or `launch_failed`; a host loss names a stable
+    /// `reason` so a client never words an infrastructure loss as an exit.
+    pub(crate) fn wire_json(&self) -> Value {
+        match self {
+            Self::ProcessEnded(exit) => match &exit.outcome {
+                TerminalExitOutcome::Exit { code } => {
+                    serde_json::json!({"kind": "exited", "code": code})
+                }
+                TerminalExitOutcome::Signal { signal, core_dumped } => serde_json::json!({
+                    "kind": "signaled",
+                    "signal": signal,
+                    "core_dumped": core_dumped,
+                }),
+                // An older host that omits the status still reported a real end.
+                TerminalExitOutcome::Unknown { reason } => {
+                    serde_json::json!({"kind": "exited", "detail": reason})
+                }
+            },
+            Self::HostLost(exit) => {
+                let detail = match &exit.outcome {
+                    TerminalExitOutcome::Unknown { reason } => reason.as_str(),
+                    TerminalExitOutcome::Exit { .. } | TerminalExitOutcome::Signal { .. } => "",
+                };
+                serde_json::json!({
+                    "kind": "host_lost",
+                    "reason": host_lost_reason(detail),
+                    "detail": detail,
+                })
+            }
+            Self::LaunchFailed(exit) => {
+                let detail = match &exit.outcome {
+                    TerminalExitOutcome::Unknown { reason } => reason.clone(),
+                    outcome => format!("{outcome:?}"),
+                };
+                serde_json::json!({"kind": "launch_failed", "detail": detail})
+            }
+        }
+    }
+
     /// The only way to obtain a [`DetachProof`]. A host loss never yields
     /// one (invariant 3).
     pub(crate) fn detach_proof(&self) -> Option<DetachProof> {
@@ -105,6 +163,39 @@ mod tests {
 
     fn receipt(outcome: Value) -> Value {
         serde_json::json!({"outcome": outcome, "exited_at": "12", "revision": "3"})
+    }
+
+    /// R41: clients get a typed end; a host loss is never worded as an exit.
+    #[test]
+    fn wire_json_types_process_ends_and_host_losses() {
+        let exit = |outcome| TerminalExit { outcome, exited_at_ms: 1 };
+        assert_eq!(
+            TerminalEnd::ProcessEnded(exit(TerminalExitOutcome::Exit { code: 3 })).wire_json(),
+            serde_json::json!({"kind": "exited", "code": 3})
+        );
+        assert_eq!(
+            TerminalEnd::ProcessEnded(exit(TerminalExitOutcome::Signal {
+                signal: 9,
+                core_dumped: false
+            }))
+            .wire_json(),
+            serde_json::json!({"kind": "signaled", "signal": 9, "core_dumped": false})
+        );
+        for (detail, reason) in [
+            ("missing-host-record", "missing_record"),
+            ("host-incarnation-mismatch", "incarnation_mismatch"),
+            ("host-process-ended-before-adoption", "dead_before_adoption"),
+            ("host-exited-during-adoption", "died_during_adoption"),
+            ("terminal host ended without a durable exit sidecar", "died_without_exit_status"),
+            ("session-shutdown: signal 15", "session_shutdown"),
+            ("something new", "other"),
+        ] {
+            let json = TerminalEnd::host_lost(detail).wire_json();
+            assert_eq!(json["kind"], "host_lost");
+            assert_eq!(json["reason"], reason, "{detail}");
+            assert_eq!(json["detail"], detail);
+        }
+        assert_eq!(TerminalEnd::launch_failed("no pty").wire_json()["kind"], "launch_failed");
     }
 
     #[test]

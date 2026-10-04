@@ -9,7 +9,9 @@ import Foundation
 // - `state` (default): page id, URL fragment, language, visible text, control count, computed
 //   html/body backgrounds (the one-backdrop check);
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
-// - `command` (`command`, `text`): a dispatcher command (`find`) as the key dispatcher sends it.
+// - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
+//   `reset`) on the page's command stream, as the key dispatcher sends it;
+// - `connected` (`value` bool): the owner link state on the page's connection stream.
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods() {
@@ -46,7 +48,10 @@ enum DebugPages {
             let command = params["command"]?.stringValue ?? "find"
             var arguments: [String: JSONValue] = [:]
             if let text = params["text"] { arguments["text"] = text }
-            return ["handled": .bool(await page.send(command: command, arguments: arguments))]
+            return ["handled": .bool(page.send(command: command, arguments: arguments))]
+        case "connected":
+            page.setConnected(params["value"]?.boolValue ?? true)
+            return ["connected": .bool(page.router.connected)]
         default:
             return ["error": "unknown action"]
         }

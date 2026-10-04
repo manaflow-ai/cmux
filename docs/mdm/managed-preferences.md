@@ -11,6 +11,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | Key | Type | Default | Allowed values | Description |
 | --- | --- | --- | --- | --- |
 | `history.terminalCommands` | boolean | `false` |  | Record Terminal Commands. Lists finished shell commands in History. Command lines can contain secrets. |
+| `navigation.historyScope` | string | `"workspace"` | `workspace`, `window`, `surface` | Back and Forward. What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history. |
 | `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `tabs.newTabKind` | string | `"same-kind"` | `same-kind`, `terminal`, `browser`, `agent`, `page`, `auto` | New Tab Opens. What Cmd-T and the + button open. Auto picks the kind you last opened in that folder. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
@@ -24,6 +25,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.stickyColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Sticky Column Edge |
 | `layout.stickyColumnMode` | string | `"docked"` | `docked`, `overlay` | Sticky Column Mode |
 | `layout.frameOrientation` | string | `"columnMajor"` | `columnMajor`, `rowMajor` | Dock Corners |
+| `layout.rows` | boolean | `true` |  | Rows. Off hides New Row and fits a column's existing rows into it without scrolling. |
 | `layout.minimumPaneWidth` | real | `200` | 80 to 800 | Minimum Pane Width |
 | `layout.minimumPaneHeight` | real | `64` | 32 to 600 | Minimum Pane Height |
 | `palette.scopes.tabs.prefix` | string | `"@"` | `@`, `#`, `>`, `,`, `?`, `!`, `/`, `;`, `:`, `%`, `&`, `+`, `=`, `~`, `$`, `^`, `*`, `.`, `none` | Tabs Prefix. Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope. |
@@ -58,6 +60,24 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.surfaces.sidebar.color` | string |  |  | Sidebar Color |
+| `appearance.surfaces.sidebar.opacity` | real |  | 0 to 1 | Sidebar Opacity |
+| `appearance.surfaces.tabBar.color` | string |  |  | Tab Bar Color |
+| `appearance.surfaces.tabBar.opacity` | real |  | 0 to 1 | Tab Bar Opacity |
+| `appearance.surfaces.terminal.color` | string |  |  | Terminal Color |
+| `appearance.surfaces.terminal.opacity` | real |  | 0 to 1 | Terminal Opacity |
+| `appearance.surfaces.agentPane.color` | string |  |  | Agent Chat Color |
+| `appearance.surfaces.agentPane.opacity` | real |  | 0 to 1 | Agent Chat Opacity |
+| `appearance.surfaces.settings.color` | string |  |  | Settings Color |
+| `appearance.surfaces.settings.opacity` | real |  | 0 to 1 | Settings Opacity |
+| `appearance.surfaces.newTabPage.color` | string |  |  | New Tab Page Color |
+| `appearance.surfaces.newTabPage.opacity` | real |  | 0 to 1 | New Tab Page Opacity |
+| `appearance.surfaces.home.color` | string |  |  | Home Color |
+| `appearance.surfaces.home.opacity` | real |  | 0 to 1 | Home Opacity |
+| `appearance.surfaces.browserChrome.color` | string |  |  | Browser Toolbar Color |
+| `appearance.surfaces.browserChrome.opacity` | real |  | 0 to 1 | Browser Toolbar Opacity |
+| `appearance.surfaces.docks.color` | string |  |  | Docked Columns Color |
+| `appearance.surfaces.docks.opacity` | real |  | 0 to 1 | Docked Columns Opacity |
 | `appearance.statusIndicator.style` | string | `"arc"` | `arc`, `native`, `dot`, `braille`, `none` | Style. How sidebar rows, tabs and panes show work in progress. |
 | `appearance.statusIndicator.size` | real | `1` | 0.5 to 1.5 | Size |
 | `appearance.statusIndicator.thickness` | real | `1.5` | 0.5 to 4 | Line Width |

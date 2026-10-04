@@ -153,7 +153,7 @@ final class SidebarLayoutService {
     /// flight.
     private func migrateIfNeeded() {
         guard !migrationSent, pending.isEmpty else { return }
-        let ops = mirror.sectionsMigrationOps
+        let ops = mirror.layoutMigrationOps
         guard !ops.isEmpty else { return }
         migrationSent = true
         for op in ops {

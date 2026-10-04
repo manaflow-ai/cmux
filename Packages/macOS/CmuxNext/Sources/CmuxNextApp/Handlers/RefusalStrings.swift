@@ -97,6 +97,8 @@ nonisolated enum RefusalStrings {
     static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
+    /// cmux.json `layout.rows` is false (plans/cmux-next/rows.md O2).
+    static var rowsTurnedOff: String { text("handlers.refusal.rowsTurnedOff", "Rows are turned off (layout.rows)") }
     static var columnAlreadySticky: String { text("handlers.refusal.columnAlreadySticky", "the column is already sticky there") }
     static var columnNotSticky: String { text("handlers.refusal.columnNotSticky", "the column is not sticky") }
     /// Docking a tab whose kind cannot leave a fresh tab behind (an agent

@@ -11,7 +11,7 @@ mod adoption;
 mod handoff;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 mod lifecycle;
-mod model_availability;
+pub(crate) mod model_availability;
 mod paging;
 mod stream;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};

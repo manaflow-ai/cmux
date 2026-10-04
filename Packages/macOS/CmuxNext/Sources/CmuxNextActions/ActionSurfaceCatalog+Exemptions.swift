@@ -42,7 +42,7 @@ nonisolated extension ActionSurfaceCatalog {
         "space.moveLeft", "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace",
         "workspace.duplicateToSpace", "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
         "workspace.setTheme", "workspace.clearTheme", "terminal.setTheme", "terminal.clearTheme",
-        "splitRight", "newColumn", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
+        "splitRight", "newColumn", "newRow", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane", "file.open",
         "newTab.sameKind", "newTab.page", "newSurface", "openBrowser", "openBrowser.webkit",
         "openBrowser.chromium", "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight",
@@ -123,6 +123,10 @@ nonisolated extension ActionSurfaceCatalog {
         .duplicateOfDefault: [
             "openBrowser.chromium",
         ],
+        // A row of the titlebar Back / Forward list: the click on the row is the gesture.
+        .focusMove: [
+            "history.goTo",
+        ],
     ]
 
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
@@ -202,6 +206,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.attemptUpdate",
         ],
         .focusMove: [
+            "history.goTo",
             "home.show",
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",

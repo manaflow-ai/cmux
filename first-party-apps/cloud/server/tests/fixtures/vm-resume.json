@@ -1,0 +1,12 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/resume/route.ts (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/vm-beta02/resume"
+  },
+  "status": 200,
+  "body": {
+    "id": "vm-beta02",
+    "status": "running"
+  }
+}

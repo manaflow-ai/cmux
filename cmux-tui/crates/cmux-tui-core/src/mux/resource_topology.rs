@@ -1457,18 +1457,19 @@ impl Mux {
         surface: SurfaceId,
         workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<()> {
-        self.move_tab_to_workspace_placed(surface, workspace, None, None)
+        self.move_tab_to_workspace_placed(surface, workspace, None, None, None)
     }
 
     /// Move a tab into a new workspace created in the same transaction,
     /// optionally in a sidebar group and at a final index among that
-    /// section's members (groups partition the workspace order). Returns the
-    /// new workspace.
+    /// section's members (groups partition the workspace order), named `name`
+    /// (else the default `workspace-N`). Returns the new workspace.
     pub fn move_tab_to_new_workspace(
         self: &Arc<Self>,
         surface: SurfaceId,
         group: Option<String>,
         index: Option<usize>,
+        name: Option<String>,
     ) -> anyhow::Result<WorkspaceId> {
         if let Some(group) = &group {
             anyhow::ensure!(
@@ -1476,7 +1477,7 @@ impl Mux {
                 "unknown workspace group {group}"
             );
         }
-        self.move_tab_to_workspace_placed(surface, None, group, index)?;
+        self.move_tab_to_workspace_placed(surface, None, group, index, name)?;
         self.with_state(|state| {
             state
                 .pane_of(surface)
@@ -1492,7 +1493,9 @@ impl Mux {
         workspace: Option<WorkspaceId>,
         group: Option<String>,
         group_index: Option<usize>,
+        name: Option<String>,
     ) -> anyhow::Result<()> {
+        name.as_deref().map(Self::validate_workspace_name).transpose()?;
         if let Some(workspace) = workspace {
             if self.with_state(|state| {
                 state
@@ -1521,12 +1524,8 @@ impl Mux {
             "managed workspace creation is not supported by tab moves"
         );
         let mutation = WorkspaceMutation::local("cmux-tui");
-        let fingerprint = json!({
-            "surface":surface,
-            "workspace":workspace,
-            "group":group,
-            "group_index":group_index,
-        });
+        let fingerprint = json!({ "surface":surface, "workspace":workspace, "group":group,
+            "group_index":group_index, "name":name });
         let presentation = self.presentation_snapshot();
         let plan_group = group.clone();
         let mux = Arc::clone(self);
@@ -1577,7 +1576,7 @@ impl Mux {
                             id: mux.next_id(),
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
-                            name: Mux::default_workspace_name(state),
+                            name: Mux::moved_tab_workspace_name(name.as_deref(), state),
                             screens: Vec::new(),
                             active_screen: 0,
                         },
@@ -2977,7 +2976,10 @@ impl Mux {
                 let record = registry.terminal_record(terminal_id)?.ok_or_else(|| {
                     terminal_close_state_error(format!("terminal close omitted host {terminal_id}"))
                 })?;
-                if record.lifecycle != TerminalLifecycle::Exited {
+                // A pending terminal (R41) also has views and no runtime.
+                if record.lifecycle != TerminalLifecycle::Exited
+                    && !self.pending_terminal_closable(terminal_id)
+                {
                     return Err(terminal_close_state_error(format!(
                         "live terminal resource {public_id} has views but no runtime owner"
                     )));
@@ -3110,11 +3112,13 @@ impl Mux {
             self.emit_terminal_registry_changed(&registry, terminal.revision);
         }
         let effects = plan.install(&mut state, resource.revision, None);
+        let pending = effects.terminal_runtime.is_none() && self.terminal_is_pending(terminal_id);
         drop(state);
         drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
         self.finish_resource_close(CommittedResourceClose { commit: resource, effects });
+        self.after_terminal_close(&public_id, terminal_id, &terminal.result, pending);
         Ok(Some(TerminalCloseResult {
             surface: target,
             terminal_id: terminal_id.to_string(),
@@ -3492,7 +3496,9 @@ impl Mux {
                 // (a host loss, or a keep-layout tab); a live one may not.
                 if runtime.is_none() {
                     anyhow::ensure!(
-                        placements.is_empty() || terminal.lifecycle == TerminalLifecycle::Exited,
+                        placements.is_empty()
+                            || terminal.lifecycle == TerminalLifecycle::Exited
+                            || self.pending_terminal_closable(&host_id),
                         "live terminal resource {public_id} has views but no runtime owner"
                     );
                 }

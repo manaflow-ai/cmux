@@ -80,3 +80,21 @@ import Testing
         #expect(window.firstResponder === view.field.textView)
     }
 }
+
+/// homenat14 snapshot (R65 proof): typed text sat at the field's top-left
+/// corner, its first letter clipped, because the glass sized the text view to
+/// the whole field. The text starts at the field's insets, where the
+/// placeholder is.
+@MainActor
+@Suite struct HomeFieldTextInsetTests {
+    @Test func typedTextStartsAtTheFieldsInsets() {
+        let (window, view) = HomeFirstRunTests.view()
+        defer { window.close() }
+        view.layoutSubtreeIfNeeded()
+        let field = view.field
+        field.layoutSubtreeIfNeeded()
+        let text = field.textView.convert(field.textView.bounds, to: field)
+        #expect(abs(text.minX - field.horizontalInset) <= 0.5, "text view \(text) in field \(field.bounds)")
+        #expect(text.maxX <= field.bounds.maxX - field.horizontalInset + 0.5)
+    }
+}

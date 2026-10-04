@@ -30,6 +30,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>workspace</string>
+			<key>pfm_description</key>
+			<string>What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.</string>
+			<key>pfm_name</key>
+			<string>navigation.historyScope</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>workspace</string>
+				<string>window</string>
+				<string>surface</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Back and Forward</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>minimal</string>
 			<key>pfm_description</key>
 			<string>Minimal has no titlebar strip; the top row moves the window.</string>
@@ -244,6 +262,18 @@
 			<string>Dock Corners</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off hides New Row and fits a column's existing rows into it without scrolling.</string>
+			<key>pfm_name</key>
+			<string>layout.rows</string>
+			<key>pfm_title</key>
+			<string>Rows</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -835,6 +865,186 @@
 			<string>Show With One Pane</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.sidebar.color</string>
+			<key>pfm_title</key>
+			<string>Sidebar Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.sidebar.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Sidebar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.tabBar.color</string>
+			<key>pfm_title</key>
+			<string>Tab Bar Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.tabBar.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Tab Bar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.terminal.color</string>
+			<key>pfm_title</key>
+			<string>Terminal Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.terminal.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Terminal Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.agentPane.color</string>
+			<key>pfm_title</key>
+			<string>Agent Chat Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.agentPane.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Agent Chat Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.settings.color</string>
+			<key>pfm_title</key>
+			<string>Settings Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.settings.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Settings Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.newTabPage.color</string>
+			<key>pfm_title</key>
+			<string>New Tab Page Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.newTabPage.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>New Tab Page Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.home.color</string>
+			<key>pfm_title</key>
+			<string>Home Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.home.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Home Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.browserChrome.color</string>
+			<key>pfm_title</key>
+			<string>Browser Toolbar Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.browserChrome.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Browser Toolbar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.docks.color</string>
+			<key>pfm_title</key>
+			<string>Docked Columns Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.docks.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Docked Columns Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

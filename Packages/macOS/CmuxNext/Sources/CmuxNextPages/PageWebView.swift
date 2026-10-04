@@ -98,14 +98,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.evaluateJavaScript("window.location.hash = \(JSONValue.string(fragment).compactText);", completionHandler: nil)
     }
 
-    /// Sends a dispatcher command (`find`, with `text` for a find with a query) to the page.
-    /// False when the page did not handle it.
+    /// Sends a dispatcher command (`find` with optional `text`, `focusSearch`, `back`, `forward`,
+    /// `reset`) on the page's command stream. False when no page code listens.
     @discardableResult
-    public func send(command: String, arguments: [String: JSONValue] = [:]) async -> Bool {
-        var params = arguments
-        params["command"] = .string(command)
-        let reply = try? await router.callPage(PageNativeOp.pageCommand, params: .object(params))
-        return reply?["handled"]?.boolValue ?? false
+    public func send(command: String, arguments: [String: JSONValue] = [:]) -> Bool {
+        router.publishCommand(command, arguments: arguments)
+    }
+
+    /// The page's owner link (the daemon) went up or down; the page shows its disconnected state.
+    public func setConnected(_ connected: Bool) {
+        router.publishConnection(connected)
     }
 
     /// Reloads the page document (its subscriptions end with the old document).
