@@ -268,6 +268,22 @@ impl<T> Pool<T> {
         Take::Miss
     }
 
+    /// A taken session that no session used comes back. It returns to its
+    /// entry only while that entry still wants exactly this key and holds
+    /// nothing; otherwise (the key changed, the entry was evicted, expired or
+    /// refilled) it is handed back for ending.
+    pub fn restore(&mut self, key: &PoolKey, t: T, now: Duration) -> Option<T> {
+        match self.entries.iter_mut().find(|e| &e.key == key) {
+            Some(e) if matches!(e.slot, Slot::Empty) => {
+                e.slot = Slot::Ready(t);
+                e.ready_at = now;
+                e.settle();
+                None
+            }
+            _ => Some(t),
+        }
+    }
+
     /// Remove every entry whose idle deadline passed; returns their sessions.
     pub fn expire(&mut self, now: Duration) -> Vec<T> {
         let mut out = Vec::new();
@@ -552,6 +568,26 @@ mod tests {
         assert!(matches!(pool.take(&key_in("/elsewhere", "claude")), Take::Miss));
         assert!(matches!(pool.take(&key("codex")), Take::Miss));
         assert!(matches!(pool.take(&key("claude")), Take::Ready("claude")));
+    }
+
+    #[test]
+    fn a_taken_session_nobody_used_comes_back_only_under_its_own_key() {
+        let mut pool = Pool::new(IDLE);
+        ready(&mut pool, &key("codex"), Role::LastUsed, T0, "codex#1");
+        let Take::Ready(t) = pool.take(&key("codex")) else { panic!("expected ready") };
+        assert_eq!(pool.restore(&key("codex"), t, T0), None);
+        assert!(matches!(pool.take(&key("codex")), Take::Ready("codex#1")));
+        // The key changed meanwhile: the slot now wants another key.
+        let mut changed = key("codex");
+        changed.auth = "auth-b".into();
+        pool.want(Role::LastUsed, changed, T0);
+        assert_eq!(pool.restore(&key("codex"), "codex#1", T0), Some("codex#1"));
+        // The entry was evicted or expired: nothing to come back to.
+        let mut pool: Pool<&'static str> = Pool::new(IDLE);
+        assert_eq!(pool.restore(&key("codex"), "codex#1", T0), Some("codex#1"));
+        // The entry was refilled meanwhile: the spare one ends.
+        ready(&mut pool, &key("codex"), Role::LastUsed, T0, "codex#2");
+        assert_eq!(pool.restore(&key("codex"), "codex#1", T0), Some("codex#1"));
     }
 
     #[test]

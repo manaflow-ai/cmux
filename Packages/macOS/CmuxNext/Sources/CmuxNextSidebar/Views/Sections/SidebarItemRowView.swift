@@ -154,10 +154,15 @@ final class SidebarItemRowView: NSView {
     }
 
     /// The pill's fill: pressed, then active, then hovered, then the
-    /// tile's resting fill.
+    /// tile's resting fill. A tile rests on `hoverFill`, so its hover takes
+    /// the next tonal step (`selectionFill`) and still shows a change (R97).
     var fill: NSColor? {
         let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive)
-        return performWithTheme { ChromeHover.fillColor(state, rest: style == .tile ? Palette.hoverFill : nil) }
+        return performWithTheme {
+            guard style == .tile else { return ChromeHover.fillColor(state) }
+            if state.hovering, !state.pressed, !state.selected { return Palette.selectionFill }
+            return ChromeHover.fillColor(state, rest: Palette.hoverFill)
+        }
     }
 
     private func pointerChanged() {
