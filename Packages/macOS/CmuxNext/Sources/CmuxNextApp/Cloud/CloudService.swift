@@ -71,6 +71,14 @@ final class CloudService {
 
     func start() {
         auth.start()
+        if configuration.linkSource == .appServer {
+            // `cloud.link.changed` arrives on the local daemon as an app server event.
+            let machines = machines
+            machines.local.store.sideEvents.subscribe { event in
+                guard let change = CloudAppLinks.change(in: event) else { return }
+                machines.session(change.key.machine)?.linkChanged(change)
+            }
+        }
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
@@ -171,9 +179,17 @@ final class CloudService {
 
     @discardableResult
     private func addSession(_ machine: CloudMachine) -> CloudMachineSession? {
-        guard let hub, let binary, !policyDisabled else { return nil }
-        let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
-        let session = CloudMachineSession(machine: machine, link: link)
+        guard !policyDisabled else { return nil }
+        let session: CloudMachineSession
+        switch configuration.linkSource {
+        case .appServer:
+            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local))
+            session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver))
+        case .legacy:
+            guard let hub, let binary else { return nil }
+            let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
+            session = CloudMachineSession(machine: machine, link: link)
+        }
         session.daemon.workTracker = machines.local.workTracker
         machines.add(session)
         session.connect()

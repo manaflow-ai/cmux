@@ -93,21 +93,27 @@ import Testing
         defer { first.remove(); second.remove() }
         // The first connect answers only after the second one answered.
         let entered = AsyncGate(), release = AsyncGate()
-        let calls = Mutex(0)
+        let calls = CallCounter()
+        let firstPath = first.path, secondPath = second.path
         let link = CloudLinkSession(key: key, resolver: CloudConnectOpResolver(run: { _, args, _, _ in
-            let call = calls.withLock { count in count += 1; return count }
+            let call = calls.next()
             if call == 1 {
                 entered.open()
                 await release.wait()
             }
-            let path = call == 1 ? first.path : second.path
+            let path = call == 1 ? firstPath : secondPath
             return Data(#"{"machine":"\#(args["machine"] ?? "")","generation":\#(call),"state":"up","socket":"\#(path)"}"#.utf8)
         }))
         async let older: CloudLinkSocket = link.connect(origin: .script)
         await entered.wait()
         #expect(try await link.connect(origin: .user).path == second.path)
         release.open()
-        await #expect(throws: CloudLinkError.self) { _ = try await older }
+        do {
+            _ = try await older
+            Issue.record("the superseded connect answered")
+        } catch {
+            #expect(error is CloudLinkError)
+        }
         #expect(try await link.endpoint() == second.path)
     }
 
@@ -151,5 +157,17 @@ final class AsyncGate: Sendable {
             return state.waiters
         }
         for waiter in waiters { waiter.resume() }
+    }
+}
+
+/// Counts calls across tasks.
+final class CallCounter: Sendable {
+    private let count = Mutex(0)
+
+    func next() -> Int {
+        count.withLock { count in
+            count += 1
+            return count
+        }
     }
 }
