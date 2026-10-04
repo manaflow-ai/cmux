@@ -51,10 +51,12 @@ impl Command {
     }
 }
 
-/// What a create can launch before its commit: the host of a `new-tab`
-/// that did not choose its own terminal id.
+/// What a create can launch before its commit: the host of a `new-tab`,
+/// under the terminal id the caller chose (`terminal-placement-env-v1`, as
+/// the app always does) or a fresh one.
 struct PrelaunchRequest {
     pane: Option<PaneId>,
+    terminal_id: Option<crate::terminal_host::TerminalId>,
     cwd: Option<String>,
     /// The argv `shell_args` resolves to; the create adopts this host, so
     /// it must run the same program.
@@ -65,10 +67,14 @@ struct PrelaunchRequest {
 
 impl PrelaunchRequest {
     fn of(command: &Command) -> Option<Self> {
-        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id: None, shell_args, .. } =
-            command
+        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id, shell_args, .. } = command
         else {
             return None;
+        };
+        // An invalid caller id is reported by the create itself.
+        let terminal_id = match terminal_id {
+            Some(hex) => Some(crate::terminal_host::TerminalId::from_hex(hex)?),
+            None => None,
         };
         // An invalid environment is reported by the create itself.
         let env = env
@@ -79,6 +85,7 @@ impl PrelaunchRequest {
             .unwrap_or_default();
         Some(Self {
             pane: *pane,
+            terminal_id,
             cwd: cwd.clone(),
             argv: shell_argv(&env, shell_args.clone()),
             env,
@@ -89,7 +96,14 @@ impl PrelaunchRequest {
     fn launch(self, mux: &Arc<Mux>) -> Option<String> {
         // A failed prelaunch falls back to the create's own launch, which
         // reports the failure through the usual creation error path.
-        mux.prelaunch_tab_terminal(self.pane, self.cwd, self.argv, self.env, self.size)
+        mux.prelaunch_tab_terminal(
+            self.pane,
+            self.terminal_id,
+            self.cwd,
+            self.argv,
+            self.env,
+            self.size,
+        )
             .ok()
             .flatten()
     }
