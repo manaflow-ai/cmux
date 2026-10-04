@@ -480,11 +480,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// workspace that holds each.
     @MainActor
     private func allBrowserPanels() -> [(panel: BrowserPanel, workspace: Workspace)] {
-        Self.browserPanels()
+        Self.browserPanelEntries()
     }
 
     @MainActor
-    private static func browserPanels() -> [(panel: BrowserPanel, workspace: Workspace)] {
+    private static func browserPanelEntries() -> [(panel: BrowserPanel, workspace: Workspace)] {
         guard let app = AppDelegate.shared else { return [] }
         var out: [(BrowserPanel, Workspace)] = []
         var seen = Set<UUID>()
@@ -1981,7 +1981,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// The tabs `creator` created, by panel id.
     @MainActor
     private static func tabsCreated(by creator: String) -> Set<UUID> {
-        Set(browserPanels().compactMap { entry in
+        Set(browserPanelEntries().compactMap { entry in
             BrowserReplTabAttachments.shared.attachment(for: entry.panel.id)?.creatorSessionID == creator ? entry.panel.id : nil
         })
     }
@@ -1997,7 +1997,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private static func webContentEndsOnlySessionTabs(_ webView: WKWebView, creator: String, sessionTabs: Set<UUID>) -> Bool {
         guard let pid = CmuxWebContentProcessIdentifier.pid(for: webView) else { return true }
-        for (other, _) in browserPanels() {
+        for (other, _) in browserPanelEntries() {
             if other.webView !== webView, CmuxWebContentProcessIdentifier.pid(for: other.webView) == pid,
                !sessionTabs.contains(other.id),
                BrowserReplTabAttachments.shared.attachment(for: other.id)?.creatorSessionID != creator {
@@ -2052,16 +2052,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     static func routePressedEditingCommand(_ webView: WKWebView, _ command: String) -> Bool {
         guard clipboardCommandNames[command] != nil,
-              let entry = browserPanels().first(where: { $0.panel.webView === webView }),
+              let entry = browserPanelEntries().first(where: { $0.panel.webView === webView }),
               let attachment = BrowserReplTabAttachments.shared.attachment(for: entry.panel.id),
-              attachment.creatorSessionID != nil
+              attachment.creatorSessionID != nil,
+              let tabWebView = entry.panel.webView as? CmuxWebView
         else { return false }
         let panel = entry.panel
-        let webView = panel.webView
         Task { @MainActor in
             // The press already returned; a failure (another command in
             // flight, a timeout) leaves the tab's clipboard unchanged.
-            try? await performClipboardCommand(command, panel: panel, webView: webView, attachment: attachment)
+            try? await performClipboardCommand(command, panel: panel, webView: tabWebView, attachment: attachment)
         }
         return true
     }
