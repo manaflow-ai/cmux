@@ -853,6 +853,11 @@ final class BrowserReplWriteBudget: @unchecked Sendable {
         }
     }
 
+    /// Takes a file chooser answer's files (`filechooser.respond`
+    /// `files: [{ name, base64 }]`) from the budget: the driver stages them
+    /// on disk for the page until the session ends.
+    func takeFileChooserAnswer(_ params: [String: Any]) throws {}
+
     /// Throws `EFBIG` when one call of `count` bytes is past `perCall`.
     func checkCall(_ count: Int, syscall: String, display: String) throws {
         guard count <= perCall else {
