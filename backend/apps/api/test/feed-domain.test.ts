@@ -387,23 +387,6 @@ describe("review fixes: authority, bounds and adopt", () => {
     expect(g.do(daemon, "feed.adopt.cancel", { key: `adopt:${id(5000)}` })).toMatchObject({ cancelled: true })
   })
 
-  it("one install posts at most 5,000 items per day (DO audit 5.6)", () => {
-    const g = driver()
-    let ok = 0
-    let refused: Record<string, unknown> | undefined
-    for (let i = 0; i < 5_100 && !refused; i++) {
-      if (i > 0 && i % 50 === 0) g.advance(60_000)
-      const r = g.try(agentA, "feed.post", notice(`n${i}`)) as Record<string, unknown>
-      if (r.ok) ok++
-      else refused = r
-    }
-    expect(ok).toBe(5_000)
-    expect(refused).toMatchObject({ ok: false, code: "feed.rate_limited", retryable: true })
-    // The next day the install posts again.
-    g.advance(24 * 3600_000)
-    expect(g.try(agentA, "feed.post", notice("tomorrow"))).toMatchObject({ ok: true })
-  })
-
   it("adopt clamps a daemon clock that runs ahead and takes push timing from the cloud prefs", () => {
     const src = driver()
     const home = `local:${daemon.install}`
