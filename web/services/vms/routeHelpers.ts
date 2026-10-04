@@ -37,6 +37,7 @@ import {
   type VmProviderOperationError,
   type VmSnapshotNotFoundError,
   type VmFileNotFoundError,
+  type VmFirewallRuleNotFoundError,
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -732,6 +733,15 @@ const vmCreateInProgressResponse = (error: VmCreateInProgressError, action: stri
     details: { idempotencyKeySet: !!error.idempotencyKey },
   });
 
+const vmFirewallRuleNotFoundResponse = (error: VmFirewallRuleNotFoundError): Response =>
+  vmErrorResponse({
+    error: "vm_firewall_rule_not_found",
+    status: 404,
+    message: "This firewall rule is not in your Cloud VM network.",
+    action: "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done.",
+    details: { ruleId: error.ruleId },
+  });
+
 const vmFileNotFoundResponse = (error: VmFileNotFoundError): Response =>
   vmErrorResponse({
     error: "vm_file_not_found",
@@ -1081,6 +1091,7 @@ export const vmWorkflowErrorResponders = {
     vmFreeAccessExpiredResponse({ vmId: error.vmId, windowDays: error.windowDays }),
   VmSnapshotNotFoundError: (error) => vmSnapshotNotFoundResponse(error),
   VmFileNotFoundError: (error) => vmFileNotFoundResponse(error),
+  VmFirewallRuleNotFoundError: (error) => vmFirewallRuleNotFoundResponse(error),
   // Create-family failures need the caller's plan and operation copy; the
   // create, fork, and restore routes supply those as overrides.
   VmCreateInProgressError: () => null,
