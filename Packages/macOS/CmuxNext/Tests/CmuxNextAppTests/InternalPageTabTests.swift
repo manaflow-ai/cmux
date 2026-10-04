@@ -7,6 +7,7 @@ import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSettingsWindow
+import CmuxNextSidebar
 import CmuxNextTabs
 import Testing
 
@@ -98,7 +99,6 @@ struct InternalPageTabTests {
         #expect(services.pages.keys(of: .settings).isEmpty)
         #expect(services.pages.existingView(key) == nil)
         #expect(!pane.orderedIDs.map(\.rawValue).contains(key))
-        #expect(services.settingsWindow.model == nil, "the model goes once nothing shows it")
     }
 
     @Test func cmdWClosesTheSelectedSettingsTabThroughTheSharedAction() async throws {
@@ -122,7 +122,7 @@ struct InternalPageTabTests {
         }
         #expect(view.page == .settings)
         #expect(view.focusTarget.isDescendant(of: view))
-        #expect(services.pages.stripItem(key).title == SettingsWindowModel.paneTitle)
+        #expect(services.pages.stripItem(key).title == SettingsPaneTitle.text)
     }
 
     /// R82: the tab shows the React Settings page (cmux-page://cmux.settings/), not the Swift view.
@@ -137,7 +137,6 @@ struct InternalPageTabTests {
         let page = try #require(view.content as? PageWebView, "the Settings tab hosts the React page")
         #expect(page.pageID == "cmux.settings")
         #expect(page.themeSurface == .settings, "appearance.surfaces.settings colors the page, as it colored the Swift view")
-        #expect(services.settingsWindow.model == nil, "no Swift Settings model is made for the tab")
     }
 
     /// R82 commit 6: with no main window, Settings… makes no window of its own. The request waits,
@@ -158,6 +157,23 @@ struct InternalPageTabTests {
             return
         }
         #expect(page.route == "#/settings/browser")
+    }
+
+    /// Every way into the old appearance studio (the action from the palette, the View menu, a
+    /// shortcut or `cmux settings customize-appearance`, and the sidebar item, which runs the same
+    /// action) lands on Settings > Appearance in the React page (R82 commit 6).
+    @Test func customizeAppearanceLandsOnSettingsAppearance() async throws {
+        let (services, _, pane) = try await world()
+        let action = try #require(SidebarBridge.builtInActions[.customize])
+        #expect(action == "appearance.customize")
+        #expect(services.registry.perform(action, invocation: ActionInvocation()))
+        let key = try #require(services.pages.keys(of: .settings).first, "Customize Appearance opens the Settings tab")
+        guard case .page(let view)? = pane.content(for: key), let page = view.content as? PageWebView else {
+            Issue.record("a Settings tab shows the React page")
+            return
+        }
+        #expect(page.route == "#/settings/appearance")
+        #expect(pane.stripModel.selectedID?.rawValue == key, "a user run selects the tab")
     }
 
     /// A deep link to a schema setting opens the React page on that row
@@ -182,10 +198,9 @@ struct InternalPageTabTests {
         #expect(services.pages.keys(of: .keybindings).count == 1, "Keyboard opens the Keyboard Shortcuts page")
         #expect(services.pages.keys(of: .settings).isEmpty)
         services.registry.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("accounts")]))
-        #expect(services.settingsWindow.model == nil, "no Swift Settings window")
         #expect(services.pages.keys(of: .settings).count == 1, "Accounts opens the React Settings tab")
         services.registry.perform("accounts.show", invocation: ActionInvocation())
-        #expect(services.settingsWindow.model == nil)
+        #expect(services.pages.keys(of: .settings).count == 1, "accounts.show selects the same tab")
     }
 
     /// R82 commit 2: Spaces & Profiles and Machines open in the React page, and its host lists
@@ -201,7 +216,6 @@ struct InternalPageTabTests {
         #expect(page.route == "#/settings/machines")
         services.registry.perform("openSettings", invocation: ActionInvocation(arguments: ["setting": .string("card.browserProfiles")]))
         #expect(page.route == "#/settings/rooms", "a card anchor opens its section")
-        #expect(services.settingsWindow.model == nil, "no Swift window")
         let lists = services.settingsWindow.pageHostLists()
         #expect(lists["machines"]?.arrayValue != nil)
         #expect(lists["browser_profiles"]?.arrayValue != nil)
