@@ -2,16 +2,17 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `tabs.newTabKind`: what Cmd-T and + open. "same-kind" unless the file
-/// says otherwise; a bad value keeps "same-kind" with a diagnostic. The
+/// `tabs.newTabKind`: what Cmd-T and + open. The new tab page ("page",
+/// decision Q1 of plans/cmux-next/new-tab.md) unless the file says
+/// otherwise; a bad value keeps "page" with a diagnostic. The
 /// Settings window and the new tab page's "default" toggle edit it.
 @Suite struct NewTabKindSettingsTests {
     func parse(_ text: String) throws -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
     }
 
-    @Test func defaultsToTheSameKind() throws {
-        #expect(try parse("{}").newTabKind == .sameKind)
+    @Test func defaultsToTheNewTabPage() throws {
+        #expect(try parse("{}").newTabKind == .page)
         #expect(try parse("{}").diagnostics.isEmpty)
     }
 
@@ -23,9 +24,9 @@ import Testing
         }
     }
 
-    @Test func badValuesKeepTheSameKindWithADiagnostic() throws {
+    @Test func badValuesKeepTheNewTabPageWithADiagnostic() throws {
         let snapshot = try parse(#"{"tabs": {"newTabKind": "spreadsheet"}}"#)
-        #expect(snapshot.newTabKind == .sameKind)
+        #expect(snapshot.newTabKind == .page)
         #expect(snapshot.diagnostics.map(\.path) == ["tabs.newTabKind"])
     }
 
@@ -36,6 +37,6 @@ import Testing
             return
         }
         #expect(choices.map(\.value) == NewTabDefaultKind.allCases.map(\.rawValue))
-        #expect(descriptor.defaultValue == .string("same-kind"))
+        #expect(descriptor.defaultValue == .string("page"))
     }
 }
