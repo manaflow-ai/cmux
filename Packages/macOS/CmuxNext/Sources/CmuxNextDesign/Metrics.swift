@@ -84,6 +84,12 @@ public struct Metrics {
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
 
     public nonisolated static var dividerThickness: CGFloat { ChromeTunables.dividerThickness.value }
+    /// Width of the sidebar's resting edge line (`sidebar.border`,
+    /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
+    public static var sidebarBorderWidth: CGFloat {
+        let border = DesignSettings.shared.sidebarBorder
+        return border.shows ? lineWidth(border.width ?? dividerThickness) : 0
+    }
     public nonisolated static var dividerHitWidth: CGFloat { ChromeTunables.dividerHitWidth.value }
 
     /// Inset around every pane's tab strip and content (`layout.panePadding`;

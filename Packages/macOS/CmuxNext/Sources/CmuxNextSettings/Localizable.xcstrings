@@ -41134,6 +41134,399 @@
           }
         }
       }
+    },
+    "settings.sidebar.border": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Border"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "境界線"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الحد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obrub"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kant"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Borde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bordure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bordo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស៊ុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "테두리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kant"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krawędź"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Borda"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Граница"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นขอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenarlık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Межа"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边框"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "邊框"
+          }
+        }
+      }
+    },
+    "settings.sidebar.border.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーの端に線を表示します。オフのときは、端にポインタを置くかドラッグしている間だけ線が表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط على حافة الشريط الجانبي. عند إيقافه، يظهر الخط فقط أثناء التمرير فوق الحافة أو سحبها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linija na rubu bočne trake. Isključeno, linija se prikazuje samo dok držite pokazivač iznad ruba ili ga povlačite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En linje i sidepanelets kant. Slået fra vises linjen kun, mens du holder markøren over kanten eller trækker i den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Linie am Rand der Seitenleiste. Aus: Die Linie erscheint nur beim Darüberfahren oder Ziehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una línea en el borde de la barra lateral. Desactivada, la línea solo aparece al pasar el puntero o arrastrar el borde."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une ligne au bord de la barre latérale. Désactivée, la ligne n'apparaît qu'au survol ou pendant le glissement du bord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una linea sul bordo della barra laterale. Se disattivata, la linea appare solo passando il puntatore o trascinando il bordo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់នៅគែមរបារចំហៀង។ បិទ គែមបង្ហាញបន្ទាត់តែពេលអ្នកដាក់ទស្សន៍ទ្រនិច ឬអូសវាប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 가장자리에 선을 표시합니다. 끄면 가장자리에 포인터를 올리거나 드래그할 때만 선이 보입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En linje i kanten av sidepanelet. Av vises linjen bare mens du holder pekeren over kanten eller drar i den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linia na krawędzi paska bocznego. Wyłączona: linia pojawia się tylko po najechaniu na krawędź lub podczas przeciągania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma linha na borda da barra lateral. Desativada, a linha só aparece ao passar o ponteiro ou arrastar a borda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Линия на краю боковой панели. Если выключено, линия видна только при наведении или перетаскивании края."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นที่ขอบแถบด้านข้าง เมื่อปิด เส้นจะแสดงเฉพาะตอนวางเมาส์หรือลากขอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğunun kenarında bir çizgi. Kapalıyken çizgi yalnızca kenarın üzerine gelindiğinde veya sürüklenirken görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лінія на краю бічної панелі. Якщо вимкнено, лінія видна лише під час наведення або перетягування краю."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một đường ở mép thanh bên. Khi tắt, đường chỉ hiện khi bạn di chuột hoặc kéo mép."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在侧边栏边缘显示一条线。关闭时，仅在悬停或拖动边缘时显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在側邊欄邊緣顯示一條線。關閉時，僅在游標停留或拖曳邊緣時顯示。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.borderWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Border Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "境界線の幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض الحد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Širina obruba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kantbredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Randbreite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho del borde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Épaisseur de la bordure"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spessore del bordo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងស៊ុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "테두리 두께"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kantbredde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szerokość krawędzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura da borda"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Толщина границы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความกว้างเส้นขอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenarlık Kalınlığı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Товщина межі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ dày viền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边框宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "邊框寬度"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

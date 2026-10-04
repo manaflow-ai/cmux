@@ -62,6 +62,8 @@ extension SettingsSchema {
         "layout.paneCornerRadius",
         "layout.paneBorder",
         "layout.paneSeparation",
+        "sidebar.border",
+        "sidebar.borderWidth",
         "layout.paneBorderColor",
         "layout.paneBorderWidth",
         "focusRing.enabled",
