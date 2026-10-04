@@ -137,6 +137,45 @@ the same cost profile or the same urgency.
   real focused-run traffic. It splits only that free default: a
   `MACOS_RUNNER_TESTS` value naming any other pool is used unchanged.
 
+### Dogfood app download links
+
+To request a download link, open a same-repository pull request authored by an
+organization member and add the `dev-build` label. CI's optional **Dogfood build
+#<PR>** job builds the exact PR head and uploads
+`dogfood-app-<PR>-<head SHA>`. It runs for macOS app changes after successful
+change detection; PRs targeting `feat-cmux-next` use their separate build lane.
+The build and publication are outside `ci-status`, so a label alone does not
+guarantee an artifact or link.
+
+The [Dogfood artifact publish workflow](../.github/workflows/dogfood-artifact-publish.yml)
+runs after PR CI completes and requires all of these gates:
+
+- The PR is still open and its head repository is `manaflow-ai/cmux`.
+- The author association is `MEMBER` or `OWNER`, and `dev-build` is still present.
+- The completed run's head SHA equals the PR's current head SHA.
+- That run's **Dogfood build #<PR>** job succeeded.
+- That run contains the matching, unexpired `dogfood-app-<PR>-<head SHA>` artifact.
+
+A cancelled run is excluded. Other CI jobs may be red without discarding a
+successful exact-head Dogfood build. A stale head, skipped build, missing ZIP,
+or failed upload/URL verification produces no new link.
+
+PR code never runs in the publisher job that holds artifact-store credentials.
+It checks out publisher scripts from `main`, treats the app ZIP as opaque bytes
+(without unpacking or executing its contents), computes its SHA-256, and makes
+a write-once upload to the current R2 artifact store at `artifacts/<SHA-256>`.
+It then signs and verifies a **15-minute** download URL and posts or updates the
+artifact comment on the **public PR**. Anyone who can read that comment can
+download the app while the link is valid; the link is not restricted to org
+members. Treat the app's contents as publicly downloadable during that window.
+
+The gate's PR, jobs, and artifacts API responses are written to temporary JSON
+files and read by Python, rather than passed through process arguments or
+environment variables. Large responses previously caused
+`/usr/bin/python3: Argument list too long` before the trust checks could run,
+fixed in
+[#17220](https://github.com/manaflow-ai/cmux/pull/17220).
+
 ### Pull request pool preference
 
 When `MACOS_RUNNER_PR` is `blacksmith-6vcpu-macos-26`, `ci.yml`'s `changes`
