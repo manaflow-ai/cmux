@@ -62,6 +62,9 @@ fn the_gate_admits_exactly_the_seven_fs_ops() {
         r#"{"id":1,"op":"fs.stat","path":"/x"}"#,
         r#"{"id":1,"cmd":["fs.stat"]}"#,
         r#"[{"id":1,"cmd":"fs.stat"}]"#,
+        // Review fix: a frame that also names the resource protocol would
+        // reach the resource router, not the fs adapter.
+        r#"{"id":1,"cmd":"fs.stat","path":"/x","protocol":"cmux.protocol/2"}"#,
         "fs.stat",
         "",
     ] {

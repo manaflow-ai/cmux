@@ -189,3 +189,10 @@ fn a_configured_spelling_of_a_root_is_accepted() {
     assert_eq!(read["text"], "x");
     let _ = fs::remove_file(alias);
 }
+
+/// Review fix: the file system root is never a root (a daemon with
+/// `HOME=/` must not serve the whole machine).
+#[test]
+fn the_file_system_root_is_never_a_root() {
+    assert!(Roots::new([std::path::PathBuf::from("/")]).is_empty());
+}

@@ -428,3 +428,48 @@ fn errors_use_the_v12_envelope() {
         json!({ "id": 1, "ok": true, "data": {} })
     );
 }
+
+/// Review fix: a read whose text would escape to far more bytes than it
+/// holds (control characters) is answered in base64, so an answer stays
+/// near 4/3 of the bytes read.
+#[test]
+fn a_control_heavy_text_is_answered_in_base64() {
+    let root = TempRoot::new("escape");
+    root.file("ctl.txt", &[1u8; 3000]);
+    let read = call(
+        &root.service(),
+        "fs.read",
+        json!({ "path": root.at("ctl.txt"), "offset": 0, "max_bytes": 3000 }),
+    )
+    .unwrap();
+    assert_eq!(read["encoding"], "base64");
+    assert!(read.get("text").is_none());
+}
+
+/// Review fix: nested targets in one delete (a folder and a file inside
+/// it) succeed; the second is already gone.
+#[test]
+fn a_delete_of_nested_targets_succeeds() {
+    let root = TempRoot::new("nested");
+    root.file("d/inner.txt", b"x");
+    call(
+        &root.service(),
+        "fs.delete",
+        json!({ "paths": [root.at("d"), root.at("d/inner.txt")], "permanent": true }),
+    )
+    .unwrap();
+    assert_eq!(names_in(&root.path), Vec::<String>::new());
+}
+
+/// Review fix: a request path with a control character is refused, so a
+/// write cannot make a file that a listing hides.
+#[test]
+fn a_path_with_a_control_character_is_refused() {
+    let root = TempRoot::new("ctlname");
+    let path = format!("{}/bad\u{7}name", root.path.display());
+    assert!(matches!(
+        call(&root.service(), "fs.write", json!({ "path": path, "text": "x", "mode": "create" })),
+        Err(FsError::ParamsInvalid(_))
+    ));
+    assert_eq!(names_in(&root.path), Vec::<String>::new());
+}
