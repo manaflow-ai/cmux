@@ -32,7 +32,9 @@ extension AgentTabStore {
               idempotencyKey: String = UUID().uuidString.lowercased()) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
             if let spare, recycle?(spare) != true { retirer.retire(spare) }
-            throw AgentTabRefusal(message: reachable(daemon) ? RefusalStrings.agentTabsUnsupported : RefusalStrings.agentTabsDisconnected)
+            let reason = !reachable(daemon) ? RefusalStrings.agentTabsDisconnected
+                : localHost == nil ? RefusalStrings.agentTabCreateFailed : RefusalStrings.agentTabsUnsupported
+            throw AgentTabRefusal(message: reason)
         }
         let record = AgentSessionRef(host: localHost, hostName: localHostName, session: session, harness: adopt?.harness)
         let key = ProvisionalTab.id()
