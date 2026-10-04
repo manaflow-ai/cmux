@@ -208,7 +208,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::BrowserViewerRelease
         | ResourceOperation::BrowserAttach
         | ResourceOperation::SidebarViewAttach
-        | ResourceOperation::StreamCancel => OperationOwner::Connection,
+        | ResourceOperation::StreamCancel
+        | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
     }
 }
 

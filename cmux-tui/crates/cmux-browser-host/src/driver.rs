@@ -8,9 +8,13 @@ use std::sync::Arc;
 /// block on a driver call.
 pub type EventSink = Arc<dyn Fn(DriverEvent) + Send + Sync>;
 
-/// Decides one network request by URL: `Some(reason)` blocks it. Called on
-/// a driver worker thread; it must not make driver calls.
-pub type RequestFilter = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+/// Decides one network request: `(target id, url)`, `Some(reason)` blocks
+/// it. The target id is the tab the request belongs to as the session names
+/// it (the app's tab id on provider engines, never the page's CDP id), or ""
+/// for a request no tab owns (a shared worker): a filter keyed by tab must
+/// decide those fail-closed. Called on a driver worker thread; it must not
+/// make driver calls.
+pub type RequestFilter = Arc<dyn Fn(&str, &str) -> Option<String> + Send + Sync>;
 
 /// One engine behind the driver protocol. Calls block the calling thread
 /// until the result arrives or the call's deadline (`timeoutMs`, else

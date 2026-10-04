@@ -1,8 +1,9 @@
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum UpdateSettingsSchema {
     /// Automatic updates under General (R114): every step of checking,
     /// downloading and installing is a row; the defaults keep cmux current
     /// with no clicks beyond the one that relaunches.
-    static var updates: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.updates", "Updates")
         let defaults = UpdatesSettings()
         return [
