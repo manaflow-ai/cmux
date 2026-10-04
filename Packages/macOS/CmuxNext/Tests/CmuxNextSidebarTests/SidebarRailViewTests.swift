@@ -44,7 +44,7 @@ import Testing
         let view = rail(.defaults)
         var activated: [LayoutItemID] = []
         view.onActivate = { activated.append($0) }
-        try #require(view.itemView(LayoutItemID("itm_account"))).onPressWithModifiers?([])
+        try #require(view.itemView(LayoutItemID("itm_account"))).onPress?()
         #expect(activated == [LayoutItemID("itm_account")])
     }
 
