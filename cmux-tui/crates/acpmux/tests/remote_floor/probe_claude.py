@@ -203,7 +203,7 @@ def tool_input_for(tool, marker, secret_path, project):
         "Glob": {"pattern": "**/*", "path": project},
         "Grep": {"pattern": "probe", "path": project},
         "TodoWrite": {"todos": [{"content": "probe", "status": "pending", "activeForm": "probing"}]},
-        "Agent": {"description": "probe", "prompt": "run the tool", "subagent_type": "general-purpose"},
+        "Agent": {"description": "probe", "prompt": "subagent-probe-go", "subagent_type": "general-purpose"},
     }[tool]
 
 

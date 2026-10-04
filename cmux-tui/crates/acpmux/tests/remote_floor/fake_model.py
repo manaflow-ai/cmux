@@ -41,9 +41,16 @@ def offers(body, name):
     return any(t.get("name") == name for t in body.get("tools") or [])
 
 
+def is_subagent(body):
+    messages = body.get("messages") or []
+    return bool(messages) and "subagent-probe-go" in json.dumps(messages[0])
+
+
 def blocks_for(body):
     if not has_tool_result(body):
-        if offers(body, TOOL_NAME):
+        if SUB_TOOL_NAME and is_subagent(body) and offers(body, SUB_TOOL_NAME):
+            return [{"type": "tool_use", "id": "toolu_probe_2", "name": SUB_TOOL_NAME, "input": SUB_TOOL_INPUT}], "tool_use"
+        if offers(body, TOOL_NAME) and not is_subagent(body):
             return [{"type": "tool_use", "id": "toolu_probe_1", "name": TOOL_NAME, "input": TOOL_INPUT}], "tool_use"
         if SUB_TOOL_NAME and offers(body, SUB_TOOL_NAME):
             return [{"type": "tool_use", "id": "toolu_probe_2", "name": SUB_TOOL_NAME, "input": SUB_TOOL_INPUT}], "tool_use"
