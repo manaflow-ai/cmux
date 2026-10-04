@@ -83,15 +83,7 @@ impl CloudEvent {
 
     /// The event line sent to subscribed trusted local clients.
     pub fn wire_json(&self) -> Value {
-        let mut value = self.untagged_json();
-        if let Some(account) = self.account() {
-            value["account"] = json!(account);
-        }
-        value
-    }
-
-    fn untagged_json(&self) -> Value {
-        match self {
+        let mut value = match self {
             Self::ConversationChanged { conversation, rev, seq, transaction, change, .. } => {
                 json!({
                     "event": "cloud-conversation-changed",
@@ -138,7 +130,11 @@ impl CloudEvent {
                 }
                 value
             }
+        };
+        if let Some(account) = self.account() {
+            value["account"] = json!(account);
         }
+        value
     }
 }
 
