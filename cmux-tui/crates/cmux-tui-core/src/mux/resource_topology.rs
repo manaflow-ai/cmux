@@ -1457,18 +1457,19 @@ impl Mux {
         surface: SurfaceId,
         workspace: Option<WorkspaceId>,
     ) -> anyhow::Result<()> {
-        self.move_tab_to_workspace_placed(surface, workspace, None, None)
+        self.move_tab_to_workspace_placed(surface, workspace, None, None, None)
     }
 
     /// Move a tab into a new workspace created in the same transaction,
     /// optionally in a sidebar group and at a final index among that
-    /// section's members (groups partition the workspace order). Returns the
-    /// new workspace.
+    /// section's members (groups partition the workspace order), named `name`
+    /// (else the default `workspace-N`). Returns the new workspace.
     pub fn move_tab_to_new_workspace(
         self: &Arc<Self>,
         surface: SurfaceId,
         group: Option<String>,
         index: Option<usize>,
+        name: Option<String>,
     ) -> anyhow::Result<WorkspaceId> {
         if let Some(group) = &group {
             anyhow::ensure!(
@@ -1476,7 +1477,7 @@ impl Mux {
                 "unknown workspace group {group}"
             );
         }
-        self.move_tab_to_workspace_placed(surface, None, group, index)?;
+        self.move_tab_to_workspace_placed(surface, None, group, index, name)?;
         self.with_state(|state| {
             state
                 .pane_of(surface)
@@ -1492,7 +1493,9 @@ impl Mux {
         workspace: Option<WorkspaceId>,
         group: Option<String>,
         group_index: Option<usize>,
+        name: Option<String>,
     ) -> anyhow::Result<()> {
+        name.as_deref().map(Self::validate_workspace_name).transpose()?;
         if let Some(workspace) = workspace {
             if self.with_state(|state| {
                 state
@@ -1521,12 +1524,8 @@ impl Mux {
             "managed workspace creation is not supported by tab moves"
         );
         let mutation = WorkspaceMutation::local("cmux-tui");
-        let fingerprint = json!({
-            "surface":surface,
-            "workspace":workspace,
-            "group":group,
-            "group_index":group_index,
-        });
+        let fingerprint = json!({ "surface":surface, "workspace":workspace, "group":group,
+            "group_index":group_index, "name":name });
         let presentation = self.presentation_snapshot();
         let plan_group = group.clone();
         let mux = Arc::clone(self);
@@ -1577,7 +1576,7 @@ impl Mux {
                             id: mux.next_id(),
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
-                            name: Mux::default_workspace_name(state),
+                            name: Mux::moved_tab_workspace_name(name.as_deref(), state),
                             screens: Vec::new(),
                             active_screen: 0,
                         },

@@ -26,13 +26,13 @@ extension ScreenContentView {
     func scrolls(_ kind: DividerHandleView.Kind) -> Bool {
         switch kind {
         case let .split(id): !geometry.fixedSplits.contains(id)
-        case let .columnEdge(id): !geometry.sticky.contains { $0.column == id }
+        case let .columnEdge(id), let .rowEdge(id, _): !geometry.sticky.contains { $0.column == id }
         }
     }
 
     /// A geometry rect for `pane` in local coordinates.
     func displayedRect(_ rect: CGRect, pane: PaneID) -> CGRect {
-        geometry.scrolls(pane: pane) ? rect.offsetBy(dx: stripShift, dy: 0) : rect
+        rect.offsetBy(dx: geometry.scrolls(pane: pane) ? stripShift : 0, dy: -rowOffset(of: pane))
     }
 
     /// True when `host` belongs to the scrolling strip.

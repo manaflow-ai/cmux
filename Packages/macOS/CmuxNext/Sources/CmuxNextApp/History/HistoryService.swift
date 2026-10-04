@@ -107,6 +107,11 @@ final class HistoryService {
         return query.apply(to: all)
     }
 
+    /// The entry with `id` among every owner's current entries, or nil when it is gone.
+    func entry(id: String) async -> HistoryEntry? {
+        await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
+    }
+
     func locationEntries() -> [HistoryEntry] {
         let trail = services.locationTrail
         return trail.trail.entries.enumerated().map { index, entry in

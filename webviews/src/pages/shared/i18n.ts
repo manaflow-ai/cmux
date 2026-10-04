@@ -28,15 +28,29 @@ export function resolveLanguage(tags: readonly string[], available: readonly str
 export interface Strings {
   readonly language: string;
   t(key: string): string;
+  /** `t(key)` with printf-style object placeholders (`%@`, `%1$@`) replaced by `args`. */
+  format(key: string, ...args: string[]): string;
+}
+
+/** Replaces `%@` (in order) and `%N$@` (by position) with `args`; `%%` is a percent sign. */
+export function formatString(text: string, args: readonly string[]): string {
+  let next = 0;
+  return text.replace(/%(?:(\d+)\$)?@|%%/g, (match, position: string | undefined) => {
+    if (match === "%%") return "%";
+    const index = position ? Number(position) - 1 : next++;
+    return args[index] ?? "";
+  });
 }
 
 export function createStrings(table: StringTable, tags: readonly string[] = navigatorLanguages()): Strings {
   const language = resolveLanguage(tags, Object.keys(table));
   const local = table[language] ?? {};
   const english = table.en ?? {};
+  const t = (key: string) => local[key] ?? english[key] ?? key;
   return {
     language,
-    t: (key) => local[key] ?? english[key] ?? key,
+    t,
+    format: (key, ...args) => formatString(t(key), args),
   };
 }
 

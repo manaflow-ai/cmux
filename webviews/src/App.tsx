@@ -39,6 +39,8 @@ import {
   streamPatch,
 } from "./diff-stream";
 import { DiffHeaderMetadata } from "./diff-metadata";
+import { collapsedFileKey, withCollapsedFile } from "./collapsed-files";
+import { FileIcon } from "./file-icons";
 import {
   allDiffFileStatuses,
   defaultDiffFileFilter,
@@ -87,6 +89,7 @@ import {
   viewedProgress,
   viewedScopeFor,
   viewedScopeKey,
+  viewedScopeKeyRepoRoot,
   viewedStateOfItem,
 } from "./viewed-files";
 import { buildHunkAnchors, nextHunkIndex } from "./viewer-hunks";
@@ -131,6 +134,8 @@ const pendingSessionID = "00000000-0000-0000-0000-000000000000";
 type AppState = {
   activeItemId: string;
   activeTreePath: string;
+  /** Files collapsed from their header caret, as `collapsedFileKey`s (persisted). */
+  collapsedFiles: string[];
   comments: DiffCommentRecord[];
   copyFeedback: string;
   draft: CommentDraft | null;
@@ -168,6 +173,7 @@ type AppAction =
   | { type: "apply-viewed"; items: DiffItem[]; change: ViewedChange }
   | { type: "begin-viewed-load"; scopeKey: string }
   | { type: "expand-item"; itemId: string }
+  | { type: "set-item-collapsed"; itemId: string; collapsed: boolean; collapsedFiles: string[] }
   | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
   | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
   | { type: "set-generated-paths"; paths: string[] }
@@ -202,10 +208,15 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
   // Display toggles persisted by previous sessions are baked into the payload
   // by the CLI so first paint matches; the viewerPrefs bridge re-syncs them
   // live after boot. Layout is owned by payload.layout/layoutSource.
-  const { layout: _seededLayout, ...seededOptions } = sanitizeViewerPrefs(payload.viewerOptions);
+  const {
+    layout: _seededLayout,
+    collapsedFiles: seededCollapsedFiles,
+    ...seededOptions
+  } = sanitizeViewerPrefs(payload.viewerOptions);
   return {
     activeItemId: "",
     activeTreePath: "",
+    collapsedFiles: seededCollapsedFiles ?? readLocalViewerPrefs().collapsedFiles ?? [],
     comments: [],
     copyFeedback: "",
     draft: null,
@@ -245,7 +256,8 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
 /**
  * Generated and large files start collapsed (GitHub "Load diff" behavior),
  * and a file whose stored viewed fingerprint still matches starts collapsed
- * too. `collapsed` is otherwise the session-wide collapse-all toggle.
+ * too, as does a file the user collapsed from its header caret.
+ * `collapsed` is otherwise the session-wide collapse-all toggle.
  */
 function prepareAppendedItem(item: DiffItem, state: AppState, generatedPaths: ReadonlySet<string>): DiffItem {
   const diff = item.fileDiff ?? {};
@@ -260,7 +272,18 @@ function prepareAppendedItem(item: DiffItem, state: AppState, generatedPaths: Re
     diff.cmuxDeferredReason = reason;
   }
   const viewed = viewedStateOfItem(item, state.viewedByPath) === "viewed";
-  return state.options.collapsed || reason != null || viewed ? { ...item, collapsed: true } : item;
+  const userCollapsed = isUserCollapsed(item, state);
+  return state.options.collapsed || reason != null || viewed || userCollapsed ? { ...item, collapsed: true } : item;
+}
+
+function itemCollapsedFileKey(item: DiffItem, scopeKey: string): string {
+  return collapsedFileKey(viewedScopeKeyRepoRoot(scopeKey), fileName(item.fileDiff ?? {}, ""));
+}
+
+function isUserCollapsed(item: DiffItem, state: Pick<AppState, "collapsedFiles" | "viewedScopeKey">): boolean {
+  return (
+    state.collapsedFiles.length > 0 && state.collapsedFiles.includes(itemCollapsedFileKey(item, state.viewedScopeKey))
+  );
 }
 
 function viewedSessionOf(state: AppState): ViewedSession {
@@ -280,13 +303,30 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
     case "begin-viewed-load": {
       const session = beginViewedLoad(action.scopeKey);
+      const scoped = { ...state, viewedScopeKey: session.scopeKey };
       return {
-        ...state,
+        ...scoped,
+        // The repository is known now, so caret-collapsed files already
+        // streamed for it collapse.
+        items: state.items.map((item) =>
+          !item.collapsed && isUserCollapsed(item, scoped)
+            ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 }
+            : item,
+        ),
         viewedByPath: session.viewedByPath,
         viewedLocalEdits: session.localEdits,
-        viewedScopeKey: session.scopeKey,
       };
     }
+    case "set-item-collapsed":
+      return {
+        ...state,
+        collapsedFiles: action.collapsedFiles,
+        items: state.items.map((item) =>
+          item.id === action.itemId && Boolean(item.collapsed) !== action.collapsed
+            ? { ...item, collapsed: action.collapsed, version: (item.version ?? 0) + 1 }
+            : item,
+        ),
+      };
     case "expand-item":
       return {
         ...state,
@@ -313,9 +353,16 @@ function reducer(state: AppState, action: AppAction): AppState {
     case "set-generated-paths":
       return { ...state, generatedPaths: action.paths };
     case "apply-persisted-options": {
-      const { layout, ...prefs } = action.prefs;
+      const { layout, collapsedFiles, ...prefs } = action.prefs;
+      const withCollapsed = { ...state, collapsedFiles: collapsedFiles ?? state.collapsedFiles };
       return {
-        ...state,
+        ...withCollapsed,
+        // Files streamed before the stored preferences arrived collapse now.
+        items: state.items.map((item) =>
+          !item.collapsed && isUserCollapsed(item, withCollapsed)
+            ? { ...item, collapsed: true, version: (item.version ?? 0) + 1 }
+            : item,
+        ),
         options: {
           ...state.options,
           ...prefs,
@@ -608,6 +655,27 @@ export function App({ config, initialStatus }: ConfigProps) {
     [latestState, toggleViewed],
   );
 
+  // A header caret collapses or expands one file and remembers it with the
+  // other viewer preferences.
+  const toggleItemCollapsed = useCallback(
+    (itemId: string) => {
+      const current = latestState.current;
+      const item = current.items.find((candidate) => candidate.id === itemId);
+      if (item == null) {
+        return;
+      }
+      const collapsed = !item.collapsed;
+      const collapsedFiles = withCollapsedFile(
+        current.collapsedFiles,
+        itemCollapsedFileKey(item, current.viewedScopeKey),
+        collapsed,
+      );
+      dispatch({ type: "set-item-collapsed", itemId, collapsed, collapsedFiles });
+      saveViewerPrefs({ collapsedFiles });
+    },
+    [latestState],
+  );
+
   usePageDataAttributes(state);
   useViewedFilesBootstrap(viewedScope, dispatch);
   usePendingReplacement(payload, label, dispatch, transport);
@@ -884,17 +952,15 @@ export function App({ config, initialStatus }: ConfigProps) {
                 items={visibleItems}
                 onScroll={handleCodeViewScroll}
                 options={renderedCodeViewOptions}
-                renderHeaderMetadata={(item) => (
-                  <>
-                    <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
-                    <FileReviewControls
-                      item={item as DiffItem}
-                      label={label}
-                      onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
-                      onToggleViewed={() => toggleViewed(item.id)}
-                      viewedState={viewedStateOf(item as DiffItem)}
-                    />
-                  </>
+                renderCustomHeader={(item) => (
+                  <FileHeader
+                    item={item as DiffItem}
+                    label={label}
+                    onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
+                    onToggleCollapsed={() => toggleItemCollapsed(item.id)}
+                    onToggleViewed={() => toggleViewed(item.id)}
+                    viewedState={viewedStateOf(item as DiffItem)}
+                  />
                 )}
                 renderAnnotation={(annotation, item) =>
                   renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)
@@ -1126,10 +1192,91 @@ function useViewedFilesBootstrap(scope: ViewedScope | null, dispatch: React.Disp
 }
 
 /**
- * Per-file review controls rendered into Pierre's header metadata slot: the
+ * One file's header row, rendered into Pierre's custom header slot (the row
+ * itself is Pierre's opaque sticky header): the language icon, the dim
+ * directory and bright file name, the collapse caret, then the change counts
+ * and the review controls.
+ */
+export function FileHeader({
+  item,
+  label,
+  onLoadDiff,
+  onToggleCollapsed,
+  onToggleViewed,
+  viewedState,
+}: {
+  item: DiffItem;
+  label: DiffViewerLabelResolver;
+  onLoadDiff: () => void;
+  onToggleCollapsed: () => void;
+  onToggleViewed: () => void;
+  viewedState: ViewedFileState;
+}) {
+  const fileDiff = item.fileDiff ?? {};
+  const path = fileName(fileDiff, label("untitled"));
+  const slash = path.lastIndexOf("/");
+  const directory = slash >= 0 ? path.slice(0, slash + 1) : "";
+  const baseName = path.slice(slash + 1);
+  const previousPath = typeof fileDiff.prevName === "string" && fileDiff.prevName !== path ? fileDiff.prevName : null;
+  const stats = fileStats(fileDiff);
+  const collapsed = Boolean(item.collapsed);
+  const caretLabel = (collapsed ? label("expandFile") : label("collapseFile")).replace("{file}", baseName);
+  return (
+    <div className="file-header" data-collapsed={collapsed} data-change-type={fileDiff.type}>
+      <FileIcon path={path} />
+      <span className="file-header-path" title={previousPath == null ? path : `${previousPath} → ${path}`}>
+        {previousPath != null ? (
+          <span className="file-header-previous">
+            <bdi>{previousPath}</bdi>
+            <span aria-hidden="true"> → </span>
+          </span>
+        ) : null}
+        {directory !== "" ? (
+          <span className="file-header-directory">
+            <bdi>{directory}</bdi>
+          </span>
+        ) : null}
+        <span className="file-header-name">{baseName}</span>
+      </span>
+      <button
+        type="button"
+        className="file-header-caret"
+        aria-expanded={!collapsed}
+        aria-label={caretLabel}
+        title={caretLabel}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleCollapsed();
+        }}
+      >
+        <Icon name="chevronDown" />
+      </button>
+      <span className="file-header-spacer" />
+      <DiffHeaderMetadata fileDiff={fileDiff} label={label} />
+      <span className="file-header-stats" aria-label={label("diffStats")}>
+        <span className="file-header-additions" title={label("additions")}>
+          +{stats.added}
+        </span>
+        <span className="file-header-deletions" title={label("deletions")}>
+          -{stats.deleted}
+        </span>
+      </span>
+      <FileReviewControls
+        item={item}
+        label={label}
+        onLoadDiff={onLoadDiff}
+        onToggleViewed={onToggleViewed}
+        viewedState={viewedState}
+      />
+    </div>
+  );
+}
+
+/**
+ * Per-file review controls rendered at the end of the file header: the
  * "Viewed" checkbox with its "changed since viewed" badge, and the generated /
  * large badge with a "Load diff" button while such a file is still collapsed.
- * Clicks stop propagating so Pierre's own header collapse toggle stays put.
+ * Clicks stop propagating so they never reach the header row's own handlers.
  */
 function FileReviewControls({
   item,
@@ -1990,12 +2137,16 @@ function PierreFileTree({
   const latest = useSyncedRef({ label, onSelectItem, source, viewedStateByPath });
   const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
   const { model } = useFileTree({
-    flattenEmptyDirectories: false,
+    // Single-child folder chains render as one row ("infra / tsadmin").
+    flattenEmptyDirectories: true,
     id: "cmux-diff-file-tree",
     initialExpansion: "open",
     initialSelectedPaths: selectedPath ? [selectedPath] : [],
     initialVisibleRowCount: getInitialFileTreeRowCount(),
-    itemHeight: 24,
+    // Compact preset spacing on a 22px row (screenshot parity with the
+    // classic viewer's file list).
+    density: "compact",
+    itemHeight: FILE_TREE_ITEM_HEIGHT,
     overscan: 12,
     preparedInput: initialPreparedInput,
     search: true,
@@ -2006,17 +2157,15 @@ function PierreFileTree({
     unsafeCSS: fileTreeUnsafeCSS(),
     composition: { contextMenu: { enabled: true, triggerMode: "right-click" } },
     // Pierre tree rows accept a text/icon decoration, not custom children, so
-    // the "Viewed" checkmark is a decoration and the toggle lives in the row's
-    // context menu (the header checkbox and `v` are the primary controls).
+    // a file's "+N -N" counts and its "Viewed" mark share one text decoration;
+    // the toggle lives in the row's context menu (the header checkbox and `v`
+    // are the primary controls).
     renderRowDecoration({ item }) {
-      const state = latest.current.viewedStateByPath.get(item.path);
-      if (state === "viewed") {
-        return { text: "✓", title: latest.current.label("viewed") };
-      }
-      if (state === "changed") {
-        return { text: "↻", title: latest.current.label("changedSinceViewed") };
-      }
-      return null;
+      return fileTreeRowDecoration(
+        latest.current.source.statsByPath.get(item.path),
+        latest.current.viewedStateByPath.get(item.path),
+        latest.current.label,
+      );
     },
     onSelectionChange(paths: readonly string[]) {
       const path = paths[paths.length - 1];
@@ -2794,10 +2943,43 @@ export function visibleItemId(
   return visibleIndex >= 0 ? items[visibleIndex].id : "";
 }
 
+const FILE_TREE_ITEM_HEIGHT = 22;
+
 function getInitialFileTreeRowCount(): number {
   const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
   if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) {
     return 25;
   }
-  return Math.min(96, Math.max(25, Math.ceil(viewportHeight / 24)));
+  return Math.min(96, Math.max(25, Math.ceil(viewportHeight / FILE_TREE_ITEM_HEIGHT)));
+}
+
+/**
+ * A file row's decoration: its viewed mark, then the nonzero "+N" and "-N"
+ * counts (screenshot parity: "+75 -10", "-1", "+18"). Folders get none.
+ */
+export function fileTreeRowDecoration(
+  stats: { added: number; deleted: number } | undefined,
+  viewedState: ViewedFileState | undefined,
+  label: DiffViewerLabelResolver,
+): { text: string; title: string } | null {
+  const parts: string[] = [];
+  const titles: string[] = [];
+  if (viewedState === "viewed") {
+    parts.push("✓");
+    titles.push(label("viewed"));
+  } else if (viewedState === "changed") {
+    parts.push("↻");
+    titles.push(label("changedSinceViewed"));
+  }
+  if (stats != null) {
+    if (stats.added > 0) {
+      parts.push(`+${stats.added}`);
+      titles.push(`${label("additions")} ${stats.added}`);
+    }
+    if (stats.deleted > 0) {
+      parts.push(`-${stats.deleted}`);
+      titles.push(`${label("deletions")} ${stats.deleted}`);
+    }
+  }
+  return parts.length === 0 ? null : { text: parts.join(" "), title: titles.join(", ") };
 }

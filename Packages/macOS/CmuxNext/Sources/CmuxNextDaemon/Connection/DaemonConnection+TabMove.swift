@@ -41,10 +41,10 @@ extension DaemonConnection {
     /// falls back to `move-tab-to-workspace` with no destination (same
     /// outcome, without group placement).
     @discardableResult
-    public func moveTabToNewWorkspace(_ surface: SurfaceID, group: WorkspaceGroupID? = nil, index: Int? = nil,
+    public func moveTabToNewWorkspace(_ surface: SurfaceID, group: WorkspaceGroupID? = nil, index: Int? = nil, name: String? = nil,
                                       transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
         do {
-            return try await requestNew(MoveTabToNewWorkspaceRequest(surface: surface, group: group, index: index, transaction: transaction))
+            return try await requestNew(MoveTabToNewWorkspaceRequest(surface: surface, group: group, index: index, name: name, transaction: transaction))
         } catch DaemonError.missingCapabilities {
             return try await moveTab(surface, toWorkspace: nil, transaction: transaction)
         }

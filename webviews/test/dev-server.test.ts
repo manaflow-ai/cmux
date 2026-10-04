@@ -3,7 +3,15 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isLoopbackHost, payloadFor, readBody, resolveResource, rpcRequestStatus } from "../dev-server/diffHost";
+import {
+  dependencyCacheName,
+  isDependencyCacheRequest,
+  isLoopbackHost,
+  payloadFor,
+  readBody,
+  resolveResource,
+  rpcRequestStatus,
+} from "../dev-server/diffHost";
 import { diffLanguagesDirectory, readDiffLanguagePack } from "../dev-server/diffLanguages";
 import { SHELL_PLACEHOLDERS, fillShell, markdownFiles, splitStyles } from "../dev-server/markdownHost";
 
@@ -224,5 +232,15 @@ describe("diff languages folder (dev host)", () => {
     });
     expect(readDiffLanguagePack(path.join(dir, "missing"))).toEqual({ files: [] });
     fs.rmSync(dir, { recursive: true });
+  });
+});
+
+describe("optimized dependency caching", () => {
+  test("each port has its own cache, and only its modules are revalidated", () => {
+    const name = dependencyCacheName(4181);
+    expect(name).toBe(".vite-dev-deps-4181");
+    expect(isDependencyCacheRequest(`/node_modules/${name}/deps/shiki.js`, name)).toBe(true);
+    expect(isDependencyCacheRequest(`/node_modules/${dependencyCacheName(4182)}/deps/shiki.js`, name)).toBe(false);
+    expect(isDependencyCacheRequest("/src/App.tsx", name)).toBe(false);
   });
 });

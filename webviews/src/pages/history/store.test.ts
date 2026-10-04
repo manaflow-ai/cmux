@@ -148,6 +148,19 @@ describe("HistoryStore", () => {
     expect(provider.calls.at(-1)).toEqual({ op: CLIPBOARD_WRITE, params: { text: "b" } });
   });
 
+  test("an owner without the change stream still lists, without live updates", async () => {
+    const provider = new MockHistoryProvider(sampleEntries(now), () => now);
+    provider.subscribe = async () => {
+      throw Object.assign(new Error("cmux.history.changed"), { code: "cmux.protocol.unknown_op", retryable: false });
+    };
+    const store = new HistoryStore(provider);
+    store.subscribe(() => undefined);
+    await store.start();
+    await settle();
+    expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
+    expect(store.getSnapshot().entries.length).toBe(sampleEntries(now).length);
+  });
+
   test("no client: disconnected and nothing is sent", async () => {
     const store = new HistoryStore(null);
     store.subscribe(() => undefined);

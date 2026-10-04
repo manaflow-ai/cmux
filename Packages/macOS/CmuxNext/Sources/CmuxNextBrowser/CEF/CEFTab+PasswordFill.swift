@@ -6,6 +6,7 @@ extension CEFTab {
         guard !isAgentDriven else { return }
         isAgentDriven = true
         applyPasswordFill()
+        CEFAgentURLGuard.leave(self, committedURL ?? state.url)
     }
 
     /// Chromium fills passwords by default; only an agent-driven tab turns it

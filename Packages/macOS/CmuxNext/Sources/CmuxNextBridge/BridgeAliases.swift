@@ -10,12 +10,14 @@ public import CmuxNextTabs
 public typealias DaemonPaneID = CmuxNextDaemon.PaneID
 public typealias DaemonSplitID = CmuxNextDaemon.SplitID
 public typealias DaemonColumnID = CmuxNextDaemon.ColumnID
+public typealias DaemonRowID = CmuxNextDaemon.RowID
 public typealias DaemonScreenID = CmuxNextDaemon.ScreenID
 public typealias DaemonSidebarSection = CmuxNextDaemon.SidebarSection
 
 public typealias LayoutPaneID = CmuxNextLayout.PaneID
 public typealias LayoutSplitID = CmuxNextLayout.SplitID
 public typealias LayoutColumnID = CmuxNextLayout.ColumnID
+public typealias LayoutRowID = CmuxNextLayout.RowID
 public typealias LayoutScreenID = CmuxNextLayout.ScreenID
 public typealias LayoutTabID = CmuxNextLayout.TabID
 public typealias LayoutDropTarget = CmuxNextLayout.DropTarget

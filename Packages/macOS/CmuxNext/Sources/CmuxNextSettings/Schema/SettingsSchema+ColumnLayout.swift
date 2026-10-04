@@ -57,6 +57,13 @@ extension SettingsSchema {
                 default: .string(ColumnLayoutSettings.frameOrientationFallback.rawValue), keywords: ["dock", "frame", "orientation", "corner", "sticky"]
             ),
             SettingDescriptor(
+                ColumnLayoutSettings.rowsPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.rows", "Rows"),
+                help: SettingsText.keyed("settings.layout.rows.help",
+                                        "Off hides New Row and fits a column's existing rows into it without scrolling."),
+                kind: .toggle, default: .bool(ColumnLayoutSettings.rowsFallback), keywords: ["row", "column", "scroll", "vertical"]
+            ),
+            SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,
                 title: SettingsText.keyed("settings.layout.minimumPaneWidth", "Minimum Pane Width"),
                 kind: .number(SettingNumber(ColumnLayoutSettings.minimumPaneWidthRange, step: 10, unit: .points)),

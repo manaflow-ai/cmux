@@ -20,7 +20,38 @@ export interface IrOp {
   params: JsonSchema;
   result: JsonSchema;
   errors: string[];
+  /** Top-level params that name filesystem paths; providers confine them to the token's roots (decision 22). */
+  paths: string[];
+  /** MCP exposure (decision 21). An op without `mcp` in the IR is `{expose: "never"}`. */
+  mcp: IrMcp;
+  /** CLI verb, when the op has one (decision 21). */
+  cli?: IrCli;
+  /** True when the result can carry an `x-cmux-secret` value; never offered to agents (decision 21). */
+  secret_output: boolean;
 }
+
+export type McpExpose = "default" | "opt_in" | "never";
+
+export interface IrMcp {
+  expose: McpExpose;
+  group?: string;
+}
+
+export interface IrCli {
+  /** Verb path relative to the app, e.g. "git status". */
+  path: string;
+  visible: boolean;
+  /** Top-level params taken positionally, in order. */
+  positional?: string[];
+}
+
+/** MCP tool name of an op: the op name with `.` and `-` as `_` (decision 21). At most 48 characters. */
+export function mcpToolName(op: string): string {
+  return op.replaceAll(/[.-]/g, "_");
+}
+
+export const MCP_TOOL_NAME_MAX = 48;
+const CLI_PATH = /^[a-z][a-z0-9-]*( [a-z][a-z0-9-]*){0,2}$/;
 
 export interface IrEvent {
   name: string;
@@ -99,6 +130,12 @@ export function parseIr(raw: unknown): Ir {
       errors: op.errors === undefined ? [] : stringArray(op.errors, `${where}.errors`),
       owner: op.owner === undefined ? "first-party" : string(op.owner, `${where}.owner`),
       aliases: op.aliases === undefined ? [] : stringArray(op.aliases, `${where}.aliases`),
+      // emit-ir always writes `paths` and `secret_output`. A missing one means an older or
+      // hand-edited IR, so fail instead of guessing (a guessed `false` would leak secrets).
+      paths: stringArray(op.paths, `${where}.paths`),
+      secret_output: boolean(op.secret_output, `${where}.secret_output`),
+      mcp: parseMcp(op.mcp, `${where}.mcp`),
+      ...(op.cli === undefined ? {} : { cli: parseCli(op.cli, `${where}.cli`) }),
     };
   });
   const events = (Array.isArray(raw.events) ? raw.events : []).map((event: unknown, index) => {
@@ -129,5 +166,80 @@ export function parseIr(raw: unknown): Ir {
     if (seen.has(name)) throw new IrError(`duplicate op, alias or event name ${name}`);
     seen.add(name);
   }
+  checkOpRules(ops, types);
   return { version, namespaces, ops, events, interfaces, types };
+}
+
+function boolean(value: unknown, where: string): boolean {
+  if (typeof value !== "boolean") throw new IrError(`${where} must be a boolean`);
+  return value;
+}
+
+function onlyKeys(value: Record<string, unknown>, keys: string[], where: string): void {
+  for (const key of Object.keys(value)) {
+    if (!keys.includes(key)) throw new IrError(`${where} has unknown key ${JSON.stringify(key)}`);
+  }
+}
+
+function parseMcp(raw: unknown, where: string): IrMcp {
+  if (raw === undefined) return { expose: "never" };
+  if (!isRecord(raw)) throw new IrError(`${where} must be an object`);
+  onlyKeys(raw, ["expose", "group"], where);
+  if (raw.expose !== "default" && raw.expose !== "opt_in" && raw.expose !== "never") {
+    throw new IrError(`${where}.expose must be "default", "opt_in" or "never"`);
+  }
+  return raw.group === undefined
+    ? { expose: raw.expose }
+    : { expose: raw.expose, group: string(raw.group, `${where}.group`) };
+}
+
+function parseCli(raw: unknown, where: string): IrCli {
+  if (!isRecord(raw)) throw new IrError(`${where} must be an object`);
+  onlyKeys(raw, ["path", "visible", "positional"], where);
+  const path = string(raw.path, `${where}.path`);
+  if (!CLI_PATH.test(path)) throw new IrError(`${where}.path ${JSON.stringify(path)} must match ${CLI_PATH.source}`);
+  const cli: IrCli = { path, visible: boolean(raw.visible, `${where}.visible`) };
+  if (raw.positional !== undefined) cli.positional = stringArray(raw.positional, `${where}.positional`);
+  return cli;
+}
+
+/** Top-level properties of an op's params, following one $ref. */
+function paramProperties(params: JsonSchema, types: Record<string, JsonSchema>): Record<string, unknown> {
+  let schema: unknown = params;
+  const ref =
+    isRecord(schema) && typeof schema.$ref === "string" ? /^#\/(?:types|\$defs)\/(.+)$/.exec(schema.$ref) : null;
+  if (ref) schema = types[ref[1]];
+  return isRecord(schema) && isRecord(schema.properties) ? schema.properties : {};
+}
+
+function includesString(schema: unknown): boolean {
+  if (!isRecord(schema)) return false;
+  return schema.type === "string" || (Array.isArray(schema.type) && schema.type.includes("string"));
+}
+
+/** The registry rules a generated client relies on (decisions 21-23); the Rust merge enforces the same. */
+function checkOpRules(ops: IrOp[], types: Record<string, JsonSchema>): void {
+  const toolNames = new Map<string, string>();
+  const cliPaths = new Set<string>();
+  for (const op of ops) {
+    const params = paramProperties(op.params, types);
+    for (const name of op.paths) {
+      if (!includesString(params[name])) throw new IrError(`${op.name}: paths entry ${name} is not a string param`);
+    }
+    for (const name of op.cli?.positional ?? []) {
+      if (!(name in params)) throw new IrError(`${op.name}: cli.positional ${name} is not a top-level param`);
+    }
+    if (op.cli) {
+      const key = `${op.owner}\u0000${op.cli.path}`;
+      if (cliPaths.has(key))
+        throw new IrError(`${op.name}: cli.path ${JSON.stringify(op.cli.path)} is taken in ${op.owner}`);
+      cliPaths.add(key);
+    }
+    // Decision 23: checked for every op, exposed or not, so changing `expose` later cannot collide.
+    const tool = mcpToolName(op.name);
+    if (tool.length > MCP_TOOL_NAME_MAX) throw new IrError(`${op.name}: MCP tool name ${tool} exceeds 48 characters`);
+    const other = toolNames.get(tool);
+    if (other) throw new IrError(`${op.name} and ${other} share the MCP tool name ${tool}`);
+    toolNames.set(tool, op.name);
+  }
 }

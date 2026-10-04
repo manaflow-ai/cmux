@@ -155,6 +155,10 @@ describe("JSON Schema subset beyond the committed IR", () => {
         },
         result: { type: "null" },
         errors: [],
+        paths: ["tag"],
+        mcp: { expose: "opt_in" },
+        cli: { path: "sample run", visible: false, positional: ["mode"] },
+        secret_output: false,
       },
     ],
     events: [],
@@ -212,6 +216,79 @@ describe("JSON Schema subset beyond the committed IR", () => {
       "/items more than 2 items",
       "/items/2 expected string",
     ]);
+  });
+
+  test("op metadata reaches OPS and the doc comment; x-cmux-secret is documented", () => {
+    const withSecret = {
+      ...structuredClone(ir),
+      types: {
+        Target: {
+          type: "object",
+          properties: { id: { type: "string", description: "Account token.", "x-cmux-secret": true } },
+          required: ["id"],
+        },
+      },
+    };
+    const files = generate(withSecret, { source: "test" });
+    expect(files["client.ts"]).toContain(
+      '{"name":"cmux.sample.run","owner":"first-party","kind":"mutation","scope":"sample:write","aliases":[],"errors":[],"paths":["tag"],"mcp":{"expose":"opt_in"},"cli":{"path":"sample run","visible":false,"positional":["mode"]},"secret_output":false}',
+    );
+    expect(files["client.ts"]).toContain("CLI: `sample run` (hidden). MCP: opt_in. Paths: tag.");
+    expect(files["types.ts"]).toContain("Secret (x-cmux-secret): never shown to agents or logged.");
+  });
+
+  test("op metadata rules fail the codegen (decisions 19, 21-23)", () => {
+    const op = (patch: Record<string, unknown>) => {
+      const copy = structuredClone(ir);
+      Object.assign(copy.ops[0], patch);
+      return copy;
+    };
+    const fails = (value: unknown, message: string) => expect(() => generate(value, { source: "t" })).toThrow(message);
+    fails(op({ mcp: { expose: "always" } }), 'mcp.expose must be "default", "opt_in" or "never"');
+    fails(op({ mcp: { expose: "never", tool: "x" } }), 'mcp has unknown key "tool"');
+    fails(op({ cli: { path: "Sample_Run", visible: true } }), "cli.path");
+    fails(op({ cli: { path: "a b c d", visible: true } }), "cli.path");
+    fails(op({ cli: { path: "run", visible: "yes" } }), "cli.visible must be a boolean");
+    fails(
+      op({ cli: { path: "run", visible: true, positional: ["nope"] } }),
+      "cli.positional nope is not a top-level param",
+    );
+    fails(op({ paths: ["count"] }), "paths entry count is not a string param");
+    fails(op({ paths: ["missing"] }), "paths entry missing is not a string param");
+    fails(op({ paths: undefined }), "paths must be an array of strings");
+    fails(op({ secret_output: undefined }), "secret_output must be a boolean");
+
+    // Ops without a CLI verb, so only the MCP tool names can collide.
+    const withoutCli = (name: string) => {
+      const { cli: _cli, ...rest } = structuredClone(ir.ops[0]);
+      return { ...rest, name, mcp: { expose: "never" } };
+    };
+    const twin = {
+      ...structuredClone(ir),
+      ops: [ir.ops[0], withoutCli("cmux.sample.run-x"), withoutCli("cmux.sample.run_x")],
+    };
+    fails(twin, "share the MCP tool name cmux_sample_run_x");
+
+    const long = op({ name: `cmux.sample.${"a".repeat(40)}` });
+    fails(long, "exceeds 48 characters");
+
+    const sameCli = structuredClone(ir);
+    sameCli.ops.push({ ...structuredClone(ir.ops[0]), name: "cmux.sample.walk" });
+    fails(sameCli, 'cli.path "sample run" is taken in first-party');
+
+    const secretType = { ...structuredClone(ir), types: { Target: { type: "object", "x-cmux-secret": "yes" } } };
+    fails(secretType, "x-cmux-secret must be a boolean");
+
+    for (const [pattern, what] of [
+      ["^(?=a)b$", "lookaround"],
+      ["^(?<!a)b$", "lookaround"],
+      ["^(a)\\1$", "a backreference"],
+      ["^(?<word>a)$", "a named group"],
+      ["^(?P<word>a)$", "a named group"],
+    ]) {
+      const bad = { ...structuredClone(ir), types: { Target: { type: "string", pattern } } };
+      fails(bad, `pattern uses ${what}`);
+    }
   });
 
   test("unsupported keywords and bad names fail the codegen", () => {

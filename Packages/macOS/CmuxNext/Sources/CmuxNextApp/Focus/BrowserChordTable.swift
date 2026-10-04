@@ -4,9 +4,10 @@ import CmuxNextActions
 /// Chords a browser owns while a page, the address bar or the find bar has
 /// the keyboard (plans/cmux-next/focus.md section 5, "Browser context").
 ///
-/// The key router resolves a chord in this order: a cmux registry action
-/// (catalog default or `cmux.json`), then, only when the registry has none,
-/// the user's Ghostty keybinds for window, tab and split actions. In a
+/// The key router resolves a chord in this order: the binding table
+/// (catalog defaults, the tab-switch defaults of `KeyBindingDefaults`,
+/// `cmux.json`), then, only when no entry applies, the user's Ghostty
+/// keybinds for window, tab and split actions. In a
 /// browser context that fallback is refused for every chord listed here,
 /// because browsers give it a meaning users expect in a page:
 /// Ghostty's default `super+[` (`goto_split:previous`) must not replace
@@ -56,24 +57,6 @@ enum BrowserChordTable {
         return set
     }()
 
-    /// The browser's next/previous tab chords. cmux tabs are the browser's tabs,
-    /// so in a browser context each one runs cmux's own next or previous
-    /// tab action, whatever the user's Ghostty keybinds say (a terminal
-    /// keeps its own keybinds, `ctrl+tab=next_tab` by default). The router
-    /// consults this only when the registry has no action for the chord,
-    /// so a cmux binding (Cmd-Opt-arrows focus a pane, Cmd-Shift-] is next
-    /// tab already) wins.
-    static let tabNavigation: [Shortcut: ActionID] = [
-        Shortcut("\t", modifiers: [.control]): "nextSurface",
-        Shortcut("\t", modifiers: [.control, .shift]): "prevSurface",
-        Shortcut(pageDown, modifiers: [.control]): "nextSurface",
-        Shortcut(pageUp, modifiers: [.control]): "prevSurface",
-        Shortcut(right, modifiers: [.command, .option]): "nextSurface",
-        Shortcut(left, modifiers: [.command, .option]): "prevSurface",
-        Shortcut("]", modifiers: [.command, .shift]): "nextSurface",
-        Shortcut("[", modifiers: [.command, .shift]): "prevSurface",
-    ]
-
     /// Whether `event` is a chord in `chromeReserved`.
     static func isChromeChord(_ event: NSEvent) -> Bool {
         shortcuts(of: event).contains { chromeReserved.contains($0) }
@@ -90,11 +73,6 @@ enum BrowserChordTable {
     static func isBrowserOnlyChord(_ event: NSEvent, registry: ActionRegistry) -> Bool {
         let chords = browserOnlyActions.compactMap(registry.effectiveShortcut(for:))
         return shortcuts(of: event).contains { chords.contains($0) }
-    }
-
-    /// The cmux tab action for a browser tab-switching chord, or nil.
-    static func tabNavigationAction(for event: NSEvent) -> ActionID? {
-        shortcuts(of: event).lazy.compactMap { tabNavigation[$0] }.first
     }
 
     /// Like `ActionRegistry.resolveShortcut`: the key as typed and its

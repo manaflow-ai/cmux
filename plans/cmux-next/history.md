@@ -183,6 +183,31 @@ Mouse: the side buttons (button 4 and 5) and the two-finger swipe follow the
 same split, page history over a page and location history elsewhere
 (follow-up; needs `debug.mouse` coverage first).
 
+### 4.2a Scope of Back / Forward (R69, titlebar-area spec section 2)
+
+Setting `navigation.historyScope` (Settings, cmux.json, palette, CLI, MCP like every setting):
+
+| Value | Back / Forward walk | Mechanism |
+| --- | --- | --- |
+| `workspace` (default) | trail entries of the current workspace (same machine and workspace key as the current location) | a scope filter on the one trail |
+| `window` | trail entries recorded in the current window, across its workspaces | the same filter on the entry's window id |
+| `surface` | the focused surface's own list: a browser page walks its page history (`browserBack` / `browserForward`); a surface without a list does nothing | the actions delegate to the surface |
+
+Rules:
+
+1. One trail stays the single record (4.2 rules 1 to 9 unchanged). The scope only filters which
+   entries Back, Forward, Go to Last Location, `canGoBack/Forward` and the entry list see; entries
+   out of scope are kept, never dropped, and come back when the scope or the current workspace changes.
+2. The filter is pure: `LocationTrail.back(isAvailable:)` gets `isAvailable && inScope(entry, current, scope)`.
+   Property tests: an out-of-scope entry is never returned; changing scope never changes `entries`.
+3. One pair of actions for every entry point: `focusHistoryBack` / `focusHistoryForward` (titlebar
+   buttons, Ctrl-Cmd-Left/Right, palette, CLI `history back|forward`, MCP). No new bindings.
+4. Long press or right-click on a titlebar button lists the in-scope entries before (Back) or after
+   (Forward) the cursor, newest nearest, with title and workspace; choosing one runs
+   `history.goTo {index}` (new action, same execution path as Back, origin user).
+5. With `surface` scope and a browser page focused, the actions run the page's back/forward; the
+   page's own entry menu (4.1) is the list.
+
 ### 4.3 Existing actions mapped
 
 | Old | New |

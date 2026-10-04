@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import table from "../history/generated/strings.json";
-import { createStrings, resolveLanguage } from "./i18n";
+import { createStrings, formatString, resolveLanguage } from "./i18n";
 
 const codes = ["en", "ja", "zh-Hans", "zh-Hant", "pt-BR", "nb", "de"];
 
@@ -34,5 +34,14 @@ describe("generated History table", () => {
     expect(ja.t("page.title")).toBe("履歴");
     expect(createStrings({ en: { a: "A" }, ja: {} }, ["ja"]).t("a")).toBe("A");
     expect(createStrings(table, ["en"]).t("missing.key")).toBe("missing.key");
+  });
+});
+
+describe("formatString", () => {
+  test("ordered and positional object placeholders, and %%", () => {
+    expect(formatString("by %@", ["cmux"])).toBe("by cmux");
+    expect(formatString("%2$@ / %1$@", ["a", "b"])).toBe("b / a");
+    expect(formatString("100%% %@", ["done"])).toBe("100% done");
+    expect(formatString("%@ %@", ["only"])).toBe("only ");
   });
 });

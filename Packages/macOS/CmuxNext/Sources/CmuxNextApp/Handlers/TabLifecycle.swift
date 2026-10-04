@@ -125,6 +125,10 @@ enum TabLifecycle {
             guard let resolved = BrowserURLResolver(allowsChromiumSchemes: chromium).url(for: text) else {
                 return ctx.refuse(MiscHandlerStrings.invalidURL(text))
             }
+            // Agents never open Chromium's own pages (plans/cmux-next/passwords.md, section 2).
+            if invocation.origin != .user, AgentURLPolicy.refuses(resolved) {
+                return ctx.refuse(MiscHandlerStrings.agentChromiumPage)
+            }
             url = resolved
         }
         guard let pane = ctx.daemonPane(invocation) else { return }

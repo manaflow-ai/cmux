@@ -19,7 +19,7 @@ enum SidebarSectionHandlers {
                 }
             })
         }
-        let home = LayoutItemRef.builtIn(.home)
+        let home = SidebarLayoutDocument.homeRef
         bind("sidebar.home.add", unavailable: { layout.document.firstItem(with: home) == nil ? nil : SidebarSectionStrings.homeAlreadyShown }) { _, doc in
             SidebarLayoutPlanner.add(home, in: doc)
         }
@@ -30,7 +30,8 @@ enum SidebarSectionHandlers {
             guard let name = invocation["item"]?.stringValue, let builtIn = SidebarBuiltIn(rawValue: name) else {
                 throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
             }
-            let ref = LayoutItemRef.builtIn(builtIn)
+            // Home and the App Store are apps now (R63/R64).
+            let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? LayoutItemRef.builtIn(builtIn)
             if let sectionName = invocation["section"]?.stringValue, !sectionName.isEmpty {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
                 return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
@@ -162,7 +163,11 @@ enum SidebarSectionResolve {
     static func item(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> LayoutItem {
         guard let target, target.kind == .sidebarItem else { throw ActionFailure(message: SidebarSectionStrings.noSuchItem) }
         if let item = doc.item(LayoutItemID(target.id)) { return item }
-        if let builtIn = SidebarBuiltIn(rawValue: target.id), let item = doc.firstItem(with: .builtIn(builtIn)) { return item }
+        if let builtIn = SidebarBuiltIn(rawValue: target.id) {
+            // Home and the App Store are app items now (R63/R64); their names still name them.
+            let ref = SidebarLayoutDocument.firstPartyApps[builtIn].map(LayoutItemRef.app) ?? .builtIn(builtIn)
+            if let item = doc.firstItem(with: ref) { return item }
+        }
         throw ActionFailure(message: SidebarSectionStrings.noSuchItem)
     }
 }

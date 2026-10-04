@@ -319,3 +319,25 @@ security).
 - iOS v1 depends on lane 14 and lane 12; this plan gives only the contract.
 - The billing page opens checkout in the browser; plan limits come from L1 entitlements as they
   are on main. No price or plan logic moves.
+
+## 9. Status and integration queue (lead, 2026-10-04)
+
+Landed on feat-cmux-next: this plan (37b964a7c33); C1 core (c427a0f5207..7d0d1d313dd) and the R73 CLI path fix (c244866fee1).
+Side branches: C4 page `feat-cmux-next-cloud-c4` (ab89c64ad39), relay restore fix `feat-cmux-next-cloud-relayfix`
+(f3906196d68, waits for a cmux-tui window), C2 attach and C3 SSH sample in progress.
+
+Integration before C4 lands (one slice, lead or the next free helper):
+1. Page types (`webviews/src/pages/cloud/ops.ts`) follow the landed catalog: camelCase fields (`displayName`,
+   `createdAt`, `imageVersion`, stats `cpuPercent`, `memoryUsedMb`...), plan (`planId`, `maxActiveVms`,
+   `memoryOptionsMb`, `lockedMemoryOptionsMb`) and usage (`vmHoursUsed`, `vmHoursIncluded`, `activeVmCount`,
+   `savedVmLimit`) as C1 returns them; create takes `displayName`, `memoryMb`, `kind`; "create from snapshot" calls
+   `snapshot.restore`. Op names stay `cmux.cloud.*` (the server accepts them; canonical names wait for the IR).
+2. Server: `cloud.machine.watch` stream (upsert/removed with the projection revision) and `revision` on machine
+   mutation results, so page intents settle without a refetch. Owner: the server crate (after C2 lands, to avoid
+   conflicts in `ops/mod.rs`).
+3. Host: `cmux.app.action.run` with native confirmation for the destructive and money ops the page lists in its
+   README, and the `cloud.machines.layout` debug setting on `<html>`. Owner: Mac app shell (request through the
+   coordinator).
+
+Open outside this lane: snapshot create dedup in the web route (needs a stored key; production schema), the
+reserved CLI word `cloud` for this app (R73 CLI owner), catalog `aliases` and namespace-qualified names (IR owner).

@@ -170,8 +170,11 @@ enum TabMoves {
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
         let name = newWorkspaceName(for: tab, services: services)
+        // The daemon names the workspace in the move's commit when it can.
+        let inCommit = daemon.supports(DaemonCapabilities.shared.tabWorkspaceName)
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
-            let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, transaction: echoes ? transaction : nil)
+            let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, name: inCommit ? name : nil,
+                                                                    transaction: echoes ? transaction : nil)
             let created: WorkspaceKey?
             if let resultKey = result.key {
                 created = resultKey
@@ -179,11 +182,10 @@ enum TabMoves {
                 created = try await connection.listWorkspaces().workspaces.compactMap(\.key).first { !before.contains($0) }
             }
             if !echoes, let created, let index { _ = try await connection.moveWorkspace(created, to: index) }
-            // The workspace takes the moved tab's name (R15). A second
-            // command until move-tab-to-new-workspace carries a name; the
+            // A daemon without `tab-workspace-name-v1`: a second command. The
             // move already happened, so a failed rename leaves the default
             // name and does not fail the move.
-            if let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
+            if !inCommit, let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
             return created
         }
         return key ?? nil

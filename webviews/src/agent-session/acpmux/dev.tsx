@@ -12,6 +12,7 @@ import "./searchChats.css";
 import "./markdownField.css";
 import "./modelPicker.css";
 import "./keys.css";
+import "./newtab/screen.css";
 import { devHostParams, installDevHost } from "./devHost";
 import { seedDevRecents } from "./devRecents";
 

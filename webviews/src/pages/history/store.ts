@@ -3,6 +3,7 @@
 // the page keeps no optimistic copy: a remove or clear re-reads after the provider confirms.
 // React reads it through `useSyncExternalStore` (no effects); tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   filterKinds,
   groupEntries,
@@ -51,6 +52,7 @@ export class HistoryStore {
   private readonly listeners = new Set<() => void>();
   private generation = 0;
   private unsubscribe?: () => void;
+  private unpage?: () => void;
   private starting = false;
 
   constructor(
@@ -91,10 +93,21 @@ export class HistoryStore {
       }
       this.unsubscribe = unsubscribe;
     } catch (error) {
-      this.set({ connection: "disconnected", loading: false, error: message(error) });
-      return;
+      // An owner without the change stream still answers reads: show the list without live
+      // updates. Any other failure is a lost host.
+      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
+        this.set({ connection: "disconnected", loading: false, error: message(error) });
+        return;
+      }
     } finally {
       this.starting = false;
+    }
+    try {
+      this.unpage = await subscribePageStreams(this.client, {
+        onConnection: (connected) => this.onConnection(connected),
+      });
+    } catch (error) {
+      this.set(failure(error));
     }
     await this.reload();
   }
@@ -103,6 +116,18 @@ export class HistoryStore {
     this.starting = false;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+    this.unpage?.();
+    this.unpage = undefined;
+  }
+
+  /** The host reports the owner link: down shows the disconnected state; back up re-reads. */
+  private onConnection(connected: boolean): void {
+    if (!connected) {
+      this.set({ connection: "disconnected", loading: false });
+    } else if (this.snapshot.connection === "disconnected") {
+      this.set({ connection: "connecting" });
+      void this.reload();
+    }
   }
 
   setText(text: string): void {
@@ -208,7 +233,7 @@ function message(error: unknown): string {
 }
 
 function failure(error: unknown): Partial<HistorySnapshot> {
-  if (isPageError(error) && error.code === "cmux.protocol.transport") {
+  if (isPageError(error) && error.code === LINK_CLOSED) {
     return { connection: "disconnected", error: error.message };
   }
   return { error: message(error) };

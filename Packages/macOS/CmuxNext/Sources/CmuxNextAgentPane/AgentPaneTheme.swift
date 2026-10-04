@@ -12,8 +12,9 @@ import Foundation
 /// to text contrast over the code card (the elevated surface): terminals
 /// tolerate a dim yellow on white that code text can't.
 enum AgentPaneTheme {
-    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.policy) -> [String: any Sendable] {
-        let page = pageColor(tokens)
+    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.policy,
+                       surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
+        let page = pageColor(tokens, surface: surface)
         var opaquePage = tokens.contentBackground
         opaquePage.alpha = 1
         return [
@@ -59,14 +60,19 @@ enum AgentPaneTheme {
     /// The page's background: the content background where panes paint it
     /// (an opaque window), clear where the window root paints the one
     /// translucent sheet (`WindowBackdrop`), as the terminal leaves it.
-    static func pageColor(_ tokens: ThemeTokens) -> ThemeRGB {
-        WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
+    /// With the user's background for `surface` (`appearance.surfaces`,
+    /// R55) it is clear: the document root paints that override once
+    /// (`WebTheme`), and translucent layers must not stack on it.
+    static func pageColor(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane,
+                          backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
+        if backgrounds.fill(for: surface, tokens: tokens) != nil { return tokens.surfaceBackground.withAlpha(0) }
+        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1) : tokens.surfaceBackground.withAlpha(0)
     }
 
     /// The color WebKit shows behind and around the page, the same as the
     /// page's own (`WebKitTab` leaves it clear in a translucent window too).
-    static func underPageColor(_ tokens: ThemeTokens) -> ThemeRGB {
-        pageColor(tokens)
+    static func underPageColor(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane) -> ThemeRGB {
+        pageColor(tokens, surface: surface)
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
@@ -77,11 +83,11 @@ enum AgentPaneTheme {
     }
 
     /// The script that applies `tokens` to a loaded page.
-    static func script(_ tokens: ThemeTokens) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: values(tokens), options: [.sortedKeys]),
+    static func script(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: values(tokens, surface: surface), options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return nil }
         // The shared web theme first (`--cmux-*`, the page background), then
         // the pane's own bridge.
-        return WebTheme(tokens).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
+        return WebTheme(tokens, surface: surface).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
     }
 }
