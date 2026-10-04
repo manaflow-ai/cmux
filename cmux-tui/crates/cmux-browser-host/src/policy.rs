@@ -221,8 +221,8 @@ pub fn is_browser_page(text: &str) -> bool {
     is_browser_page_within(text, 0)
 }
 
-/// First-party pages (`cmux-page://cmux`, `cmux-page://cmux.<id>`) are
-/// refused; third-party app pages stay allowed. Fail closed on an empty host
+/// First-party pages (`cmux-page://cmux`, `cmux-page://cmux.<id>`, and
+/// single-label shared hosts such as `cmux-page://shell`) are refused; third-party app pages stay allowed. Fail closed on an empty host
 /// or a percent escape. The same rule as the Swift and C++ copies.
 fn is_reserved_page_host(rest: &str) -> bool {
     let after = rest.trim_start_matches(['/', '\\']);
@@ -238,7 +238,8 @@ fn is_reserved_page_host(rest: &str) -> bool {
     }
     let name = host.to_lowercase();
     let name = name.trim_end_matches('.');
-    name.is_empty() || name == "cmux" || name.starts_with("cmux.")
+    // A third-party app id always has a dot; a single label ("shell") is a shared first-party host.
+    name.is_empty() || name == "cmux" || name.starts_with("cmux.") || !name.contains('.')
 }
 
 /// More nested `blob:`/`filesystem:` wrappers than this are refused (fail
