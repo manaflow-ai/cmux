@@ -117,7 +117,13 @@ public nonisolated final class ProviderConnection: Sendable {
     @discardableResult
     public func send(_ frame: ProviderFrame) throws(ProviderCodecError) -> Bool {
         guard state.withLock({ $0.closed == nil }) else { return false }
-        let bytes = try ProviderCodec.encode(frame)
+        return sendEncoded(try ProviderCodec.encode(frame))
+    }
+
+    /// Queues bytes that already carry their length prefix.
+    @discardableResult
+    func sendEncoded(_ bytes: Data) -> Bool {
+        guard state.withLock({ $0.closed == nil }) else { return false }
         writes.async { [self] in write(bytes) }
         return true
     }

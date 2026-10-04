@@ -1,3 +1,4 @@
+public import AppKit
 import CmuxNextBrowser
 public import CmuxNextBrowserAutomation
 public import CmuxNextWakeups
@@ -163,11 +164,13 @@ public final class BrowserHostProvider {
     /// a page created or released).
     public func refreshTabs() { observeTabs() }
 
-    /// A person pressed a key or clicked in a leased tab: the host pauses
-    /// the lease. False when the tab has no lease or the link is down.
+    /// A person pressed a key or clicked in tab `targetID`: when the tab is
+    /// leased, the host pauses the lease. Call only from the app's own event
+    /// dispatch (never from driver or agent input). False when the event
+    /// does not count, the tab has no lease, or the link is down.
     @discardableResult
-    public func reportUserInput(targetID: String) -> Bool {
-        guard leases[targetID] != nil, connection != nil else { return false }
+    public func reportUserInput(event: NSEvent, targetID: String) -> Bool {
+        guard ProviderUserInput.pausesLease(event), leases[targetID] != nil, connection != nil else { return false }
         send(.userInput(targetID: targetID))
         return true
     }

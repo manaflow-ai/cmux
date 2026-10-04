@@ -123,7 +123,7 @@ struct BrowserHostProviderTests {
         host.ack()
 
         // No lease: a person's input is not reported.
-        #expect(!h.provider.reportUserInput(targetID: "c1"))
+        #expect(!h.provider.reportUserInput(event: BrowserHostProviderReviewTests.key(.keyDown), targetID: "c1"))
         let lease = ProviderLease(session: "s1", actor: "agent", origin: "cli", label: "Fix", sinceMs: 1)
         host.send(.lease(targetID: "c1", lease: lease))
         host.send(.call(id: 1, method: "tabs.list", params: .object([:])))
@@ -132,7 +132,7 @@ struct BrowserHostProviderTests {
         #expect(h.marking.marked == ["c1"])
         #expect(changes.count == 1 && changes[0].0 == "c1" && changes[0].1 == lease)
 
-        #expect(h.provider.reportUserInput(targetID: "c1"))
+        #expect(h.provider.reportUserInput(event: BrowserHostProviderReviewTests.key(.keyDown), targetID: "c1"))
         #expect(await host.next() == .userInput(targetID: "c1"))
 
         host.send(.lease(targetID: "c1", lease: nil))

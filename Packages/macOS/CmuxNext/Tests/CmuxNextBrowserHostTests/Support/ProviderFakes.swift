@@ -69,6 +69,14 @@ final class FakeHost {
 
     func send(_ frame: ProviderFrame) { _ = try? link.send(frame) }
 
+    /// One length-prefixed frame body sent as it is (malformed frames).
+    func sendRaw(_ json: String) {
+        var bytes = Data()
+        withUnsafeBytes(of: UInt32(json.utf8.count).bigEndian) { bytes.append(contentsOf: $0) }
+        bytes.append(contentsOf: json.utf8)
+        link.sendEncoded(bytes)
+    }
+
     func ack() { send(.helloAck(agentBundle: "agent();", agentBundleSHA: "sha1")) }
 }
 
@@ -146,7 +154,19 @@ final class FakeRelay: ProviderDevToolsRelay {
     var echoes = true
     var echoOnly: String?
 
+    var prepared: [String] = []
+    /// Every sent message, in order, for a test that waits for a send.
+    let sentQueue: MainQueue<String>
+    private let sentFeed: AsyncStream<String>.Continuation
+
+    init() {
+        let (stream, feed) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingOldest(64))
+        sentFeed = feed
+        sentQueue = MainQueue(stream)
+    }
+
     func prepareRelay(targetID: String) async -> Bool {
+        prepared.append(targetID)
         guard holdsPrepare else { return prepareResult }
         return await withCheckedContinuation { held.append($0) }
     }
@@ -165,6 +185,7 @@ final class FakeRelay: ProviderDevToolsRelay {
 
     func send(targetID: String, message: String) -> CEFDevToolsRawSend {
         sent.append(message)
+        sentFeed.yield(message)
         if echoes, echoOnly.map({ message.contains($0) }) ?? true, let id = CEFDevToolsRawMessage.topLevelID(in: message) {
             let session = message.contains(#""sessionId":"S""#) ? #","sessionId":"S""# : ""
             let reply = #"{"id":\#(id),"result":{"ok":true}\#(session)}"#
