@@ -203,6 +203,11 @@ fn rename_target(value: &mut Value, from: &str, to: &str) {
 
 impl Driver for ProviderEngine {
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
+        // A closed session's engine can outlive the close (a timed-out cell
+        // still runs); it must not take a lease nobody will end.
+        if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(DriverError::closed("the session was closed"));
+        }
         if let Some(reason) = self.provider.closed_reason() {
             return Err(DriverError::closed(reason));
         }

@@ -47,6 +47,28 @@ pub const FIELD_MARKER: &str = "********";
 pub const NOT_ALLOWED: &str = "observe_not_allowed";
 
 const MAX_ARGS: usize = 8;
+/// Larger numbers are refused: a huge ref base would stop the page agent's
+/// ref counter for the session that holds the tab.
+const MAX_NUMBER: f64 = 1_000_000_000.0;
+
+/// Functions whose string arguments are selectors.
+const SELECTOR_METHODS: &[&str] = &["queryAll", "strictError", "splitFrames"];
+
+/// A selector that tests an attribute value (`[value^=...]`, `internal:attr=`)
+/// can read a field value one character at a time, so observe refuses it.
+fn tests_a_value(selector: &str) -> bool {
+    let lower = selector.to_ascii_lowercase();
+    lower.contains("internal:attr") || lower.split('[').skip(1).any(|part| part.contains('='))
+}
+
+fn numbers_in_range(value: &Value) -> bool {
+    match value {
+        Value::Number(n) => n.as_f64().is_some_and(|n| n.is_finite() && n.abs() <= MAX_NUMBER),
+        Value::Array(items) => items.iter().all(numbers_in_range),
+        Value::Object(map) => map.values().all(numbers_in_range),
+        _ => true,
+    }
+}
 const MAX_ARGS_BYTES: usize = 64 * 1024;
 
 /// The host-written agent-world script. It runs one allowlisted function and
@@ -90,6 +112,16 @@ const OBSERVE_SOURCE: &str = r#"async (m, ...a) => {
   };
   walk(document);
   if (!secrets.length) return value;
+  // The forms a value takes in text results: HTML-escaped (innerHTML),
+  // whitespace-collapsed and cut (describe and strictError previews).
+  const html = (v) => v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/\u00a0/g, "&nbsp;");
+  for (const v of [...secrets]) {
+    const flat = v.replace(/\s+/g, " ").trim();
+    secrets.push(html(v), flat);
+    if (flat.length > 12) secrets.push(flat.slice(0, 12));
+  }
+  for (let i = secrets.length - 1; i >= 0; i--) if (!secrets[i]) secrets.splice(i, 1);
   secrets.sort((x, y) => y.length - x.length);
   const scrub = (x) => {
     if (typeof x === "string") {
@@ -137,6 +169,19 @@ pub fn evaluate_params(params: &Value) -> Result<Value, DriverError> {
     if serde_json::to_vec(&args).map_or(usize::MAX, |bytes| bytes.len()) > MAX_ARGS_BYTES {
         return Err(DriverError::invalid("frame.observe: args are larger than 64 KiB"));
     }
+    if !args.iter().all(numbers_in_range) {
+        return Err(DriverError::invalid("frame.observe: numbers must be at most 1e9"));
+    }
+    if SELECTOR_METHODS.contains(&method)
+        && args.iter().filter_map(Value::as_str).any(tests_a_value)
+    {
+        let mut refusal = DriverError::new(
+            ErrorCode::Forbidden,
+            format!("frame.observe: {method} selectors cannot test attribute values"),
+        );
+        refusal.error_name = Some(NOT_ALLOWED.to_owned());
+        return Err(refusal);
+    }
     let mut call_args = Vec::with_capacity(args.len() + 1);
     call_args.push(Value::String(method.to_owned()));
     call_args.extend(args);
@@ -183,6 +228,24 @@ mod tests {
         for method in ["constructor", "__proto__", "toString", ""] {
             assert!(evaluate_params(&json!({"method": method})).is_err(), "{method:?}");
         }
+    }
+
+    #[test]
+    fn selectors_that_test_values_and_huge_numbers_are_refused() {
+        for selector in [
+            "input[type=password][value^=\"a\"]",
+            "internal:attr=[value=\"x\"i]",
+            "css=input[value='a']",
+        ] {
+            let error =
+                evaluate_params(&json!({"method": "queryAll", "args": [selector]})).unwrap_err();
+            assert_eq!(error.error_name.as_deref(), Some(NOT_ALLOWED), "{selector}");
+        }
+        assert!(evaluate_params(&json!({"method": "queryAll", "args": ["input#pw"]})).is_ok());
+        assert!(evaluate_params(&json!({"method": "queryAll", "args": ["[data-x]"]})).is_ok());
+        let huge = json!({"method": "snapshot", "args": [{"base": 9_007_199_254_740_991u64}]});
+        assert_eq!(evaluate_params(&huge).unwrap_err().code, ErrorCode::Invalid);
+        assert!(evaluate_params(&json!({"method": "snapshot", "args": [{"base": 40}]})).is_ok());
     }
 
     #[test]
