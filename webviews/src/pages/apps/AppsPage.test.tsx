@@ -162,6 +162,34 @@ describe("AppsPage", () => {
     );
   });
 
+  test("the host's route changes (appStore.show {app}, showInstalled) move the page without a reload", async () => {
+    const provider = new MockAppsProvider();
+    const { mountAppsPage } = await import("./main");
+    const host = dom.window.document.createElement("div");
+    dom.window.document.body.append(host);
+    let store!: AppsStore;
+    await act(async () => {
+      store = mountAppsPage(host, provider, "");
+    });
+    await act(async () => {
+      await store.start();
+    });
+    const hashChange = async (hash: string) => {
+      await act(async () => {
+        dom.window.location.hash = hash;
+        await new Promise((resolve) => dom.window.addEventListener("hashchange", resolve, { once: true }));
+      });
+      await act(async () => undefined);
+    };
+    await hashChange("#/installed");
+    expect(store.getSnapshot().tab).toBe("installed");
+    await hashChange("#/discover?app=acme.caffeinate");
+    expect(store.getSnapshot().tab).toBe("discover");
+    expect(host.querySelector(".apps-detail-name")?.textContent).toBe("Caffeinate");
+    await hashChange("#/discover?app=cmux/app-store");
+    expect(store.getSnapshot().selection).toBeUndefined();
+  });
+
   test("Japanese strings and the disconnected state", async () => {
     await render(null, "", "ja");
     expect($(".apps-empty")?.textContent).toBe("cmux が再接続するまで App Store は使用できません。");
