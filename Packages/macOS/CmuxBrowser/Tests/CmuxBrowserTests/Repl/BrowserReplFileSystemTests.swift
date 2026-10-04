@@ -308,6 +308,51 @@ struct BrowserReplFileSystemRaceTests {
         #expect(escape == nil, "\(escape ?? "")")
         #expect(!fileManager.fileExists(atPath: escaped))
     }
+
+    /// The fs holds each root open from when it first opens it: another
+    /// process that renames the working directory or the temporary root
+    /// away and puts a link to outside in its place redirects nothing.
+    @Test("A root renamed away after the fs opened it, with a link to outside in its place, is still the root")
+    func rootSwappedAfterSetupStaysTheRoot() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fileManager = FileManager.default
+        let temporary = scratch.base + "/tmp"
+        try fileManager.createDirectory(atPath: temporary, withIntermediateDirectories: true)
+        let fs = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root), temporaryDirectory: temporary)
+        let payload = Data("x".utf8).base64EncodedString()
+        // The session has used both roots once.
+        for path in ["first.txt", temporary + "/first.txt"] {
+            if case .failure(let error) = fs.perform("writeFile", arguments: ["path": path, "base64": payload]) {
+                Issue.record("\(path): \(error.message)")
+            }
+        }
+
+        // Another process moves both roots away and links them to outside.
+        let movedRoot = scratch.base + "/moved-work"
+        let movedTemporary = scratch.base + "/moved-tmp"
+        #expect(rename(scratch.root, movedRoot) == 0)
+        #expect(rename(temporary, movedTemporary) == 0)
+        try fileManager.createSymbolicLink(atPath: scratch.root, withDestinationPath: scratch.outside)
+        try fileManager.createSymbolicLink(atPath: temporary, withDestinationPath: scratch.outside)
+
+        for path in ["second.txt", temporary + "/third.txt"] {
+            if case .failure(let error) = fs.perform("writeFile", arguments: ["path": path, "base64": payload]) {
+                Issue.record("\(path): \(error.message)")
+            }
+        }
+        let read = fs.perform("readFile", arguments: ["path": "secret.txt"])
+        let listed = fs.perform("readdir", arguments: ["path": "."])
+
+        for name in ["second.txt", "third.txt"] {
+            #expect(!fileManager.fileExists(atPath: scratch.outside + "/" + name), "\(name) went through the link")
+        }
+        #expect(fileManager.fileExists(atPath: movedRoot + "/second.txt"))
+        #expect(fileManager.fileExists(atPath: movedTemporary + "/third.txt"))
+        if case .success = read { Issue.record("read outside/secret.txt through the swapped root") }
+        let names = ((try? listed.get()) as? [[String: Any]])?.compactMap { $0["name"] as? String }
+        #expect(names == ["first.txt", "second.txt"], "\(String(describing: names))")
+    }
 }
 
 /// A file that is not a regular file (a FIFO, a device) or one too large
