@@ -262,6 +262,18 @@
       "title" : "Docked Columns Opacity",
       "type" : "number"
     },
+    "appearance.surfaces.editor.color" : {
+      "description" : "appearance.surfaces.editor.color",
+      "title" : "Code Editor Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.editor.opacity" : {
+      "description" : "appearance.surfaces.editor.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Code Editor Opacity",
+      "type" : "number"
+    },
     "appearance.surfaces.home.color" : {
       "description" : "appearance.surfaces.home.color",
       "title" : "Home Color",
@@ -284,6 +296,18 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Internal Pages Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.markdown.color" : {
+      "description" : "appearance.surfaces.markdown.color",
+      "title" : "Markdown Editor Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.markdown.opacity" : {
+      "description" : "appearance.surfaces.markdown.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Markdown Editor Opacity",
       "type" : "number"
     },
     "appearance.surfaces.newTabPage.color" : {
