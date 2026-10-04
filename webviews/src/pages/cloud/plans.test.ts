@@ -136,7 +136,6 @@ describe("no machine image configured", () => {
   test("one page alert at a time: a later error or plan refusal replaces the no-image banner", async () => {
     const provider = new MockCloudProvider();
     provider.noSnapshotConfigured = true;
-    provider.account.plan.max_active = 1;
     const { store } = await started(provider);
     await store.restoreSnapshot(provider.snapshots[0]!);
     expect(store.getSnapshot().blocked).toBe("no_snapshot_configured");
@@ -149,6 +148,7 @@ describe("no machine image configured", () => {
     await store.restoreSnapshot(provider.snapshots[0]!);
     expect(store.getSnapshot().blocked).toBe("no_snapshot_configured");
     const paused = store.getSnapshot().machines.find((m) => m.status === "paused")!;
+    provider.account.plan.max_active = 1;
     await store.resume(paused.id);
     expect(store.getSnapshot().refusal?.kind).toBe("quota_exceeded");
     expect(store.getSnapshot().blocked).toBeUndefined();
