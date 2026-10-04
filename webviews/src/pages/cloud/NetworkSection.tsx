@@ -4,7 +4,7 @@
 // tunnel controls stay minimal and labeled: `cmux link` will own the tunnel of this Mac.
 import { useState } from "react";
 import { CloudOps, type FirewallEndpoint } from "./ops";
-import { isUnavailable, plainKeys, PortField, Unavailable, type SectionProps } from "./sectionParts";
+import { isUnavailable, PortField, Unavailable, type SectionProps } from "./sectionParts";
 import { L } from "./strings";
 
 function endpoint(value: FirewallEndpoint, t: (key: string) => string): string {
@@ -42,7 +42,6 @@ function FirewallForm({ store, machine, t }: Pick<SectionProps, "store" | "machi
             aria-label={t(L.firewallSource)}
             value={source}
             onChange={(event) => setSource(event.target.value)}
-            onKeyDown={plainKeys(() => undefined)}
           />
           <input
             className="cloud-input cloud-firewall-note"
@@ -50,7 +49,6 @@ function FirewallForm({ store, machine, t }: Pick<SectionProps, "store" | "machi
             aria-label={t(L.firewallDescription)}
             value={note}
             onChange={(event) => setNote(event.target.value)}
-            onKeyDown={plainKeys(() => undefined)}
           />
         </>
       }

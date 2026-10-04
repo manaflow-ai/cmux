@@ -34,10 +34,11 @@ namespace, plus the native UI op `cmux.app.action.run`.
   from the page (ops.ts `NATIVE_ACTIONS`). The page calls
   `cmux.app.action.run {action: <op name>, args}`; the host shows the native confirmation (or file
   panel), stamps origin user and runs the op. A declined sheet answers `{confirmed: false}`.
-- Publication create always sends the access mode the form shows (default `personal`), so the
-  confirmation names the mode that applies; `public` also sends `confirmPublic: true`.
+- Publication create always sends the access mode the form shows, so the confirmation names the
+  mode that applies. The form starts at the Cloud API's default (team access in a team, else only
+  me) and offers no team access without a team; `public` also sends `confirmPublic: true`.
 - Files read nothing until Browse. A preview states the file first and reads it only when it is at
-  most 256 KiB; larger files show their size. Ports show the `127.0.0.1` port the owner answered.
+  most 256 KiB; larger files show their size, and an item with no size (a symlink) is not read. Ports show the `127.0.0.1` port the owner answered.
 - No Cmd or Ctrl chord handling. Plain Up/Down/Return/Escape in a focused list or field only.
 
 ## Ops the server does not serve yet

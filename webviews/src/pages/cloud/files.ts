@@ -32,6 +32,8 @@ export interface FilePreview {
   tooLarge?: boolean;
   /** Not valid UTF-8 text. */
   binary?: boolean;
+  /** The owner gave no size (a symlink, for example): not read. */
+  unread?: boolean;
 }
 
 export interface FilesView {
@@ -42,6 +44,8 @@ export interface FilesView {
 }
 
 export interface FilesHost {
+  /** The detail's selection epoch (detail.ts `epoch`): a reply from an older selection is dropped. */
+  epoch(): number;
   get(): MachineDetail | undefined;
   set(detail: MachineDetail): void;
   fail(error: unknown): void;
@@ -82,8 +86,9 @@ function encodeText(text: string): string {
 }
 
 export class FilesReader {
-  /** Bumped by each listing: an older listing's reply is dropped. */
+  /** Bumped by each listing and each preview: an older reply is dropped. */
   private generation = 0;
+  private previewGeneration = 0;
 
   constructor(
     private readonly client: PageClient | null,
@@ -95,15 +100,16 @@ export class FilesReader {
     const machine = this.machine();
     if (!machine) return;
     const generation = ++this.generation;
+    const epoch = this.host.epoch();
     const current = this.host.get()?.files;
     const kept = current?.path === path ? current.entries : undefined;
     this.update(machine, { path, entries: kept, loading: true });
     try {
       const result = await this.client!.call<FsListResult>(CloudOps.fsList, { machine, path });
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || epoch !== this.host.epoch()) return;
       this.update(machine, { path: result.path ?? path, entries: result.entries, loading: false });
     } catch (error) {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || epoch !== this.host.epoch()) return;
       this.update(machine, { path, entries: kept ?? [], loading: false });
       this.reject(machine, CloudOps.fsList, error);
     }
@@ -118,19 +124,28 @@ export class FilesReader {
   async preview(path: string): Promise<void> {
     const machine = this.machine();
     if (!machine) return;
+    const generation = ++this.previewGeneration;
+    const epoch = this.host.epoch();
+    const current = () => generation === this.previewGeneration && epoch === this.host.epoch();
+    let op: string = CloudOps.fsStat;
     try {
       const stat = await this.client!.call<FsEntry>(CloudOps.fsStat, { machine, path });
+      if (!current()) return;
       if (stat.kind === "directory") return this.open(path);
-      const size = stat.size ?? 0;
-      if (size > PREVIEW_LIMIT) return this.showPreview(machine, { path, size, tooLarge: true });
+      // No size (a symlink states the link): reading could move up to the server's 16 MiB.
+      if (stat.size == null || stat.kind !== "file") return this.showPreview(machine, { path, size: 0, unread: true });
+      if (stat.size > PREVIEW_LIMIT) return this.showPreview(machine, { path, size: stat.size, tooLarge: true });
+      op = CloudOps.fsRead;
       const read = await this.client!.call<FsReadResult>(CloudOps.fsRead, { machine, path });
+      if (!current()) return;
+      if (read.size > PREVIEW_LIMIT) return this.showPreview(machine, { path, size: read.size, tooLarge: true });
       const text = decodeText(read.dataBase64);
       this.showPreview(
         machine,
         text === undefined ? { path, size: read.size, binary: true } : { path, size: read.size, text },
       );
     } catch (error) {
-      this.reject(machine, CloudOps.fsStat, error);
+      if (current()) this.reject(machine, op, error);
     }
   }
 
@@ -139,10 +154,10 @@ export class FilesReader {
     if (detail?.files?.preview) this.host.set({ ...detail, files: { ...detail.files, preview: undefined } });
   }
 
-  /** Writes the whole file (`fs.write`), then shows the saved text. */
-  async save(path: string, text: string): Promise<void> {
+  /** Writes the whole file (`fs.write`), then shows the saved text. Answers false when nothing was written. */
+  async save(path: string, text: string): Promise<boolean> {
     const machine = this.machine();
-    if (!machine || !this.host.canChange()) return;
+    if (!machine || !this.host.canChange()) return false;
     const dataBase64 = encodeText(text);
     try {
       const result = await this.client!.call<{ size: number }>(CloudOps.fsWrite, {
@@ -151,10 +166,12 @@ export class FilesReader {
         dataBase64,
         idempotency_key: this.host.key(),
       });
-      this.showPreview(machine, { path, size: result?.size ?? text.length, text });
+      this.showPreview(machine, { path, size: result?.size ?? new TextEncoder().encode(text).length, text });
       await this.refresh(machine);
+      return true;
     } catch (error) {
       this.reject(machine, CloudOps.fsWrite, error);
+      return false;
     }
   }
 

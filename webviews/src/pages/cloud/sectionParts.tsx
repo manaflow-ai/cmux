@@ -71,7 +71,13 @@ export function PortField({
         onChange={(event) => setValue(event.target.value.replace(/[^0-9]/g, ""))}
         onKeyDown={plainKeys(submit)}
       />
-      <button type="button" className={`cloud-button ${buttonClass}`} aria-disabled={!valid} onClick={submit}>
+      <button
+        type="button"
+        className={`cloud-button ${buttonClass}`}
+        aria-label={label}
+        aria-disabled={!valid}
+        onClick={submit}
+      >
         {button}
       </button>
     </span>

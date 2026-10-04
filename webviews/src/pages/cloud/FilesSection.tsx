@@ -17,6 +17,7 @@ function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detai
     if (preview.tooLarge)
       return <p className="cloud-muted">{format(t(L.filesTooLarge), { size: formatBytes(preview.size, strings) })}</p>;
     if (preview.binary) return <p className="cloud-muted">{t(L.filesBinary)}</p>;
+    if (preview.unread) return <p className="cloud-muted">{t(L.filesNoPreview)}</p>;
     if (draft !== null)
       return (
         <textarea
@@ -30,8 +31,8 @@ function Preview({ store, detail, strings }: Pick<SectionProps, "store" | "detai
   };
   const save = () => {
     if (draft === null) return;
-    void store.files.save(preview.path, draft);
-    setDraft(null);
+    // The draft stays until the write succeeds, so a failed or refused save loses no text.
+    void store.files.save(preview.path, draft).then((saved) => saved && setDraft(null));
   };
   return (
     <div className="cloud-file-view">
@@ -86,7 +87,13 @@ function NewFolder({ store, t }: { store: SectionProps["store"]; t: (key: string
         onChange={(event) => setName(event.target.value)}
         onKeyDown={plainKeys(submit)}
       />
-      <button type="button" className="cloud-button cloud-folder-add" aria-disabled={!name.trim()} onClick={submit}>
+      <button
+        type="button"
+        className="cloud-button cloud-folder-add"
+        aria-label={t(L.filesNewFolder)}
+        aria-disabled={!name.trim()}
+        onClick={submit}
+      >
         +
       </button>
     </span>

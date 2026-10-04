@@ -4,6 +4,7 @@
 // real resource.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { sampleAccount, sampleMachines, sampleSnapshots, sampleStats } from "./mockData";
+import { joinPath } from "./files";
 import { MockEdge, MockFiles, only } from "./mockEdge";
 import {
   ACTION_RUN,
@@ -214,7 +215,8 @@ export class MockCloudProvider implements PageClient {
   private publish(p: Params): CloudPublication {
     only(p, ["machine", "port", "accessMode", "hostname", "teamId", "confirmPublic"]);
     const machine = this.machine(p);
-    const accessMode = (p.accessMode ?? "personal") as AccessMode;
+    // The Cloud API's default: team access for a team machine, else personal.
+    const accessMode = (p.accessMode ?? (this.account.team ? "team" : "personal")) as AccessMode;
     if (accessMode === "public" && p.confirmPublic !== true)
       throw pageError("cmux.cloud.invalid_args", "public access needs confirmPublic: true");
     const hostname = typeof p.hostname === "string" ? p.hostname : `test-label-${this.nextId++}.cmux.sh`;
@@ -452,7 +454,7 @@ function hostFields(action: string, args: Params): Params {
     case CloudOps.tunnelRotateKey:
       return { deviceFingerprint: "mock-device", clientPublicKey: `${"A".repeat(43)}=`, ...args };
     case CloudOps.filePush:
-      return { ...args, localPath: "/Users/dev/upload.txt", path: `${String(args.path)}/upload.txt` };
+      return { ...args, localPath: "/Users/dev/upload.txt", path: joinPath(String(args.path), "upload.txt") };
     case CloudOps.filePull:
       return { ...args, localPath: "/Users/dev/Downloads/pulled" };
     default:
