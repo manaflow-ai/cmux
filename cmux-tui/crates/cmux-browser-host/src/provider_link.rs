@@ -90,32 +90,31 @@ const EXTENSION_REFUSAL_HINT: &str = "open the tab with openBrowser profile \"ag
 /// tabs the last `tab.access` report (interim extension rule).
 #[derive(Default)]
 struct TabTable {
-    engines: HashMap<String, String>,
-    /// The main-frame URL of each tab (hello, tab.announced, tab.navigated).
-    urls: HashMap<String, String>,
     /// targetId -> (extension_host_access, user_override, extension names).
     access: HashMap<String, (bool, bool, Vec<String>)>,
-    /// Every announced tab, in announce order (`tabs.list`).
+    /// Every announced tab, in announce order (`tabs.list`): the one record
+    /// of each tab's engine and main-frame URL (hello, tab.announced,
+    /// tab.navigated). The checks read it; nothing copies it.
     info: Vec<TabAnnounce>,
 }
 
 impl TabTable {
     fn announce(&mut self, tab: &TabAnnounce) {
-        self.engines.insert(tab.target_id.clone(), tab.engine.clone());
-        self.urls.insert(tab.target_id.clone(), tab.url.clone());
         match self.info.iter_mut().find(|known| known.target_id == tab.target_id) {
             Some(known) => *known = tab.clone(),
             None => self.info.push(tab.clone()),
         }
     }
 
+    fn tab(&self, target_id: &str) -> Option<&TabAnnounce> {
+        self.info.iter().find(|tab| tab.target_id == target_id)
+    }
+
     fn engine(&self, target_id: &str) -> Option<String> {
-        self.engines.get(target_id).cloned()
+        self.tab(target_id).map(|tab| tab.engine.clone())
     }
 
     fn forget(&mut self, target_id: &str) {
-        self.engines.remove(target_id);
-        self.urls.remove(target_id);
         self.access.remove(target_id);
         self.info.retain(|tab| tab.target_id != target_id);
     }
@@ -139,7 +138,6 @@ impl TabTable {
                         payload.get("url").and_then(Value::as_str),
                     )
                 {
-                    self.urls.insert(target_id.to_owned(), url.to_owned());
                     if let Some(tab) = self.info.iter_mut().find(|t| t.target_id == target_id) {
                         tab.url = url.to_owned();
                     }
@@ -160,7 +158,7 @@ impl TabTable {
     /// holds host access on its page, or the person's override: fail closed.
     fn refusal(&self, method: &str, target_id: &str) -> Option<DriverError> {
         // D1: a tab that shows a browser page is never driven, on any engine.
-        if let Some(url) = self.urls.get(target_id)
+        if let Some(url) = self.tab(target_id).map(|tab| &tab.url)
             && crate::policy::is_browser_page(url)
         {
             let mut error = DriverError::new(
@@ -170,7 +168,7 @@ impl TabTable {
             error.error_name = Some(BROWSER_PAGE.to_owned());
             return Some(error);
         }
-        if self.engines.get(target_id).map(String::as_str) == Some("webkit") {
+        if self.tab(target_id).is_some_and(|tab| tab.engine == "webkit") {
             return None;
         }
         let (message, names) = match self.access.get(target_id) {
