@@ -243,6 +243,24 @@ path. The next marks go into the host's Launch step (PTY open, terminal setup).
 11. A1: a close during adoption (a test hook holds the launch job between adopt and the `running`
     commit) leaves no host process and no `running` row.
 
+## 8a. Gaps found while writing the red tests (2026-10-04, need a decision)
+
+- G1, incarnation in the reply (A2): the host picks the incarnation during Bootstrap, so at accept
+  time the daemon does not know it. Stage A without a host wire change: the reply carries
+  `terminal_incarnation: null` while `launching`, and the `terminal-lifecycle` event for
+  `launching -> running` carries it. The other choice, the daemon picks the incarnation and sends
+  it in Bootstrap, changes the host protocol (cloud guest upgrade rules apply). The red tests use
+  the first choice.
+- G2, no terminal respawn op exists today. Stage A adds `relaunch-terminal {terminal_id, env?,
+  shell_args?, cwd?}` (same id and placement, new incarnation, clean shell) and
+  `send-kept-input {terminal_id}` (sends the kept bytes once, then clears them).
+- G3, `send` to a launching terminal returns `{delivery:"queued"}` (today `{}`); `paste:true`
+  decides the bracketed-paste wrapping when the queue is flushed, from the started terminal's
+  mode 2004. A refused write uses error code `terminal.launch_input_budget`.
+- G4, test hooks for the crash windows (test daemons only): `CMUX_TUI_TEST_LAUNCH_JOB_DELAY_MS`,
+  `CMUX_TUI_TEST_ACCEPT_COMMIT_DELAY_MS`, `CMUX_TUI_TEST_ACTIVATE_DELAY_MS`,
+  `CMUX_TUI_TEST_ADOPT_HOLD_MS`.
+
 ## 9. Order
 
 1. Debug marks (section 7), bench numbers in this file.
