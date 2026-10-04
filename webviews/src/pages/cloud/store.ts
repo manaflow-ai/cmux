@@ -78,6 +78,8 @@ export interface CloudState {
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
   refusal?: PlanRefusal;
+  /** A restore the backend cannot serve yet (no machine image configured): its own sentence. */
+  blocked?: "no_snapshot_configured";
   selection?: string;
   detail?: MachineDetail;
   create?: CreateDraft;
@@ -276,7 +278,8 @@ export class CloudStore {
   }
 
   dismissError(): void {
-    if (this.state.error || this.state.refusal) this.set({ error: undefined, refusal: undefined });
+    if (this.state.error || this.state.refusal || this.state.blocked)
+      this.set({ error: undefined, refusal: undefined, blocked: undefined });
   }
 
   // Create sheet.
@@ -337,7 +340,7 @@ export class CloudStore {
     } catch (error) {
       this.dropIntent(draft.key);
       const refusal = planRefusal(error, this.state.plan?.upgrade_plan);
-      const blocked = isPageError(error) && error.code === CloudErrors.noSnapshotConfigured;
+      const blocked = noImage(error);
       const outcome = refusal
         ? { refusal }
         : blocked
@@ -593,7 +596,8 @@ export class CloudStore {
    */
   private fail(op: string, error: unknown): void {
     if (this.refused(error)) return;
-    if (isUnsupported(error)) this.markUnavailable(op);
+    if (noImage(error)) this.set({ blocked: "no_snapshot_configured" });
+    else if (isUnsupported(error)) this.markUnavailable(op);
     else this.set(failure(error));
   }
 
@@ -649,6 +653,7 @@ function signedOutState(): Partial<CloudState> {
     plan: undefined,
     migration: undefined,
     refusal: undefined,
+    blocked: undefined,
     selection: undefined,
     detail: undefined,
     create: undefined,
@@ -661,6 +666,11 @@ function signedOutState(): Partial<CloudState> {
 function revisionOf(result: unknown): number | undefined {
   const revision = (result as { revision?: unknown } | null)?.revision;
   return typeof revision === "number" ? revision : undefined;
+}
+
+/** The backend has no machine image yet (`cloud.no_snapshot_configured`): create and restore cannot run. */
+function noImage(error: unknown): boolean {
+  return isPageError(error) && error.code === CloudErrors.noSnapshotConfigured;
 }
 
 function message(error: unknown): string {
