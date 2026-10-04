@@ -47,8 +47,9 @@ export const projectRows = async (env: Env, stream: string, rows: ReadonlyArray<
       const s = await impl[shadow](env, stream, mirrored)
       if (s.dead.length > 0) console.error(JSON.stringify({ event: "projection.shadow.dead", level: "error", stream, target: shadow, rows: s.dead.map((d) => d.id) }))
     } catch (e) {
-      const code = (e as { code?: unknown; errno?: unknown } | null) ?? {}
-      console.error(JSON.stringify({ event: "projection.shadow.failed", level: "error", stream, target: shadow, rows: mirrored.length, code: String(code.code ?? code.errno ?? "") }))
+      // Codes only, never the server message (it can quote row values).
+      const err = (e as { code?: unknown; errno?: unknown; sqlState?: unknown } | null) ?? {}
+      console.error(JSON.stringify({ event: "projection.shadow.failed", level: "error", stream, target: shadow, rows: mirrored.length, code: String(err.code ?? ""), errno: typeof err.errno === "number" ? err.errno : null, sql_state: typeof err.sqlState === "string" ? err.sqlState : null }))
     }
   }
   return result
