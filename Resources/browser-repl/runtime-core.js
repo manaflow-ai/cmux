@@ -1064,15 +1064,22 @@
     }
     // This frame's <iframe> (or <frame>) element, as a handle in the parent
     // frame, which the driver confirms shows this frame. The element a
-    // locator entered the frame through is tried first.
+    // locator entered the frame through is tried first, then the one the
+    // frame's own place in window.frames names; a frame in a shadow tree is
+    // looked for within the parent's node budget only (the page sets the
+    // parent's size).
     async _ownerHandle() {
       const parent = this._parent;
       if (this._ownerHint && (await parent._contentFrame(this._ownerHint).catch(() => null)) === this) return this._ownerHint;
-      const handles = await parent._agent("iframeHandles");
-      const frames = await parent._contentFrames(handles);
+      const position = await this._agent("framePosition");
+      const found = await parent._agent("iframeHandles", position);
+      const frames = await parent._contentFrames(found.handles);
       const i = frames.indexOf(this);
-      if (i < 0) throw Object.assign(new Error(`The <iframe> of frame ${this._url || this._id} is not in its parent frame`), { code: "stale" });
-      return handles[i];
+      if (i >= 0) return found.handles[i];
+      const name = this._url || this._id;
+      throw Object.assign(new Error(found.truncated
+        ? `The <iframe> of frame ${name} is in a shadow tree past the parent frame's node budget (250000 elements), so it is not looked for`
+        : `The <iframe> of frame ${name} is not in its parent frame`), { code: "stale" });
     }
     // `point` of this frame in tab viewport coordinates, through each
     // owner <iframe>'s content box. Input goes to the tab at that point, so

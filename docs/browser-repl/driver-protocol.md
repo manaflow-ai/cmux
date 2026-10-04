@@ -184,7 +184,11 @@ frame navigates; after navigation the driver reinstalls it before the next call.
 Input to an element in a child frame goes to the tab at the element's point
 plus each owner `<iframe>`'s content box, found in the parent frame's agent
 world through the `<iframe>` element that `frame.contentFrame` confirms shows
-the frame. That sum is where the frame's content is only when the `<iframe>`
+the frame: the one a locator entered the frame through, else the one the
+frame's own place in the parent's `window.frames` names. A frame in a shadow
+tree is not listed there; its `<iframe>` is looked for in at most 250000
+elements of the parent (the snapshot's node budget), and an action there
+fails past it, so a page cannot make each action walk its whole DOM. That sum is where the frame's content is only when the `<iframe>`
 and its ancestors (in the flat tree, through slots and shadow hosts) move it
 by translations at most: when one of them has a scale, rotation, skew,
 `zoom`, `perspective`, `offset-path` or an SVG drawing around it, the action
