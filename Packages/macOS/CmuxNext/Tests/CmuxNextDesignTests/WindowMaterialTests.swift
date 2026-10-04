@@ -61,6 +61,19 @@ struct WindowMaterialTests {
         #expect(WindowBackdrop(tokens).tintOpacity == 0.75)
         #expect(WindowBackdrop(tokens, reduceTransparency: true).material == .opaque)
     }
+
+    @Test func wallpaperTintOpacityUsesThemeContrast() {
+        let dark = ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha)
+        let light = ThemeTokens.derive(from: ThemeFixtures.githubLight)
+        let darkBackdrop = WindowBackdrop(dark, selection: .art(.wheatField))
+        let lightBackdrop = WindowBackdrop(light, selection: .art(.wheatField))
+
+        #expect(darkBackdrop.tintOpacity == dark.wallpaperTintOpacity)
+        #expect(lightBackdrop.tintOpacity == light.wallpaperTintOpacity)
+        #expect(darkBackdrop.tintOpacity < 1)
+        #expect(lightBackdrop.tintOpacity < 1)
+        #expect(darkBackdrop.tintOpacity != lightBackdrop.tintOpacity)
+    }
 }
 
 /// cmux.json's `appearance.backgroundOpacity` / `appearance.backgroundBlur`
