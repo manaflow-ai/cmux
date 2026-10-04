@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 7 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 8 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -112,7 +112,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 7)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 8)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -160,6 +160,23 @@ crashed, slow or unsure, the tool does not run.
    - **No secrets on argv (P2-O):** the inline JSON is visible in `ps`, so it carries no token or
      key. The daemon's hook and MCP servers authenticate the session by peer credentials, or read a
      secret from the environment, or the config goes through `--mcp-config /dev/fd/N`.
+   - **No mode changes (P2-O):** acpmux forwards `session/set_mode` straight to Claude as
+     `set_permission_mode`, and disabled bypass does not stop `acceptEdits` (edits with no
+     permission step). For a remote-chain session acpmux refuses `session/set_mode` and
+     `set_config_option` from every client.
+   - **Narrow working folder (P1-M):** the remote-chain process starts in a folder that holds only
+     the memory and conversation files (the read root), not all of `$MUX_HOME`. The probe lists
+     which built-in tools skip the permission step and checks that Read deny rules also apply to
+     Grep and Glob.
+   - **No env in the JSON (P3-L):** the mux host's `writeSessionDir` puts an `env` block
+     (`MUX_HOME`, socket paths, `ACPMUX_*`, `CMUX_MCP_COMMAND`) into settings; for a remote chain
+     the inline settings and MCP JSON carry no env values, tokens or keys. Those values go only in
+     the process environment.
+   - **What a clean start drops (P3-M):** with `--setting-sources ""` the session's
+     `.claude/settings.json` (memory hooks, `PATH` for mux) and probably `CLAUDE.md` (the Chief's
+     system prompt) do not load. The agent host passes the Chief's prompt with
+     `--append-system-prompt`, puts the remote-log hooks in the inline settings, and sets the
+     subrouter base URL (the model route that `claude-sr` gave) in the process environment.
    - **Task** is a child spawn under rule 1: each Task call asks the daemon; only the built-in
      general subagent type is allowed, and it runs under the same settings and deny rules. User and repository `permissions.allow` rules, hooks and `.mcp.json` never
    load. The Claude Code version is pinned and checked at spawn; profile wrappers (for example
@@ -214,10 +231,13 @@ crashed, slow or unsure, the tool does not run.
     fake `[mux-event]` line or a fake "Message from user_local:" line stay data. If the pinned
     version does not keep an embedded resource out of prompt parsing, the fallback is a random
     per-prompt nonce delimiter, and remote text that contains the nonce is refused.
-    The pinned Claude ACP adapter may turn an embedded resource into `<context ref=...>...</context>`
-    text, which the remote text could close (P2-P). So remote text that contains `</context>` (in any
-    case or spacing) is refused, and if the probe shows any other way out, the nonce block is used
-    always.
+    Code fact (P2-M): acpmux's `claude_stdio/outbound.rs` `resource_text` turns every ACP resource
+    block into plain text `<resource uri="...">\n{text}\n</resource>` with no escaping, so remote
+    text could close it. Rule: for remote text acpmux uses a random per-prompt delimiter instead of
+    the `<resource>` tags, and refuses remote text that contains the delimiter; until then it escapes
+    `</resource` (any case or spacing) in the text. The adapter version is pinned with Claude, and a
+    probe checks that a later stream-json text block that starts with `/` or contains `@path` is not
+    parsed as a command or an import.
 11. **Hooks (D-H).** Only the injected hooks run (rule 4): the cmux-tui status hooks (journal events,
     no command built from the text) and the daemon's fast-allow hook. No hook gets remote text as
     shell input. The mux host's memory hooks do not write `LOG.txt` or `TREE/` for a remote chain:
@@ -253,7 +273,12 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
   denied, and a Read inside the read root still reaches the daemon.
 - revoke, re-pair, and the next chain starts fresh (no earlier remote-chain session is resumed).
 - the spawn argv contains no value from the secrets list.
-- remote text `</context>` followed by a fake host line is refused (or stays inside the block).
+- remote text `</resource>` followed by a fake `[mux-event]` line stays inside the block.
+- `session/set_mode` (`acceptEdits`) and `set_config_option` for a remote-chain session are
+  refused from every client, and an Edit still asks the daemon.
+- the inline settings and MCP JSON carry no env block, token, key or socket path value.
+- the remote-chain process starts in the narrow working folder; Read deny rules also stop Grep
+  and Glob on the deny paths.
 - bypass refused from `--settings` (gate, rule 5); `--dangerously-skip-permissions` refused.
 - a missing, crashing or slow PreToolUse hook ends in the daemon's decision.
 - a user `Bash(*)` allow rule does not skip the daemon; `MUX_POLICY=approve-all`, `--policy`,
