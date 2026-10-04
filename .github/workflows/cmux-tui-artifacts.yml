@@ -47,23 +47,21 @@ on:
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   push:
     branches: [main, feat-cmux-next, "cmux-tui-pin-*"]
-    paths:
-      - "cmux-tui/**"
-      - "ghostty"
-      - "ghostty-next"
-      - ".github/workflows/cmux-tui-artifacts.yml"
-      - ".github/workflows/cmux-tui-build-package.yml"
+    # The branch itself is trusted. Run on every base-branch advance so a
+    # Swift-only change can repair a missing cmux-tui tree publication before
+    # downstream app jobs try to fetch it.
   # Same-repository PRs need a tree-addressed binary for cmux-next's merge
   # checks. This is pull_request_target so the workflow definition and publish
   # steps come from the trusted base branch; the build job receives no R2
   # credentials and only hands the publisher an opaque binary artifact.
   pull_request_target:
     branches: [feat-cmux-next]
-    # Run for every same-repository cmux-next PR. A PR that changes only Swift
-    # can still need the base tree publication: the base branch may have moved
-    # past a failed or never-triggered cmux-tui producer, and pin-cmux-tui.sh
-    # must not wait forever on that missing key. The build and publisher remain
-    # trusted and are guarded below; the immutable tree key deduplicates work.
+    paths:
+      - "cmux-tui/**"
+      - "ghostty"
+      - "ghostty-next"
+      - ".github/workflows/cmux-tui-artifacts.yml"
+      - ".github/workflows/cmux-tui-build-package.yml"
   workflow_dispatch:
     inputs:
       macos_runner:
