@@ -19,6 +19,18 @@ export type HomeRateGate = { readonly ok: true } | { readonly ok: false; readonl
 export const isHomeRateOp = (op: string): op is HomeRateOp => Object.hasOwn(HOME_RATE_LIMITS, op)
 
 /**
+ * All of an owner's chiefs together get CHIEF_TOTAL_FACTOR times the per-actor limit per hour
+ * (180 conversation.create, 360 participants.add), counted under CHIEF_TOTAL_ACTOR besides each
+ * chief's own budget. Without it an archive-and-create loop of chiefs would mint fresh budgets.
+ * 3 lets an owner run three chiefs at full rate at once (a default chief plus two task chiefs is
+ * the common case) while capping a chief-driven flood at three humans' worth.
+ */
+export const CHIEF_TOTAL_FACTOR = 3
+/** Not a valid principal id (no `user_`/`agent_` prefix), so it never collides with an actor. */
+export const CHIEF_TOTAL_ACTOR = "chiefs:total"
+const isChiefActor = (actor: string) => actor.startsWith("agent_")
+
+/**
  * The decision for one attempt at `now`, given the attempts already counted in the window.
  * Refused: wait until the oldest counted attempt leaves the window.
  */
@@ -38,10 +50,14 @@ export const homeRateTakeSql = (sql: SqlStore, actor: string, op: HomeRateOp, no
   sql.exec(`CREATE TABLE IF NOT EXISTS home_rate (actor TEXT NOT NULL, op TEXT NOT NULL, at INTEGER NOT NULL)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS home_rate_by_actor ON home_rate (actor, op, at)`)
   sql.exec(`DELETE FROM home_rate WHERE at <= ?`, now - HOME_RATE_WINDOW_MS)
-  const times = sql.exec<{ at: number }>(`SELECT at FROM home_rate WHERE actor = ? AND op = ?`, actor, op).map((r) => Number(r.at))
-  const gate = homeRateDecision(times, now, HOME_RATE_LIMITS[op])
-  if (gate.ok) sql.exec(`INSERT INTO home_rate (actor, op, at) VALUES (?, ?, ?)`, actor, op, now)
-  return gate
+  const decide = (who: string, limit: number) => homeRateDecision(sql.exec<{ at: number }>(`SELECT at FROM home_rate WHERE actor = ? AND op = ?`, who, op).map((r) => Number(r.at)), now, limit)
+  // A chief's attempt needs room in its own budget and in the owner's chief total; it counts in both.
+  const counted = isChiefActor(actor) ? [actor, CHIEF_TOTAL_ACTOR] : [actor]
+  const gates = counted.map((who) => decide(who, who === CHIEF_TOTAL_ACTOR ? HOME_RATE_LIMITS[op] * CHIEF_TOTAL_FACTOR : HOME_RATE_LIMITS[op]))
+  const refused = gates.filter((g): g is Extract<HomeRateGate, { ok: false }> => !g.ok)
+  if (refused.length > 0) return { ok: false, retry_after_ms: Math.max(...refused.map((g) => g.retry_after_ms)) }
+  for (const who of counted) sql.exec(`INSERT INTO home_rate (actor, op, at) VALUES (?, ?, ?)`, who, op, now)
+  return { ok: true }
 }
 
 interface RateStub {

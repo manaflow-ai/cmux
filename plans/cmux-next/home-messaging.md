@@ -306,6 +306,8 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   `home.rate_limited`, retryable, `details.retry_after_ms` (until the oldest counted attempt
   leaves the hour). Reach lookups are capped at 64 targets per op after the gate (TeamDO checks
   the cap too). `dm.open` with a user peer spends the `conversation.create` budget.
+  All of an owner's chiefs together also share a total of 3x the per-actor limit per hour (180
+  and 360), so archiving and creating chiefs mints no fresh budget.
 - Per network: Cloudflare rate limiting on `invite.create`, `dm.open` with an address, and
   `invite.preview`: 30 per minute per IP.
 - Content: inviter text appears in the invite only for trusted inviters (verified email, account
