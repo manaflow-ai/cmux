@@ -118,8 +118,8 @@ import Testing
                                   options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
         #expect(host.acceptsMouse(at: NSPoint(x: 20, y: 20)), "inside the tab")
         #expect(!host.acceptsMouse(at: NSPoint(x: 600, y: 300)), "the rest of the window stays usable")
-        #expect(host.wantsKey(forClickIn: host.panel), "a click inside the tab gives the dialog the keyboard")
-        #expect(!host.wantsKey(forClickIn: main), "a click outside gives it back to the window")
+        #expect(host.wantsKey(forClickIn: host.panel, at: NSPoint(x: 20, y: 20)), "a click inside the tab gives the dialog the keyboard")
+        #expect(!host.wantsKey(forClickIn: main, at: NSPoint(x: 600, y: 300)), "a click outside gives it back to the window")
 
         let resized = NSRect(x: 400, y: 0, width: 300, height: 600)
         dialog.update(anchor: resized, modalRegion: resized)
@@ -127,6 +127,46 @@ import Testing
         #expect(!host.acceptsMouse(at: NSPoint(x: 20, y: 20)), "the old region is free")
         #expect(dialog.content.frame.midX == resized.midX, "the dialog moved too")
         dialog.dismiss()
+    }
+
+    /// After the pointer leaves a tab dialog's region, a click outside it
+    /// reaches the window even if the panel still took the mouse (no move
+    /// event switched it off first).
+    @Test func aClickOutsideTheRegionReachesTheWindow() {
+        let main = makeMain()
+        defer { close(main) }
+        let target = ClickRecorder(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        main.contentView = target
+        let host = WindowOverlayHost.host(for: main)
+        let tab = NSRect(x: 0, y: 0, width: 300, height: 600)
+        let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)),
+                                  options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
+        host.panel.ignoresMouseEvents = false
+        host.panel.sendEvent(Self.mouseDown(at: NSPoint(x: 600, y: 300), in: host.panel))
+        #expect(target.clicks == 1, "the click went on to the window")
+        #expect(host.panel.ignoresMouseEvents, "the panel let go of the mouse")
+        #expect(!host.wantsKey(forClickIn: host.panel, at: NSPoint(x: 600, y: 300)))
+        #expect(host.wantsKey(forClickIn: host.panel, at: NSPoint(x: 100, y: 300)))
+        dialog.dismiss()
+    }
+
+    /// Dismissing a tab dialog after the person moved on to another view
+    /// leaves the keyboard there.
+    @Test func dismissingATabDialogKeepsFocusWhereThePersonMovedIt() {
+        let main = makeMain()
+        defer { close(main) }
+        let before = NSTextField(frame: NSRect(x: 400, y: 10, width: 100, height: 22))
+        let later = NSTextField(frame: NSRect(x: 400, y: 60, width: 100, height: 22))
+        main.contentView?.addSubview(before)
+        main.contentView?.addSubview(later)
+        main.makeFirstResponder(before)
+        let host = WindowOverlayHost.host(for: main)
+        let tab = NSRect(x: 0, y: 0, width: 300, height: 600)
+        let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)),
+                                  options: OverlayOptions(kind: .dialog, anchor: tab, isModal: true, modalRegion: tab))
+        main.makeFirstResponder(later)
+        dialog.dismiss()
+        #expect(Self.owner(of: main.firstResponder) === later)
     }
 
     // MARK: Modal
@@ -169,7 +209,9 @@ import Testing
     /// Without a window (quit with every window closed) the app host shows
     /// the same overlays in a panel of its own.
     @Test func appHostPresentsWithoutAWindow() {
+        let screen = WindowOverlayHost.appHostScreenFrame
         WindowOverlayHost.appHostScreenFrame = { NSRect(x: -30_000, y: -30_000, width: 1280, height: 800) }
+        defer { WindowOverlayHost.appHostScreenFrame = screen }
         let host = WindowOverlayHost.appHost()
         let handle = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 140)), options: .dialog(dimsContent: false))
         #expect(host.hasPresentations)
@@ -177,6 +219,11 @@ import Testing
         handle.dismiss()
         #expect(!host.hasPresentations)
         #expect(!host.panel.isVisible)
+    }
+
+    private static func mouseDown(at point: NSPoint, in window: NSWindow) -> NSEvent {
+        NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                           windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
     }
 
     /// A key down as the keyboard sends it to `panel`.
@@ -195,3 +242,9 @@ import Testing
 
 /// A presenter panel that is neither the host panel nor a listed legacy panel.
 private final class UnlistedPresenterPanel: NSPanel {}
+
+/// Counts the clicks that reach it.
+private final class ClickRecorder: NSView {
+    var clicks = 0
+    override func mouseDown(with event: NSEvent) { clicks += 1 }
+}
