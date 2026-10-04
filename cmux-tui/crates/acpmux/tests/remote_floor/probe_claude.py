@@ -217,6 +217,9 @@ def scenarios(root):
         ("sb-write-map-both", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                "show_output": True, "code_tmpdir": True, "allow_write_scratch": True,
                                                "args": ["--setting-sources", ""], "input": {"command": "echo TMPDIR=$TMPDIR; for d in \"$TMPDIR\" '{project}' '{scratch}' /tmp/claude-$(id -u) /tmp '{home}'; do touch \"$d/w\" 2>/dev/null && echo \"W $d\" || echo \"- $d\"; done"}}),
+        ("sb-write-map-deny-claude-tmp", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
+                                               "show_output": True, "deny_claude_tmp": True, "allow_write_scratch": True,
+                                               "args": ["--setting-sources", ""], "input": {"command": "echo TMPDIR=$TMPDIR; for d in \"$TMPDIR\" '{project}' '{scratch}' /tmp/claude-$(id -u) /tmp '{home}'; do touch \"$d/w\" 2>/dev/null && echo \"W $d\" || echo \"- $d\"; done"}}),
         ("ctl-sb-read-plain", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                "secret": "notes/plain.txt", "args": ["--setting-sources", ""],
                                                "input": {"command": "cat '{project}/notes/plain.txt'"}}),
@@ -471,6 +474,10 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
             inject["sandbox"] = {"enabled": False}
         if opts.get("allow_write_scratch"):
             inject["sandbox"]["filesystem"]["allowWrite"] = [scratch]
+        if opts.get("deny_claude_tmp"):
+            uid = os.getuid()
+            inject["sandbox"]["filesystem"]["denyWrite"] += [f"/tmp/claude-{uid}", f"/private/tmp/claude-{uid}"]
+            inject["sandbox"]["filesystem"]["denyRead"] += [f"/tmp/claude-{uid}", f"/private/tmp/claude-{uid}"]
         if opts.get("no_deny_write"):
             inject["sandbox"]["filesystem"]["denyWrite"] = []
         inject["permissions"]["deny"] = inject["permissions"].get("deny", []) + opts.get("extra_deny", [])
