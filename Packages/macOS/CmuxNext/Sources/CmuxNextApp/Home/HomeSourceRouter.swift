@@ -117,10 +117,13 @@ nonisolated final class HomeSourceRouter: HomeSource {
 
     /// The owner of `conversation`. One that no owner reported yet (a deep
     /// link or a notification before the merged inbox loads) is looked up
-    /// in the cloud inbox first, so a cloud id never reaches the local
-    /// daemon; one the cloud does not list is local, as before the cloud
-    /// existed. The lookup records owners only: the merged inbox keeps its
-    /// revisions, which only events the store receives may move.
+    /// in the cloud inbox first, so a conversation the cloud inbox lists
+    /// never reaches the local daemon. One the cloud inbox does not list is
+    /// local, as before the cloud existed: that includes a cloud id the
+    /// signed-in account cannot see (another account's after a switch, or
+    /// one not listed yet), which the local daemon refuses as unknown. The
+    /// lookup records owners only: the merged inbox keeps its revisions,
+    /// which only events the store receives may move.
     func owner(of conversation: ConversationID) async -> ConversationSummary.Owner {
         if let known = state.withLock({ $0.owners[conversation] }) { return known }
         let listed = (try? await cloud.inbox()) ?? cloud.currentInbox()

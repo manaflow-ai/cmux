@@ -261,6 +261,9 @@ nonisolated final class CloudHomeSource: HomeSource {
         return inbox
     }
 
+    /// Conversations queued for or in a hydration read (tests).
+    var queuedHydrations: Int { state.withLock { $0.hydrating.count } }
+
     /// The cloud part of the inbox as this source knows it now (no read).
     func currentInbox() -> InboxSnapshot { state.withLock { snapshot(&$0) } }
 

@@ -265,15 +265,17 @@ import Testing
         let (source, daemon, tape) = await configured(.init(op: { _ in throw F.unavailable() }))
         let start = HomeIntent(key: IdempotencyKey("cmk_a"),
                                op: .startConversation(contacts: [.email("x@y.com")], firstMessage: [.text("hello")]))
+        #expect(await signedIn(tape))
         await #expect(throws: HomeRejection.indeterminate) { try await source.submit(start) }
         daemon.script.withLock { $0.op = { _ in CloudConversationOpResult(conversation: F.head(opened, rev: 1, lastSeq: 0)) } }
         let before = daemon.opRequests.count
+        let mark = tape.all.count
         let other = CloudIdentity(stackUserID: "stack-other", displayName: "Other", localID: F.localMe)
         source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: other)
-        // The store is told to drop it before any reply for the new account can recover it.
-        #expect(await tape.wait { $0.contains(.intentsRevoked([start.key])) })
-        let revoked = try #require(tape.all.firstIndex(of: .intentsRevoked([start.key])))
-        #expect(!tape.all[revoked...].contains(.ownerRecovered))
+        // The store is told to drop it first: before the emptied inbox and any
+        // event or reply of the new account (one that recovers the store).
+        #expect(await tape.wait { $0.count > mark })
+        #expect(tape.all[mark] == .intentsRevoked([start.key]), "\(tape.all[mark...])")
         await #expect(throws: HomeRejection.notAuthorized) { try await source.submit(start) }
         #expect(daemon.opRequests.count == before)
         _ = try await source.submit(HomeIntent(key: IdempotencyKey("cmk_b"), op: .invite(contact: .email("z@y.com"))))
@@ -373,6 +375,43 @@ import Testing
         for event in tape.all { mirror.apply(event) }
         #expect(mirror.conversations[ConversationID(dm)] == nil, "A's conversation listed for B")
         #expect(mirror.conversations[ConversationID(theirs)] != nil)
+    }
+
+    /// One queue serves the whole source: at most `hydrationWidth` reads at
+    /// once, however many listed conversations lack a head.
+    @Test func hydrationReadsAtMostFourConversationsAtOnce() async throws {
+        let ids = (0..<10).map { "conv_dm_01J00000000000000000000\(10 + $0)" }
+        let gate = Gate()
+        let (source, daemon, _) = await configured(.init(entries: ids.map { F.entry($0) },
+                                                         heads: Dictionary(uniqueKeysWithValues: ids.map { ($0, F.head($0)) }),
+                                                         snapshotGate: gate))
+        defer { withExtendedLifetime(source) {} }
+        func reads(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { if case .snapshot = $0 { true } else { false } }.count }
+        #expect(await daemon.wait { reads($0) >= CloudHomeSource.hydrationWidth })
+        gate.open()
+        #expect(await daemon.wait { reads($0) == ids.count })
+        #expect(daemon.maxSnapshotsInFlight == CloudHomeSource.hydrationWidth)
+    }
+
+    /// A listed conversation reads its head only when it has none or the
+    /// entry's newest message is past it; pin, mute and unread come from
+    /// the entry and read nothing.
+    @Test func hydrationReadsOnlyAMissingOrBehindHead() async throws {
+        let (source, daemon, tape) = await configured(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm)]))
+        func reads(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { $0 == .snapshot(dm, tail: 1) }.count }
+        #expect(await tape.wait { summaries($0, dm).contains { $0.participants.contains { $0.displayName == "Bob" } } })
+        #expect(reads(daemon.calls) == 1)
+        daemon.script.withLock { $0.entries = [F.entry(dm, pinned: true)] }
+        _ = try await source.inbox()
+        #expect(source.queuedHydrations == 0)
+        #expect(reads(daemon.calls) == 1)
+        daemon.script.withLock { script in
+            script.entries = [F.entry(dm, rev: 4, lastSeq: 2)]
+            script.heads[dm] = F.head(dm, rev: 4, lastSeq: 2)
+        }
+        _ = try await source.inbox()
+        #expect(await daemon.wait { reads($0) == 2 })
+        #expect(await tape.wait { summaries($0, dm).contains { $0.lastSeq == 2 } })
     }
 
     /// Typing is never sent, and an op the owner refused for good is never
