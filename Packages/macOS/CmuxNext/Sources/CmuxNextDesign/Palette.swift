@@ -30,6 +30,15 @@ public struct Palette {
     /// (`NSWindow.install(kind:content:scope:)`), sidebar, panes and strip,
     /// page tabs, titlebar and docks (plans/cmux-next/windows.md).
     public static var surfaceBackground: NSColor { color(\.surfaceBackground, dynamic: PaletteDynamic.surfaceBackground) }
+    /// What a page or tab view (Home, Feed, History, Tasks, Bookmarks)
+    /// gives a background it must paint: the surface background, opaque,
+    /// in an opaque window, and clear over a see-through one, where the
+    /// window's one backdrop is the background (`WindowBackdrop`). A page
+    /// host's own layer paints nothing: the pane paints under it.
+    public static var paneFill: NSColor {
+        guard let tokens = ThemeContext.active else { return surfaceBackground }
+        return WindowBackdrop(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
+    }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.

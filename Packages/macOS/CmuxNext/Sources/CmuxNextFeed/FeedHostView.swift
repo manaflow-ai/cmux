@@ -45,8 +45,8 @@ public final class FeedHostView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme {
-            layer?.backgroundColor = Palette.contentBackground.cgColor
-            return FeedColors.resolved(background: Palette.contentBackground)
+            layer?.backgroundColor = nil
+            return FeedColors.resolved(background: Palette.paneFill)
         }
         if appearanceState.colors != colors { appearanceState.colors = colors }
     }

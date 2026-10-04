@@ -52,7 +52,8 @@ final class HomeHostView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            layer?.backgroundColor = Palette.pageBackground.cgColor
+            // The pane paints under Home (`Palette.paneFill`).
+            layer?.backgroundColor = nil
             message.textColor = Palette.textSecondary
         }
     }

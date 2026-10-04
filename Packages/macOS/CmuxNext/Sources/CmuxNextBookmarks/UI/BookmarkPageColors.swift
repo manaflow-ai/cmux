@@ -18,7 +18,7 @@ struct BookmarkPageColors: Equatable {
     /// Call inside `performWithTheme`. theme-scoped
     static func resolve() -> BookmarkPageColors {
         BookmarkPageColors(
-            background: fixed(Palette.pageBackground), primary: fixed(Palette.textPrimary), secondary: fixed(Palette.textSecondary),
+            background: fixed(Palette.paneFill), primary: fixed(Palette.textPrimary), secondary: fixed(Palette.textSecondary),
             tertiary: fixed(Palette.textTertiary), hover: fixed(Palette.hoverFill), selection: fixed(Palette.selectionFill),
             separator: fixed(Palette.separator), danger: fixed(Palette.danger))
     }
