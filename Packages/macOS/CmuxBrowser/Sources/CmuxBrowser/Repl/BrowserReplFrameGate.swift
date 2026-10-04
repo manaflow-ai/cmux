@@ -233,6 +233,18 @@ public final class BrowserReplFrameGate {
         }
     }
 
+    /// Runs `command`, a Copy, Cut or Paste on the focused frame.
+    ///
+    /// Models the driver as it is: the focus was checked before the key,
+    /// and the command runs without another check.
+    public func guardingFocus<T>(
+        in webView: WKWebView,
+        frames: @MainActor () async -> [BrowserReplFrame],
+        _ command: () async throws -> T
+    ) async throws -> T {
+        try await command()
+    }
+
     /// Throws `blocked` when any frame of the tab shows a page the policy
     /// blocks: a screenshot or PDF would show it.
     public func checkCapture(in webView: WKWebView, frames: [BrowserReplFrame]) throws {
