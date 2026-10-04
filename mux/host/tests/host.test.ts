@@ -600,10 +600,11 @@ describe("reconnect backoff", () => {
     const lists = () => w.daemon.requests.filter((r) => r.cmd === "conversation-list").length;
     const waits: number[] = [];
     for (let i = 1; i <= 3; i++) {
-      // The catch-up's list request comes after daemon_connected: the connection is fully up.
-      await w.daemon.until(() => lists() >= i);
+      // Each connection lists twice: the Chief conversation rule, then the catch-up after
+      // daemon_connected. The second list means the connection is fully up.
+      await w.daemon.until(() => lists() >= 2 * i);
       w.daemon.dropClients();
-      waits.push(await advanceUntil(clock, () => lists() >= i + 1));
+      waits.push(await advanceUntil(clock, () => lists() >= 2 * i + 1));
     }
     expect(waits).toEqual([20, 40, 80]);
   }, 10_000);

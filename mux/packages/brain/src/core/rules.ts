@@ -133,3 +133,19 @@ export function workPart(session: string, status: WorkStatus, preview?: string |
     ...(preview ? { preview: excerpt(preview, 200) } : {}),
   };
 }
+
+/**
+ * The Chief conversation rule, shared by the hosts and the app: the oldest
+ * local conversation that has agent_mux (created_at, then id in code-point
+ * order). Undefined when there is none: then the host creates the Home Chief
+ * conversation (DEFAULT_CONVERSATION_KEY). One rule, so an old install (a
+ * conversation titled Home, or the brain's old mux-home-default one) keeps one
+ * Chief conversation, whatever its title or names.
+ */
+export function selectChiefConversation(conversations: Summary[]): Summary | undefined {
+  const chief = conversations.filter((c) => c.owner === "local" && c.participants.some((p) => p.id === AGENT_MUX));
+  chief.sort((a, b) => compareText(a.created_at, b.created_at) || compareText(a.id, b.id));
+  return chief[0];
+}
+
+const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);

@@ -686,6 +686,9 @@ export class Core {
     this.resetReplay = reset;
     for (const event of events) this.applyMuxEvent(event);
     this.resetReplay = false;
+    // Acceptance seen in the replay belongs to the old connection (acpmux drops its queue
+    // with it); the resend below is accepted again on this one.
+    this.acceptedPrompts.clear();
     this.acpmuxUp = true;
     // A permission prompt whose session is not waiting in this list was answered meanwhile
     // (or the session is gone): dropped, not resent. (The `sessions` reply path keeps its

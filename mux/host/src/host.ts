@@ -1,6 +1,12 @@
 import { isCount } from "../../packages/brain/src/core/acp.ts";
 import { Core, type Effect, type Input } from "../../packages/brain/src/core/core.ts";
-import { CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME } from "../../packages/brain/src/core/rules.ts";
+import {
+  CHIEF_CONVERSATION_TITLE,
+  CHIEF_DISPLAY_NAME,
+  DEFAULT_CONVERSATION_KEY,
+  MUX_SESSION_NAME,
+  selectChiefConversation,
+} from "../../packages/brain/src/core/rules.ts";
 import {
   type AcpmuxEvent,
   AcpmuxClient,
@@ -11,7 +17,7 @@ import {
   type SessionSummary,
   eventFromUpdate,
 } from "./acpmux-client.ts";
-import { AGENT_MUX, type ConversationChangedEvent, type Participant, USER_LOCAL } from "./conversation-types.ts";
+import { AGENT_MUX, type ConversationChangedEvent, type Participant, type Summary, USER_LOCAL } from "./conversation-types.ts";
 import { DaemonClient, DaemonError, MissingCapabilityError } from "./daemon-client.ts";
 import { takeLock } from "./lock.ts";
 import type { MuxPaths } from "./paths.ts";
@@ -489,17 +495,7 @@ export class MuxHost {
     );
     const closed = new Promise<void>((resolve) => daemon.onClose(() => resolve()));
     try {
-      const { conversation } = await this.timed(
-        daemon,
-        "daemon",
-        "create",
-        daemon.create({
-          idempotency_key: DEFAULT_CONVERSATION_KEY,
-          actor: USER_LOCAL,
-          title: CHIEF_CONVERSATION_TITLE,
-          participants: this.defaultParticipants(),
-        }),
-      );
+      const conversation = await this.chiefConversation(daemon);
       // Read at every connect: the app mints a new token on each launch.
       const token = typeof this.options.agentToken === "function" ? this.options.agentToken() : this.options.agentToken;
       if (token) await this.timed(daemon, "daemon", "bind", daemon.bind(AGENT_MUX, token));
@@ -517,6 +513,37 @@ export class MuxHost {
         this.daemon = undefined;
         this.feed({ kind: "disconnected", port: "daemon" });
       }
+    }
+  }
+
+  /**
+   * The Chief conversation by the shared rule (rules.ts selectChiefConversation):
+   * the oldest local conversation with agent_mux, else a new Home Chief
+   * conversation. A create the owner refuses as idempotency_conflict (the app
+   * created home-chief with other names) lists again and adopts by the rule.
+   */
+  private async chiefConversation(daemon: DaemonClient): Promise<Summary> {
+    const listed = selectChiefConversation(await this.timed(daemon, "daemon", "list", daemon.list()));
+    if (listed) return listed;
+    try {
+      const created = await this.timed(
+        daemon,
+        "daemon",
+        "create",
+        daemon.create({
+          idempotency_key: DEFAULT_CONVERSATION_KEY,
+          actor: USER_LOCAL,
+          title: CHIEF_CONVERSATION_TITLE,
+          participants: this.defaultParticipants(),
+        }),
+      );
+      return created.conversation;
+    } catch (error) {
+      if (!(error instanceof DaemonError) || !error.message.includes("idempotency_conflict")) throw error;
+      const adopted = selectChiefConversation(await this.timed(daemon, "daemon", "list", daemon.list()));
+      if (!adopted) throw error;
+      this.log(`${DEFAULT_CONVERSATION_KEY} exists with another title or names (idempotency_conflict); adopting ${adopted.id}`);
+      return adopted;
     }
   }
 
