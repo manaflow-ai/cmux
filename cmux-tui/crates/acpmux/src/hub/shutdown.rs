@@ -7,9 +7,13 @@ impl Hub {
     /// The coming shutdown ends hosted agents too (the app's Quit
     /// Everything), except those of the sessions in `keep` (the app's Home
     /// Chief), which detach; without it a shutdown detaches every one.
-    pub fn end_agents_at_shutdown(&self, keep: std::collections::HashSet<String>) {
+    pub fn end_agents_at_shutdown(
+        &self,
+        keep: std::collections::HashSet<String>,
+    ) -> Result<(), RpcError> {
         *self.keep_on_shutdown.lock().unwrap() = keep;
         self.end_agents_on_shutdown.store(true, Ordering::SeqCst);
+        Ok(())
     }
 
     /// Stop every agent at once and save. Each agent's process group gets
@@ -117,3 +121,23 @@ impl Hub {
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
 pub const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::MemoryStore;
+
+    /// A shutdown already running (SIGTERM, or a plain `_acpmux/shutdown`)
+    /// has decided to hand the agents off; a later `endAgents` cannot change
+    /// that and must say so instead of reporting success.
+    #[tokio::test]
+    async fn end_agents_after_the_shutdown_started_is_refused() {
+        let hub = Hub::new(Config::default(), Box::new(MemoryStore::default()));
+        hub.shutdown_all().await;
+        assert!(
+            hub.end_agents_at_shutdown(Default::default()).is_err(),
+            "endAgents was accepted after the shutdown had handed the agents off"
+        );
+    }
+}
+
