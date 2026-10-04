@@ -422,6 +422,7 @@ extension Workspace {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
         AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        trackRestoredAgentNotifications(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
         // Record the identity remap for the agent journal: events journaled
         // against the previous run's runtime workspace/panel UUIDs re-attach
         // to the restored panels during replay through these aliases.
@@ -3317,6 +3318,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         restoredAgentLifecycle.snapshotsByPanelId
     }
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    /// Restored notifications of panes whose agent died with the previous app
+    /// process; pruned by `pruneOrphanedRestoredAgentNotifications(store:)`.
+    var restoredAgentNotificationIdsByPanelId: [UUID: Set<UUID>] = [:]
     /// Journals agent sessions ended by closing their terminal. Tests point it
     /// at a private journal.
     var agentSessionCloseJournal = AgentSessionCloseJournal()
@@ -6725,6 +6729,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             refreshTrackedAgentPorts()
         }
         surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        restoredAgentNotificationIdsByPanelId = restoredAgentNotificationIdsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         surfaceResumeRestoreClaimsByPanelId = surfaceResumeRestoreClaimsByPanelId.filter {
