@@ -123,11 +123,7 @@ struct TerminalCopyModeTests {
         defer { NSApp.mainMenu = previousMenu }
 
         let event = try Self.key("q", keyCode: 12, flags: [.command])
-        // A real app dispatch marks the event before the terminal's
-        // key-equivalent hook gets it. System actions must still be allowed
-        // through the menu gate in that fallback path.
-        services.keyRouter.decided.add(event)
-        NSApp.sendEvent(event)
+        #expect(view.performKeyEquivalent(with: event))
         #expect(probe.invocations == 1)
     }
 }

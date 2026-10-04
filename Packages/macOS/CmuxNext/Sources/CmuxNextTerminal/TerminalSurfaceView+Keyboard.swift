@@ -97,6 +97,12 @@ extension TerminalSurfaceView {
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown, isFirstResponder, let surface else { return false }
 
+        // App-level Command actions, especially Quit, must win before a
+        // Ghostty binding or an unbound chord can forward text to the PTY.
+        if event.modifierFlags.contains(.command), NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+            return true
+        }
+
         var flags = ghostty_binding_flags_e(rawValue: 0)
         var keyEvent = GhosttyInput.keyEvent(event, action: GHOSTTY_ACTION_PRESS)
         let isBinding = (event.characters ?? "").withCString { pointer in

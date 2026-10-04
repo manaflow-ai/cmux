@@ -65,7 +65,7 @@ extension KeyRouter {
     /// terminal may still be the next responder for the same event.
     nonisolated static func menuKeyEquivalentAllowedAfterDispatch(_ tier: ActionKeyTier,
                                                                    eventWasDecided: Bool) -> Bool {
-        !eventWasDecided
+        !eventWasDecided || tier == .system
     }
 
     nonisolated static func allowsMenu(_ tier: ActionKeyTier, id: ActionID? = nil, focus: FocusState, keyWindow: KeyWindowKind) -> Bool {
