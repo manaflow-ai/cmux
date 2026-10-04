@@ -1,7 +1,7 @@
-public import CmuxNextBrowser
+import CmuxNextBrowser
 public import CmuxNextBrowserAutomation
 public import CmuxNextWakeups
-public import Foundation
+import Foundation
 public import Observation
 import os
 
@@ -257,7 +257,7 @@ public final class BrowserHostProvider {
         } catch {
             logger.error("browser host provider: \(frame.description, privacy: .public) not sent: \(String(describing: error), privacy: .public)")
             if case .result(let id, _, _) = frame {
-                try? connection.send(.result(id: id, result: nil, error: DriverError(.invalid, "the result is too large to send").json))
+                _ = try? connection.send(.result(id: id, result: nil, error: DriverError(.invalid, "the result is too large to send").json))
             }
         }
     }

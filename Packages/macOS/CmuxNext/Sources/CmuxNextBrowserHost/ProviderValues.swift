@@ -39,13 +39,19 @@ public nonisolated struct ProviderLease: Hashable, Sendable {
     public var origin: String
     public var label: String
     public var sinceMs: UInt64
+    /// The host's lease state (plans/cmux-next/automation-lease.md), passed
+    /// through unchanged: the host owns the state machine, the app never
+    /// interprets it, and a state this app does not know is kept as it is.
+    public var state: String?
 
-    public init(session: String, actor: String, onBehalfOf: String? = nil, origin: String, label: String, sinceMs: UInt64) {
+    public init(session: String, actor: String, onBehalfOf: String? = nil, origin: String, label: String, sinceMs: UInt64,
+                state: String? = nil) {
         self.session = session
         self.actor = actor
         self.onBehalfOf = onBehalfOf
         self.origin = origin
         self.label = label
         self.sinceMs = sinceMs
+        self.state = state
     }
 }

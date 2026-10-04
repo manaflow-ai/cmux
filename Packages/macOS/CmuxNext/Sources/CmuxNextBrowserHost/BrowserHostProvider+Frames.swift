@@ -3,10 +3,8 @@ import CmuxNextBrowserAutomation
 import Foundation
 
 extension BrowserHostProvider {
-    static let handlesFrames = false
     /// One frame from the host, in order, on the main actor.
     func handle(_ frame: ProviderFrame) {
-        guard Self.handlesFrames else { return } // RED: frames are not handled yet
         switch frame {
         case .call(let id, let method, let params):
             handleCall(id: id, method: method, params: params)

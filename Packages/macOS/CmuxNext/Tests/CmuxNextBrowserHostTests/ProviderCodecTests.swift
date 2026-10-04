@@ -69,6 +69,9 @@ import Testing
         #expect(try Self.decoded(#"{"t":"call","id":1,"method":"tabs.list"}"#) == .call(id: 1, method: "tabs.list", params: .null))
         #expect(try Self.decoded(#"{"t":"lease","targetId":"t"}"#) == .lease(targetID: "t", lease: nil))
         #expect(try Self.decoded(#"{"t":"result","id":3}"#) == .result(id: 3, result: nil, error: nil))
+        // The lease state passes through as the host wrote it, known or not.
+        #expect(try Self.decoded(#"{"t":"lease","targetId":"t","lease":{"session":"s","actor":"a","origin":"cli","label":"L","since_ms":1,"state":"some_future_state"}}"#)
+            == .lease(targetID: "t", lease: ProviderLease(session: "s", actor: "a", origin: "cli", label: "L", sinceMs: 1, state: "some_future_state")))
         #expect(try Self.decoded(#"{"t":"future.frame","x":1}"#) == .unknown(tag: "future.frame"))
         #expect(throws: ProviderCodecError.self) { try Self.decoded(#"{"t":"cdp","targetId":"t"}"#) }
         #expect(throws: ProviderCodecError.self) { try Self.decoded("not json") }

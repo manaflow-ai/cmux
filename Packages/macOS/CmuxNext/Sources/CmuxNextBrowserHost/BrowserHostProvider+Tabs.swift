@@ -43,7 +43,6 @@ extension BrowserHostProvider {
     /// for the difference against what the host knows, then `tab.access`
     /// for every CEF tab whose URL or access changed.
     func sendTabChanges() {
-        return // RED: tab changes are not sent yet
         guard connection != nil else { return }
         var current: [String: ProviderTab] = [:]
         for tab in latestTabs {

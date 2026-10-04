@@ -1,4 +1,4 @@
-public import CmuxNextBrowser
+import CmuxNextBrowser
 import Foundation
 
 /// The CDP id remap of one relayed CEF tab. The shim takes raw sends only
@@ -17,7 +17,6 @@ public nonisolated struct CDPRawIDMap: Sendable {
     /// The host's command with a raw id, or nil when it has no single
     /// integer top-level "id" (the shim would refuse it).
     public mutating func outbound(_ message: String) -> (message: String, rawID: Int, hostID: Int)? {
-        return nil // RED: not mapped yet
         guard let hostID = CEFDevToolsRawMessage.topLevelID(in: message) else { return nil }
         let raw = allocate()
         guard let rewritten = CEFDevToolsRawMessage.replacingTopLevelID(in: message, with: raw) else { return nil }
@@ -32,7 +31,6 @@ public nonisolated struct CDPRawIDMap: Sendable {
     /// to one of the host's commands with the host's id, nil for anything
     /// else (a reply the host never asked for).
     public mutating func inbound(_ message: String) -> String? {
-        return nil // RED: not mapped yet
         guard let id = CEFDevToolsRawMessage.topLevelID(in: message) else { return message }
         guard CEFDevToolsRawMessage.isRawID(id), let hostID = pending.removeValue(forKey: id) else { return nil }
         return CEFDevToolsRawMessage.replacingTopLevelID(in: message, with: hostID)

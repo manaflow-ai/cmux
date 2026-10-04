@@ -65,8 +65,11 @@ public nonisolated enum ProviderCodec {
         case .lease(let target, let lease):
             o["targetId"] = target
             o["lease"] = lease.map(leaseObject) ?? NSNull()
-        case .tabAccess:
-            break // RED: not encoded yet
+        case .tabAccess(let target, let access, let override, let extensions):
+            o["targetId"] = target
+            o["extension_host_access"] = access
+            o["user_override"] = override
+            if !extensions.isEmpty { o["extensions"] = extensions }
         case .unknown:
             break
         }
@@ -127,13 +130,15 @@ public nonisolated enum ProviderCodec {
         var o: [String: Any] = ["session": lease.session, "actor": lease.actor, "origin": lease.origin,
                                 "label": lease.label, "since_ms": NSNumber(value: lease.sinceMs)]
         if let onBehalfOf = lease.onBehalfOf { o["on_behalf_of"] = onBehalfOf }
+        if let state = lease.state { o["state"] = state }
         return o
     }
 
     static func leaseValue(_ f: Fields) throws(ProviderCodecError) -> ProviderLease {
         ProviderLease(session: try f.string("session"), actor: try f.string("actor"),
                       onBehalfOf: f.object["on_behalf_of"] as? String, origin: try f.string("origin"),
-                      label: try f.string("label"), sinceMs: try f.uint("since_ms"))
+                      label: try f.string("label"), sinceMs: try f.uint("since_ms"),
+                      state: f.object["state"] as? String)
     }
 
     /// Typed field reads with serde's errors (a missing or mistyped field).
