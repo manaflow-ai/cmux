@@ -41,7 +41,7 @@ if cmd == "serve":
     while True:
         c, _ = s.accept()
         c.recv(65536)
-        c.sendall(json.dumps({"sessions": []}).encode())
+        c.sendall(json.dumps([] if mode == "array-list" else {"sessions": []}).encode())
         c.close()
 if cmd == "list":
     if mode == "bad-list":
@@ -70,6 +70,12 @@ class SmokeTest(unittest.TestCase):
         done = self.smoke("good")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("all checks passed", done.stdout)
+
+    def test_the_real_list_shape_passes(self):
+        # The first release run (37212778565, 2026-10-04): the real binary's list
+        # prints a bare JSON array of sessions.
+        done = self.smoke("array-list")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
     def test_each_broken_contract_fails(self):
         for mode in ("wrong-sha", "empty-guide", "serve-dies", "bad-list"):
