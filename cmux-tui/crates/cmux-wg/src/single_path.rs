@@ -14,8 +14,17 @@ use crate::{WgConfig, WgError, WgNet};
 /// UDP socket's send buffer also caps the datagram size.
 pub const MIN_SEND_BUFFER: usize = 16 * 1024;
 
+/// The largest UDP payload the tunnel sends for an MTU: one WireGuard data
+/// message (16-byte header, the packet padded to 16 bytes, 16-byte tag).
+fn largest_underlay_datagram(mtu: u16) -> usize {
+    usize::from(mtu).next_multiple_of(16) + 32
+}
+
 /// A fresh UDP socket aimed at the configured endpoint, in its family, with
-/// the kernel's default send buffer or `send_buffer` bytes.
+/// the kernel's default send buffer or `send_buffer` bytes. A requested
+/// buffer grows to at least one full datagram of the configured MTU: on
+/// macOS the send buffer caps the datagram size, and a smaller one would
+/// refuse every full packet with EMSGSIZE.
 pub(crate) async fn new_socket_path(
     config: &WgConfig,
     send_buffer: Option<usize>,
@@ -32,7 +41,7 @@ pub(crate) async fn new_socket_path(
     let socket = UdpSocket::bind(bind).await?;
     #[cfg(unix)]
     if let Some(bytes) = send_buffer {
-        set_send_buffer(&socket, bytes)?;
+        set_send_buffer(&socket, bytes.max(largest_underlay_datagram(config.mtu)))?;
     }
     // Elsewhere the kernel's default stays.
     #[cfg(not(unix))]
@@ -104,7 +113,8 @@ impl WgNet {
     /// with a plain socket.
     ///
     /// `send_buffer` sets the socket's send buffer in bytes (at least
-    /// [`MIN_SEND_BUFFER`]); `None` keeps the kernel's default. A small one
+    /// [`MIN_SEND_BUFFER`] and one full datagram of the MTU); `None` keeps
+    /// the kernel's default. A small one
     /// moves the backlog of a saturated uplink out of the kernel and into
     /// the driver's priority queues.
     pub async fn start_single_path(
@@ -165,7 +175,8 @@ mod tests {
         let receiver = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let mut config = crate::testing::config_pair(receiver.local_addr().unwrap()).client;
         config.mtu = 40_000;
-        let largest = usize::from(config.mtu).next_multiple_of(16) + 32;
+        let largest = largest_underlay_datagram(config.mtu);
+        assert_eq!(largest, 40_032);
         let path = new_socket_path(&config, Some(MIN_SEND_BUFFER)).await.unwrap();
         let reported = send_buffer(path.socket()).unwrap();
         assert!(reported >= largest, "send buffer {reported} under one datagram of {largest}");

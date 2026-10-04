@@ -14,7 +14,8 @@
   --probes        プローブで経路を測定します。プローブに応答するピアにのみ使います
   --send-buffer バイト  UDP 送信バッファ、16384（既定値）から 4194304 まで。小さいと
                        キューがハブ内にでき、media が bulk を追い越せます
-                       （Linux では net.core.wmem_max が上限です）
+                       （MTU の完全なデータグラム 1 個分まで引き上げます。Linux では
+                       net.core.wmem_max が上限です）
 
 待ち受け開始時に JSON 1 行 `{"event":"hub-ready","socket":...,"routes":[...]}` を出力します
 （--control 指定時は `"control"` も含みます）。
