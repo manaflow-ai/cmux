@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { conversation as homeConversation, invites } from "@cmux/home-core"
 import { userIdFor } from "../src/domains/user.ts"
 import { conversationMutate } from "../src/home-routes.ts"
 import { recordingEnv } from "./reach-recorder.ts"
@@ -14,7 +15,7 @@ import { fireAlarm } from "./setup/alarm.ts"
  * users' UserDOs or ConversationDOs. A refusal is `home.rate_limited`, retryable, with
  * `details.retry_after_ms`.
  */
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace }
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; HOME_ADDRESS_KEY: string; ADDRESS_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace; USER_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 const sessionToken = async (sub: string, name: string) =>
@@ -53,6 +54,28 @@ const joinTeam = async (owner: Person, member: Person) => {
   })
 }
 const human = (p: Person, name = "anything") => ({ id: p.user, kind: "human", display_name: name })
+/** `owner`'s DM with `peer` from the owner's inbox peer index (the UserDO read the Worker uses). */
+const dmPeer = (owner: Person, peer: Person) =>
+  inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(owner.user)), async (i) => (await i.readInbox(owner.user, sessionPrincipal(owner), "inbox.dm_peer", { peer: peer.user })).value?.conversation)
+/** Waits (bounded) until `dm` is `owner`'s DM with `peer` in the inbox peer index. */
+const waitDm = async (owner: Person, peer: Person, dm: string) => {
+  for (let n = 0; n < 100 && (await dmPeer(owner, peer)) !== dm; n++) {
+    await fireAlarm(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm)))
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  expect(await dmPeer(owner, peer)).toBe(dm)
+}
+/** `inviter` invites `invitee` (by the invitee's verified email) into a DM, the invitee accepts; the DM id is invite-born, not the pair id. */
+const inviteDm = async (inviter: Person, invitee: Person, sub: string) => {
+  const email = `${sub}@example.com`
+  const opened = await op(inviter.token, "dm.open", { peer: { email } })
+  const dm = opened.value.conversation.id as string
+  const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizeEmail(email) as invites.Address)
+  const secret = await inDO(testEnv.ADDRESS_DO.get(testEnv.ADDRESS_DO.idFromName(address)), async (_i, state) => String(state.storage.sql.exec("SELECT secret FROM address_secrets").toArray()[0]!.secret))
+  expect((await op(invitee.token, "invite.accept", { code: invites.linkCode(dm), secret })).ok).toBe(true)
+  await waitDm(inviter, invitee, dm)
+  return dm
+}
 /** Attempts counted for `actor` and `op` in `owner`'s UserDO. */
 const spent = (owner: Person, actor: string, op: string) =>
   inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(owner.user)), async (_i, state) => {
@@ -253,6 +276,10 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
   it("a chief whose budget is spent gets home.rate_limited for dm.open without a lookup in its owner's inbox", async () => {
     const tia = await signIn("rate-chief-reopen-tia", "Tia")
     const uma = await signIn("rate-chief-reopen-uma", "Uma")
+    await joinTeam(tia, uma)
+    // The owner has a DM with the peer: a reopen through the owner's inbox would find it.
+    const dm = (await op(tia.token, "dm.open", { peer: uma.user })).value.conversation.id as string
+    await waitDm(tia, uma, dm)
     const chief = "agent_" + "7".repeat(26)
     await spend(tia, chief, "conversation.create", 60)
     const asChief = { ...sessionPrincipal(tia), identity: `${tia.user}:chief`, agent: chief }
@@ -311,5 +338,18 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     }
     expect(await peerOf()).toBe(dm)
     await retry("dm.open", { peer: yan.user }, dmKey, "conversation.create")
+  })
+
+  it("with the budget spent, dm.open reopens an invite-born DM (its id is not the pair id) with no charge", async () => {
+    const ann = await signIn("rate-invdm-ann", "Ann")
+    const bea = await signIn("rate-invdm-bea", "Bea")
+    const dm = await inviteDm(ann, bea, "rate-invdm-bea")
+    expect(dm).not.toBe(homeConversation.dmConversationId(ann.user, bea.user))
+    await spend(ann, ann.user, "conversation.create", 60)
+    const before = await spent(ann, ann.user, "conversation.create")
+    const res = await conversationMutate(testEnv as never, sessionPrincipal(ann), { t: "op", op: "dm.open", params: { peer: bea.user }, idempotency_key: crypto.randomUUID() })
+    expect(rejectOf(res)).toBeUndefined()
+    expect(res.frames.find((f) => f.t === "result")).toMatchObject({ value: { conversation: { id: dm } } })
+    expect(await spent(ann, ann.user, "conversation.create")).toBe(before)
   })
 })
