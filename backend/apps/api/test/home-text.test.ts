@@ -119,6 +119,38 @@ describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
     expect(await states()).toEqual(["suppressed", "suppressed"])
   })
 
+  it("a card with no status closes at the card deadline, with no alarm loop before it", async () => {
+    const token = await sessionToken("text-owner-4")
+    await op(token, "user.ensure", {})
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "text-owner-4")
+    const phone = "+14155550126"
+    const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizePhone(phone) as invites.Address)
+    const addr = testEnv.ADDRESS_DO.get(testEnv.ADDRESS_DO.idFromName(address))
+    let sent = 0
+    await runInDurableObject(addr, async (instance) => {
+      instance.env = { ...instance.env, ...ON, HOME_INVITE_ALLOWLIST_PHONES: phone }
+      instance.fetcher = async () => {
+        sent++
+        return { status: 200, json: async () => ({ message_handle: `n-${sent}`, status: "QUEUED" }) }
+      }
+    })
+    expect((await op(token, "dm.open", { peer: { phone } })).ok).toBe(true)
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(homeConversation.dmConversationId(user, address)))
+    for (let i = 0; i < 10 && sent === 0; i++) {
+      await runDurableObjectAlarm(conv)
+      await runDurableObjectAlarm(addr)
+    }
+    expect(sent).toBe(1)
+    // Past the 10 minute attempt deadline the next wake is still the card deadline (one day), never a past time.
+    const wake = (dt: number) => runInDurableObject(addr, async (i) => Number(i.nextWakeAt(i.boundEngine.currentState, Date.now() + dt)) - Date.now())
+    expect(await wake(11 * 60_000)).toBeGreaterThan(23 * 3600_000)
+    await runInDurableObject(addr, async (i) => i.onWake(Date.now() + 11 * 60_000))
+    expect(await runInDurableObject(addr, async (i) => String(i.boundEngine.currentState.deliveries[0].state))).toBe("sending")
+    await runInDurableObject(addr, async (i) => i.onWake(Date.now() + 24 * 3600_000 + 1000))
+    expect(await runInDurableObject(addr, async (i) => String(i.boundEngine.currentState.deliveries[0].state))).toBe("indeterminate")
+    expect(sent).toBe(1)
+  })
+
   it("a card accepted without a handle closes the invite with no text", async () => {
     const token = await sessionToken("text-owner-3")
     await op(token, "user.ensure", {})

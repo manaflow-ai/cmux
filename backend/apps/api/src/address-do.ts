@@ -69,8 +69,15 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
 
   protected nextWakeAt(head: address.AddressHead, now: number): number | null {
     if (this.unsent(head).length > 0) return now
-    const pending = this.sqlStore.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM address_attempts WHERE invite IN (SELECT value FROM json_each(?))`, JSON.stringify(head.deliveries.filter((d) => d.state === "sending").map((d) => d.invite)))[0]?.at
-    if (pending !== null && pending !== undefined) return Number(pending) + STALE_ATTEMPT_MS
+    // An invite waiting on its card closes at the card deadline, any other open attempt at the stale deadline.
+    const sending = JSON.stringify(head.deliveries.filter((d) => d.state === "sending").map((d) => d.invite))
+    const pending = this.sqlStore.exec<{ at: number | null }>(
+      `SELECT MIN(due) AS at FROM (
+         SELECT a.at + ? AS due FROM address_attempts a WHERE a.invite IN (SELECT value FROM json_each(?)) AND a.invite NOT IN (SELECT invite FROM address_card_steps)
+         UNION ALL SELECT c.at + ? AS due FROM address_card_steps c WHERE c.invite IN (SELECT value FROM json_each(?)))`,
+      STALE_ATTEMPT_MS, sending, CARD_WAIT_MS, sending
+    )[0]?.at
+    if (pending !== null && pending !== undefined) return Math.max(Number(pending), now)
     const next = this.sqlStore.exec<{ at: number | null }>(`SELECT MIN(expires_at) AS at FROM address_secrets`)[0]?.at
     return next === null || next === undefined ? null : Number(next)
   }
@@ -106,14 +113,16 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
         // Text: the contact card first to a number that never got one; the text after SendBlue reports it.
         const carded = this.sqlStore.exec(`SELECT 1 FROM address_card_sent LIMIT 1`).length > 0
         if (carded) {
-          const o = await this.step(head, d, "text")
+          // The state again: a STOP that came in during an earlier send of this wake stops this text.
+          const o = await this.step(this.boundEngine!.currentState, d, "text")
           this.record(d.invite, o.state, o.provider_id)
           continue
         }
         // One card per number: a card already on its way makes later invites wait for the same status.
-        const pending = this.sqlStore.exec<{ card_handle: string }>(`SELECT card_handle FROM address_card_steps LIMIT 1`)[0]
+        // Joiners take the card's own time, so every invite on a card that never reports closes together.
+        const pending = this.sqlStore.exec<{ card_handle: string; at: number }>(`SELECT card_handle, MIN(at) AS at FROM address_card_steps GROUP BY card_handle ORDER BY at LIMIT 1`)[0]
         if (pending) {
-          this.sqlStore.exec(`INSERT INTO address_card_steps (invite, card_handle, at) VALUES (?, ?, ?) ON CONFLICT (invite) DO NOTHING`, d.invite, pending.card_handle, now)
+          this.sqlStore.exec(`INSERT INTO address_card_steps (invite, card_handle, at) VALUES (?, ?, ?) ON CONFLICT (invite) DO NOTHING`, d.invite, pending.card_handle, pending.at)
           continue
         }
         const card = await this.step(head, d, "card")
@@ -126,9 +135,15 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
     // record, or a card whose status never came within a day) may or may not have reached the
     // recipient: it is closed as indeterminate, never resent.
     if (head) {
-      const waiting = new Set(this.sqlStore.exec<{ invite: string; at: number }>(`SELECT invite, at FROM address_card_steps WHERE at > ?`, now - CARD_WAIT_MS).map((r) => r.invite))
-      const stale = this.sqlStore.exec<{ invite: string }>(`SELECT invite FROM address_attempts WHERE at <= ?`, now - STALE_ATTEMPT_MS).map((r) => r.invite)
-      for (const d of head.deliveries.filter((x) => x.state === "sending" && stale.includes(x.invite) && !waiting.has(x.invite))) this.record(d.invite, "indeterminate", null)
+      // The same deadlines as nextWakeAt: on a card, the card's time + CARD_WAIT_MS; otherwise the attempt + STALE_ATTEMPT_MS.
+      const stale = new Set(
+        this.sqlStore.exec<{ invite: string }>(
+          `SELECT invite FROM address_card_steps WHERE at <= ?
+           UNION SELECT invite FROM address_attempts WHERE at <= ? AND invite NOT IN (SELECT invite FROM address_card_steps)`,
+          now - CARD_WAIT_MS, now - STALE_ATTEMPT_MS
+        ).map((r) => r.invite)
+      )
+      for (const d of head.deliveries.filter((x) => x.state === "sending" && stale.has(x.invite))) this.record(d.invite, "indeterminate", null)
     }
     this.sqlStore.exec(`DELETE FROM address_secrets WHERE expires_at <= ?`, now)
   }
