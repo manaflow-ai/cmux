@@ -43,6 +43,14 @@
 //!     through its host capabilities; no user credential enters the daemon.
 //!   - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 //!
+//! Open tokens: the op line of a user run (origin user, admitted by the A2
+//! gate) carries a top-level `"open_token"`, a fresh 128-bit hex token,
+//! single use, bound to {app, op, idempotency_key} and valid for 60 s. No
+//! other origin gets one, and a client's `open_token` (top level of the
+//! request or of `args`) never reaches the server. The host side of a
+//! connect checks a token the server passes on with
+//! [`Supervisor::consume_open_token`].
+//!
 //! Environment: an allowlist only. `CMUX_APP_ID`, `CMUX_APP_DATA_DIR` (the
 //! app's data directory; one subdirectory per `server.data` entry, the
 //! ephemeral ones emptied at each start; removed at uninstall), `TMPDIR`
@@ -56,7 +64,7 @@ use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -159,6 +167,56 @@ pub(super) struct Server {
     /// Asked to exit (idle, disable, uninstall); the exit is expected.
     pub stopping: bool,
     pub kill: Option<TimerId>,
+}
+
+/// How long a stamped open token stays valid.
+const OPEN_TOKEN_TTL: Duration = Duration::from_secs(60);
+/// Open tokens kept at once; past it the one closest to expiry goes.
+const MAX_OPEN_TOKENS: usize = 1024;
+
+/// A minted open token: single use, for one app, op and idempotency key.
+pub(super) struct OpenToken {
+    app: String,
+    op: String,
+    idempotency_key: Option<String>,
+    expires: Instant,
+}
+
+/// What a consumed open token was minted for, so the caller can check the op.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenTokenUse {
+    pub op: String,
+    pub idempotency_key: Option<String>,
+}
+
+/// Mints a fresh 128-bit open token for one user run of `op`.
+fn mint_open_token(
+    inner: &mut Inner,
+    app: &str,
+    op: &str,
+    idempotency_key: Option<String>,
+    now: Instant,
+) -> String {
+    inner.open_tokens.retain(|_, t| t.expires > now);
+    if inner.open_tokens.len() >= MAX_OPEN_TOKENS
+        && let Some(oldest) =
+            inner.open_tokens.iter().min_by_key(|(_, t)| t.expires).map(|(k, _)| k.clone())
+    {
+        inner.open_tokens.remove(&oldest);
+    }
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).expect("the OS random source");
+    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    inner.open_tokens.insert(
+        token.clone(),
+        OpenToken {
+            app: app.to_string(),
+            op: op.to_string(),
+            idempotency_key,
+            expires: now + OPEN_TOKEN_TTL,
+        },
+    );
+    token
 }
 
 /// Restart spacing of crashed `always` servers, per app.
@@ -384,7 +442,7 @@ impl Supervisor {
         inner: &mut Inner,
         app: &str,
         op: &str,
-        args: Value,
+        mut args: Value,
         origin: Origin,
         idempotency_key: Option<String>,
         respond: Responder,
@@ -393,16 +451,28 @@ impl Supervisor {
             Ok(outs) => outs,
             Err(error) => return vec![Out::Respond(respond, Err(error))],
         };
+        // Only the supervisor mints open tokens: a client's never reaches the
+        // server, and only a user run (origin user, admitted by the A2 gate)
+        // gets one.
+        if let Some(fields) = args.as_object_mut() {
+            fields.remove("open_token");
+        }
+        let open_token = (origin == Origin::User)
+            .then(|| mint_open_token(inner, app, op, idempotency_key.clone(), Instant::now()));
         let server = inner.servers.get_mut(app).expect("started");
         if let Some(timer) = server.idle.take() {
             self.timers.cancel(timer);
         }
         server.next_id += 1;
         let id = format!("s{}", server.next_id);
-        let message = line(&json!({
+        let mut message = json!({
             "type": "op", "id": id, "op": op, "args": args, "origin": origin,
             "idempotency_key": idempotency_key,
-        }));
+        });
+        if let Some(token) = open_token {
+            message["open_token"] = json!(token);
+        }
+        let message = line(&message);
         server.pending.insert(id.clone(), respond);
         if server.stopping {
             server.queued.push((id, message));
@@ -903,4 +973,30 @@ fn device_name() -> String {
     let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
     let name = if ok { String::from_utf8_lossy(&buf[..end]).into_owned() } else { String::new() };
     if name.is_empty() || name.chars().any(char::is_control) { "cmux".into() } else { name }
+}
+
+impl Supervisor {
+    /// Verifies an open token a server passed on (the host side of the
+    /// terminal connector and backend calls this in its connect path). A
+    /// token works once, for the app it was minted for, within 60 s of its
+    /// run; any lookup consumes it, so a wrong app's attempt burns it too.
+    /// Answers what the token was minted for, so the caller can check the op.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn consume_open_token(&self, token: &str, app: &str) -> Option<OpenTokenUse> {
+        self.consume_open_token_at(token, app, Instant::now())
+    }
+
+    /// [`Self::consume_open_token`] at `now` (tests of callers inject the clock).
+    pub(crate) fn consume_open_token_at(
+        &self,
+        token: &str,
+        app: &str,
+        now: Instant,
+    ) -> Option<OpenTokenUse> {
+        let mut inner = self.inner.lock().unwrap();
+        let minted = inner.open_tokens.remove(token)?;
+        inner.open_tokens.retain(|_, t| t.expires > now);
+        (minted.app == app && minted.expires > now)
+            .then_some(OpenTokenUse { op: minted.op, idempotency_key: minted.idempotency_key })
+    }
 }
