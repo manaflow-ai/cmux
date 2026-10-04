@@ -103,14 +103,19 @@ import Testing
         #expect(ownership.recipient(for: .fileChooser) == nil)
     }
 
-    @Test func aHandlerStillWinsOverTheSessionWhoseInputOpenedTheEvent() {
+    // A dialog or file chooser the page opens while it handles one
+    // session's input is that session's doing: another session's handler
+    // on the user's tab must not answer it (accept a confirm, pick files).
+    @Test func theSessionWhoseInputOpenedTheEventWinsOverAnotherSessionsHandler() {
         var ownership = BrowserReplTabOwnership()
         ownership.attach(sessionID: "agent")
         ownership.attach(sessionID: "watcher")
-        ownership.setHandledEvents([.dialog], for: "watcher")
+        ownership.setHandledEvents([.dialog, .fileChooser], for: "watcher")
         ownership.beginInput(sessionID: "agent")
-        #expect(ownership.recipient(for: .dialog) == "watcher")
+        #expect(ownership.recipient(for: .dialog) == "agent")
         #expect(ownership.recipient(for: .fileChooser) == "agent")
+        ownership.endInput(sessionID: "agent")
+        #expect(ownership.recipient(for: .dialog) == "watcher", "the page's own dialog goes to the handler")
     }
 
     @Test func inputEndsWithTheSessionAndNests() {
@@ -118,15 +123,45 @@ import Testing
         ownership.attach(sessionID: "a")
         ownership.attach(sessionID: "b")
         ownership.beginInput(sessionID: "a")
-        ownership.beginInput(sessionID: "b")
-        #expect(ownership.recipient(for: .dialog) == "b", "the latest input")
-        ownership.endInput(sessionID: "b")
+        ownership.beginInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == "a", "one session's nested inputs")
+        ownership.endInput(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == "a")
+        ownership.endInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == nil)
+        ownership.beginInput(sessionID: "a")
         ownership.detach(sessionID: "a")
         #expect(ownership.recipient(for: .dialog) == nil, "a session that left gets nothing")
         // Input from a session that is not attached routes nothing.
         ownership.beginInput(sessionID: "ghost")
         #expect(ownership.recipient(for: .dialog) == nil)
+    }
+
+    // Two sessions' inputs in flight on one user's tab at once: WebKit does
+    // not say which input a dialog, file chooser, popup or request came
+    // from, so none of it goes to either session (the later one must not
+    // answer the earlier one's confirm or pick its files). The dialog is
+    // answered as an unhandled one, never put in front of the user.
+    @Test func overlappingInputsOfTwoSessionsRouteToNeither() {
+        var ownership = BrowserReplTabOwnership()
+        ownership.attach(sessionID: "a")
+        ownership.attach(sessionID: "b")
+        ownership.setHandledEvents([.dialog, .network], for: "b")
+        ownership.beginInput(sessionID: "a")
+        ownership.beginInput(sessionID: "b")
+        #expect(ownership.inputSessionID == nil, "no single acting session")
+        #expect(ownership.recipient(for: .dialog) == nil)
+        #expect(ownership.recipient(for: .fileChooser) == nil)
+        // A request either input may have started reaches only the sessions
+        // that listen for network events, never the other acting session.
+        let request = ownership.networkRecipients(event: "request", requestID: "1")
+        #expect(request.map(\.sessionID) == ["b"])
+        ownership.endInput(sessionID: "b")
+        #expect(ownership.inputSessionID == "a")
+        #expect(ownership.recipient(for: .dialog) == "a")
+        ownership.endInput(sessionID: "a")
+        #expect(ownership.recipient(for: .dialog) == "b")
+        #expect(ownership.recipient(for: .fileChooser) == nil)
     }
 
     @Test func eventNamesParseStrictly() {
