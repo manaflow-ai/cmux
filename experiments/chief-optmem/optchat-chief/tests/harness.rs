@@ -450,3 +450,42 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
     let child = optchat_chief::agents::child_spec(&flags, "kid", "/tmp");
     assert!(child.tags.is_empty(), "{:?}", child.tags);
 }
+
+/// Live check 2026-10-04: acpmux records `turn_end` before it answers the
+/// prompt, and only the answer carries the usage (Claude Code's
+/// `_meta.claude.usage`, codex-acp's ACP `usage`); the turn's host.log line
+/// still gets it.
+#[test]
+fn the_turn_line_reports_the_answers_usage_after_turn_end() {
+    for (answer, expected) in [
+        (
+            json!({"stopReason": "end_turn", "usage": {"inputTokens": 10, "cachedReadTokens": 30000, "outputTokens": 53}}),
+            "last request read 30000 written 0 uncached 10 output 53",
+        ),
+        (
+            json!({"stopReason": "end_turn", "_meta": {"claude": {"usage": {"input_tokens": 2, "cache_read_input_tokens": 64893, "cache_creation_input_tokens": 11084, "output_tokens": 5}}}}),
+            "turn total read 64893 written 11084 uncached 2 output 5",
+        ),
+    ] {
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = lines.clone();
+        let dir = tempfile::tempdir().unwrap();
+        let s = settings(dir.path());
+        let mut h = Harness::configured(
+            dir,
+            default_script(),
+            owner(),
+            s,
+            Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
+        );
+        h.agents.inner.lock().unwrap().answer = Some(answer);
+        h.connect();
+        h.say("user_local", "hello");
+        h.settle();
+        let lines = lines.lock().unwrap();
+        assert!(
+            lines.iter().any(|l| l.contains(" cache: ") && l.contains(expected)),
+            "{expected}: {lines:?}"
+        );
+    }
+}
