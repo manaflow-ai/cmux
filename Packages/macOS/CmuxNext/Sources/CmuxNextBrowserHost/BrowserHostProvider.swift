@@ -171,8 +171,8 @@ public final class BrowserHostProvider {
     /// dispatch (never from driver or agent input). False when the event
     /// does not count, the tab has no lease, or the link is down.
     @discardableResult
-    public func reportUserInput(event: NSEvent, targetID: String) -> Bool {
-        guard ProviderUserInput.pausesLease(event), leases[targetID] != nil, connection != nil else { return false }
+    public func reportUserInput(event: NSEvent, synthetic: Bool = false, targetID: String) -> Bool {
+        guard ProviderUserInput.pausesLease(event, synthetic: synthetic), leases[targetID] != nil, connection != nil else { return false }
         send(.userInput(targetID: targetID))
         return true
     }

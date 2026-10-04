@@ -22,6 +22,34 @@ struct BrowserHostProviderReviewTests {
                            eventNumber: 0, clickCount: 1, pressure: 1)!
     }
 
+    static func scroll(phase: Int64) -> NSEvent {
+        let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -10, wheel2: 0, wheel3: 0)!
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        return NSEvent(cgEvent: event)!
+    }
+
+    @Test func syntheticPressesAndScrollPhasesDecideTheLeasePause() {
+        // The app's own posted input (debug.mouse) is not a person's.
+        #expect(!ProviderUserInput.pausesLease(Self.mouse(.leftMouseDown), synthetic: true))
+        #expect(!ProviderUserInput.pausesLease(Self.key(.keyDown), synthetic: true))
+        #expect(ProviderUserInput.pausesLease(Self.mouse(.otherMouseDown), synthetic: false))
+        // A scroll gesture pauses once, at its start (it changes what the agent sees).
+        #expect(ProviderUserInput.pausesLease(Self.scroll(phase: 1), synthetic: false))
+        #expect(!ProviderUserInput.pausesLease(Self.scroll(phase: 2), synthetic: false))
+    }
+
+    @Test func aSyntheticPressOnALeasedTabSendsNoUserInput() async throws {
+        let h = ProviderHarness(tabs: [tab("w1", .webkit)])
+        let (host, _) = await h.connected()
+        host.ack()
+        host.send(.lease(targetID: "w1", lease: ProviderLease(session: "s", actor: "agent", origin: "cli", label: "L", sinceMs: 1)))
+        host.send(.call(id: 1, method: "tabs.list", params: .object([:])))
+        _ = await host.next()
+        #expect(!h.provider.reportUserInput(event: Self.mouse(.leftMouseDown), synthetic: true, targetID: "w1"))
+        #expect(h.provider.reportUserInput(event: Self.mouse(.leftMouseDown), synthetic: false, targetID: "w1"))
+        #expect(await host.next() == .userInput(targetID: "w1"))
+    }
+
     @Test func onlyAPersonsKeyDownsAndClicksPauseALease() {
         #expect(ProviderUserInput.pausesLease(Self.key(.keyDown)))
         #expect(ProviderUserInput.pausesLease(Self.mouse(.leftMouseDown)))

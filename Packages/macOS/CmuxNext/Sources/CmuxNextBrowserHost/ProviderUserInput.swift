@@ -6,6 +6,10 @@ public import AppKit
 /// driver calls the web view directly and CDP input stays in Chromium.
 public enum ProviderUserInput {
     /// One per press: key downs and mouse downs, not releases or drags.
+    public static func pausesLease(_ event: NSEvent, synthetic: Bool) -> Bool {
+        pausesLease(event) // RED: synthetic input and scroll phases are not decided yet
+    }
+
     public static func pausesLease(_ event: NSEvent) -> Bool {
         switch event.type {
         case .keyDown: !event.isARepeat
