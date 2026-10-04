@@ -1,6 +1,6 @@
 # Settings: daemon-owned state, one web page, every surface
 
-Status: plan, 2026-10-03. Owner: settings lead. Lawrence: "move settings into react, the tanstack
+Status: plan, 2026-10-03 (updated 2026-10-04 for the pane protocol and the shared page host). Owner: settings lead. Lawrence: "move settings into react, the tanstack
 app thing"; "improve settings page from first principles"; "make sure settings will talk to rust,
 that will then talk to swift, so we can consolidate all stuff in rust"; "ensure every single
 setting is settable from everywhere, including cmd shift p, cli, mcp"; "controls for
@@ -134,11 +134,12 @@ Principles taken from the reference captures (layout and flow, not pixels):
   "Open cmux.json" and "Reset").
 - Collections (shortcuts, custom actions, browser profiles, machines) are tables with their own
   search and a category filter, one row per item, editable cells (Record Shortcut).
-- Drill-in rows (title, count, chevron) for sub-pages; Back/Forward (Cmd-[ / Cmd-]) walks the page
+- Drill-in rows (title, count, chevron) for sub-pages; Back/Forward (dispatcher commands) walks the page
   history; deep links `#/settings/<section>?focus=<key>` from the palette, CLI
   (`cmux settings open <key>`) and notices.
-- Keyboard: Cmd-F focuses search, Up/Down moves through rows, Tab moves into a control, Space
-  toggles, Return opens a menu, Cmd-Backspace resets the focused row. Every row is reachable without
+- Keyboard: the app's key dispatcher owns every Cmd and Ctrl chord and sends page commands (find,
+  back, forward, reset of the focused row). The page handles plain keys: Up/Down moves through
+  rows, Tab moves into a control, Space toggles, Return opens a menu. Every row is reachable without
   the mouse.
 
 Editors per kind: toggle = switch; choice with up to 3 values = segmented control, more = menu;
@@ -172,23 +173,56 @@ Strings: page chrome and descriptor strings are xcstrings keys (21 languages). T
 `webviews/src/settings/generated/strings.<locale>.json` from the xcstrings files the descriptors and
 the page use; the page picks the app's language. No string lives only in TypeScript.
 
-## 5. Hosting and wires
+## 5. Hosting and wires (updated 2026-10-04: pane protocol, shared page host)
 
-- A new `InternalPageProvider` (page `settings`) returns a WKWebView that loads
-  `cmux-settings://page/index.html#/settings`, served by a scheme handler from the bundled webviews
-  output (the agent pane's scheme-handler pattern). The handler serves only that origin; navigation
-  to any other origin opens in a browser tab; message handlers accept only frames whose origin is
-  `cmux-settings://page`.
-- The page reaches the daemon through the native bridge: `window.webkit.messageHandlers.cmuxSettings`
-  carries `{op, params}`; Swift forwards each request unchanged to the daemon's `settings.*` ops
-  and streams `settings.changed` back. Swift does not interpret or cache the ops on this path.
-  The relay forwards only operations whose name starts with `settings.` (plus the stream cancel of
-  its own stream); anything else is refused at the bridge. A direct page-to-daemon WebSocket is not
-  used: the daemon's WebSocket listener is opt-in, has no Origin allowlist yet
-  (cmux-tui/spec/transports.md), and an authenticated WebSocket client can type into terminals, so it
-  would grant the page far more than settings.
-- Swift subscribes once per app (not per tab) and fans events out to the controller, the palette and
-  every Settings tab.
+- Host: the shared `CmuxNextPages` module (React UIs lead; react-pages.md Q7) serves every page at
+  `cmux-page://<page id>/` from one generic `PageWebView`, `PageSchemeHandler` and `PageBridge`
+  (`cmuxPage` message handler, one namespace allowlist per page). Settings adds only its allowlist
+  (`cmux.settings.*`) and its provider. The earlier Settings-only host (`cmux-settings://page`,
+  branch `feat-cmux-next-settings-react` 7b1cad2e028) is not landed; its parts went to that module.
+- Manifest (pane-protocol.md "Pages"): `{"id":"cmux.settings","route":"/settings",
+  "entry":"pages/settings/index.html","namespace":"cmux.settings","provider":{"kind":"daemon-module"},
+  "consumes":["cmux.settings/1"],"scopes":["settings:read","settings:write"],
+  "engines":["webkit","cef","browser"]}`. Presentation fields come from the app manifest's
+  `presentation` block when it exists; Settings adds none of its own.
+- Ops on the page side are `cmux.settings.*` (the CLI keeps `cmux settings ...`, MCP keeps the
+  generated v2 tools). Until the pane-protocol router reaches the daemon, the page bridge relays
+  each data op to the daemon's v2 op of the same verb (`cmux.settings.set` -> `settings.set`):
+  it moves `idempotency_key` into the v2 envelope, stamps origin `user` (a page-sent origin is
+  refused), maps error codes `settings.X` to `cmux.settings.X`, and forwards the daemon's
+  `settings-changed` event as `cmux.settings.changed {revision, keys, origin}`.
+  `settings.domains.publish` and `settings.team_policy.set` are never reachable from a page.
+  When the router lands, the daemon module declares the same ops with the `cmux-pane-protocol`
+  schemars macro and the relay goes away; no page file changes.
+- Native ops (served by Swift): `cmux.settings.preview {key, value}`, `cmux.settings.preview.end
+  {key}`, `cmux.settings.sound.play {name}`; Open cmux.json and the native Settings card are catalog
+  actions through `cmux.app.action.run`.
+- Every page also uses two bridge streams: `cmux.page.connection {connected}` (daemon link) and
+  `cmux.page.command {command}` (find, back, forward, reset from the app's key dispatcher; pages
+  handle no Cmd or Ctrl chords). Locale: the document language; theme: the one web theme
+  (`--cmux-*`); route: the URL fragment (`#/settings/<section>?focus=<key>`).
+- Value domains (themes, fonts, sounds) come from `cmux.settings.snapshot.domains` (the app
+  publishes them to the daemon), so the page needs no native op for them.
+- A direct page-to-daemon WebSocket is not used before the router: the daemon's WebSocket listener
+  has no Origin allowlist yet and an authenticated client can type into terminals.
+
+## Page pattern (copy this for History and App Store)
+
+One directory per page, `webviews/src/pages/<page>/`:
+
+| File | Role |
+| --- | --- |
+| `ops.ts` | the page's contract: op name -> [params, result], stream name -> event, the `Client` interface (`call`, `subscribe`; structurally the shared pageClient), error-code helpers. Hand-written until the schemars IR generates it. |
+| `store.ts` | one immutable state object read with `useSyncExternalStore`; `start()` subscribes (changed, `cmux.page.connection`, `cmux.page.command`) then reads; every write is one op with a fresh `idempotency_key`; a newer read always wins; offline writes are refused, never queued. No `useEffect`. |
+| `mockProvider.ts` | the namespace served on a pane-protocol `Session` over `createMockPair()`: same error codes, idempotency rules and events as the real owner. Used by the dev server (`main.tsx`) and every test, so tests cross the real envelope. |
+| `mount.tsx` | `mount<Page>(root, client)`: the only entry the shared shell calls. |
+| `keyboard.ts` | plain keys only (Up/Down/Space/Return/Escape/typing); `runPageCommand` for dispatcher commands. |
+| `generated/strings.json` | from the xcstrings catalogs (`scripts/pages/<page>/generate-strings.mjs --check`); every page string is an xcstrings key in all languages. |
+
+Tests (bun): the mock provider honors the owner's accept/refuse samples; the page renders an editor
+for every row kind; writes send one op with a key; another client's write shows up live; offline
+mode refuses writes; chords do nothing and dispatcher commands work; html/body and containers paint
+no background.
 
 ## 6. Cold start and daemon loss
 
@@ -204,7 +238,7 @@ unreachable, Settings shows "Settings are read only until cmux reconnects" and r
 | --- | --- | --- |
 | a | `cmux-config` crate in the daemon (first cmux.json writer outside Swift; a comment-preserving JSONC editor ported from `JSONC.swift`, since the workspace has only a read-only stripper): schema from the export, portable validation, managed reader, merge, JSONC editor, atomic publish, watcher, events, cache file; `settings.*` ops; capability `settings-v1`; Rust CLI `cmux settings list/get/set/reset/open` and MCP `settings_list/get/set/reset` against the daemon (cmux-tui landing window) | cargo tests on a Testbox: reducer property tests (idempotent replay, managed keys never change, every row's default and a wrong-kind sample), JSONC round-trip fixtures shared with the Swift tests; the 191-op count tests and `check-resource-api-boundary.py` updated |
 | b | Swift projection: `DaemonSettingsSource` (snapshot + subscribe), `SettingsController` setters send ops when the daemon serves `settings-v1`, domains publish, team policy forwarded; raw socket writes removed; native window kept | Swift tests on the fleet: a write from the CLI path updates `DesignSettings` with no file access from Swift |
-| c | Web page in `webviews/src/settings`, scheme handler, page provider behind Debug Settings `settings.surface = web` (default native until d passes) | webviews tests; tagged build + `debug.window_snapshot` of the page tab |
+| c | Web page in `webviews/src/pages/settings` on the shared page host (`CmuxNextPages`), Settings provider behind Debug Settings `settings.surface = web` (default native until d passes) | webviews tests; tagged build + `debug.window_snapshot` of the page tab |
 | d | Parity test over every descriptor: palette row + editor, `settings.list` row, CLI round trip, MCP tool, page row with an editor for its kind | one test fails per missing surface |
 | e | Default `settings.surface = web`; delete the native Settings views and `SettingsWindowModel` after one dogfood round | dogfood |
 | f | Schema authored in `config/settings/schema.json`; Swift descriptors, `web/data/cmux.schema.json` and TS types generated; `cmux-tui.json` overlapping keys fold into cmux.json | generator `--check` in CI |
