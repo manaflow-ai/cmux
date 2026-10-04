@@ -1,24 +1,34 @@
 //! The compactor's acpmux route against the fake acpmux port: one session
-//! per node with a deny-all policy in the compactor's own directory, the
-//! size loop in the same session, the session killed when the node is done
-//! or failed, at most JOBS sessions, and the route chosen by the endpoint.
+//! per node with a deny-all policy and its own required preset, in a slot
+//! working directory outside the home, the size loop in the same session,
+//! the session killed and its transcript deleted when the node is done or
+//! failed, at most JOBS sessions across the main and fallback compactors,
+//! refusals as acpmux really sends them, and the route chosen by the endpoint.
 
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
 use optchat_chief::brain::Input;
 use optchat_chief::compactor::{
-    AcpmuxCompactor, CompactRoute, CompactorSpec, POLICY, compact_route, request_blocks,
+    AcpmuxCompactor, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY, Slots, compact_route,
+    compactor_preset, compactor_settings, compactor_spec, is_refusal_error, probe_models,
+    project_dir_name, request_blocks, strip_preamble,
 };
+use optchat_chief::paths::Paths;
 use optchat_core::JOBS;
 use optchat_host::{
-    CompactRequest, Config, DEFAULT_BASE_URL, Kind, NodeId, OptChat, PROBE_NODE, SUBROUTER_KEY,
+    CompactModel, CompactRequest, Config, DEFAULT_BASE_URL, Kind, NodeId, OptChat, PROBE_NODE, SUBROUTER_KEY,
     SystemClock, probe, run_node,
 };
 use serde_json::{Value, json};
+
+/// What acpmux answers when Claude Code ends a turn with stop reason
+/// `refusal`: a JSON-RPC error (code -32603) whose message is Claude Code's
+/// result text (acpmux `claude_stdio/inbound.rs`; text from Claude Code 2.1.289).
+const REFUSAL: &str = "API Error: Claude Sonnet 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations. Claude Code can't respond to this message with Claude Sonnet 5.5.\n\nTry rephrasing the request in a new session or change your model.\n\nLearn more: https://support.claude.com";
 
 /// One fake turn that answers `text`.
 fn answer(text: &str) -> Vec<Value> {
@@ -35,13 +45,18 @@ fn answer(text: &str) -> Vec<Value> {
 fn spec(dir: &std::path::Path) -> CompactorSpec {
     CompactorSpec {
         name: "optchat-compact-test".into(),
-        cwd: dir.join("compactor"),
+        work: dir.join("work"),
+        config_dir: dir.join("compactor-claude"),
+        preset: "optchat-compact-test-preset".into(),
         harness: "claude-sr".into(),
         model: Some("claude-sonnet-5-5".into()),
-        effort: Some("medium".into()),
+        effort: None,
         timeout: Duration::from_secs(30),
-        jobs: JOBS,
     }
+}
+
+fn compactor(agents: &Arc<FakeAgents>, dir: &std::path::Path) -> AcpmuxCompactor {
+    AcpmuxCompactor::new(agents.clone(), spec(dir), Slots::new(JOBS))
 }
 
 fn request(i: u64) -> CompactRequest {
@@ -65,7 +80,7 @@ fn texts(blocks: &[Value]) -> Vec<String> {
 fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: pasted a deploy log")));
-    let compactor = Arc::new(AcpmuxCompactor::new(agents.clone(), spec(dir.path())));
+    let compactor = Arc::new(compactor(&agents, dir.path()));
     let config = Config {
         reporter: Arc::new(|_| {}),
         ..Config::default()
@@ -94,9 +109,16 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
     assert_eq!(inner.specs.len(), 1);
     let s = &inner.specs[0];
     assert_eq!(s.policy, POLICY);
-    assert_eq!(s.cwd, dir.path().join("compactor"));
+    let work = std::fs::canonicalize(dir.path().join("work")).unwrap();
+    assert_eq!(s.cwd, work.join("slot-0"), "a slot directory, its real path");
     assert_eq!(s.harness, "claude-sr");
     assert_eq!(s.model.as_deref(), Some("claude-sonnet-5-5"));
+    assert_eq!(
+        s.preset.as_deref(),
+        Some("optchat-compact-test-preset"),
+        "the compactor names its own preset, which acpmux must have"
+    );
+    assert_eq!(s.effort, None, "no effort until it is verified live");
     assert!(s.name.starts_with("optchat-compact-test-"));
     // System text, then the context pieces, then the step (section 8's order).
     let blocks = texts(&inner.prompts[0]);
@@ -117,7 +139,7 @@ fn the_size_loop_continues_in_the_same_session() {
             answer("user: short now")
         }
     }));
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec(dir.path()));
+    let compactor = compactor(&agents, dir.path());
     assert_eq!(
         run_node(&compactor, &request(3)).unwrap(),
         "user: short now"
@@ -137,7 +159,7 @@ fn a_failed_node_kills_its_session_and_a_refusal_is_reported_as_one() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("")));
     agents.inner.lock().unwrap().answer = Some(json!({"stopReason": "refusal"}));
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec(dir.path()));
+    let compactor = compactor(&agents, dir.path());
     let error = run_node(&compactor, &request(0)).unwrap_err();
     assert!(error.refused, "{error:?}");
     assert_eq!(agents.inner.lock().unwrap().ended, vec!["s1"]);
@@ -153,7 +175,7 @@ fn at_most_jobs_compactor_sessions_live_at_once() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|turn, _| answer(&format!("user: node {turn}"))));
     agents.hold(true);
-    let compactor = Arc::new(AcpmuxCompactor::new(agents.clone(), spec(dir.path())));
+    let compactor = Arc::new(compactor(&agents, dir.path()));
     let extra = 3;
     let workers: Vec<_> = (0..(JOBS + extra) as u64)
         .map(|i| {
@@ -182,7 +204,7 @@ fn at_most_jobs_compactor_sessions_live_at_once() {
 fn the_probe_builds_one_node_through_acpmux() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| answer("user: ping")));
-    let compactor = AcpmuxCompactor::new(agents.clone(), spec(dir.path()));
+    let compactor = compactor(&agents, dir.path());
     assert_eq!(probe(&compactor, "SYS").unwrap(), "user: ping");
     let inner = agents.inner.lock().unwrap();
     assert_eq!(inner.specs[0].name, "optchat-compact-test-probe");
@@ -254,5 +276,255 @@ fn a_notice_is_posted_once_when_the_conversation_is_known() {
             "notice:compactor:1".to_owned(),
             "The memory compactor cannot build summaries".to_owned()
         )]
+    );
+}
+
+// Audit round 3, M2: acpmux reports a refused Claude turn as a JSON-RPC
+// error carrying Claude Code's text, never as `{stopReason: "refusal"}`.
+#[test]
+fn a_refusal_as_acpmux_sends_it_is_classified_as_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("")));
+    agents.inner.lock().unwrap().answer_error = Some(REFUSAL.into());
+    let compactor = compactor(&agents, dir.path());
+    let error = run_node(&compactor, &request(0)).unwrap_err();
+    assert!(error.refused, "{error:?}");
+    assert_eq!(agents.inner.lock().unwrap().ended, vec!["s1"]);
+
+    agents.inner.lock().unwrap().answer_error =
+        Some("Claude AI usage limit reached|1759600000".into());
+    let error = run_node(&compactor, &request(1)).unwrap_err();
+    assert!(!error.refused, "a usage limit is retried, not refused: {error:?}");
+}
+
+#[test]
+fn refusal_texts() {
+    assert!(is_refusal_error(REFUSAL));
+    assert!(is_refusal_error(
+        "API Error: Claude Code is unable to respond to this request, which appears to violate our Usage Policy (https://www.anthropic.com/legal/aup). Please double press esc to edit your last message or start a new session for Claude Code to assist with a different task."
+    ));
+    assert!(is_refusal_error(
+        "API Error: Claude can't help with this. Start a new session. Learn more: https://www.anthropic.com/legal/aup"
+    ));
+    assert!(!is_refusal_error("Claude AI usage limit reached|1759600000"));
+    assert!(!is_refusal_error("agent process closed (claude-sr): proxy down"));
+    assert!(!is_refusal_error("API Error: 529 overloaded"));
+}
+
+#[test]
+fn a_refused_node_is_built_by_the_fallback_compactor() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: built by the fallback")));
+    agents.inner.lock().unwrap().answer_error = Some(REFUSAL.into());
+    let slots = Slots::new(JOBS);
+    let main = Arc::new(AcpmuxCompactor::new(agents.clone(), spec(dir.path()), slots.clone()));
+    let fallback = Arc::new(AcpmuxCompactor::new(
+        agents.clone(),
+        CompactorSpec {
+            model: Some("claude-sonnet-5".into()),
+            ..spec(dir.path())
+        },
+        slots,
+    ));
+    let chat = OptChat::open_with_fallback(
+        dir.path().join("chat"),
+        Config {
+            reporter: Arc::new(|_| {}),
+            ..Config::default()
+        },
+        main,
+        Some(fallback),
+        Arc::new(SystemClock),
+    )
+    .unwrap();
+    chat.append(Kind::User, &"a long message; ".repeat(60)).unwrap();
+    assert!(chat.settle(None, Some(WAIT)), "{:?}", chat.status().failures);
+    assert!(chat.render_view().text.contains("user: built by the fallback"));
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.specs[1].model.as_deref(), Some("claude-sonnet-5"));
+}
+
+// Audit round 3, m4: the start-up probe checks the fallback model too.
+#[test]
+fn the_probe_checks_the_fallback_model_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let good = FakeAgents::new(Box::new(|_, _| answer("user: ping")));
+    let bad = FakeAgents::new(Box::new(|_, _| answer("")));
+    bad.inner.lock().unwrap().answer_error = Some("model claude-sonnet-5 not found".into());
+    let main = compactor(&good, dir.path());
+    let fallback = compactor(&bad, dir.path());
+    assert_eq!(probe_models(&main, None, "SYS"), Ok("user: ping".into()));
+    let error = probe_models(&main, Some(&fallback as &dyn CompactModel), "SYS").unwrap_err();
+    assert!(error.contains("fallback"), "{error}");
+    assert!(error.contains("not found"), "{error}");
+}
+
+/// A Claude Code `system/init` as acpmux records it.
+fn init(tools: Value, mcp: Value) -> Value {
+    update(
+        "session_info_update",
+        json!({"title": null, "_meta": {"claude": {"tools": tools, "mcp_servers": mcp, "model": "claude-sonnet-5-5"}}}),
+    )
+}
+
+// Audit round 3, M3 and m4: the probe fails when the compactor session
+// offers a tool or an MCP server.
+#[test]
+fn the_probe_fails_when_the_compactor_session_has_tools_or_mcp_servers() {
+    let dir = tempfile::tempdir().unwrap();
+    let with = |tools: Value, mcp: Value| {
+        let agents = FakeAgents::new(Box::new(move |_, _| {
+            let mut events = vec![init(tools.clone(), mcp.clone())];
+            events.extend(answer("user: ping"));
+            events
+        }));
+        probe(&compactor(&agents, dir.path()), "SYS")
+    };
+    assert_eq!(with(json!([]), json!([])), Ok("user: ping".into()));
+    let error = with(json!(["AskUserQuestion", "Read"]), json!([])).unwrap_err();
+    assert!(error.message.contains("AskUserQuestion"), "{error:?}");
+    let error = with(json!([]), json!([{"name": "github", "status": "connected"}])).unwrap_err();
+    assert!(error.message.contains("github"), "{error:?}");
+}
+
+// Audit round 3, M5: one host.log line per node with its token use.
+#[test]
+fn each_node_logs_its_seconds_and_token_use() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("user: hi")));
+    agents.inner.lock().unwrap().answer = Some(json!({
+        "stopReason": "end_turn",
+        "_meta": {"claude": {"subtype": "success", "cost_usd": 0.081, "num_turns": 1, "usage": {
+            "input_tokens": 3, "cache_creation_input_tokens": 21000,
+            "cache_read_input_tokens": 9000, "output_tokens": 40
+        }}}
+    }));
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let compactor = compactor(&agents, dir.path())
+        .with_log(Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())));
+    run_node(&compactor, &request(4)).unwrap();
+    let lines = lines.lock().unwrap();
+    let line = lines.iter().find(|l| l.contains("0-4")).expect("a node line");
+    for part in ["uncached 3", "cache write 21000", "cache read 9000", "output 40", "$0.081"] {
+        assert!(line.contains(part), "{part} in {line}");
+    }
+}
+
+// Audit round 3, m3: the main and fallback compactors share one gate.
+#[test]
+fn main_and_fallback_compactors_share_jobs_slots() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|turn, _| answer(&format!("user: node {turn}"))));
+    agents.hold(true);
+    let slots = Slots::new(JOBS);
+    let a = Arc::new(AcpmuxCompactor::new(agents.clone(), spec(dir.path()), slots.clone()));
+    let b = Arc::new(AcpmuxCompactor::new(agents.clone(), spec(dir.path()), slots));
+    let workers: Vec<_> = (0..(JOBS + 4) as u64)
+        .map(|i| {
+            let c = if i % 2 == 0 { a.clone() } else { b.clone() };
+            std::thread::spawn(move || run_node(&*c, &request(i)))
+        })
+        .collect();
+    agents.wait_prompts(JOBS);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(agents.inner.lock().unwrap().specs.len(), JOBS);
+    let cwds: std::collections::BTreeSet<_> = agents
+        .inner
+        .lock()
+        .unwrap()
+        .specs
+        .iter()
+        .map(|s| s.cwd.clone())
+        .collect();
+    assert_eq!(cwds.len(), JOBS, "each live session has its own slot directory");
+    agents.hold(false);
+    agents.release();
+    for w in workers {
+        assert!(w.join().unwrap().is_ok());
+    }
+}
+
+// Audit round 3, M6: the node's Claude Code transcript is deleted with it.
+#[test]
+fn a_finished_node_deletes_its_claude_code_transcript() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_owned();
+    let made = Arc::new(Mutex::new(None));
+    let seen = made.clone();
+    let agents = FakeAgents::new(Box::new(move |_, _| {
+        // Claude Code writes the transcript under the config's projects/.
+        let cwd = std::fs::canonicalize(root.join("work").join("slot-0")).unwrap();
+        let project = root
+            .join("compactor-claude")
+            .join("projects")
+            .join(project_dir_name(&cwd));
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("abc.jsonl"), "{}\n").unwrap();
+        *seen.lock().unwrap() = Some(project);
+        answer("user: hi")
+    }));
+    run_node(&compactor(&agents, dir.path()), &request(0)).unwrap();
+    let project = made.lock().unwrap().clone().unwrap();
+    assert!(!project.exists(), "{} is left", project.display());
+}
+
+#[test]
+fn project_dir_names_follow_claude_code() {
+    assert_eq!(
+        project_dir_name(std::path::Path::new("/private/var/folders/x_y/T/optchat-compact-1a/slot-0")),
+        "-private-var-folders-x-y-T-optchat-compact-1a-slot-0"
+    );
+}
+
+// Audit round 3, m5: Claude Code or the model may put a lead-in before the line.
+#[test]
+fn a_lead_in_before_the_line_is_dropped() {
+    assert_eq!(strip_preamble("Here is the line:\nuser: asked X"), "user: asked X");
+    assert_eq!(strip_preamble("Here's the compressed line:\n\nuser: asked X"), "user: asked X");
+    assert_eq!(strip_preamble("user: asked X"), "user: asked X");
+    assert_eq!(strip_preamble("user: a: b\nc"), "user: a: b\nc");
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| answer("Here is the line:\nuser: ping")));
+    assert_eq!(probe(&compactor(&agents, dir.path()), "SYS").unwrap(), "user: ping");
+}
+
+// Audit round 3, M1, M3, M6 and m5: the compactor's own configuration.
+#[test]
+fn the_compactor_has_its_own_isolated_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = Paths::new(&home);
+    let preset = compactor_preset(&paths, &home, "claude-sr");
+    assert!(preset.name.starts_with("optchat-compact-"), "{}", preset.name);
+    assert!(preset.name.ends_with(&optchat_chief::paths::home_id(&home)));
+    assert_eq!(
+        preset.env["CLAUDE_CONFIG_DIR"],
+        paths.compactor_config.display().to_string()
+    );
+    assert_ne!(paths.compactor_config, paths.claude_config);
+    assert_eq!(preset.env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
+    assert_eq!(preset.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
+    let settings = compactor_settings();
+    let deny: Vec<&str> = settings["permissions"]["deny"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    for tool in ["AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "Bash", "Read", "Task"] {
+        assert!(deny.contains(&tool), "{tool} denied");
+        assert!(DENIED_TOOLS.contains(&tool));
+    }
+    assert_eq!(settings["cleanupPeriodDays"], 1);
+    assert_eq!(settings["autoMemoryEnabled"], false);
+    let spec = compactor_spec(&paths, &home, "claude-sr", "claude-sonnet-5-5");
+    assert_eq!(spec.effort, None);
+    assert_eq!(spec.preset, preset.name);
+    assert_eq!(spec.config_dir, paths.compactor_config);
+    assert!(
+        !spec.work.starts_with(&home),
+        "the compactor's cwd is outside the home: {}",
+        spec.work.display()
     );
 }

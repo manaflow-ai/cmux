@@ -23,7 +23,7 @@ struct Scripted {
 }
 
 impl ChatModel for Scripted {
-    fn send(&self, body: &Value) -> Result<Value, CallError> {
+    fn send(&self, body: &Value, _stop: &dyn Fn() -> bool) -> Result<Value, CallError> {
         {
             let mut gate = self.gate.lock().unwrap();
             while *gate {
@@ -31,10 +31,11 @@ impl ChatModel for Scripted {
             }
         }
         self.bodies.lock().unwrap().push(body.clone());
-        self.replies.lock().unwrap().pop_front().ok_or(CallError {
-            message: "no reply scripted".into(),
-            retry: false,
-        })
+        self.replies
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or(CallError::new("no reply scripted", false))
     }
 }
 
@@ -47,7 +48,7 @@ fn scripted(replies: Vec<Value>, gated: bool) -> Arc<Scripted> {
     })
 }
 
-fn native(model: Arc<Scripted>, dir: &std::path::Path) -> Engine {
+fn native(model: Arc<dyn ChatModel>, dir: &std::path::Path) -> Engine {
     let config = NativeConfig {
         model: "claude-opus-5-5".into(),
         effort: Some("high".into()),
@@ -210,4 +211,179 @@ fn a_native_turn_that_is_refused_says_so() {
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1);
     assert!(sends[0].1.contains("refusal"), "{sends:?}");
+}
+
+/// Streams each call's events one chunk at a time, checking `stop` after
+/// every chunk as the HTTP model does. The first call pauses after
+/// `pause_after` chunks until the test opens the gate.
+struct Streaming {
+    calls: Mutex<VecDeque<Vec<Value>>>,
+    bodies: Mutex<Vec<Value>>,
+    pause_after: usize,
+    /// (paused, open)
+    gate: Mutex<(bool, bool)>,
+    changed: Condvar,
+    /// Chunks the first call had fed when it saw `stop`.
+    stopped_at: Mutex<Option<usize>>,
+}
+
+impl ChatModel for Streaming {
+    fn send(&self, body: &Value, stop: &dyn Fn() -> bool) -> Result<Value, CallError> {
+        let first = {
+            let mut bodies = self.bodies.lock().unwrap();
+            bodies.push(body.clone());
+            bodies.len() == 1
+        };
+        let events = self.calls.lock().unwrap().pop_front().expect("a scripted call");
+        let mut assembler = optchat_chief::native::Assembler::default();
+        for (i, event) in events.iter().enumerate() {
+            assembler.feed(event);
+            if first && i + 1 == self.pause_after {
+                let mut gate = self.gate.lock().unwrap();
+                gate.0 = true;
+                self.changed.notify_all();
+                while !gate.1 {
+                    gate = self.changed.wait(gate).unwrap();
+                }
+            }
+            if stop() {
+                if first {
+                    *self.stopped_at.lock().unwrap() = Some(i + 1);
+                }
+                return Err(CallError::interrupted());
+            }
+        }
+        assembler.finish().map_err(|e| CallError::new(e, false))
+    }
+}
+
+fn thinking_stream() -> Vec<Value> {
+    let mut events = vec![
+        json!({"type": "message_start", "message": {"role": "assistant", "content": [], "usage": {"input_tokens": 1}}}),
+        json!({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}}),
+    ];
+    for i in 0..20 {
+        events.push(json!({"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": format!("step {i}. ")}}));
+    }
+    events.extend([
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({"type": "content_block_start", "index": 1, "content_block": {"type": "text", "text": ""}}),
+        json!({"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "Half an ans"}}),
+        json!({"type": "content_block_stop", "index": 1}),
+        json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 9}}),
+        json!({"type": "message_stop"}),
+    ]);
+    events
+}
+
+fn final_stream(text: &str) -> Vec<Value> {
+    vec![
+        json!({"type": "message_start", "message": {"role": "assistant", "content": [], "usage": {"input_tokens": 1}}}),
+        json!({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+        json!({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 3}}),
+        json!({"type": "message_stop"}),
+    ]
+}
+
+// m6 (decision 2026-10-04): a human message stops the model at once, even
+// mid-thinking, and a new call starts with the message delivered.
+#[test]
+fn a_message_during_thinking_aborts_the_stream_and_starts_a_new_call() {
+    let model = Arc::new(Streaming {
+        calls: Mutex::new(vec![thinking_stream(), final_stream("You're welcome.")].into()),
+        bodies: Mutex::new(Vec::new()),
+        pause_after: 4,
+        gate: Mutex::new((false, false)),
+        changed: Condvar::new(),
+        stopped_at: Mutex::new(None),
+    });
+    let workdir = tempfile::tempdir().unwrap();
+    let mut h = Harness::with_engine(native(model.clone(), workdir.path()));
+    h.connect();
+    h.say("user_local", "plan the release");
+    h.step(); // settled: the turn starts and streams
+    {
+        let mut gate = model.gate.lock().unwrap();
+        while !gate.0 {
+            gate = model.changed.wait_timeout(gate, WAIT).unwrap().0;
+        }
+    }
+    h.say("user_local", "thanks");
+    {
+        let mut gate = model.gate.lock().unwrap();
+        gate.1 = true;
+        model.changed.notify_all();
+    }
+    h.settle();
+    assert_eq!(
+        *model.stopped_at.lock().unwrap(),
+        Some(4),
+        "the stream stops at the first chunk after the message"
+    );
+    assert_eq!(
+        pairs(&h.log()),
+        vec![
+            ("user", "plan the release"),
+            ("user", "thanks"),
+            ("talk", "You're welcome."),
+        ],
+        "nothing of the interrupted step is logged"
+    );
+    let bodies = model.bodies.lock().unwrap().clone();
+    assert_eq!(bodies.len(), 2);
+    let messages = bodies[1]["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1, "the interrupted output is not resent");
+    let opening = messages[0]["content"].as_array().unwrap();
+    assert_eq!(
+        opening.last().unwrap(),
+        &json!({"type": "text", "text": "thanks"})
+    );
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1);
+    assert_eq!(sends[0].1, "You're welcome.");
+}
+
+// m6: a running tool call finishes, its result is logged and sent, then the
+// new call carries the message (no step of the model's own in between).
+#[test]
+fn thanks_during_a_tool_lets_the_tool_finish_then_starts_a_new_call() {
+    let step = json!({
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 1},
+        "content": [{"type": "tool_use", "id": "t1", "name": "bash", "input": {"command": "sleep 1; echo built"}}]
+    });
+    let model = scripted(vec![step, final_step("Built; you're welcome.")], false);
+    let workdir = tempfile::tempdir().unwrap();
+    let mut h = Harness::with_engine(native(model.clone(), workdir.path()));
+    h.connect();
+    h.say("user_local", "build it");
+    h.step(); // settled: the turn starts
+    let deadline = std::time::Instant::now() + WAIT;
+    while model.bodies.lock().unwrap().is_empty() {
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    h.say("user_local", "thanks");
+    h.settle();
+    assert_eq!(
+        pairs(&h.log()),
+        vec![
+            ("user", "build it"),
+            ("tool", "bash {\"command\":\"sleep 1; echo built\"}"),
+            ("echo", "built\n"),
+            ("user", "thanks"),
+            ("talk", "Built; you're welcome."),
+        ]
+    );
+    let bodies = model.bodies.lock().unwrap().clone();
+    assert_eq!(bodies.len(), 2);
+    assert_eq!(
+        bodies[1]["messages"][2]["content"],
+        json!([
+            {"type": "tool_result", "tool_use_id": "t1", "content": "built\n"},
+            {"type": "text", "text": "thanks"}
+        ])
+    );
 }

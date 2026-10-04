@@ -8,9 +8,9 @@ use std::os::unix::net::UnixListener;
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 
-use optchat_chief::acpmux::{Acpmux, AgentEvent, SessionSpec};
+use optchat_chief::acpmux::{Acpmux, AgentEvent, AgentPort, Preset, SessionSpec};
 use optchat_chief::prompt::turn_blocks;
-use optchat_chief::turn::{self, TurnStart};
+use optchat_chief::turn::{self, Interrupt, TurnStart};
 use serde_json::{Value, json};
 
 /// The events one prompt records, in the shapes acpmux stores them.
@@ -66,7 +66,7 @@ fn turn_events(prompt_id: &str) -> Vec<Value> {
         .collect()
 }
 
-fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>) {
+fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, fail_presets: bool) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             let requests = requests.clone();
@@ -92,6 +92,9 @@ fn serve(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>) {
                             json!({"sessions": [{"sessionId": "old", "name": "x", "status": "idle"}]}),
                         )),
                         "session/new" => send(reply(json!({"sessionId": "s-1"}))),
+                        "_acpmux/presets" if fail_presets => send(
+                            json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32601, "message": "Method not found: _acpmux/presets"}}),
+                        ),
                         "session/prompt" => {
                             let prompt_id = req["params"]["_meta"]["acpmux"]["promptId"]
                                 .as_str()
@@ -139,9 +142,9 @@ fn a_turn_over_the_acpmux_wire() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("acpmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
-    serve(UnixListener::bind(&socket).unwrap(), requests.clone());
+    serve(UnixListener::bind(&socket).unwrap(), requests.clone(), false);
 
-    let acpmux = Acpmux::new(socket, None);
+    let acpmux = Acpmux::new(socket, None, Vec::new());
     let (tx, rx) = channel();
     let sink_tx = Mutex::new(tx);
     acpmux.spawn_link(
@@ -172,11 +175,12 @@ fn a_turn_over_the_acpmux_wire() {
             policy: "approve-all".into(),
             model: None,
             effort: None,
+            preset: None,
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
     };
-    let outcome = turn::run(&*acpmux, &chat, &start, &|_| {}, &|_, _| {});
+    let outcome = turn::run(&*acpmux, &chat, &start, &Interrupt::new(), &|_| {}, &|_, _| {});
     assert_eq!(outcome.reply.as_deref(), Some("x is 1."));
     assert_eq!(outcome.error, None);
     let log: Vec<(String, String)> = (0..chat.status().messages)
@@ -210,4 +214,82 @@ fn a_turn_over_the_acpmux_wire() {
         find("_acpmux/kill")["params"],
         json!({"sessionId": "s-1", "purge": true})
     );
+}
+
+fn connect(acpmux: &Arc<Acpmux>) {
+    let (tx, rx) = channel();
+    let sink_tx = Mutex::new(tx);
+    acpmux.spawn_link(
+        Arc::new(move |e| {
+            let _ = sink_tx.lock().unwrap().send(e);
+        }),
+        Arc::new(|_: &str| {}),
+    );
+    loop {
+        if matches!(rx.recv_timeout(common::WAIT).unwrap(), AgentEvent::Up(_)) {
+            return;
+        }
+    }
+}
+
+fn compactor_preset() -> Preset {
+    Preset {
+        name: "optchat-compact-1a2b3c4d".into(),
+        harness: "claude-sr".into(),
+        env: [("CLAUDE_CONFIG_DIR".to_owned(), "/h/optchat/compactor-claude".to_owned())].into(),
+    }
+}
+
+fn compactor_session(dir: &std::path::Path) -> SessionSpec {
+    SessionSpec {
+        name: "optchat-compact-1a2b3c4d-0-0".into(),
+        cwd: dir.to_owned(),
+        harness: "claude-sr".into(),
+        policy: "deny-all".into(),
+        model: Some("claude-sonnet-5-5".into()),
+        effort: None,
+        preset: Some("optchat-compact-1a2b3c4d".into()),
+    }
+}
+
+// Audit round 3, M1: a session that names a preset never starts without it
+// (no fallback to the user's ~/.claude).
+#[test]
+fn a_session_that_requires_a_preset_refuses_to_start_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    serve(UnixListener::bind(&socket).unwrap(), requests.clone(), true);
+    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    connect(&acpmux);
+    let error = acpmux.new_session(&compactor_session(dir.path())).unwrap_err();
+    assert!(error.contains("preset"), "{error}");
+    assert!(
+        !requests.lock().unwrap().iter().any(|r| r["method"] == "session/new"),
+        "no session/new without the preset"
+    );
+}
+
+#[test]
+fn a_required_preset_is_installed_and_named_in_session_new() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    serve(UnixListener::bind(&socket).unwrap(), requests.clone(), false);
+    let acpmux = Acpmux::new(socket, None, vec![compactor_preset()]);
+    connect(&acpmux);
+    assert_eq!(
+        acpmux.new_session(&compactor_session(dir.path())),
+        Ok("s-1".into())
+    );
+    let requests = requests.lock().unwrap();
+    let preset = requests.iter().find(|r| r["method"] == "_acpmux/presets").unwrap();
+    assert_eq!(preset["params"]["name"], "optchat-compact-1a2b3c4d");
+    assert_eq!(
+        preset["params"]["set"]["env"]["CLAUDE_CONFIG_DIR"],
+        "/h/optchat/compactor-claude"
+    );
+    let new = requests.iter().find(|r| r["method"] == "session/new").unwrap();
+    assert_eq!(new["params"]["_meta"]["acpmux"]["preset"], "optchat-compact-1a2b3c4d");
+    assert!(new["params"]["_meta"]["acpmux"].get("effort").is_none());
 }

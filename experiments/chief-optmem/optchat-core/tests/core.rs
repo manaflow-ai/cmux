@@ -531,3 +531,37 @@ fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
     assert!(whole.step.ends_with(&"w".repeat(STEP_MESSAGE)));
     assert_eq!(finish_line(&whole, "tool: x"), "tool: x");
 }
+
+// Audit round 3, m1: a cut message's line must fit with its prefix, so the
+// size loop measures the reply against the reduced room, not NODE.
+#[test]
+fn the_size_loop_measures_a_cut_line_against_its_reduced_room() {
+    let room = 450;
+    let reply = "x".repeat(480);
+    match size_check_in(std::slice::from_ref(&reply), room) {
+        SizeCheck::Retry(text) => assert!(
+            text.starts_with("That line is 480 bytes; the limit is 450."),
+            "{text}"
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        size_check_in(&["y".repeat(450)], room),
+        SizeCheck::Accept("y".repeat(450))
+    );
+    assert_eq!(size_check(&["z".repeat(480)]), SizeCheck::Accept("z".repeat(480)));
+}
+
+#[test]
+fn a_cut_request_knows_its_room() {
+    let store = Mem::default();
+    let total = STEP_MESSAGE * 2;
+    store.push(Kind::Echo, "e".repeat(total));
+    let mut memory = Memory::new(VIEW);
+    memory.append();
+    let request = compact_request(&memory, &store, NodeId::new(0, 0), "S".into());
+    let prefix = request.cut.clone().unwrap();
+    assert_eq!(request.room(), NODE - prefix.len());
+    let line = finish_line(&request, &"w".repeat(request.room()));
+    assert_eq!(line.len(), NODE, "a line that uses all its room fits exactly");
+}

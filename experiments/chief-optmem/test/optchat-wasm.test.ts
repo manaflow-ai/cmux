@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vite-plus/test";
-import { initSync, OptChat, sizeCheck } from "../src/optchat-wasm/optchat_wasm.js";
+import { finishLine, initSync, OptChat, sizeCheck } from "../src/optchat-wasm/optchat_wasm.js";
 
 /** The JS side of the hosted placement: what the MemoryDO keeps in SQLite. */
 class Store {
@@ -86,6 +86,29 @@ describe("optchat-core as WebAssembly (hosted placement)", () => {
     expect(JSON.parse(sizeCheck(JSON.stringify(["  short  "])))).toEqual({ accept: "short" });
     expect(JSON.parse(sizeCheck(JSON.stringify(["a".repeat(600)]))).retry).toContain("That line is 600 bytes");
     expect(JSON.parse(sizeCheck(JSON.stringify([" "])))).toEqual({ fail: true });
+  });
+
+  it("exports the cut of a huge message so the host adds its prefix", () => {
+    // Audit round 3, m2: the wasm told the model the prefix was "added for
+    // you" but returned no cut, so nothing added it.
+    const store = new Store();
+    const memory = new OptChat(0);
+    store.messages.push({ kind: "echo", text: "e".repeat(400_000) });
+    memory.append();
+    const work = JSON.parse(memory.pump(store)) as Array<Work>;
+    expect(work).toContainEqual({ kind: "model", l: 0, i: 0 });
+    const request = JSON.parse(memory.compactRequest(store, 0, 0, "taelin", "", "Chief")) as {
+      cut: string | null;
+      room: number;
+      step: string;
+    };
+    expect(request.cut).toBe("(cut: 200000 of 400000 characters unread) ");
+    expect(request.room).toBe(512 - request.cut!.length);
+    expect(request.step).toContain(`in at most ${request.room} bytes`);
+    expect(finishLine(request.cut!, "echo: a long log")).toBe(`${request.cut}echo: a long log`);
+    expect(finishLine(request.cut!, `${request.cut}echo: x`)).toBe(`${request.cut}echo: x`);
+    const retry = JSON.parse(sizeCheck(JSON.stringify(["a".repeat(480)]), request.room)) as { retry: string };
+    expect(retry.retry).toContain(`the limit is ${request.room}`);
   });
 
   it("throws a failed or malformed store read and builds nothing from it", () => {

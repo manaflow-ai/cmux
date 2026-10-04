@@ -331,3 +331,22 @@ fn the_probe_builds_one_node_and_ends_it() {
     let failing = Ending::new(vec![Err(ModelError::new("HTTP 429: rate_limit_error"))]);
     assert!(probe(&failing, "SYS").unwrap_err().message.contains("429"));
 }
+
+// Audit round 3, m1: the size loop retries a cut line that would pass NODE
+// once the prefix is added.
+#[test]
+fn a_cut_line_is_retried_against_its_reduced_room() {
+    let prefix = "(cut: 10 of 20 characters unread) ".to_owned();
+    let model = Ending::new(vec![
+        Ok(Reply::text("x".repeat(500))),
+        Ok(Reply::text("user: short")),
+    ]);
+    let request = CompactRequest {
+        cut: Some(prefix.clone()),
+        ..node_request("S")
+    };
+    assert_eq!(
+        run_node(&model, &request).unwrap(),
+        format!("{prefix}user: short")
+    );
+}

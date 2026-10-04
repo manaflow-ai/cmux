@@ -21,6 +21,8 @@ use serde_json::{Value, json};
 
 pub const CONV: &str = "conv_chief";
 pub const WAIT: Duration = Duration::from_secs(30);
+/// The turn session names' prefix of the test home (`optchat-<home id>`).
+pub const TURN_PREFIX: &str = "optchat-h0me";
 
 /// A compactor that answers every node with a short line.
 pub struct Model;
@@ -250,6 +252,16 @@ pub struct Agents {
     pub cancels: Vec<String>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
     pub answer: Option<Value>,
+    /// The next prompt fails with this JSON-RPC error message, used once
+    /// (acpmux answers a refused or failed Claude turn this way).
+    pub answer_error: Option<String>,
+    /// Names looked up with `find`, in order.
+    pub finds: Vec<String>,
+    /// The next this many `cancel` calls are recorded but change nothing
+    /// (a cancel that reached acpmux before the prompt did).
+    pub ignore_cancels: usize,
+    /// Each session's turn signals, for `push_events`.
+    pub signals: BTreeMap<String, Sender<TurnSignal>>,
 }
 
 pub struct FakeAgents {
@@ -302,6 +314,27 @@ impl FakeAgents {
         }
     }
 
+    /// Adds events to a running turn and tells its runner, as acpmux's
+    /// notifications do.
+    pub fn push_events(&self, session: &str, events: Vec<Value>) {
+        self.append_events(session, events);
+        let signals = self.inner.lock().unwrap().signals.get(session).cloned();
+        if let Some(tx) = signals {
+            let _ = tx.send(TurnSignal::Changed);
+        }
+    }
+
+    /// Waits until `n` cancels were recorded.
+    pub fn wait_cancels(&self, n: usize) {
+        let deadline = std::time::Instant::now() + WAIT;
+        let mut inner = self.inner.lock().unwrap();
+        while inner.cancels.len() < n {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!left.is_zero(), "no cancel {n}");
+            inner = self.changed.wait_timeout(inner, left).unwrap().0;
+        }
+    }
+
     pub fn set_events(&self, session: &str, events: Vec<Value>) {
         let parsed = events.into_iter().enumerate().map(|(i, mut e)| {
             e["seq"] = json!(i as u64 + 1);
@@ -333,6 +366,7 @@ impl AgentPort for FakeAgents {
             let mut inner = self.inner.lock().unwrap();
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
+            inner.signals.insert(session.to_owned(), signals.clone());
             inner.prompts.len() - 1
         };
         self.changed.notify_all();
@@ -345,13 +379,19 @@ impl AgentPort for FakeAgents {
                     inner = me.changed.wait(inner).unwrap();
                 }
             }
-            let (lose, answer) = {
+            let (lose, answer, error) = {
                 let mut inner = me.inner.lock().unwrap();
-                (std::mem::take(&mut inner.lose), inner.answer.take())
+                (
+                    std::mem::take(&mut inner.lose),
+                    inner.answer.take(),
+                    inner.answer_error.take(),
+                )
             };
             let _ = signals.send(TurnSignal::Changed);
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
+            } else if let Some(error) = error {
+                let _ = signals.send(TurnSignal::Done(Err(error)));
             } else {
                 let answer = answer.unwrap_or_else(|| json!({"stopReason": "end_turn"}));
                 let _ = signals.send(TurnSignal::Done(Ok(answer)));
@@ -380,7 +420,8 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
-    fn find(&self, _: &str) -> Result<Option<String>, String> {
+    fn find(&self, name: &str) -> Result<Option<String>, String> {
+        self.inner.lock().unwrap().finds.push(name.to_owned());
         Ok(None)
     }
 
@@ -389,6 +430,12 @@ impl AgentPort for FakeAgents {
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
+        if inner.ignore_cancels > 0 {
+            inner.ignore_cancels -= 1;
+            drop(inner);
+            self.changed.notify_all();
+            return Ok(());
+        }
         inner.answer = Some(json!({"stopReason": "cancelled"}));
         inner.released += 1;
         drop(inner);
@@ -413,6 +460,7 @@ pub fn settings(dir: &Path) -> Settings {
         policy: "approve-all".into(),
         model: None,
         parent: PARENT.into(),
+        turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
         turn_limit: None,
         engine: Engine::Acpmux,

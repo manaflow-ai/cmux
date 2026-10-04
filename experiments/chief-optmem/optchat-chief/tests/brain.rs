@@ -40,7 +40,7 @@ fn a_human_message_runs_one_fresh_turn_and_posts_one_reply() {
     assert_eq!(agents.prompts[0][1]["text"], "hello");
     assert_eq!(agents.prompt_ids, vec!["optchat:0"]);
     let spec = &agents.specs[0];
-    assert_eq!(spec.name, "optchat-0");
+    assert_eq!(spec.name, format!("{TURN_PREFIX}-0"));
     assert_eq!(spec.cwd, h.dir.path().join("session"));
     assert_eq!(
         (spec.harness.as_str(), spec.policy.as_str()),

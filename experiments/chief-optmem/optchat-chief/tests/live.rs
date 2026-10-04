@@ -35,6 +35,7 @@ fn start(chat: &optchat_host::OptChat, n: u64, text: &str) -> TurnStart {
             policy: String::new(),
             model: None,
             effort: None,
+            preset: None,
         },
         blocks: turn_blocks(&view.text, &[text.to_owned()]),
         limit: Some(Duration::from_secs(600)),
@@ -87,7 +88,7 @@ fn two_native_turns_against_the_real_api() {
         1,
         "Run `echo live-ok` with your bash tool and tell me exactly what it printed.",
     );
-    let outcome = native.run(&chat, &first, &log, &Vec::new);
+    let outcome = native.run(&chat, &first, &log, &Vec::new, &|| false);
     println!("turn 1: {outcome:?}");
     assert_eq!(outcome.error, None);
     assert!(outcome.reply.unwrap_or_default().contains("live-ok"));
@@ -97,7 +98,7 @@ fn two_native_turns_against_the_real_api() {
         2,
         "Where does the build cache for project 7 live? One line.",
     );
-    let outcome = native.run(&chat, &second, &log, &Vec::new);
+    let outcome = native.run(&chat, &second, &log, &Vec::new, &|| false);
     println!("turn 2: {outcome:?}");
     assert_eq!(outcome.error, None);
     assert!(outcome.reply.unwrap_or_default().contains("/srv/cache/7"));
@@ -107,33 +108,34 @@ fn two_native_turns_against_the_real_api() {
 
 /// The compactor's acpmux route against a real acpmux daemon
 /// (`ACPMUX_SOCKET`, or `ACPMUX_BIN` to start one) and its claude-sr
-/// harness, with the isolation preset: one probe node, then one node of a
-/// long message built through an OptChat memory.
+/// harness, through the compactor's own required preset: the probe (with
+/// its isolation check), one node of a long message built through an
+/// OptChat memory, and one node whose context is a full-size view (about
+/// 128 KB), with its seconds and token use printed (audit round 3, M5).
 #[test]
 #[ignore = "spends real tokens; needs acpmux with the claude-sr harness"]
 fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     use std::sync::Condvar;
 
-    use optchat_chief::acpmux::{Acpmux, AgentEvent, Preset};
-    use optchat_chief::compactor::{AcpmuxCompactor, CompactorSpec, prepare_dir};
+    use optchat_chief::acpmux::{Acpmux, AgentEvent};
+    use optchat_chief::compactor::{
+        AcpmuxCompactor, Slots, compactor_preset, compactor_spec, prepare_config,
+    };
     use optchat_chief::paths::Paths;
-    use optchat_host::{OptChat, SystemClock};
+    use optchat_host::{CompactRequest, NodeId, OptChat, SystemClock, run_node};
 
     let dir = tempfile::tempdir().unwrap();
-    let paths = Paths::new(dir.path());
+    let home = dir.path().join("mux");
+    let paths = Paths::new(&home);
     paths.create().unwrap();
-    std::fs::write(
-        paths.claude_config.join("settings.json"),
-        optchat_chief::session_dir::claude_settings().to_string(),
-    )
-    .unwrap();
     let harness = std::env::var("OPTCHAT_COMPACTOR_HARNESS").unwrap_or_else(|_| "claude-sr".into());
-    let preset = Preset {
-        name: format!("optchat-live-{}", optchat_chief::paths::home_id(dir.path())),
-        harness: harness.clone(),
-        env: optchat_chief::session_dir::isolation_env(&paths),
-    };
-    let agents = Acpmux::new(optchat_chief::acpmux_daemon::socket_path(), Some(preset));
+    prepare_config(&paths.compactor_config).unwrap();
+    let preset = compactor_preset(&paths, &home, &harness);
+    let agents = Acpmux::new(
+        optchat_chief::acpmux_daemon::socket_path(),
+        None,
+        vec![preset],
+    );
     let up = Arc::new((Mutex::new(None::<bool>), Condvar::new()));
     let signal = up.clone();
     agents.spawn_link(
@@ -159,20 +161,16 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         *guard
     };
     assert_eq!(connected, Some(true), "acpmux did not connect");
-    prepare_dir(&paths.compactor).unwrap();
-    let model = std::env::var("OPTCHAT_COMPACTOR_MODEL").ok();
-    let compactor = Arc::new(AcpmuxCompactor::new(
-        agents.clone(),
-        CompactorSpec {
-            name: "optchat-compact-live".into(),
-            cwd: paths.compactor.clone(),
-            harness,
-            model: Some(model.unwrap_or_else(|| optchat_host::DEFAULT_MODEL.into())),
-            effort: std::env::var("OPTCHAT_COMPACTOR_EFFORT").ok(),
-            timeout: Duration::from_secs(300),
-            jobs: optchat_core::JOBS,
-        },
-    ));
+    let model = std::env::var("OPTCHAT_COMPACTOR_MODEL")
+        .unwrap_or_else(|_| optchat_host::DEFAULT_MODEL.into());
+    let compactor = Arc::new(
+        AcpmuxCompactor::new(
+            agents.clone(),
+            compactor_spec(&paths, &home, &harness, &model),
+            Slots::new(optchat_core::JOBS),
+        )
+        .with_log(Arc::new(|line: &str| println!("compactor: {line}"))),
+    );
     let config = Config {
         reporter: Arc::new(|r| println!("report: {r}")),
         ..Config::default()
@@ -182,6 +180,44 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     let probe = optchat_host::probe(&*compactor, &system);
     println!("probe: {probe:?} in {} ms", started.elapsed().as_millis());
     assert!(probe.is_ok(), "{probe:?}");
+
+    // A full-size view: about 128 KB of 500-byte lines before the step.
+    let mut context = String::from("<chat>\n");
+    let mut i = 0;
+    while context.len() < optchat_core::VIEW - 600 {
+        context.push_str(&format!(
+            "user: asked for deploy {i}; talk: ran the release script for service-{i}, which copied build/{i}.tar to /srv/releases, restarted unit app-{i}, checked the health endpoint twice, saw 200 both times, and noted that the cache warmup for region {r} takes about {s} seconds; echo: ok {i}\n",
+            r = i % 7,
+            s = 30 + i % 50
+        ));
+        i += 1;
+    }
+    context.push_str("</chat>");
+    let request = CompactRequest {
+        node: NodeId::new(0, 100_000),
+        system: system.clone(),
+        context: context.clone(),
+        step: format!(
+            "For scale, this line is exactly 512 bytes:\n{}\n\nCompress this message into one line, in at most 512 bytes:\nuser: deploy service-{i} the same way and tell me when it is healthy",
+            optchat_core::SCALE
+        ),
+        cut: None,
+    };
+    let started = std::time::Instant::now();
+    let line = run_node(&*compactor, &request);
+    println!(
+        "full view ({} bytes of context): {line:?} in {} ms",
+        context.len(),
+        started.elapsed().as_millis()
+    );
+    assert!(line.is_ok(), "{line:?}");
+    let projects = paths.compactor_config.join("projects");
+    let left: Vec<_> = std::fs::read_dir(&projects)
+        .map(|d| d.flatten().map(|e| e.file_name()).collect())
+        .unwrap_or_default();
+    println!("left in {}: {left:?}", projects.display());
+    assert!(left.is_empty(), "transcripts left: {left:?}");
+
     let chat = OptChat::open_with(
         dir.path().join("chat"),
         config,

@@ -228,7 +228,18 @@ mod tests {
             &std::fs::read(paths.session.join(".claude").join("settings.json")).unwrap(),
         )
         .unwrap();
-        assert_eq!(settings["permissions"]["deny"], json!(["Task", "Agent"]));
+        // Audit round 3, M3: acpmux keeps questions and plan approval for a
+        // human under every policy, and nobody answers them in a turn.
+        assert_eq!(
+            settings["permissions"]["deny"],
+            json!(["Task", "Agent", "AskUserQuestion", "EnterPlanMode", "ExitPlanMode"])
+        );
+        // Audit round 3, M6: turn transcripts are kept a short while only.
+        let user: Value = serde_json::from_slice(
+            &std::fs::read(paths.claude_config.join("settings.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(user["cleanupPeriodDays"], TURN_TRANSCRIPT_DAYS);
         let launcher = std::fs::read_to_string(paths.bin.join("chief")).unwrap();
         assert!(launcher.contains("MUX_HOME=/h; export MUX_HOME\n"));
         assert!(launcher.ends_with("exec /x/optchat-chief \"$@\"\n"));

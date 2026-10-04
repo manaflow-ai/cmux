@@ -83,6 +83,34 @@ pub fn snapshot(dir: &Path, key: &str) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    // Audit round 3, m7: the takeover flock is process state too.
+    #[test]
+    fn lock_files_stay_out_of_the_history() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("lock"), "1").unwrap();
+        std::fs::write(dir.path().join("takeover.flock"), "").unwrap();
+        std::fs::write(dir.path().join("a.jsonl"), "{}\n").unwrap();
+        snapshot(dir.path(), "turn:optchat:0:1").unwrap();
+        let tracked = git(dir.path(), &["ls-files"]).unwrap();
+        assert!(!tracked.contains("takeover.flock"), "{tracked}");
+        assert!(!tracked.lines().any(|l| l == "lock"), "{tracked}");
+    }
+
+    // A repository made before the fix tracks takeover.flock: it is dropped.
+    #[test]
+    fn an_older_repository_stops_tracking_the_takeover_flock() {
+        let dir = tempfile::tempdir().unwrap();
+        git(dir.path(), &["init", "-q"]).unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "lock\n*.tmp*\n").unwrap();
+        std::fs::write(dir.path().join("takeover.flock"), "").unwrap();
+        git(dir.path(), &["add", "-A"]).unwrap();
+        git(dir.path(), &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "old"]).unwrap();
+        std::fs::write(dir.path().join("a.jsonl"), "{}\n").unwrap();
+        snapshot(dir.path(), "turn:optchat:1:2").unwrap();
+        let tracked = git(dir.path(), &["ls-files"]).unwrap();
+        assert!(!tracked.contains("takeover.flock"), "{tracked}");
+    }
+
     #[test]
     fn each_turn_with_changes_is_one_commit() {
         let dir = tempfile::tempdir().unwrap();
