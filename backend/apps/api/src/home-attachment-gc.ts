@@ -82,8 +82,9 @@ export const sweepAttachments = async (deps: AttachmentGcDeps, now: number): Pro
  */
 const drainDrops = async (deps: AttachmentGcDeps, now: number): Promise<void> => {
   const fail = (r: conversation.AttachmentRecord, e: unknown) => {
-    const dead = store.failDrop(deps.sql, r.object_key, now)
-    console.error(JSON.stringify({ msg: dead ? "attachment drop dead-lettered" : "attachment drop failed", object_key: r.object_key, quota_user: r.quota_user, error: String(e).slice(0, 200) }))
+    // A dead letter is an error-level event with ids only (a stable field for alerts); a retryable failure keeps its cause.
+    if (store.failDrop(deps.sql, r.object_key, now)) console.error(JSON.stringify({ event: "attachment.drop.dead_letter", object_key: r.object_key, quota_user: r.quota_user }))
+    else console.error(JSON.stringify({ msg: "attachment drop failed", object_key: r.object_key, quota_user: r.quota_user, error: String(e).slice(0, 200) }))
   }
   for (let drops = store.dueDrops(deps.sql, now); drops.length > 0; drops = store.dueDrops(deps.sql, now)) {
     try {

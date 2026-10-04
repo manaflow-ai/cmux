@@ -435,6 +435,12 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   not exist yet: `messageDeleteWrites` (message retention) and `ConversationDO.deleteAttachmentStorage`
   (conversation storage deletion; it drops open slots, so it schedules a second prefix delete at
   the latest dropped slot's expiry plus `UPLOADING_GRACE_MS`, which removes a late presigned PUT). Attachments in `conversation.import` remain C-13.
+- Attachment drops (2026-10-04, `home-attachment-gc.ts`): a record the GC forgets waits in the
+  private `home_attachment_drops` table until its R2 delete and its uploader's stored-bytes release
+  succeed (30 s doubling backoff, at most 1 h). After 10 failed attempts (about 3 h) it is
+  dead-lettered: kept with `dead = 1`, no wake time, logged as the error event
+  `attachment.drop.dead_letter` with ids only. Follow-up (tracked): an admin op that lists the dead
+  drops of a conversation and resets them for another attempt.
 
 ## 11. Self-hosted implementation (cmux server, team VM)
 
