@@ -282,35 +282,62 @@ export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActi
 
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
-/// Rows made without an event (a prompt still sending or one that failed, the typing row) order
-/// after every event, in the order they were made.
-const LOCAL_ROW_ORDER = Number.MAX_SAFE_INTEGER / 2;
-
+/// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
+/// the events seen when it was made, so later turns go below it; after a lag rebuild, which
+/// replays events older than it, it moves after them again.
 export class OrderedRows extends Map<string, AcpmuxRow> {
   private readonly order = new Map<string, number>();
-  private local = 0;
+  private readonly local = new Set<string>();
+  private made = 0;
   /// The sequence number of the event being reduced.
   current: number | undefined;
+  /// The newest event reduced so far.
+  private latest = 0;
 
   override set(id: string, row: AcpmuxRow): this {
-    if (!this.order.has(id)) this.order.set(id, this.current ?? LOCAL_ROW_ORDER + (this.local += 1));
+    if (!this.order.has(id)) {
+      if (this.current !== undefined) {
+        this.order.set(id, this.current);
+        this.latest = Math.max(this.latest, this.current);
+      } else {
+        this.order.set(id, this.latest + 0.5 + (this.made += 1e-6));
+        this.local.add(id);
+      }
+    } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
     return super.set(id, row);
+  }
+
+  /// An event was reduced (it may have made no row).
+  saw(seq: number): void {
+    this.latest = Math.max(this.latest, seq);
   }
 
   override delete(id: string): boolean {
     this.order.delete(id);
+    this.local.delete(id);
     return super.delete(id);
   }
 
   override clear(): void {
     this.order.clear();
+    this.local.clear();
+    this.latest = 0;
     super.clear();
   }
 
-  /// Drops every row but those `keep` accepts, which keep their place in the order.
+  /// Drops every row but those `keep` accepts; the event order starts over (a lag rebuild
+  /// replays the events), and the rows kept go after the replayed events (``placeLocalLast()``).
   retain(keep: (row: AcpmuxRow) => boolean): void {
     // A Map visits the entries left after a delete, so deleting while iterating is safe.
     for (const row of this.values()) if (!keep(row)) this.delete(row.id);
+    this.latest = 0;
+  }
+
+  /// Moves the rows made without an event after every event, keeping their order: what a lag
+  /// rebuild replayed happened before them.
+  placeLocalLast(): void {
+    const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
+    local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
 
   /// The rows in event order (wall-clock time breaks a tie).
@@ -956,6 +983,8 @@ export class AcpmuxDirectClient {
       this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
       this.reduce(event);
     }
+    // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
+    this.rows.placeLocalLast();
   }
 
   /// rebuild() replays a partial event window, so keep the live summary, queue and
@@ -1000,6 +1029,7 @@ export class AcpmuxDirectClient {
       this.reduceEvent(event);
     } finally {
       this.rows.current = undefined;
+      if (event.seq) this.rows.saw(event.seq);
     }
   }
 
