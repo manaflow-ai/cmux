@@ -62,7 +62,8 @@ impl Roots {
         let mut roots: Vec<Root> = Vec::new();
         for path in paths {
             let Ok(canonical) = std::fs::canonicalize(&path) else { continue };
-            if !canonical.is_dir() {
+            // The file system root is never served (a daemon with HOME=/).
+            if !canonical.is_dir() || canonical.parent().is_none() {
                 continue;
             }
             let mut spellings = Vec::new();
@@ -145,6 +146,9 @@ pub fn request_components(path: &str) -> Result<Vec<String>, FsError> {
         }
         if part.len() > MAX_NAME_BYTES {
             return Err(FsError::ParamsInvalid("name too long".into()));
+        }
+        if part.chars().any(char::is_control) {
+            return Err(FsError::ParamsInvalid("invalid file name".into()));
         }
         components.push(part.to_owned());
     }
