@@ -33,12 +33,26 @@ trap on_error ERR
   'pass the pull request reference, for example OWNER/REPO#123'
 ref="$1"; shift
 repo="${ref%#*}"; num="${ref#*#}"
+
+# Resolve the checked-in script before locating scripts/ci. The installed
+# ~/.local/bin symlink must keep --main-fix pointing at the reviewed checkout,
+# even when the caller is outside that checkout.
+script_path="${BASH_SOURCE[0]}"
+while [ -L "$script_path" ]; do
+  script_link_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
+  script_path="$(readlink "$script_path")"
+  case "$script_path" in
+    /*) ;;
+    *) script_path="$script_link_dir/$script_path" ;;
+  esac
+done
+script_dir="$(cd -- "$(dirname -- "$script_path")" && pwd)"
+
 # --main-fix delegates to the existing compile/test evidence validator. That
 # path posts the required audit comment before merging a red-main fix-forward.
 fix=0; args=(); for a in "$@"; do [ "$a" = --main-fix ] && fix=1 || args+=("$a"); done; set -- "${args[@]+"${args[@]}"}"
 [ $# -gt 0 ] || set -- --squash
 if [ "$fix" -eq 1 ]; then
-  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
   validator="$script_dir/ci/main_fix_evidence.py"
   if [ ! -f "$validator" ]; then
     repo_root="${CMUX_REPO_ROOT:-}"

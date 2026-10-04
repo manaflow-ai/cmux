@@ -190,6 +190,32 @@ class MainFixEvidenceTests(unittest.TestCase):
 
 
 class InstalledHelperRegression(unittest.TestCase):
+    def test_main_fix_from_symlink_resolves_checked_in_validator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            symlink = directory / "gh-merge-green"
+            symlink.symlink_to(ROOT / "scripts/gh-merge-green")
+            python = directory / "python3"
+            marker = directory / "validator-called"
+            python.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' \"$@\" > \"$VALIDATOR_MARKER\"\n"
+            )
+            python.chmod(0o755)
+            result = subprocess.run(
+                [str(symlink), "manaflow-ai/cmux#42", "--main-fix", "--squash"],
+                cwd=directory,
+                env={
+                    **os.environ,
+                    "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+                    "VALIDATOR_MARKER": str(marker),
+                },
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists(), result.stderr)
+
     def run_helper(self, directory, marker, *, workflow_present, check_name="ci-status"):
         gh = Path(directory) / "gh"
         workflow_probe = "HTTP/2.0 200 OK\n{}" if workflow_present else "HTTP/2.0 404 Not Found\n{}"
