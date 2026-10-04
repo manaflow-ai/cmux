@@ -329,4 +329,24 @@ import Testing
         ]
         #expect(headers.removingBrowserReplCredentialHeaders() == ["accept": "text/html"])
     }
+
+    /// Sites carry credentials in custom headers too. Network events for a
+    /// session that did not create the tab drop every header whose name says
+    /// it carries one, as `fetch` does across origins, and keep the rest.
+    @Test func customCredentialHeadersAreRemovedForOtherSessions() {
+        let headers = [
+            "x-session-token": "s",
+            "x-secret": "s",
+            "x-password": "p",
+            "x-signature": "sig",
+            "x-amz-security-token": "t",
+            "x-client-credential": "c",
+            "x-goog-authuser": "0",
+            "x-apikey": "k",
+            "www-authenticate": "Bearer",
+            "x-request-id": "r",
+            "content-type": "text/html",
+        ]
+        #expect(headers.removingBrowserReplCredentialHeaders() == ["x-request-id": "r", "content-type": "text/html"])
+    }
 }
