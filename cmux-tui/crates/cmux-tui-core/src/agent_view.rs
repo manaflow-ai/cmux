@@ -62,15 +62,15 @@ pub struct OpExposure {
 
 impl OpExposure {
     /// Reads one op of the IR (`cmux-pane-protocol/spec/pane-protocol.json`,
-    /// `ops[]`). `scope_class` classifies a scope with `scope-classes.json`;
-    /// `app_enabled` says whether an `app:<id>` owner is installed and
-    /// enabled. Returns `None` for an op without a name or scope.
+    /// `ops[]`, with hq-48 decision 27's `risk`, `gesture`, `scope_class` and
+    /// `server_only`). `app_enabled` says whether an `app:<id>` owner is
+    /// installed and enabled. Returns `None` for an op without a name or scope.
     ///
-    /// Missing or unknown fields fail closed: no `mcp` block or an unknown
-    /// `expose` is [`McpExpose::Never`]; a mutation without a declared `risk`
-    /// is [`Risk::Destructive`], so it needs approval.
+    /// Missing or unknown fields fail closed: `mcp.expose` is
+    /// [`McpExpose::Never`], `risk` is [`Risk::Destructive`], `gesture` is
+    /// required and `scope_class` is [`ScopeClass::Restricted`]. A missing
+    /// `server_only` is false, because emit-ir omits it when false.
     pub fn from_ir(op: &serde_json::Value, app_enabled: impl Fn(&str) -> bool) -> Option<Self> {
-        let scope_class = |_: &str| ScopeClass::Standard;
         let name = op["name"].as_str()?;
         let scope = op["scope"].as_str()?;
         let mcp = match op.pointer("/mcp/expose").and_then(serde_json::Value::as_str) {
@@ -85,9 +85,12 @@ impl OpExposure {
             Some("execute") => Risk::Execute,
             Some("send-external") => Risk::SendExternal,
             Some("money") => Risk::Money,
-            Some(_) => Risk::Destructive,
-            None if op["kind"] == "mutation" => Risk::Destructive,
-            None => Risk::Read,
+            _ => Risk::Destructive,
+        };
+        let scope_class = match op["scope_class"].as_str() {
+            Some("standard") => ScopeClass::Standard,
+            Some("sensitive") => ScopeClass::Sensitive,
+            _ => ScopeClass::Restricted,
         };
         let app_disabled = op["owner"]
             .as_str()
@@ -96,12 +99,12 @@ impl OpExposure {
         Some(Self {
             name: name.to_owned(),
             scope: scope.to_owned(),
-            scope_class: scope_class(scope),
+            scope_class,
             risk,
             mcp,
-            gesture_required: op["gesture"] == "required",
+            gesture_required: op["gesture"].as_bool() != Some(false),
             secret_output: op["secret_output"] == true,
-            server_only: false,
+            server_only: op["server_only"] == true,
             app_disabled,
         })
     }
@@ -189,6 +192,9 @@ fn exclusion(op: &OpExposure, grant: &AgentGrant) -> Option<Exclusion> {
     }
     if USER_ONLY_FAMILIES.contains(&family) || USER_ONLY_OPS.contains(&op.name.as_str()) {
         return Some(Exclusion::UserOnly);
+    }
+    if op.server_only {
+        return Some(Exclusion::ServerOnly);
     }
     match op.mcp {
         McpExpose::Never => return Some(Exclusion::NotOffered),
