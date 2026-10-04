@@ -215,6 +215,8 @@ const reduceConversation = (
   if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
   if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
   if (!state) return refuse("unknown_conversation")
+  // Inside the wrapped reduce: a retention batch that deletes msgkey rows leaves the DM's consent markers (consent.ts).
+  if (op === SWEEP_OP) return reduceSweep(state, ctx, actor)
   const prepared = prepare(state, op, params, ctx, actor, options)
   if (typeof prepared === "string") return refuse(prepared)
   const coreOp = prepared.op
@@ -270,11 +272,7 @@ const reduceConversation = (
 export const makeConversationDomain = (options: ConversationDomainOptions = {}): Domain<ConversationState, ConversationParams> => ({
   initial: () => null,
   // Every commit, whatever the op, gets the DM consent markers its msgkey writes need (consent.ts).
-  reduce: (state, op, params, ctx) => {
-    const actor = actorOf(ctx.principal)
-    if (op === SWEEP_OP && state && actor) return reduceSweep(state, ctx, actor)
-    return withConsentMarkers(reduceConversation(options, state, op, params, ctx), state, ctx)
-  }
+  reduce: (state, op, params, ctx) => withConsentMarkers(reduceConversation(options, state, op, params, ctx), state, ctx)
 })
 
 /** The domain with the default (pure) participant policy and no verified-address binding (tests, self-hosted without the address key). */
