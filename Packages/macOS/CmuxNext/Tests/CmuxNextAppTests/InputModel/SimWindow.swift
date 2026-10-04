@@ -185,7 +185,7 @@ final class SimWindow: FocusEffectApplying {
             guard presented[pane] == tab else { return }
             if responder != .windowOrNone { setResponder(.windowOrNone, reported: true, source: .programmatic) }
             childPage = nil
-        case .agentPage(let pane, let tab), .page(let pane, let tab):
+        case .agentPage(let pane, let tab), .page(let pane, let tab), .conversation(let pane, let tab):
             guard presented[pane] == tab else { return }
             blurChildPage()
             if responder != .content(pane: pane) { setResponder(.content(pane: pane), reported: true, source: .programmatic) }
