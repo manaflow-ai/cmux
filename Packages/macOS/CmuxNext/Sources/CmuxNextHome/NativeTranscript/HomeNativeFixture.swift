@@ -11,7 +11,9 @@ public final class HomeNativeFixture {
     public let container = NSView()
     /// The fixture tab's title.
     public static var title: String { HomeStrings.conversations }
-    private let source = MockHomeSource(options: .immediate)
+    /// No latency; the Chief types for 1.5 s before it answers (the typing
+    /// indicator shows, as in MessagesLab's script).
+    private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
     // task-owner: kept and cancelled in `close()`

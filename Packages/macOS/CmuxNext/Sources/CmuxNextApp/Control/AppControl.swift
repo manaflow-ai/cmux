@@ -168,6 +168,14 @@ final class AppControl {
         #if DEBUG
         // Deliberately blocks the main thread (watchdog and bench self-test).
         service.router.register([
+            .mainActor("debug.home.drive") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeNativeFixture.drive(call.params, services: services))
+            },
+            .mainActor("debug.window_record") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowRecord.start(call.params, services: services))
+            },
             .mainActor("debug.showcase.seed") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugShowcase.seed(call.params, services: services))

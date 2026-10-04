@@ -177,6 +177,21 @@ public final class MessagesLabHomeView: NSView {
     /// Return in the field: sends the text and the attachments as one message.
     public func sendDraft() { projection.send() }
 
+    /// Automation (DEBUG socket): a love tapback on the newest incoming
+    /// message through the picker's path (`ChatIntents.react`).
+    public func debugTapbackNewestIncoming() -> Bool {
+        guard let hit = controller.demo?.lastTextRow(mine: false) else { return false }
+        projection.react(hit.row.ref, .tapback("love"))
+        return true
+    }
+
+    /// Automation (DEBUG socket): scrolls the transcript by `dy` points
+    /// through AppKit's scroll view.
+    public func debugScroll(by dy: CGFloat) {
+        guard let demo = controller.demo else { return }
+        controller.host.scrollView.scroll(toModelOffset: demo.collection.contentOffset.y + dy)
+    }
+
     /// Returns when every bubble picture asked for so far is ready (tests).
     public func mediaSettled() async { await projection.media.settled() }
 
