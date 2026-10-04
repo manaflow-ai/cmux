@@ -258,6 +258,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(subview) }
     }
 
+    /// A `subviews =` assignment adds through no hook above.
+    override var subviews: [NSView] {
+        didSet { if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() } }
+    }
+
     override func addSubview(_ view: NSView, positioned place: NSWindow.OrderingMode, relativeTo otherView: NSView?) {
         super.addSubview(view, positioned: place, relativeTo: otherView)
         if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(view) }
