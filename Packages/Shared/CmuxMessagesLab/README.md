@@ -41,6 +41,7 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture, Transcript, Morph | optional cmux theme; nil keeps MessagesLab's measured palette |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
 | Layout, Localizable.xcstrings | the placeholder says Message, not iMessage |
+| Layout | a failed send that reached the owner unanswered says May Not Have Been Delivered (`CmuxStrings`, Resources/CmuxHome.xcstrings in every app language) |
 | Engine, Materials | Xcode 26.6 compile fixes (`self.` capture; a macOS 27 SDK property by key) |
 | SwipeReply | the pane controller's window is optional |
 

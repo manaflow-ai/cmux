@@ -578,7 +578,8 @@ enum RowBuilder {
                                         gap: 1, height: 14))
                 }
                 if case .failed = m.status {
-                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: Strings.notDelivered, outgoing: outgoing, color: .failure),
+                    // cmux: "May Not Have Been Delivered" for a send that reached the owner unanswered.
+                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: CmuxStrings.failedLabel(m.status), outgoing: outgoing, color: .failure),
                                         gap: 1, height: 14))
                 }
                 if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {

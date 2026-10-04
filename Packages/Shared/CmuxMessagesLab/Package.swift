@@ -31,6 +31,7 @@ let package = Package(
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .process("Resources/AppKitNative.xcstrings"),
+                .process("Resources/CmuxHome.xcstrings"),
                 .copy("Resources/springs.json"),
             ],
             swiftSettings: [

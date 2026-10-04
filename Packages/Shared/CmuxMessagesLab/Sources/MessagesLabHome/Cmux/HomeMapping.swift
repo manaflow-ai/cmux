@@ -28,7 +28,9 @@ enum HomeMapping {
         guard item.author == me else { return nil }
         switch item.delivery {
         case .sending: return .sending
-        case .notDelivered: return .failed(reason: nil)
+        case .notDelivered:
+            // It reached the owner and got no answer: "May Not Have Been Delivered".
+            return .failed(reason: item.mayHaveBeenDelivered ? CmuxStrings.mayHaveBeenDeliveredReason : nil)
         case .committed:
             guard let seq = item.seq else { return .sent }
             let readers = (summary?.readCursors ?? [:]).filter { $0.key != me && $0.value >= seq }

@@ -1,6 +1,16 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
-@@ -635,7 +635,7 @@
+@@ -578,7 +578,8 @@
+                                         gap: 1, height: 14))
+                 }
+                 if case .failed = m.status {
+-                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: Strings.notDelivered, outgoing: outgoing, color: .failure),
++                    // cmux: "May Not Have Been Delivered" for a send that reached the owner unanswered.
++                    rows.append(RowSpec(key: "failed:\(m.id)", kind: .label(text: CmuxStrings.failedLabel(m.status), outgoing: outgoing, color: .failure),
+                                         gap: 1, height: 14))
+                 }
+                 if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
+@@ -635,7 +636,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -9,7 +19,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -644,7 +644,7 @@
+@@ -644,7 +645,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -18,7 +28,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -663,45 +663,47 @@
+@@ -663,45 +664,47 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  
@@ -32,8 +42,6 @@
 -    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered") }
 -    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message") }
 -    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent") }
--    static func replies(_ n: Int) -> String {
--        String(format: String(localized: "label.replies", defaultValue: "%lld Replies"), n)
 +    static var today: String { String(localized: "separator.today", defaultValue: "Today", bundle: .module) }
 +    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday", bundle: .module) }
 +    static var read: String { String(localized: "receipt.read", defaultValue: "Read", bundle: .module) }
@@ -42,7 +50,8 @@
 +    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered", bundle: .module) }
 +    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message", bundle: .module) }
 +    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent", bundle: .module) }
-+    static func replies(_ n: Int) -> String {
+     static func replies(_ n: Int) -> String {
+-        String(format: String(localized: "label.replies", defaultValue: "%lld Replies"), n)
 +        String(format: String(localized: "label.replies", defaultValue: "%lld Replies", bundle: .module), n)
      }
 -    static var location: String { String(localized: "preview.location", defaultValue: "Location") }
