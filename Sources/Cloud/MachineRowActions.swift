@@ -123,7 +123,7 @@ struct MachineRowActions {
         } else {
             format = String(localized: "machines.operation.generic", defaultValue: "Working on %@\u{2026}")
         }
-        return String(format: format, CloudMachineRenamePresentation().promptName(for: machine, fallbackName: String(localized: "machines.rename.fallbackName", defaultValue: "Cloud machine")))
+        return String(format: format, id)
     }
 
     @MainActor
