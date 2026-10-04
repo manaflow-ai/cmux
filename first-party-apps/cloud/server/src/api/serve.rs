@@ -2,8 +2,9 @@
 //! state. It blocks on one inbox that carries the host's lines (from a
 //! reader thread) and wakes from link processes. Each op gets one result
 //! line, then the events it caused; a wake sends the link and forward
-//! events at once, with no op after the change. No polling; the only timer
-//! is the link's ready deadline inside a connect (`READY_DEADLINE`).
+//! events at once, with no op after the change. A connect never blocks the
+//! loop: its result goes out when its link is up or ended. No polling; the
+//! only timer is the link's ready deadline (`READY_DEADLINE`, crate::clock).
 
 use super::relay::{HostRelay, Next, Waker};
 use super::wire::Request;
@@ -61,11 +62,10 @@ fn answer<R: BufRead, W: Write>(
     }
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     Some(match message.get("type").and_then(Value::as_str) {
+        // A connect never waits here for its link: its result goes out
+        // later, from `send_events`, when the link is up or ended.
         Some("op") => match serde_json::from_value::<Request>(message) {
-            Ok(request) => match server.handle(&request) {
-                Ok(result) => json!({ "type": "result", "id": id, "ok": true, "result": result }),
-                Err(error) => json!({ "type": "result", "id": id, "ok": false, "error": error }),
-            },
+            Ok(request) => result_line(id.clone(), server.handle_from_loop(&request, &id)?),
             Err(e) => invalid(id, &e.to_string()),
         },
         // A relay answer that no call waits for (late or unknown): never
@@ -97,6 +97,11 @@ fn send_events<R: BufRead, W: Write>(
         let line = json!({ "type": "event", "event": "cloud.machine.watch", "data": event });
         server.control_plane_mut().send(&line)?;
     }
+    // Connects whose link is now up or ended: each result before the link
+    // line of the same change (the order a waiting connect had).
+    for (id, outcome) in server.take_settled() {
+        server.control_plane_mut().send(&result_line(id, outcome))?;
+    }
     // Carrier changes (up, down, revoked) that arrived by now. This pumps
     // the supervisor; the reconcile below reads that same state.
     for line in crate::link::ops::take_event_lines(server) {
@@ -121,6 +126,13 @@ fn edge_line(down: &EdgeDown) -> Value {
         line["port"] = json!(port);
     }
     line
+}
+
+fn result_line(id: Value, outcome: Result<Value, crate::api::CloudError>) -> Value {
+    match outcome {
+        Ok(result) => json!({ "type": "result", "id": id, "ok": true, "result": result }),
+        Err(error) => json!({ "type": "result", "id": id, "ok": false, "error": error }),
+    }
 }
 
 fn invalid(id: Value, why: &str) -> Value {

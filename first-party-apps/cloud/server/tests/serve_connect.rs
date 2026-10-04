@@ -87,3 +87,43 @@ fn other_ops_run_while_a_connect_waits() {
     let result = host.answer("3").pop().expect("result");
     assert_eq!(result["ok"], true, "{result}");
 }
+
+fn command() -> cmux_cloud::link::LinkCommand {
+    cmux_cloud::link::LinkCommand {
+        binary: "/opt/cmux/bin/cmux-tui".into(),
+        args: Vec::new(),
+        env: Vec::new(),
+        state_dir: "/tmp/cmux-test/link-state".into(),
+        local_socket: "/tmp/cmux-test/link.sock".into(),
+    }
+}
+
+#[test]
+fn the_ready_deadline_ends_a_link_that_never_gets_ready_and_an_up_link_cancels_it() {
+    use attach_common::{FakeSpawner, ManualClock};
+    use cmux_cloud::link::{LinkFailure, LinkSupervisor};
+    use std::sync::Arc;
+    let spawner = FakeSpawner::default();
+    let clock = ManualClock::default();
+    let mut supervisor =
+        LinkSupervisor::new(Box::new(spawner.clone())).with_clock(Arc::new(clock.clone()));
+    let (spawned, _held) = channel();
+    spawner.log().script.push_back(Script::Hold(spawned));
+    let generation = supervisor.begin("vm-alpha01", &command()).expect("started");
+    supervisor.pump();
+    assert!(supervisor.outcome("vm-alpha01", generation).is_none(), "still connecting");
+    assert_eq!(clock.fire_all(), 1, "one deadline");
+    supervisor.pump();
+    let outcome = supervisor.outcome("vm-alpha01", generation);
+    assert!(
+        matches!(&outcome, Some(Err(LinkFailure::Down { retryable: true, reason }))
+            if reason.contains("no connection")),
+        "{outcome:?}"
+    );
+    assert_eq!(spawner.log().terminated.len(), 1, "the stalled process ended");
+    // A link that gets ready drops its deadline: nothing fires later.
+    let generation = supervisor.begin("vm-beta02", &command()).expect("started");
+    supervisor.pump();
+    assert!(matches!(supervisor.outcome("vm-beta02", generation), Some(Ok(_))));
+    assert_eq!(clock.fire_all(), 0, "the up link's deadline was cancelled");
+}

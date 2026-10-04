@@ -8,6 +8,7 @@
 
 pub mod api;
 pub mod app_env;
+pub mod clock;
 pub mod connector;
 pub mod fs;
 pub mod link;
