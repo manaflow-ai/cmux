@@ -102,8 +102,49 @@ impl LinkRegistry {
         request: LinkOpen,
         tokens: &dyn OpenTokenGate,
     ) -> Result<LinkAnswer, BackendError> {
-        let _ = (app, declaration, request, tokens);
-        todo!("connector.open")
+        request.open_token.check()?;
+        let op = tokens.consume(request.open_token.as_str(), app).ok_or_else(|| {
+            BackendError::denied(
+                "open_token is not valid: it is unknown, expired, used, or issued to another app",
+            )
+        })?;
+        let declaration = declaration?;
+        if !declaration.open_ops.contains(&op) {
+            return Err(BackendError::denied(format!(
+                "open_token was issued for {op}, which is not in options.openOps"
+            )));
+        }
+        allow_kind(&declaration.kinds, &request.kind)?;
+        let kind = LocalId::new(&request.kind)?;
+        check_target(&request.target)?;
+        let id = BackendId::app(app, &kind);
+        let mut state = self.state.lock().unwrap();
+        if let Some((channel, link)) =
+            state.links.iter().find(|(_, l)| l.id == id && l.target == request.target)
+        {
+            return Ok(link.answer(channel));
+        }
+        if state.links.values().filter(|l| l.app == app).count() >= MAX_LINKS_PER_APP {
+            return Err(BackendError::Unavailable {
+                reason: format!("{app} already holds {MAX_LINKS_PER_APP} links"),
+                retryable: true,
+            });
+        }
+        state.next_channel += 1;
+        let channel = format!("link-{}", state.next_channel);
+        let window_bytes = DEFAULT_WINDOW_BYTES;
+        let link = Link {
+            app: app.to_owned(),
+            id,
+            target: request.target,
+            window_bytes,
+            to_app: SendWindow::new(window_bytes),
+            from_app: ReceiveWindow::new(window_bytes),
+            received: Vec::new(),
+        };
+        let answer = link.answer(&channel);
+        state.links.insert(channel, link);
+        Ok(answer)
     }
 
     /// One frame `app` sent for a link. A frame for a channel the app does
@@ -115,8 +156,43 @@ impl LinkRegistry {
         app: &str,
         frame: Frame,
     ) -> Result<FrameOutcome, BackendError> {
-        let _ = (app, frame);
-        todo!("link frames")
+        let mut state = self.state.lock().unwrap();
+        let link = state
+            .links
+            .get_mut(&frame.channel)
+            .filter(|l| l.app == app)
+            .ok_or_else(BackendError::not_open)?;
+        let violation = match frame.body {
+            FrameBody::Data { offset, bytes } => match link.from_app.receive(offset, bytes.len()) {
+                Ok(()) => {
+                    link.received.extend_from_slice(&bytes);
+                    None
+                }
+                Err(lost) => Some(lost),
+            },
+            FrameBody::Credit { direction: Direction::In, bytes } => {
+                link.to_app.grant(bytes);
+                None
+            }
+            FrameBody::Credit { direction: Direction::Out, .. } => {
+                Some(Lost::new("credit direction", false))
+            }
+            FrameBody::End(end) => {
+                state.links.remove(&frame.channel);
+                let ended = LinkEvent { app: app.to_owned(), channel: frame.channel, end };
+                return Ok(FrameOutcome { to_app: vec![], ended: Some(ended) });
+            }
+        };
+        let Some(lost) = violation else { return Ok(FrameOutcome::default()) };
+        state.links.remove(&frame.channel);
+        let end = End::Lost(lost);
+        Ok(FrameOutcome {
+            to_app: vec![Frame {
+                channel: frame.channel.clone(),
+                body: FrameBody::End(end.clone()),
+            }],
+            ended: Some(LinkEvent { app: app.to_owned(), channel: frame.channel, end }),
+        })
     }
 
     /// The consumer (the session host's relay) takes up to `max` relayed

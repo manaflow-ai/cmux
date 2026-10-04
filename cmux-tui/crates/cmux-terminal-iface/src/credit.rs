@@ -40,14 +40,20 @@ impl SendWindow {
     /// than [`Self::available`] is `unavailable` (retryable after credit);
     /// nothing is taken then.
     pub fn send(&mut self, bytes: Vec<u8>) -> Result<FrameBody, BackendError> {
-        let _ = bytes;
-        todo!("credit: send")
+        let len = bytes.len() as u64;
+        if len > self.available() {
+            return Err(BackendError::Unavailable {
+                reason: format!("{len} bytes exceed the {} bytes of credit", self.available()),
+                retryable: true,
+            });
+        }
+        self.offset += len;
+        Ok(FrameBody::Data { offset: self.offset, bytes })
     }
 
     /// A credit frame from the receiver.
     pub fn grant(&mut self, bytes: u32) {
-        let _ = bytes;
-        todo!("credit: grant")
+        self.limit = self.limit.saturating_add(u64::from(bytes));
     }
 }
 
@@ -87,8 +93,18 @@ impl ReceiveWindow {
     /// Checks one data frame. A gap, an overlap or data past the credit ends
     /// the channel: the answer is the `lost` to send, never retryable.
     pub fn receive(&mut self, offset: u64, len: usize) -> Result<(), Lost> {
-        let _ = (offset, len);
-        todo!("credit: receive")
+        let expected = self.offset.saturating_add(len as u64);
+        if offset < expected {
+            return Err(Lost::new("overlap", false));
+        }
+        if offset > expected {
+            return Err(Lost::new("gap", false));
+        }
+        if expected > self.limit {
+            return Err(Lost::new("credit", false));
+        }
+        self.offset = expected;
+        Ok(())
     }
 
     /// The receiver consumed `bytes` more; answers the credit frame to send
@@ -99,7 +115,19 @@ impl ReceiveWindow {
         direction: Direction,
         bytes: u64,
     ) -> Result<Option<FrameBody>, BackendError> {
-        let _ = (direction, bytes);
-        todo!("credit: consume")
+        let consumed = self.consumed.saturating_add(bytes);
+        if consumed > self.offset {
+            return Err(BackendError::invalid("consumed more bytes than were received"));
+        }
+        self.consumed = consumed;
+        let limit = consumed.saturating_add(u64::from(self.window));
+        let grant = limit.saturating_sub(self.limit);
+        if grant == 0 {
+            return Ok(None);
+        }
+        self.limit = limit;
+        // The window is at most 1 MiB, so one grant always fits in u32.
+        let bytes = u32::try_from(grant).unwrap_or(u32::MAX);
+        Ok(Some(FrameBody::Credit { direction, bytes }))
     }
 }
