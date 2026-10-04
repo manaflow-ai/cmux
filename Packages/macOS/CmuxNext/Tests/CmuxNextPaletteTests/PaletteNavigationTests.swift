@@ -300,6 +300,9 @@ import Testing
         #expect(command(try key(126, Shortcut.upArrowKey, .command)) == .moveToFirst)
         #expect(command(try key(45, "n", .control)) == .moveDown)
         #expect(command(try key(35, "p", .control)) == .moveUp)
+        // R85: the list bindings (list.next / list.previous, Ctrl-J / Ctrl-K) move the palette too.
+        #expect(command(try key(38, "j", .control)) == .moveDown)
+        #expect(command(try key(40, "k", .control)) == .moveUp)
         #expect(command(try key(36, "\r")) == .submit)
         #expect(command(try key(36, "\r", .command)) == .submitAlternate)
         #expect(command(try key(40, "k", .command)) == .toggleActions)
