@@ -1,6 +1,6 @@
 # App commands, app MCP tools and code mode (R73)
 
-Status: proposal, app commands + codemode lead, 2026-10-04. Not implemented. Request R73 (Lawrence, 2026-10-04): "we need to allow apps to bring over their own scoped cli commands, and mcp commands. we need to have first class support for codemode in cmux as well. and the mcp commands that people bring over need to be in codemode support too."
+Status: decided by the coordinator 2026-10-04 (section 5); not implemented. App commands + codemode lead. Request R73 (Lawrence, 2026-10-04): "we need to allow apps to bring over their own scoped cli commands, and mcp commands. we need to have first class support for codemode in cmux as well. and the mcp commands that people bring over need to be in codemode support too."
 
 Binding: ONE-CATALOG, UI-STACK, REACT-PAGES, PASSWORDS (spec decisions.md), identity-and-permissions.md (spec), app-platform.md sections 12.5, 13, 15, pane-protocol.md (R60), mcp.md, code-mode.md, actions.md.
 
@@ -56,30 +56,34 @@ Same op declarations, same filter as code mode (section 4), in `cmux mcp serve`:
 
 ### 3.2 The script API
 
-The script sees one global `cmux`, generated from the merged registry: the IR (pane-protocol.json, including the cloud catalog input) plus the fragments of installed and enabled apps. It is the same generator output as the app host's `cmux` global (`cmux-app-host/generated/`, `gen-cmux-global.ts` until emit-ir replaces it), filtered to the caller's view. First-party ops are `cmux.workspace.list()`, `cmux.notes.capture({text})`; third-party ops are `cmux.app("acme.diff").open({...})`; `cmux.call(name, args)` is the untyped fallback. Helpers: `text()`, `json()`, `image()` (output items), `cmux.stream(op, args)` (async iterator over a stream op, bounded by the cell's limits), `args` (CLI positionals after `--`). No `fetch`, `require`, dynamic `import()`, timers beyond `setTimeout` bounded by the cell, filesystem, environment or process access.
+The script sees one global `cmux`, generated from the merged registry: the IR (pane-protocol.json, including the cloud catalog input) plus the fragments of installed and enabled apps. v1 extends the landed generated TypeScript client with the merged registry ops (from `cmux-app-host/generated/ops.json` until emit-ir replaces it), so the script and the app host's `cmux` global share one op list; it is filtered to the caller's view. First-party ops are `cmux.workspace.list()`, `cmux.notes.capture({text})`; third-party ops are `cmux.app("acme.diff").open({...})`; `cmux.call(name, args)` is the untyped fallback. Helpers: `text()`, `json()`, `image()` (output items), `cmux.stream(op, args)` (async iterator over a stream op, bounded by the cell's limits), `args` (CLI positionals after `--`). No `fetch`, `require`, dynamic `import()`, timers beyond `setTimeout` bounded by the cell, filesystem, environment or process access.
 
-The model reads types through `cmux_docs {ops}` (generated TSDoc from `docs`), not by loading the whole catalog (74k tokens today). The script is TypeScript; types are stripped (no type check) before it runs. A wrong argument fails at the owner's schema validation with a typed error that names the field, which the model can fix in the next exec.
+The model reads types through `cmux_docs {ops}` (generated TSDoc from `docs`), not by loading the whole catalog (74k tokens today). The script is TypeScript; Bun strips types (no type check). A wrong argument fails at the owner's schema validation with a typed error that names the field, which the model can fix in the next exec.
 
 ### 3.3 Where code runs (D4)
 
 In the daemon, not in the client. New ops owned by a `code` module of the daemon (cmux-tui-core): `cmux.code.exec {script, timeout_ms?, yield_ms?, max_output_bytes?, idempotency_key}` returns `{cell, state: done|running, output[], result?, error?}`; `cmux.code.wait {cell, yield_ms?}`; `cmux.code.cancel {cell}`; `cmux.code.cells.list` (the caller's cells). Reasons: the daemon is where the caller's principal is known and checked, it already runs on Macs, Linux servers and cloud VMs, cells survive a restarted MCP client, and the Home mux and automations reach it without a second runtime.
 
-Every nested call from the script is dispatched by the daemon's normal op router with the principal of the connection that called `code.exec`, marked `origin: script`, `via: code_cell <id>`. The cell never holds a token; it cannot widen its rights because it has no other way out than that router. App ops go to the supervisor like any other caller.
+Every nested call from the script is dispatched by the daemon's normal op router with the principal of the connection that called `code.exec`, marked `origin: script`, `via: code_cell <id>`. The sandbox never sees the run token: the host-side proxy holds it (3.4). The script cannot widen its rights because its only way out is that router. App ops go to the supervisor like any other caller.
 
-### 3.4 Sandbox (D3)
+### 3.4 Sandbox (D3, decided: keep the Bun prototype for v1)
 
-Recommendation: QuickJS-ng through rquickjs, the engine the Rust app host already uses (app-platform.md 13.1), in a child process `cmux-app-host --mode script`, one process per cell, spawned by the daemon with a socketpair (fd 3) and the app host's OS sandbox (macOS `sandbox_init` profile: no network, no exec, no file reads outside the runtime; Linux: seccomp + Landlock; the same on Freestyle VMs). TypeScript is stripped in the daemon with oxc before it is sent.
+v1 keeps the landed runner: Bun under bwrap (Linux) or `sandbox-exec` (macOS), no host network, no host home, read-only runtime, one socket. QuickJS is not adopted now (a new memory-unsafe engine and an unbuilt host); revisit only with measured data. What changes:
+
+- The daemon owns the lifecycle (D4): `cmux.code.exec` spawns the runner, the daemon waits, cancels, enforces limits and writes the audit. The CLI and MCP server only call the daemon op.
+- The proxy becomes principal-bound. For each run the daemon mints a short-lived run token (`run_…`, expires with the cell, at most the cell's wall time) tied to the calling principal and the cell. The sandbox gets only the proxy socket; the proxy presents the run token, and the daemon router checks every call against that principal's scopes and the `agent_view` filter (section 4). A run token can never name another principal or outlive its cell. The op-name allowlist in `proxy.mjs` stays as a second check, not the authority.
+- The script's catalog view is the merged registry (IR plus installed apps' fragments), so app ops are callable through the same client.
+
+Engine comparison kept for the later revisit:
 
 | Option | For | Against |
 | --- | --- | --- |
-| QuickJS-ng (chosen) | about 1 MB, builds everywhere Rust builds, hard memory limit and interrupt handler, no built-in I/O, same engine, ABI and generated global as apps (one runtime to secure) | interpreter, 10-50x slower than a JIT on CPU-heavy code (orchestration is I/O bound); a history of memory-safety CVEs, so the OS sandbox and process-per-cell are required, not optional |
-| V8 (Codex, Deno) | fastest, mature isolate sandbox | 30-40 MB per binary, slow and fragile builds (the Codex fork needs prebuilt rusty_v8 artifacts; the default download 404s), a second engine next to the app host |
-| JavaScriptCore | on every Mac | Linux needs WebKitGTK; not on servers |
-| Bun + bwrap/sandbox-exec (landed prototype) | works now | needs Bun on every host; bwrap is often unavailable (no user namespaces on hardened servers); `sandbox-exec` is deprecated; the proxy only filters op names |
+| Bun + bwrap/sandbox-exec (v1) | works now on Linux and macOS | needs Bun on every host; bwrap needs user namespaces; `sandbox-exec` is deprecated |
+| QuickJS-ng (app host engine) | about 1 MB, memory limit and interrupt handler, same engine as apps | interpreter; memory-safety CVE history; the Rust host is not built |
+| V8 | fastest, mature isolate | 30-40 MB, fragile builds |
+| JavaScriptCore | on every Mac | not on Linux servers |
 
-The strongest expert objection to QuickJS is engine memory safety. Answer: a script that escapes the engine lands in a process with no network, no exec, no file access and one socket whose every request is checked by the daemon for the caller's principal. The escape gains nothing the script could not already call.
-
-Limits (defaults, settings under `code.*`): memory 64 MiB per cell (`set_memory_limit`), stack 1 MiB, wall time 60 s (max 600 s), script 256 KiB, output 256 KiB per exec or wait answer (cut with `truncated`), 64 nested calls in flight, 4 running cells per principal, 16 per daemon, cells kept 10 minutes after they end. The interrupt handler checks the deadline and the cancel flag. Cancellation (`code.cancel`, MCP `notifications/cancelled`, Ctrl-C in `cmux code run`, client disconnect for a CLI run): the daemon sets the flag, sends `request.cancel` for nested calls in flight, kills the process after 2 s, and reports each in-flight mutation's state (`not_run`, `applied`, `in_progress` with its idempotency key).
+Limits (defaults, settings under `code.*`): memory 256 MiB per cell (rlimit on the runner process), wall time 60 s (max 600 s), script 256 KiB, output 256 KiB per exec or wait answer (cut with `truncated`), 64 nested calls in flight, 4 running cells per principal, 16 per daemon, cells kept 10 minutes after they end. Cancellation (`code.cancel`, MCP `notifications/cancelled`, Ctrl-C in `cmux code run`, client disconnect for a CLI run, deadline): the daemon revokes the run token, sends `request.cancel` for nested calls in flight, sends SIGTERM and then SIGKILL after 2 s, and reports each in-flight mutation's state (`not_run`, `applied`, `in_progress` with its idempotency key).
 
 Streaming: output items stream as they are produced: MCP `notifications/progress` with the text, `cmux code run` prints them as they come (NDJSON with `--json`), `cmux.code.exec` with `yield_ms` returns early with `state: running` and the items so far.
 
@@ -90,20 +94,20 @@ One function decides agent exposure for every surface (CLI app commands for agen
 - No secrets: excluded for every agent principal, in every surface, with a reason: password ops (PASSWORDS P2), `*:keys` scopes, credential handles, account connect and sign-in, grant and policy changes, install and uninstall, `cmux.apps.grant.set`, ops whose output schema has a field marked `x-cmux-secret` (new IR flag, request to hq-48). The script process has an empty environment.
 - Confirmation: ops with risk `destructive`, `send-external`, `money` or a restricted scope need an approval when the actor is an agent: the daemon sends `approval.request {op, args summary, principal, cell}`; the user answers in a native sheet (Mac) or the Home approval part; the nested call waits (the cell reports `awaiting_approval` through `wait`); decline answers `approval.declined`; no answer in 10 minutes answers `approval.timeout`. "Allow for this session" creates a standing grant for that exact op and resource for that principal. A `confirm: true` argument from an agent is not an approval (D6).
 - Audit: the daemon appends one record per nested call `{ts, principal, on_behalf_of, origin, cell, script_sha256, op, args_digest, status, duration_ms, approval?}` and one per cell with the full script text (bounded, 30 days, then deleted). Read with `cmux.code.audit.list` (user origin and the user's own clients only).
-- The per-agent part depends on the actor stamp (D5). Until agents present a launch credential, every local caller is "the user through the CLI", so "never more rights than the caller" holds, but per-agent grants and the agent-only confirmation rule cannot be enforced against an agent that also has a shell. The rules and tests land now; enforcement for agents switches on with the stamp.
+- The per-agent part depends on the actor stamp (D5). The worker's P8 lead builds actor recording (P8 slice 3a); this lead builds the agent-principal part on top, coordinated through the coordinator. Until it exists, agent-facing code mode (the `--profile code` MCP server and `cmux.code.exec` from agent principals) stays behind the debug flag `code.agentSurface` (default off).
 
-## 5. Decisions needed (for Lawrence through the coordinator)
+## 5. Decisions (coordinator, 2026-10-04)
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 | --- | --- | --- |
-| D1 | App CLI form | short `cmux <cli-name> <verb>` (built-ins win, reserved list, collisions lose the short form) + qualified `cmux apps run <app-id> <verb>` |
-| D2 | `cmux run <script>` | rename to `cmux code run` (unreleased) |
-| D3 | Sandbox | QuickJS-ng app host in script mode; delete the Bun runner, `proxy.mjs`, `mcp.mjs` and `run.ts` at parity |
-| D4 | Where code runs | daemon op `cmux.code.exec`; clients only call it |
-| D5 | Actor stamp | needed for real per-agent scopes; who builds it, and when? I can take the daemon side if no one owns it |
-| D6 | Agent confirmation | native approval for agent principals replaces the self-asserted `confirm: true` (changes the 2026-10-01 MCP decision) |
-| D7 | Default MCP profile for agents that cmux launches | `--profile code`; per-op tools stay available with `--profile tools` |
-| D8 | `fetch` in scripts | none in v1, even with a `net:` scope |
+| D1 | App CLI form | short `cmux <cli-name> <verb>` + full `cmux apps run <app> <verb>`: yes |
+| D2 | `cmux run <script>` | renamed to `cmux code run`: yes |
+| D3 | Sandbox | keep the Bun prototype for v1; make the proxy principal-bound with a short-lived run token per run; no QuickJS now; revisit only with data |
+| D4 | Lifecycle | the daemon spawns, waits, cancels and audits: yes |
+| D5 | Actor stamp | P8 slice 3a records actors; this lead adds agent principals on top through the coordinator; agent-facing code mode behind a debug flag until then |
+| D6 | Agent confirmation | native approval replaces `confirm: true` for agents: yes (matches REACT-PAGES Q4) |
+| D7 | Default MCP profile | `--profile code` for agents cmux starts, with a setting (`mcp.profile = tools`) for the full tool list: yes |
+| D8 | `fetch` in scripts | none in v1: yes |
 
 ## 6. Slices (red test commit first in each)
 
@@ -113,15 +117,16 @@ One function decides agent exposure for every surface (CLI app commands for agen
 | S2 | `agent_view` exposure function over the merged registry | new module in `cmux-tui-core` (or crate `cmux-op-policy`) | password, keys and credential ops excluded; destructive needs approval; `never` excluded; disabled app excluded | cmux-tui window; IR fields from hq-48 |
 | S3 | CLI app commands: resolution from `installed-catalog.json`, schema-to-flags, help, completion | `cmux-tui/src/cli/app_commands*` | `cmux notes capture --text x` builds the run params; built-in wins; collision prints qualified forms; enum and required checks | cmux-tui window; supervisor writes the file (app platform lead) |
 | S4 | MCP app-op tools + `list_changed` on `apps-changed` | `cli/mcp/app_op_tools.rs` | parity: every exposed app op is a tool or an exclusion with a reason | cmux-tui window |
-| S5 | Script runtime: `cmux-app-host --mode script`, oxc strip, limits, cancel | `cmux-app-host`, `cmux-tui-core::code` | infinite loop stops at the deadline; memory bomb fails; no `fetch`/`require`/`import()`; cancel during an await; output cut | cmux-tui window; depends on the Rust app host landing |
+| S5 | Principal-bound runner: daemon spawns the Bun runner, run token per cell, proxy presents it, limits, cancel | `cmux-tui-core::code`, `scripts/cmux-next/cmux-code-mode-runner`, `proxy.mjs` | a run token cannot call an op its principal lacks; an expired or revoked token is refused; infinite loop stops at the deadline; cancel during an await; output cut | cmux-tui window |
 | S6 | Daemon ops `cmux.code.exec/wait/cancel/cells.list/audit.list`, caller-principal dispatch, approvals, audit | `cmux-tui-core::code` | script cannot call an excluded op; approval decline fails the call; one audit record per nested call | cmux-tui window; IR entries (hq-48) |
-| S7 | Surfaces: `cmux code run`, `cmux mcp serve --profile code`, `cmux_docs {ops}` d.ts; delete the Bun path; update `skills/cmux-code-mode` | CLI, scripts, skills | end-to-end: the four measurement tasks in code-mode-measurements.md | cmux-tui window |
+| S7 | Surfaces: `cmux code run`, `cmux mcp serve --profile code` (default for agents cmux starts, `mcp.profile` setting, behind `code.agentSurface` until D5), `cmux_docs {ops}` d.ts; move the Bun MCP server's tools into the Rust `cmux mcp serve`; update `skills/cmux-code-mode` | CLI, scripts, skills | end-to-end: the four measurement tasks in code-mode-measurements.md | cmux-tui window |
 
-All Rust builds and tests run on a Blacksmith Testbox. S1 and S2 can start now. S5 waits for the Rust app host (app platform lead, section 13); if that slips, S5 can host QuickJS in a small `cmux-code-host` binary with the same ABI and fold into the app host later.
+All Rust builds and tests run on a Blacksmith Testbox (approved). Slots: S1 gets a crate slot after the current freeze or hold; S2 gets the main window later.
 
 ## 7. Coordination
 
-- App platform lead: `cli` block fields (S1), the supervisor's `installed-catalog.json` and install-time tool-name conflict check, `--mode script` in the app host (S5).
+- App platform lead: `cli` block fields (S1), the supervisor's `installed-catalog.json` and install-time tool-name conflict check.
+- P8 lead (worker): actor recording (slice 3a) is the base for agent principals (D5).
 - hq-48 (pane protocol IR): per-op `scope`, `mcp.expose`, `cli`, `x-cmux-secret` in the IR; `cmux.code.*` ops declared with schemars; the TS generator emits the `.d.ts` that `cmux_docs {ops}` returns.
 - Home lead and automations runtime: consume `cmux.code.exec` instead of a second runtime (the cloud mux keeps the Worker Loader until a cloud daemon serves the op).
-- code-mode.md owner: this plan replaces the Bun runner; code-mode.md and code-mode-measurements.md stay as the measurement record.
+- code-mode.md owner: v1 keeps their Bun runner; this plan moves its lifecycle into the daemon and binds the proxy to a principal.
