@@ -433,7 +433,11 @@ async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() 
         "fake".to_owned(),
         HarnessProfile {
             kind: Default::default(),
-            argv: vec![npx.to_string_lossy().into_owned(), "-y".into(), "@scope/fake-acp@1.0.0".into()],
+            argv: vec![
+                npx.to_string_lossy().into_owned(),
+                "-y".into(),
+                "@scope/fake-acp@1.0.0".into(),
+            ],
             env: BTreeMap::new(),
             description: None,
             fallback: None,
@@ -456,7 +460,11 @@ async fn an_npx_package_launch_is_resolved_once_and_never_spawned_through_npx() 
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     // The startup model probe has run (it lists the fake's models).
     while !hub.models_catalog().await.to_string().contains("\"m2\"") {
-        assert!(std::time::Instant::now() < deadline, "the model probe never ran; npx log: {}", lines());
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the model probe never ran; npx log: {}",
+            lines()
+        );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     for name in ["npx-a", "npx-b"] {

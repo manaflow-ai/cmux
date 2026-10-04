@@ -62,10 +62,8 @@ pub async fn resolve_adapter_package_bin(npx: &str, package: &str) -> Option<Str
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
     // An install from the registry can take a while; a hung npx cannot.
-    let out = tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output())
-        .await
-        .ok()?
-        .ok()?;
+    let out =
+        tokio::time::timeout(std::time::Duration::from_secs(120), cmd.output()).await.ok()?.ok()?;
     if !out.status.success() {
         return None;
     }
