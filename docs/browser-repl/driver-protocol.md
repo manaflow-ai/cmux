@@ -488,7 +488,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   on, input and captures fail with `stale` when the main frame's document,
   or that of a frame with a child WebKit could not describe, holds more
   child frames (`window.frames`, read in the driver's world) than the tree
-  has under it, and a PDF when any child could not be described. On a
+  has under it, and a PDF when any child could not be described. A
+  capture that masks a secret, or runs while the policy or the local-file
+  rule judges the tab, is refused (`stale`) whatever the policy when the
+  documents of the frames it marked hold more child frames (`window.frames`
+  and the frames in their shadow trees, closed ones too) than the tree
+  names besides the main frame: a frame missing from the tree would be
+  neither masked nor judged. On a
   fresh tree read the driver refuses `input.mouse` and `input.drag` at a point inside the box
   of the main frame's child frame that is or holds a blocked frame (overlap
   is not subtracted, and a blocked frame whose box it cannot find refuses

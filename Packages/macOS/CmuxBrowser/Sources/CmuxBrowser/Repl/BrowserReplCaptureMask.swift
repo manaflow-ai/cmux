@@ -61,6 +61,13 @@ extension WKContentWorld {
 /// marked document, so none showed another page meanwhile (a navigation
 /// gives the frame a new global object, without the mark).
 ///
+/// WebKit's frame list can lack frames (no tree at all, or a child it
+/// cannot describe), and a frame missing from it would be neither masked
+/// nor judged. Each marked document counts its child frames (`window.frames`
+/// and the frames in its shadow trees); every frame but the main one is the
+/// child of one document, so a list that names fewer frames than that
+/// refuses the capture (`stale`).
+///
 /// The domain policy judges the document each frame shows when it is
 /// marked, the one the capture shows. A blocked main frame refuses the
 /// capture. A blocked child frame refuses a capture that cannot hide it (a
@@ -156,9 +163,15 @@ public struct BrowserReplCaptureMask {
         var marked: [WKFrameInfo?] = []
         var blockedChildren: [String: String] = [:]
         do {
+            // Child frames the marked documents hold: every frame but the
+            // main one is the child of one document, so a list that names
+            // fewer frames than that lacks some, which would go unmasked
+            // and unjudged.
+            var children = 0
             for frame in await frames() {
                 marked.append(frame)
                 let document = try await mark(frame, in: webView)
+                children += document.children
                 // Judged on the document the mark step marked, the one the
                 // capture shows (the after-capture check refuses another).
                 if let reason = policy.blockReason(document: document.policyDocument) {
@@ -176,6 +189,12 @@ public struct BrowserReplCaptureMask {
                 if !values.isEmpty {
                     try await step(frame, mode: "on", values: values, shown: document.shown, in: webView)
                 }
+            }
+            if children + 1 > marked.count {
+                throw BrowserReplDriverError(
+                    code: "stale",
+                    message: "the capture was refused: WebKit's frame tree of this tab came back without some of its frames (its documents hold \(children) child frames, the tree \(max(0, marked.count - 1))), which could not be masked or checked; try again"
+                )
             }
         } catch {
             await unmark(marked, in: webView)
@@ -223,6 +242,9 @@ public struct BrowserReplCaptureMask {
         /// `location.origin` and the URL's scheme and host, as the domain
         /// policy judges frames (`BrowserReplFrameDocument`).
         let policyDocument: BrowserReplFrameDocument
+        /// The document's child frames: `window.frames` and the frames in
+        /// its shadow trees (closed ones too, which the mask's world sees).
+        let children: Int
 
         var shown: String { origin == "null" ? policyDocument.place : origin }
     }
@@ -249,13 +271,14 @@ public struct BrowserReplCaptureMask {
             )
         }
         guard let document = reply as? [String: Any], let origin = document["origin"] as? String,
-              let place = document["place"] as? String else {
+              let place = document["place"] as? String, let children = (document["children"] as? NSNumber)?.intValue else {
             throw BrowserReplDriverError(code: "invalid", message: "the capture was refused: a frame did not answer; try again")
         }
         return MarkedDocument(
             origin: origin,
             policyDocument: BrowserReplFrameDocument(origin: document["locationOrigin"] as? String, place: place)
-                .withMakers(frame: frame, in: webView)
+                .withMakers(frame: frame, in: webView),
+            children: children
         )
     }
 
@@ -329,7 +352,17 @@ public struct BrowserReplCaptureMask {
     const prop = "-webkit-text-security";
     if (mode === "mark") {
       state.marks.set(token, []);
-      return { origin: String(self.origin), locationOrigin: location.origin, place: location.protocol + "//" + location.host };
+      const children = new Set();
+      for (let i = 0; i < window.frames.length; i++) children.add(window.frames[i]);
+      const visitShadows = (root) => {
+        for (const el of root.querySelectorAll("*")) {
+          if (!el.shadowRoot) continue;
+          for (const f of el.shadowRoot.querySelectorAll("iframe, frame, object, embed")) if (f.contentWindow) children.add(f.contentWindow);
+          visitShadows(el.shadowRoot);
+        }
+      };
+      visitShadows(document);
+      return { origin: String(self.origin), locationOrigin: location.origin, place: location.protocol + "//" + location.host, children: children.size };
     }
     if (mode === "off") {
       state.marks.delete(token);
