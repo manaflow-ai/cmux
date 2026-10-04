@@ -52,8 +52,8 @@ struct HistoryQueryTests {
 
     @Test func implementationPagesAndPlaceholderLocationsAreHidden() {
         let noise = [
-            page("history", "History", url: "cmux://history", ago: 1),
-            page("blank", "about:blank", url: "about:blank", ago: 2),
+            Self.page("history", "History", url: "cmux://history", ago: 1),
+            Self.page("blank", "about:blank", url: "about:blank", ago: 2),
             HistoryEntry(id: "location:history", kind: .location, time: Self.now,
                          title: "History", detail: "cmux://history", payload: .location(
                             HistoryLocation(key: .init(machine: "home", tab: "tab"), window: "w", workspace: "ws", pane: "p",
