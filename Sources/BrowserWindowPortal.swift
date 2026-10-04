@@ -1306,7 +1306,7 @@ final class WindowBrowserSlotView: NSView {
     override var isHidden: Bool {
         didSet {
             guard isHidden, !oldValue else { return }
-            setLinkHoverURL(nil)
+            clearLinkHoverURLs()
             guard let window else { return }
             yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
         }
@@ -1319,6 +1319,8 @@ final class WindowBrowserSlotView: NSView {
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
     private var linkHoverIndicatorView: LinkHoverIndicatorView?
+    private var pointerLinkHoverURL: String?
+    private var keyboardFocusedLinkURL: String?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     var forwardedDropZone: DropZone?
@@ -1459,10 +1461,36 @@ final class WindowBrowserSlotView: NSView {
         return nil
     }
 
-    /// Shows `url` at the bottom-left of the hosted web view, or hides the
-    /// indicator when `url` is `nil`.
-    func setLinkHoverURL(_ url: String?) {
-        guard let url, !url.isEmpty else {
+    /// Where a link reported to the hover indicator came from.
+    enum LinkHoverSource {
+        case pointer
+        case keyboardFocus
+    }
+
+    /// Records the link `source` reports, or clears it when `url` is `nil`,
+    /// then shows the pointer's link if there is one, else the focused link.
+    /// Each source only clears its own link, so the pointer leaving a link
+    /// does not hide one that still has keyboard focus.
+    func setLinkHoverURL(_ url: String?, from source: LinkHoverSource) {
+        let url = url?.isEmpty == false ? url : nil
+        switch source {
+        case .pointer:
+            pointerLinkHoverURL = url
+        case .keyboardFocus:
+            keyboardFocusedLinkURL = url
+        }
+        updateLinkHoverIndicator()
+    }
+
+    /// Forgets both links and hides the indicator.
+    func clearLinkHoverURLs() {
+        pointerLinkHoverURL = nil
+        keyboardFocusedLinkURL = nil
+        updateLinkHoverIndicator()
+    }
+
+    private func updateLinkHoverIndicator() {
+        guard let url = pointerLinkHoverURL ?? keyboardFocusedLinkURL else {
             linkHoverIndicatorView?.setURL(nil)
             return
         }
@@ -1799,7 +1827,7 @@ final class WindowBrowserSlotView: NSView {
         NSLayoutConstraint.deactivate(hostedWebViewConstraints)
         hostedWebViewConstraints = []
         if hostedWebView !== webView {
-            setLinkHoverURL(nil)
+            clearLinkHoverURLs()
         }
         hostedWebView = webView
         // Attached Web Inspector mutates the moved WKWebView's frame directly.

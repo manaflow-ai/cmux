@@ -14,6 +14,6 @@ extension BrowserUIDelegate {
         userInfo: Any?
     ) {
         let hover = BrowserLinkHoverURL.isEnabled() ? BrowserLinkHoverURL(hitTestResult: hitTestResult) : nil
-        WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(hover?.displayString)
+        WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(hover?.displayString, from: .pointer)
     }
 }

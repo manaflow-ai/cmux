@@ -46,7 +46,9 @@ extension CmuxWebView {
         };
         window.addEventListener("focusin", (event) => {
           const link = linkForTarget(targetForEvent(event));
-          if (!link) return;
+          // Focus landing anywhere else means no link has it. Reporting that
+          // covers a focused link that was removed without a focusout.
+          if (!link) { post(""); return; }
           let keyboardFocus = true;
           try { keyboardFocus = link.matches(":focus-visible"); } catch (_) {}
           if (keyboardFocus) post(String(link.href));
