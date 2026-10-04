@@ -71,7 +71,6 @@ async function mount(extra: Record<string, unknown> = {}) {
         onJump: record("jump"),
         onOpenSession: record("session"),
         onShowAll: record("all"),
-        onModeChange: record("mode"),
         ...extra,
       }),
     ),
@@ -113,7 +112,7 @@ test("! turns the tab into a terminal at once and forwards what follows", async 
   await act(async () => root.unmount());
 });
 
-test("a prompt lists the agents; Enter asks the first, Tab switches to Search and Enter searches", async () => {
+test("one input (R86): a prompt lists the agents and an explicit search row; no Search/Ask mode", async () => {
   const { container, root, type, key, calls } = await mount();
   await type("fix the build");
   const titles = () => [...container.querySelectorAll(".nt-row")].map((row) => row.getAttribute("data-type"));
@@ -121,13 +120,13 @@ test("a prompt lists the agents; Enter asks the first, Tab switches to Search an
   // Each agent row wears its brand mark (design/agent-icons).
   const marks = [...container.querySelectorAll('.nt-row[data-type="agent"] svg.agent-mark')];
   expect(marks.map((svg) => svg.getAttribute("data-agent"))).toEqual(["claude", "openai"]);
+  expect(container.querySelector(".nt-mode")).toBeNull();
   await key("Enter");
   expect(calls).toEqual(["ask:claude:fix the build"]);
-  await key("Tab");
-  expect(container.querySelector(".nt-screen")!.getAttribute("data-mode")).toBe("search");
-  expect(titles()).toEqual(["search", "agent", "agent"]);
+  await key("ArrowDown");
+  await key("ArrowDown");
   await key("Enter");
-  expect(calls).toEqual(["ask:claude:fix the build", "mode:search", "search:fix the build"]);
+  expect(calls).toEqual(["ask:claude:fix the build", "search:fix the build"]);
   await act(async () => root.unmount());
 });
 
@@ -142,11 +141,9 @@ test("an address opens on Enter; Down then Enter picks the next row", async () =
   await act(async () => root.unmount());
 });
 
-test("the remembered mode and agent come from the host", async () => {
-  const { container, root, type, key, calls } = await mount({ mode: "search", lastAgent: "codex" });
-  expect(container.querySelector(".nt-screen")!.getAttribute("data-mode")).toBe("search");
+test("the remembered agent comes from the host and leads the rows", async () => {
+  const { root, type, key, calls } = await mount({ lastAgent: "codex" });
   await type("hello");
-  await key("ArrowDown");
   await key("Enter");
   expect(calls).toEqual(["ask:codex:hello"]);
   await act(async () => root.unmount());

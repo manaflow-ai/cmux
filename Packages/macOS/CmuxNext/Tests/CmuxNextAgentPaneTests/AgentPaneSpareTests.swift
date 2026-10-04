@@ -7,7 +7,7 @@ import Testing
 /// the real one, so a reload shows the adopted page and the page remounts.
 @Suite struct AgentPaneSpareTests {
     static let spare = AgentPaneNewTab(kind: .agent, layout: .b)
-    static let real = AgentPaneNewTab(kind: .agent, cwd: "/src/app", location: "~/src/app", layout: .b, mode: .search)
+    static let real = AgentPaneNewTab(kind: .agent, cwd: "/src/app", location: "~/src/app", layout: .b, lastAgent: "codex")
 
     @Test func adoptingReplacesTheContextTheHandshakeCarries() async throws {
         let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: Self.spare)

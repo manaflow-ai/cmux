@@ -9,7 +9,6 @@ import Testing
     struct Fixture: Decodable {
         struct Row: Decodable {
             var input: String
-            var mode: NewTabIntent.Mode?
             var intent: NewTabIntent
         }
         var home: String
@@ -33,15 +32,13 @@ import Testing
         #expect(fixture.rows.count > 50)
         let home = URL(filePath: fixture.home, directoryHint: .isDirectory)
         for row in fixture.rows {
-            let mode = row.mode ?? .ask
-            let intent = NewTabIntent.classify(row.input, mode: mode, home: home)
-            #expect(intent == row.intent, "\(row.input.debugDescription) in \(mode)")
+            let intent = NewTabIntent.classify(row.input, home: home)
+            #expect(intent == row.intent, "\(row.input.debugDescription)")
         }
     }
 
-    @Test func theModeNeverChangesACommandOrAnAddress() {
-        for input in ["!make", "github.com", "localhost:3000"] {
-            #expect(NewTabIntent.classify(input, mode: .ask) == NewTabIntent.classify(input, mode: .search))
-        }
+    /// One input (R86): plain text is a prompt; a search is an explicit choice, never a mode.
+    @Test func plainTextIsAlwaysAPrompt() {
+        #expect(NewTabIntent.classify("rust", home: nil) == .prompt("rust"))
     }
 }
