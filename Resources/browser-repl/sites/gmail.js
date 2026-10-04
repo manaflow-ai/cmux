@@ -8,7 +8,8 @@
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
-  const { URL, URLSearchParams } = root.CmuxBrowserRepl.core;
+  const core = root.CmuxBrowserRepl.core;
+  const { URL, URLSearchParams } = core;
   const SIGN_IN = [/^https:\/\/accounts\.google\.com\//, /^https:\/\/workspace\.google\.com\//, /\/gmail\/about/];
 
   function readList(arg) {
@@ -71,6 +72,48 @@
       };
     });
     return { subject: clean((document.querySelector("h2.hP") || {}).textContent), messages };
+  }
+
+  // The recipients and subject a new-message compose window holds, read in
+  // the agent's world right before Send: per row (To, CC, BCC, found by
+  // the row's "<Row> recipients" input), each address chip
+  // (data-hovercard-id, or email in older layouts) and any address typed
+  // into the row's input; `other` lists chips in the compose window outside
+  // every row it found (a row it cannot find holds them), `subject` the
+  // subjectbox value (null when there is none).
+  function readComposeHeader() {
+    const box = document.querySelector('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]');
+    const root = (box && box.closest('[role="dialog"], form')) || document;
+    const CHIPS = '[data-hovercard-id*="@"], [email]';
+    const address = (e) => String(e.getAttribute("data-hovercard-id") || e.getAttribute("email") || "").trim().toLowerCase();
+    const inputs = { to: null, cc: null, bcc: null };
+    for (const field of Object.keys(inputs)) {
+      inputs[field] = [...root.querySelectorAll("input, textarea")].find((i) => {
+        const label = String(i.getAttribute("aria-label") || "").trim().toLowerCase();
+        return label === `${field} recipients` || i.getAttribute("name") === field;
+      }) || null;
+    }
+    const others = (field) => Object.keys(inputs).filter((f) => f !== field && inputs[f]).map((f) => inputs[f]);
+    const seen = new Set();
+    const rows = {};
+    for (const field of Object.keys(inputs)) {
+      const list = [];
+      rows[field] = list;
+      const input = inputs[field];
+      if (!input) continue;
+      // The row: the widest ancestor of the input in the compose window
+      // that holds no other row's input.
+      let row = input;
+      while (row.parentElement && row.parentElement !== root && root.contains(row.parentElement) && !others(field).some((o) => row.parentElement.contains(o))) row = row.parentElement;
+      for (const chip of row.querySelectorAll(CHIPS)) {
+        seen.add(chip);
+        list.push(address(chip));
+      }
+      for (const typed of String(input.value || "").split(/[,;\s]+/)) if (typed.includes("@")) list.push(typed.replace(/^.*<|>.*$/g, "").trim().toLowerCase());
+    }
+    const other = [...root.querySelectorAll(CHIPS)].filter((c) => !seen.has(c) && !(box && box.contains(c))).map(address);
+    const subject = root.querySelector('input[name="subjectbox"]');
+    return { to: rows.to, cc: rows.cc, bcc: rows.bcc, other, subject: subject ? String(subject.value) : null };
   }
 
   // "thread-f:1784...", "#thread-f:...", a legacy hex id, or a Gmail URL -> hex id for #all/.
@@ -154,6 +197,20 @@
         });
       }
 
+      async function checkComposeHeader(page, msg) {
+        const held = await page._mainFrame._call("agent", core.functionSource(readComposeHeader), []);
+        const problems = [];
+        const same = (a, b) => {
+          const x = [...new Set(a)].sort();
+          const y = [...new Set(b.map((e) => e.toLowerCase()))].sort();
+          return x.length === y.length && x.every((e, i) => e === y[i]);
+        };
+        for (const field of ["to", "cc", "bcc"]) if (!same(held[field] || [], msg[field])) problems.push(`${field}: ${(held[field] || []).join(", ") || "none"}`);
+        if (held.other && held.other.length) problems.push(`other recipients: ${held.other.join(", ")}`);
+        if (held.subject === null || held.subject.replace(/\s+/g, " ").trim() !== msg.subject.replace(/\s+/g, " ").trim()) problems.push(`subject ${JSON.stringify(held.subject)}`);
+        if (problems.length) throw new S.SiteError("compose_mismatch", `gmail.send: the compose window's recipients or subject differ from the draft (${problems.join("; ")}); nothing was sent. Make a new draft and show it to the user again`);
+      }
+
       // Gmail's own parts of a body: the signature (and its "-- " prefix)
       // and quoted text of the thread.
       const GMAIL_OWN = ".gmail_signature, .gmail_signature_prefix, [data-smartmail=\"gmail_signature\"], .gmail_quote";
@@ -161,6 +218,10 @@
         // The whole body, not its start: a page script or another session
         // could keep the drafted opening and add to it.
         if (!(await t.composerHolds(box, msg.body, { exclude: GMAIL_OWN }))) throw new S.SiteError("compose_mismatch", "gmail.send: the compose window did not receive the drafted body, or holds more than it; nothing was sent");
+        // A new message goes to the previewed recipients with the previewed
+        // subject, nothing else: a row or subject a page script or another
+        // session changed after the compose window loaded sends nothing.
+        if (!msg.threadId) await checkComposeHeader(page, msg);
         // The account this page sends as, read in the page right before
         // Send (another session can sign an account in while it loads and
         // move another account to the drafted /u/ index). A switch between
