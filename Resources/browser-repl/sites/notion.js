@@ -226,17 +226,39 @@
         // to-dos, quotes, code, dividers, paragraphs). append(draftId, { confirm: true }) writes it.
         append(page, markdown, options) {
           const isDraft = typeof page === "string" && /^draft-\d+-[0-9a-f]+$/.test(page);
-          return t.write("notion", "append", isDraft ? page : { page, markdown, ...(options || {}) }, isDraft ? markdown : undefined, (input) => {
+          return t.write("notion", "append", isDraft ? page : { page, markdown, ...(options || {}) }, isDraft ? markdown : undefined, async (input) => {
             const id = pageId(input.page);
             pinned(input);
             if (typeof input.markdown !== "string" || !input.markdown.trim()) throw new S.SiteError("invalid", "notion.append: markdown: expected non-empty text");
             const newBlocks = blocksFromMarkdown(input.markdown);
+            // The draft names the Notion user it writes as: { userId } when
+            // given, else the one user the session holds (several: pass
+            // { userId }, see notion.accounts()).
+            const users = await spaces({ ...input, userId: undefined });
+            const user = input.userId ? users.find((u) => u.userId === input.userId) : users.length === 1 ? users[0] : null;
+            if (!user) {
+              if (!users.length || input.userId) throw new S.SiteError("not_signed_in", `notion.append: ${input.userId ? `the Notion user ${input.userId} is not` : "no Notion user is"} signed in to the cmux browser; open https://www.notion.so with tabs.open() and ask the user to sign in`);
+              throw new S.SiteError("invalid", `notion.append: several Notion users are signed in (${users.map((u) => `${u.email || u.name} = ${u.userId}`).join(", ")}); pass { userId } to choose the one that writes`);
+            }
+            const account = { userId: user.userId, email: user.email };
+            const as = { ...input, userId: account.userId };
             return {
               category: "[9] edit shared content",
-              summary: `Append ${newBlocks.length} block(s) to Notion page ${id}`,
-              preview: { page: id, blocks: newBlocks.length, markdown: input.markdown },
+              summary: `Append ${newBlocks.length} block(s) to Notion page ${id} as ${account.email || account.userId}`,
+              preview: { page: id, account, blocks: newBlocks.length, markdown: input.markdown },
               run: async () => {
-                const [r] = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], input);
+                // Who the session holds now (no user named, so another user
+                // answers as themself), then the page and the write, both
+                // naming the drafted user in x-notion-active-user-header:
+                // Notion runs them as that user or refuses them, also when
+                // the session switches users between these calls.
+                const [nowSpaces] = await calls([{ endpoint: "getSpaces", body: {} }], { ...input, userId: undefined });
+                const holder = rec(((nowSpaces && nowSpaces[account.userId] && nowSpaces[account.userId].notion_user) || {})[account.userId]);
+                if (!holder || (holder.email || null) !== account.email) {
+                  const others = Object.entries(nowSpaces || {}).map(([uid, v]) => (rec((v.notion_user || {})[uid]) || {}).email || uid);
+                  throw new S.SiteError("account_changed", `notion.append: the signed-in Notion user is now ${others.join(", ") || "nobody"}, not ${account.email || account.userId} as drafted; nothing was written. Make a new draft and show it to the user again`);
+                }
+                const [r] = await calls([{ endpoint: "syncRecordValues", body: { requests: [{ pointer: { table: "block", id }, version: -1 }] } }], as);
                 const parent = rec(((r.recordMap || {}).block || {})[id]);
                 if (!parent) throw new S.SiteError("not_found", `notion.append: page ${id} was not found`);
                 const spaceId = parent.space_id;
@@ -251,7 +273,7 @@
                   ops.push({ pointer: { table: "block", id, spaceId }, path: ["content"], command: "listAfter", args: after ? { after, id: bid } : { id: bid } });
                   after = bid;
                 }
-                await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], input);
+                await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], as);
                 return { status: "appended", page: id, blockIds: ids };
               },
             };
