@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers"
-import { runDurableObjectAlarm } from "cloudflare:test"
+import { fireAlarm } from "./setup/alarm.ts"
+
 
 type Call = (token: string, name: string, params: unknown) => Promise<{ json: any }>
 
@@ -14,7 +15,7 @@ export const settlePolicy = async (op: Call, read: Call, token: string, team: st
   const stub = ns.get(ns.idFromName(team))
   const want = JSON.stringify(r.json.value.github) + JSON.stringify(r.json.value.allowed_providers)
   for (let i = 0; i < 50; i++) {
-    await runDurableObjectAlarm(stub)
+    await fireAlarm(stub)
     const got = (await read(token, "integration.policy.get", {})).json.value
     if (JSON.stringify(got.github) + JSON.stringify(got.allowed_providers) === want) return r
     await new Promise((res) => setTimeout(res, 20))

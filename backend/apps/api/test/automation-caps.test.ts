@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { introspectWorkflowInstance, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { introspectWorkflowInstance, runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
@@ -7,6 +7,7 @@ import { egressTest, hostAllowed } from "../src/automation-egress.ts"
 import { testBundles } from "../src/code-run.ts"
 import { EGRESS_PER_MINUTE } from "../src/usage-meter-do.ts"
 import { automationTrigger, MAX_TREE_RUNS } from "../src/domains/scheduler-chain.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /** Slice 4 (plans/cmux-next/automations-plan.md): env.cmux, the egress gateway and the op step type. */
 
@@ -53,7 +54,7 @@ const setup = async (user: string) => {
     expect(run.ok, JSON.stringify(run)).toBe(true)
     const instance = await introspectWorkflowInstance(testEnv.AUTOMATION_RUN, run.value.id)
     try {
-      await runDurableObjectAlarm(scheduler)
+      await fireAlarm(scheduler)
       await instance.waitForStatus("complete")
     } finally {
       await instance[Symbol.asyncDispose]()

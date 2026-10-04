@@ -2,6 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject as runIn } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /** (f) steps 2-3: TeamDO members and hosts live in rows, not in the 2 MB head; old heads migrate on wake. */
 const runInDurableObject = runIn as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
@@ -91,7 +92,6 @@ describe("team member and host paging", { timeout: 120_000 }, () => {
 
 describe("UserDO membership index", { timeout: 60_000 }, () => {
   it("lists every team the user belongs to, fed by TeamDO membership writes", async () => {
-    const { runDurableObjectAlarm } = await import("cloudflare:test")
     const t = await token("team-index-1")
     const ensured = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value
     const team = ensured.personal_team as string
@@ -101,7 +101,7 @@ describe("UserDO membership index", { timeout: 60_000 }, () => {
     // The TeamDO outbox delivers the index item from its alarm (it may already be running).
     let teams: Array<unknown> = []
     for (let i = 0; i < 50 && teams.length === 0; i++) {
-      await runDurableObjectAlarm(teamStub)
+      await fireAlarm(teamStub)
       teams = await userStub.homeTeamsOf(user)
       if (teams.length === 0) await new Promise((r) => setTimeout(r, 20))
     }
