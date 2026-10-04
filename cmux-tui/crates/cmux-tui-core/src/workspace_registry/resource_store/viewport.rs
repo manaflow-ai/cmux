@@ -199,19 +199,18 @@ mod dock_key_tests {
         }
     }
 
-    /// R87 DOCK-WIRE: the stored key stays `sticky` until the release pin
-    /// serves dock-columns-v1, because an older daemon refuses an unknown
-    /// field (`deny_unknown_fields`) and could not open the session. Both
-    /// keys load as the column's dock flag.
+    /// R87 DOCK-WIRE: since the release pin serves dock-columns-v1
+    /// (b7d4c52e4c67) the stored key is `dock`. Records written before that
+    /// name it `sticky`; both keys load for one release.
     #[test]
-    fn a_registry_viewport_writes_sticky_and_reads_sticky_or_dock() {
+    fn a_registry_viewport_writes_dock_and_reads_dock_or_sticky() {
         let viewport = viewport();
         let written = serde_json::to_string(&viewport).unwrap();
-        assert!(written.contains("\"sticky\":") && !written.contains("\"dock\""), "{written}");
+        assert!(written.contains("\"dock\":") && !written.contains("\"sticky\""), "{written}");
         let loaded: RegistryViewport = serde_json::from_str(&written).unwrap();
         assert_eq!(loaded, viewport);
-        let dock_named = written.replace("\"sticky\":", "\"dock\":");
-        let loaded: RegistryViewport = serde_json::from_str(&dock_named).unwrap();
+        let sticky_named = written.replace("\"dock\":", "\"sticky\":");
+        let loaded: RegistryViewport = serde_json::from_str(&sticky_named).unwrap();
         assert_eq!(loaded, viewport);
     }
 }

@@ -88,10 +88,8 @@ fn dock_column_registry_record_is_additive() {
     assert_eq!(column.dock, None);
     assert_eq!(serde_json::to_value(&column).unwrap(), old, "an unset flag is omitted");
 
-    // Stored under its pre-R87 key `sticky` until the release pin serves
-    // dock-columns-v1 (viewport.rs).
     let mut with_dock = old;
-    with_dock["sticky"] = serde_json::json!({"edge": "right", "mode": "docked"});
+    with_dock["dock"] = serde_json::json!({"edge": "right", "mode": "docked"});
     let column: RegistryViewportColumn = serde_json::from_value(with_dock.clone()).unwrap();
     assert_eq!(column.dock, Some(ColumnDock { edge: DockEdge::Right, mode: DockMode::Docked }));
     assert_eq!(serde_json::to_value(&column).unwrap(), with_dock);
