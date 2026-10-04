@@ -446,6 +446,68 @@
     },
     {
       "accepts" : [
+        "aboveToolbar",
+        "belowToolbar"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.tabsAboveToolbar",
+            "text" : "Tab Bar Above"
+          },
+          "value" : "aboveToolbar"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.tabsBelowToolbar",
+            "text" : "Tab Bar Below"
+          },
+          "value" : "belowToolbar"
+        }
+      ],
+      "default" : "aboveToolbar",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.barOrder.help",
+        "text" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.barOrder",
+      "keywords" : [
+        "tab bar",
+        "tabs",
+        "toolbar",
+        "omnibar",
+        "address bar",
+        "order",
+        "browser",
+        "layout"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "tabs",
+        "barOrder"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.tabs.barOrder",
+        "text" : "Tab Bar and Browser Toolbar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -8579,7 +8641,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "1246a57c0f306b301fc162f9bf1471cb47558b84697fa935ab11269a8531c4d4",
+  "schema_hash" : "4f4b74b209da9be2475aa121ba26cbbe299a7f0d5611626a00a74950927111c2",
   "sections" : [
     {
       "id" : "general",
