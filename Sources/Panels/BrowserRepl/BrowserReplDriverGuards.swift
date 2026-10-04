@@ -42,31 +42,18 @@ final class BrowserReplNavigationGuard {
         return true
     }
 
-    /// Where a window a page opens goes.
-    enum PopupRoute: Equatable {
-        /// To the REPL sessions driving the tab, as a new background tab.
-        case session
-        /// The browser's own popup path, as if no session drove the tab.
-        case browser
-        /// Nowhere: the window does not open.
-        case refused(String)
-    }
+    typealias PopupRoute = BrowserReplPopupRoute
 
-    /// Routes a window the page in `panelID` opens. The page controls the
-    /// URL, and a session's popup opens through cmux's own navigation, which
-    /// trusts local files and internal schemes, so it goes to the sessions
-    /// only if it passes as an untrusted navigation under the browser's URL
-    /// allowlist and the creating session's domain policy. Otherwise a tab a
-    /// session created opens nothing, and a user's tab a session only drives
-    /// leaves it to the browser.
+    /// Routes a window the page in `panelID` opens (``BrowserReplPopupRoute``).
     func popupRoute(panelID: UUID, url: URL?) -> PopupRoute {
         guard let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID),
               attachment.isAttached else { return .browser }
-        let policy = attachment.creatorSessionID.flatMap { policies[$0] } ?? BrowserReplDomainPolicy()
-        guard let reason = policy.popupBlockReason(url, allowlist: BrowserURLAllowlistPolicy(defaults: .standard)) else {
-            return .session
-        }
-        return attachment.appliesSessionPolicies ? .refused(reason) : .browser
+        return BrowserReplPopupRoute(
+            url: url,
+            openerCreatedBySession: attachment.appliesSessionPolicies,
+            creatorPolicy: attachment.creatorSessionID.flatMap { policies[$0] } ?? BrowserReplDomainPolicy(),
+            allowlist: BrowserURLAllowlistPolicy(defaults: .standard)
+        )
     }
 }
 

@@ -60,3 +60,57 @@ struct BrowserReplPopupPolicyTests {
         #expect(BrowserReplDomainPolicy().popupBlockReason(URL(string: "blob:null/6f1c"), allowlist: open) != nil)
     }
 }
+
+/// Where a page-opened window goes depends on who owns the opener tab: only
+/// a tab a session created hands its popups to the sessions. A user's tab
+/// that a session drives (`tabs.use`) keeps its popups, so a session never
+/// adopts, and at its end closes, a window the user's page opened.
+@Suite("Browser REPL popup routing")
+struct BrowserReplPopupRouteTests {
+    private let open = BrowserURLAllowlistPolicy(managedPatterns: nil)
+
+    @Test("A popup of a user's tab goes to the browser, whatever its URL",
+          arguments: ["https://docs.example.com/a", "about:blank", "file:///etc/passwd"])
+    func userTabPopupsStayWithTheBrowser(_ raw: String) throws {
+        let route = BrowserReplPopupRoute(
+            url: URL(string: raw),
+            openerCreatedBySession: false,
+            creatorPolicy: BrowserReplDomainPolicy(),
+            allowlist: open
+        )
+        #expect(route == .browser, "\(raw) from a user's tab went to \(route)")
+    }
+
+    @Test("A popup of a session's tab goes to the session when allowed, and nowhere otherwise")
+    func sessionTabPopupsFollowThePolicy() throws {
+        var prohibiting = BrowserReplDomainPolicy()
+        prohibiting.prohibited = [try BrowserReplDomainPattern.parse("evil.example", title: "t")]
+        let allowed = BrowserReplPopupRoute(
+            url: URL(string: "https://docs.example.com/a"),
+            openerCreatedBySession: true,
+            creatorPolicy: prohibiting,
+            allowlist: open
+        )
+        #expect(allowed == .session)
+        let blocked = BrowserReplPopupRoute(
+            url: URL(string: "https://evil.example/a"),
+            openerCreatedBySession: true,
+            creatorPolicy: prohibiting,
+            allowlist: open
+        )
+        guard case .refused = blocked else {
+            Issue.record("a blocked popup of a session's tab went to \(blocked)")
+            return
+        }
+        let local = BrowserReplPopupRoute(
+            url: URL(string: "file:///etc/passwd"),
+            openerCreatedBySession: true,
+            creatorPolicy: BrowserReplDomainPolicy(),
+            allowlist: open
+        )
+        guard case .refused = local else {
+            Issue.record("a local file popup of a session's tab went to \(local)")
+            return
+        }
+    }
+}

@@ -443,3 +443,36 @@ extension BrowserReplDomainPolicy {
         }
     }
 }
+
+/// Where a window a page opens, from a tab REPL sessions drive, goes.
+public enum BrowserReplPopupRoute: Equatable, Sendable {
+    /// To the REPL sessions driving the tab, as a new background tab.
+    case session
+    /// The browser's own popup path, as if no session drove the tab.
+    case browser
+    /// Nowhere: the window does not open.
+    case refused(String)
+
+    /// Routes a window the page in a driven tab opens. The page controls the
+    /// URL, and a session's popup opens through cmux's own navigation, which
+    /// trusts local files and internal schemes, so it goes to the sessions
+    /// only if it passes as an untrusted navigation under the browser's URL
+    /// allowlist and the creating session's domain policy.
+    ///
+    /// - Parameters:
+    ///   - openerCreatedBySession: Whether an attached session created the
+    ///     opener tab (`BrowserReplTabOwnership.isSessionOwned`).
+    ///   - creatorPolicy: That session's domain policy.
+    public init(
+        url: URL?,
+        openerCreatedBySession: Bool,
+        creatorPolicy: BrowserReplDomainPolicy,
+        allowlist: BrowserURLAllowlistPolicy
+    ) {
+        guard let reason = creatorPolicy.popupBlockReason(url, allowlist: allowlist) else {
+            self = .session
+            return
+        }
+        self = openerCreatedBySession ? .refused(reason) : .browser
+    }
+}
