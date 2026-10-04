@@ -11,8 +11,9 @@ import WebKit
 /// `debug.settings_web` (branch feat-cmux-next-settings-react).
 extension PageWebView {
     /// URL fragment, visible text (first 400 characters), control count, the computed html and
-    /// body backgrounds (the one-backdrop check), and the focused element with its value (typing
-    /// checks).
+    /// body backgrounds (the one-backdrop check), the focused element with its value (typing
+    /// checks) and `<html>`'s `data-*` attributes (pages publish their own probes there, such as the
+    /// diff page's highlight worker counters).
     public func debugState() async -> JSONValue {
         let script = """
         return JSON.stringify({
@@ -26,7 +27,8 @@ extension PageWebView {
           painted_ms: document.documentElement.dataset.cmuxPainted ? Number(document.documentElement.dataset.cmuxPainted) : null,
           active: document.activeElement && document.activeElement !== document.body
             ? { tag: document.activeElement.tagName.toLowerCase(), value: 'value' in document.activeElement ? String(document.activeElement.value) : null }
-            : null
+            : null,
+          data: Object.assign({}, document.documentElement.dataset)
         });
         """
         guard let text = try? await webView.callAsyncJavaScript(script, contentWorld: .page) as? String,
