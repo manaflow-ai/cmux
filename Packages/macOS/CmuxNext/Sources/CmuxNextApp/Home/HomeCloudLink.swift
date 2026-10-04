@@ -59,8 +59,15 @@ final class HomeCloudLink {
     /// lease itself) resets it, so a Worker that refuses every new token
     /// cannot make renewals and resends loop.
     private var forcedWait: Duration = .zero
-    /// Runs while forced renewals wait; one asked for meanwhile goes when it ends.
+    /// Runs while forced renewals wait; one asked for meanwhile goes when it
+    /// ends. Its first `firstRetry` always runs: a proof only shortens the
+    /// rest, so a lease one socket proves while another is refused under
+    /// it cannot make forced renewals go back to back.
     private let cooldown: DemandTimer
+    /// The cooldown is in its first `firstRetry`.
+    private var cooldownInFloor = false
+    /// A proof came during that first part: the cooldown ends with it.
+    private var provenInFloor = false
     /// The reason of a forced renewal asked for while `cooldown` runs.
     private var pendingForced: String?
 
@@ -110,6 +117,8 @@ final class HomeCloudLink {
         retry.cancel()
         retryDelay = Self.firstRetry
         cooldown.cancel()
+        cooldownInFloor = false
+        provenInFloor = false
         pendingForced = nil
         forcedWait = .zero
         leasedExpiry = nil
@@ -169,10 +178,15 @@ final class HomeCloudLink {
     }
 
     /// A reply or a live socket came through the current lease: the Worker
-    /// takes its token, so no forced renewal waits any more. The cooldown
-    /// ends and a renewal that waited for it goes now.
+    /// takes its token, so the forced wait starts over. The cooldown ends
+    /// (at the end of its first `firstRetry` when it is still in it) and a
+    /// renewal that waited for it goes then.
     private func leaseProven() {
         forcedWait = .zero
+        if cooldownInFloor {
+            provenInFloor = true
+            return
+        }
         cooldown.cancel()
         sendPendingForced()
     }
@@ -211,8 +225,25 @@ final class HomeCloudLink {
     /// last wait, unless a reply or a live socket proves this lease first.
     private func startCooldown() {
         forcedWait = forcedWait == .zero ? Self.firstRetry : min(forcedWait * 2, Self.maxRetry)
-        cooldown.schedule(after: forcedWait) { @MainActor [weak self] in
+        let rest = forcedWait - Self.firstRetry
+        cooldownInFloor = true
+        provenInFloor = false
+        cooldown.schedule(after: Self.firstRetry) { @MainActor [weak self] in
+            self?.cooldownFloorPassed(rest: rest)
+        }
+    }
+
+    /// The cooldown's first `firstRetry` passed: it ends now when a proof
+    /// came meanwhile or nothing of it is left, else it runs the rest.
+    private func cooldownFloorPassed(rest: Duration) {
+        cooldownInFloor = false
+        guard !provenInFloor, rest > .zero else {
+            provenInFloor = false
             // Lease work running now keeps it; it goes when that work ends.
+            sendPendingForced()
+            return
+        }
+        cooldown.schedule(after: rest) { @MainActor [weak self] in
             self?.sendPendingForced()
         }
     }

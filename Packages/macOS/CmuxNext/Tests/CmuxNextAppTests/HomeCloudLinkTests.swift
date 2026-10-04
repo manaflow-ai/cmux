@@ -262,25 +262,35 @@ import Testing
 
     /// A forced renewal waits while the cooldown after the last one runs.
     /// A reply on the current lease proves the Worker takes its token: the
-    /// cooldown ends and the waiting renewal goes at once, instead of after
-    /// a wait that can reach `maxRetry`.
-    @Test func aProvenLeaseEndsTheCooldownAndSendsTheWaitingRenewal() async throws {
+    /// cooldown ends after its first `firstRetry`, and the waiting renewal
+    /// goes then instead of after a wait that can reach `maxRetry`.
+    @Test func aProvenLeaseCutsTheCooldownToTheFirstWait() async throws {
         let clock = ManualClock()
         let daemon = FakeCloudDaemon()
         let (linker, source, tokens) = make(clock: clock)
         tokens.user = "a"
         await linker.apply(link(daemon, "a"))
+        @Sendable func leases(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { if case .setSession = $0 { true } else { false } }.count }
+        // Two forced renewals: the second one's cooldown is twice the first wait.
         linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
         await linker.settle()
-        #expect(daemon.leases == 2)
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: HomeCloudLink.firstRetry)
+        for _ in 0..<2_000 { await Task.yield() }
+        linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
+        await linker.settle()
+        #expect(daemon.leases == 3)
         // The cooldown runs: this one waits.
         linker.sessionNeeded(reason: "expired", expiresAt: daemon.leaseExpiry)
         await linker.settle()
-        #expect(daemon.leases == 2)
+        #expect(daemon.leases == 3)
         // A reply on the renewed lease proves it.
         _ = try await source.inbox()
-        #expect(await daemon.wait { calls in calls.filter { if case .setSession = $0 { true } else { false } }.count >= 3 },
-                "the waiting renewal still waited for the cooldown")
+        for _ in 0..<2_000 { await Task.yield() }
+        #expect(daemon.leases == 3, "the proof skipped the first wait")
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: HomeCloudLink.firstRetry)
+        #expect(await daemon.wait { leases($0) >= 4 }, "the waiting renewal still waited for the whole cooldown")
     }
 
     /// One socket proves each new lease while another is refused under it
