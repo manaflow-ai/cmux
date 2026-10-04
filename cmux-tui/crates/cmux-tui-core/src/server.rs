@@ -102,6 +102,7 @@ pub use loopback_forward::{
 };
 mod admission;
 mod line_connection;
+mod origin_gate;
 mod pending_handoff;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
 use pending_handoff::reject_message_during_pending_handoff;
