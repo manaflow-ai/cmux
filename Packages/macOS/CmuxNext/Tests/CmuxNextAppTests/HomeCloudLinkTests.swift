@@ -21,6 +21,11 @@ import Testing
         return (HomeCloudLink(lease: lease, source: source, localID: F.localMe, clock: clock), source, tokens)
     }
 
+    nonisolated static func refused(_ cmd: String) -> DaemonError {
+        .command(cmd: cmd, message: "unauthenticated", code: "cloud_unauthenticated",
+                 details: .object(["reason": .string("unauthenticated")]), retryable: true)
+    }
+
     nonisolated static func ops(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { if case .op = $0 { true } else { false } }.count }
 
     func link(_ daemon: FakeCloudDaemon, _ user: String?) -> HomeCloudLink.Link {
@@ -191,17 +196,13 @@ import Testing
         let daemon = FakeCloudDaemon()
         let (linker, source, tokens) = make(clock: clock)
         tokens.user = "a"
-        @Sendable func refused(_ cmd: String) -> DaemonError {
-            .command(cmd: cmd, message: "unauthenticated", code: "cloud_unauthenticated",
-                     details: .object(["reason": .string("unauthenticated")]), retryable: true)
-        }
         daemon.script.withLock { script in
             // Reads are refused too: a reply would show the Worker takes the token.
-            script.inboxError = refused("cloud-inbox-list")
+            script.inboxError = Self.refused("cloud-inbox-list")
             script.op = { [daemon] _ in
                 // task-owner: one hop to the main actor, as the daemon's event does
                 Task { @MainActor in linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry) }
-                throw refused("cloud-conversation-op")
+                throw Self.refused("cloud-conversation-op")
             }
         }
         await linker.apply(link(daemon, "a"))
