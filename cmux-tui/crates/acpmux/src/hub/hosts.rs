@@ -517,3 +517,79 @@ async fn end_host_blocking(
     .await
     .unwrap_or(false)
 }
+
+impl Hub {
+    /// New agents run under an `__agent-host` process, so they outlive this
+    /// daemon (durable sessions). The daemon turns this on at start
+    /// (`daemon run`; `ACPMUX_AGENT_HOSTS=0` is the one-release opt-out);
+    /// an in-process hub (tests, embedding) keeps direct children. Memory
+    /// stores keep no log to resume from, so they never use hosts.
+    pub(crate) fn agent_hosts_enabled(&self) -> bool {
+        self.store.session_dir("probe").is_some() && self.agent_hosts.load(Ordering::SeqCst)
+    }
+
+    /// Run new agents under agent hosts (see `agent_hosts_enabled`).
+    pub fn enable_agent_hosts(&self) {
+        self.agent_hosts.store(true, Ordering::SeqCst);
+    }
+
+    pub(super) async fn spawn_hosted_child(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        profile: &HarnessProfile,
+        meta: &SessionMeta,
+        command_line: Option<(String, Vec<String>)>,
+        translator: Option<crate::agent_host::TranslatorSpec>,
+        tap: crate::agent::Tap,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
+        let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
+        let cmd = crate::agent::harness_command(
+            &meta.harness,
+            profile,
+            &meta.cwd,
+            command_line,
+            Some((&session.id, &meta.name)),
+        )
+        .map_err(internal)?;
+        let std_cmd = cmd.as_std();
+        let hosts = crate::agent_host::hosts_dir();
+        let spec = crate::agent_host::SpawnSpec {
+            session_id: session.id.clone(),
+            program: std_cmd.get_program().to_string_lossy().into_owned(),
+            args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
+            env: crate::agent::command_env(&cmd),
+            cwd: meta.cwd.clone(),
+            translator,
+            socket: crate::agent_host::socket_path(&hosts, &session.id),
+            hosts_dir: hosts,
+            buffer_cap: crate::agent_host::DEFAULT_BUFFER_CAP,
+        };
+        let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
+        let record = crate::agent_host::link::spawn(&launcher, &spec).await.map_err(internal)?;
+        // Logged before the first entry, so a later controller counts every
+        // entry of this incarnation.
+        self.append(
+            session,
+            "mux",
+            "host_started",
+            json!({"incarnation": record.incarnation, "hostPid": record.host_pid, "hostBuild": record.host_build}),
+        );
+        let attached = ChildAgent::attach_hosted(
+            &meta.harness,
+            record,
+            0,
+            Vec::new(),
+            session.inbound_tx.clone(),
+            tap,
+        )
+        .await
+        .map_err(internal)?;
+        let child = match attached {
+            crate::agent::Attached::Ready(child, _, _) => child,
+            crate::agent::Attached::Incompatible { .. } => {
+                return Err(RpcError::internal("a host of this build refused its controller"));
+            }
+        };
+        Ok(child)
+    }
+}
