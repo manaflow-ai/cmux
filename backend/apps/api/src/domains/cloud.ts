@@ -4,7 +4,7 @@ import { Exit, Schema } from "effect"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
 import { personalTeamIdFor } from "./user.ts"
-import { createConfigProblem, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
+import { createConfigProblem, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
 
 /**
  * CloudDO's reducer (plans/cmux-next/state-placement.md 5.1-5.3). Pure: provider calls run in the
@@ -134,7 +134,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   if (!d.ok) return d
   const p = ctx.principal
   // Plan checks come before anything that could reach the provider.
-  const plan = config.plan
+  const plan = teamPlan(config, state.team ?? p.team)
   if (!plan) return reject("cloud.plan.required", "Cloud machines need a paid plan")
   if (d.value.from_snapshot !== undefined) return reject("cloud.snapshot.not_found", "no such snapshot")
   const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? 4096

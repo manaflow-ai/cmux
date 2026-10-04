@@ -70,6 +70,8 @@ export interface Env {
   readonly CLOUD_FREESTYLE_SNAPSHOT?: string
   /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-, cmuxnp-stg-, cmuxnp-prod-) or the provider is off. */
   readonly CLOUD_NAME_PREFIX?: string
+  /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
+  readonly CLOUD_ALLOWED_TEAMS?: string
   /** Test only: `fake` selects the in-object fake Cloud provider when ENVIRONMENT=test. */
   readonly CLOUD_DRIVER?: string
   /** Per-IP limit on unauthenticated pairing begins. */

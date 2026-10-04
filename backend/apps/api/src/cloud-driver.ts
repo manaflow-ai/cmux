@@ -2,7 +2,7 @@ import type { SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { DriverError } from "./team-vm-driver.ts"
 import type { CloudConfig } from "./domains/cloud-plan.ts"
-import { planFor } from "./domains/cloud-plan.ts"
+import { parseAllowedTeams } from "./domains/cloud-plan.ts"
 export { providerName } from "./domains/cloud-plan.ts"
 
 /**
@@ -188,7 +188,8 @@ export const cloudConfig = (env: Env): CloudConfig => {
   // CLOUD-DEV-SNAPSHOT: only this environment's image lane snapshot (its name carries the prefix); no fallback.
   const imageProblem = !snapshot ? "missing" : prefixOk && snapshot.startsWith(env.CLOUD_NAME_PREFIX!) ? undefined : "foreign"
   return {
-    plan: planFor(env.ENVIRONMENT),
+    environment: env.ENVIRONMENT,
+    allowedTeams: parseAllowedTeams(env.CLOUD_ALLOWED_TEAMS),
     prefix: prefixOk && keyOk ? env.CLOUD_NAME_PREFIX! : null,
     image: prefixOk && keyOk && !imageProblem ? snapshot! : null,
     ...(imageProblem ? { imageProblem } : {})
