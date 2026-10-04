@@ -1208,7 +1208,8 @@ describe("firewall rule not found (404 vm_firewall_rule_not_found)", () => {
         ? Effect.sync(() => void deleted.push(ruleId))
         : Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "deleteFirewallRule", cause: deleteFailure })),
   }) as unknown as VmProviderGatewayShape;
-  const tagOf = async (program: Effect.Effect<unknown, unknown, VmRepository | VmProviderGateway>, gateway: VmProviderGatewayShape) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tagOf = async (program: Effect.Effect<unknown, unknown, any>, gateway: VmProviderGatewayShape) => {
     const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), gateway))) as Effect.Effect<unknown, unknown>);
     if (Exit.isSuccess(exit)) return null;
     const f = Cause.failureOption(exit.cause);
