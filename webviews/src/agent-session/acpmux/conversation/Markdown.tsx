@@ -8,6 +8,7 @@ import { Fragment, memo, useMemo, useRef, type ReactNode } from "react";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
+import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, Check, FileDoc, GitHubMark, Globe } from "./icons";
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
@@ -249,6 +250,7 @@ function Block({
   depth,
   enter = false,
   code = "final",
+  tail,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -258,15 +260,18 @@ function Block({
   /** A code block's stage: still open (plain lines), closed while streaming (highlighted once,
    * faded in), or drawn finished (highlighted). */
   code?: "open" | "handoff" | "final";
+  /** The reply's newest characters, which fade in at the end of this, its last block. */
+  tail?: FreshTail;
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
+  const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
   switch (block.type) {
     case "heading": {
       const H = `h${block.level}` as "h1";
-      return <H className={`cv-h cv-h${block.level}${motion}`}>{renderInline(block.text, opts)}</H>;
+      return <H className={`cv-h cv-h${block.level}${motion}`}>{inline(block.text)}</H>;
     }
     case "paragraph":
-      return <p className={`cv-p${motion}`}>{renderInline(block.text, opts)}</p>;
+      return <p className={`cv-p${motion}`}>{inline(block.text)}</p>;
     case "hr":
       return <hr className={`cv-hr${motion}`} />;
     case "blockquote":
@@ -293,7 +298,9 @@ function Block({
                   {it.checked && <Check size={12} strokeWidth={1.4} />}
                 </span>
               )}
-              <span className="cv-li__text">{renderInline(it.text, opts)}</span>
+              <span className="cv-li__text">
+                {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
+              </span>
               {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
             </li>
           ))}
@@ -352,6 +359,32 @@ function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOption
   );
 }
 
+/// The newest revealed text of a streaming reply: its steps and the source suffix they cover.
+export type FreshTail = { steps: Reveal[]; text: string; now: number };
+
+/// `text` with its newest characters in spans that fade in (`.cv-fresh`). Each span keeps its key
+/// and a negative animation delay, so a re-render never restarts its fade. Only plain trailing
+/// text fades by step; a suffix with Markdown syntax or a line break draws as usual.
+function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactNode[] {
+  const fresh = tail.text.trimEnd();
+  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return renderInline(text, opts);
+  const out = renderInline(text.slice(0, text.length - fresh.length), opts);
+  let end = fresh.length;
+  const spans: ReactNode[] = [];
+  for (let index = tail.steps.length - 1; index >= 0 && end > 0; index -= 1) {
+    const step = tail.steps[index]!;
+    const start = Math.max(0, end - step.count);
+    spans.unshift(
+      <span key={`f${step.id}`} className="cv-fresh" style={{ animationDelay: `${-(tail.now - step.born)}ms` }}>
+        {fresh.slice(start, end)}
+      </span>,
+    );
+    end = start;
+  }
+  if (end > 0) out.push(fresh.slice(0, end));
+  return [...out, ...spans];
+}
+
 /// A top-level block that renders again only when its parsed block changes: a streaming reply's
 /// finished blocks keep their objects (IncrementalMarkdown), so each delta renders only the tail.
 const BlockView = memo(Block);
@@ -362,10 +395,13 @@ export type MarkdownProps = InlineOptions & {
   className?: string;
   /** The reply is streaming: blocks that appear from now on enter with the shared motion. */
   streaming?: boolean;
+  /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
+  fresh?: Reveal[];
+  now?: number;
 };
 
 /** Assistant-message Markdown. A growing source (a streaming reply) is parsed incrementally. */
-export function Markdown({ children, className = "", linkIcon, streaming = false }: MarkdownProps) {
+export function Markdown({ children, className = "", linkIcon, streaming = false, fresh, now = 0 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
   const blocks = parser.current.update(children, { streaming });
@@ -375,6 +411,9 @@ export function Markdown({ children, className = "", linkIcon, streaming = false
   const opts = useMemo(() => ({ linkIcon }), [linkIcon]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
+  const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
+  const freshTail: FreshTail | undefined =
+    streaming && fresh?.length ? { steps: fresh, text: children.slice(children.length - freshChars), now } : undefined;
   // An odd number of fence lines: the last block is a fence still arriving.
   const openFence = streaming && (children.match(/^\s*```/gm)?.length ?? 0) % 2 === 1;
   return (
@@ -391,6 +430,7 @@ export function Markdown({ children, className = "", linkIcon, streaming = false
             depth={0}
             enter={streaming && live}
             code={open ? "open" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
+            tail={index === blocks.length - 1 ? freshTail : undefined}
           />
         );
       })}
