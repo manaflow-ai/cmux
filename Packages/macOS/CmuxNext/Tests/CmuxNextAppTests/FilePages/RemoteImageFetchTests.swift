@@ -139,27 +139,126 @@ import Testing
         #expect(IPAddress(literal: "cdn.example.com") == nil)
     }
 
-    /// The HTTP the pinned transport speaks: a plain GET with the checked headers, and a parser
-    /// for its answer (Content-Length or chunked, the limit enforced).
-    @Test func theTransportsHTTPIsAPlainGETAndItsAnswerIsParsed() throws {
+    /// The request the pinned transport sends: HTTP/1.0, `Connection: close`, `Accept-Encoding:
+    /// identity`, the checked headers only.
+    @Test func theRequestIsAPlainHTTP10GET() throws {
         let request = RemoteImagePolicy.request(for: try #require(URL(string: "https://cdn.example.com/a.png?x=1")), address: Self.publicAddress)
         let wire = String(decoding: PinnedTLSTransport.encode(request), as: UTF8.self)
-        #expect(wire.hasPrefix("GET /a.png?x=1 HTTP/1.1\r\n"))
+        #expect(wire.hasPrefix("GET /a.png?x=1 HTTP/1.0\r\n"))
         #expect(wire.contains("\r\nHost: cdn.example.com\r\n"))
+        #expect(wire.contains("\r\nConnection: close\r\n") && wire.contains("\r\nAccept-Encoding: identity\r\n"))
         #expect(wire.hasSuffix("\r\n\r\n"))
         #expect(!wire.lowercased().contains("cookie") && !wire.lowercased().contains("authorization"))
-        let plain = Data("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 4\r\n\r\n".utf8) + Self.png
-        let parsed = try PinnedTLSTransport.parse(plain, maximumBytes: 10)
-        #expect(parsed.status == 200 && parsed.headers["content-type"] == "image/png" && parsed.body == Self.png)
-        let chunked = Data("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n".utf8)
-            + Self.png.prefix(2) + Data("\r\n2\r\n".utf8) + Self.png.suffix(2) + Data("\r\n0\r\n\r\n".utf8)
-        let dechunked = try PinnedTLSTransport.parse(chunked, maximumBytes: 10)
-        #expect(dechunked.status == 200 && dechunked.body == Self.png)
-        #expect(PinnedTLSTransport.isComplete(plain) && PinnedTLSTransport.isComplete(chunked))
-        #expect(!PinnedTLSTransport.isComplete(plain.dropLast()))
-        #expect(throws: (any Error).self) { try PinnedTLSTransport.parse(plain, maximumBytes: 3) }
-        let moved = Data("HTTP/1.1 301 Moved\r\nLocation: /b.png\r\nContent-Length: 0\r\n\r\n".utf8)
-        let redirect = try PinnedTLSTransport.parse(moved, maximumBytes: 10)
-        #expect(redirect.status == 301 && redirect.headers["location"] == "/b.png")
+    }
+
+    // MARK: The reply reader (CFHTTPMessage for the status line and headers)
+
+    static func head(_ lines: [String]) -> Data { Data((lines.joined(separator: "\r\n") + "\r\n\r\n").utf8) }
+
+    /// Feeds `chunks` and ends the stream; the reply or the error.
+    static func read(_ chunks: [Data], cap: Int = 10) -> Result<RemoteImageResponse, any Error> {
+        var reader = HTTPReplyReader(maximumBody: cap)
+        do {
+            for chunk in chunks {
+                if try reader.append(chunk) { return .success(try reader.finish()) }
+            }
+            return .success(try reader.finish())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    static func refused(_ chunks: [Data], cap: Int = 10) -> Bool {
+        if case .failure = read(chunks, cap: cap) { return true }
+        return false
+    }
+
+    @Test func aReplyWithContentLengthEndsThereAndOneWithoutAtTheClose() throws {
+        let sized = try Self.read([Self.head(["HTTP/1.0 200 OK", "Content-Type: image/png", "Content-Length: 4"]) + Self.png + Data("extra".utf8)]).get()
+        #expect(sized.status == 200 && sized.headers["content-type"] == "image/png" && sized.body == Self.png)
+        let open = try Self.read([Self.head(["HTTP/1.0 200 OK", "Content-Type: image/png"]), Self.png.prefix(2), Self.png.suffix(2)]).get()
+        #expect(open.body == Self.png)
+        let moved = try Self.read([Self.head(["HTTP/1.0 302 Found", "Location: /b.png", "Content-Length: 0"])]).get()
+        #expect(moved.status == 302 && moved.headers["location"] == "/b.png")
+    }
+
+    @Test func transferAndContentEncodingsAreRefused() {
+        #expect(Self.refused([Self.head(["HTTP/1.1 200 OK", "Transfer-Encoding: chunked"]) + Data("4\r\nabcd\r\n0\r\n\r\n".utf8)]))
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Encoding: gzip", "Content-Length: 4"]) + Self.png]))
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Encoding: identity", "Content-Length: 4"]) + Self.png]))
+    }
+
+    @Test func repeatedConflictingOrMalformedContentLengthsAreRefused() {
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Length: 4", "Content-Length: 4"]) + Self.png]))
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Length: 4", "content-length: 5"]) + Self.png]))
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Length: 4, 5"]) + Self.png]))
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Length: -1"]) + Self.png]))
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Length: 0x4"]) + Self.png]))
+    }
+
+    @Test func aHeaderBlockOver16KBIsRefused() {
+        let big = "X-Filler: " + String(repeating: "a", count: 16 * 1024)
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", big, "Content-Length: 4"]) + Self.png]))
+        // Never complete: refused once 16 KB arrive without the end of the headers.
+        #expect(Self.refused([Data("HTTP/1.0 200 OK\r\n".utf8), Data(repeating: 0x61, count: 17 * 1024)]))
+    }
+
+    @Test func statusesOtherThan200AndRedirectsAreRefused() {
+        for status in ["404 Not Found", "500 Internal Server Error", "206 Partial Content", "304 Not Modified", "100 Continue"] {
+            #expect(Self.refused([Self.head(["HTTP/1.0 \(status)", "Content-Length: 4"]) + Self.png]), "\(status)")
+        }
+        #expect(Self.refused([Data("not http at all\r\n\r\n".utf8)]))
+    }
+
+    @Test func theBodyCapHoldsWhileReading() {
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Length: 11"])], cap: 10), "a declared body over the cap")
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK"]), Data(count: 6), Data(count: 6)], cap: 10), "an open body over the cap")
+        #expect(Self.refused([Self.head(["HTTP/1.0 200 OK", "Content-Length: 4"]) + Self.png.prefix(2)]), "short at the close")
+        #expect(Self.refused([]), "nothing at all")
+    }
+
+    /// Random and mutated replies in random pieces: the reader never crashes, always ends, and
+    /// never holds more body than the cap. Fixed seed, so a failure reproduces.
+    @Test func fuzzedRepliesNeverCrashHangOrPassTheCap() {
+        struct SplitMix64 {
+            var state: UInt64
+            mutating func next() -> UInt64 {
+                state &+= 0x9E37_79B9_7F4A_7C15
+                var z = state
+                z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+                z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+                return z ^ (z >> 31)
+            }
+            mutating func below(_ n: Int) -> Int { Int(next() % UInt64(max(n, 1))) }
+        }
+        var random = SplitMix64(state: 0x5EED_F11E)
+        let seeds: [Data] = [
+            Self.head(["HTTP/1.0 200 OK", "Content-Type: image/png", "Content-Length: 4"]) + Self.png,
+            Self.head(["HTTP/1.0 302 Found", "Location: /x"]),
+            Self.head(["HTTP/1.1 200 OK", "Transfer-Encoding: chunked"]) + Data("4\r\nabcd\r\n0\r\n\r\n".utf8),
+            Self.head(["HTTP/1.0 200 OK"]) + Data(count: 64),
+        ]
+        let cap = 32
+        for _ in 0..<2000 {
+            var reply = seeds[random.below(seeds.count)]
+            for _ in 0..<random.below(8) {
+                switch random.below(4) {
+                case 0 where !reply.isEmpty: reply[reply.startIndex + random.below(reply.count)] = UInt8(truncatingIfNeeded: random.next())
+                case 1: reply.insert(UInt8(truncatingIfNeeded: random.next()), at: reply.startIndex + random.below(reply.count + 1))
+                case 2 where !reply.isEmpty: reply.remove(at: reply.startIndex + random.below(reply.count))
+                default: reply.append(contentsOf: (0..<random.below(40)).map { _ in UInt8(truncatingIfNeeded: random.next()) })
+                }
+            }
+            var chunks: [Data] = []
+            var rest = reply[...]
+            while !rest.isEmpty {
+                let size = 1 + random.below(rest.count)
+                chunks.append(Data(rest.prefix(size)))
+                rest = rest.dropFirst(size)
+            }
+            if case .success(let response) = Self.read(chunks, cap: cap) {
+                #expect(response.body.count <= cap)
+            }
+        }
     }
 }
