@@ -1,10 +1,13 @@
 //! The one adapter to `cmux link dial` (lane 12, link slice 2): the argv
 //! of one dial, and the reply line the dial writes on its stderr. Only
-//! this file knows that seam (confirmed by lane 12, 2026-10-04): argv
-//! `link dial --host <host_…>` (service is always daemon; `--service` comes
-//! later), one JSON reply line on stderr (any key order), a missing line =
-//! the link is not running. Exit codes are NOT used until lane 12 fixes
-//! them (0 ok, 2..6, 64).
+//! this file knows that seam. Contract (lane 12, `cmux link dial`,
+//! cmux-tui/spec/cli.md, landed 227dd67c2fe): argv
+//! `link dial --host <host_…>` (service defaults to daemon; `--service`
+//! is not sent so older links that refuse it keep working), exactly one
+//! JSON reply line on stderr first (any key order; `link_unavailable` when
+//! no link runs), then the stream on stdin/stdout. A missing or non-JSON
+//! line (an older link) is read as unavailable. Exit codes (0 ok, 2..6,
+//! 64) are not read: the reply line already carries the same answer.
 //!
 //! `cmux link dial --host <host_…>` is a stdio bridge to the host's daemon
 //! service: after one JSON reply line on stderr (`{"ok":true,
