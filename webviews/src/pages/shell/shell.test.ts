@@ -266,3 +266,15 @@ test("the host hears of the first frame after a claim and after a resume, never 
   await hostCall("page.resume", { page: "cmux.b", context: {} });
   expect(paints).toEqual(["cmux.a", "cmux.b"]);
 });
+
+test("a shell page's call carries its opid, and its events carry theirs", async () => {
+  await hostCall(ShellOps.claim, { page: "cmux.a" });
+  const a = contexts["cmux.a"];
+  void a.client.call("cmux.a.do", {}, { opid: "op-1" }).catch(() => undefined);
+  expect(host.posts.find((post) => post.op === "cmux.a.do")?.opid).toBe("op-1");
+  const metas: unknown[] = [];
+  await a.client.subscribe("cmux.a.events", (_data, _seq, meta) => metas.push(meta));
+  const [sub] = [...host.streams.keys()];
+  client.receive({ t: "ev", sub, seq: 1, data: {}, opid: "op-1" });
+  expect(metas).toEqual([{ opid: "op-1" }]);
+});
