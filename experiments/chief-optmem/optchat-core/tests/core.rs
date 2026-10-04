@@ -80,7 +80,12 @@ fn drain(memory: &mut Memory, store: &Mem) {
                     store.nodes.borrow_mut().insert(node, text);
                 }
                 Work::Model { node } => {
-                    let request = compact_request(memory, store, node);
+                    let request = compact_request(
+                        memory,
+                        store,
+                        node,
+                        CompactPrompt::default().text("Chief"),
+                    );
                     assert!(
                         !request.context.contains(PLACEHOLDER),
                         "compactor saw an unbuilt line for {}",
@@ -352,7 +357,12 @@ fn compactor_requests_carry_no_ids_and_the_scale_line() {
         memory.append();
     }
     drain(&mut memory, &store);
-    let request = compact_request(&memory, &store, NodeId::new(1, 0));
+    let request = compact_request(
+        &memory,
+        &store,
+        NodeId::new(1, 0),
+        CompactPrompt::default().text("Chief"),
+    );
     assert!(request.context.starts_with("<chat>\n") && request.context.ends_with("</chat>"));
     assert!(
         !request.context.contains("+1|") && !request.step.contains("0+1"),
@@ -364,4 +374,25 @@ fn compactor_requests_carry_no_ids_and_the_scale_line() {
                 .step
                 .contains("Merge these two lines into one, in at most 512 bytes:")
     );
+}
+
+#[test]
+fn compactor_prompt_is_selectable_and_defaults_to_taelins() {
+    assert_eq!(CompactPrompt::default(), CompactPrompt::Taelin);
+    let taelin = CompactPrompt::Taelin.text("Chief");
+    assert!(taelin.starts_with("You write the memory of Chief, an AI agent"));
+    assert!(!taelin.contains("{agent}"), "every placeholder is filled");
+    assert_eq!(
+        taelin,
+        CompactPrompt::Taelin.text("Chief"),
+        "byte-identical across calls"
+    );
+    let cmux = CompactPrompt::Cmux.text("Chief");
+    assert!(cmux.starts_with(&taelin), "ours extends Taelin's");
+    assert!(cmux.contains("Never copy a secret into a line"));
+    assert_eq!(
+        CompactPrompt::Custom("Summarize for {agent}.".into()).text("Ada"),
+        "Summarize for Ada."
+    );
+    assert_eq!(CompactPrompt::Cmux.name(), "cmux");
 }

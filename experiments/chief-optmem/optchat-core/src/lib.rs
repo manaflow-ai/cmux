@@ -16,7 +16,8 @@ mod node;
 mod render;
 
 pub use compact::{
-    compact_request, cut_at_bytes, size_check, CompactRequest, SizeCheck, COMPACT_PROMPT, SCALE,
+    compact_request, cut_at_bytes, size_check, CompactPrompt, CompactRequest, SizeCheck,
+    CMUX_PROMPT_ADDITIONS, SCALE, TAELIN_PROMPT,
 };
 pub use memory::{Memory, Store, Work};
 pub use node::{Kind, NodeId};
