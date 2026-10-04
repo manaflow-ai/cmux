@@ -6,7 +6,8 @@ use super::super::*;
 /// Viewport edge of a sticky column (`column.update` `edge`). `Top` and
 /// `Bottom` are the edge docks of `edge-docks-v1`: the column becomes a
 /// screen-wide band rather than a sticky side column.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ColumnEdge {
     Left,
     Right,
@@ -26,7 +27,8 @@ impl ColumnEdge {
 }
 
 /// Presentation of a sticky column (`column.update` `mode`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ColumnMode {
     Docked,
     Overlay,

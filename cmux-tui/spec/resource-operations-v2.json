@@ -3303,7 +3303,9 @@
             "kind": "enum",
             "values": [
               "left",
-              "right"
+              "right",
+              "top",
+              "bottom"
             ]
           }
         },
@@ -3320,7 +3322,8 @@
       },
       "extra": false,
       "constraints": [
-        "docked takes the column width out of the scrolling area; overlay floats above the scrolling columns."
+        "docked takes the column width out of the scrolling area; overlay floats above the scrolling columns.",
+        "top and bottom are the edge docks of edge-docks-v1 (column.update edge): the column becomes a screen-wide band."
       ]
     },
     "LayoutViewport": {
