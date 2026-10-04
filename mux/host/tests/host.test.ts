@@ -384,6 +384,68 @@ describe("acpmux request timeouts", () => {
   }, 5000);
 });
 
+describe("prompt acknowledgment and rejection", () => {
+  test("a prompt acpmux never acknowledges hits the request deadline: acpmux reconnects and the prompt is sent again", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.acpmux.acknowledge = false;
+    w.acpmux.hold.add("session/prompt");
+    w.daemon.send(conv, USER_LOCAL, "hello");
+    const prompts = () => w.acpmux.calls.filter((c) => c.method === "session/prompt").length;
+    await w.acpmux.until(() => prompts() >= 1);
+    const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    const connects = initializes();
+    w.acpmux.acknowledge = true;
+    w.acpmux.hold.delete("session/prompt");
+    clock.advance(1_000); // the acknowledgment deadline
+    const used = await advanceUntil(clock, () => initializes() > connects);
+    expect(used).toBeLessThanOrEqual(MAX_BACKOFF_MS); // at most one backoff
+    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+  }, 5000);
+
+  test("an acknowledged prompt keeps its connection however long its turn runs", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const turn = deferred<string>();
+    w.acpmux.respond = () => turn.promise;
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.daemon.send(conv, USER_LOCAL, "slow");
+    await w.acpmux.until(() => w.acpmux.byName("mux")!.summary.status === "running");
+    const initializes = () => w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    const connects = initializes();
+    clock.advance(5_000);
+    await Bun.sleep(20);
+    expect(initializes()).toBe(connects);
+    turn.resolve("done");
+    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+  }, 5000);
+
+  test("a rejected prompt is sent again on the injected clock, not at the next connect", async () => {
+    const w = await setup();
+    const clock = fakeClock();
+    const host = w.host({ clock, requestTimeoutMs: 1_000 });
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.acpmux.rejectPrompts = 1;
+    w.daemon.send(conv, USER_LOCAL, "hello");
+    const prompts = () => w.acpmux.calls.filter((c) => c.method === "session/prompt").length;
+    await w.acpmux.until(() => prompts() >= 1);
+    const initializes = w.acpmux.calls.filter((c) => c.method === "initialize").length;
+    const used = await advanceUntil(clock, () => prompts() >= 2, 1_000);
+    expect(used).toBe(1_000); // the first retry, on the core's clock
+    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+    expect(w.acpmux.calls.filter((c) => c.method === "initialize").length).toBe(initializes);
+  }, 5000);
+});
+
 describe("connect-phase timeouts", () => {
   test("a stuck conversation-create times out on the injected clock and the daemon connect is retried", async () => {
     const w = await setup();

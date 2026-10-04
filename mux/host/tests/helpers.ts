@@ -57,6 +57,8 @@ export interface FakeClock {
   setTimeout(fn: () => void, ms: number): number;
   clearTimeout(handle: unknown): void;
   now(): number;
+  /** Milliseconds since the epoch on this clock (it starts at 2026-10-03T00:00:00Z). */
+  nowMs(): number;
   advance(ms: number): void;
   /**
    * Advances to the earliest armed timer and fires it (and any due with it),
@@ -66,7 +68,7 @@ export interface FakeClock {
 }
 
 export function fakeClock(): FakeClock {
-  let now = 0;
+  let now = 1_790_985_600_000;
   let next = 1;
   const timers = new Map<number, { at: number; fn: () => void }>();
   const fireDue = () => {
@@ -86,6 +88,7 @@ export function fakeClock(): FakeClock {
       timers.delete(handle as number);
     },
     now: () => now,
+    nowMs: () => now,
     advance(ms) {
       now += ms;
       fireDue();
