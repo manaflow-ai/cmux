@@ -62,3 +62,18 @@ impl Paths {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn the_optchat_directory_is_private_to_the_user() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        paths.create().unwrap();
+        let mode = std::fs::metadata(&paths.root).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+}

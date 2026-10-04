@@ -396,3 +396,22 @@ fn compactor_prompt_is_selectable_and_defaults_to_taelins() {
     );
     assert_eq!(CompactPrompt::Cmux.name(), "cmux");
 }
+
+#[test]
+fn zoom_refuses_addresses_whose_end_overflows() {
+    // Audit round 1: `id + n` wrapped past u64::MAX, so the bounds check
+    // passed and the store was asked for a message that does not exist.
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for text in ["a", "b"] {
+        store.push(Kind::User, text);
+        memory.append();
+    }
+    drain(&mut memory, &store);
+    for (id, n) in [(u64::MAX, 1), (u64::MAX - 1, 2), (1 << 63, 1 << 63)] {
+        assert_eq!(
+            zoom(&memory, &store, id, n).unwrap_err().to_string(),
+            format!("No line {id}+{n}.")
+        );
+    }
+}

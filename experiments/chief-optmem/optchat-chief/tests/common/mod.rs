@@ -84,6 +84,10 @@ pub struct Owner {
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
     pub reconnects: usize,
+    /// When set, `message.send` keys are remembered as the real owner does:
+    /// a reused key with the same text replays (posts nothing), with other
+    /// text it is refused with `idempotency_conflict`.
+    pub ledger: Option<BTreeMap<String, String>>,
 }
 
 impl Owner {
@@ -157,6 +161,21 @@ impl ConversationPort for FakeDaemon {
                 if let Some(Some(reason)) = owner.rejects.pop_front() {
                     return Err(OpError::Rejected(reason));
                 }
+                let text = match &parts[0] {
+                    Part::Text { text, .. } => text.clone(),
+                    _ => String::new(),
+                };
+                if let Some(ledger) = owner.ledger.as_mut() {
+                    match ledger.get(key) {
+                        Some(old) if *old == text => return Ok(None),
+                        Some(_) => {
+                            return Err(OpError::Rejected("idempotency_conflict".into()));
+                        }
+                        None => {
+                            ledger.insert(key.to_owned(), text);
+                        }
+                    }
+                }
                 let seq = owner.messages.len() as u64 + 1;
                 let mut m = message(seq, "agent_mux", "");
                 m.parts = parts.clone();
@@ -218,6 +237,8 @@ pub struct Agents {
     /// Turns held before they run, released by `release`.
     pub hold: bool,
     pub released: usize,
+    /// The next turn loses its acpmux connection instead of answering.
+    pub lose: bool,
 }
 
 pub struct FakeAgents {
@@ -301,8 +322,13 @@ impl AgentPort for FakeAgents {
                     inner = me.changed.wait(inner).unwrap();
                 }
             }
+            let lose = std::mem::take(&mut me.inner.lock().unwrap().lose);
             let _ = signals.send(TurnSignal::Changed);
-            let _ = signals.send(TurnSignal::Done(Ok(json!({"stopReason": "end_turn"}))));
+            if lose {
+                let _ = signals.send(TurnSignal::Lost);
+            } else {
+                let _ = signals.send(TurnSignal::Done(Ok(json!({"stopReason": "end_turn"}))));
+            }
         });
         Ok(())
     }

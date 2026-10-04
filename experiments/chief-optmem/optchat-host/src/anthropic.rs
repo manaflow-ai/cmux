@@ -164,6 +164,43 @@ mod tests {
     }
 
     #[test]
+    fn a_long_context_is_cut_at_the_marks_with_a_breakpoint_on_each_piece() {
+        // Audit round 1: one context block with one breakpoint at its end, so a
+        // call whose context differs only in its last line read nothing.
+        let line = format!("{}\n", "x".repeat(99));
+        let mut context = String::from("<chat>\n");
+        for _ in 0..1_100 {
+            context.push_str(&line);
+        }
+        context.push_str("</chat>");
+        let request = CompactRequest {
+            context: context.clone(),
+            ..request()
+        };
+        let body = AnthropicModel::new(&Config::default()).body(&request, &[]);
+        let blocks = body["messages"][0]["content"].as_array().unwrap().clone();
+        // Three marks (50k, 80k, 100k) cut four context pieces; the step is last.
+        assert_eq!(blocks.len(), 5);
+        let joined: String = blocks[..4]
+            .iter()
+            .map(|b| b["text"].as_str().unwrap())
+            .collect();
+        assert_eq!(joined, context);
+        for (piece, limit) in blocks[..3].iter().zip(optchat_core::MARKS) {
+            let text = piece["text"].as_str().unwrap();
+            assert!(text.ends_with('\n'));
+            assert!(text.chars().count() <= limit);
+        }
+        let breakpoints = blocks
+            .iter()
+            .filter(|b| b.get("cache_control").is_some())
+            .count();
+        assert_eq!(breakpoints, 4, "at most 4 per request");
+        assert!(blocks[4].get("cache_control").is_none());
+        assert_eq!(blocks[4]["text"], "STEP");
+    }
+
+    #[test]
     fn parse_joins_text_and_rejects_refusals_and_cut_replies() {
         let ok = json!({"stop_reason": "end_turn", "content": [
             {"type": "thinking", "thinking": "", "signature": "s"},
