@@ -2985,6 +2985,10 @@ function usePageDataAttributes(state: AppState) {
     filesPanelMotion.current ??= createFilesPanelMotion({
       panel: () => document.getElementById("files-sidebar"),
       curtain: () => document.getElementById("files-motion-curtain"),
+      timelineTime: () => {
+        const time = document.timeline?.currentTime;
+        return typeof time === "number" ? time : null;
+      },
       body: document.body,
       currentOffset: (panel) => computedTranslateX(panel as HTMLElement),
       requestFrame: (callback) => requestAnimationFrame(() => callback()),

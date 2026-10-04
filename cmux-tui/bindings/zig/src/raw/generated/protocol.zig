@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4";
+pub const ir_sha256 = "7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1018,6 +1018,24 @@ pub const PaneDirection = enum {
             .right => "right",
             .up => "up",
             .down => "down",
+        };
+    }
+};
+
+pub const PaneKind = enum {
+    pty,
+    browser,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "pty")) return .pty;
+        if (std.mem.eql(u8, value, "browser")) return .browser;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .pty => "pty",
+            .browser => "browser",
         };
     }
 };
@@ -5074,10 +5092,12 @@ pub const NewPaneRightRequest = struct {
     cwd: wire.Field([]const u8) = .absent,
     env: wire.Field(wire.Map([]const u8)) = .absent,
     keep: ?bool = null,
+    kind: wire.Field(PaneKind) = .absent,
     pane: Id,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
+    url: wire.Field([]const u8) = .absent,
     width: wire.Field(f32) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -5099,8 +5119,10 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "cwd", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
             },
         },
         request,
@@ -6704,10 +6726,12 @@ pub const SplitRequest = struct {
     dir: SplitDirection,
     env: wire.Field(wire.Map([]const u8)) = .absent,
     keep: ?bool = null,
+    kind: wire.Field(PaneKind) = .absent,
     pane: Id,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
+    url: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "keep",
@@ -6728,8 +6752,10 @@ pub fn split(client: anytype, request: SplitRequest) !wire.Decoded(SplitResult) 
                 .{ .name = "cwd", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
+                .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
+                .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
             },
         },
         request,

@@ -19,6 +19,8 @@ public final class WebKitEngine: BrowserEngine {
     var certificateExceptions: [BrowserProfileID: Set<String>] = [:]
     /// Per-profile site permissions, shared with the Chromium engine.
     public var siteSettings: SiteSettingsRegistry = .shared
+    /// Browser passkey authorization (one per app; tests inject a fake).
+    public var passkeyAuthorization: WebKitPasskeyAuthorization = .shared
     /// Appended to WebKit's user agent, e.g. "cmux/1.0 Safari/605.1.15".
     public var applicationNameForUserAgent: String?
 

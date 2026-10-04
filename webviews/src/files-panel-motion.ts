@@ -115,7 +115,7 @@ export function curtainKeyframes(spring: SpringParameters, from: number, to: num
   }));
 }
 
-type MotionAnimation = Pick<Animation, "cancel" | "finished">;
+type MotionAnimation = Pick<Animation, "cancel" | "finished" | "startTime">;
 
 type MotionPanel = Pick<HTMLElement, "animate" | "getBoundingClientRect"> & { dataset: DOMStringMap };
 type MotionCurtain = Pick<HTMLElement, "animate">;
@@ -134,6 +134,12 @@ export type FilesPanelMotionHost = {
   currentOffset: (panel: MotionPanel) => number;
   requestFrame: (callback: () => void) => void;
   reducedMotion: () => boolean;
+  /**
+   * The document timeline's current time (`document.timeline.currentTime`). When given, the panel
+   * and the curtain start at that same time, so they move in lockstep from the first frame (two
+   * animations left pending can start a frame apart under load, which opens a strip between them).
+   */
+  timelineTime?: () => number | null;
 };
 
 export type FilesPanelMotion = {
@@ -187,6 +193,8 @@ export function createFilesPanelMotion(host: FilesPanelMotionHost): FilesPanelMo
       // what the panel uncovers. A diff at full width is already under the panel everywhere.
       const curtain = host.body.dataset.filesHidden === "false" ? host.curtain?.() : null;
       if (curtain) running.push(curtain.animate(curtainKeyframes(spring, from, target, width), timing));
+      const start = host.timelineTime?.() ?? null;
+      if (start != null) for (const animation of running) animation.startTime = start;
       slide.finished.then(
         () => {
           if (token !== generation) return;

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4.
+// cmux-tui mux protocol 12, IR 7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1584,6 +1584,8 @@ pub struct NewPaneRightRequest {
     pub env: Optional<BTreeMap<String, String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
@@ -1591,6 +1593,8 @@ pub struct NewPaneRightRequest {
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub width: Optional<f32>,
 }
@@ -2524,6 +2528,8 @@ pub struct SplitRequest {
     pub env: Optional<BTreeMap<String, String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
@@ -2531,6 +2537,8 @@ pub struct SplitRequest {
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -3501,6 +3509,10 @@ impl CmuxClient {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-reap-v1")?;
         }
+        if !request.kind.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
@@ -3508,6 +3520,10 @@ impl CmuxClient {
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
         }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
@@ -3932,6 +3948,10 @@ impl CmuxClient {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-reap-v1")?;
         }
+        if !request.kind.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "pane-browser-kind-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-shell-args-v1")?;
@@ -3939,6 +3959,10 @@ impl CmuxClient {
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-placement-env-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "pane-browser-kind-v1")?;
         }
         self.execute(&SPLIT_METADATA, &request)
     }

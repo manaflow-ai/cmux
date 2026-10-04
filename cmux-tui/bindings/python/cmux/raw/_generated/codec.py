@@ -455,6 +455,7 @@ ENUM_BY_PATH = {
     'types/NotificationLevel': models.NotificationLevel,
     'types/NotificationSource': models.NotificationSource,
     'types/PaneDirection': models.PaneDirection,
+    'types/PaneKind': models.PaneKind,
     'types/RenderGraphicFormat': models.RenderGraphicFormat,
     'types/RenderUnderline': models.RenderUnderline,
     'types/ServerStatsWriterPhase': models.ServerStatsWriterPhase,

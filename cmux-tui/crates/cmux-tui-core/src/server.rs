@@ -118,6 +118,7 @@ mod responses;
 mod rows;
 mod screen_json;
 mod session_stream;
+mod split_kind;
 mod split_respawn;
 mod tab_column;
 mod websocket_listener;
@@ -158,6 +159,8 @@ pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
+/// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
+pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -431,6 +434,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         DOCK_COLUMNS_CAPABILITY,
         EDGE_DOCKS_CAPABILITY,
         ROWS_CAPABILITY,
+        PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -1765,54 +1769,8 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
-    NewPaneRight {
-        pane: PaneId,
-        #[serde(default)]
-        width: Option<f32>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-    },
-    Split {
-        pane: PaneId,
-        /// "right" or "down"
-        dir: String,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-    },
+    NewPaneRight(split_kind::NewPaneRightParams),
+    Split(split_kind::SplitParams),
     SetRatio {
         pane: PaneId,
         /// "right" or "down"
@@ -14181,45 +14139,8 @@ fn handle_command_with_cancellation(
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewPaneRight {
-            pane,
-            width,
-            cols,
-            rows,
-            cwd,
-            env,
-            keep,
-            terminal_id,
-            shell_args,
-        } => {
-            let spawn = placement_spawn_options(
-                cwd,
-                env.as_ref(),
-                terminal_id,
-                shell_args,
-                frontend_shell(mux, client),
-            )?;
-            let surface = mux.new_pane_right_with_options(
-                pane,
-                width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
-                spawn,
-                optional_surface_size(cols, rows),
-            )?;
-            placed_terminal_result(mux, &surface, keep)
-        }
-        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
-            let dir = parse_split_dir(&dir)?;
-            let spawn = placement_spawn_options(
-                cwd,
-                env.as_ref(),
-                terminal_id,
-                shell_args,
-                frontend_shell(mux, client),
-            )?;
-            let surface =
-                mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
-            placed_terminal_result(mux, &surface, keep)
-        }
+        Command::NewPaneRight(params) => split_kind::new_pane_right(mux, client, params),
+        Command::Split(params) => split_kind::split(mux, client, params),
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
             mux.set_ratio_checked(pane, dir, ratio)?;
@@ -16174,6 +16095,10 @@ mod dock_columns_tests;
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]
 mod rows_tests;
+
+#[cfg(test)]
+#[path = "server/pane_browser_kind_tests.rs"]
+mod pane_browser_kind_tests;
 
 #[cfg(test)]
 #[path = "server/personal_terminal_tests.rs"]

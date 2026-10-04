@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 /// The one path every "Show Crash Logs" entrypoint takes (the Help menu, the
-/// palette, `cmux action run help.showCrashLogs`, the restart notice): the
+/// palette, `cmux settings show-crash-logs`, the restart notice): the
 /// newest crash log opens in TextEdit. Console (the default app for `.ips`)
 /// hides the report text behind its log browser. Finder shows the file only
 /// when TextEdit is missing; a folder (no log yet) always opens in Finder.

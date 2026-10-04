@@ -32,6 +32,7 @@ public struct BrowserPageService: Sendable {
                 var result = Self.base(tab)
                 result["url"] = state["url"] ?? .string(tab.url ?? "about:blank")
                 result["title"] = state["title"] ?? ""
+                result["profile"] = .string(tab.browserProfileID ?? "default")
                 return .object(result)
             },
             .async("browser.page.eval") { call in
@@ -97,6 +98,7 @@ public struct BrowserPageService: Sendable {
     struct Tab: Sendable {
         var id: String
         var url: String?
+        var browserProfileID: String?
     }
 
     /// The tab `params.tab` names (exact id or unique prefix), else the
@@ -123,7 +125,7 @@ public struct BrowserPageService: Sendable {
         guard found.kind == "browser" else {
             throw ControlError(code: "invalid_params", message: ControlStrings.format("control.error.pageTabNotAppBrowser", "Tab %@ is not a browser tab of this app", found.id))
         }
-        return Tab(id: found.id, url: found.url)
+        return Tab(id: found.id, url: found.url, browserProfileID: found.browserProfileID)
     }
 
     static func run(_ engine: any BrowserPageEngine, _ operation: BrowserPageOperation, _ tab: Tab) async throws -> JSONValue {
