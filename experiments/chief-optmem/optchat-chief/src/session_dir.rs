@@ -1,0 +1,187 @@
+//! The turn sessions' working directory, written once per host start: every
+//! turn runs in it, so the harness sees the same CLAUDE.md, settings and MCP
+//! servers each time (section 7.2: byte-identical prompt and tools).
+//!
+//! Deviation: acpmux drops `mcpServers` from `session/new` (it always starts
+//! the agent with `[]`), so mux/host's way of passing MCP servers reaches no
+//! harness. The servers go in the directory's `.mcp.json` instead, enabled
+//! by the project settings, which Claude Code harnesses read.
+
+use std::collections::BTreeMap;
+use std::io;
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
+
+use serde_json::{Value, json};
+
+use crate::paths::Paths;
+use crate::prompt::claude_md;
+
+/// What the session directory is made of.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionSetup {
+    /// This executable (absolute), which serves `mcp` and the `chief` launcher.
+    pub exe: String,
+    /// `CMUX_MCP_COMMAND`: the cmux binary whose `mcp serve` is the cmux MCP server.
+    pub cmux_mcp: Option<String>,
+    /// Env the turn's tools see (MUX_HOME, CMUX_SOCKET_PATH, ACPMUX_*, PATH).
+    pub env: BTreeMap<String, String>,
+}
+
+pub fn shell_quote(value: &str) -> String {
+    let plain = !value.is_empty()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_./:@=-".contains(&b));
+    if plain {
+        value.to_owned()
+    } else {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+/// The `.mcp.json` of the session directory.
+pub fn mcp_json(setup: &SessionSetup, paths: &Paths) -> Value {
+    let mut servers = serde_json::Map::new();
+    servers.insert(
+        "optchat".into(),
+        json!({"type": "stdio", "command": setup.exe, "args": ["mcp", "--socket", paths.tools_socket.to_string_lossy()], "env": {}}),
+    );
+    if let Some(cmux) = &setup.cmux_mcp {
+        servers.insert(
+            "cmux".into(),
+            json!({"type": "stdio", "command": cmux, "args": ["mcp", "serve"], "env": {}}),
+        );
+    }
+    json!({"mcpServers": servers})
+}
+
+/// The project settings: the MCP servers above enabled, and the tools' env
+/// with the launcher directory first on PATH.
+pub fn settings_json(setup: &SessionSetup, paths: &Paths) -> Value {
+    let mut names = vec!["optchat"];
+    if setup.cmux_mcp.is_some() {
+        names.push("cmux");
+    }
+    let mut env: serde_json::Map<String, Value> = setup
+        .env
+        .iter()
+        .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+        .collect();
+    let path = setup
+        .env
+        .get("PATH")
+        .map_or("/usr/bin:/bin", String::as_str);
+    env.insert(
+        "PATH".into(),
+        Value::String(format!("{}:{path}", paths.bin.display())),
+    );
+    json!({"enableAllProjectMcpServers": true, "enabledMcpjsonServers": names, "env": env})
+}
+
+/// `bin/chief`: runs this executable with the host's env baked in, because
+/// the harness runs tools in the acpmux daemon's environment, not the host's.
+pub fn launcher(setup: &SessionSetup) -> String {
+    let mut text = String::from("#!/bin/sh\n");
+    for (key, value) in &setup.env {
+        if key != "PATH" {
+            text.push_str(&format!("{key}={}; export {key}\n", shell_quote(value)));
+        }
+    }
+    text.push_str(&format!("exec {} \"$@\"\n", shell_quote(&setup.exe)));
+    text
+}
+
+/// Writes the directory; a file is rewritten only when its bytes differ.
+pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
+    std::fs::create_dir_all(paths.session.join(".claude"))?;
+    std::fs::create_dir_all(&paths.bin)?;
+    write_if_changed(&paths.session.join("CLAUDE.md"), claude_md().as_bytes())?;
+    let pretty = |v: &Value| format!("{}\n", serde_json::to_string_pretty(v).expect("json"));
+    write_if_changed(
+        &paths.session.join(".mcp.json"),
+        pretty(&mcp_json(setup, paths)).as_bytes(),
+    )?;
+    let settings = pretty(&settings_json(setup, paths));
+    write_if_changed(
+        &paths.session.join(".claude").join("settings.json"),
+        settings.as_bytes(),
+    )?;
+    // The same switches in the local project settings, which some harness
+    // versions read for MCP approval instead of the shared file.
+    write_if_changed(
+        &paths.session.join(".claude").join("settings.local.json"),
+        settings.as_bytes(),
+    )?;
+    let chief = paths.bin.join("chief");
+    write_if_changed(&chief, launcher(setup).as_bytes())?;
+    std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+/// Replaces `path` through a temporary file, so a reader never sees half a file.
+pub fn write_if_changed(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if std::fs::read(path).is_ok_and(|old| old == bytes) {
+        return Ok(());
+    }
+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup() -> SessionSetup {
+        let mut env = BTreeMap::new();
+        env.insert("MUX_HOME".to_string(), "/h".to_string());
+        env.insert("PATH".to_string(), "/usr/bin".to_string());
+        SessionSetup {
+            exe: "/x/optchat-chief".into(),
+            cmux_mcp: Some("/x/cmux".into()),
+            env,
+        }
+    }
+
+    #[test]
+    fn files_are_byte_stable_across_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        paths.create().unwrap();
+        write(&paths, &setup()).unwrap();
+        let first = std::fs::read(paths.session.join("CLAUDE.md")).unwrap();
+        let modified = std::fs::metadata(paths.session.join("CLAUDE.md"))
+            .unwrap()
+            .modified()
+            .unwrap();
+        write(&paths, &setup()).unwrap();
+        assert_eq!(
+            std::fs::read(paths.session.join("CLAUDE.md")).unwrap(),
+            first
+        );
+        assert_eq!(
+            std::fs::metadata(paths.session.join("CLAUDE.md"))
+                .unwrap()
+                .modified()
+                .unwrap(),
+            modified,
+            "an unchanged file is not rewritten"
+        );
+        assert_eq!(first, claude_md().as_bytes());
+        let mcp: Value =
+            serde_json::from_slice(&std::fs::read(paths.session.join(".mcp.json")).unwrap())
+                .unwrap();
+        assert_eq!(mcp["mcpServers"]["optchat"]["args"][0], "mcp");
+        assert_eq!(mcp["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
+        let launcher = std::fs::read_to_string(paths.bin.join("chief")).unwrap();
+        assert!(launcher.contains("MUX_HOME=/h; export MUX_HOME\n"));
+        assert!(launcher.ends_with("exec /x/optchat-chief \"$@\"\n"));
+    }
+
+    #[test]
+    fn quoting() {
+        assert_eq!(shell_quote("/a/b"), "/a/b");
+        assert_eq!(shell_quote("a b'c"), "'a b'\\''c'");
+    }
+}
