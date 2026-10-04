@@ -109,6 +109,26 @@ fn new_screen_takes_the_frontend_spawn_fields() {
         "cmd": "new-screen", "workspace": workspace, "env": Frontend::env(), "shell_args": ["-l"],
     }));
     assert_eq!(frontend.argv(&with_args), vec![FRONTEND_SHELL.to_string(), "-l".to_string()]);
+    // A taken terminal id is refused and creates nothing.
+    let request = json!({"cmd": "new-screen", "workspace": workspace, "terminal_id": terminal_id});
+    let command: Command = serde_json::from_value(request).unwrap();
+    let refused = handle_command(&frontend.mux, frontend.client, command, &frontend.writer);
+    assert!(refused.unwrap_err().to_string().contains("terminal_id_exists"));
+}
+
+/// With no workspace the new screen creates one around its terminal; the
+/// spawn fields, directory included, still reach that terminal.
+#[test]
+fn new_screen_without_a_workspace_keeps_the_spawn_fields() {
+    assert!(advertised_capabilities(false).contains(&SCREEN_TERMINAL_ENV_CAPABILITY));
+    let frontend = Frontend::new(true);
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+    let created = frontend.run(json!({
+        "cmd": "new-screen", "cols": 60, "rows": 8, "cwd": cwd, "env": Frontend::env(),
+    }));
+    assert_eq!(frontend.argv(&created), vec![FRONTEND_SHELL.to_string()]);
+    let surface = frontend.mux.surface(created["surface"].as_u64().unwrap()).unwrap();
+    assert_eq!(surface.spawn_cwd(), Some(cwd));
 }
 
 /// The fresh terminal a drag of a pane's only tab leaves behind
