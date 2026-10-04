@@ -4,6 +4,7 @@ import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
 import { resolveDiffViewerAppearance } from "./appearance";
@@ -40,6 +41,8 @@ import {
 } from "./diff-stream";
 import { DiffHeaderMetadata } from "./diff-metadata";
 import { collapsedFileKey, withCollapsedFile } from "./collapsed-files";
+import { treeFileActivation, treeFileRowPath } from "./file-activation";
+import { isHeaderToggleKey, shouldToggleFromHeaderClick, type HeaderPress } from "./file-header-toggle";
 import { FileIcon } from "./file-icons";
 import {
   allDiffFileStatuses,
@@ -645,11 +648,17 @@ export function App({ config, initialStatus }: ConfigProps) {
     (itemId: string) => {
       const current = latestState.current;
       const result = toggleViewedItem(current.items, current.viewedByPath, itemId);
-      if (result.change == null) {
+      const change = result.change;
+      if (change == null) {
         return;
       }
-      dispatch({ type: "apply-viewed", items: result.items, change: result.change });
-      persistViewedChange(viewedScopeRef.current, result.change);
+      const collapses =
+        result.items.some((item) => item.id === itemId && item.collapsed) &&
+        !current.items.some((item) => item.id === itemId && item.collapsed);
+      keepStuckHeaderInView(codeViewRef, collapses ? itemId : null, () =>
+        dispatch({ type: "apply-viewed", items: result.items, change }),
+      );
+      persistViewedChange(viewedScopeRef.current, change);
     },
     [latestState, viewedScopeRef],
   );
@@ -663,25 +672,35 @@ export function App({ config, initialStatus }: ConfigProps) {
     [latestState, toggleViewed],
   );
 
-  // A header caret collapses or expands one file and remembers it with the
-  // other viewer preferences.
-  const toggleItemCollapsed = useCallback(
-    (itemId: string) => {
+  // The header bar and the files tree collapse or expand one file through
+  // this one path, which remembers it with the other viewer preferences.
+  const setItemCollapsed = useCallback(
+    (itemId: string, collapsed: boolean) => {
       const current = latestState.current;
       const item = current.items.find((candidate) => candidate.id === itemId);
-      if (item == null) {
+      if (item == null || Boolean(item.collapsed) === collapsed) {
         return;
       }
-      const collapsed = !item.collapsed;
       const collapsedFiles = withCollapsedFile(
         current.collapsedFiles,
         itemCollapsedFileKey(item, current.viewedScopeKey),
         collapsed,
       );
-      dispatch({ type: "set-item-collapsed", itemId, collapsed, collapsedFiles });
+      keepStuckHeaderInView(codeViewRef, collapsed ? itemId : null, () =>
+        dispatch({ type: "set-item-collapsed", itemId, collapsed, collapsedFiles }),
+      );
       saveViewerPrefs({ collapsedFiles });
     },
     [latestState],
+  );
+  const toggleItemCollapsed = useCallback(
+    (itemId: string) => {
+      const item = latestState.current.items.find((candidate) => candidate.id === itemId);
+      if (item != null) {
+        setItemCollapsed(itemId, !item.collapsed);
+      }
+    },
+    [latestState, setItemCollapsed],
   );
 
   usePageDataAttributes(state);
@@ -773,6 +792,38 @@ export function App({ config, initialStatus }: ConfigProps) {
     },
     [latestState],
   );
+  // A file row click in the tree (file-activation.ts): expand and scroll,
+  // collapse in place, or scroll only.
+  const activateTreeFile = useCallback(
+    (itemId: string) => {
+      const items = visibleItemsRef.current;
+      const item = items.find((candidate) => candidate.id === itemId);
+      if (item == null) {
+        return;
+      }
+      const instance = codeViewRef.current?.getInstance();
+      const inPlace =
+        instance != null &&
+        visibleItemId(items, instance.getScrollTop(), (id) => instance.getTopForItem(id)) === itemId;
+      const action = treeFileActivation(Boolean(item.collapsed), inPlace);
+      if (action === "collapse") {
+        setItemCollapsed(itemId, true);
+        dispatch({
+          type: "set-active-item",
+          itemId,
+          treePath: latestState.current.treeSource?.treePathByItemId.get(itemId),
+        });
+        return;
+      }
+      if (action === "expand") {
+        // Lay the expanded file out before scrolling: its own top does not
+        // move, so the scroll lands without a jump once its height is measured.
+        flushSync(() => setItemCollapsed(itemId, false));
+      }
+      scrollToItem(itemId);
+    },
+    [latestState, scrollToItem, setItemCollapsed, visibleItemsRef],
+  );
   const currentVisibleItemId = useCallback(() => {
     const current = latestState.current;
     const items = visibleItemsRef.current;
@@ -824,16 +875,41 @@ export function App({ config, initialStatus }: ConfigProps) {
     },
     [latestState, visibleItemsRef],
   );
-  const handleCodeViewScroll = useCallback((scrollTop: number) => {
-    codeViewScrollTopRef.current = scrollTop;
-  }, []);
+  // The tree's selection follows the file at the top of the viewer: once per
+  // frame at most, and only when that file changes.
+  const followFrame = useRef(0);
+  const handleCodeViewScroll = useCallback(
+    (scrollTop: number) => {
+      codeViewScrollTopRef.current = scrollTop;
+      if (followFrame.current !== 0) {
+        return;
+      }
+      followFrame.current = requestAnimationFrame(() => {
+        followFrame.current = 0;
+        const instance = codeViewRef.current?.getInstance();
+        if (instance == null) {
+          return;
+        }
+        const itemId = visibleItemId(visibleItemsRef.current, codeViewScrollTopRef.current, (id) =>
+          instance.getTopForItem(id),
+        );
+        const current = latestState.current;
+        if (itemId !== "" && itemId !== current.activeItemId) {
+          dispatch({ type: "set-active-item", itemId, treePath: current.treeSource?.treePathByItemId.get(itemId) });
+        }
+      });
+    },
+    [latestState, visibleItemsRef],
+  );
+  const revealItem = useCallback((itemId: string) => dispatch({ type: "expand-item", itemId }), []);
   const find = useDiffFind({
-    items: state.items,
+    items: visibleItems,
     open: state.findOpen,
     query: state.findQuery,
     dispatch,
     codeViewRef,
     viewerContainerRef,
+    revealItem,
   });
   const findBridgeRef = useSyncedRef({ open: state.findOpen, controller: find });
   useFindKeyboard(dispatch, findBridgeRef);
@@ -940,6 +1016,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           hasDraft={state.draft != null}
           label={label}
           onSelectComment={selectCommentEntry}
+          onActivateItem={activateTreeFile}
           onSelectItem={scrollToItem}
           onToggleViewedPath={toggleViewedPath}
           progress={progress}
@@ -1207,7 +1284,8 @@ function useViewedFilesBootstrap(scope: ViewedScope | null, dispatch: React.Disp
  * One file's header row, rendered into Pierre's custom header slot (the row
  * itself is Pierre's opaque sticky header): the language icon, the dim
  * directory and bright file name, the collapse caret, then the change counts
- * and the review controls.
+ * and the review controls. The whole bar is the collapse toggle
+ * (file-header-toggle.ts); its controls keep their own actions.
  */
 export function FileHeader({
   item,
@@ -1233,8 +1311,36 @@ export function FileHeader({
   const stats = fileStats(fileDiff);
   const collapsed = Boolean(item.collapsed);
   const caretLabel = (collapsed ? label("expandFile") : label("collapseFile")).replace("{file}", baseName);
+  const press = useRef<HeaderPress | null>(null);
   return (
-    <div className="file-header" data-collapsed={collapsed} data-change-type={fileDiff.type}>
+    // The bar holds its own buttons (Viewed, Load diff), which a <button>
+    // cannot contain, so the toggle is a focusable element with the button role.
+    <div
+      className="file-header"
+      data-collapsed={collapsed}
+      data-change-type={fileDiff.type}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="button"
+      tabIndex={0}
+      aria-expanded={!collapsed}
+      aria-label={caretLabel}
+      onMouseDown={(event) => {
+        press.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+      }}
+      onClick={(event) => {
+        const start = press.current;
+        press.current = null;
+        if (shouldToggleFromHeaderClick(event, start)) {
+          onToggleCollapsed();
+        }
+      }}
+      onKeyDown={(event) => {
+        if (isHeaderToggleKey(event)) {
+          event.preventDefault();
+          onToggleCollapsed();
+        }
+      }}
+    >
       <FileIcon path={path} />
       <span className="file-header-path" title={previousPath == null ? path : `${previousPath} → ${path}`}>
         {previousPath != null ? (
@@ -1250,19 +1356,9 @@ export function FileHeader({
         ) : null}
         <span className="file-header-name">{baseName}</span>
       </span>
-      <button
-        type="button"
-        className="file-header-caret"
-        aria-expanded={!collapsed}
-        aria-label={caretLabel}
-        title={caretLabel}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleCollapsed();
-        }}
-      >
+      <span className="file-header-caret" aria-hidden="true">
         <Icon name="chevronDown" />
-      </button>
+      </span>
       <span className="file-header-spacer" />
       <DiffHeaderMetadata fileDiff={fileDiff} label={label} />
       <span className="file-header-stats" aria-label={label("diffStats")}>
@@ -1929,6 +2025,7 @@ function FilesSidebar({
   dispatch,
   hasDraft,
   label,
+  onActivateItem,
   onSelectComment,
   onSelectItem,
   onToggleViewedPath,
@@ -1944,6 +2041,7 @@ function FilesSidebar({
   dispatch: React.Dispatch<AppAction>;
   hasDraft: boolean;
   label: DiffViewerLabelResolver;
+  onActivateItem: (itemId: string) => void;
   onSelectComment: (entry: SidebarCommentEntry) => void;
   onSelectItem: (itemId: string) => void;
   onToggleViewedPath: (path: string) => void;
@@ -2106,6 +2204,7 @@ function FilesSidebar({
             fileSearchOpen={state.fileSearchOpen}
             fileSearchRequest={state.fileSearchRequest}
             label={label}
+            onActivateItem={onActivateItem}
             onSelectItem={onSelectItem}
             onToggleViewedPath={onToggleViewedPath}
             selectedPath={selectedPath}
@@ -2134,6 +2233,7 @@ function PierreFileTree({
   fileSearchOpen,
   fileSearchRequest,
   label,
+  onActivateItem,
   onSelectItem,
   onToggleViewedPath,
   selectedPath,
@@ -2143,13 +2243,49 @@ function PierreFileTree({
   fileSearchOpen: boolean;
   fileSearchRequest: number;
   label: DiffViewerLabelResolver;
+  /** A plain click (or Enter/Space) on a file row: the shared file activation. */
+  onActivateItem: (itemId: string) => void;
+  /** A selection the tree made some other way (arrow keys): scroll to the file. */
   onSelectItem: (itemId: string) => void;
   onToggleViewedPath: (path: string) => void;
   selectedPath: string;
   source: FileTreeSource;
   viewedStateByPath: ReadonlyMap<string, ViewedFileState>;
 }) {
-  const latest = useSyncedRef({ label, onSelectItem, source, viewedStateByPath });
+  const latest = useSyncedRef({ label, onSelectItem, selectedPath, source, viewedStateByPath });
+  // Set by a file row click in the capture phase, before the tree selects the
+  // row, and cleared when the click finishes bubbling.
+  const activatedPath = useRef<string | null>(null);
+  const syncingSelection = useRef(false);
+  const onActivate = useSyncedRef(onActivateItem);
+  // Native listeners (not JSX handlers): the wrapper is not itself a control,
+  // the row buttons are, and keyboard activation reaches it as their click.
+  const treeActivationRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (element == null) {
+        return;
+      }
+      const capture = (event: MouseEvent) => {
+        activatedPath.current = null;
+        const path = treeFileRowPath(event);
+        const itemId = path == null ? undefined : latest.current.source.pathToItemId.get(path);
+        if (path != null && itemId != null) {
+          activatedPath.current = path;
+          onActivate.current(itemId);
+        }
+      };
+      const finish = () => {
+        activatedPath.current = null;
+      };
+      element.addEventListener("click", capture, true);
+      element.addEventListener("click", finish);
+      return () => {
+        element.removeEventListener("click", capture, true);
+        element.removeEventListener("click", finish);
+      };
+    },
+    [latest, onActivate],
+  );
   const [initialPreparedInput] = useState(() => preparePresortedFileTreeInput(source.paths));
   const { model } = useFileTree({
     // Single-child folder chains render as one row ("infra / tsadmin").
@@ -2184,6 +2320,16 @@ function PierreFileTree({
     },
     onSelectionChange(paths: readonly string[]) {
       const path = paths[paths.length - 1];
+      // The click that activated this row already acted on the file, and a
+      // selection the viewer made (following the file in view) must not
+      // scroll the viewer back.
+      if (
+        syncingSelection.current ||
+        path === latest.current.selectedPath ||
+        (activatedPath.current != null && activatedPath.current === path)
+      ) {
+        return;
+      }
       const itemId = latest.current.source.pathToItemId.get(path);
       if (itemId) {
         latest.current.onSelectItem(itemId);
@@ -2193,36 +2339,41 @@ function PierreFileTree({
 
   usePierreFileTreeSource(model, source);
   usePierreFileTreeSearch(model, fileSearchOpen, fileSearchRequest);
-  usePierreFileTreeSelection(model, selectedPath);
+  usePierreFileTreeSelection(model, selectedPath, syncingSelection);
   usePierreFileTreeViewedRefresh(model, source, viewedStateByPath);
 
   return (
-    <FileTree
-      model={model}
-      style={{ height: "100%" }}
-      renderContextMenu={(item, context) => {
-        if (item.kind !== "file") {
-          return null;
-        }
-        const viewed = viewedStateByPath.get(item.path) === "viewed";
-        return (
-          <div className="file-tree-context-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              className="menu-item"
-              onClick={() => {
-                onToggleViewedPath(item.path);
-                context.close();
-              }}
-            >
-              <Icon name={viewed ? "eye" : "check"} />
-              <span className="menu-label">{viewed ? label("markNotViewed") : label("markViewed")}</span>
-            </button>
-          </div>
-        );
-      }}
-    />
+    // A file row click acts on the file like its header bar (file-activation.ts).
+    // The capture phase sees the row before the tree's own click handler
+    // selects it, so the action reads the state the user clicked on.
+    <div className="file-tree-activation" ref={treeActivationRef}>
+      <FileTree
+        model={model}
+        style={{ height: "100%" }}
+        renderContextMenu={(item, context) => {
+          if (item.kind !== "file") {
+            return null;
+          }
+          const viewed = viewedStateByPath.get(item.path) === "viewed";
+          return (
+            <div className="file-tree-context-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-item"
+                onClick={() => {
+                  onToggleViewedPath(item.path);
+                  context.close();
+                }}
+              >
+                <Icon name={viewed ? "eye" : "check"} />
+                <span className="menu-label">{viewed ? label("markNotViewed") : label("markViewed")}</span>
+              </button>
+            </div>
+          );
+        }}
+      />
+    </div>
   );
 }
 
@@ -2402,10 +2553,19 @@ function usePierreFileTreeSearch(
   }, [fileSearchOpen, fileSearchRequest, model]);
 }
 
-function usePierreFileTreeSelection(model: ReturnType<typeof useFileTree>["model"], selectedPath: string): void {
+function usePierreFileTreeSelection(
+  model: ReturnType<typeof useFileTree>["model"],
+  selectedPath: string,
+  syncing: React.MutableRefObject<boolean>,
+): void {
   useEffect(() => {
-    selectPierreFileTreePath(model, selectedPath);
-  }, [model, selectedPath]);
+    syncing.current = true;
+    try {
+      selectPierreFileTreePath(model, selectedPath);
+    } finally {
+      syncing.current = false;
+    }
+  }, [model, selectedPath, syncing]);
 }
 
 function useRenderDiff(
@@ -2928,6 +3088,30 @@ function useDiffTransport(config: DiffTransportConfig | undefined): DiffTranspor
     return () => transport?.close();
   }, []);
   return transportRef.current;
+}
+
+/**
+ * Applies `update` and, when it collapses `collapsingItemId` while that file's
+ * header is stuck at the top of the viewer (the viewer is scrolled into the
+ * file's body), scrolls so the collapsed header stays the top row. Without
+ * this the viewer keeps its line anchor into content that no longer exists
+ * and lands a few pixels into the previous file. `update` is flushed first
+ * so the code view lays out the collapsed item before the scroll resolves.
+ */
+export function keepStuckHeaderInView(
+  codeViewRef: React.MutableRefObject<CodeViewHandle<any> | null>,
+  collapsingItemId: string | null,
+  update: () => void,
+): void {
+  const instance = collapsingItemId == null ? null : codeViewRef.current?.getInstance();
+  const top = instance == null ? undefined : instance.getTopForItem(collapsingItemId!);
+  const stuck = instance != null && typeof top === "number" && top < instance.getScrollTop();
+  if (!stuck) {
+    update();
+    return;
+  }
+  flushSync(update);
+  codeViewRef.current?.scrollTo({ type: "item", id: collapsingItemId!, align: "start", behavior: "instant" });
 }
 
 function scrollTargetForItem(itemId: string, items: DiffItem[]): string {

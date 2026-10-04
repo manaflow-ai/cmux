@@ -11,14 +11,20 @@ import { MarkdownEditor, type EditorLabel, type MarkdownEditorHost } from "./edi
 import table from "./generated/strings.json";
 import type { ThemeRegistrationAny } from "shiki/core";
 import { CodeHighlighter, codeThemes } from "./highlight";
-import { MARKDOWN_OPEN_LINK_OP, resolveImageURL } from "./host";
+import { MARKDOWN_LIST_FILES_OP, MARKDOWN_RESOLVE_LINKS_OP, resolveImageURL } from "./host";
+import type { LinkLabel } from "./linkEditing";
+import { LinkRouter } from "./linkRouter";
+import { LinkResolver, type ResolvedLink } from "./links";
 import { htmlPreview } from "./htmlPreview";
 import { MarkdownPage } from "./MarkdownPage";
 import { MarkdownStore } from "./store";
 import { bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { L } from "./strings";
+import { MarkdownEmptyState } from "../../viewer-empty/MarkdownEmptyState";
+import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import "../shared/pageBase.css";
 import "./styles.css";
+import "../../viewer-empty/styles.css";
 
 const LABELS: Record<EditorLabel, string> = {
   frontmatter: L.frontmatter,
@@ -29,10 +35,25 @@ const LABELS: Record<EditorLabel, string> = {
 };
 
 /** The editor's host: links, images, code colors and diagrams, from the page config. */
+const LINK_LABELS: Record<LinkLabel, string> = {
+  followHint: L.followHint,
+  clickHint: L.clickHint,
+  broken: L.broken,
+  noHeading: L.noHeading,
+  checking: L.checking,
+  opensBrowser: L.opensBrowser,
+  opensFile: L.opensFile,
+  opensMail: L.opensMail,
+  linkPlaceholder: L.linkPlaceholder,
+  footnote: L.footnote,
+};
+
 function editorHost(
   store: MarkdownStore,
   client: PageClient | null,
   strings: Strings,
+  resolver: LinkResolver,
+  follow: (href: string) => void,
 ): MarkdownEditorHost & { setCodeThemes(themes: Promise<ThemeRegistrationAny[]>): Promise<void> | undefined } {
   // One highlighter; its themes follow `markdown.code.theme` and the terminal appearance.
   let highlighter: CodeHighlighter | null = null;
@@ -43,14 +64,19 @@ function editorHost(
   });
   const imageURL = (src: string) => resolveImageURL(src, config()?.assetBase);
   return {
-    openLink(href) {
-      if (href.startsWith("#")) {
-        const id = decodeURIComponent(href.slice(1));
-        document.getElementById(id)?.scrollIntoView({ block: "start" });
-        return;
-      }
-      const path = config()?.path;
-      if (client && path) void client.call(MARKDOWN_OPEN_LINK_OP, { path, href }).catch(() => undefined);
+    openLink: follow,
+    links: {
+      resolved: (path) => resolver.get(path),
+      requestLinks: (paths) => resolver.request(paths),
+      listFiles: async (prefix) => {
+        const from = config()?.path;
+        if (!client || !from) return [];
+        const answer = await client.call<{ entries?: unknown }>(MARKDOWN_LIST_FILES_OP, { from, prefix });
+        return Array.isArray(answer?.entries)
+          ? answer.entries.filter((entry): entry is string => typeof entry === "string")
+          : [];
+      },
+      linkLabel: (key) => strings.t(LINK_LABELS[key]),
     },
     imageURL,
     highlight(code, language, refresh) {
@@ -74,8 +100,30 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t(L.title);
-  const host = editorHost(store, client, strings);
   let editor: MarkdownEditor | null = null;
+  // Relative link targets: checked through the host in batches, cached per file.
+  const resolver = new LinkResolver(
+    client
+      ? async (from, paths) =>
+          (await client.call<{ links?: Record<string, ResolvedLink> }>(MARKDOWN_RESOLVE_LINKS_OP, { from, paths }))
+            ?.links ?? {}
+      : null,
+    () => editor?.refreshLinks(),
+  );
+  store.subscribe(() => {
+    const path = store.getState().config?.path;
+    if (path) resolver.setFrom(path);
+  });
+  const scroller = () => document.querySelector<HTMLElement>(".md-scroll");
+  const router = new LinkRouter({
+    store,
+    client,
+    resolver,
+    scrollToAnchor: (anchor) => editor?.scrollToAnchor(anchor) ?? false,
+    scroll: { get: () => scroller()?.scrollTop ?? 0, set: (top) => scroller()?.scrollTo({ top }) },
+    afterShow: (run) => requestAnimationFrame(() => run()),
+  });
+  const host = editorHost(store, client, strings, resolver, (href) => void router.follow(href));
   // A callback ref: React calls it with the element on mount and null on unmount.
   const editorRef = (element: HTMLDivElement | null) => {
     if (!element) {
@@ -99,8 +147,12 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   if (client) {
     // Cmd-S is the app key dispatcher's `save` page command; the page never reads the chord.
     void subscribePageStreams(client, {
+      // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-K is `link`.
       onCommand: ({ command }) => {
         if (command === "save") void store.save();
+        else if (command === "back") void router.go(-1);
+        else if (command === "forward") void router.go(1);
+        else if (command === "link") editor?.openLinkPopover();
       },
     });
   }
@@ -116,7 +168,20 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     codeTheme: (names, appearance) =>
       void host.setCodeThemes(codeThemes(names, appearance))?.then(() => editor?.refreshHighlight()),
   });
-  createRoot(root).render(<MarkdownPage store={store} strings={strings} editorRef={editorRef} />);
+  const emptyStrings = viewerEmptyStrings();
+  const emptyState = client
+    ? () => <MarkdownEmptyState client={client} strings={emptyStrings} open={(path) => store.openFile(path)} />
+    : undefined;
+  createRoot(root).render(
+    <MarkdownPage
+      store={store}
+      strings={strings}
+      editorRef={editorRef}
+      emptyState={emptyState}
+      onBack={() => void router.go(-1)}
+      onForward={() => void router.go(1)}
+    />,
+  );
   void store.start();
   return store;
 }

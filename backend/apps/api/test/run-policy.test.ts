@@ -1,10 +1,11 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { idFactory, MemoryRows, type Principal, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { schedulerDomain, TERMINAL, type SchedulerState } from "../src/domains/scheduler.ts"
 import { afterCreate } from "../src/domains/scheduler-policy.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * agents.allowedClasses `run` (enterprise P17-4): runs start inside SchedulerDO, so TeamDO pushes
@@ -47,7 +48,7 @@ const setClasses = async (t: string, team: string, classes: ReadonlyArray<string
   const r = await op(t, "team.policy.update", { changes: [{ key: "agents.allowedClasses", value: { value: classes, mode: "enforced" } }], expected_version: version, reason: "test" })
   expect(r.ok, JSON.stringify(r)).toBe(true)
   const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
-  for (let i = 0; i < 5; i++) await runDurableObjectAlarm(stub)
+  for (let i = 0; i < 5; i++) await fireAlarm(stub)
 }
 
 describe("run class of agents.allowedClasses (workerd)", { timeout: 60_000 }, () => {

@@ -16,6 +16,7 @@ mod snapshot;
 pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
+use crate::rescue::iface::OpenToken;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -87,6 +88,9 @@ const OPS: &[(&str, Kind)] = &[
     // the path (native file panel), never an agent.
     ("cloud.file.push", Kind::UserOnly),
     ("cloud.file.pull", Kind::UserOnly),
+    // Stopping a transfer only stops work a person started: no gesture.
+    ("cloud.file.transfer.list", Kind::Read),
+    ("cloud.file.transfer.cancel", Kind::Mutation),
     // Ports and browser routes (crate::ports).
     ("cloud.port.list", Kind::Read),
     ("cloud.port.forward", Kind::Mutation),
@@ -172,6 +176,10 @@ const REVISION_RESULTS: &[&str] = &[
 /// publication live): a same-key replay of an old answer would be stale, so
 /// they run every time, like the live link ops.
 const RERUN_OPS: &[&str] = &["cloud.domain.verify", "cloud.publication.verify"];
+
+/// Ops that need the host's `open_token` (stamped after the user's
+/// gesture). The op itself checks it; a ledger replay checks it too.
+const TOKEN_OPS: &[&str] = &["cloud.rescue.open"];
 
 /// Creates the Cloud API does not dedup by key. After an attempt with no
 /// answer (the relay failed), a same-key retry is refused with
@@ -261,8 +269,12 @@ impl<C: ControlPlane> Server<C> {
     pub fn with_parts(
         control_plane: C,
         attach: crate::link::Attach,
-        edge: crate::ports::Edge,
+        mut edge: crate::ports::Edge,
     ) -> Self {
+        // The pinned host keys are read once, at start.
+        if let Some(path) = attach.env().known_hosts_path() {
+            edge.load_known_hosts(path);
+        }
         Self {
             control_plane,
             projection: Projection::default(),
@@ -356,6 +368,7 @@ impl<C: ControlPlane> Server<C> {
         };
         if crate::link::ops::live_state_op(name)
             || crate::ports::live_state_op(name)
+            || crate::fs::live_state_op(name)
             || RERUN_OPS.contains(&name)
         {
             // The answer is live state (a carrier, a forward, or DNS and
@@ -373,6 +386,12 @@ impl<C: ControlPlane> Server<C> {
             ));
         }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
+            // The host's open token is never cached: a replay of an op that
+            // needs one answers only a request that carries one.
+            if TOKEN_OPS.contains(&name) {
+                let token = request.open_token.clone().unwrap_or_else(|| OpenToken(String::new()));
+                token.check().map_err(crate::link::ops::backend_error)?;
+            }
             return Ok(done);
         }
         // A delete retried after an attempt whose outcome is unknown: a 404

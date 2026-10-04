@@ -1,11 +1,12 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import { conversation as homeConversation, invites } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * ConversationDO hygiene (home-messaging.md sections 3, 10 and 20 row 7): typing is an ephemeral
@@ -164,7 +165,7 @@ describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { 
         if (message.client_msg_id.startsWith("old-")) state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...message, created_at: aged }), row.k)
       }
     })
-    await runDurableObjectAlarm(conv)
+    await fireAlarm(conv)
     const history = await conv.readOp(id, me, "conversation.history", { limit: 10 })
     expect(history.value.messages.map((m: homeConversation.Message) => m.client_msg_id)).toEqual(["new-1"])
     await runInDurableObject(conv, async (_i, state) => {
@@ -199,17 +200,14 @@ describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { 
       expect(list.ok).toBe(true)
       return list.value.entries.find((e) => e.conversation === id)
     }
-    // The runtime may also fire the alarm on its own: drain until the entry shows the counts (bounded).
-    const drainUntil = async (match: (e: { unread: number; mentions: number } | undefined) => boolean) => {
-      for (let i = 0; i < 50; i++) {
-        await runDurableObjectAlarm(conv)
-        const entry = await inboxEntry()
-        if (match(entry)) return entry
-        await new Promise((r) => setTimeout(r, 20))
-      }
+    // One alarm run drains the outbox and then runs the wake (sweep); a bump the sweep commits is
+    // drained by the next run. fireAlarm always runs and never overlaps a runtime alarm.
+    const settle = async () => {
+      await fireAlarm(conv)
+      await fireAlarm(conv)
       return inboxEntry()
     }
-    expect(await drainUntil((e) => e?.unread === 2)).toMatchObject({ unread: 2, mentions: 1 })
+    expect(await settle()).toMatchObject({ unread: 2, mentions: 1 })
     // Age the mention past the window; the alarm sweeps it and drains the bump to Bob's UserDO.
     const aged = new Date(Date.now() - 40 * DAY).toISOString()
     await runInDurableObject(conv, async (_i, state) => {
@@ -218,7 +216,7 @@ describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { 
         if (message.client_msg_id === "old-1") state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...message, created_at: aged }), row.k)
       }
     })
-    expect(await drainUntil((e) => e?.unread !== 2)).toMatchObject({ unread: 1, mentions: 0, preview: expect.stringContaining("still here") })
+    expect(await settle()).toMatchObject({ unread: 1, mentions: 0, preview: expect.stringContaining("still here") })
   })
 
   it("a DM from before the consent markers keeps the pair connected after the sweep deletes its msgkey rows", async () => {
@@ -243,8 +241,8 @@ describe("Home retention and invite expiry: the ConversationDO alarm sweeps", { 
         state.storage.sql.exec("UPDATE own_rows SET json = ? WHERE tbl = 'msg' AND k = ?", JSON.stringify({ ...(JSON.parse(row.json) as homeConversation.Message), created_at: aged }), row.k)
       }
     })
-    // The runtime may already have fired the alarm on its own; this runs any sweep still due.
-    await runDurableObjectAlarm(conv)
+    // fireAlarm runs the sweep even when the runtime already fired the alarm.
+    await fireAlarm(conv)
     await runInDurableObject(conv, async (_i, state) => {
       expect(state.storage.sql.exec("SELECT k FROM own_rows WHERE tbl = 'msgkey'").toArray()).toEqual([])
       expect(state.storage.sql.exec<{ k: string }>("SELECT k FROM own_rows WHERE tbl = 'consent' ORDER BY k").toArray().map((r) => r.k)).toEqual([alice, bob].sort())

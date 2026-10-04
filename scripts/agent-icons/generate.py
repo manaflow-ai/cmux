@@ -132,6 +132,8 @@ def load():
                 raise SourceError(f"brand {bid}: missing {key}")
         if entry["kind"] not in ("mark", "wordmark"):
             raise SourceError(f"brand {bid}: kind is mark or wordmark")
+        if not entry.get("import", {}).get("fetch"):
+            raise SourceError(f"brand {bid}: import.fetch is required (scripts/agent-icons/import.py re-imports from it)")
         for key in ("url", "file", "license"):
             if not entry["source"].get(key):
                 raise SourceError(f"brand {bid}: source.{key} is required")

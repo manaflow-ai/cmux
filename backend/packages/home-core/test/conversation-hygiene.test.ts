@@ -4,7 +4,9 @@ import {
   nextSweepAt,
   RETENTION_BATCH,
   SWEEP_OP,
+  TABLE_ATTREF,
   TABLE_INV,
+  type AttachmentRecord,
   TABLE_MSG,
   TABLE_MSGKEY,
   type ConversationParams,
@@ -75,6 +77,21 @@ describe("conversation.sweep: retention", () => {
     // The newest message survived, so the preview stays; only Bob, who had not read m1..m3, gets lower counts.
     const bumps = host.outbox.filter((item) => item.kind === "inbox.bump").map((item) => item.payload as InboxBump)
     expect(bumps.map((b) => [b.user, b.unread, b.preview])).toEqual([[BOB, 1, "Alice: m4"]])
+  })
+
+  it("deletes the attachment references of the expired messages (the object becomes collectable)", () => {
+    const HASH = "a".repeat(64)
+    const record: AttachmentRecord = { hash: HASH, object_id: HASH.slice(0, 32), object_key: `home/v1/conv_GROUP/${HASH.slice(0, 32)}`, mime_type: "image/png", byte_count: 1000, uploaders: [ALICE], quota_user: ALICE, created_at: 0 }
+    const withFiles = makeConversationDomain({ participantPolicy: allowBob, attachmentFor: (hash, actor) => (hash === HASH && actor === ALICE ? record : undefined) })
+    const host = new DomainHost<ConversationState, ConversationParams>(withFiles)
+    expect(host.run(session(ALICE, "Alice"), "conversation.create", { id: "conv_GROUP", kind: "group", title: "Team", participants: [human(ALICE, "Alice"), human(BOB, "Bob")], retention_days: 30 }, "create").ok).toBe(true)
+    const part = { type: "attachment", hash: HASH, name: "photo.png", mime_type: "image/png", byte_count: 1000, width: 10, height: 20 }
+    expect(host.run(session(ALICE, "Alice"), "message.send", { client_msg_id: "f1", parts: [part] }, "f1")).toMatchObject({ ok: true })
+    expect(host.rows.all(TABLE_ATTREF)).toHaveLength(1)
+    host.now += 31 * DAY
+    send(host, "m2")
+    expect(sweep(host)).toMatchObject({ ok: true, value: { retention: { deleted: 1 } } })
+    expect(host.rows.all(TABLE_ATTREF)).toEqual([])
   })
 
   it("a sweep with nothing due commits nothing", () => {

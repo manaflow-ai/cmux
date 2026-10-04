@@ -1377,6 +1377,56 @@ describe("direct client session state", () => {
     await settle();
     expect(latest().rows.filter((row) => row.kind === "assistant")).toEqual([]);
   });
+
+  const chunkEvent = (seq: number, text: string) => ({
+    sessionId: "a",
+    seq,
+    at: seq,
+    dir: "in",
+    kind: "agent_message_chunk",
+    msg: {
+      method: "session/update",
+      params: { sessionId: "a", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } },
+    },
+  });
+
+  test("deltas that land in one display frame make one snapshot, in order", async () => {
+    const frames: (() => void)[] = [];
+    const previous = AcpmuxDirectClient.scheduleFrame;
+    AcpmuxDirectClient.scheduleFrame = (run) => void frames.push(run);
+    try {
+      const client = await connect();
+      await settle();
+      for (const run of frames.splice(0)) run();
+      const before = snapshots.length;
+      for (let seq = 7; seq < 12; seq += 1) ScriptedSocket.current.notify("_acpmux/event", chunkEvent(seq, `${seq} `));
+      await settle();
+      expect(snapshots.length).toBe(before);
+      expect(frames).toHaveLength(1);
+      frames.shift()!();
+      expect(snapshots.length).toBe(before + 1);
+      expect(texts()).toEqual(["a five", "a six", "7 8 9 10 11 "]);
+      client.close();
+    } finally {
+      AcpmuxDirectClient.scheduleFrame = previous;
+    }
+  });
+
+  test("without a display (no frame scheduler) each delta snapshots at once", async () => {
+    const previous = AcpmuxDirectClient.scheduleFrame;
+    AcpmuxDirectClient.scheduleFrame = undefined;
+    try {
+      const client = await connect();
+      await settle();
+      const before = snapshots.length;
+      ScriptedSocket.current.notify("_acpmux/event", chunkEvent(7, "hi"));
+      await settle();
+      expect(snapshots.length).toBe(before + 1);
+      client.close();
+    } finally {
+      AcpmuxDirectClient.scheduleFrame = previous;
+    }
+  });
 });
 
 /// acpmux serves no git methods, so the changes view's reads go to the native host, which runs

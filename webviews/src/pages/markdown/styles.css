@@ -48,6 +48,10 @@
   --cmux-md-accent-background: color-mix(in srgb, var(--page-text) 8%, transparent);
   --cmux-md-banner-background: light-dark(rgb(255 196 0 / 0.16), rgb(255 196 0 / 0.12));
   --cmux-md-error-color: light-dark(#b42318, #ff8a80);
+  --cmux-md-link-broken-color: var(--cmux-md-error-color);
+  --cmux-md-popover-background: var(--page-elevated);
+  --cmux-md-popover-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  --cmux-md-popover-font-size: 12px;
 }
 
 html,
@@ -554,4 +558,122 @@ body {
 
 .ProseMirror-focused .ProseMirror-gapcursor {
   display: block;
+}
+
+/* Links: a plain click edits (text cursor), Cmd-click follows (pointer while Cmd is held); in a
+   read-only file a click follows. A relative target that does not exist is marked broken. */
+.md-prose a {
+  cursor: text;
+}
+
+.md-prose.md-follow a,
+.md-prose.md-follow sup[data-type="footnote_reference"],
+[data-read-only="true"] .md-prose a,
+[data-read-only="true"] .md-prose sup[data-type="footnote_reference"],
+.md-prose [data-type="footnote_definition"] > dt {
+  cursor: pointer;
+}
+
+.md-prose .md-link-broken,
+.md-prose .md-link-broken a,
+.md-prose a .md-link-broken {
+  color: var(--cmux-md-link-broken-color);
+  text-decoration-style: wavy;
+  text-decoration-color: var(--cmux-md-link-broken-color);
+}
+
+.md-link-card,
+.md-link-popover {
+  position: fixed;
+  z-index: 20;
+  max-width: min(560px, calc(100vw - 16px));
+  padding: 6px 10px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: 8px;
+  background: var(--cmux-md-popover-background);
+  box-shadow: var(--cmux-md-popover-shadow);
+  color: var(--cmux-md-text-color);
+  font-family: var(--cmux-md-font-family);
+  font-size: var(--cmux-md-popover-font-size);
+}
+
+.md-link-card {
+  pointer-events: none;
+}
+
+.md-link-card[hidden] {
+  display: none;
+}
+
+.md-link-card-target {
+  font-family: var(--cmux-md-code-font-family);
+  overflow-wrap: anywhere;
+}
+
+.md-link-card-detail {
+  margin-top: 2px;
+  color: var(--cmux-md-muted-color);
+}
+
+.md-link-card[data-state="broken"] .md-link-card-detail {
+  color: var(--cmux-md-link-broken-color);
+}
+
+.md-link-popover {
+  width: 360px;
+  padding: 6px;
+}
+
+.md-link-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cmux-md-text-color);
+  font-family: var(--cmux-md-code-font-family);
+  font-size: var(--cmux-md-popover-font-size);
+  outline: none;
+}
+
+.md-link-suggestions {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.md-link-suggestions[hidden] {
+  display: none;
+}
+
+.md-link-suggestions li {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--cmux-md-code-font-family);
+  overflow-wrap: anywhere;
+}
+
+.md-link-suggestions li[aria-selected="true"] {
+  background: var(--cmux-md-accent-background);
+}
+
+.md-history {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.md-history-button {
+  border: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cmux-md-muted-color);
+  font-size: var(--cmux-md-ui-font-size);
+}
+
+.md-history-button:disabled {
+  color: var(--cmux-md-faint-color);
 }

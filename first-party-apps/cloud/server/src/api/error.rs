@@ -22,6 +22,9 @@ pub mod codes {
     pub const IDEMPOTENCY_KEY_FORBIDDEN: &str = "cmux.cloud.idempotency_key_forbidden";
     pub const IDEMPOTENCY_CONFLICT: &str = "cmux.cloud.idempotency_conflict";
     pub const RELAY_UNAVAILABLE: &str = "cmux.cloud.relay_unavailable";
+    /// An op line arrived while a relay call waited and the queue of
+    /// waiting lines was full (`api::RELAY_QUEUE_LINES`): retry it.
+    pub const RELAY_BUSY: &str = "cmux.cloud.relay_busy";
     /// A same-key retry of a create the Cloud API does not dedup, after an
     /// attempt that got no answer: list first, then use a new key.
     pub const OUTCOME_UNKNOWN: &str = "cmux.cloud.outcome_unknown";

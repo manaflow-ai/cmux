@@ -133,7 +133,7 @@ fn edge_line(down: &EdgeDown) -> Value {
 }
 
 /// `cloud.file.transfer.changed`: one transfer ended (`done` with
-/// `bytes`, or `failed` with the typed `error`).
+/// `bytes`, `failed` with the typed `error`, or `cancelled`).
 fn transfer_line(event: &crate::fs::TransferEvent) -> Value {
     let direction = match event.direction {
         crate::fs::Direction::Push => "push",
@@ -146,6 +146,9 @@ fn transfer_line(event: &crate::fs::TransferEvent) -> Value {
         Ok(bytes) => {
             line["state"] = json!("done");
             line["bytes"] = json!(bytes);
+        }
+        Err(error) if error.code == crate::fs::transfer::TRANSFER_CANCELLED => {
+            line["state"] = json!("cancelled");
         }
         Err(error) => {
             line["state"] = json!("failed");

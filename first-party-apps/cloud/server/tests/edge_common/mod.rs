@@ -8,7 +8,7 @@ use crate::attach_common::{FakeSpawner, FakeTransport, attach};
 use crate::common::FakeControlPlane;
 use cmux_cloud::Server;
 use cmux_cloud::connector::iface::Carrier;
-use cmux_cloud::fs::{Direction, Transfer, TransferError, TransferJob, TransferKey};
+use cmux_cloud::fs::{Cancel, Direction, Transfer, TransferError, TransferJob, TransferKey};
 use cmux_cloud::ports::{Edge, PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
 use std::io::{Read, Write};
 use std::net::Shutdown;
@@ -125,6 +125,13 @@ pub struct TransferLog {
     pub fail_with: Option<String>,
     /// The next run blocks until the test sends on (or drops) the sender.
     pub hold: Option<std::sync::mpsc::Receiver<()>>,
+    /// Each run takes the next of these and blocks on it like `hold`.
+    pub holds: std::collections::VecDeque<std::sync::mpsc::Receiver<()>>,
+    /// The next run blocks until it is cancelled; it then leaves a partial
+    /// file at a pull's landing name, as a killed scp would.
+    pub until_cancel: bool,
+    /// Runs that saw their cancel.
+    pub cancelled: usize,
 }
 
 #[derive(Clone, Default)]
@@ -137,10 +144,30 @@ impl FakeTransfer {
 }
 
 impl Transfer for FakeTransfer {
-    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
-        let hold = self.log().hold.take();
+    fn run(
+        &self,
+        job: &TransferJob,
+        key: &TransferKey,
+        cancel: &Cancel,
+    ) -> Result<u64, TransferError> {
+        let hold = {
+            let mut log = self.log();
+            log.hold.take().or_else(|| log.holds.pop_front())
+        };
         if let Some(hold) = hold {
             let _ = hold.recv();
+        }
+        if std::mem::take(&mut self.log().until_cancel) {
+            let (stop, stopped) = std::sync::mpsc::channel();
+            cancel.on_cancel(move || {
+                let _ = stop.send(());
+            });
+            let _ = stopped.recv();
+            if job.direction == Direction::Pull {
+                std::fs::write(&job.local, b"part").unwrap();
+            }
+            self.log().cancelled += 1;
+            return Err(TransferError { message: "killed".into(), retryable: false });
         }
         let mut log = self.log();
         log.jobs.push(job.clone());

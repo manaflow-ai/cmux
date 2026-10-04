@@ -183,6 +183,13 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// Optional browser profile (`openBrowser`): "agent" for the clean agent
+    /// profile, or an existing profile id (plans/cmux-next/passwords.md, 3.4).
+    static var browserProfileString: ActionArgument {
+        ActionArgument(name: "profile", title: String(localized: "argument.browserProfile", defaultValue: "Browser Profile", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var urlString: ActionArgument {
         ActionArgument(name: "url", title: String(localized: "argument.url", defaultValue: "URL", bundle: .module), kind: .string, isRequired: false)
     }

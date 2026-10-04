@@ -27,6 +27,7 @@ import {
 import { CloudOps, type CloudPlan } from "./ops";
 import type { CloudStore } from "./store";
 import { L } from "./strings";
+import type { FileTransfer } from "./transfers";
 
 export interface DetailProps {
   store: CloudStore;
@@ -37,6 +38,8 @@ export interface DetailProps {
   team?: string | null;
   /** Ops the owner does not serve yet. */
   unavailable: readonly string[];
+  /** This session's file transfers (all machines; the Files section shows this machine's). */
+  transfers: readonly FileTransfer[];
   strings: Strings;
 }
 
@@ -44,7 +47,7 @@ export interface DetailProps {
 // events) do not pull focus back to it.
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 
-export function MachineDetailView({ store, row, detail, plan, team, unavailable, strings }: DetailProps) {
+export function MachineDetailView({ store, row, detail, plan, team, unavailable, transfers, strings }: DetailProps) {
   const { t, language } = strings;
   const machine = row.machine!;
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -258,7 +261,7 @@ export function MachineDetailView({ store, row, detail, plan, team, unavailable,
         unavailable={unavailable}
         strings={strings}
       />
-      <FilesSection store={store} detail={detail} unavailable={unavailable} strings={strings} />
+      <FilesSection store={store} detail={detail} unavailable={unavailable} transfers={transfers} strings={strings} />
       <NetworkSection store={store} machine={machine.id} detail={detail} unavailable={unavailable} strings={strings} />
     </section>
   );

@@ -66,7 +66,7 @@ import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
-import { Markdown } from "./conversation/Markdown";
+import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
 import { Undo } from "./conversation/icons";
@@ -217,7 +217,7 @@ const MessageRow = memo(
           <div className="cv-user__bubble">{row.text ?? ""}</div>
         </div>
       );
-    return <Markdown>{row.text ?? ""}</Markdown>;
+    return <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} />;
   },
   (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
 );
@@ -458,6 +458,8 @@ function RowFrame({
   expanded,
   observer,
   report,
+  enter,
+  onEntered,
   children,
 }: {
   row: AcpmuxRow;
@@ -469,9 +471,18 @@ function RowFrame({
   expanded: boolean;
   observer: ResizeObserver | undefined;
   report: ReportDrawn;
+  /// The row arrived live: it enters with the shared motion on this, its first mount.
+  enter: boolean;
+  onEntered: (id: string) => void;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
+  const [entering] = useState(enter);
+  useLayoutEffect(() => {
+    if (entering) onEntered(row.id);
+    // Only the first mount enters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node || !observer) return;
@@ -486,7 +497,7 @@ function RowFrame({
     <article
       ref={ref}
       data-row-id={row.id}
-      className={`acpmux-row acpmux-${kind}`}
+      className={`acpmux-row acpmux-${kind}${entering ? " acpmux-row--enter" : ""}`}
       aria-label={speaker(kind)}
       aria-posinset={index + 1}
       aria-setsize={setSize}
@@ -520,6 +531,8 @@ const scrollPosition = (node: HTMLElement, totalHeight: number) => ({
 /// A scroll commits from its event, a frame after the offset moved, so without the
 /// lead a fling shows a blank edge on every frame.
 const SCROLL_LEAD_STEPS = 2;
+/// More new rows than this in one update are a load (a session switch, older history), not live rows.
+const LIVE_ROWS_PER_UPDATE = 3;
 const MAX_SCROLL_LEAD_VIEWPORTS = 4;
 
 export function VirtualTranscript({
@@ -550,6 +563,17 @@ export function VirtualTranscript({
   rowWidthRef.current = transcriptRowWidth(width);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
+  // render, and many at once (a session switch, older history), are a load and do not.
+  const knownRows = useRef<Set<string> | null>(null);
+  const enteringRows = useRef(new Set<string>());
+  if (knownRows.current === null) knownRows.current = new Set(rows.map((row) => row.id));
+  else {
+    const arrived = rows.filter((row) => !knownRows.current!.has(row.id));
+    for (const row of arrived) knownRows.current.add(row.id);
+    if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
+  }
+  const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
   const reportDrawn = useCallback<ReportDrawn>((id, version, drawnHeight) => {
     // Zero is a row not laid out (hidden, or no layout at all), not a height.
     if (drawnHeight > 0) pendingDrawn.current.set(id, { version, width: rowWidthRef.current, height: drawnHeight });
@@ -738,6 +762,8 @@ export function VirtualTranscript({
                 expanded={isExpanded}
                 observer={observer}
                 report={reportDrawn}
+                enter={enteringRows.current.has(row.id)}
+                onEntered={onEntered}
               >
                 <Component
                   row={row}

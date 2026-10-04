@@ -5,7 +5,7 @@
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { sampleAccount, sampleMachines, sampleSnapshots, sampleStats } from "./mockData";
 import { joinPath } from "./files";
-import { MockEdge, MockFiles, only } from "./mockEdge";
+import { MockEdge, MockFiles, notFound, only } from "./mockEdge";
 import {
   ACTION_RUN,
   CloudOps,
@@ -18,6 +18,8 @@ import {
   type FirewallEndpoint,
   type MachineEvent,
   type MachineMutationResult,
+  notFoundCode,
+  type TransferChanged,
 } from "./ops";
 
 export { sampleMachines } from "./mockData";
@@ -52,6 +54,10 @@ export interface MockOptions {
   confirm?: boolean;
   /** Ops answered as not served (default `SERVER_GAPS`). */
   unsupported?: readonly string[];
+  /** Ops whose Cloud API route is missing: a bare 404 (production has no fs or network routes yet). */
+  routeMissing?: readonly string[];
+  /** Keep file transfers running until `finishTransfers()` (else each ends right after it starts). */
+  holdTransfers?: boolean;
 }
 
 type Params = Record<string, unknown>;
@@ -74,6 +80,10 @@ export class MockCloudProvider implements PageClient {
   tabError?: string;
   /** The next delete finds the machine already gone: it is removed and answered `not_found`. */
   notFoundOnDelete = false;
+  /** The next call of this op (or native action) runs, then answers its kind's own 404 (already gone). */
+  goneNext?: string;
+  routeMissing: Set<string>;
+  holdTransfers: boolean;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
   renameTransform?: (name: string) => string;
   /** Files of each machine and this Mac's port forwards and browser routes. */
@@ -85,7 +95,10 @@ export class MockCloudProvider implements PageClient {
   private readonly memory = new Map<string, number>();
   /** Idempotency ledger: key -> op, args and recorded result (a replay answers it and emits nothing). */
   private readonly ledger = new Map<string, { op: string; args: string; result: unknown }>();
-  private readonly subs = new Map<number, { listener: (data: unknown, seq: number) => void; seq: number }>();
+  private readonly subs = new Map<
+    number,
+    { stream: string; listener: (data: unknown, seq: number) => void; seq: number }
+  >();
   private nextSub = 1;
   private readonly handlers = new Map<string, PageHandler>();
   private held: MachineEvent[] | null;
@@ -95,6 +108,8 @@ export class MockCloudProvider implements PageClient {
     this.confirm = options.confirm ?? true;
     this.unsupported = new Set(options.unsupported ?? SERVER_GAPS);
     this.held = options.holdEvents ? [] : null;
+    this.routeMissing = new Set(options.routeMissing ?? []);
+    this.holdTransfers = options.holdTransfers ?? false;
   }
 
   async call<R>(op: string, params: unknown): Promise<R> {
@@ -114,9 +129,11 @@ export class MockCloudProvider implements PageClient {
 
   async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
     if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
-    if (stream !== CloudOps.machineWatch) throw pageError("cmux.protocol.unknown_op", stream);
+    if (stream !== CloudOps.machineWatch && stream !== CloudOps.fileTransferChanged)
+      throw pageError("cmux.protocol.unknown_op", stream);
+    this.calls.push({ op: `subscribe ${stream}`, params: undefined });
     const sub = this.nextSub++;
-    this.subs.set(sub, { listener: onEvent as (data: unknown, seq: number) => void, seq: 0 });
+    this.subs.set(sub, { stream, listener: onEvent as (data: unknown, seq: number) => void, seq: 0 });
     return () => void this.subs.delete(sub);
   }
 
@@ -135,7 +152,14 @@ export class MockCloudProvider implements PageClient {
   }
 
   get watchers(): number {
-    return this.subs.size;
+    return [...this.subs.values()].filter((sub) => sub.stream === CloudOps.machineWatch).length;
+  }
+
+  /** The running copies end now: one `file.transfer.changed` event each (the server's worker woke). */
+  finishTransfers(): TransferChanged[] {
+    const ended = this.fs.finishTransfers();
+    for (const event of ended) this.deliverTo(CloudOps.fileTransferChanged, event);
+    return ended;
   }
 
   /** The owner changed a machine (or added one) and notifies: one change, one revision. */
@@ -170,7 +194,11 @@ export class MockCloudProvider implements PageClient {
   }
 
   private deliver(event: MachineEvent): void {
-    for (const sub of this.subs.values()) sub.listener(event, ++sub.seq);
+    this.deliverTo(CloudOps.machineWatch, event);
+  }
+
+  private deliverTo(stream: string, event: unknown): void {
+    for (const sub of this.subs.values()) if (sub.stream === stream) sub.listener(event, ++sub.seq);
   }
 
   private authStatus() {
@@ -254,6 +282,17 @@ export class MockCloudProvider implements PageClient {
   }
 
   private serve(op: string, p: Params): unknown {
+    // The server answers a missing route as a 404 with no Cloud API code.
+    if (this.routeMissing.has(op)) throw notFound("cmux Cloud answered HTTP 404");
+    const result = this.serveOp(op, p);
+    if (this.goneNext === op) {
+      this.goneNext = undefined;
+      throw notFound("The Cloud API does not know this item.", notFoundCode(op));
+    }
+    return result;
+  }
+
+  private serveOp(op: string, p: Params): unknown {
     if (this.unsupported.has(op)) {
       if (op === CloudOps.machineIdlePolicySet)
         throw pageError("cmux.cloud.unsupported", "The cmux Cloud API has no idle policy route yet");
@@ -295,7 +334,7 @@ export class MockCloudProvider implements PageClient {
         this.emitRemoved(String(p.machine));
         if (this.notFoundOnDelete) {
           this.notFoundOnDelete = false;
-          throw pageError("cmux.cloud.not_found", "The Cloud API does not know this machine.");
+          throw notFound("The Cloud API does not know this machine.", "vm_not_found");
         }
         return { ok: true };
       case CloudOps.machineStats: {
@@ -424,8 +463,11 @@ export class MockCloudProvider implements PageClient {
     if (action === CloudOps.machineConnect || action === CloudOps.billingOpen) return { confirmed: true };
     if (!this.confirm) return { confirmed: false };
     if (action === CloudOps.authSignIn) return ((this.signedIn = true), { confirmed: true });
-    this.keyed(action, hostFields(action, (p.args ?? {}) as Params));
-    return { confirmed: true };
+    const result = this.keyed(action, hostFields(action, (p.args ?? {}) as Params));
+    if (action !== CloudOps.filePush && action !== CloudOps.filePull) return { confirmed: true };
+    // A transfer answers `running` at once; its end is a `file.transfer.changed` event.
+    if (!this.holdTransfers) queueMicrotask(() => this.finishTransfers());
+    return { confirmed: true, ...(result as object) };
   }
 }
 
