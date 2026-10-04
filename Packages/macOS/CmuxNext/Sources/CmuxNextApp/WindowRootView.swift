@@ -40,8 +40,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// The top row the title bar buttons reveal over (R83): full width,
     /// takes no clicks.
     let titlebarRevealRegion = PassThroughView(frame: .zero)
-    /// A glass patch under the traffic lights that fades in with the buttons.
-    let trafficLightsGlass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius, interactive: false)
+    /// A patch under the traffic lights that fades in with the buttons. It
+    /// is a theme fill, not a second glass material: the window keeps its
+    /// one root material (WindowRootMaterialTests).
+    let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
     /// Back, Forward and the glass patch: hidden until the top row is
     /// hovered (`window.titlebarButtons`). The sidebar toggle never fades.
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
