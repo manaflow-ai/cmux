@@ -112,6 +112,9 @@ pub enum FollowUp {
     SetUpFrame { target_id: String, session_id: String },
     /// A non-page target (worker) attached paused: let it run.
     Resume { session_id: String },
+    /// A target that shows a browser page (`policy::is_browser_page`): let
+    /// it run if paused and detach, so no agent call can reach it.
+    Release { session_id: String, waiting: bool },
 }
 
 #[derive(Debug, Default)]
@@ -221,6 +224,12 @@ impl State {
             return;
         };
         let waiting = params.get("waitingForDebugger").and_then(Value::as_bool) == Some(true);
+        if info.get("url").and_then(Value::as_str).is_some_and(crate::policy::is_browser_page) {
+            applied
+                .follow_ups
+                .push(FollowUp::Release { session_id: session_id.to_owned(), waiting });
+            return;
+        }
         let resume = |applied: &mut Applied| {
             if waiting {
                 applied.follow_ups.push(FollowUp::Resume { session_id: session_id.to_owned() });

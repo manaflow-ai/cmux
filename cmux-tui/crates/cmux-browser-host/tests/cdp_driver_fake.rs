@@ -936,7 +936,12 @@ fn the_relay_detaches_from_browser_page_targets() {
     let sent = h.sent_since(mark);
     let detach = sent.iter().find(|(m, _)| m == "Target.detachFromTarget");
     assert_eq!(detach.map(|(_, p)| p["sessionId"].clone()), Some(json!("SPM")), "{sent:?}");
-    assert!(!sent.iter().any(|(m, _)| m == "Page.addScriptToEvaluateOnNewDocument" || m == "Runtime.enable"), "{sent:?}");
+    assert!(
+        !sent
+            .iter()
+            .any(|(m, _)| m == "Page.addScriptToEvaluateOnNewDocument" || m == "Runtime.enable"),
+        "{sent:?}"
+    );
     let tabs = h.call("tabs.list", json!({}));
     assert!(!tabs.to_string().contains("TPM"), "{tabs}");
 }

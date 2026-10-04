@@ -327,7 +327,10 @@ fn browser_page_targets_never_become_tabs() {
             json!({"sessionId": session, "targetInfo": {"targetId": format!("T{session}"), "type": kind, "url": url}, "waitingForDebugger": true}),
         ));
         assert!(
-            !applied.follow_ups.iter().any(|f| matches!(f, FollowUp::SetUpPage { .. } | FollowUp::Resume { .. })),
+            !applied
+                .follow_ups
+                .iter()
+                .any(|f| matches!(f, FollowUp::SetUpPage { .. } | FollowUp::Resume { .. })),
             "{url}: {:?}",
             applied.follow_ups
         );
