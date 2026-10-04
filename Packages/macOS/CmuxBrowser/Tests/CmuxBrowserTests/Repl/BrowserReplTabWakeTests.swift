@@ -29,15 +29,24 @@ private final class FakeTab {
         self.condition = condition
     }
 
-    func prepare(_ method: String, sleeper: any BrowserReplSleeping) async throws {
+    var recoverCount = 0
+    /// What reloading a crashed tab does: by default a new process starts loading.
+    var onRecover: (FakeTab) -> Void = { $0.condition = BrowserReplTabCondition(isHibernated: true, isWaking: true) }
+
+    @discardableResult
+    func prepare(_ method: String, sleeper: any BrowserReplSleeping) async throws -> BrowserReplTabPreparation {
         let waker = BrowserReplTabWaker(sleeper: sleeper, timeout: .seconds(30))
-        try await waker.prepare(
+        return try await waker.prepare(
             method: method,
             tab: BrowserReplTabLabel(id: "T1", title: "Inbox", url: "https://mail.example.com/"),
             condition: { self.condition },
             wake: {
                 self.wakeCount += 1
                 self.onWake(self)
+            },
+            recoverCrash: {
+                self.recoverCount += 1
+                self.onRecover(self)
             },
             waitUntilLoaded: { await self.onWait(self) }
         )
@@ -129,8 +138,33 @@ struct BrowserReplTabWakeTests {
         #expect(tab.wakeCount == 0)
     }
 
+    // Seen live: page.reload() on a tab that crashed before the session
+    // attached failed with "interrupted by another navigation", because
+    // recovering a crashed tab loads the page into a new web view.
+    @Test func reloadingACrashedTabRecoversItAndWaitsForThePage() async throws {
+        let tab = FakeTab(BrowserReplTabCondition(isCrashed: true))
+        let outcome = try await tab.prepare("tab.reload", sleeper: DistantSleeper())
+        #expect(outcome == .reloaded)
+        #expect(tab.recoverCount == 1)
+        #expect(tab.condition.state == .live)
+    }
+
+    @Test func reloadingAHibernatedTabIsItsWake() async throws {
+        let tab = FakeTab(BrowserReplTabCondition(isHibernated: true))
+        let outcome = try await tab.prepare("tab.reload", sleeper: DistantSleeper())
+        #expect(outcome == .reloaded)
+        #expect(tab.wakeCount == 1)
+        #expect(tab.condition.state == .live)
+    }
+
+    @Test func otherCallsRunThemselves() async throws {
+        let tab = FakeTab(BrowserReplTabCondition(isHibernated: true))
+        #expect(try await tab.prepare("frame.evaluate", sleeper: DistantSleeper()) == .ready)
+        #expect(try await FakeTab(BrowserReplTabCondition()).prepare("tab.reload", sleeper: DistantSleeper()) == .ready)
+    }
+
     @Test func aCrashedTabStillAnswersNavigationAndInfo() async throws {
-        for method in ["tab.reload", "tab.navigate", "tab.history", "tab.info", "tabs.close", "tab.bringToFront"] {
+        for method in ["tab.navigate", "tab.history", "tab.info", "tabs.close", "tab.bringToFront"] {
             let tab = FakeTab(BrowserReplTabCondition(isCrashed: true))
             try await tab.prepare(method, sleeper: DistantSleeper())
         }
@@ -143,8 +177,8 @@ struct BrowserReplTabWakeTests {
         #expect(error?.code == "crashed")
     }
 
-    @Test func closingKeepingOrNavigatingAHibernatedTabDoesNotWaitForItsOldPage() async throws {
-        for method in ["tabs.close", "tab.keep", "tab.navigate", "tab.reload", "tab.history"] {
+    @Test func closingKeepingOrNavigatingAwayFromAHibernatedTabDoesNotWaitForItsOldPage() async throws {
+        for method in ["tabs.close", "tab.keep", "tab.navigate", "tab.history"] {
             let tab = FakeTab(BrowserReplTabCondition(isHibernated: true))
             tab.onWait = { _ in Issue.record("\(method) waited for the old page") }
             try await tab.prepare(method, sleeper: DistantSleeper())
