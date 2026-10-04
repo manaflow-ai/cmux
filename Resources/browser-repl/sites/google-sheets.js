@@ -19,7 +19,15 @@
         await box.press("Enter");
         await t.sleep(300);
       }
-      function writeCells(action, sheet, range, rows, opts) {
+      // The number of rows up to the last non-empty one in the sheet's CSV export.
+      const usedRows = (rows) => {
+        let last = rows.length;
+        while (last > 0 && rows[last - 1].every((v) => v === "")) last--;
+        return last;
+      };
+      // appendAfter: for append, the used row count the target was computed
+      // from; the write requires it again right before the paste.
+      function writeCells(action, sheet, range, rows, opts, appendAfter) {
         const name = `googleSheets.${action}`;
         if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return ed.edit("googleSheets", action, name, null, sheet, range);
         // Private copies: the draft's run writes the rows its preview shows,
@@ -42,6 +50,14 @@
           preview: { file: sheet, range: target, values },
           run: async (page, gate) => {
             await gate();
+            // An append goes after the last row as drafted: rows added since
+            // would be overwritten, so it fails instead (Sheets' web editor
+            // has no insert-at-end the session can call; the export read is
+            // the last step before the paste).
+            if (appendAfter !== undefined) {
+              const now = usedRows((await api.read(sheet, options || {})).rows);
+              if (now !== appendAfter) throw new S.SiteError("sheet_changed", `${name}: the sheet's last row is now ${now}, not ${appendAfter} as when ${target} was chosen (rows were added or removed); nothing was written. Make a new call (a new draft for a shared sheet)`);
+            }
             const want = new Map();
             values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
             const check = async () => {
@@ -171,10 +187,8 @@
         // Appends rows after the last non-empty row: { status, range, verified }.
         async append(sheet, rows, options) {
           if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return writeCells("append", sheet, rows, undefined, options);
-          const { rows: current } = await api.read(sheet, options || {});
-          let last = current.length;
-          while (last > 0 && current[last - 1].every((v) => v === "")) last--;
-          return writeCells("append", sheet, `A${last + 1}`, rows, options);
+          const last = usedRows((await api.read(sheet, options || {})).rows);
+          return writeCells("append", sheet, `A${last + 1}`, rows, options, last);
         },
         // Clears the values in a range: { status: "cleared", range, verified }.
         clear(sheet, range, opts) {
