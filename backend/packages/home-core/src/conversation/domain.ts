@@ -164,6 +164,9 @@ const prepare = (
     if (typeof rest.token_hash === "string" && rowsOf(ctx).get(TABLE_INVHASH, rest.token_hash)) return "duplicate_invite"
   }
   if (op === "participants.add") {
+    // The caller's own membership first (the same code apply gives), so a non-member's refusal
+    // never depends on the target: no probe of who is or was in the conversation.
+    if (!currentParticipant(head, actor)) return "not_participant"
     const participant = rest.participant
     if (typeof participant !== "object" || participant === null) return "invalid_participant"
     const decision = (options.participantPolicy ?? defaultParticipantPolicy)(ctx.principal, participant as Participant, head)
