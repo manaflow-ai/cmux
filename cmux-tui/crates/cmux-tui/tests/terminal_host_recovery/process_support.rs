@@ -51,3 +51,61 @@ pub(crate) fn wait_for_pid_file(path: &Path) -> libc::pid_t {
 // R81 spare host tests live beside these waits (the root file is at its size limit).
 #[path = "standby_host.rs"]
 mod standby_host;
+
+pub(crate) fn wait_for_no_host_records(root: &Path) {
+    if let Some((records, exits)) = host_records_left_after_close(root) {
+        panic!(
+            "terminal host records or exit sidecars remained after close: {records:?}; {exits:?}"
+        );
+    }
+}
+
+/// [`wait_for_no_host_records`] for a test that made several terminals: on
+/// failure it names which of `named` (label, terminal id) left a record,
+/// whether that host still runs, and what the daemon reports for it
+/// (FLAKE-TEMPLATE-ADOPT: the bare record did not say which terminal it was).
+pub(crate) fn wait_for_no_host_records_naming(root: &Path, socket: &Path, named: &[(&str, &str)]) {
+    let Some((records, exits)) = host_records_left_after_close(root) else { return };
+    let leftovers = records
+        .iter()
+        .map(|(_, record)| {
+            let label = named
+                .iter()
+                .find(|(_, id)| *id == record.terminal_id)
+                .map_or("unnamed", |(label, _)| *label);
+            let alive = libc::pid_t::try_from(record.host_pid).is_ok_and(process_exists);
+            let resolved = request_response(
+                socket,
+                serde_json::json!({"id": 61, "cmd": "resolve-terminal", "terminal_id": record.terminal_id}),
+            );
+            format!("{label} {} host_pid={} alive={alive} resolved={resolved}", record.terminal_id, record.host_pid)
+        })
+        .collect::<Vec<_>>();
+    panic!(
+        "terminal host records or exit sidecars remained after close: {leftovers:?}; exits {exits:?}; named {named:?}"
+    );
+}
+
+/// Host records and exit sidecars still present at a close deadline.
+type LeftoverHostRecords = (
+    Vec<(PathBuf, TerminalHostRecord)>,
+    Vec<(PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostExitRecord)>,
+);
+
+/// Waits up to 10 s for every host record and exit sidecar to go; returns
+/// what is still there at the deadline.
+fn host_records_left_after_close(root: &Path) -> Option<LeftoverHostRecords> {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while Instant::now() < deadline {
+        if load_terminal_host_records(root).unwrap().is_empty()
+            && load_terminal_host_exit_records(root).unwrap().is_empty()
+        {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    Some((
+        load_terminal_host_records(root).unwrap(),
+        load_terminal_host_exit_records(root).unwrap(),
+    ))
+}
