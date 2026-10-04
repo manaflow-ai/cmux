@@ -58,11 +58,11 @@ export class SocketGate {
     if (!this.watched(p)) return
     this.checks.set(this.key(p), { active: true, at: Date.now() })
     const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as {
-      registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number): Promise<boolean>
+      registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string): Promise<boolean>
     }
     const expires = p.expires_at ?? Date.now() + 3600_000
     this.ctx.waitUntil(
-      stub.registerSocket(p.user!, p.install!, p.grant, owner.cls, owner.name, expires).then(
+      stub.registerSocket(p.user!, p.install!, p.grant, owner.cls, owner.name, expires, p.agent).then(
         (ok) => {
           if (ok) return
           this.revoked(p.install!)

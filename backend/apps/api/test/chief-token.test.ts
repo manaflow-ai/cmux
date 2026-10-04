@@ -51,11 +51,22 @@ describe("chief tokens", { timeout: 60_000 }, () => {
     const posted = await op(tok.json.access_token, "feed.post", { type: "notice", kind: "notice", title: "from the chief" })
     expect(posted.json.ok, JSON.stringify(posted.json)).toBe(true)
     expect(posted.json.value.item.poster).toMatchObject({ agent: chief.id })
-    // Archive the chief: the same token is refused on the next request.
+    // A chief token cannot change the owner's account.
+    expect((await op(tok.json.access_token, "install.revoke", { install: a.install })).json.ok).toBe(false)
+    // Archive the chief: the same token is refused on the next request, and its open sockets close.
+    const muxRes = await worker.fetch(`https://api.test/v1/wire/mux/${chief.id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${tok.json.access_token}` } })
+    expect(muxRes.status).toBe(101)
+    const ws = muxRes.webSocket!
+    let closed: number | undefined
+    ws.addEventListener("close", (e) => (closed = e.code))
+    ws.accept()
+    await new Promise((r) => setTimeout(r, 100))
     const archived = await op(a.session, "chief.archive", { chief: chief.id, expected_rev: chief.rev })
     expect(archived.json.ok, JSON.stringify(archived.json)).toBe(true)
     const after = await op(tok.json.access_token, "feed.post", { type: "notice", kind: "notice", title: "after archive" })
     expect(after.status).toBe(403)
+    for (let i = 0; i < 100 && closed === undefined; i++) await new Promise((r) => setTimeout(r, 10))
+    expect(closed).toBe(4401)
     // A token for an archived chief, or another user's chief, is never minted.
     expect((await a.mint(chief.id)).status).toBe(403)
     const b = await installFor("chief-tok-b")

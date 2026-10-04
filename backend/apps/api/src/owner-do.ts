@@ -187,8 +187,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   }
 
   /** RPC from UserDO (socket-registry.ts): an install was revoked; close its sockets here now. */
-  async closeInstall(entity: string, install: string): Promise<boolean> {
-    if (this.isBound(entity)) [this.gate.revoked(install), this.closeSockets((p) => p.install === install, "install revoked")]
+  async closeInstall(entity: string, install: string, agent?: string): Promise<boolean> {
+    if (this.isBound(entity)) [agent ? null : this.gate.revoked(install), this.closeSockets((p) => p.install === install && (!agent || p.agent === agent), "revoked")]
     return true
   }
 
