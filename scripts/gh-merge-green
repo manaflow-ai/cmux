@@ -120,7 +120,7 @@ if [ "$base" = main ]; then
       "not green: cannot list changed files for $ref" \
       'restore GitHub API access, then retry the exact-head check'
   fi
-  if printf '%s\n' "$files" | grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$'; then
+  if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
     must+=("macos / macOS compile admission")
   fi
 fi
@@ -141,8 +141,12 @@ if ! runs=$(jq -r '
     "not green: cannot parse checks for $sha" \
     'retry after GitHub returns valid check-run metadata'
 fi
-if [ "$base" = main ] && printf '%s\n' "$runs" | grep -q '^macos / macOS compile admission'$'\t' && ! printf '%s\n' "${must[@]}" | grep -qx 'macos / macOS compile admission'; then
-  must+=("macos / macOS compile admission")
+if [ "$base" = main ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
+  has_admission=0
+  for required in "${must[@]}"; do
+    [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
+  done
+  [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
 fi
 for name in "${must[@]+"${must[@]}"}"; do
   line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n')
@@ -187,7 +191,7 @@ if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q 
     "not green: cannot read the diff for $ref" \
     'restore GitHub API access, then retry the exact-head check'
 fi
-if printf '%s\n' "$patches" | grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)'; then
+if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
   refuse \
     "not green: conflict markers are present in $ref" \
     'resolve the conflict markers, push the repaired head, and rerun the checks'

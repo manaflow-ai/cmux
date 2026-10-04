@@ -6,6 +6,7 @@ import unittest
 import subprocess
 import tempfile
 import os
+import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("merge_green", ROOT / "scripts/ci/main_fix_evidence.py")
@@ -272,6 +273,61 @@ class InstalledHelperRegression(unittest.TestCase):
             result = subprocess.run([str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--main-fix", "--squash"], env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker)}, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists(), "the helper merged without any compile evidence")
+
+    def test_large_file_and_patch_lists_do_not_trip_pipefail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            marker = directory / "merged"
+            gh = directory / "gh"
+            gh.write_text(textwrap.dedent(f"""\
+                #!/bin/sh
+                if [ "$1 $2" = 'pr view' ]; then
+                  printf '%s\\n' '{{"headRefOid":"{HEAD}","baseRefName":"main"}}'
+                  exit 0
+                fi
+                if [ "$1 $2" = 'pr merge' ]; then
+                  touch "$MERGE_MARKER"
+                  exit 0
+                fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q 'contents/.github/workflows/merge-gate.yml'; then
+                  printf '%s\\n' 'HTTP/2.0 404 Not Found'
+                  exit 1
+                fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/pulls/42/files'; then
+                  case "$*" in
+                    *'.[].filename'*) i=0; while [ "$i" -lt 100000 ]; do printf '%s\\n' 'Sources/Large.swift'; i=$((i + 1)); done ;;
+                    *'.[].patch'*)
+                      if [ "$INCLUDE_CONFLICT" = 1 ]; then printf '%s\\n' '+<<<<<<< HEAD'; fi
+                      i=0; while [ "$i" -lt 100000 ]; do printf '%s\\n' '+ordinary line'; i=$((i + 1)); done ;;
+                  esac
+                  exit 0
+                fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q '/check-runs'; then
+                  printf '%s\\n' '[{{"check_runs":[{{"id":1,"name":"ci-status","status":"completed","conclusion":"success"}},{{"id":2,"name":"macos / macOS compile admission","status":"completed","conclusion":"success"}}]}}]'
+                  exit 0
+                fi
+                exit 2
+            """))
+            gh.chmod(0o755)
+            result = subprocess.run(
+                [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
+                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "INCLUDE_CONFLICT": "0"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+            marker.unlink()
+            result = subprocess.run(
+                [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
+                env={**os.environ, "PATH": str(directory) + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "INCLUDE_CONFLICT": "1"},
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("conflict", result.stderr)
 
 
 if __name__ == "__main__":
