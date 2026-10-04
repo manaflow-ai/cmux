@@ -1,0 +1,113 @@
+import { describe, expect, it } from "vitest"
+import {
+  conversationDomain,
+  dmConversationId,
+  NOT_REACHABLE,
+  reachDecision,
+  type ConversationParams,
+  type ConversationState,
+  type HumanReach,
+  type Principal
+} from "../src/conversation/index.ts"
+import { DEFAULT_HOME_SETTINGS, reduceHomeSettings } from "../src/user/index.ts"
+import { DomainHost, human } from "./support/harness.ts"
+import { ALICE, BOB, CAROL } from "./support/cloud.ts"
+
+/**
+ * The human reach rule (home-messaging.md sections 4.1 and 16): a human may be put into a
+ * conversation by someone who shares a team with them or is already connected to them, and the
+ * target's `allow_dm_from` narrows that. The Worker resolves the facts into
+ * `principal.home_reach`; the reducer only reads them. Every refusal is `not_reachable`, the
+ * same answer as for an unknown account.
+ */
+const reach = (user: string, extra: Partial<HumanReach> = {}): HumanReach => ({
+  user,
+  display_name: user === BOB ? "Bob" : "Carol",
+  shared_team: false,
+  connected: false,
+  allow_dm_from: "anyone",
+  ...extra
+})
+const session = (user: string, name: string, home_reach?: ReadonlyArray<HumanReach>): Principal => ({
+  identity: `${user}:s`,
+  user,
+  kind: "session",
+  display_name: name,
+  ...(home_reach ? { home_reach } : {})
+})
+
+describe("human reach decision", () => {
+  it("needs a shared team or a connection; allow_dm_from narrows; a block always refuses", () => {
+    const refused = { ok: false, code: NOT_REACHABLE }
+    expect(reachDecision(undefined)).toEqual(refused)
+    expect(reachDecision(reach(BOB))).toEqual(refused)
+    expect(reachDecision(reach(BOB, { shared_team: true }))).toEqual({ ok: true, display_name: "Bob" })
+    expect(reachDecision(reach(BOB, { connected: true }))).toEqual({ ok: true, display_name: "Bob" })
+    expect(reachDecision(reach(BOB, { shared_team: true, allow_dm_from: "teams" }))).toMatchObject({ ok: true })
+    expect(reachDecision(reach(BOB, { connected: true, allow_dm_from: "teams" }))).toEqual(refused)
+    expect(reachDecision(reach(BOB, { connected: true, allow_dm_from: "contacts" }))).toMatchObject({ ok: true })
+    expect(reachDecision(reach(BOB, { shared_team: true, allow_dm_from: "contacts" }))).toEqual(refused)
+    expect(reachDecision(reach(BOB, { shared_team: true, connected: true, blocked: true }))).toEqual(refused)
+    // A name that cleans to nothing falls back; it never comes from the caller.
+    expect(reachDecision(reach(BOB, { shared_team: true, display_name: "\u0000" }))).toEqual({ ok: true, display_name: "Member" })
+  })
+})
+
+describe("conversation Domain with Worker-resolved reach", () => {
+  const host = () => new DomainHost<ConversationState, ConversationParams>(conversationDomain)
+  const group = (participants: Array<unknown>) => ({ id: "conv_R", kind: "group", title: "Plans", participants })
+
+  it("a group with two humans who share a team; the name comes from the reach facts", () => {
+    const h = host()
+    const r = h.run(session(ALICE, "Alice", [reach(BOB, { shared_team: true })]), "conversation.create", group([human(ALICE, "Alice"), human(BOB, "Mallory")]), "c1")
+    expect(r).toMatchObject({ ok: true })
+    expect(h.state?.participants.map((p) => [p.id, p.display_name])).toEqual([
+      [ALICE, "Alice"],
+      [BOB, "Bob"]
+    ])
+  })
+
+  it("a stranger, an unknown account and a refusal by setting get the same answer", () => {
+    const facts = [reach(CAROL, { connected: true, allow_dm_from: "teams" })]
+    expect(host().run(session(ALICE, "Alice", facts), "conversation.create", group([human(ALICE), human(CAROL)]), "c1")).toMatchObject({ ok: false, code: NOT_REACHABLE })
+    expect(host().run(session(ALICE, "Alice", facts), "conversation.create", group([human(ALICE), human("user_nobody")]), "c2")).toMatchObject({ ok: false, code: NOT_REACHABLE })
+    expect(host().run(session(ALICE, "Alice", []), "conversation.create", group([human(ALICE), human(BOB)]), "c3")).toMatchObject({ ok: false, code: NOT_REACHABLE })
+  })
+
+  it("without reach facts (local and self-hosted owners) the old rule stays: only the caller and known participants", () => {
+    expect(host().run(session(ALICE, "Alice"), "conversation.create", group([human(ALICE), human(BOB)]), "c1")).toMatchObject({ ok: false, code: "forbidden" })
+  })
+
+  it("dm.open with a user id follows the same rule", () => {
+    const params = { id: dmConversationId(ALICE, BOB), participants: [human(ALICE, "Alice"), human(BOB, BOB)] }
+    expect(host().run(session(ALICE, "Alice", [reach(BOB, { allow_dm_from: "anyone" })]), "dm.open", params, "d1")).toMatchObject({ ok: false, code: NOT_REACHABLE })
+    const h = host()
+    expect(h.run(session(ALICE, "Alice", [reach(BOB, { shared_team: true })]), "dm.open", params, "d2")).toMatchObject({ ok: true })
+    expect(h.state?.participants.find((p) => p.id === BOB)?.display_name).toBe("Bob")
+  })
+
+  it("participants.add of a human checks the adder's facts", () => {
+    const h = host()
+    expect(h.run(session(ALICE, "Alice", []), "conversation.create", group([human(ALICE, "Alice")]), "c1")).toMatchObject({ ok: true })
+    expect(h.run(session(ALICE, "Alice", [reach(BOB)]), "participants.add", { participant: human(BOB) }, "p1")).toMatchObject({ ok: false, code: NOT_REACHABLE })
+    expect(h.run(session(ALICE, "Alice", [reach(BOB, { shared_team: true, allow_dm_from: "contacts" })]), "participants.add", { participant: human(BOB) }, "p2")).toMatchObject({
+      ok: false,
+      code: NOT_REACHABLE
+    })
+    expect(h.run(session(ALICE, "Alice", [reach(BOB, { connected: true })]), "participants.add", { participant: human(BOB) }, "p3")).toMatchObject({ ok: true })
+    expect(h.state?.participants.find((p) => p.id === BOB)).toMatchObject({ display_name: "Bob", added_by: ALICE })
+  })
+})
+
+describe("home.settings.set (UserDO, section 4.2)", () => {
+  it("defaults, partial updates, and refuses unknown values", () => {
+    expect(DEFAULT_HOME_SETTINGS).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_dm_from: "anyone" })
+    expect(reduceHomeSettings(undefined, { allow_dm_from: "teams" })).toEqual({ ok: true, settings: { ...DEFAULT_HOME_SETTINGS, allow_dm_from: "teams" } })
+    const current = { ...DEFAULT_HOME_SETTINGS, allow_dm_from: "contacts" as const }
+    expect(reduceHomeSettings(current, { discoverable_by_email: true })).toEqual({ ok: true, settings: { ...current, discoverable_by_email: true } })
+    expect(reduceHomeSettings(current, { allow_dm_from: "everyone" })).toEqual({ ok: false, code: "invalid_settings" })
+    expect(reduceHomeSettings(current, { discoverable_by_phone: "yes" })).toEqual({ ok: false, code: "invalid_settings" })
+    expect(reduceHomeSettings(current, {})).toEqual({ ok: false, code: "invalid_settings" })
+    expect(reduceHomeSettings(current, null)).toEqual({ ok: false, code: "invalid_settings" })
+  })
+})
