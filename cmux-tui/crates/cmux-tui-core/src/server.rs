@@ -1769,64 +1769,8 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
-    NewPaneRight {
-        pane: PaneId,
-        #[serde(default)]
-        width: Option<f32>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-        /// `pane-browser-kind-v1`: `pty` (default) or `browser` with `url`.
-        #[serde(default)]
-        kind: Option<String>,
-        #[serde(default)]
-        url: Option<String>,
-    },
-    Split {
-        pane: PaneId,
-        /// "right" or "down"
-        dir: String,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-        /// `pane-browser-kind-v1`: `pty` (default) or `browser` with `url`.
-        #[serde(default)]
-        kind: Option<String>,
-        #[serde(default)]
-        url: Option<String>,
-    },
+    NewPaneRight(split_kind::NewPaneRightParams),
+    Split(split_kind::SplitParams),
     SetRatio {
         pane: PaneId,
         /// "right" or "down"
@@ -14195,81 +14139,8 @@ fn handle_command_with_cancellation(
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewPaneRight {
-            pane,
-            width,
-            cols,
-            rows,
-            cwd,
-            env,
-            keep,
-            terminal_id,
-            shell_args,
-            kind,
-            url,
-        } => {
-            let terminal = split_kind::TerminalFields {
-                cwd: cwd.is_some(),
-                env: env.is_some(),
-                keep,
-                terminal_id: terminal_id.is_some(),
-                shell_args: shell_args.is_some(),
-            };
-            let width = width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH);
-            let size = optional_surface_size(cols, rows);
-            if let Some(url) = split_kind::browser_pane_url("new-pane-right", kind, url, &terminal)?
-            {
-                let surface =
-                    mux.split_browser_pane(pane, SplitDir::Right, Some(width), url, size)?;
-                return Ok(json!({ "surface": surface.id }));
-            }
-            let spawn = placement_spawn_options(
-                cwd,
-                env.as_ref(),
-                terminal_id,
-                shell_args,
-                frontend_shell(mux, client),
-            )?;
-            let surface = mux.new_pane_right_with_options(pane, width, spawn, size)?;
-            placed_terminal_result(mux, &surface, keep)
-        }
-        Command::Split {
-            pane,
-            dir,
-            cols,
-            rows,
-            cwd,
-            env,
-            keep,
-            terminal_id,
-            shell_args,
-            kind,
-            url,
-        } => {
-            let dir = parse_split_dir(&dir)?;
-            let terminal = split_kind::TerminalFields {
-                cwd: cwd.is_some(),
-                env: env.is_some(),
-                keep,
-                terminal_id: terminal_id.is_some(),
-                shell_args: shell_args.is_some(),
-            };
-            if let Some(url) = split_kind::browser_pane_url("split", kind, url, &terminal)? {
-                let size = optional_surface_size(cols, rows);
-                let surface = mux.split_browser_pane(pane, dir, None, url, size)?;
-                return Ok(json!({ "surface": surface.id }));
-            }
-            let spawn = placement_spawn_options(
-                cwd,
-                env.as_ref(),
-                terminal_id,
-                shell_args,
-                frontend_shell(mux, client),
-            )?;
-            let surface =
-                mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
-            placed_terminal_result(mux, &surface, keep)
-        }
+        Command::NewPaneRight(params) => split_kind::new_pane_right(mux, client, params),
+        Command::Split(params) => split_kind::split(mux, client, params),
         Command::SetRatio { pane, dir, ratio } => {
             let dir = parse_split_dir(&dir)?;
             mux.set_ratio_checked(pane, dir, ratio)?;
