@@ -1,0 +1,41 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
+@@ -117,7 +117,8 @@
+     static func height(lines: Int, chips: Bool) -> CGFloat {
+         30 + 16 * CGFloat(lines - 1) + (lines >= 2 ? 1 : 0) + (chips ? 30 : 0)
+     }
+-    static var textWidth: CGFloat { fieldWidth(Metrics.current.width) - 24 }
++    /// cmux: per view (several Home tabs), from this compose bar's width.
++    var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 }
+     static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
+     static let font = Fixture.bodyFont
+     static let maxLines = 8
+@@ -130,8 +131,8 @@
+         default: return .limited
+         }
+     }()
+-    static func lines(_ text: String) -> Int {
+-        min(maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: textWidth, font: font).lines.count)
++    func lines(_ text: String) -> Int {
++        min(ComposeView.maxLines, TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: textWidth, font: ComposeView.font).lines.count)
+     }
+     private var dx: CGFloat { bounds.width - Fixture.windowWidth }
+     private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
+@@ -397,7 +398,7 @@
+         placeholderLayer.opacity = text.isEmpty ? 1 : 0
+         waveLayer.opacity = text.isEmpty ? 1 : 0
+         CATransaction.commit()
+-        let h = ComposeView.height(lines: ComposeView.lines(d.text), chips: !d.attachments.isEmpty)
++        let h = ComposeView.height(lines: lines(d.text), chips: !d.attachments.isEmpty)
+         let old = fieldHeight
+         fieldHeight = h
+         place(height: h)
+@@ -473,7 +474,7 @@
+             alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
+         }
+         let f = fieldRect
+-        let tl = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: ComposeView.textWidth, font: ComposeView.font)
++        let tl = TextLayout.make(text.isEmpty ? " " : text, runs: [], maxWidth: textWidth, font: ComposeView.font)
+         let row = CGFloat(max(0, tl.lines.count - 1))
+         let last = text.isEmpty ? "" : (text.components(separatedBy: "\n").last ?? "")
+         let cx = f.minX + 12 + TextDraw.width(last, font: ComposeView.font, kern: Fixture.bodyKern)

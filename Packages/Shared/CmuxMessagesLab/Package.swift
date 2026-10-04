@@ -3,24 +3,11 @@
 import PackageDescription
 
 // The MessagesLabAppKitNative transcript, vendored (not rewritten) for the
-// cmux-next Mac Home tab. Source: MessagesLab (~/fun/messageslab), commit
-// 3a53206 ("R76 header"). `vendor.tsv` maps every vendored file to its
-// upstream path; `scripts/cmux-next/check-messageslab-vendor.sh` prints the
-// difference from upstream (only the blocker edits listed there).
-//
-// Sources/MessagesLabHome/Vendor holds the upstream files: the catalyst core
-// that appkit-native compiles by path (model, reducer, layout, transcript,
-// recycler, row drawing, springs, morph, shapes, fixture, header, window view,
-// replay), appkit-port's UIKit shim, the appkit-native AppKit parts (compose,
-// materials, native scroll, header backdrop, header bar, accessibility and
-// selection, host), and the differential harness. Sources/MessagesLabHome/Cmux
-// is cmux's glue in the same module (the upstream code has no access
-// modifiers): the HomeStore adapter, the pane-hosted view, the in-pane header
-// and the theme mapping.
-//
-// Upstream builds with Swift 5 and minimal strict concurrency
-// (appkit-native/project.yml) and the APPKIT_NATIVE condition; this target
-// keeps both so the files compile unchanged.
+// cmux-next Mac Home tab. README.md: what is vendored, the pin (vendor.tsv),
+// the blocker patches (Patches/) and scripts/cmux-next/sync-messageslab.sh.
+// Upstream builds with Swift 5, minimal strict concurrency and the
+// APPKIT_NATIVE condition (appkit-native/project.yml); this target keeps
+// all three so the files compile unchanged.
 let package = Package(
     name: "CmuxMessagesLab",
     defaultLocalization: "en",
@@ -56,9 +43,6 @@ let package = Package(
             dependencies: [
                 "MessagesLabHome",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-            ],
-            resources: [
-                .copy("Fixtures"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5),

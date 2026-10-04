@@ -4,27 +4,6 @@ import Foundation
 import Testing
 @testable import MessagesLabHome
 
-/// The differential harness (MessagesLab tools/diff-harness), run on the
-/// vendored code. scripts/cmux-next/home-messageslab-harness.sh runs each
-/// suite in its own process and compares the outputs.
-///
-/// `MESSAGESLAB_HARNESS_OUT=DIR`: MessagesLab's own scripted conversation
-/// (`DiffHarness.runOffscreen`, unchanged) on the vendored files; the script
-/// compares DIR/animations.ndjson with MessagesLabAppKitNative's
-/// `--diff-harness` output, byte for byte.
-@MainActor @Suite(.serialized) struct UpstreamHarnessTests {
-    @Test func messagesLabsScriptOnTheVendoredCode() throws {
-        let out = ProcessInfo.processInfo.environment["MESSAGESLAB_HARNESS_OUT"]
-            ?? FileManager.default.temporaryDirectory.appendingPathComponent("messageslab-harness").path
-        Fixtures.root = try #require(Bundle.module.url(forResource: "Fixtures", withExtension: nil))
-        var args = ["--no-pixels"]
-        if ProcessInfo.processInfo.environment["MESSAGESLAB_HARNESS_PIXELS"] != nil { args = [] }
-        DiffHarness.runOffscreen(outDir: out, arguments: args)
-        let anim = try String(contentsOfFile: out + "/animations.ndjson", encoding: .utf8)
-        #expect(anim.split(separator: "\n").count == DiffHarness.transitions.count)
-    }
-}
-
 /// The Home path against MessagesLab's: the same conversation driven once
 /// with the actions MessagesLab's engine dispatches (send, external insert,
 /// delivered, read, typing, receive, tapback) and once through the adapter
@@ -85,7 +64,7 @@ import Testing
 
     struct Run { var animations: [String]; var frames: [String] }
 
-    /// One offscreen window view on a virtual clock (DiffHarness.runOffscreen's loop).
+    /// One offscreen window view on a virtual clock (the loop of MessagesLab's DiffHarness.runOffscreen).
     static func run(_ store: Store, _ events: [(Double, (Store) -> Void)]) -> Run {
         DisplayScale.current = 2
         Fixture.renderScale = 2
@@ -113,10 +92,10 @@ import Testing
             view.collection.layoutIfNeeded()
             view.layer.displayRecursively()
             if transitions.contains(where: { Int(($0.t * 120).rounded()) + 2 == k }) {
-                run.animations.append(DiffHarness.animationsJSON(t, view))
+                run.animations.append(LayerDump.animations(t, view))
             }
             let saved = Presenter.apply(view.layer)
-            run.frames.append(DiffHarness.frameJSON(t, DiffHarness.dump(view)))
+            run.frames.append(LayerDump.frame(t, view))
             Presenter.restore(saved)
         }
         return run
@@ -184,7 +163,7 @@ import Testing
             return (o?["L"] as? [String: [Double]]) ?? [:]
         }
         let a = layers(x), b = layers(y)
-        let hidden = DiffHarness.fields.firstIndex(of: "hidden")!, opacity = DiffHarness.fields.firstIndex(of: "opacity")!
+        let hidden = LayerDump.hidden, opacity = LayerDump.opacity
         func shows(_ v: [Double]?) -> Bool { v.map { $0[hidden] == 0 && $0[opacity] > 0.011 } ?? false }
         for name in Set(a.keys).union(b.keys) {
             let va = a[name], vb = b[name]
@@ -196,7 +175,6 @@ import Testing
     }
 
     @Test func theHomePathCommitsMessagesLabsAnimationsByteForByte() throws {
-        Fixtures.root = Bundle.module.url(forResource: "Fixtures", withExtension: nil)
         let a = Self.messagesLab()
         let b = Self.home()
         if let dir = ProcessInfo.processInfo.environment["HOME_HARNESS_OUT"] {
@@ -216,5 +194,81 @@ import Testing
         // pooled cell's leftover geometry follows the recycler's pool order).
         let differing = zip(a.frames, b.frames).enumerated().filter { !Self.sameVisible($0.element.0, $0.element.1) }.map(\.offset)
         #expect(differing.isEmpty, "presented layer trees differ at ticks \(differing.prefix(10))")
+    }
+}
+
+/// The presented layer tree and the committed animations of a window view,
+/// in the shape of MessagesLab's harness output (its tools/diff-harness is a
+/// MessagesLab test driver and is not vendored; scripts/cmux-next/
+/// home-messageslab-harness.sh runs it from a MessagesLab checkout).
+@MainActor
+enum LayerDump {
+    static let hidden = 9, opacity = 4
+
+    /// Named layers: rows by key and role, morphs, the compose glass, the clip mask.
+    static func named(_ view: MessagesWindowView) -> [(String, CALayer)] {
+        var out: [(String, CALayer)] = []
+        for case let cell as RowCell in view.collection.visibleCells {
+            guard let key = cell.spec?.key, !cell.isHidden else { continue }
+            let p = "row[\(key)]"
+            out += [(p + "/cell", cell.layer), (p + "/content", cell.contentView.layer), (p + "/bitmap", cell.bitmap),
+                    (p + "/fill", cell.fillContainer), (p + "/connector", cell.connector), (p + "/connectorLine", cell.connectorLine),
+                    (p + "/typing", cell.typingContainer), (p + "/receiptOld", cell.receiptOld)]
+            for (i, d) in cell.dots.enumerated() { out.append((p + "/dot\(i)", d)) }
+        }
+        for (key, m) in view.morphs.sorted(by: { $0.key < $1.key }) {
+            let p = "morph[\(key)]"
+            out += [(p + "/holder", m.holder), (p + "/bubble", m.bubble), (p + "/body", m.body), (p + "/text", m.text),
+                    (p + "/blurred", m.blurred), (p + "/tail", m.tail), (p + "/underlay", m.underlay)]
+        }
+        out += [("compose/glass", view.compose.glass), ("clipMask", view.clipMask), ("transcript", view.collection.layer)]
+        return out
+    }
+
+    /// One tick: window frame, opacity, transform, corner radius, hidden of every named layer.
+    static func frame(_ t: Double, _ view: MessagesWindowView) -> String {
+        let root = view.layer
+        let items = named(view).map { name, l -> String in
+            let f = l.convert(l.bounds, to: root)
+            let a = CATransform3DGetAffineTransform(l.transform)
+            let v: [Double] = [f.minX, f.minY, f.width, f.height, Double(l.opacity), a.a, a.d, a.tx, a.ty, l.isHidden ? 1 : 0]
+            return "\"\(name)\":[" + v.map { $0.isFinite ? String(format: "%.4f", $0) : "0" }.joined(separator: ",") + "]"
+        }.sorted()
+        return "{\"t\":\(String(format: "%.5f", t)),\"L\":{" + items.joined(separator: ",") + "}}"
+    }
+
+    /// Every animation on the named layers as committed: key path, kind,
+    /// begin, duration, from/to, spring constants, keyframes, additive.
+    static func animations(_ t: Double, _ view: MessagesWindowView) -> String {
+        var out: [String: [[String: Any]]] = [:]
+        for (n, l) in named(view) {
+            var list: [[String: Any]] = []
+            for k in l.animationKeys() ?? [] {
+                guard let a = l.animation(forKey: k) as? CAPropertyAnimation else { continue }
+                var d: [String: Any] = ["keyPath": a.keyPath ?? "", "begin": (a.beginTime * 1e6).rounded() / 1e6,
+                                        "duration": (a.duration * 1e6).rounded() / 1e6, "additive": a.isAdditive,
+                                        "kind": String(describing: type(of: a))]
+                if let s = a as? CASpringAnimation {
+                    d["from"] = (s.fromValue as? NSNumber)?.doubleValue ?? 0; d["to"] = (s.toValue as? NSNumber)?.doubleValue ?? 0
+                    d["stiffness"] = s.stiffness; d["damping"] = s.damping; d["v0"] = s.initialVelocity
+                } else if let b = a as? CABasicAnimation {
+                    d["from"] = (b.fromValue as? NSNumber)?.doubleValue ?? 0; d["to"] = (b.toValue as? NSNumber)?.doubleValue ?? 0
+                    d["timing"] = b.timingFunction.map { f -> [Float] in
+                        var p: [Float] = []
+                        for i in 0..<4 { var c: [Float] = [0, 0]; f.getControlPoint(at: i, values: &c); p += c }
+                        return p
+                    } ?? []
+                }
+                if let kf = a as? CAKeyframeAnimation {
+                    d["values"] = (kf.values as? [NSNumber])?.map(\.doubleValue) ?? []
+                }
+                list.append(d)
+            }
+            list.sort { "\($0["keyPath"]!)\($0["begin"]!)\($0["from"] ?? 0)" < "\($1["keyPath"]!)\($1["begin"]!)\($1["from"] ?? 0)" }
+            if !list.isEmpty { out[n] = list }
+        }
+        let obj: [String: Any] = ["t": t, "layers": out]
+        guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) else { return "{}" }
+        return String(data: data, encoding: .utf8) ?? "{}"
     }
 }

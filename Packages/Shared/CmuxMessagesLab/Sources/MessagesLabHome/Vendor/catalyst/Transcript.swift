@@ -317,6 +317,27 @@ final class RowCell: UICollectionViewCell {
     var dots: [CALayer] = []
     let receiptOld = CALayer()
     static var synchronousBitmaps = false
+    /// Rows drawn on the main thread because their bitmap was not ready
+    /// (bench evidence).
+    static var syncRenders = 0
+    /// Rows past the budget that waited for an off-main bitmap.
+    static var overBudget = 0
+    /// Main-thread drawing per run-loop turn (one frame's work): enough for
+    /// a send, a reply, receipts and a normal scroll; a fling faster than the
+    /// prefetch draws the rest off main.
+    static let mainDrawBudget: CFTimeInterval = 0.003
+    static var mainDrawSpent: CFTimeInterval = 0
+    private static var turnObserver: CFRunLoopObserver?
+    static func mainDrawBudgetLeft() -> Bool {
+        if turnObserver == nil {
+            let o = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { _, _ in
+                RowCell.mainDrawSpent = 0
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), o, .commonModes)
+            turnObserver = o
+        }
+        return mainDrawSpent < mainDrawBudget
+    }
 
     /// Cells created and reused (bench evidence for the fling).
     static var created = 0, reused = 0, destroyed = 0
@@ -414,6 +435,10 @@ final class RowCell: UICollectionViewCell {
 
     private var palette = Fixture.paletteGeneration
     func configure(_ spec: RowSpec) {
+        // Whether this cell already shows this row (its bitmap may be stale:
+        // new palette or new content) before anything changes.
+        let showingThisRow = key == spec.key && bitmap.contents != nil
+        let repaint = palette != Fixture.paletteGeneration
         if key != spec.key { clearAnimations(); applied = []; key = spec.key }
         if palette != Fixture.paletteGeneration {
             palette = Fixture.paletteGeneration
@@ -429,39 +454,66 @@ final class RowCell: UICollectionViewCell {
             CATransaction.commit()
             self.spec = nil
         }
-        guard self.spec != spec else { return }
+        // Same row and a bitmap on screen: nothing to do. Same row without a
+        // bitmap (its off-main bitmap is still pending, or the cell came back
+        // from the pool before it arrived): configure again.
+        guard self.spec != spec || bitmap.contents == nil else { return }
         self.spec = spec
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
-        bitmap.frame = CGRect(origin: CGPoint(x: span.lowerBound, y: 0), size: size)
+        let bitmapFrame = CGRect(origin: CGPoint(x: span.lowerBound, y: 0), size: size)
         if case .typing = spec.kind {
             setTyping(true, spec)
         } else {
             setTyping(false, spec)
         }
         configureFill(spec)
+        // A visible row never shows empty contents (dogfood: "the message
+        // disappears and reappears"; appkit-native --flash-check). The frame
+        // and the bitmap change together:
+        // - cached: swap now;
+        // - not cached, and the row is new to this cell or its content changed
+        //   (send, receipt, tail, typing, reply): draw it now, on this
+        //   thread (one row, about a millisecond), so this frame shows it;
+        // - not cached after a palette change (every visible row at once,
+        //   window key state or display): keep the previous bitmap and frame
+        //   until the new bitmap arrives, then swap both in one transaction.
         // Old bitmaps are freed off the main thread (vm_deallocate blocked main
         // for up to 291 ms in the uikit-virtual profile).
-        Reclaimer.release(bitmap.contents)
         Reclaimer.release(receiptOld.contents)
-        if RowCell.synchronousBitmaps {
-            let img = RowBitmaps.shared.image(for: spec) ?? RowBitmaps.render(spec)
-            RowBitmaps.shared.insert([(spec, img)])
+        if let img = RowBitmaps.shared.image(for: spec) {
+            Reclaimer.release(bitmap.contents)
+            bitmap.frame = bitmapFrame
             bitmap.contents = img
-        } else if let img = RowBitmaps.shared.image(for: spec) {
+        } else if RowCell.synchronousBitmaps || (!(repaint && showingThisRow) && RowCell.mainDrawBudgetLeft()) {
+            let t0 = CACurrentMediaTime()
+            let img = RowBitmaps.render(spec)
+            RowCell.mainDrawSpent += CACurrentMediaTime() - t0
+            RowBitmaps.shared.insert([(spec, img)])
+            RowCell.syncRenders += 1
+            Reclaimer.release(bitmap.contents)
+            bitmap.frame = bitmapFrame
             bitmap.contents = img
         } else {
-            bitmap.contents = nil
+            // Palette change: the previous bitmap stays. Over the main-thread
+            // budget (a fling faster than the prefetch, about 70,000 pt/s in
+            // the bench): the row waits for its off-main bitmap.
             let want = spec
+            if !(repaint && showingThisRow) {
+                RowCell.overBudget += 1
+                Reclaimer.release(bitmap.contents)
+                bitmap.frame = bitmapFrame
+                bitmap.contents = nil
+            }
             RowBitmaps.shared.request(want) { [weak self] img in
                 guard let self, self.spec == want else { return }
-                // No explicit transaction here: delivered outside a run-loop
-                // transaction, an explicit commit flushed to the render server
-                // once per bitmap (the fling profile's top main-thread cost).
-                // `contents` has no implicit action on this layer.
+                CATransaction.begin(); CATransaction.setDisableActions(true)
+                Reclaimer.release(self.bitmap.contents)
+                self.bitmap.frame = bitmapFrame
                 self.bitmap.contents = img
+                CATransaction.commit()
             }
         }
         receiptOld.contents = nil

@@ -4,21 +4,23 @@
 # Mac, never on a laptop (it renders offscreen with AppKit).
 #
 #   home-messageslab-harness.sh oracle MESSAGESLAB_DIR OUT
-#       Builds MessagesLabAppKitNative from MESSAGESLAB_DIR (a checkout or a
-#       `git archive` of the pinned commit, vendor.tsv) with swiftc and the
+#       Builds MessagesLabAppKitNative from MESSAGESLAB_DIR (a `git archive`
+#       of the pinned commit, vendor.tsv) with swiftc and the
 #       flags of appkit-native/project.yml (Swift 5, APPKIT_NATIVE, -Onone like
 #       the test build), and writes its `--diff-harness` run (no pixels) to
 #       OUT. Needs Xcode 27 (the upstream sources use the macOS 27 SDK).
 #
-#   home-messageslab-harness.sh compare OUT [ORACLE_OUT]
-#       From the cmux checkout: runs the vendored harness suites, each in its
-#       own process (swift test), and compares:
+#   home-messageslab-harness.sh compare OUT [ORACLE_OUT MESSAGESLAB_DIR]
+#       From the cmux checkout: runs the harness suites, each in its own
+#       process (swift test), and compares:
 #         1. OUT/home: the Home path (HomeStore snapshots -> adapter) against
 #            MessagesLab's actions for send, delivered, read, typing, receive,
 #            external insert and tapback: animations.ndjson must be identical
 #            (the test also checks every visible layer of every tick);
-#         2. with ORACLE_OUT: OUT/vendored (MessagesLab's own script on the
-#            vendored files) against the upstream app's run:
+#         2. with ORACLE_OUT and MESSAGESLAB_DIR: MessagesLab's own harness
+#            (tools/diff-harness/Harness.swift from MESSAGESLAB_DIR, copied
+#            for this run only into the gitignored Tests/.../Upstream, never
+#            vendored) on the vendored files, against the upstream app's run:
 #            animations.ndjson byte-identical, plus diff.py's geometry report.
 set -euo pipefail
 repo="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -68,13 +70,34 @@ compare)
     echo "home path: animations.ndjson DIFFERS"; status=1
   fi
   if [[ -n "$oracle" ]]; then
-    (cd "$pkg" && MESSAGESLAB_HARNESS_OUT="$out/vendored" swift test --skip-build --filter UpstreamHarnessTests)
+    ml="$4"
+    up="$pkg/Tests/MessagesLabHomeTests/Upstream"
+    trap 'rm -rf "$up"' EXIT
+    mkdir -p "$up" "$out/fixtures"
+    { echo "@testable import MessagesLabHome"; cat "$ml/tools/diff-harness/Harness.swift"; } > "$up/Harness.swift"
+    cp "$ml/shared/conversation.json" "$out/fixtures/"
+    cp -R "$ml/shared/assets" "$out/fixtures/assets"
+    cp -R "$ml/catalyst/Fixtures/real" "$out/fixtures/real"
+    cat > "$up/UpstreamRun.swift" <<'SWIFT'
+import Foundation
+import Testing
+@testable import MessagesLabHome
+
+@MainActor @Suite struct UpstreamHarnessTests {
+    @Test func messagesLabsScriptOnTheVendoredCode() {
+        let env = ProcessInfo.processInfo.environment
+        Fixtures.root = URL(fileURLWithPath: env["MESSAGESLAB_FIXTURES"]!)
+        DiffHarness.runOffscreen(outDir: env["MESSAGESLAB_HARNESS_OUT"]!, arguments: ["--no-pixels"])
+    }
+}
+SWIFT
+    (cd "$pkg" && MESSAGESLAB_FIXTURES="$out/fixtures" MESSAGESLAB_HARNESS_OUT="$out/vendored" swift test --filter UpstreamHarnessTests)
     if cmp -s "$oracle/animations.ndjson" "$out/vendored/animations.ndjson"; then
       echo "vendored: animations.ndjson byte-identical to MessagesLabAppKitNative ($(wc -l < "$oracle/animations.ndjson") transitions)"
     else
       echo "vendored: animations.ndjson DIFFERS from MessagesLabAppKitNative"; status=1
     fi
-    python3 "$pkg/Harness/diff.py" "$oracle" "$out/vendored" --md "$out/vendored-report.md" --json "$out/vendored-report.json" || true
+    python3 "$ml/tools/diff-harness/diff.py" "$oracle" "$out/vendored" --md "$out/vendored-report.md" --json "$out/vendored-report.json" || true
     echo "report: $out/vendored-report.md"
   fi
   exit $status

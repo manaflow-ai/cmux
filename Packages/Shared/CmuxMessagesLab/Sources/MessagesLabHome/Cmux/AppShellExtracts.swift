@@ -1,11 +1,9 @@
 import AppKit
 
-// Extracted verbatim from appkit-native/Sources/App.swift and Bench.swift at
-// 3a53206: the parts of the app shell that the vendored files use. The rest
-// of those files (the @main app, the menu bar, the window, capture, bench,
-// self test, probes) belongs to the standalone app and is not vendored.
-// cmux edits: `bundle: .module` on the strings (the catalog is the
-// package's); `MallocCounter.install` is left out (bench only).
+// The app-shell symbols the vendored files use, taken from MessagesLab
+// appkit-native/Sources/App.swift, Bench.swift and ResolutionAudit.swift
+// (which are not vendored: standalone-app drivers). cmux edits: `bundle:
+// .module` on the strings; no malloc hook and no audit (stubs).
 
 /// Strings of the AppKit shell (menus, buttons); the transcript's strings come
 /// from the catalyst catalog.

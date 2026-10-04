@@ -1,3 +1,10 @@
+// cmux's host for the vendored MessagesLab files, derived from
+// MessagesLab appkit-native/Sources/Host.swift (not vendored: the MessagesLab
+// session keeps Host.swift a standalone-app driver). It keeps Host.swift's
+// type names and layer order (below, scroll, header backdrop, selection,
+// morph, field chrome, compose, above) because the vendored NativeScroll and
+// TranscriptAccess refer to ChatController and HostView. The differences
+// from Host.swift are marked `cmux:`.
 import AppKit
 import AVFoundation
 import UniformTypeIdentifiers

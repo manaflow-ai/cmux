@@ -1,0 +1,59 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
+@@ -50,11 +50,20 @@
+     /// Bumped by a palette or a scale change: cached bitmaps are stale.
+     static fileprivate(set) var paletteGeneration = 0
+ 
+-    static var background: UIColor { UIColor(white: (inactive ? 30 : 25) / 255, alpha: 1) }
+-    static var incoming: UIColor { UIColor(white: (inactive ? 59 : 49) / 255, alpha: 1) }
+-    static let outgoing = UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1)
+-    static var connector: UIColor { UIColor(white: (inactive ? 66 : 80) / 255, alpha: 1) }
+-    static var badge: UIColor { inactive ? UIColor(white: 59 / 255, alpha: 1) : UIColor(red: 59 / 255, green: 59 / 255, blue: 61 / 255, alpha: 1) }
++    /// cmux: the app theme's colours (the cmux-next Ghostty theme and the
++    /// user's accent), set by the Home host; a change bumps
++    /// `paletteGeneration`. nil keeps the measured Messages palette below
++    /// (fixtures, the differential harness).
++    static var theme: FixtureTheme? { didSet { if theme != oldValue { paletteGeneration += 1 } } }
++    private static func themed(_ pick: (FixtureTheme.Colors) -> UIColor) -> UIColor? {
++        theme.map { pick(inactive ? $0.inactive : $0.active) }
++    }
++
++    static var background: UIColor { themed(\.background) ?? UIColor(white: (inactive ? 30 : 25) / 255, alpha: 1) }
++    static var incoming: UIColor { themed(\.incoming) ?? UIColor(white: (inactive ? 59 : 49) / 255, alpha: 1) }
++    static var outgoing: UIColor { themed(\.outgoing) ?? UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) }
++    static var connector: UIColor { themed(\.connector) ?? UIColor(white: (inactive ? 66 : 80) / 255, alpha: 1) }
++    static var badge: UIColor { themed(\.badge) ?? (inactive ? UIColor(white: 59 / 255, alpha: 1) : UIColor(red: 59 / 255, green: 59 / 255, blue: 61 / 255, alpha: 1)) }
+     /// Outgoing bubbles shade with their position in the window (measured:
+     /// lighter near the top, deeper blue near the compose field).
+     /// (window y in 2x px, red, green), measured from bubble centers.
+@@ -73,9 +82,26 @@
+     }
+     private static let activeGradient = gradient(activeStops, blue: 253)
+     private static let inactiveGradient = gradient(activeStops.map { ($0.0, 0.5 * $0.1 + 61, 0.67 * $0.2 + 57) }, blue: 248)
+-    static var outgoingGradient: CGGradient { inactive ? inactiveGradient : activeGradient }
+-    static let incomingText = UIColor(white: 220 / 255, alpha: 1)
+-    static let outgoingText = UIColor.white
+-    static let secondaryText = UIColor(white: 148 / 255, alpha: 1)
++    /// cmux: the themed outgoing gradient as (2x px window y, colour) stops;
++    /// nil keeps the measured stops (`gradientStops`, `gradientBlue`).
++    static var themedGradient: [(CGFloat, UIColor)]? { theme.map { (inactive ? $0.inactive : $0.active).gradientStops } }
++    static func color(in s: [(CGFloat, UIColor)], atPx px: CGFloat) -> UIColor {
++        guard s.count > 1 else { return s.first?.1 ?? outgoing }
++        var i = 1
++        while i < s.count - 1, s[i].0 < px { i += 1 }
++        let a = s[i - 1], b = s[i]
++        let f = max(0, min(1, (px - a.0) / max(1, b.0 - a.0)))
++        let ca = a.1.usingColorSpace(.sRGB) ?? a.1, cb = b.1.usingColorSpace(.sRGB) ?? b.1
++        return UIColor(red: ca.redComponent + (cb.redComponent - ca.redComponent) * f,
++                       green: ca.greenComponent + (cb.greenComponent - ca.greenComponent) * f,
++                       blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)
++    }
++    static var outgoingGradient: CGGradient {
++        if let t = theme { return (inactive ? t.inactive : t.active).outgoingGradient }
++        return inactive ? inactiveGradient : activeGradient
++    }
++    static var incomingText: UIColor { themed(\.incomingText) ?? UIColor(white: 220 / 255, alpha: 1) }
++    static var outgoingText: UIColor { themed(\.outgoingText) ?? UIColor.white }
++    static var secondaryText: UIColor { themed(\.secondaryText) ?? UIColor(white: 148 / 255, alpha: 1) }
+ }
+ 

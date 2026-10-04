@@ -1,0 +1,12 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
+@@ -537,7 +537,8 @@
+         // Two or more questions in one turn: one answer each (the earlier ones
+         // end up threaded, because a newer question follows them).
+         if questions.count >= 2 {
+-            return questions.prefix(3).map { q in answer(q, beats: questionBeats(text(of: q))) }
++            // cmux: `self.` (Swift 6.2, Xcode 26.6, resolves `text` to the local below).
++            return questions.prefix(3).map { q in answer(q, beats: questionBeats(self.text(of: q))) }
+         }
+         let all = meaningful.flatMap(\.parts)
+         let text = meaningful.compactMap { m in m.parts.compactMap(\.plainText).joined(separator: " ") }.joined(separator: " ")

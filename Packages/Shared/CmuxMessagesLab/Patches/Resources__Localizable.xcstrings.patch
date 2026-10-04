@@ -1,0 +1,18 @@
+--- a/Sources/MessagesLabHome/Resources/Localizable.xcstrings
++++ b/Sources/MessagesLabHome/Resources/Localizable.xcstrings
+@@ -24,13 +24,13 @@
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "iMessage"
++            "value": "Message"
+           }
+         },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "iMessage"
++            "value": "メッセージ"
+           }
+         }
+       }

@@ -1,0 +1,97 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
+@@ -635,7 +635,7 @@
+ enum Format {
+     private static let timeFormatter: DateFormatter = {
+         let f = DateFormatter()
+-        f.locale = Locale(identifier: "en_US")
++        f.locale = Instant.locale
+         f.timeZone = Instant.zone
+         f.dateFormat = "h:mm\u{202F}a"
+         return f
+@@ -644,7 +644,7 @@
+     private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
+     private static func formatter(_ f: String) -> DateFormatter {
+         let d = DateFormatter()
+-        d.locale = Locale(identifier: "en_US")
++        d.locale = Instant.locale
+         d.timeZone = Instant.zone
+         d.dateFormat = f
+         return d
+@@ -663,45 +663,47 @@
+     static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
+ }
+ 
++/// cmux: `bundle: .module` (the catalog is the package's, not the app's).
+ enum Strings {
+-    static var today: String { String(localized: "separator.today", defaultValue: "Today") }
+-    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday") }
+-    static var read: String { String(localized: "receipt.read", defaultValue: "Read") }
+-    static var delivered: String { String(localized: "receipt.delivered", defaultValue: "Delivered") }
+-    static var edited: String { String(localized: "label.edited", defaultValue: "Edited") }
+-    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered") }
+-    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message") }
+-    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent") }
+-    static func replies(_ n: Int) -> String {
+-        String(format: String(localized: "label.replies", defaultValue: "%lld Replies"), n)
++    static var today: String { String(localized: "separator.today", defaultValue: "Today", bundle: .module) }
++    static var yesterday: String { String(localized: "separator.yesterday", defaultValue: "Yesterday", bundle: .module) }
++    static var read: String { String(localized: "receipt.read", defaultValue: "Read", bundle: .module) }
++    static var delivered: String { String(localized: "receipt.delivered", defaultValue: "Delivered", bundle: .module) }
++    static var edited: String { String(localized: "label.edited", defaultValue: "Edited", bundle: .module) }
++    static var notDelivered: String { String(localized: "label.notDelivered", defaultValue: "Not Delivered", bundle: .module) }
++    static var unsentMine: String { String(localized: "row.unsent.mine", defaultValue: "You unsent a message", bundle: .module) }
++    static var unsentTheirs: String { String(localized: "row.unsent.theirs", defaultValue: "A message was unsent", bundle: .module) }
++    static func replies(_ n: Int) -> String {
++        String(format: String(localized: "label.replies", defaultValue: "%lld Replies", bundle: .module), n)
+     }
+-    static var location: String { String(localized: "preview.location", defaultValue: "Location") }
++    static var location: String { String(localized: "preview.location", defaultValue: "Location", bundle: .module) }
+     static func fileKind(_ a: Attachment) -> String {
+         switch (a.fileName as NSString).pathExtension.lowercased() {
+-        case "pdf": return String(localized: "file.kind.pdf", defaultValue: "PDF Document")
+-        case "zip": return String(localized: "file.kind.zip", defaultValue: "ZIP Archive")
+-        case "m4a", "mp3", "wav", "aac": return String(localized: "file.kind.audio", defaultValue: "Audio Recording")
+-        default: return String(localized: "file.kind.document", defaultValue: "Document")
++        case "pdf": return String(localized: "file.kind.pdf", defaultValue: "PDF Document", bundle: .module)
++        case "zip": return String(localized: "file.kind.zip", defaultValue: "ZIP Archive", bundle: .module)
++        case "m4a", "mp3", "wav", "aac": return String(localized: "file.kind.audio", defaultValue: "Audio Recording", bundle: .module)
++        default: return String(localized: "file.kind.document", defaultValue: "Document", bundle: .module)
+         }
+     }
+-    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "iMessage") }
+-    static var replyPlaceholder: String { String(localized: "compose.placeholder.reply", defaultValue: "Reply") }
+-    static var menuReply: String { String(localized: "menu.reply", defaultValue: "Reply") }
+-    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy") }
+-    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit") }
+-    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send") }
+-    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback") }
++    // cmux: not "iMessage" (Apple's service name).
++    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "Message", bundle: .module) }
++    static var replyPlaceholder: String { String(localized: "compose.placeholder.reply", defaultValue: "Reply", bundle: .module) }
++    static var menuReply: String { String(localized: "menu.reply", defaultValue: "Reply", bundle: .module) }
++    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy", bundle: .module) }
++    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit", bundle: .module) }
++    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send", bundle: .module) }
++    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback", bundle: .module) }
+     static func tapbackName(_ t: String) -> String {
+         switch t {
+-        case "love": return String(localized: "tapback.love", defaultValue: "Love")
+-        case "like": return String(localized: "tapback.like", defaultValue: "Like")
+-        case "dislike": return String(localized: "tapback.dislike", defaultValue: "Dislike")
+-        case "laugh": return String(localized: "tapback.laugh", defaultValue: "Laugh")
+-        case "emphasize": return String(localized: "tapback.emphasize", defaultValue: "Emphasize")
+-        default: return String(localized: "tapback.question", defaultValue: "Question")
++        case "love": return String(localized: "tapback.love", defaultValue: "Love", bundle: .module)
++        case "like": return String(localized: "tapback.like", defaultValue: "Like", bundle: .module)
++        case "dislike": return String(localized: "tapback.dislike", defaultValue: "Dislike", bundle: .module)
++        case "laugh": return String(localized: "tapback.laugh", defaultValue: "Laugh", bundle: .module)
++        case "emphasize": return String(localized: "tapback.emphasize", defaultValue: "Emphasize", bundle: .module)
++        default: return String(localized: "tapback.question", defaultValue: "Question", bundle: .module)
+         }
+     }
+-    static var laughGlyph: String { String(localized: "tapback.laugh.glyph", defaultValue: "HA\nHA") }
++    static var laughGlyph: String { String(localized: "tapback.laugh.glyph", defaultValue: "HA\nHA", bundle: .module) }
+ }
+ 
+ extension CGSize: @retroactive Hashable {
