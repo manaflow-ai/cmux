@@ -30,6 +30,8 @@ public final class HomeStore {
     @ObservationIgnored private var pendingResends: [HomeIntent] = []
     @ObservationIgnored private var refetching: Set<HomeStream> = []
     @ObservationIgnored private var olderLoading: Set<ConversationID> = []
+    /// Views showing each conversation's transcript now (`open` minus `close`).
+    @ObservationIgnored private var viewers: [ConversationID: Int] = [:]
     @ObservationIgnored private var stopped = false
 
     /// Messages fetched when a conversation opens.
@@ -86,16 +88,32 @@ public final class HomeStore {
 
     // MARK: Paging
 
-    /// Loads the newest messages of a conversation the first time it opens.
-    /// Events committed while the page loads are buffered and kept.
+    /// A view shows the conversation's transcript; each call pairs with one
+    /// `close`. Loads the newest messages the first time it opens. Events
+    /// committed while the page loads are buffered and kept.
     public func open(_ id: ConversationID) async {
+        viewers[id, default: 0] += 1
         guard mirror.windows[id] == nil else { return }
         mirror.beginLoading(id)
         await refetch(.conversation(id))
     }
 
-    /// The conversation's transcript left the screen. Pairs with `open`.
-    public func close(_ id: ConversationID) {}
+    /// A view of the conversation's transcript went away; pairs with one
+    /// `open`. When the last one goes, the transcript is on screen nowhere:
+    /// the store drops its window (the next `open` loads it again) and tells
+    /// the source, which may end what it keeps for it (a cloud
+    /// subscription, an archived conversation shown only while open).
+    public func close(_ id: ConversationID) {
+        guard let count = viewers[id] else { return }
+        guard count <= 1 else {
+            viewers[id] = count - 1
+            return
+        }
+        viewers[id] = nil
+        mirror.endTranscript(id)
+        bumpTranscript(id)
+        source.close(id)
+    }
 
     public func loadOlder(_ id: ConversationID) async {
         guard let window = mirror.windows[id], !window.reachedStart, let first = window.firstSeq,

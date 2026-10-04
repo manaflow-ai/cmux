@@ -473,6 +473,24 @@ nonisolated final class CloudHomeSource: HomeSource {
         }
     }
 
+    /// The transcript left the screen ("open" means on screen now): its
+    /// subscription ends, and a conversation the inbox does not list (one
+    /// opened from the archive, a deep link or a notification) leaves the
+    /// inbox. A listed one stays as UserDO lists it.
+    func close(_ conversation: ConversationID) {
+        var ending: (any CloudConversationCommands)?
+        publish { state in
+            guard state.targets.removeValue(forKey: conversation) != nil else { return nil }
+            state.recent.removeAll { $0 == conversation }
+            ending = state.commands
+            guard state.entries[conversation] == nil, !state.created.contains(conversation) else { return nil }
+            state.heads[conversation] = nil
+            state.inboxRev += 1
+            return .conversationRemoved(conversation, inboxRev: state.inboxRev)
+        }
+        unsubscribe([conversation], commands: ending)
+    }
+
     /// Home search is not in cloud-conversations-v1 part 1.
     func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] { [] }
 
@@ -772,9 +790,9 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// The listed conversations, the ones this source created and not yet
     /// listed, and the open ones: a conversation the user opened (subscribed,
     /// from a deep link, a notification or the archive) stays while it is
-    /// open, unless UserDO took it out of the inbox since. It leaves when
-    /// its subscription ends (the least recently used of 64, a closed
-    /// socket, or an account change).
+    /// on screen, unless UserDO took it out of the inbox since. It leaves
+    /// when its subscription ends (its transcript closed, the least recently
+    /// used of 64, a closed socket, or an account change).
     private func snapshot(_ state: inout State) -> InboxSnapshot {
         state.inboxRev += 1
         let open = Set(state.targets.keys).subtracting(state.entries.keys).subtracting(state.created).subtracting(state.removed)

@@ -87,6 +87,13 @@ public struct HomeMirror: Hashable, Sendable {
         return joined
     }
 
+    /// The transcript left the screen: its window goes, so nothing is
+    /// fetched for it until it opens again, and that open loads its tail.
+    public mutating func endTranscript(_ conversation: ConversationID) {
+        windows[conversation] = nil
+        stale.remove(.conversation(conversation))
+    }
+
     /// A refetch failed: the stream stays stale until a later fetch succeeds.
     public mutating func markStale(_ stream: HomeStream) { stale.insert(stream) }
 

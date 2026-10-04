@@ -111,6 +111,12 @@ nonisolated final class HomeSourceRouter: HomeSource {
         try await cloud.resolve(contact)
     }
 
+    /// A closed transcript goes to its owner; one no owner reported was
+    /// never opened on the cloud, and the local owner ignores it.
+    func close(_ conversation: ConversationID) {
+        if state.withLock({ $0.owners[conversation] }) == .cloud { cloud.close(conversation) } else { local.close(conversation) }
+    }
+
     // MARK: Routing
 
     /// The owner that reported `conversation`.
