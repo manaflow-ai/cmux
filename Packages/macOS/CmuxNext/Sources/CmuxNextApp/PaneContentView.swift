@@ -19,6 +19,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     var onResize: (() -> Void)?
     var onPaneHeaderHeightChange: (() -> Void)?
     private var contentCornerRadius: CGFloat = 0
+    /// The edge the strip sits on (`tabs.barPosition`, R109).
+    var barPosition: TabBarPosition = .top
     private var reportedHeader: CGFloat = -1
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and

@@ -6,6 +6,14 @@ public import CmuxNextDesign
 public nonisolated enum ChromePlacementSetting {
     public static let sidebarSidePath = ["sidebar", "side"]
     public static let spacesPositionPath = ["sidebar", "spacesPosition"]
+    public static let tabBarPositionPath = ["tabs", "barPosition"]
+
+    /// The title bar the window uses: `window.titlebar`, except standard
+    /// while tab bars sit at the bottom (the traffic lights then need a row
+    /// that is not content).
+    public static func effectiveTitlebar(_ snapshot: CmuxConfigSnapshot) -> TitlebarStyle {
+        snapshot.titlebar
+    }
 
     static func parse(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
         snapshot.sidebarSide = choice(root, sidebarSidePath, fallback: .left, &snapshot.diagnostics)

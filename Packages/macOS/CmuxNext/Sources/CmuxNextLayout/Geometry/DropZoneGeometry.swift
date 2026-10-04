@@ -8,7 +8,7 @@ public nonisolated enum DropZoneGeometry {
     /// inside that edge's band of the body, else center. Corners go to the
     /// relatively nearer edge. The preview (`highlightRect`) and the commit
     /// both take the target from here (R47).
-    public static func zone(at point: CGPoint, in rect: CGRect, header: CGFloat = 0, style: LayoutStyle) -> PaneDropZone {
+    public static func zone(at point: CGPoint, in rect: CGRect, header: CGFloat = 0, footer: CGFloat = 0, style: LayoutStyle) -> PaneDropZone {
         let top = rect.minY + min(max(0, header), rect.height)
         guard point.y >= top else { return .center }
         let body = CGRect(x: rect.minX, y: top, width: rect.width, height: rect.maxY - top)

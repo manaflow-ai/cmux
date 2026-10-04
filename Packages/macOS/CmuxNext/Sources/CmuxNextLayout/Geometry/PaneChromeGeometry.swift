@@ -55,7 +55,7 @@ public nonisolated enum PaneChromeGeometry {
     /// whose hosted view has a `headerHeight`-point header (tab strip,
     /// browser toolbar) on top: the border, ring and rounding leave the
     /// header out. Flipped coordinates (y grows down).
-    public static func roundedRect(inPadded padded: CGRect, headerHeight: CGFloat) -> CGRect {
+    public static func roundedRect(inPadded padded: CGRect, headerHeight: CGFloat, footerHeight: CGFloat = 0) -> CGRect {
         let top = min(max(0, headerHeight), padded.height)
         return CGRect(x: padded.minX, y: padded.minY + top, width: padded.width, height: padded.height - top)
     }

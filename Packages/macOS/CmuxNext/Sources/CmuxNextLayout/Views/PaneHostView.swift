@@ -64,6 +64,8 @@ final class PaneHostView: NSView {
 
     /// Height of the content's header (tab strip, toolbar); 0 without one.
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
+    /// Height of the content's footer (a tab strip at the bottom); 0 without one.
+    var footerHeight: CGFloat { 0 }
 
     /// The padded rect the content view fills, in this view's coordinates.
     var contentRect: CGRect { clipView.frame }
