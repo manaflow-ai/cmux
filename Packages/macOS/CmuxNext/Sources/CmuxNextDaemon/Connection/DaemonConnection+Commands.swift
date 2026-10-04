@@ -199,7 +199,7 @@ extension DaemonConnection {
         _ = try await request(SetColumnWidthRequest(pane: pane, width: width, transaction: transaction))
     }
 
-    /// `set-column-sticky` for the column holding `pane`; nil unpins it.
+    /// `set-column-dock` for the column holding `pane`; nil unpins it.
     public func setColumnDock(of pane: PaneID, dock: DockSnapshot?, transaction: UInt64? = nil) async throws {
         _ = try await request(SetColumnDockRequest(pane: pane, dock: dock, transaction: transaction))
     }

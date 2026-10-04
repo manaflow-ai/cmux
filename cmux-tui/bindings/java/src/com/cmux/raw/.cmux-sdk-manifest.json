@@ -357,8 +357,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "ad59d942ede04f936bd379f8bf94b2b07774fad327ac4b87aadc15db57cb9228",
-      "size": 56290
+      "sha256": "247429e2555a82c2d66841e836e1fda1d3c7b93d8a557a4ca34a76e12d3b3349",
+      "size": 56276
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -777,8 +777,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "3b14f1f0ad7258227c7ceb4d8ff8026e554c69a21f35e07daac17f303ed46a52",
-      "size": 49813
+      "sha256": "39567fdbb3593758aeed03bddfb7db775198a151fdc14dc83c6abacc8e491f5d",
+      "size": 49807
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1127,8 +1127,8 @@
     },
     {
       "path": "MoveTabToColumnRequest.java",
-      "sha256": "60b05ec256e8df14c49dae80fc33a5014aedb0052d9d905aadbfe7d77ff7a5e2",
-      "size": 6667
+      "sha256": "f4eb18d53ab42062b0e10862cb132bb997bd35443559333cb921fbdb4cb32dbe",
+      "size": 6629
     },
     {
       "path": "MoveTabToNewWorkspaceRequest.java",
@@ -1362,7 +1362,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "80b9a3948b05168605f8f657d5f1cb48f4312e4e4a1f10c5c543f99c70ba276d",
+      "sha256": "d876a2af6224f1487ad99ad832f5ab32f6a28edc89a9a17c27b1ef534dc4362e",
       "size": 4943
     },
     {
@@ -1761,9 +1761,9 @@
       "size": 4048
     },
     {
-      "path": "SetColumnStickyRequest.java",
-      "sha256": "be3c8cd258a5a089238e97d7bde89f9f7725e1b3f1fba9e097ed37e9f3feb501",
-      "size": 4587
+      "path": "SetColumnDockRequest.java",
+      "sha256": "8110d72b99f26ad724f9487deb0e1d69f7ac882265ba21a8dfdc3eeff0a0d960",
+      "size": 4515
     },
     {
       "path": "SetDefaultColorsRequest.java",
@@ -2437,7 +2437,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4",
+  "ir_sha256": "cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

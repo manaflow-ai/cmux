@@ -157,7 +157,7 @@ v1), scroll offsets and focus are client view state.
 
 | Op | Effect | Rejects |
 | --- | --- | --- |
-| `SetPin { column, pin: Option<Pin> }` | pins or unpins a column in place (generalizes `set-column-sticky` to four edges); E1, E2 in the same commit | top/bottom on a column with more than one row (`dock-needs-one-row`); last strip column (`last-scrolling-column`) |
+| `SetPin { column, pin: Option<Pin> }` | pins or unpins a column in place (generalizes `set-column-dock` to four edges); E1, E2 in the same commit | top/bottom on a column with more than one row (`dock-needs-one-row`); last strip column (`last-scrolling-column`) |
 | `PinRow { row, edge: top \| bottom, mode, new_column, extent_permille }` | "Make Row Docked Top/Bottom": lifts one row out of its column into a new dock column; an emptied source column is removed (and normalized) in the same commit | left/right edge; the pin would not survive normalization (the row is the only row of the last strip column), which TLC found as an op that only churns ids |
 | `MoveTab { tab, to: Destination::Dock { edge, mode, new_column, new_row, new_pane, extent_permille } }` | a dropped or moved tab opens the dock on that edge (or joins its pane when the dock exists: `Destination::Pane`) | dock exists on that edge (the resolver names its pane instead) |
 | `UnpinDock { column, after_column }` | a dock becomes a strip column after `after_column` (the client resolves it; focus is client state) | last dock never rejects; unknown column |
@@ -170,24 +170,22 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
 
 ## Daemon, wire and storage
 
-- Capability `edge-docks-v1`. Today `columns[].sticky {edge: left | right, mode}` and the
-  stored `RegistryViewportColumn.sticky` use a closed enum with `deny_unknown_fields`, so a
-  `top` value would break an older client's decode and an older binary's load. Top/bottom docks
-  therefore go in a new optional field `columns[].dock {edge: top | bottom, mode}` on the wire
-  and in the side table that rows.md adds (`resource_screen_rows` gains a per-column `dock`
-  record), never in `sticky`. An older client and an older binary see an ordinary column.
-- Left/right keep `sticky` unchanged; the reducer and the app read both into one `Pin`.
-  `ColumnSticky` no longer denies unknown fields (b652fa6b2da), but `StickyEdge` and
-  `StickyMode` are closed enums, so the separate `dock` field stays necessary.
-- One reducer path: `SetPin` extends today's `reduce_column_sticky` / `apply_column_sticky`
-  (cmux-tui `mux/sticky_columns.rs`) and `normalize_sticky_columns`
+- Capability `edge-docks-v1` gates top and bottom. Since R87 slice 2 (decision DOCK-WIRE)
+  every edge travels in one optional field: `columns[].dock {edge: left | right | top | bottom,
+  mode}` on the wire and in v2 layout documents, `set-column-dock` and `move-tab-to-column`
+  with `dock`, capability `dock-columns-v1` (it replaced `dock-columns-v1` with no alias).
+  Before R87 left/right used a separate `sticky` field and top/bottom used `dock`.
+- Storage: left/right flags stay in `RegistryViewportColumn.dock`; top/bottom docks stay in
+  the side table that rows.md adds (`resource_column_docks`).
+- One reducer path: `SetPin` extends today's `reduce_column_dock` / `apply_column_dock`
+  (cmux-tui `mux/dock_columns.rs`) and `normalize_dock_columns`
   (`model/layout_columns.rs`), never a parallel path; `SetPin` and `SetExtent` land in the
   v2 `column.update` reducer (`reduce_column_update`, branch feat-cmux-next-column-update-op)
   once it merges. `workspace.layout.apply` keeps a column's flag when its id survives, so the
   `apply-layout` refusal for top/bottom screens is a check there.
 - Orientation is a screen field in the same side table (`resource_screen_rows` gains a screen
   record); an older binary ignores it and draws column-major, which only moves corners.
-- Legacy writes on a screen with a top/bottom dock follow rows.md's table; `set-column-sticky`
+- Legacy writes on a screen with a top/bottom dock follow rows.md's table; `set-column-dock`
   with left/right on a top/bottom dock re-pins it (E1); `apply-layout` refuses screens with
   top/bottom docks until blueprints carry pins.
 
@@ -237,10 +235,10 @@ and MCP, or a reasoned exemption.
 
 | Today | Change |
 | --- | --- |
-| app `LayoutColumn.dock: DockColumn {edge: left/right, mode}` | `DockEdge` gains `top`, `bottom`; decode reads `sticky` and `dock` (one `dock` field after R87 slice 2) |
+| app `LayoutColumn.dock: DockColumn {edge: left/right, mode}` | `DockEdge` gains `top`, `bottom`; decode reads the one `dock` field (R87 slice 2) |
 | app `DockStripGeometry.partition/place` | partition by four edges; place side docks, then top/bottom bands (F1 to F3) |
 | app `ScreenGeometry` (`stripMinX/stripWidth`, `clipMinX/MaxX`, `fixedPanes`) | adds the vertical strip range (`stripMinY/stripHeight`, `clipMinY/MaxY`) |
-| daemon `ColumnDock`, `normalize_dock_columns`, `set-column-sticky` | four-edge `Pin`; normalize unchanged in shape; E3 check |
+| daemon `ColumnDock`, `normalize_dock_columns`, `set-column-dock` | four-edge `Pin`; normalize unchanged in shape; E3 check |
 | reducer `Column` (rows.md: `rows`) | adds `pin: Option<Pin>`; ops above |
 
 ## Prototypes (DEV Debug Settings, "Panes and Columns" section)

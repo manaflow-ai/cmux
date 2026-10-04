@@ -1,28 +1,28 @@
-//! Sticky viewport columns (`sticky-columns-v1`).
+//! Docked viewport columns (`dock-columns-v1`).
 //!
 //! A screen with horizontal viewport columns may pin at most one column to
 //! each viewport edge. The flag lives on the [`LayoutColumn`] record, so it
 //! moves with the column, is part of the screen's durable viewport record,
-//! and is restored by layout undo. Frontends render a sticky column at its
+//! and is restored by layout undo. Frontends render a docked column at its
 //! edge; the column order is unchanged, so clients without the capability
 //! render it in place.
 //!
 //! Invariant: a screen with columns always keeps at least one scrolling
-//! column. `set-column-sticky` refuses a change that would break it, and
-//! `normalize_sticky_columns` (model/layout_columns.rs) restores it after a removal.
+//! column. `set-column-dock` refuses a change that would break it, and
+//! `normalize_dock_columns` (model/layout_columns.rs) restores it after a removal.
 
 use super::*;
 use crate::model::{
-    ColumnSticky, LayoutColumn, LayoutMutationKey, LayoutResizeOwner, StickyEdge, StickyMode,
-    sticky_columns_are_consistent, sticky_flags_are_consistent,
+    ColumnDock, DockEdge, DockMode, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
+    dock_columns_are_consistent, dock_flags_are_consistent,
 };
 
 /// Internal journal operation name. It is not a public resource operation:
-/// the command is reachable only through the JSON-lines `set-column-sticky`.
-const COLUMN_STICKY_OPERATION: &str = "pane.column_sticky.set";
+/// the command is reachable only through the JSON-lines `set-column-dock`.
+const COLUMN_DOCK_OPERATION: &str = "pane.column_dock.set";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ColumnStickyError {
+pub enum ColumnDockError {
     /// The pane is unknown or its screen has no viewport columns.
     ColumnNotFound { pane: PaneId },
     /// The change would leave no scrolling column.
@@ -35,9 +35,9 @@ pub enum ColumnStickyError {
     CommitFailed,
 }
 
-impl ColumnStickyError {
+impl ColumnDockError {
     pub const COLUMN_MISSING_CODE: &'static str = ViewportWidthError::COLUMN_MISSING_CODE;
-    pub const LAST_SCROLLING_CODE: &'static str = "sticky-column-last-scrolling";
+    pub const LAST_SCROLLING_CODE: &'static str = "dock-column-last-scrolling";
     pub const INVALID_ARGUMENT_CODE: &'static str = "invalid-argument";
 
     pub fn code(&self) -> Option<&'static str> {
@@ -52,7 +52,7 @@ impl ColumnStickyError {
     }
 }
 
-impl fmt::Display for ColumnStickyError {
+impl fmt::Display for ColumnDockError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::ColumnNotFound { pane } => {
@@ -66,113 +66,113 @@ impl fmt::Display for ColumnStickyError {
                 write!(formatter, "bad {field} {value:?} (want \"docked\" or \"overlay\")")
             }
             Self::NoSuchColumn { index } => write!(formatter, "no viewport column {index}"),
-            Self::CommitFailed => formatter.write_str("could not persist the sticky column"),
+            Self::CommitFailed => formatter.write_str("could not persist the dock column"),
         }
     }
 }
 
-impl std::error::Error for ColumnStickyError {}
+impl std::error::Error for ColumnDockError {}
 
-/// Result of a `set-column-sticky` request.
+/// Result of a `set-column-dock` request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ColumnStickyOutcome {
+pub struct ColumnDockOutcome {
     pub screen: ScreenId,
     /// The column's stable id (`Screen.columns[].id`), 0 for the implicit
     /// column of a screen without `columns`.
     pub column: SplitId,
     /// The column's flag after the request.
-    pub sticky: Option<ColumnSticky>,
+    pub dock: Option<ColumnDock>,
     /// False when the request matched the current flags and committed nothing.
     pub changed: bool,
 }
 
-/// Parse the wire fields of `set-column-sticky`. `edge` defaults to right and
-/// `mode` to docked. Values are validated even when `sticky` is false.
-pub fn parse_column_sticky(
-    sticky: bool,
+/// Parse the wire fields of `set-column-dock`. `edge` defaults to right and
+/// `mode` to docked. Values are validated even when `dock` is false.
+pub fn parse_column_dock(
+    dock: bool,
     edge: Option<&str>,
     mode: Option<&str>,
-) -> Result<Option<ColumnSticky>, ColumnStickyError> {
+) -> Result<Option<ColumnDock>, ColumnDockError> {
     let edge = edge
         .map(|value| {
-            StickyEdge::parse(value).ok_or_else(|| ColumnStickyError::InvalidArgument {
+            DockEdge::parse(value).ok_or_else(|| ColumnDockError::InvalidArgument {
                 field: "edge",
                 value: value.to_string(),
             })
         })
         .transpose()?
-        .unwrap_or(StickyEdge::Right);
+        .unwrap_or(DockEdge::Right);
     let mode = mode
         .map(|value| {
-            StickyMode::parse(value).ok_or_else(|| ColumnStickyError::InvalidArgument {
+            DockMode::parse(value).ok_or_else(|| ColumnDockError::InvalidArgument {
                 field: "mode",
                 value: value.to_string(),
             })
         })
         .transpose()?
-        .unwrap_or(StickyMode::Docked);
-    Ok(sticky.then_some(ColumnSticky { edge, mode }))
+        .unwrap_or(DockMode::Docked);
+    Ok(dock.then_some(ColumnDock { edge, mode }))
 }
 
-/// The pure reducer of `set-column-sticky`: the screen's column flags in
-/// order, plus the op (`index` gets `sticky`), give the flags after the op or
-/// the reject. Setting an edge unsticks the column that held it (replace).
+/// The pure reducer of `set-column-dock`: the screen's column flags in
+/// order, plus the op (`index` gets `dock`), give the flags after the op or
+/// the reject. Setting an edge undocks the column that held it (replace).
 /// It reads and returns flags only, so pane membership, tabs, widths and
 /// column order cannot change.
-pub(crate) fn reduce_column_sticky(
-    flags: &[Option<ColumnSticky>],
+pub(crate) fn reduce_column_dock(
+    flags: &[Option<ColumnDock>],
     index: usize,
-    sticky: Option<ColumnSticky>,
-) -> Result<Vec<Option<ColumnSticky>>, ColumnStickyError> {
+    dock: Option<ColumnDock>,
+) -> Result<Vec<Option<ColumnDock>>, ColumnDockError> {
     if index >= flags.len() {
-        return Err(ColumnStickyError::NoSuchColumn { index });
+        return Err(ColumnDockError::NoSuchColumn { index });
     }
     let mut next = flags.to_vec();
-    if let Some(flag) = sticky {
+    if let Some(flag) = dock {
         for (candidate, held) in next.iter_mut().enumerate() {
             if candidate != index && held.is_some_and(|held| held.edge == flag.edge) {
                 *held = None;
             }
         }
     }
-    next[index] = sticky;
+    next[index] = dock;
     if next.iter().all(Option::is_some) {
-        return Err(ColumnStickyError::LastScrollingColumn);
+        return Err(ColumnDockError::LastScrollingColumn);
     }
-    debug_assert!(sticky_flags_are_consistent(&next));
+    debug_assert!(dock_flags_are_consistent(&next));
     Ok(next)
 }
 
-/// Sets the flag of `columns[index]` through [`reduce_column_sticky`] and
+/// Sets the flag of `columns[index]` through [`reduce_column_dock`] and
 /// writes the resulting flags back. On a reject the columns are unchanged.
-/// Shared by `set-column-sticky` and the resource op `column.update`.
-pub(crate) fn apply_column_sticky(
+/// Shared by `set-column-dock` and the resource op `column.update`.
+pub(crate) fn apply_column_dock(
     columns: &mut [LayoutColumn],
     index: usize,
-    sticky: Option<ColumnSticky>,
-) -> Result<(), ColumnStickyError> {
-    let flags = reduce_column_sticky(&column_flags(columns), index, sticky)?;
+    dock: Option<ColumnDock>,
+) -> Result<(), ColumnDockError> {
+    let flags = reduce_column_dock(&column_flags(columns), index, dock)?;
     write_column_flags(columns, flags);
     Ok(())
 }
 
-fn column_flags(columns: &[LayoutColumn]) -> Vec<Option<ColumnSticky>> {
-    columns.iter().map(|column| column.sticky).collect()
+fn column_flags(columns: &[LayoutColumn]) -> Vec<Option<ColumnDock>> {
+    columns.iter().map(|column| column.dock).collect()
 }
 
-fn write_column_flags(columns: &mut [LayoutColumn], flags: Vec<Option<ColumnSticky>>) {
+fn write_column_flags(columns: &mut [LayoutColumn], flags: Vec<Option<ColumnDock>>) {
     debug_assert_eq!(columns.len(), flags.len());
     for (column, flag) in columns.iter_mut().zip(flags) {
-        column.sticky = flag;
+        column.dock = flag;
     }
-    debug_assert!(sticky_columns_are_consistent(columns));
+    debug_assert!(dock_columns_are_consistent(columns));
 }
 
-fn sticky_column_location(
+fn dock_column_location(
     state: &State,
     pane: PaneId,
-) -> Result<(usize, usize, usize), ColumnStickyError> {
-    let not_found = || ColumnStickyError::ColumnNotFound { pane };
+) -> Result<(usize, usize, usize), ColumnDockError> {
+    let not_found = || ColumnDockError::ColumnNotFound { pane };
     let (workspace, screen) = state.screen_of(pane).ok_or_else(not_found)?;
     let column = state.workspaces[workspace].screens[screen]
         .layout_columns
@@ -183,17 +183,17 @@ fn sticky_column_location(
 }
 
 impl Mux {
-    /// `set-column-sticky`: pin the viewport column containing `pane` to an
+    /// `set-column-dock`: pin the viewport column containing `pane` to an
     /// edge, or clear its flag with `None`. `transaction` is the requesting
     /// `(client, transaction)` pair; changes with the same pair coalesce into
     /// one layout-undo entry, like viewport resizes.
-    pub fn set_column_sticky(
+    pub fn set_column_dock(
         self: &Arc<Self>,
         pane: PaneId,
-        sticky: Option<ColumnSticky>,
+        dock: Option<ColumnDock>,
         transaction: Option<(u64, u64)>,
-    ) -> Result<ColumnStickyOutcome, ColumnStickyError> {
-        let coalesce = transaction.map(|(client, transaction)| LayoutMutationKey::ColumnSticky {
+    ) -> Result<ColumnDockOutcome, ColumnDockError> {
+        let coalesce = transaction.map(|(client, transaction)| LayoutMutationKey::ColumnDock {
             owner: LayoutResizeOwner::ControlClient(client),
             transaction,
         });
@@ -203,58 +203,54 @@ impl Mux {
             if let Some((workspace, screen)) = state.screen_of(pane) {
                 let screen = &state.workspaces[workspace].screens[screen];
                 if screen.layout_columns.is_empty() {
-                    if sticky.is_some() {
-                        return Err(ColumnStickyError::LastScrollingColumn);
+                    if dock.is_some() {
+                        return Err(ColumnDockError::LastScrollingColumn);
                     }
-                    let outcome = ColumnStickyOutcome {
-                        screen: screen.id,
-                        column: 0,
-                        sticky,
-                        changed: false,
-                    };
+                    let outcome =
+                        ColumnDockOutcome { screen: screen.id, column: 0, dock, changed: false };
                     return Ok(Some(outcome));
                 }
             }
-            let (workspace, screen, column) = sticky_column_location(state, pane)?;
+            let (workspace, screen, column) = dock_column_location(state, pane)?;
             let screen = &state.workspaces[workspace].screens[screen];
             let flags = column_flags(&screen.layout_columns);
-            let unchanged = reduce_column_sticky(&flags, column, sticky)? == flags;
-            let outcome = ColumnStickyOutcome {
+            let unchanged = reduce_column_dock(&flags, column, dock)? == flags;
+            let outcome = ColumnDockOutcome {
                 screen: screen.id,
                 column: screen.layout_columns[column].id,
-                sticky,
+                dock,
                 changed: false,
             };
-            Ok::<_, ColumnStickyError>(unchanged.then_some(outcome))
+            Ok::<_, ColumnDockError>(unchanged.then_some(outcome))
         })?;
         if let Some(outcome) = unchanged {
             return Ok(outcome);
         }
 
         let fingerprint = serde_json::json!({
-            "operation": COLUMN_STICKY_OPERATION,
+            "operation": COLUMN_DOCK_OPERATION,
             "pane": pane,
-            "sticky": sticky,
+            "dock": dock,
         });
         let mut committed = None;
         let commit = self
             .commit_resource_mutation_plan(
-                &WorkspaceMutation::local("cmux-tui-column-sticky"),
-                COLUMN_STICKY_OPERATION,
+                &WorkspaceMutation::local("cmux-tui-column-dock"),
+                COLUMN_DOCK_OPERATION,
                 &fingerprint,
                 None,
                 None,
                 |state, registry| {
-                    let (workspace, screen, column) = sticky_column_location(state, pane)?;
+                    let (workspace, screen, column) = dock_column_location(state, pane)?;
                     let mut projected = state.clone();
                     let target = &mut projected.workspaces[workspace].screens[screen];
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
-                    apply_column_sticky(&mut target.layout_columns, column, sticky)?;
+                    apply_column_dock(&mut target.layout_columns, column, dock)?;
                     target.record_prepared_layout_change(before, Vec::new(), coalesce);
-                    let outcome = ColumnStickyOutcome {
+                    let outcome = ColumnDockOutcome {
                         screen: target.id,
                         column: target.layout_columns[column].id,
-                        sticky,
+                        dock,
                         changed: true,
                     };
                     let pane_id = projected
@@ -262,7 +258,7 @@ impl Mux {
                         .pane_ids
                         .get(&pane)
                         .cloned()
-                        .context("sticky column pane has no public identity")?;
+                        .context("dock column pane has no public identity")?;
                     let projection = self.resource_effect_projection_locked(
                         registry,
                         &mut projected,
@@ -278,13 +274,13 @@ impl Mux {
                 },
             )
             .map_err(|error| {
-                if let Some(error) = error.downcast_ref::<ColumnStickyError>() {
+                if let Some(error) = error.downcast_ref::<ColumnDockError>() {
                     return error.clone();
                 }
-                self.emit(MuxEvent::Status(format!("could not persist sticky column: {error:#}")));
-                ColumnStickyError::CommitFailed
+                self.emit(MuxEvent::Status(format!("could not persist dock column: {error:#}")));
+                ColumnDockError::CommitFailed
             })?;
-        let outcome = committed.ok_or(ColumnStickyError::CommitFailed)?;
+        let outcome = committed.ok_or(ColumnDockError::CommitFailed)?;
         if !commit.replayed {
             // `TreeDelta.transaction` is a string; the numeric request
             // transaction travels as its decimal form.
@@ -301,18 +297,18 @@ impl Mux {
 mod tests {
     use super::*;
 
-    fn all_flags() -> Vec<Option<ColumnSticky>> {
+    fn all_flags() -> Vec<Option<ColumnDock>> {
         let mut flags = vec![None];
-        for edge in StickyEdge::ALL {
-            for mode in [StickyMode::Docked, StickyMode::Overlay] {
-                flags.push(Some(ColumnSticky { edge, mode }));
+        for edge in DockEdge::ALL {
+            for mode in [DockMode::Docked, DockMode::Overlay] {
+                flags.push(Some(ColumnDock { edge, mode }));
             }
         }
         flags
     }
 
     /// Every flag assignment of `count` columns, consistent or not.
-    fn assignments(count: usize) -> Vec<Vec<Option<ColumnSticky>>> {
+    fn assignments(count: usize) -> Vec<Vec<Option<ColumnDock>>> {
         (0..count).fold(vec![Vec::new()], |prefixes, _| {
             prefixes
                 .into_iter()
@@ -329,39 +325,35 @@ mod tests {
 
     /// Checks one op from one consistent state; returns whether it was
     /// accepted.
-    fn check_op(
-        flags: &[Option<ColumnSticky>],
-        index: usize,
-        sticky: Option<ColumnSticky>,
-    ) -> bool {
+    fn check_op(flags: &[Option<ColumnDock>], index: usize, dock: Option<ColumnDock>) -> bool {
         let replaced = |candidate: usize| {
             candidate != index
-                && sticky.zip(flags[candidate]).is_some_and(|(set, held)| set.edge == held.edge)
+                && dock.zip(flags[candidate]).is_some_and(|(set, held)| set.edge == held.edge)
         };
         let scrolls_after = |candidate: usize| {
             if candidate == index {
-                sticky.is_none()
+                dock.is_none()
             } else {
                 flags[candidate].is_none() || replaced(candidate)
             }
         };
-        let Ok(next) = reduce_column_sticky(flags, index, sticky) else {
+        let Ok(next) = reduce_column_dock(flags, index, dock) else {
             assert_eq!(
-                reduce_column_sticky(flags, index, sticky),
-                Err(ColumnStickyError::LastScrollingColumn)
+                reduce_column_dock(flags, index, dock),
+                Err(ColumnDockError::LastScrollingColumn)
             );
-            assert!(!(0..flags.len()).any(scrolls_after), "{flags:?} {index} {sticky:?}");
+            assert!(!(0..flags.len()).any(scrolls_after), "{flags:?} {index} {dock:?}");
             return false;
         };
         assert_eq!(next.len(), flags.len());
-        assert!(sticky_flags_are_consistent(&next), "{flags:?} -> {next:?}");
+        assert!(dock_flags_are_consistent(&next), "{flags:?} -> {next:?}");
         assert!(next.iter().any(Option::is_none), "one column must scroll");
-        assert_eq!(next[index], sticky);
+        assert_eq!(next[index], dock);
         for candidate in (0..flags.len()).filter(|candidate| *candidate != index) {
             let expected = if replaced(candidate) { None } else { flags[candidate] };
-            assert_eq!(next[candidate], expected, "{flags:?} {index} {sticky:?}");
+            assert_eq!(next[candidate], expected, "{flags:?} {index} {dock:?}");
         }
-        let replayed = reduce_column_sticky(&next, index, sticky).unwrap();
+        let replayed = reduce_column_dock(&next, index, dock).unwrap();
         assert_eq!(replayed, next, "replaying an op changes nothing");
         true
     }
@@ -372,14 +364,14 @@ mod tests {
     /// when no scrolling column would remain. Replaying an accepted op is a
     /// no-op.
     #[test]
-    fn sticky_column_reducer_keeps_invariants_for_every_state_and_op() {
+    fn dock_column_reducer_keeps_invariants_for_every_state_and_op() {
         let (mut accepted, mut rejected) = (0, 0);
         for count in 1..=5 {
             let states = assignments(count);
-            for flags in states.iter().filter(|flags| sticky_flags_are_consistent(flags)) {
+            for flags in states.iter().filter(|flags| dock_flags_are_consistent(flags)) {
                 for index in 0..count {
-                    for sticky in all_flags() {
-                        if check_op(flags, index, sticky) {
+                    for dock in all_flags() {
+                        if check_op(flags, index, dock) {
                             accepted += 1;
                         } else {
                             rejected += 1;
@@ -399,24 +391,23 @@ mod tests {
     }
 
     #[test]
-    fn sticky_column_reducer_rejects_an_index_outside_the_screen() {
+    fn dock_column_reducer_rejects_an_index_outside_the_screen() {
         assert_eq!(
-            reduce_column_sticky(&[None, None], 2, None),
-            Err(ColumnStickyError::NoSuchColumn { index: 2 })
+            reduce_column_dock(&[None, None], 2, None),
+            Err(ColumnDockError::NoSuchColumn { index: 2 })
         );
     }
 
     #[test]
-    fn sticky_column_normalization_restores_invariants_after_any_removal() {
-        let column =
-            |sticky| LayoutColumn { sticky, ..LayoutColumn::new(1, 0.5, Node::Leaf(1), None) };
+    fn dock_column_normalization_restores_invariants_after_any_removal() {
+        let column = |dock| LayoutColumn { dock, ..LayoutColumn::new(1, 0.5, Node::Leaf(1), None) };
         for count in 0..=4 {
             for flags in assignments(count) {
                 let mut columns = flags.iter().copied().map(column).collect::<Vec<_>>();
-                crate::model::normalize_sticky_columns(&mut columns);
-                assert!(sticky_columns_are_consistent(&columns), "{flags:?}");
+                crate::model::normalize_dock_columns(&mut columns);
+                assert!(dock_columns_are_consistent(&columns), "{flags:?}");
                 for (before, after) in flags.iter().zip(&columns) {
-                    assert!(after.sticky.is_none() || after.sticky == *before);
+                    assert!(after.dock.is_none() || after.dock == *before);
                 }
             }
         }

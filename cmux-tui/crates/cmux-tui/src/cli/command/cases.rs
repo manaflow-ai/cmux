@@ -257,7 +257,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
                 "column",
                 "split_00000000000000000000000000000011",
                 "update",
-                "--sticky",
+                "--dock",
                 "true",
                 "--edge",
                 "left",

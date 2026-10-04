@@ -1,17 +1,17 @@
-//! `column.update` (resource API v2): sets a viewport column's sticky flag,
-//! its width, or both, in one commit. The sticky change goes through the
-//! same reducer as the JSON-lines `set-column-sticky`
-//! ([`crate::mux::sticky_columns::apply_column_sticky`]).
+//! `column.update` (resource API v2): sets a viewport column's dock flag,
+//! its width, or both, in one commit. The docked change goes through the
+//! same reducer as the JSON-lines `set-column-dock`
+//! ([`crate::mux::dock_columns::apply_column_dock`]).
 
 use super::*;
-use crate::model::ColumnSticky;
-use crate::mux::sticky_columns::{apply_column_sticky, parse_column_sticky};
+use crate::model::ColumnDock;
+use crate::mux::dock_columns::{apply_column_dock, parse_column_dock};
 
 /// The validated fields of one `column.update` request.
 struct ColumnUpdate {
     column: SplitPublicId,
     /// `Some(None)` unpins, `Some(Some(_))` pins, `None` leaves the flag.
-    sticky: Option<Option<ColumnSticky>>,
+    dock: Option<Option<ColumnDock>>,
     width: Option<f32>,
 }
 
@@ -25,13 +25,13 @@ impl ColumnUpdate {
             .map_err(anyhow::Error::new)?;
         let edge = fields.get("edge").and_then(Value::as_str);
         let mode = fields.get("mode").and_then(Value::as_str);
-        let sticky = match fields.get("sticky").and_then(Value::as_bool) {
-            Some(sticky) => Some(
-                parse_column_sticky(sticky, edge, mode)
-                    .map_err(|error| invalid("sticky", error.to_string()))?,
+        let dock = match fields.get("dock").and_then(Value::as_bool) {
+            Some(dock) => Some(
+                parse_column_dock(dock, edge, mode)
+                    .map_err(|error| invalid("dock", error.to_string()))?,
             ),
             None if edge.is_some() || mode.is_some() => {
-                return Err(invalid("sticky", "edge and mode need sticky"));
+                return Err(invalid("dock", "edge and mode need dock"));
             }
             None => None,
         };
@@ -42,10 +42,10 @@ impl ColumnUpdate {
         {
             return Err(invalid("width", "width must be from 0.1 through 1"));
         }
-        if sticky.is_none() && width.is_none() {
-            return Err(invalid("sticky", "column.update needs sticky or width"));
+        if dock.is_none() && width.is_none() {
+            return Err(invalid("dock", "column.update needs dock or width"));
         }
-        Ok(Self { column, sticky, width })
+        Ok(Self { column, dock, width })
     }
 }
 
@@ -58,9 +58,9 @@ fn reduce_column_update(
     update: &ColumnUpdate,
 ) -> anyhow::Result<Option<ScreenLayoutSnapshot>> {
     let mut next = layout.clone();
-    if let Some(sticky) = update.sticky {
-        apply_column_sticky(&mut next.layout_columns, index, sticky)
-            .map_err(|error| invalid("sticky", error.to_string()))?;
+    if let Some(dock) = update.dock {
+        apply_column_dock(&mut next.layout_columns, index, dock)
+            .map_err(|error| invalid("dock", error.to_string()))?;
     }
     let width_changed =
         update.width.is_some_and(|width| (next.layout_columns[index].width - width).abs() > 0.0);
@@ -72,7 +72,7 @@ fn reduce_column_update(
         .layout_columns
         .iter()
         .zip(&layout.layout_columns)
-        .any(|(after, before)| after.sticky != before.sticky);
+        .any(|(after, before)| after.dock != before.dock);
     Ok((flags_changed || width_changed).then_some(next))
 }
 

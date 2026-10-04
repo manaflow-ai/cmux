@@ -1,4 +1,4 @@
-//! Wire tests for sticky viewport columns (`sticky-columns-v1`).
+//! Wire tests for docked viewport columns (`dock-columns-v1`).
 //!
 //! A screen with horizontal viewport columns can pin at most one column per
 //! edge. The flag lives on the column record, so it moves with the column,
@@ -15,7 +15,7 @@ struct Wire {
 
 impl Wire {
     fn new() -> Self {
-        let mux = Mux::new_for_test("sticky-columns", crate::SurfaceOptions::default());
+        let mux = Mux::new_for_test("dock-columns", crate::SurfaceOptions::default());
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
         Self { mux, outbound, writer, next_id: 1 }
@@ -61,31 +61,31 @@ impl Wire {
         self.screen()["columns"].as_array().cloned().unwrap_or_default()
     }
 
-    /// The `sticky` member of each column, `None` where it is omitted.
-    fn sticky(&self) -> Vec<Option<Value>> {
+    /// The `dock` member of each column, `None` where it is omitted.
+    fn dock(&self) -> Vec<Option<Value>> {
         self.columns()
             .into_iter()
-            .map(|column| column.as_object().unwrap().get("sticky").cloned())
+            .map(|column| column.as_object().unwrap().get("dock").cloned())
             .collect()
     }
 
-    fn set_sticky(&mut self, pane: PaneId, edge: &str, mode: &str) -> Value {
+    fn set_dock(&mut self, pane: PaneId, edge: &str, mode: &str) -> Value {
         self.ok(json!({
-            "cmd": "set-column-sticky",
+            "cmd": "set-column-dock",
             "pane": pane,
-            "sticky": true,
+            "dock": true,
             "edge": edge,
             "mode": mode,
         }))
     }
 }
 
-fn sticky(edge: &str, mode: &str) -> Option<Value> {
+fn dock(edge: &str, mode: &str) -> Option<Value> {
     Some(json!({"edge": edge, "mode": mode}))
 }
 
 #[test]
-fn sticky_column_capability_is_advertised() {
+fn dock_column_capability_is_advertised() {
     let mut wire = Wire::new();
     let identity = wire.ok(json!({"cmd": "identify"}));
     assert!(
@@ -93,32 +93,32 @@ fn sticky_column_capability_is_advertised() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|capability| capability == "sticky-columns-v1")
+            .any(|capability| capability == "dock-columns-v1")
     );
 }
 
 #[test]
-fn sticky_column_sets_right_with_defaults_and_left_overlay() {
+fn dock_column_sets_right_with_defaults_and_left_overlay() {
     let (mut wire, panes) = Wire::with_columns(3);
-    assert_eq!(wire.sticky(), vec![None, None, None], "a new column is never sticky");
+    assert_eq!(wire.dock(), vec![None, None, None], "a new column is never docked");
     let columns = wire.columns();
 
     let data = wire.ok(json!({
-        "cmd": "set-column-sticky",
+        "cmd": "set-column-dock",
         "pane": panes[2],
-        "sticky": true,
+        "dock": true,
         "transaction": 41,
     }));
     assert_eq!(data["column"], columns[2]["id"]);
-    assert_eq!(data["sticky"], json!({"edge": "right", "mode": "docked"}));
+    assert_eq!(data["dock"], json!({"edge": "right", "mode": "docked"}));
     assert_eq!(data["transaction"], 41);
-    assert_eq!(wire.sticky(), vec![None, None, sticky("right", "docked")]);
+    assert_eq!(wire.dock(), vec![None, None, dock("right", "docked")]);
 
-    let data = wire.set_sticky(panes[0], "left", "overlay");
+    let data = wire.set_dock(panes[0], "left", "overlay");
     assert_eq!(data["column"], columns[0]["id"]);
-    assert_eq!(data["sticky"], json!({"edge": "left", "mode": "overlay"}));
+    assert_eq!(data["dock"], json!({"edge": "left", "mode": "overlay"}));
     assert!(data.get("transaction").is_none(), "no transaction, no echo: {data}");
-    assert_eq!(wire.sticky(), vec![sticky("left", "overlay"), None, sticky("right", "docked")]);
+    assert_eq!(wire.dock(), vec![dock("left", "overlay"), None, dock("right", "docked")]);
 
     // Order, widths, and the compatibility projection are unchanged.
     let after = wire.columns();
@@ -130,103 +130,103 @@ fn sticky_column_sets_right_with_defaults_and_left_overlay() {
 }
 
 #[test]
-fn sticky_column_replaces_the_column_holding_the_same_edge() {
+fn dock_column_replaces_the_column_holding_the_same_edge() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[2], "right", "docked");
-    wire.set_sticky(panes[1], "right", "overlay");
-    assert_eq!(wire.sticky(), vec![None, sticky("right", "overlay"), None]);
+    wire.set_dock(panes[2], "right", "docked");
+    wire.set_dock(panes[1], "right", "overlay");
+    assert_eq!(wire.dock(), vec![None, dock("right", "overlay"), None]);
 }
 
 #[test]
-fn sticky_column_moves_to_the_other_edge() {
+fn dock_column_moves_to_the_other_edge() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[2], "right", "docked");
-    wire.set_sticky(panes[2], "left", "docked");
-    assert_eq!(wire.sticky(), vec![None, None, sticky("left", "docked")]);
+    wire.set_dock(panes[2], "right", "docked");
+    wire.set_dock(panes[2], "left", "docked");
+    assert_eq!(wire.dock(), vec![None, None, dock("left", "docked")]);
 }
 
 #[test]
-fn sticky_column_refuses_to_pin_the_last_scrolling_column() {
+fn dock_column_refuses_to_pin_the_last_scrolling_column() {
     let (mut wire, panes) = Wire::with_columns(2);
-    wire.set_sticky(panes[1], "right", "docked");
+    wire.set_dock(panes[1], "right", "docked");
     let response = wire.send(json!({
-        "cmd": "set-column-sticky",
+        "cmd": "set-column-dock",
         "pane": panes[0],
-        "sticky": true,
+        "dock": true,
         "edge": "left",
     }));
     assert_eq!(response["ok"], false, "{response}");
-    assert_eq!(response["error_code"], "sticky-column-last-scrolling");
+    assert_eq!(response["error_code"], "dock-column-last-scrolling");
     assert!(response["error"].as_str().unwrap().contains("at least one column must scroll"));
-    assert_eq!(wire.sticky(), vec![None, sticky("right", "docked")]);
+    assert_eq!(wire.dock(), vec![None, dock("right", "docked")]);
 
     // Replacing the same edge frees a column, so it is allowed.
-    let data = wire.set_sticky(panes[0], "right", "docked");
-    assert_eq!(data["sticky"], json!({"edge": "right", "mode": "docked"}));
-    assert_eq!(wire.sticky(), vec![sticky("right", "docked"), None]);
+    let data = wire.set_dock(panes[0], "right", "docked");
+    assert_eq!(data["dock"], json!({"edge": "right", "mode": "docked"}));
+    assert_eq!(wire.dock(), vec![dock("right", "docked"), None]);
 }
 
 #[test]
-fn sticky_column_clears_and_clearing_is_idempotent() {
+fn dock_column_clears_and_clearing_is_idempotent() {
     let (mut wire, panes) = Wire::with_columns(2);
-    wire.set_sticky(panes[1], "left", "overlay");
+    wire.set_dock(panes[1], "left", "overlay");
     let columns = wire.columns();
     for _ in 0..2 {
         let data = wire.ok(json!({
-            "cmd": "set-column-sticky",
+            "cmd": "set-column-dock",
             "pane": panes[1],
-            "sticky": false,
+            "dock": false,
             "transaction": 9,
         }));
         assert_eq!(data["column"], columns[1]["id"]);
-        assert_eq!(data["sticky"], Value::Null);
+        assert_eq!(data["dock"], Value::Null);
         assert_eq!(data["transaction"], 9);
-        assert_eq!(wire.sticky(), vec![None, None]);
+        assert_eq!(wire.dock(), vec![None, None]);
     }
 }
 
 #[test]
-fn sticky_column_undo_layout_restores_previous_flags() {
+fn dock_column_undo_layout_restores_previous_flags() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[2], "right", "docked");
-    wire.set_sticky(panes[2], "left", "overlay");
+    wire.set_dock(panes[2], "right", "docked");
+    wire.set_dock(panes[2], "left", "overlay");
 
     let undone = wire.ok(json!({"cmd": "undo-layout", "pane": panes[2]}));
     assert_eq!(undone["undone"], true, "{undone}");
-    assert_eq!(wire.sticky(), vec![None, None, sticky("right", "docked")]);
+    assert_eq!(wire.dock(), vec![None, None, dock("right", "docked")]);
 
     let undone = wire.ok(json!({"cmd": "undo-layout", "pane": panes[2]}));
     assert_eq!(undone["undone"], true, "{undone}");
-    assert_eq!(wire.sticky(), vec![None, None, None]);
+    assert_eq!(wire.dock(), vec![None, None, None]);
 }
 
 #[test]
-fn sticky_column_changes_in_one_transaction_coalesce_into_one_undo() {
+fn dock_column_changes_in_one_transaction_coalesce_into_one_undo() {
     let (mut wire, panes) = Wire::with_columns(3);
     for (edge, mode) in [("right", "docked"), ("left", "overlay"), ("right", "overlay")] {
         wire.ok(json!({
-            "cmd": "set-column-sticky",
+            "cmd": "set-column-dock",
             "pane": panes[2],
-            "sticky": true,
+            "dock": true,
             "edge": edge,
             "mode": mode,
             "transaction": 77,
         }));
     }
-    assert_eq!(wire.sticky(), vec![None, None, sticky("right", "overlay")]);
+    assert_eq!(wire.dock(), vec![None, None, dock("right", "overlay")]);
     let undone = wire.ok(json!({"cmd": "undo-layout", "pane": panes[2]}));
     assert_eq!(undone["undone"], true, "{undone}");
-    assert_eq!(wire.sticky(), vec![None, None, None]);
+    assert_eq!(wire.dock(), vec![None, None, None]);
 }
 
 #[test]
-fn sticky_column_emits_screen_change_and_layout_change() {
+fn dock_column_emits_screen_change_and_layout_change() {
     let (mut wire, panes) = Wire::with_columns(2);
     let events = wire.mux.subscribe();
     wire.ok(json!({
-        "cmd": "set-column-sticky",
+        "cmd": "set-column-dock",
         "pane": panes[1],
-        "sticky": true,
+        "dock": true,
         "transaction": 5,
     }));
     let events = events.try_iter().collect::<Vec<_>>();
@@ -237,94 +237,94 @@ fn sticky_column_emits_screen_change_and_layout_change() {
             MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::ScreenChanged => Some(delta),
             _ => None,
         })
-        .expect("a sticky change emits screen-changed");
+        .expect("a dock change emits screen-changed");
     assert_eq!(delta.transaction.as_deref(), Some("5"), "the delta echoes the transaction");
-    assert_eq!(delta.entity["columns"][1]["sticky"], json!({"edge": "right", "mode": "docked"}));
+    assert_eq!(delta.entity["columns"][1]["dock"], json!({"edge": "right", "mode": "docked"}));
 }
 
 #[test]
-fn sticky_column_flags_clear_when_the_last_scrolling_column_closes() {
+fn dock_column_flags_clear_when_the_last_scrolling_column_closes() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[0], "left", "docked");
-    wire.set_sticky(panes[2], "right", "docked");
+    wire.set_dock(panes[0], "left", "docked");
+    wire.set_dock(panes[2], "right", "docked");
     wire.ok(json!({"cmd": "close-pane", "pane": panes[1]}));
     assert_eq!(wire.columns().len(), 2);
-    assert_eq!(wire.sticky(), vec![None, None], "one column must keep scrolling");
+    assert_eq!(wire.dock(), vec![None, None], "one column must keep scrolling");
 }
 
 #[test]
-fn sticky_column_disappears_when_the_screen_collapses_to_one_column() {
+fn dock_column_disappears_when_the_screen_collapses_to_one_column() {
     let (mut wire, panes) = Wire::with_columns(2);
-    wire.set_sticky(panes[1], "right", "docked");
+    wire.set_dock(panes[1], "right", "docked");
     wire.ok(json!({"cmd": "close-pane", "pane": panes[0]}));
     assert!(wire.screen().get("columns").is_none());
     // A column created later starts without a flag.
     let surface = wire.mux.new_pane_right(panes[1], 0.5, Some((38, 22))).unwrap();
     assert!(wire.mux.with_state(|state| state.pane_of(surface.id)).is_some());
-    assert_eq!(wire.sticky(), vec![None, None]);
+    assert_eq!(wire.dock(), vec![None, None]);
 }
 
 #[test]
-fn sticky_column_closing_a_sticky_column_keeps_the_others() {
+fn dock_column_closing_a_dock_column_keeps_the_others() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[0], "left", "overlay");
-    wire.set_sticky(panes[2], "right", "docked");
+    wire.set_dock(panes[0], "left", "overlay");
+    wire.set_dock(panes[2], "right", "docked");
     wire.ok(json!({"cmd": "close-pane", "pane": panes[2]}));
-    assert_eq!(wire.sticky(), vec![sticky("left", "overlay"), None]);
+    assert_eq!(wire.dock(), vec![dock("left", "overlay"), None]);
 }
 
 #[test]
-fn sticky_column_tab_drags_keep_flags_consistent() {
+fn dock_column_tab_drags_keep_flags_consistent() {
     let (mut wire, panes) = Wire::with_columns(3);
     let extra = wire.mux.new_tab(Some(panes[0]), None, Some((38, 22))).unwrap();
-    wire.set_sticky(panes[2], "right", "docked");
+    wire.set_dock(panes[2], "right", "docked");
 
     // A tab dragged into a new column: the new column scrolls.
     wire.ok(json!({"cmd": "move-tab-to-column", "surface": extra.id, "pane": panes[0]}));
-    assert_eq!(wire.sticky(), vec![None, None, sticky("right", "docked"), None]);
+    assert_eq!(wire.dock(), vec![None, None, dock("right", "docked"), None]);
 
-    // Dragging the sticky column's only tab away removes that column.
-    let sticky_tab = wire.mux.with_state(|state| state.panes[&panes[2]].tabs[0]);
+    // Dragging the docked column's only tab away removes that column.
+    let dock_tab = wire.mux.with_state(|state| state.panes[&panes[2]].tabs[0]);
     wire.ok(json!({
         "cmd": "move-tab-to-split",
-        "surface": sticky_tab,
+        "surface": dock_tab,
         "pane": panes[0],
         "edge": "bottom",
     }));
-    assert_eq!(wire.sticky(), vec![None, None, None]);
+    assert_eq!(wire.dock(), vec![None, None, None]);
 }
 
 /// An unknown pane is not found; a pane on a screen without `columns` is in
 /// that screen's implicit column (see
-/// `sticky_column_on_a_split_screen_uses_the_implicit_single_column`).
+/// `dock_column_on_a_split_screen_uses_the_implicit_single_column`).
 #[test]
-fn sticky_column_unknown_pane_is_not_found() {
+fn dock_column_unknown_pane_is_not_found() {
     let (mut wire, _) = Wire::with_columns(1);
-    let response = wire.send(json!({"cmd": "set-column-sticky", "pane": 999_999, "sticky": true}));
+    let response = wire.send(json!({"cmd": "set-column-dock", "pane": 999_999, "dock": true}));
     assert_eq!(response["ok"], false, "{response}");
     assert_eq!(response["error_code"], "viewport-column-not-found");
 }
 
 #[test]
-fn sticky_column_rejects_unknown_edge_and_mode() {
+fn dock_column_rejects_unknown_edge_and_mode() {
     let (mut wire, panes) = Wire::with_columns(2);
     for request in [
-        json!({"cmd": "set-column-sticky", "pane": panes[1], "sticky": true, "edge": "diagonal"}),
-        json!({"cmd": "set-column-sticky", "pane": panes[1], "sticky": true, "mode": "floating"}),
-        json!({"cmd": "set-column-sticky", "pane": panes[1], "sticky": false, "edge": ""}),
+        json!({"cmd": "set-column-dock", "pane": panes[1], "dock": true, "edge": "diagonal"}),
+        json!({"cmd": "set-column-dock", "pane": panes[1], "dock": true, "mode": "floating"}),
+        json!({"cmd": "set-column-dock", "pane": panes[1], "dock": false, "edge": ""}),
     ] {
         let response = wire.send(request);
         assert_eq!(response["ok"], false, "{response}");
         assert_eq!(response["error_code"], "invalid-argument");
     }
     let response = wire.send(json!({
-        "cmd": "set-column-sticky",
+        "cmd": "set-column-dock",
         "pane": panes[1],
-        "sticky": true,
+        "dock": true,
         "transaction": "not-a-number",
     }));
     assert_eq!(response["ok"], false, "{response}");
-    assert_eq!(wire.sticky(), vec![None, None]);
+    assert_eq!(wire.dock(), vec![None, None]);
 }
 
 /// Tab ids in the tree, sorted.
@@ -349,13 +349,13 @@ fn layout_has_pane(layout: &Value) -> bool {
     }
 }
 
-/// Runs a deterministic pseudo-random sequence of `set-column-sticky`
+/// Runs a deterministic pseudo-random sequence of `set-column-dock`
 /// requests (accepted and rejected) and checks after every request: the tab
 /// set is unchanged, every column still holds a pane, column order and
 /// widths are unchanged, at most one column holds each edge, at least one
 /// column scrolls, and repeating the same request commits nothing. Returns
 /// the accepted and rejected counts.
-fn run_sticky_sequence(mut wire: Wire, mut seed: u64) -> (usize, usize) {
+fn run_dock_sequence(mut wire: Wire, mut seed: u64) -> (usize, usize) {
     let tabs = tab_ids(&wire.screen());
     let columns = wire.columns();
     let column_panes = wire.mux.with_state(|state| {
@@ -374,9 +374,9 @@ fn run_sticky_sequence(mut wire: Wire, mut seed: u64) -> (usize, usize) {
     let (mut accepted, mut rejected) = (0, 0);
     for _ in 0..120 {
         let request = json!({
-            "cmd": "set-column-sticky",
+            "cmd": "set-column-dock",
             "pane": column_panes[next(column_panes.len())],
-            "sticky": next(4) != 0,
+            "dock": next(4) != 0,
             "edge": edges[next(2)],
             "mode": modes[next(2)],
         });
@@ -385,10 +385,10 @@ fn run_sticky_sequence(mut wire: Wire, mut seed: u64) -> (usize, usize) {
             accepted += 1;
         } else {
             rejected += 1;
-            assert_eq!(response["error_code"], "sticky-column-last-scrolling", "{response}");
+            assert_eq!(response["error_code"], "dock-column-last-scrolling", "{response}");
         }
 
-        assert_eq!(tab_ids(&wire.screen()), tabs, "a sticky change never adds or removes a tab");
+        assert_eq!(tab_ids(&wire.screen()), tabs, "a dock change never adds or removes a tab");
         let after = wire.columns();
         assert_eq!(after.len(), columns.len());
         for (before, column) in columns.iter().zip(&after) {
@@ -396,7 +396,7 @@ fn run_sticky_sequence(mut wire: Wire, mut seed: u64) -> (usize, usize) {
             assert_eq!(before["width"], column["width"]);
             assert!(layout_has_pane(&column["layout"]), "every column holds a pane");
         }
-        let flags = wire.sticky();
+        let flags = wire.dock();
         assert!(flags.iter().any(Option::is_none), "at least one column scrolls");
         for edge in edges {
             let holders = flags.iter().flatten().filter(|flag| flag["edge"] == edge).count();
@@ -406,26 +406,26 @@ fn run_sticky_sequence(mut wire: Wire, mut seed: u64) -> (usize, usize) {
         let revision = wire.mux.with_state(|state| state.resource_revision);
         let replay = wire.send(request);
         assert_eq!(replay["ok"], response["ok"], "{replay}");
-        assert_eq!(wire.sticky(), flags, "repeating a request changes nothing");
+        assert_eq!(wire.dock(), flags, "repeating a request changes nothing");
         assert_eq!(wire.mux.with_state(|state| state.resource_revision), revision);
     }
     (accepted, rejected)
 }
 
 #[test]
-fn sticky_column_ops_preserve_layout_invariants_on_two_columns() {
+fn dock_column_ops_preserve_layout_invariants_on_two_columns() {
     let (wire, _) = Wire::with_columns(2);
-    let (accepted, rejected) = run_sticky_sequence(wire, 0x5eed);
+    let (accepted, rejected) = run_dock_sequence(wire, 0x5eed);
     assert!(accepted > 0 && rejected > 0, "{accepted} accepted, {rejected} rejected");
 }
 
 #[test]
-fn sticky_column_ops_preserve_layout_invariants_on_four_columns() {
+fn dock_column_ops_preserve_layout_invariants_on_four_columns() {
     let (wire, panes) = Wire::with_columns(4);
     wire.mux.split(panes[1], SplitDir::Down, Some((38, 10))).unwrap();
     wire.mux.new_tab(Some(panes[2]), None, Some((38, 22))).unwrap();
     // Two edges hold at most two of four columns, so nothing is rejected.
-    assert_eq!(run_sticky_sequence(wire, 0xc01), (120, 0));
+    assert_eq!(run_dock_sequence(wire, 0xc01), (120, 0));
 }
 
 /// One `cmux.protocol/2` request; returns the response envelope.
@@ -469,25 +469,25 @@ fn apply_layout(mux: &Arc<Mux>, layout: Value, key: &str) -> Value {
 }
 
 #[test]
-fn sticky_column_flags_survive_a_layout_apply_that_keeps_the_column() {
+fn dock_column_flags_survive_a_layout_apply_that_keeps_the_column() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[2], "right", "docked");
+    wire.set_dock(panes[2], "right", "docked");
     let mut layout = export_layout(&wire.mux);
     assert_eq!(layout["root"]["kind"], "viewport", "{layout}");
     layout["root"]["columns"][1]["width"] = json!(0.4);
 
-    let applied = apply_layout(&wire.mux, layout, "sticky-apply-keep");
+    let applied = apply_layout(&wire.mux, layout, "dock-apply-keep");
     assert!(applied.get("error").is_none(), "{applied}");
     let width = wire.columns()[1]["width"].as_f64().unwrap();
     assert!((width - 0.4).abs() < 1e-6, "{width}");
-    assert_eq!(wire.sticky(), vec![None, None, sticky("right", "docked")]);
+    assert_eq!(wire.dock(), vec![None, None, dock("right", "docked")]);
 }
 
 #[test]
-fn sticky_column_flags_clear_when_a_layout_apply_leaves_only_sticky_columns() {
+fn dock_column_flags_clear_when_a_layout_apply_leaves_only_dock_columns() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[0], "left", "docked");
-    wire.set_sticky(panes[2], "right", "docked");
+    wire.set_dock(panes[0], "left", "docked");
+    wire.set_dock(panes[2], "right", "docked");
     let mut layout = export_layout(&wire.mux);
     let columns = layout["root"]["columns"].as_array().unwrap().clone();
     // Merge the scrolling middle column into the first one; the middle
@@ -504,32 +504,32 @@ fn sticky_column_flags_clear_when_a_layout_apply_leaves_only_sticky_columns() {
     first["root"] = merged;
     layout["root"]["columns"] = json!([first, columns[2]]);
 
-    let applied = apply_layout(&wire.mux, layout, "sticky-apply-merge");
+    let applied = apply_layout(&wire.mux, layout, "dock-apply-merge");
     assert!(applied.get("error").is_none(), "{applied}");
     assert_eq!(wire.columns().len(), 2);
-    assert_eq!(wire.sticky(), vec![None, None], "one column must keep scrolling");
+    assert_eq!(wire.dock(), vec![None, None], "one column must keep scrolling");
 }
 
-/// The sticky member of each viewport column in the v2 layout document,
+/// The docked member of each viewport column in the v2 layout document,
 /// `None` where it is omitted.
-fn exported_sticky(layout: &Value) -> Vec<Option<Value>> {
+fn exported_dock(layout: &Value) -> Vec<Option<Value>> {
     layout["root"]["columns"]
         .as_array()
         .unwrap()
         .iter()
-        .map(|column| column.as_object().unwrap().get("sticky").cloned())
+        .map(|column| column.as_object().unwrap().get("dock").cloned())
         .collect()
 }
 
 #[test]
-fn sticky_column_flag_is_in_the_v2_layout_document() {
+fn dock_column_flag_is_in_the_v2_layout_document() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[2], "right", "docked");
-    wire.set_sticky(panes[0], "left", "overlay");
+    wire.set_dock(panes[2], "right", "docked");
+    wire.set_dock(panes[0], "left", "overlay");
     let layout = export_layout(&wire.mux);
     assert_eq!(
-        exported_sticky(&layout),
-        vec![sticky("left", "overlay"), None, sticky("right", "docked")],
+        exported_dock(&layout),
+        vec![dock("left", "overlay"), None, dock("right", "docked")],
         "{layout}"
     );
     let screen = resource(
@@ -539,48 +539,48 @@ fn sticky_column_flag_is_in_the_v2_layout_document() {
         None,
     );
     assert_eq!(
-        exported_sticky(&screen["result"]["layout"]),
-        vec![sticky("left", "overlay"), None, sticky("right", "docked")],
+        exported_dock(&screen["result"]["layout"]),
+        vec![dock("left", "overlay"), None, dock("right", "docked")],
         "{screen}"
     );
 }
 
 #[test]
-fn sticky_column_flag_in_a_layout_apply_sets_and_clears_the_flag() {
+fn dock_column_flag_in_a_layout_apply_sets_and_clears_the_flag() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[2], "right", "docked");
+    wire.set_dock(panes[2], "right", "docked");
     let mut layout = export_layout(&wire.mux);
-    layout["root"]["columns"][0]["sticky"] = json!({"edge": "left", "mode": "overlay"});
-    layout["root"]["columns"][2]["sticky"] = Value::Null;
+    layout["root"]["columns"][0]["dock"] = json!({"edge": "left", "mode": "overlay"});
+    layout["root"]["columns"][2]["dock"] = Value::Null;
 
-    let applied = apply_layout(&wire.mux, layout, "sticky-apply-set-clear");
+    let applied = apply_layout(&wire.mux, layout, "dock-apply-set-clear");
     assert!(applied.get("error").is_none(), "{applied}");
-    assert_eq!(wire.sticky(), vec![sticky("left", "overlay"), None, None]);
+    assert_eq!(wire.dock(), vec![dock("left", "overlay"), None, None]);
 }
 
 #[test]
-fn sticky_column_flags_in_a_layout_apply_must_keep_one_scrolling_column() {
+fn dock_column_flags_in_a_layout_apply_must_keep_one_scrolling_column() {
     let (wire, _) = Wire::with_columns(2);
     let mut layout = export_layout(&wire.mux);
-    layout["root"]["columns"][0]["sticky"] = json!({"edge": "left", "mode": "docked"});
-    layout["root"]["columns"][1]["sticky"] = json!({"edge": "right", "mode": "docked"});
+    layout["root"]["columns"][0]["dock"] = json!({"edge": "left", "mode": "docked"});
+    layout["root"]["columns"][1]["dock"] = json!({"edge": "right", "mode": "docked"});
 
-    let applied = apply_layout(&wire.mux, layout, "sticky-apply-all-sticky");
+    let applied = apply_layout(&wire.mux, layout, "dock-apply-all-dock");
     assert!(applied.get("error").is_some(), "{applied}");
-    assert_eq!(wire.sticky(), vec![None, None]);
+    assert_eq!(wire.dock(), vec![None, None]);
 }
 
 /// A screen without stored columns is one implicit column (every screen is a
 /// column strip): column ops answer with the column rules, never with
 /// "no viewport column", and the layout does not change.
 #[test]
-fn sticky_column_on_a_split_screen_uses_the_implicit_single_column() {
+fn dock_column_on_a_split_screen_uses_the_implicit_single_column() {
     let (mut wire, panes) = Wire::with_columns(1);
     let before = wire.screen();
-    let pin = wire.send(json!({"cmd": "set-column-sticky", "pane": panes[0], "sticky": true}));
+    let pin = wire.send(json!({"cmd": "set-column-dock", "pane": panes[0], "dock": true}));
     assert_eq!(pin["ok"], false, "{pin}");
-    assert_eq!(pin["error_code"], "sticky-column-last-scrolling", "{pin}");
-    wire.ok(json!({"cmd": "set-column-sticky", "pane": panes[0], "sticky": false}));
+    assert_eq!(pin["error_code"], "dock-column-last-scrolling", "{pin}");
+    wire.ok(json!({"cmd": "set-column-dock", "pane": panes[0], "dock": false}));
     assert_eq!(wire.screen()["layout"], before["layout"]);
     assert!(wire.screen().get("columns").is_none());
 }
@@ -593,31 +593,33 @@ fn edge_docks_capability_is_advertised() {
     assert!(capabilities.contains(&json!(EDGE_DOCKS_CAPABILITY)));
 }
 
+/// DOCK-WIRE (R87): every edge travels in the one `dock` field; the
+/// pre-rename `sticky` field is gone.
 #[test]
-fn edge_dock_is_sent_as_dock_and_a_side_flag_as_sticky() {
+fn every_edge_is_sent_in_the_one_dock_field() {
     let (mut wire, panes) = Wire::with_columns(3);
-    wire.set_sticky(panes[0], "left", "docked");
-    wire.set_sticky(panes[2], "top", "overlay");
+    wire.set_dock(panes[0], "left", "docked");
+    wire.set_dock(panes[2], "top", "overlay");
     let columns = wire.columns();
-    assert_eq!(columns[0]["sticky"], json!({"edge": "left", "mode": "docked"}));
-    assert!(columns[0].get("dock").is_none());
+    assert_eq!(columns[0]["dock"], json!({"edge": "left", "mode": "docked"}));
     assert_eq!(columns[2]["dock"], json!({"edge": "top", "mode": "overlay"}));
-    assert!(columns[2].get("sticky").is_none());
+    assert!(columns.iter().all(|column| column.get("sticky").is_none()));
+    assert!(columns[1].get("dock").is_none());
     // One column per edge: a second top dock replaces the first.
-    wire.set_sticky(panes[1], "top", "docked");
+    wire.set_dock(panes[1], "top", "docked");
     assert!(wire.columns()[2].get("dock").is_none());
 }
 
 #[test]
 fn move_tab_to_column_pins_the_new_column_in_one_commit() {
     let (mut wire, panes) = Wire::with_columns(2);
-    wire.set_sticky(panes[1], "bottom", "docked");
+    wire.set_dock(panes[1], "bottom", "docked");
     let second = wire.mux.new_tab(Some(panes[0]), None, Some((38, 22))).unwrap();
     wire.ok(json!({
         "cmd": "move-tab-to-column",
         "surface": second.id,
         "pane": panes[0],
-        "sticky": {"edge": "bottom", "mode": "overlay"},
+        "dock": {"edge": "bottom", "mode": "overlay"},
     }));
     let columns = wire.columns();
     assert_eq!(columns.len(), 3);
@@ -635,15 +637,15 @@ fn move_tab_to_column_refuses_a_pin_when_the_closing_source_column_scrolled() {
     let first = wire.mux.new_workspace(None, Some((80, 22))).unwrap();
     let anchor = wire.mux.with_state(|state| state.pane_of(first.id).unwrap());
     let moved = wire.mux.new_pane_right(anchor, 0.5, Some((38, 22))).unwrap();
-    wire.set_sticky(anchor, "right", "docked");
+    wire.set_dock(anchor, "right", "docked");
     let before = wire.screen();
     let refused = wire.send(json!({
         "cmd": "move-tab-to-column",
         "surface": moved.id,
         "pane": anchor,
-        "sticky": {"edge": "bottom", "mode": "docked"},
+        "dock": {"edge": "bottom", "mode": "docked"},
     }));
     assert_eq!(refused["ok"], false, "{refused}");
     assert_eq!(wire.screen()["layout"], before["layout"]);
-    assert_eq!(wire.sticky(), vec![sticky("right", "docked"), None]);
+    assert_eq!(wire.dock(), vec![dock("right", "docked"), None]);
 }

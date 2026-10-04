@@ -2648,27 +2648,27 @@ public final class Client implements AutoCloseable {
             "column_id",
             Wire.WIDTH,
             "root",
-            "sticky"
+            "dock"
         );
         return new Layout.Column(
             requiredExactId(fields, "column_id", Ids.SplitId::new),
             finiteDouble(fields.get(Wire.WIDTH), "layout column width"),
             decodeLayoutNode(fields.get("root")),
-            decodeLayoutColumnSticky(fields.get("sticky"))
+            decodeLayoutColumnDock(fields.get("dock"))
         );
     }
 
     /** An omitted or null flag is empty (the column scrolls). */
-    private static Optional<Layout.Sticky> decodeLayoutColumnSticky(Object value) {
+    private static Optional<Layout.Dock> decodeLayoutColumnDock(Object value) {
         if (value == null) {
             return Optional.empty();
         }
-        Map<String, Object> fields = Wire.object(value, "layout column sticky");
-        requireExactFields(fields, "layout column sticky", "edge", "mode");
+        Map<String, Object> fields = Wire.object(value, "layout column dock");
+        requireExactFields(fields, "layout column dock", "edge", "mode");
         try {
-            return Optional.of(new Layout.Sticky(
-                Wire.string(fields.get("edge"), "layout column sticky edge"),
-                Wire.string(fields.get("mode"), "layout column sticky mode")
+            return Optional.of(new Layout.Dock(
+                Wire.string(fields.get("edge"), "layout column dock edge"),
+                Wire.string(fields.get("mode"), "layout column dock mode")
             ));
         } catch (IllegalArgumentException error) {
             throw new ProtocolError(error.getMessage());

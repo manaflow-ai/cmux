@@ -84,24 +84,24 @@ public final class Layout {
      * A pinned column's edge ("left", "right", "top" or "bottom") and mode
      * ("docked" or "overlay").
      */
-    public record Sticky(String edge, String mode) {
-        public Sticky {
+    public record Dock(String edge, String mode) {
+        public Dock {
             if (!List.of("left", "right", "top", "bottom").contains(edge)) {
-                throw new IllegalArgumentException("sticky edge " + edge + " is not known");
+                throw new IllegalArgumentException("dock edge " + edge + " is not known");
             }
             if (!List.of("docked", "overlay").contains(mode)) {
-                throw new IllegalArgumentException("sticky mode " + mode + " is not known");
+                throw new IllegalArgumentException("dock mode " + mode + " is not known");
             }
         }
     }
 
-    /** A viewport column; {@code sticky} is empty while it scrolls. */
-    public record Column(Ids.SplitId columnId, double width, Node root, Optional<Sticky> sticky) {
+    /** A viewport column; {@code dock} is empty while it scrolls. */
+    public record Column(Ids.SplitId columnId, double width, Node root, Optional<Dock> dock) {
         public Column {
             Objects.requireNonNull(columnId, "columnId");
             boundedWidth(width, "width");
             Objects.requireNonNull(root, "root");
-            Objects.requireNonNull(sticky, "sticky");
+            Objects.requireNonNull(dock, "dock");
         }
 
         public Column(Ids.SplitId columnId, double width, Node root) {

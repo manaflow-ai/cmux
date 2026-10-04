@@ -5,7 +5,7 @@ use anyhow::Context;
 use serde_json::{Map, Value, json};
 
 use super::*;
-use crate::model::{ColumnSticky, LayoutColumn, ScreenLayoutSnapshot};
+use crate::model::{ColumnDock, LayoutColumn, ScreenLayoutSnapshot};
 use crate::resource::{
     BrowserPublicId, ContentPublicId, PanePublicId, ResourceError, ResourceOperation,
     ScreenPublicId, SplitPublicId, TabPublicId, TabResourceIdentity, WorkspacePublicId,
@@ -5536,7 +5536,7 @@ fn parse_resource_layout_document(
                 .filter(|columns| !columns.is_empty())
                 .context("viewport columns must be non-empty")?;
             let mut parsed = Vec::with_capacity(columns.len());
-            let mut changed_sticky = false;
+            let mut changed_dock = false;
             for column in columns {
                 let id = parse_layout_split(state, screen_slot, &column["column_id"])?;
                 anyhow::ensure!(seen_splits.insert(id), "layout split appears more than once");
@@ -5555,31 +5555,31 @@ fn parse_resource_layout_document(
                     &mut seen_tabs,
                     &mut tab_orders,
                 )?;
-                // `sticky` present: `null` clears the flag, an object sets
+                // `dock` present: `null` clears the flag, an object sets
                 // it. Absent: a column that keeps its id keeps its flag, so a
-                // client without `sticky-columns-v1` never clears one.
+                // client without `dock-columns-v1` never clears one.
                 let kept = current
                     .layout_columns
                     .iter()
                     .find(|column| column.id == id)
-                    .and_then(|column| column.sticky);
-                let sticky = match column.get("sticky") {
+                    .and_then(|column| column.dock);
+                let dock = match column.get("dock") {
                     Some(Value::Null) => None,
                     Some(value) => Some(
-                        serde_json::from_value::<ColumnSticky>(value.clone())
-                            .context("invalid viewport column sticky")?,
+                        serde_json::from_value::<ColumnDock>(value.clone())
+                            .context("invalid viewport column dock")?,
                     ),
                     None => kept,
                 };
-                changed_sticky |= sticky.is_some() && sticky != kept;
-                parsed.push(LayoutColumn { sticky, ..LayoutColumn::new(id, width, root, None) });
+                changed_dock |= dock.is_some() && dock != kept;
+                parsed.push(LayoutColumn { dock, ..LayoutColumn::new(id, width, root, None) });
             }
-            // A document that sets a new flag must satisfy the sticky
+            // A document that sets a new flag must satisfy the docked
             // invariants itself. Flags it keeps or echoes unchanged are
             // repaired by normalization, as when a column is removed.
             anyhow::ensure!(
-                !changed_sticky || crate::model::sticky_columns_are_consistent(&parsed),
-                "invalid viewport sticky columns"
+                !changed_dock || crate::model::dock_columns_are_consistent(&parsed),
+                "invalid viewport dock columns"
             );
             anyhow::ensure!(
                 parsed.first().is_some_and(|column| column.width == base_width),
@@ -6358,7 +6358,7 @@ fn registry_screen_from_layout(
                             .collect::<anyhow::Result<Vec<_>>>()
                     })
                     .transpose()?,
-                sticky: column.sticky,
+                dock: column.dock,
                 rows: registry_viewport::registry_rows(state, column)?,
             })
         })

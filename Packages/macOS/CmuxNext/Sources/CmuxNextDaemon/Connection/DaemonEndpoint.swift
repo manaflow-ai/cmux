@@ -109,10 +109,10 @@ public struct DaemonCapabilities: Sendable {
     /// `remote-terminal` with `remote` (data-model.md 1.2b, 1.4, 1.5), and
     /// `terminal_resource_id` in the `set-terminal-keep` result.
     public let remoteTerminalTabs = "remote-terminal-tabs-v1"
-    /// Docked columns: `set-column-sticky` and `columns[].sticky`
+    /// Docked columns: `set-column-dock` and `columns[].dock`
     /// (plans/cmux-next/dock-column.md).
-    public let dockColumns = "sticky-columns-v1"
-    /// Top and bottom docks: `set-column-sticky` and `move-tab-to-column`
+    public let dockColumns = "dock-columns-v1"
+    /// Top and bottom docks: `set-column-dock` and `move-tab-to-column`
     /// accept edges `top` and `bottom`, sent back as `columns[].dock`
     /// (plans/cmux-next/layout-model.md).
     public let edgeDocks = "edge-docks-v1"

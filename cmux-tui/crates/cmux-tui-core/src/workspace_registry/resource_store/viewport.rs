@@ -1,4 +1,4 @@
-//! A screen's stored viewport columns, with their `sticky-columns-v1` flags
+//! A screen's stored viewport columns, with their `dock-columns-v1` flags
 //! and `rows-v1` rows, and their validation.
 
 use super::*;
@@ -17,13 +17,12 @@ pub struct RegistryViewportColumn {
     pub width: f32,
     pub layout: RegistryLayoutNode,
     pub auto_layout: Option<Vec<PanePublicId>>,
-    /// `sticky-columns-v1`. Additive: records written before it omit the
-    /// field, and it is omitted while the column is not sticky, so an older
-    /// daemon still reads every record that has no sticky column. A top or
+    /// `dock-columns-v1`. Additive: records written before it omit the
+    /// field, and it is omitted while the column is not docked. A top or
     /// bottom dock (`edge-docks-v1`) is never serialized here: it lives in
     /// `resource_column_docks` (screen_rows.rs) and is overlaid at load.
     #[serde(default, skip_serializing_if = "not_a_side_flag")]
-    pub sticky: Option<crate::model::ColumnSticky>,
+    pub dock: Option<crate::model::ColumnDock>,
     /// `rows-v1`: empty, or the column's rows top to bottom. Never part of
     /// `viewport_json` (an older build would refuse the unknown field): rows
     /// live in `resource_screen_rows` (screen_rows.rs), overlaid at load.
@@ -54,8 +53,8 @@ impl RegistryViewport {
     }
 }
 
-fn not_a_side_flag(sticky: &Option<crate::model::ColumnSticky>) -> bool {
-    sticky.is_none_or(|sticky| sticky.edge.is_band())
+fn not_a_side_flag(dock: &Option<crate::model::ColumnDock>) -> bool {
+    dock.is_none_or(|dock| dock.edge.is_band())
 }
 
 impl RegistryViewportColumn {
@@ -64,9 +63,9 @@ impl RegistryViewportColumn {
         width: f32,
         layout: RegistryLayoutNode,
         auto_layout: Option<Vec<PanePublicId>>,
-        sticky: Option<crate::model::ColumnSticky>,
+        dock: Option<crate::model::ColumnDock>,
     ) -> Self {
-        Self { id, width, layout, auto_layout, sticky, rows: Vec::new() }
+        Self { id, width, layout, auto_layout, dock, rows: Vec::new() }
     }
 
     pub fn with_rows(mut self, rows: Vec<RegistryRow>) -> Self {
@@ -166,3 +165,4 @@ pub(super) fn validate_registry_viewport(
     }
     Ok(())
 }
+
