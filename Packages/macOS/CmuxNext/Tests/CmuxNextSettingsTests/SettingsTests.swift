@@ -78,7 +78,7 @@ import Testing
     @Test func eachKindsNewTabChordIsTheUsers() throws {
         let registry = ActionRegistry.standard()
         let applier = SettingsApplier(design: DesignSettings(), registry: registry)
-        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command, .shift]))
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command]))
         #expect(registry.effectiveShortcut(for: "newSurface") == Shortcut("t", modifiers: [.control, .shift, .command]))
         let root = try JSONC.parse("""
         {"shortcuts": {"bindings": {"palette.newAgentChat": "cmd+opt+shift+y", "newSurface": null, "openBrowser": "ctrl+cmd+b"}}}
