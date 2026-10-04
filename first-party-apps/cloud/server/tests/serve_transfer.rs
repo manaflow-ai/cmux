@@ -129,9 +129,8 @@ fn a_fifth_transfer_while_four_run_is_busy_and_starts_nothing() {
             "idempotency_key": format!("p-{id}"),
             "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
     };
-    let endpoints = |host: &Host| {
-        host.cloud.calls.iter().filter(|c| c.path.ends_with("/scp-endpoint")).count()
-    };
+    let endpoints =
+        |host: &Host| host.cloud.calls.iter().filter(|c| c.path.ends_with("/scp-endpoint")).count();
     for id in ["1", "2", "3", "4"] {
         push(&host, id);
         let started = result_of(&mut host, id);

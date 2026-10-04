@@ -128,8 +128,12 @@ pub trait Transfer: Send + Sync {
     /// implementation stops the copy (it registers a hook that kills each
     /// child it starts) and returns an error; the loop then removes a
     /// pull's partial file.
-    fn run(&self, job: &TransferJob, key: &TransferKey, cancel: &Cancel)
-    -> Result<u64, TransferError>;
+    fn run(
+        &self,
+        job: &TransferJob,
+        key: &TransferKey,
+        cancel: &Cancel,
+    ) -> Result<u64, TransferError>;
 }
 
 fn now_unix() -> i64 {
