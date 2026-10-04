@@ -66,7 +66,7 @@ struct PrelaunchRequest {
 }
 
 impl PrelaunchRequest {
-    fn of(command: &Command) -> Option<Self> {
+    fn of(command: &Command, frontend_shell: bool) -> Option<Self> {
         let Command::NewTab { pane, cwd, env, cols, rows, terminal_id, shell_args, .. } = command
         else {
             return None;
@@ -87,7 +87,7 @@ impl PrelaunchRequest {
             pane: *pane,
             terminal_id,
             cwd: cwd.clone(),
-            argv: shell_argv(&env, shell_args.clone()),
+            argv: shell_argv(&env, shell_args.clone(), frontend_shell),
             env,
             size: optional_surface_size(*cols, *rows),
         })
@@ -119,7 +119,7 @@ impl ConnectionSurfaceScheduler {
         pending: PendingSurfaceRequest,
         writer: &MessageWriter,
     ) -> bool {
-        let prelaunch = PrelaunchRequest::of(&pending.request.cmd);
+        let prelaunch = PrelaunchRequest::of(&pending.request.cmd, frontend_shell(mux, client));
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
             launched: Mutex::new(None),

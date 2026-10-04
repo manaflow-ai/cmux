@@ -37,6 +37,7 @@
     "terminal-color-overrides-v1",
     "terminal-command-journal-v1",
     "terminal-env-v1",
+    "terminal-frontend-shell-integration-v1",
     "terminal-pending-sequence-v1",
     "terminal-placement-env-v1",
     "terminal-reap-v1",

@@ -107,6 +107,7 @@ final class DaemonService {
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
             terminalEnvironment: terminalEnvironmentProvider,
+            resolvesShellIntegration: true,
             sessionEvents: true)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {

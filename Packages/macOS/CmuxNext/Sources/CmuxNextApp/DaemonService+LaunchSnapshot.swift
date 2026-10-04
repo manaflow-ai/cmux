@@ -32,7 +32,8 @@ extension DaemonService {
     nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String]) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment) else { return nil }
-        return DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironmentProvider))
+        return DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(
+            terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: true))
     }
 
     /// Records the local daemon's socket for the next launch
