@@ -213,3 +213,20 @@ fn git_files_joins_the_query_and_takes_a_limit() {
     assert!(rejects(&["git", "files"]).contains("git action"), "a query is required");
     assert!(rejects(&["git", "files", "--limit", "201", "x"]).contains("--limit"));
 }
+
+#[test]
+fn git_branches_takes_a_target_and_a_limit() {
+    let here = std::env::current_dir().unwrap().to_string_lossy().into_owned();
+    assert_eq!(sent(&["git", "branches"]), ("git.branches".into(), json!({"path": here})));
+    assert_eq!(
+        sent(&["git", "branches", "--path", "/repo", "--limit", "1000"]),
+        ("git.branches".into(), json!({"path": "/repo", "limit": 1000}))
+    );
+    assert_eq!(
+        sent(&["git", "branches", "--terminal", TERM]),
+        ("git.branches".into(), json!({"terminal": TERM}))
+    );
+    assert!(rejects(&["git", "branches", "--limit", "0"]).contains("--limit"));
+    assert!(rejects(&["git", "branches", "--limit", "1001"]).contains("--limit"));
+    assert!(rejects(&["git", "branches", "main"]).contains("git action"));
+}

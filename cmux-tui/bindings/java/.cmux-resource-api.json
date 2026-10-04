@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "a1c15680a1adb3785ecc22d4850a614e7f422405615de0488dd180f0f88daa16",
+  "catalog_sha256": "4aa7020c8371cc5b6d55694a87db6348eacb3a92f164fa84be043e7950117d72",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -87,6 +87,9 @@
     },
     "frontend_projection.put": {
       "class": "mutation"
+    },
+    "git.branches": {
+      "class": "read"
     },
     "git.checkpoint.create": {
       "class": "mutation"

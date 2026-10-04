@@ -171,6 +171,8 @@ pub enum ResourceOperation {
     GitCheckpointPin,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
+    #[serde(rename = "git.branches")]
+    GitBranches,
     #[serde(rename = "git.diff")]
     GitDiff,
     #[serde(rename = "git.files.search")]
@@ -551,6 +553,7 @@ impl ResourceOperation {
                 | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
+                | Self::GitBranches
                 | Self::GitDiff
                 | Self::GitFilesSearch
                 | Self::GitStatus

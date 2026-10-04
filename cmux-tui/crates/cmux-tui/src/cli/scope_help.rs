@@ -15,6 +15,7 @@ USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [<path>...]
+  cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
     [--exclude <path,...>] [--reason manual|handoff|turn] [--max-bytes <n>]
@@ -48,6 +49,12 @@ base branch. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.
+
+branches lists local branches, then remote-tracking ones, newest commit first:
+each one's ref and commit, and for a local branch its upstream and how far it
+is ahead and behind. At most --limit (200, up to 1000) are printed. It also
+suggests the bases a branch diff may compare with: the branch scope's base,
+then the upstream of HEAD's branch.
 
 files lists the files under the target folder whose path contains the query's
 characters in order (case-insensitive, spaces ignored), best first: tracked

@@ -146,6 +146,7 @@
     "firewall.create",
     "firewall.get",
     "firewall.list",
+    "git.branches",
     "git.checkpoint.create",
     "git.checkpoint.diff",
     "git.checkpoint.get",

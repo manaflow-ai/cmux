@@ -10,6 +10,7 @@ fn wire_name_round_trips_through_serde() {
         "workspace.create",
         "terminal.output_read",
         "browser.close",
+        "git.branches",
         "git.diff",
         "git.files.search",
         "stream.cancel",

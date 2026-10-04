@@ -455,7 +455,7 @@ long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
 
-`git status` and `git diff` are read-only git reads (`git.status`, `git.diff`)
+`git status`, `git diff` and `git branches` are read-only git reads (`git.status`, `git.diff`, `git.branches`)
 of the repository a path is in, or the working directory of the terminal a
 selector names (a workspace, screen, pane or tab names its current terminal). Without
 a target the CLI sends the current directory. The session host runs git with
@@ -471,6 +471,13 @@ spaces, best first: tracked files still in the working tree and untracked
 files no ignore rule hides. It prints at most `--limit` (50, up to 200)
 results relative to `search_root`, the folder searched; `root` is the
 repository top level.
+`git branches` (`git.branches`) lists at most `--limit` (200, up to 1000)
+branches: local ones, then remote-tracking ones, each by newest tip commit.
+Each carries its full ref, commit and whether HEAD is on it; a local branch
+also carries its upstream and its ahead and behind counts. `suggested_bases`
+lists the bases a branch diff may compare with, best first: the branch
+`git diff --scope branch` uses, then the upstream of HEAD's branch when it
+is a different branch. `truncated` says more branches exist.
 A repository's filter drivers never run: every configured `filter.<driver>` is
 blanked for the read. One reply carries at most 8 MiB of patches.
 

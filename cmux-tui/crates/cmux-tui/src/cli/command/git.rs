@@ -1,4 +1,4 @@
-//! `git status|diff|files|checkpoint`: the session host's git operations. The repository
+//! `git status|diff|branches|files|checkpoint`: the session host's git operations. The repository
 //! is the one `--path` is in, or the working directory of the terminal a
 //! `--workspace`, `--screen`, `--pane`, `--tab` or `--terminal` selector
 //! names; with none of them, the current directory's.
@@ -19,13 +19,19 @@ const TARGETS: &[(&str, &str)] = &[
     ("terminal", "term"),
 ];
 
-/// `git status`, `git diff [<path>...]` and `git files <query>...`.
+/// `git status`, `git diff [<path>...]`, `git branches` and `git files <query>...`.
 pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     let selectors = target(flags, &mut params)?;
     let operation = match words {
         ["checkpoint", action @ ..] => return checkpoint::parse(action, flags, &selectors, params),
         ["status"] => Op::GitStatus,
+        ["branches"] => {
+            if let Some(value) = flags.take("limit") {
+                insert_bounded_u32(&mut params, "limit", "--limit", value, 1, 1000)?;
+            }
+            Op::GitBranches
+        }
         ["diff", paths @ ..] => {
             let scope = flags.take("scope").unwrap_or_else(|| "uncommitted".to_string());
             validate_one_of("--scope", &scope, SCOPES)?;

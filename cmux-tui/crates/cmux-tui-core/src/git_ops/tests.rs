@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 
 use super::parse;
 
+#[path = "branches_tests.rs"]
+mod branches;
 #[path = "files_tests.rs"]
 mod files;
 use crate::resource::TerminalPublicId;
@@ -376,6 +378,7 @@ fn a_folder_outside_a_repository_is_not_a_repository() {
         ("git.diff", json!({"path":path,"scope":"uncommitted"})),
         ("git.files.search", json!({"path":path,"query":"x"})),
         ("git.files.search", json!({"path":path,"query":""})),
+        ("git.branches", json!({"path":path})),
     ] {
         let envelope = call(&mux, operation, params);
         let (code, details) = failure(&envelope);

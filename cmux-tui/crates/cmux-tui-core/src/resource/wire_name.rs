@@ -48,6 +48,7 @@ impl ResourceOperation {
             Self::GitCheckpointList => "git.checkpoint.list",
             Self::GitCheckpointPin => "git.checkpoint.pin",
             Self::GitCheckpointUnpin => "git.checkpoint.unpin",
+            Self::GitBranches => "git.branches",
             Self::GitDiff => "git.diff",
             Self::GitFilesSearch => "git.files.search",
             Self::GitStatus => "git.status",
