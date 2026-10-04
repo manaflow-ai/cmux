@@ -20,7 +20,12 @@ describe("StreamReveal", () => {
   test("new text appears over frames, never going back, and catches up within the catch-up time", () => {
     const reveal = new StreamReveal();
     const text = "The quick brown fox jumps over the lazy dog. ".repeat(4);
-    const shown = run(reveal, () => text, () => false, 60);
+    const shown = run(
+      reveal,
+      () => text,
+      () => false,
+      60,
+    );
     expect(shown[0]).toBeLessThan(text.length);
     for (let index = 1; index < shown.length; index += 1) expect(shown[index]).toBeGreaterThanOrEqual(shown[index - 1]);
     const caughtUp = shown.findIndex((length) => length === text.length);
@@ -32,7 +37,12 @@ describe("StreamReveal", () => {
     const framesToCatchUp = (length: number) => {
       const reveal = new StreamReveal();
       const text = "word ".repeat(length / 5);
-      return run(reveal, () => text, () => false, 200).findIndex((shown) => shown === text.length);
+      return run(
+        reveal,
+        () => text,
+        () => false,
+        200,
+      ).findIndex((shown) => shown === text.length);
     };
     const small = framesToCatchUp(100);
     const large = framesToCatchUp(2000);
@@ -41,22 +51,39 @@ describe("StreamReveal", () => {
 
   test("a slow stream still reveals at the minimum rate, not one character a minute", () => {
     const reveal = new StreamReveal();
-    const shown = run(reveal, () => "abcdefghij", () => false, 30);
+    const shown = run(
+      reveal,
+      () => "abcdefghij",
+      () => false,
+      30,
+    );
     expect(shown.at(-1)).toBe(10);
   });
 
   test("a frame ends on a word boundary when one is near", () => {
     const reveal = new StreamReveal();
     const text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu";
-    for (const length of run(reveal, () => text, () => false, 40))
+    for (const length of run(
+      reveal,
+      () => text,
+      () => false,
+      40,
+    ))
       if (length > 0 && length < text.length) expect(text[length] === " " || text[length - 1] === " ").toBe(true);
   });
 
   test("an ended stream shows the rest quickly", () => {
     const reveal = new StreamReveal();
     const text = "x".repeat(5000);
-    const shown = run(reveal, () => text, () => true, 20);
-    expect(shown.findIndex((length) => length === text.length) * FRAME).toBeLessThanOrEqual(StreamReveal.finishMs + 2 * FRAME);
+    const shown = run(
+      reveal,
+      () => text,
+      () => true,
+      20,
+    );
+    expect(shown.findIndex((length) => length === text.length) * FRAME).toBeLessThanOrEqual(
+      StreamReveal.finishMs + 2 * FRAME,
+    );
   });
 
   test("with Reduce Motion everything shows at once", () => {
@@ -80,7 +107,12 @@ describe("StreamReveal", () => {
   test("never splits a surrogate pair", () => {
     const reveal = new StreamReveal();
     const text = "😀".repeat(200);
-    for (const length of run(reveal, () => text, () => false, 30)) {
+    for (const length of run(
+      reveal,
+      () => text,
+      () => false,
+      30,
+    )) {
       const code = text.charCodeAt(length - 1);
       if (length > 0 && length < text.length) expect(code >= 0xd800 && code <= 0xdbff).toBe(false);
     }
@@ -90,7 +122,13 @@ describe("StreamReveal", () => {
     const reveal = new StreamReveal();
     reveal.advance("ab", 0, false);
     expect(reveal.settled).toBe(false);
-    run(reveal, () => "ab", () => false, 30, FRAME);
+    run(
+      reveal,
+      () => "ab",
+      () => false,
+      30,
+      FRAME,
+    );
     expect(reveal.settled).toBe(true);
   });
 });
