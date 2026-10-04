@@ -75,6 +75,7 @@ proptest! {
                         instance_id: n.map(id),
                         bake_id: w.bake.clone(),
                         bound_id: w.bound.clone(),
+                        clone_signal: false,
                     })
                 }
                 Op::SetBake(n) => {
@@ -122,6 +123,7 @@ proptest! {
                                 instance_id: w.metadata.clone(),
                                 bake_id: w.bake.clone(),
                                 bound_id: w.bound.clone(),
+                                clone_signal: false,
                             }));
                         }
                         _ => {}

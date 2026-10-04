@@ -120,6 +120,23 @@ impl Roles {
         self.wind_down(HostEvent::Shutdown { deadline }, deadline).err().unwrap_or_default()
     }
 
+    /// `stop` in reverse order by one deadline, with no event: the
+    /// identity is about to change (a rebind). Errors are reported only;
+    /// the roles start again with the new id when the bind commits.
+    pub fn stop_all(&mut self) -> Vec<String> {
+        let deadline = Instant::now() + ROLE_STOP_GRACE;
+        let mut errors = Vec::new();
+        for slot in self.slots.iter_mut().rev() {
+            // Stop also after a failed start: the contract makes it safe.
+            if let Err(err) = slot.role.stop(&StopContext { deadline }) {
+                errors.push(format!("role {} stop failed: {err}", slot.role.name()));
+                slot.last_error = Some(err.to_string());
+            }
+            slot.running = false;
+        }
+        errors
+    }
+
     fn wind_down(&mut self, event: HostEvent, deadline: Instant) -> Result<(), Vec<String>> {
         let mut errors = Vec::new();
         for slot in self.slots.iter_mut().rev() {

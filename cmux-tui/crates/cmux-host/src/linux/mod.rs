@@ -343,11 +343,18 @@ impl LinuxPlatform {
     fn stop_terminal_hosts(&mut self) -> io::Result<Option<Input>> {
         let layout = self.layout()?.clone();
         let keep = if self.cfg.paths.at(TEMPLATE_READY_FILE).exists() {
-            procs::template_host_pids(&layout.home)
+            procs::recorded_host_pids(&layout.home)
         } else {
             Vec::new()
         };
-        let killed = procs::stop_terminal_hosts(layout.uid, &keep);
+        // Outside the real root (tests on a shared machine) the same user
+        // can run other hosts: stop only the ones this home records.
+        let scope = if self.cfg.paths.is_system_root() {
+            procs::TerminalHostScope::User
+        } else {
+            procs::TerminalHostScope::Recorded(&layout.home)
+        };
+        let killed = procs::stop_terminal_hosts(layout.uid, &keep, scope);
         eprintln!("cmux-host: stopped terminal hosts {killed:?}, kept template {keep:?}");
         Ok(None)
     }
@@ -547,6 +554,7 @@ impl Platform for LinuxPlatform {
             instance_id: read.instance_id,
             bake_id: read_trimmed(self.cfg.paths.at(BAKE_INSTANCE_FILE)),
             bound_id: read_trimmed(self.cfg.paths.at(BOUND_INSTANCE_FILE)),
+            clone_signal: false,
         }
     }
 
@@ -613,6 +621,7 @@ impl Platform for LinuxPlatform {
                 Ok(None)
             }
             Action::StartRoles(_)
+            | Action::StopRoles
             | Action::CommitBind(_)
             | Action::Recheck
             | Action::ParkRoles

@@ -1,7 +1,7 @@
 //! `/proc` reads: adopting a running session host after an agent restart
-//! and stopping terminal hosts at park. Matching is by pid file, uid and
-//! exact argv elements; every signal goes through a pidfd opened before
-//! the final argv check, so a reused pid is never signalled.
+//! and stopping terminal hosts at park. Matching is by pid file or record,
+//! uid and exact argv elements; every signal goes through a pidfd opened
+//! before the final argv check, so a reused pid is never signalled.
 
 use std::fs;
 use std::os::unix::fs::MetadataExt;
@@ -61,7 +61,7 @@ fn trusted_pid_file(path: &Path) -> bool {
 
 /// `host_pid` of every terminal host record under the session host's
 /// state root (`<home>/.local/state/cmux-tui/**/terminal-hosts-*/*.json`).
-pub fn template_host_pids(home: &Path) -> Vec<u32> {
+pub fn recorded_host_pids(home: &Path) -> Vec<u32> {
     let mut out = Vec::new();
     collect_records(&home.join(".local/state/cmux-tui"), 0, false, &mut out);
     out
@@ -89,12 +89,32 @@ fn collect_records(dir: &Path, depth: u32, in_hosts: bool, out: &mut Vec<u32>) {
     }
 }
 
-/// SIGKILLs every terminal host of `uid` except `keep`. Terminal hosts
-/// leave the session host's process group, so stopping the session host
-/// does not stop them. Returns the pids signalled.
-pub fn stop_terminal_hosts(uid: u32, keep: &[u32]) -> Vec<u32> {
+/// Which terminal hosts a park stops.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TerminalHostScope<'a> {
+    /// Every terminal host of the work user (a `/proc` scan). For the real
+    /// root `/`: hosts of an older build (another path, or a replaced
+    /// binary) and hosts whose record is gone must stop too, and the work
+    /// user runs nothing else.
+    User,
+    /// Only hosts recorded under this daemon home. For any other root (a
+    /// test on a shared machine), where the same user can run the
+    /// terminal hosts of other agents and tests.
+    Recorded(&'a Path),
+}
+
+/// SIGKILLs every terminal host of `uid` in `scope` except `keep`.
+/// Terminal hosts leave the session host's process group, so stopping
+/// the session host does not stop them. Returns the pids signalled.
+pub fn stop_terminal_hosts(uid: u32, keep: &[u32], scope: TerminalHostScope<'_>) -> Vec<u32> {
+    let mut candidates = match scope {
+        TerminalHostScope::User => pids(),
+        TerminalHostScope::Recorded(home) => recorded_host_pids(home),
+    };
+    candidates.sort_unstable();
+    candidates.dedup();
     let mut killed = Vec::new();
-    for pid in pids() {
+    for pid in candidates {
         if keep.contains(&pid) || uid_of(pid) != Some(uid) {
             continue;
         }
@@ -128,7 +148,7 @@ mod tests {
         fs::write(state.join("t1.json"), r#"{"host_pid":4321}"#).unwrap();
         let other = home.path().join(".local/state/cmux-tui/sessions/x");
         fs::write(other.join("registry.json"), r#"{"host_pid":99}"#).unwrap();
-        assert_eq!(template_host_pids(home.path()), [4321]);
+        assert_eq!(recorded_host_pids(home.path()), [4321]);
     }
 
     #[test]
@@ -152,5 +172,47 @@ mod tests {
         let me = std::process::id();
         assert!(alive(me));
         assert!(!is_session_host(me, Path::new("/nonexistent/cmux-tui"), 0));
+    }
+
+    /// Security review P2-3: outside the real root only recorded terminal
+    /// hosts stop; a same-user host of another test survives.
+    #[test]
+    fn recorded_scope_stops_only_recorded_terminal_hosts() {
+        use std::os::unix::process::CommandExt;
+        use std::process::{Command, Stdio};
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("__terminal-host"), "sleep 600\n").unwrap();
+        // `sh` with argv `.../cmux-tui __terminal-host` runs that script.
+        let spawn = || {
+            Command::new("/bin/sh")
+                .arg0(dir.path().join("cmux-tui"))
+                .arg("__terminal-host")
+                .current_dir(dir.path())
+                .process_group(0)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        };
+        let mut foreign = spawn();
+        let mut ours = spawn();
+        let home = dir.path().join("home");
+        let records = home.join(".local/state/cmux-tui/sessions/s/terminal-hosts-x");
+        fs::create_dir_all(&records).unwrap();
+        fs::write(records.join("h.json"), format!(r#"{{"host_pid":{}}}"#, ours.id())).unwrap();
+        // SAFETY: geteuid has no preconditions.
+        let uid = unsafe { libc::geteuid() };
+        let killed = stop_terminal_hosts(uid, &[], TerminalHostScope::Recorded(&home));
+        let foreign_alive = foreign.try_wait().unwrap().is_none();
+        let kept = stop_terminal_hosts(uid, &[ours.id()], TerminalHostScope::Recorded(&home));
+        for child in [&mut foreign, &mut ours] {
+            // SAFETY: kill of the process group this test started.
+            unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
+            let _ = child.wait();
+        }
+        assert_eq!(killed, [ours.id()]);
+        assert!(foreign_alive, "a host outside the daemon home was stopped");
+        assert!(kept.is_empty(), "{kept:?}");
     }
 }

@@ -5,6 +5,7 @@ fn ob(id: Option<&str>, bake: Option<&str>, bound: Option<&str>) -> Observation 
         instance_id: id.map(str::to_owned),
         bake_id: bake.map(str::to_owned),
         bound_id: bound.map(str::to_owned),
+        clone_signal: false,
     }
 }
 
@@ -366,4 +367,31 @@ fn roles_stay_stopped_through_a_rebind_and_after_a_failed_bind() {
     let start = names(&rest).iter().position(|a| *a == "start-roles").expect("roles start");
     assert_eq!(rest[start], Action::StartRoles(Some("x".to_owned())));
     assert_eq!(rest[start + 1], Action::Notify(Lifecycle::Bound("x".to_owned())));
+}
+
+/// Security review P2-1: a failed read after a clone signal arms the
+/// bounded retry while the session host runs, keeps retrying until a read
+/// gives an id, and holds `Resumed` until the id is confirmed.
+#[test]
+fn failed_read_after_a_clone_signal_retries_while_running() {
+    let mut m = Machine::new();
+    run(&mut m, obs(Some("p"), None, Some("p")), &ob(Some("p"), None, Some("p")));
+    let routine = m.step(obs(None, None, Some("p")));
+    assert!(routine.is_empty(), "a routine failed read leaves a running host alone: {routine:?}");
+    let signal = Observation { clone_signal: true, ..ob(None, None, Some("p")) };
+    assert_eq!(m.step(Input::Observed(signal)), [Action::ArmRetry(RETRY_FIRST_MS)]);
+    assert!(m.step(Input::ResumeSignal).is_empty(), "Resumed waits for the id");
+    m.step(Input::RetryElapsed);
+    assert_eq!(m.step(obs(None, None, Some("p"))), [Action::ArmRetry(2 * RETRY_FIRST_MS)]);
+    m.step(Input::RetryElapsed);
+    let same = m.step(obs(Some("p"), None, Some("p")));
+    assert_eq!(same, [Action::Notify(Lifecycle::Resumed), Action::Announce]);
+    assert!(m.step(obs(None, None, Some("p"))).is_empty(), "confirmed: no more retries");
+    // A changed id after the signal binds instead of resuming.
+    let signal = Observation { clone_signal: true, ..ob(None, None, Some("p")) };
+    m.step(Input::Observed(signal));
+    m.step(Input::ResumeSignal);
+    m.step(Input::RetryElapsed);
+    let fork = m.step(obs(Some("q"), None, Some("p")));
+    assert_eq!(names(&fork), ["stop-roles", "terminate-daemon"]);
 }
