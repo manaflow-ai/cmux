@@ -69,7 +69,12 @@ final class ConversationViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         setVisible(true)
+        // Esc and Cmd-[ work before the field is tapped; a field that already
+        // edits keeps the keyboard.
+        if transcript?.field.textView.isFirstResponder != true { becomeFirstResponder() }
     }
+
+    override var canBecomeFirstResponder: Bool { true }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)

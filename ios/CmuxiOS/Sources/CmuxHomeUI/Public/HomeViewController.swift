@@ -77,6 +77,15 @@ public final class HomeViewController: UIViewController {
         list.refreshVisibleContent()
     }
 
+    /// First responder while nothing else is (no field editing), so the
+    /// hardware key commands work without a tap first.
+    override public var canBecomeFirstResponder: Bool { true }
+
+    override public func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        if !searchController.isActive { becomeFirstResponder() }
+    }
+
     // MARK: Rendering
 
     /// Reads every store property Home depends on; `StoreObservation`
