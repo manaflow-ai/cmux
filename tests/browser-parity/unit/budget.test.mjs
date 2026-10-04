@@ -186,7 +186,7 @@ test("frames: a frame that never answers is left out and marked, and the rest of
     _agent: async () => ({ nodes: [{ role: "iframe", name: "Hung", ref: "e1", frame: "h1" }, { role: "iframe", name: "Fine", ref: "e2", frame: "h2" }], max: 2 }),
     _contentFrame: async (handle) => (handle === "h1" ? hung : ok),
   };
-  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _prefixFor: (f) => f.p };
+  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _noteRefDocs() {}, _prefixFor: (f) => f.p };
   const t = Date.now();
   const nodes = await ns.snapshot.frameNodes(page, main, null, { _frameTimeout: 200 }, true);
   assert.ok(Date.now() - t < 2000);
@@ -209,7 +209,7 @@ test("frames: a frame the domain policy blocks is left out and marked", async ()
     _agent: async () => ({ nodes: [{ role: "iframe", name: "Ad", ref: "e1", frame: "h1" }, { role: "iframe", name: "Fine", ref: "e2", frame: "h2" }], max: 2 }),
     _contentFrame: async (handle) => (handle === "h1" ? blocked : ok),
   };
-  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _prefixFor: (f) => f.p };
+  const page = { _session: { host }, _refMaxFor: () => 0, _noteRefMax() {}, _noteRefDocs() {}, _prefixFor: (f) => f.p };
   const nodes = await ns.snapshot.frameNodes(page, main, null, {}, true);
   assert.deepEqual(render(shape(nodes, {}), {}), [
     '- iframe "Ad" [ref=e1] [not read: blocked by the domain policy]',

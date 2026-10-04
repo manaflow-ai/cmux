@@ -645,7 +645,19 @@ The dev driver implements all of them.
   Control or Alt is held).
 - The page agent exposes `globalThis[Symbol.for("cmux.browserRepl.agent")]`
   and `globalThis.__cmuxPageAgent.resolveHandle(id)`, both non-enumerable.
-  Handle ids are strings (`h12`), stable per element for the document's life.
+  Handle ids are opaque strings (`h12.<token>`), stable per element for the
+  document's life. The token is random per document, made by the agent in
+  its own world when it installs in the document, so a frame that navigates
+  never resolves an earlier document's handle, even one whose number the new
+  document reuses: `element`, `resolveHandle` (`null`) and every call that
+  takes a handle fail `stale` with `Element handle is from a previous
+  document; take a new snapshot`, and the runtime does not wait for such a
+  handle to come back. The agent's `snapshot`, `refForHandle`, `elementAt`
+  and `refState` results carry `doc`, that token; the runtime records the
+  document each ref came from, passes it to `refState` (which answers
+  `foreignDoc` for another document's ref) and pins a ref locator's query to
+  it (`aria-ref=e5@<token>`), so a navigation between the check and the
+  query fails `stale` too.
 - Host: `importModule(specifier)` is optional (absent in the app).
   `fetchHandlesCookies` is implied by the native `fetch` contract, so the
   runtime does not add a `Cookie` header itself there.

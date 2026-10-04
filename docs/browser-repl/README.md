@@ -120,7 +120,15 @@ Rules, and how they improve on the references:
   `snapshot("e1")`). A ref is bound to its DOM node for the node's life and is
   never reused in that frame, even after the frame loads a new document. A
   removed node's ref fails at once (`ref e5 is stale`); a ref never issued
-  fails with `ref e9 does not exist`. Reference A renumbers a ref when its name
+  fails with `ref e9 does not exist`. A ref is also bound to the document
+  that issued it: each session remembers which document of a frame gave it
+  each ref, and once the frame shows another document (it navigated, also
+  when another session that drives the tab numbered the new document's
+  refs first), using it fails `stale` (`ref e5 is stale: the element is from
+  a previous document; take a new snapshot`) and never acts on the new
+  document. An element handle (`locator.elementHandle()`) likewise fails
+  `stale` (`Element handle is from a previous document; take a new
+  snapshot`) once its frame shows another document. Reference A renumbers a ref when its name
   changes; reference B reuses indices after removals.
 - **Roles** are Playwright's (`getByRole` finds them), except controls HTML
   has no ARIA role for: `summary` prints as `button`, an editable element as

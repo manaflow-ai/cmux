@@ -951,16 +951,20 @@
       timing.callMs += clock() - called;
     }
     page._noteRefMax(frame, r.max);
+    const issued = [];
     if (options.viewport) options._offscreen = (options._offscreen || 0) + (r.offscreen || 0);
     const iframes = [];
     const collect = (list) => {
       for (const n of list) {
         if (typeof n === "string") continue;
+        if (n.ref) issued.push(n.ref);
         if (n.role === "iframe") iframes.push(n);
         else if (n.children) collect(n.children);
       }
     };
     collect(r.nodes);
+    // Each ref is bound to the document that issued it (Page._checkRef).
+    page._noteRefDocs(frame, r.doc, issued);
     // All iframes of this frame resolve to their frames in one driver call
     // (frame.contentFrames); a driver without it answers per iframe.
     const handles = iframes.map((n) => n.frame).filter(Boolean);

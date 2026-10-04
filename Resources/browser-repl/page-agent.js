@@ -129,6 +129,20 @@
 
   // Handles hold their elements weakly: a connected element is kept alive by
   // its document, and one the page dropped cannot be acted on anyway.
+  //
+  // A frame keeps its id when it navigates, and each new document gets a new
+  // agent that numbers from 1 again, so a handle carries this document's
+  // token (`h<n>.<token>`, opaque to the host). A handle of another document
+  // never resolves here, also when its number exists in this one: it fails
+  // `stale` instead of acting on an element of another document (possibly
+  // another origin). The token is random and lives only in this world.
+  const docToken = (() => {
+    const bytes = new Uint8Array(8);
+    if (global.crypto && typeof global.crypto.getRandomValues === "function") global.crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  })();
+  const PREVIOUS_DOCUMENT = "Element handle is from a previous document; take a new snapshot";
   let nextHandle = 1;
   const handleOf = new WeakMap();
   const handles = new Map();
@@ -136,17 +150,23 @@
   function handleFor(el) {
     let id = handleOf.get(el);
     if (!id) {
-      id = "h" + nextHandle++;
+      id = "h" + nextHandle++ + "." + docToken;
       handleOf.set(el, id);
       handles.set(id, weakRef(el));
     }
     return id;
   }
+  // Whether `id` was issued by this document's agent.
+  function isOwnHandle(id) {
+    return typeof id === "string" && id.endsWith("." + docToken);
+  }
   function handleElement(id) {
+    if (!isOwnHandle(id)) return null;
     const entry = handles.get(id);
     return (entry && entry.deref()) || null;
   }
   function element(id) {
+    if (!isOwnHandle(id)) throw agentError("stale", PREVIOUS_DOCUMENT);
     const el = handleElement(id);
     if (!el) throw agentError("stale", "Element handle is no longer available");
     return el;
@@ -232,7 +252,10 @@
   // ---------------------------------------------------------------------------
   // Refs. A ref names one DOM node for the node's life and is never reused in
   // this frame: the host passes `base`, the highest number it has seen here,
-  // so numbering continues after the frame loads a new document.
+  // so numbering continues after the frame loads a new document. Another
+  // session that drives the tab numbers from its own base, so the host also
+  // checks each ref against the document that issued it (`doc`, the token
+  // above): `refState` and the `aria-ref` engine refuse another document's.
 
   const refOf = new WeakMap();
   const refRegistry = new Map();
@@ -882,7 +905,7 @@
     if (spend(ctx, 1)) visitElement(root, out, ctx, false, false);
     const nodes = normalizeChildren(out);
     // `ms` is the traversal time in this frame, for perf measurements.
-    return { nodes, max: refCounter, offscreen: ctx.offscreen, ms: now() - started, visited: budget - ctx.left, truncated: ctx.truncated };
+    return { nodes, max: refCounter, doc: docToken, offscreen: ctx.offscreen, ms: now() - started, visited: budget - ctx.left, truncated: ctx.truncated };
   }
 
   // Table sizes, for leak checks (tests/browser-parity/perf).
@@ -890,14 +913,20 @@
     return { refs: refRegistry.size, handles: handles.size };
   }
 
-  function refState(ref, base) {
+  // `doc`: the token of the document that issued `ref` to the caller, when
+  // it knows it. Refs restart in every document of a frame, and sessions that
+  // share a tab number them from their own bases, so a ref a session got from
+  // an earlier document can name a live element here; it is reported
+  // `foreignDoc`, never live.
+  function refState(ref, base, doc) {
     raiseRefBase(base);
-    return { live: !!refElement(ref), max: refCounter };
+    if (typeof doc === "string" && doc !== docToken) return { live: false, foreignDoc: true, max: refCounter, doc: docToken };
+    return { live: !!refElement(ref), max: refCounter, doc: docToken };
   }
 
   function refForHandle(id, base) {
     raiseRefBase(base);
-    return { ref: refFor(element(id)), max: refCounter };
+    return { ref: refFor(element(id)), max: refCounter, doc: docToken };
   }
 
   // The topmost element at a viewport point, raised to its nearest control,
@@ -931,13 +960,19 @@
       name: accessibleName(target, false),
       box: { x: r.x, y: r.y, width: r.width, height: r.height },
       max: refCounter,
+      doc: docToken,
     };
   }
 
   if (injected) {
     injected._engines.set("aria-ref", {
       queryAll(root, selector) {
-        const el = refElement(String(selector).trim());
+        // `e5@<token>`: the host checked the ref against this document's
+        // token and pins the query to it, so a navigation between that check
+        // and this query fails stale instead of matching the new document.
+        const [ref, doc] = String(selector).trim().split("@");
+        if (doc !== undefined && doc !== docToken) throw agentError("stale", PREVIOUS_DOCUMENT);
+        const el = refElement(ref);
         return el ? [el] : [];
       },
     });
