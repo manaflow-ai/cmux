@@ -6,13 +6,15 @@ import Observation
 
 /// The live agent cursor visibility: resolves a target tab against the
 /// current models (`AgentCursorSnapshotBuilder` + the pure resolver), hands
-/// each window's overlay model its `AgentCursorTargetResolving`, and tells
-/// `onChange` when a tracked target's visibility changes between input
-/// events (a column scrolls, a window minimizes, a workspace or tab switches).
+/// each workspace content's cursor stack its `AgentCursorTargetResolving`,
+/// and tells `onChange` when a tracked target's visibility changes between
+/// input events (a column scrolls, a window minimizes, a workspace or tab
+/// switches).
 ///
-/// No polling and no timers: while no target is tracked it observes nothing;
-/// while some are, it re-resolves only on layout overlay syncs, window
-/// notifications, Space changes and window state changes.
+/// No polling and no timers: without an `onChange` consumer, or while no
+/// target is tracked, it observes nothing; otherwise it re-resolves only on
+/// layout overlay syncs, window notifications, Space changes and window
+/// state changes.
 final class AgentCursorVisibilitySource {
     private let builder: AgentCursorSnapshotBuilder
     private weak var services: AppServices?
@@ -32,9 +34,11 @@ final class AgentCursorVisibilitySource {
         builder = AgentCursorSnapshotBuilder(services: services)
     }
 
-    /// Resolves `target` now and tracks it until `untrack`.
+    /// Resolves `target` now. With an `onChange` consumer, also tracks it
+    /// until `untrack`; without one nothing is observed (0 idle work).
     func resolve(_ target: String) -> AgentCursorVisibility {
         let result = AgentCursorVisibilityResolver.resolve(target: target, in: builder.snapshot(forTarget: target))
+        guard onChange != nil else { return result }
         let wasIdle = tracked.isEmpty
         tracked[target] = result
         if wasIdle { startObserving() }
@@ -47,14 +51,16 @@ final class AgentCursorVisibilitySource {
         stopObserving()
     }
 
-    /// The resolver one window's overlay model asks.
-    func resolver(forWindow windowID: String) -> any AgentCursorTargetResolving {
-        AgentCursorWindowResolver(windowID: windowID, source: self)
+    /// The resolver of one workspace content's cursor stack: it draws only
+    /// while that content is the one its window shows (a parked content's
+    /// plane is off screen).
+    func resolver(for content: WorkspaceContentController) -> any AgentCursorTargetResolving {
+        AgentCursorContentResolver(content: content, source: self)
     }
 
-    /// The overlay bounds of `windowID` (its shown layout root).
-    func overlayBounds(ofWindow windowID: String) -> CGRect {
-        services?.windows.controller(for: windowID)?.content?.layoutView.bounds ?? .zero
+    /// The window that shows `content` now, if any.
+    func windowID(showing content: WorkspaceContentController) -> String? {
+        services?.windows.controllers.first { $0.content === content }?.state.id
     }
 
     // MARK: Invalidation
@@ -127,19 +133,19 @@ final class AgentCursorVisibilitySource {
     }
 }
 
-/// One window's `AgentCursorTargetResolving`: resolves through the shared
-/// source and keeps only what this window draws.
-final class AgentCursorWindowResolver: AgentCursorTargetResolving {
-    let windowID: String
+/// One workspace content's `AgentCursorTargetResolving`: resolves through
+/// the shared source and keeps only what this content's plane draws.
+final class AgentCursorContentResolver: AgentCursorTargetResolving {
+    private weak var content: WorkspaceContentController?
     private weak var source: AgentCursorVisibilitySource?
 
-    init(windowID: String, source: AgentCursorVisibilitySource) {
-        self.windowID = windowID
+    init(content: WorkspaceContentController, source: AgentCursorVisibilitySource) {
+        self.content = content
         self.source = source
     }
 
     func placement(forTarget targetID: String) -> AgentCursorPlacement {
-        guard let source else { return .elsewhere }
-        return source.resolve(targetID).placement(forWindow: windowID, overlay: source.overlayBounds(ofWindow: windowID))
+        guard let source, let content, let window = source.windowID(showing: content) else { return .elsewhere }
+        return source.resolve(targetID).placement(forWindow: window, overlay: content.layoutView.bounds)
     }
 }
