@@ -14,6 +14,7 @@ pub use spawner::{
 };
 pub use supervisor::{CONNECTOR_KIND, LinkFailure, LinkState, LinkSupervisor, READY_DEADLINE};
 
+use crate::app_env::AppEnv;
 use crate::connector::iface::{BackendId, CarrierEvent, ConnectorEvent, LocalId, check_kinds};
 use crate::rescue::iface::ByteTerminal;
 use crate::rescue::{MissingRescueRoute, RescueBackend, RescueTransport};
@@ -44,6 +45,9 @@ pub struct Attach {
     /// The last attach endpoint of each machine, so a link-details change
     /// respawns a live link without a new Cloud API call.
     pub(crate) endpoints: BTreeMap<String, AttachEndpoint>,
+    /// The server's allowlisted environment; children get only
+    /// [`AppEnv::child_env`].
+    pub(crate) env: AppEnv,
     pub(crate) rescue: RescueBackend,
     pub(crate) rescue_terminals: BTreeMap<String, Box<dyn ByteTerminal>>,
     pub(crate) connector_id: BackendId,
@@ -70,6 +74,7 @@ impl Attach {
             supervisor: LinkSupervisor::new(spawner),
             link: paths.map_or(config::LinkConfig::Unrequested, config::LinkConfig::Ready),
             endpoints: BTreeMap::new(),
+            env: AppEnv::default(),
             rescue: RescueBackend::new(rescue),
             rescue_terminals: BTreeMap::new(),
             connector_id: BackendId::app(
@@ -93,6 +98,16 @@ impl Attach {
     /// from the host (`cmux.host.link.get`), never from the environment.
     pub fn real() -> Self {
         Self::new(Box::new(ProcessSpawner), None, Box::new(MissingRescueRoute))
+    }
+
+    /// The server's allowlisted environment (from the host's start).
+    pub fn with_env(mut self, env: AppEnv) -> Self {
+        self.env = env;
+        self
+    }
+
+    pub fn env(&self) -> &AppEnv {
+        &self.env
     }
 
     /// The one consumer of the supervisor's event queue: applies the link

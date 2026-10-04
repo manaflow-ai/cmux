@@ -3,6 +3,7 @@
 
 #![allow(dead_code)]
 
+use cmux_cloud::app_env::AppEnv;
 use cmux_cloud::connector::iface::CarrierEvent;
 use cmux_cloud::link::{
     Attach, LinkCommand, LinkEvents, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
@@ -196,7 +197,21 @@ pub fn link_events<C: cmux_cloud::ControlPlane>(
     server.take_link_events()
 }
 
-/// Attach with the fake spawner, test paths and the fake transport.
+/// An app environment with its own data folder under the test temp
+/// folder (one per call).
+pub fn test_env() -> AppEnv {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let data = std::env::temp_dir().join(format!("cmux-cloud-data-{}-{n}", std::process::id()));
+    AppEnv::from_vars([
+        ("CMUX_APP_ID", "cmux/cloud"),
+        ("CMUX_APP_DATA_DIR", data.to_str().unwrap()),
+    ])
+}
+
+/// Attach with the fake spawner, test paths, the fake transport and a
+/// test app environment.
 pub fn attach(spawner: &FakeSpawner, transport: &FakeTransport) -> Attach {
     Attach::new(Box::new(spawner.clone()), Some(paths()), Box::new(transport.clone()))
+        .with_env(test_env())
 }

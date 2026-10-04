@@ -13,6 +13,7 @@
 use super::key::TransferKey;
 use super::path::{guest_arg, local_arg};
 use crate::api::{CloudError, ControlPlane, Origin, args, codes};
+use crate::app_env::SshFiles;
 use crate::ops::Server;
 use crate::ports::listener::Listener;
 use base64::Engine as _;
@@ -87,6 +88,12 @@ pub struct TransferJob {
     pub endpoint: ScpEndpoint,
     /// Where the guest's SSH port is reachable from here (127.0.0.1).
     pub route: SocketAddr,
+    /// The whole environment of each OpenSSH child (crate::app_env).
+    pub env: Vec<(String, String)>,
+    /// The app's OpenSSH config and pinned known_hosts.
+    pub ssh: SshFiles,
+    /// Folder for the transfer's short-lived agent socket.
+    pub temp_dir: PathBuf,
 }
 
 /// A failed transfer. `message` never holds key material.
@@ -96,10 +103,10 @@ pub struct TransferError {
     pub retryable: bool,
 }
 
-pub trait Transfer: Send {
+pub trait Transfer: Send + Sync {
     /// Copies one file. The key is the one whose public half the endpoint
     /// authorized; the implementation must not store it.
-    fn run(&mut self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError>;
+    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError>;
 }
 
 fn now_unix() -> i64 {
@@ -152,6 +159,9 @@ pub(crate) fn run<C: ControlPlane>(
         guest: guest.clone(),
         endpoint,
         route: route.local_addr(),
+        env: Vec::new(),
+        ssh: SshFiles::default(),
+        temp_dir: std::env::temp_dir(),
     };
     let result = edge.transfer.run(&job, &transfer_key);
     route.close();

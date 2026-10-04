@@ -22,6 +22,7 @@ const HOST_ALIAS: &str = "cmux-scp";
 
 #[derive(Debug, Clone)]
 pub struct OpenSshTransfer {
+    pub ssh: PathBuf,
     pub ssh_agent: PathBuf,
     pub ssh_add: PathBuf,
     pub scp: PathBuf,
@@ -30,6 +31,7 @@ pub struct OpenSshTransfer {
 impl Default for OpenSshTransfer {
     fn default() -> Self {
         Self {
+            ssh: PathBuf::from("/usr/bin/ssh"),
             ssh_agent: PathBuf::from("/usr/bin/ssh-agent"),
             ssh_add: PathBuf::from("/usr/bin/ssh-add"),
             scp: PathBuf::from("/usr/bin/scp"),
@@ -39,12 +41,8 @@ impl Default for OpenSshTransfer {
 
 /// The `scp` arguments for `job`: no key material, the host key pinned by
 /// alias, the private agent only, no config file.
-pub fn scp_args(
-    job: &TransferJob,
-    agent_socket: &Path,
-    known_hosts: &Path,
-    identity_pub: &Path,
-) -> Vec<String> {
+pub fn scp_args(job: &TransferJob, agent_socket: &Path, identity_pub: &Path) -> Vec<String> {
+    let known_hosts = job.ssh.known_hosts.as_path();
     let option = |o: String| ["-o".to_owned(), o];
     // Quoted (a space would split the value) with `%` escaped (ssh tokens).
     let escape = |p: &Path| format!("\"{}\"", p.to_string_lossy().replace('%', "%%"));
@@ -186,7 +184,7 @@ impl OpenSshTransfer {
 }
 
 impl Transfer for OpenSshTransfer {
-    fn run(&mut self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
+    fn run(&self, job: &TransferJob, key: &TransferKey) -> Result<u64, TransferError> {
         let scratch = Scratch::new().map_err(|e| failed("no private folder", &e.to_string()))?;
         let socket = scratch.0.join("agent.sock");
         let known_hosts = scratch.0.join("known_hosts");
@@ -198,7 +196,17 @@ impl Transfer for OpenSshTransfer {
         let _agent = self.start_agent(&socket)?;
         self.add_key(&socket, key)?;
         let mut child = command(&self.scp)
-            .args(scp_args(job, &socket, &known_hosts, &identity_pub))
+            .args(scp_args(
+                &TransferJob {
+                    ssh: crate::app_env::SshFiles {
+                        known_hosts: known_hosts.clone(),
+                        ..job.ssh.clone()
+                    },
+                    ..job.clone()
+                },
+                &socket,
+                &identity_pub,
+            ))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())

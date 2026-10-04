@@ -7,6 +7,7 @@
 //! server never sees the bearer.
 
 pub mod api;
+pub mod app_env;
 pub mod connector;
 pub mod fs;
 pub mod link;
