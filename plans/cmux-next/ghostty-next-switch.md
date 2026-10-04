@@ -313,6 +313,23 @@ never had a view 60 s after its open is closed; one that had a view stays.
 `connection.channel.open` takes the terminal instead of a second token
 (P2). `resume` is a host op after a user run (P3); v1 answers unsupported.
 
+Lane note, v1 limits (accepted by the coordinator, 2026-10-04):
+1. A first view writes the record as launching in the topology commit and
+   as running in a second commit right after; a crash between them restores
+   as a failed launch (correct: a backend terminal does not survive a daemon
+   restart).
+2. "Had a view" means the terminal has a durable identity. The 60 s close is
+   tested for a terminal that still has its view; the case where its last
+   tab closed first is not tested, because a tab close may retire the
+   terminal (`close_content`).
+3. Until its first view, a backend terminal is not in `terminal.list` or
+   `terminal.get` (it has no durable record).
+4. `cmux.terminal.backend.resume` answers unsupported after its token check;
+   `cmux.terminal.channel.open` answers unavailable (no SSH transport); the
+   host sends no signal events; one client per link.
+5. No live end-to-end run yet with the real Cloud server or the Mac and iOS
+   clients for the relay, the backend runtime or `terminal.project`.
+
 Host-owned SSH transport (open decision, its own owner): `connection.channel.open`
 runs its checks in the daemon behind an `SshTransport` trait; production
 answers `unavailable {retryable: false}` until this is decided. Options:
