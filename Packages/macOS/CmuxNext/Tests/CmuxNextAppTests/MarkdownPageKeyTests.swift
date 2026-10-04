@@ -42,3 +42,27 @@ extension MarkdownPageKeyTests {
         #expect(KeyRouter.markdownPageID == PageDescriptor.markdown.id)
     }
 }
+
+extension MarkdownPageKeyTests {
+    /// hq-48 S6: Cmd-K inserts a link, Cmd-[ / Cmd-] go back and forward in
+    /// a focused markdown page, through its page commands; elsewhere those
+    /// keys keep their owners.
+    @Test func linkBackAndForwardInAMarkdownPage() throws {
+        let router = M.services().keyRouter!
+        let markdown = KeyRouter.Facts(pageID: PageDescriptor.markdown.id)
+        let cases: [(NSEvent, ActionID, String)] = [
+            (try K.key("k", keyCode: 40, [.command]), "markdownLink", "link"),
+            (try K.key("[", keyCode: 33, [.command]), "markdownBack", "back"),
+            (try K.key("]", keyCode: 30, [.command]), "markdownForward", "forward"),
+        ]
+        for (event, action, command) in cases {
+            let decision = router.decide(event, focus: Self.markdownPage, keyWindow: .content, facts: markdown)
+            guard case .run(let candidate) = decision else { Issue.record("\(action): \(decision)"); continue }
+            #expect(candidate.id == action)
+            #expect(MarkdownPageCommand.forAction[action.rawValue] == command)
+            #expect(PageDescriptor.markdown.commands.contains(command))
+            let other = router.decide(event, focus: Self.markdownPage, keyWindow: .content, facts: KeyRouter.Facts(pageID: "cmux.history"))
+            if case .run(let elsewhere) = other { #expect(elsewhere.id != action) }
+        }
+    }
+}
