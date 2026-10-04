@@ -158,6 +158,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
+        router.hasUserGesture = { [weak self] in (self?.webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
         #if DEBUG
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e.
+// cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3396,7 +3396,7 @@ impl CmuxClient {
     pub fn move_tab_to_column(&mut self, request: MoveTabToColumnRequest) -> Result<MoveTabToColumnResult> {
         if !request.dock.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
-            self.require_capability_field("move-tab-to-column", "edge-docks-v1")?;
+            self.require_capability_field("move-tab-to-column", "dock-columns-v1")?;
         }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;

@@ -70,7 +70,7 @@ final class TerminalEntry {
         self.themeKey = themeKey
         themeBinding = TerminalThemeBinding(scope: themeScope, session: session)
         themeScope.root(session.view)
-        watch = TerminalLinkWatch(store: store, surface: surface, io: io, model: session.model)
+        watch = TerminalLinkWatch(store: store, surface: surface, io: io, session: session)
     }
 
     func close() {

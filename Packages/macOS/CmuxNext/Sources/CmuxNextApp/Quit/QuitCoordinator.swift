@@ -121,7 +121,7 @@ final class QuitCoordinator {
             remember: { behavior in
                 guard let settings = services.settings,
                       let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
-                do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue)) } catch {
+                do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
                     Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
                         .error("quit setting write failed: \(String(describing: error), privacy: .public)")
                 }
@@ -138,7 +138,9 @@ final class QuitCoordinator {
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
-            endLocalAgents: { await QuitAgents.end(QuitAgents.environment(services)) },
+            endLocalAgents: { [attempts = QuitAttempts()] in
+                await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
+            },
             stopBrowserEngines: { await services.cache.cef.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)

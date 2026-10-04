@@ -857,13 +857,15 @@ impl Hub {
     }
 }
 
-/// Browser URL for the dashboard, with the token in the query string.
-pub fn web_url(w: &crate::config::WebSocketConfig) -> String {
+/// Browser URL for the dashboard, with the listener's token in the query
+/// string (a `--token` value for this run, else the saved one).
+pub fn web_url(cfg: &crate::config::Config) -> Option<String> {
+    let w = cfg.web_listener()?;
     let host = w.listen.replace("0.0.0.0", "127.0.0.1").replace("[::]", "[::1]");
-    match &w.token {
+    Some(match cfg.web_token_override.as_ref().or(w.token.as_ref()) {
         Some(t) => format!("http://{host}/?token={t}"),
         None => format!("http://{host}/"),
-    }
+    })
 }
 
 /// Current value of a select config option, by id.

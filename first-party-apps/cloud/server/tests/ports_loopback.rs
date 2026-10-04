@@ -3,7 +3,7 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use cmux_cloud::connector::iface::Carrier;
+use cmux_cloud::link::Carrier;
 use cmux_cloud::ports::{LoopbackTunnel, PortTunnel, TunnelError};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};

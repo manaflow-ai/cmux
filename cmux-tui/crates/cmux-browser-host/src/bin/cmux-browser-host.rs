@@ -33,6 +33,7 @@ mod unix {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    #[derive(Clone)]
     struct Options {
         socket: PathBuf,
         session: String,
@@ -125,7 +126,7 @@ mod unix {
                 print!("{}", bundle::GUIDE);
                 0
             }
-            "eval" => eval_command(&options),
+            "eval" => eval_command(&options, rest.iter().any(|a| a == "--session")),
             "mcp" => {
                 eprintln!(
                     "cmux-browser-host: no MCP server here; use `cmux mcp serve` (turn it on with \"mcp\": {{\"enabled\": true}} in cmux.json)"
@@ -301,11 +302,36 @@ mod unix {
         }
     }
 
-    fn eval_command(options: &Options) -> i32 {
+    /// A request whose answer is not printed (cleanup).
+    fn simple_quiet(options: &Options, method: &str, params: Value) {
+        if let Ok(mut stream) = connect(options) {
+            let _ = request(&mut stream, 1, method, params);
+        }
+    }
+
+    /// Without `--session` the call is a one-shot session, as `cmux browser
+    /// repl --eval` is: its own name, closed after the call, so nothing
+    /// (variables, tabs, ref numbers) carries over to the next call.
+    fn eval_command(options: &Options, named: bool) -> i32 {
         let Some(code) = &options.code else {
             eprintln!("cmux-browser-host eval: pass code or - for stdin");
             return 2;
         };
+        if !named {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let mut one_shot = options.clone();
+            one_shot.session = format!("oneshot-{}-{nanos:x}", std::process::id());
+            let code = eval_in(&one_shot, code);
+            simple_quiet(&one_shot, "browser.repl.close", json!({"session": one_shot.session}));
+            return code;
+        }
+        eval_in(options, code)
+    }
+
+    fn eval_in(options: &Options, code: &str) -> i32 {
         let mut stream = match connect(options) {
             Ok(stream) => stream,
             Err(error) => {

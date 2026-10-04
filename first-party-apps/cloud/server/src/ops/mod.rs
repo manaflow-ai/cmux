@@ -14,7 +14,7 @@ pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
 
 use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, upstream_key};
-use crate::rescue::iface::OpenToken;
+use cmux_terminal_iface::OpenToken;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -301,6 +301,13 @@ impl<C: ControlPlane> Server<C> {
         self.edge.file_jobs.set_wake(wake);
     }
 
+    /// `op.cancel` from the host: stops the running file job or the waiting
+    /// (parked) op of op line `id`. `true` when one was cancelled; the caller
+    /// then answers `id` once with `cmux.op.cancelled`.
+    pub fn cancel_op(&mut self, id: &Value) -> bool {
+        self.edge.file_jobs.cancel_op(id) || self.cancel_parked(id)
+    }
+
     /// Records the end of a file op that ran on a worker under `key`: a
     /// result is replayed for a same-key retry; refused arguments free the
     /// key; any other error leaves the attempt open (a retry runs again).
@@ -338,7 +345,7 @@ impl<C: ControlPlane> Server<C> {
 
     /// Link events for the host lines (`cloud.link.changed`) since the
     /// last call, in order.
-    pub fn take_link_events(&mut self) -> Vec<crate::connector::iface::CarrierEvent> {
+    pub fn take_link_events(&mut self) -> Vec<crate::link::CarrierEvent> {
         self.attach.take_host_link_events()
     }
 

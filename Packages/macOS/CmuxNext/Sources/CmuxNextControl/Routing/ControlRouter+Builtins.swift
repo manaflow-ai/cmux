@@ -63,15 +63,15 @@ extension ControlRouter {
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
                 guard let value = call.params["value"] else { throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "settings.set", "value")) }
-                try await self.writeSetting(value, at: path, store: store)
+                try await self.writeSetting(value, at: path, store: store, call: call)
                 return ["path": .array(path.map(JSONValue.string)), "value": value, "file": .string(store.fileLocation)]
-            },
+            }.withDeadline(.fixed(.seconds(120))), // `confirm: true` waits for the person on a native sheet
         ] + ["settings.reset", "settings.unset"].map { name in
             ControlMethod.async(name) { [weak self] call in
                 guard let self else { throw Self.stopped }
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
-                try await self.writeSetting(nil, at: path, store: store)
+                try await self.writeSetting(nil, at: path, store: store, call: call)
                 return ["path": .array(path.map(JSONValue.string)), "file": .string(store.fileLocation)]
             }
         } + [

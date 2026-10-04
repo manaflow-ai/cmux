@@ -195,6 +195,7 @@ impl Mux {
                 }
             };
             let Some(target) = target else { return Ok(None) };
+            crate::debug_spans::mark("prelaunch.target");
             let cwd = cwd.or_else(|| self.pane_cwd(target));
             let (launch_opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, &env);
             if launch_opts.terminal_host_root.is_none() {
@@ -209,6 +210,7 @@ impl Mux {
             // starts in the background after this launch.
             let standby = self.terminal_work.standby.take();
             let used_spare = standby.is_some();
+            crate::debug_spans::mark(if used_spare { "spare.taken" } else { "spare.none" });
             let launch = |standby| {
                 Surface::prelaunch_hosted(
                     self.next_id(),
@@ -226,6 +228,7 @@ impl Mux {
             if launched.is_err() && used_spare {
                 launched = launch(None);
             }
+            crate::debug_spans::mark("host.launched");
             self.terminal_work.standby.refill(&self.terminal_work);
             let mut host = launched?;
             debug_assert!(host.terminal_id() == terminal_id);
@@ -234,6 +237,7 @@ impl Mux {
             // lands in another workspace rewrites it there.
             if let Some(workspace_key) = workspace_key.as_deref() {
                 let _ = host.persist_workspace(workspace_key);
+                crate::debug_spans::mark("host.workspace_persisted");
             }
             let terminal_hex = terminal_id.to_hex();
             self.prelaunched_terminals

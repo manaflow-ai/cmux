@@ -138,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
         services.settings = settings
+        UserOnlySettingConfirmation.install(settings, services: services)
         // Every palette-exposed schema setting in the palette (R93).
         services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []

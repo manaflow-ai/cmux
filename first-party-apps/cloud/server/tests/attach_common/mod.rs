@@ -4,12 +4,12 @@
 #![allow(dead_code)]
 
 use cmux_cloud::app_env::AppEnv;
-use cmux_cloud::connector::iface::CarrierEvent;
+use cmux_cloud::link::CarrierEvent;
 use cmux_cloud::link::{
     Attach, LinkCommand, LinkEvents, LinkPaths, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag,
 };
-use cmux_cloud::rescue::iface::{BackendError, Grid, Signal};
 use cmux_cloud::rescue::{RescueTransport, StreamId, TransportEvent};
+use cmux_terminal_iface::{BackendError, Grid, Signal};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -134,7 +134,7 @@ impl LinkSpawner for FakeSpawner {
 pub fn paths() -> LinkPaths {
     LinkPaths {
         binary: PathBuf::from("/opt/cmux/bin/cmux-tui"),
-        hub_socket: PathBuf::from("/tmp/cmux-test/wg-hub.sock"),
+        hub_socket: PathBuf::from("/tmp/cmux-test/link.sock"),
         state_dir: PathBuf::from("/tmp/cmux-test/link-state"),
         socket_dir: PathBuf::from("/tmp/cmux-test"),
         device_name: "test-mac".into(),

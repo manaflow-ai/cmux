@@ -85,6 +85,10 @@ public final class PageRouter {
         }
     }
 
+    /// Whether a real key or mouse event reached the page's view just now (PageWKWebView); nil in
+    /// tests without a view.
+    public var hasUserGesture: (@MainActor () -> Bool)?
+
     /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
     public var titleBarDoubleClick: (@MainActor () -> Void)?
 
@@ -95,7 +99,8 @@ public final class PageRouter {
             return .object([:])
         }
         let (provider, params) = try admit(op, params: params)
-        return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid))
+        return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
+                                                                                     userGesture: hasUserGesture?() ?? false))
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {

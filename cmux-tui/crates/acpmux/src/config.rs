@@ -301,6 +301,15 @@ pub struct WebSocketConfig {
     /// name). Both lists are read when the listener starts.
     #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
+    /// `tokenRotated`: the saved token was replaced at the first start of a
+    /// build that never sends it to a remote-origin connection (earlier
+    /// builds did, in `_acpmux/status`). Set, it never rotates again.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub token_rotated: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 fn default_palette_prefix() -> String {
@@ -434,6 +443,10 @@ pub struct Config {
     /// only, never saved).
     #[serde(skip)]
     pub dev_origins: Vec<String>,
+    /// The listener's token for this run when `--token` gave one: the
+    /// dashboard link uses it, and it is never saved over `websocket.token`.
+    #[serde(skip)]
+    pub web_token_override: Option<String>,
     /// Profiles whose launcher failed its start-up check, with the reason.
     /// They stay configured (sessions on them keep their history) but no
     /// family preference or fallback routes new work to them.

@@ -59,7 +59,7 @@ pub fn link_command(
 ) -> LinkCommand {
     LinkCommand {
         binary: paths.binary.clone(),
-        args: dial_args(host),
+        args: dial_args(host, &paths.hub_socket),
         env: child_env.to_vec(),
         state_dir: paths.state_dir.clone(),
         local_socket: paths.link_socket(machine),

@@ -21746,6 +21746,268 @@
           }
         }
       }
+    },
+    "control.error.settingUserOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن تغيير %1$@ إلا بواسطتك: استخدم الإعدادات، أو `cmux settings set %1$@ <value> --confirm` ثم وافق عليه في cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ možete promijeniti samo vi: koristite Postavke ili `cmux settings set %1$@ <value> --confirm` i odobrite to u cmuxu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ kan kun ændres af dig: brug Indstillinger, eller `cmux settings set %1$@ <value> --confirm` og godkend det i cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ kannst nur du ändern: Nutze die Einstellungen oder `cmux settings set %1$@ <value> --confirm` und bestätige es in cmux"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ can be changed only by you: use Settings, or `cmux settings set %1$@ <value> --confirm` and approve it in cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tú puedes cambiar %1$@: usa Ajustes, o `cmux settings set %1$@ <value> --confirm` y apruébalo en cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous seul pouvez modifier %1$@ : utilisez les Réglages, ou `cmux settings set %1$@ <value> --confirm` puis approuvez dans cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo tu puoi modificare %1$@: usa Impostazioni, oppure `cmux settings set %1$@ <value> --confirm` e approva in cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ はあなただけが変更できます。設定を使うか、`cmux settings set %1$@ <value> --confirm` を実行して cmux で承認してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានតែអ្នកទេដែលអាចប្ដូរ %1$@៖ ប្រើការកំណត់ ឬ `cmux settings set %1$@ <value> --confirm` ហើយអនុម័តវានៅក្នុង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@은(는) 사용자만 변경할 수 있습니다. 설정을 사용하거나 `cmux settings set %1$@ <value> --confirm`을 실행한 뒤 cmux에서 승인하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ kan bare endres av deg: bruk Innstillinger, eller `cmux settings set %1$@ <value> --confirm` og godkjenn det i cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ możesz zmienić tylko Ty: użyj Ustawień albo `cmux settings set %1$@ <value> --confirm` i zatwierdź w cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só você pode alterar %1$@: use os Ajustes, ou `cmux settings set %1$@ <value> --confirm` e aprove no cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ можете изменить только вы: используйте Настройки или `cmux settings set %1$@ <value> --confirm` и подтвердите это в cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเพียงคุณเท่านั้นที่เปลี่ยน %1$@ ได้: ใช้การตั้งค่า หรือ `cmux settings set %1$@ <value> --confirm` แล้วอนุมัติใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ yalnızca sizin tarafınızdan değiştirilebilir: Ayarlar'ı kullanın veya `cmux settings set %1$@ <value> --confirm` çalıştırıp cmux'ta onaylayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ можете змінити лише ви: скористайтеся Налаштуваннями або `cmux settings set %1$@ <value> --confirm` і підтвердьте це в cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ bạn mới có thể thay đổi %1$@: dùng Cài đặt, hoặc `cmux settings set %1$@ <value> --confirm` rồi chấp thuận trong cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 只能由你更改：使用“设置”，或运行 `cmux settings set %1$@ <value> --confirm` 并在 cmux 中批准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 只能由你變更：使用「設定」，或執行 `cmux settings set %1$@ <value> --confirm` 並在 cmux 中核准"
+          }
+        }
+      }
+    },
+    "control.error.settingUserOnlyDeclined": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتم تغيير %1$@: تم رفض التأكيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nije promijenjeno: potvrda je odbijena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ blev ikke ændret: bekræftelsen blev afvist"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ wurde nicht geändert: Die Bestätigung wurde abgelehnt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ was not changed: the confirmation was declined"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no se cambió: se rechazó la confirmación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ n'a pas été modifié : la confirmation a été refusée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non è stato modificato: la conferma è stata rifiutata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ は変更されませんでした。確認が拒否されました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនត្រូវបានប្ដូរទេ៖ ការបញ្ជាក់ត្រូវបានបដិសេធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@이(가) 변경되지 않았습니다. 확인이 거부되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ble ikke endret: bekreftelsen ble avslått"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie zmieniono %1$@: potwierdzenie zostało odrzucone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não foi alterado: a confirmação foi recusada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не изменено: подтверждение отклонено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ได้เปลี่ยน %1$@: การยืนยันถูกปฏิเสธ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ değiştirilmedi: onay reddedildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не змінено: підтвердження відхилено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ chưa được thay đổi: xác nhận đã bị từ chối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 未更改：确认被拒绝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 未變更：確認被拒絕"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

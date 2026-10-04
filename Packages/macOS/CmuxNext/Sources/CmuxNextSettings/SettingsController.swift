@@ -33,6 +33,9 @@ public final class SettingsController {
     public private(set) var managedPolicy: [String: JSONValue] = [:]
     /// The user's own cmux-next.json document; `snapshot.root` is the effective one.
     public private(set) var fileRoot: JSONValue = .object([:])
+    /// The app's native confirmation for a socket write of a user-only key (`cmux settings set
+    /// --confirm`): it shows a sheet that names the key and value and needs a real click or key.
+    @ObservationIgnored public var userOnlyConfirmation: (@MainActor (String, JSONValue?) async -> Bool)?
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
@@ -149,63 +152,63 @@ public final class SettingsController {
 
     /// Writes `browser.defaultEngine` through `setSetting`.
     public func setBrowserDefaultEngine(_ engine: BrowserDefaultEngine) async throws {
-        try await setSetting(at: BrowserDefaultEngine.configPath, to: .string(engine.rawValue))
+        try await setSetting(at: BrowserDefaultEngine.configPath, to: .string(engine.rawValue), by: .currentRun())
     }
 
     /// Writes `browser.showBookmarksBar` through `setSetting`; off removes
     /// the key (the default).
     public func setShowBookmarksBar(_ show: Bool) async throws {
-        try await setSetting(at: BookmarksBarSetting.configPath, to: show ? .bool(true) : nil)
+        try await setSetting(at: BookmarksBarSetting.configPath, to: show ? .bool(true) : nil, by: .currentRun())
     }
 
     /// Writes `browser.hibernation` ("off", "moderate", "aggressive" or
     /// minutes) through `setSetting`.
     public func setBrowserHibernation(_ mode: BrowserHibernationSetting.Mode) async throws {
-        try await setSetting(at: BrowserHibernationSetting.configPath, to: BrowserHibernationSetting(mode: mode).configValue)
+        try await setSetting(at: BrowserHibernationSetting.configPath, to: BrowserHibernationSetting(mode: mode).configValue, by: .currentRun())
     }
 
     /// Writes `ui.animationSpeed` through `setSetting`.
     public func setAnimationSpeed(_ speed: MotionSpeed) async throws {
-        try await setSetting(at: AnimationSpeedSetting.configPath, to: .string(speed.rawValue))
+        try await setSetting(at: AnimationSpeedSetting.configPath, to: .string(speed.rawValue), by: .currentRun())
     }
 
     /// Writes `window.titlebar` through `setSetting`; the default
     /// ("minimal") removes the key, and the `window` object when it empties.
     public func setTitlebar(_ style: TitlebarStyle) async throws {
-        try await setSetting(at: WindowTitlebarSetting.configPath, to: style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue))
+        try await setSetting(at: WindowTitlebarSetting.configPath, to: style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue), by: .currentRun())
     }
 
     /// Writes `appearance.density` through `setSetting` (the Settings
     /// window, the palette and onboarding all land here).
     public func setDensity(_ density: Density) async throws {
-        try await setSetting(at: ["appearance", "density"], to: .string(density.rawValue))
+        try await setSetting(at: ["appearance", "density"], to: .string(density.rawValue), by: .currentRun())
     }
 
     /// Writes `layout.panePadding` in points; nil removes it (density default).
     public func setPanePadding(_ points: Double?) async throws {
-        try await setSetting(at: ["layout", "panePadding"], to: points.map(JSONValue.number))
+        try await setSetting(at: ["layout", "panePadding"], to: points.map(JSONValue.number), by: .currentRun())
     }
 
     /// Writes `layout.paneCornerRadius` in points; nil removes it.
     public func setPaneCornerRadius(_ points: Double?) async throws {
-        try await setSetting(at: ["layout", "paneCornerRadius"], to: points.map(JSONValue.number))
+        try await setSetting(at: ["layout", "paneCornerRadius"], to: points.map(JSONValue.number), by: .currentRun())
     }
 
     /// Writes `layout.paneBorder`; nil removes it (subtle).
     public func setPaneBorder(_ border: PaneBorderStyle?) async throws {
-        try await setSetting(at: ["layout", "paneBorder"], to: border.map { .string($0.rawValue) })
+        try await setSetting(at: ["layout", "paneBorder"], to: border.map { .string($0.rawValue) }, by: .currentRun())
     }
 
     /// Writes `layout.paneBorderWidth` in points; nil removes it (one device pixel).
     public func setPaneBorderWidth(_ points: Double?) async throws {
-        try await setSetting(at: ["layout", "paneBorderWidth"], to: points.map(JSONValue.number))
+        try await setSetting(at: ["layout", "paneBorderWidth"], to: points.map(JSONValue.number), by: .currentRun())
     }
 
     /// Removes `layout.paneBorderColor` (the theme's color) or writes "#RRGGBB[AA]".
     /// Like every typed setter, it goes through `setSetting`, so a removal
     /// takes an emptied `layout` object with it and a bad value is refused.
     public func setPaneBorderColor(_ hex: String?) async throws {
-        try await setSetting(at: ["layout", "paneBorderColor"], to: hex.map(JSONValue.string))
+        try await setSetting(at: ["layout", "paneBorderColor"], to: hex.map(JSONValue.string), by: .currentRun())
     }
 
     // MARK: - Loading

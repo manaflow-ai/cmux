@@ -5,7 +5,7 @@ mod attach_common;
 mod common;
 
 use attach_common::{FakeSpawner, FakeTransport, Script, attach, link_events, socket_for};
-use cmux_cloud::connector::iface::CarrierEvent;
+use cmux_cloud::link::CarrierEvent;
 use cmux_cloud::link::{LinkState, LinkTag};
 use cmux_cloud::{Origin, Request, Server};
 use common::FakeControlPlane;
@@ -147,7 +147,11 @@ fn the_carrier_dials_the_host_id_and_carries_no_credential() {
     assert_eq!(command.binary.to_str(), Some("/opt/cmux/bin/cmux-tui"));
     let socket = command.local_socket.to_str().expect("utf8").to_owned();
     assert!(socket.starts_with("/tmp/cmux-test/cmux-link-") && socket.ends_with(".sock"));
-    assert_eq!(command.args, ["link", "dial", "--host", "host-vm-alpha01"]);
+    assert_eq!(
+        command.args,
+        ["link", "dial", "--host", "host-vm-alpha01", "--socket", "/tmp/cmux-test/link.sock"],
+        "the link the host reported, never a registration lookup under the private HOME"
+    );
     let all = format!("{:?} {:?}", command.args, command.env).to_lowercase();
     assert!(!all.contains("token"), "no token on argv or env: {all}");
 }

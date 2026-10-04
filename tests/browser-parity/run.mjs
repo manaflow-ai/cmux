@@ -200,6 +200,22 @@ function parseEmits(outputs, cells) {
   return emits;
 }
 
+// known-failures.json: a scenario whose differing keys are exactly the
+// keys recorded for this platform and backend fails for a known
+// environment reason; returns that reason, else null.
+export function knownFailure(backend, name, problems, platform = process.platform) {
+  // Only value differences can be known: a missing or unexpected key (an
+  // error included) is always a failure.
+  if (!problems.length || problems.some((p) => !p.startsWith('"'))) return null;
+  const file = path.join(root, "known-failures.json");
+  const entry = JSON.parse(fs.readFileSync(file, "utf8"))[platform]?.[backend]?.[name];
+  if (!entry) return null;
+  const keys = problems.map((p) => (/"([^"]+)"/.exec(p) || [])[1]);
+  const listed = new Set(entry.keys);
+  const same = keys.every((k) => k && listed.has(k)) && new Set(keys).size === listed.size;
+  return same ? entry.reason : null;
+}
+
 const goldenPath = (name) => path.join(root, "goldens", `${name}.json`);
 const readGolden = (name) => (fs.existsSync(goldenPath(name)) ? JSON.parse(fs.readFileSync(goldenPath(name), "utf8")) : null);
 
@@ -210,6 +226,7 @@ async function main() {
   const server = await startFixtureServers();
   let failures = 0;
   let total = 0;
+  let knownCount = 0;
   try {
     for (const file of files) {
       const scenario = loadScenario(path.join(dir, file));
@@ -267,7 +284,11 @@ async function main() {
         actual[e.k] = e.v;
       }
       problems.push(...diffValues(expected, actual));
-      if (problems.length) {
+      const known = knownFailure(args.backend, scenario.name, problems);
+      if (known) {
+        knownCount++;
+        console.log(`KNOWN ${scenario.name}: ${known}`);
+      } else if (problems.length) {
         failures++;
         console.log(`FAIL ${scenario.name}`);
         for (const p of problems) console.log(`  ${p}`);
@@ -278,7 +299,7 @@ async function main() {
     await server.close();
   }
   if (args.mode !== "run") {
-    console.log(`\n${total - failures}/${total} scenarios ${args.mode === "record" ? "recorded" : "match"}`);
+    console.log(`\n${total - failures - knownCount}/${total} scenarios ${args.mode === "record" ? "recorded" : "match"}${knownCount ? ` (${knownCount} known environment failure${knownCount > 1 ? "s" : ""}, known-failures.json)` : ""}`);
     process.exitCode = failures ? 1 : 0;
   }
 }

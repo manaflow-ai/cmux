@@ -21,9 +21,12 @@ fn sh_target(script: &str, name: &str) -> (DialTarget, PathBuf) {
         use std::os::unix::fs::PermissionsExt as _;
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
+    // A link at a non-default socket (a tagged or dev link): the dial must
+    // name it, since the private HOME finds no registration.
     let target = DialTarget {
         binary: wrapper,
         host: "host-vm-alpha01".into(),
+        socket: dir.join("custom-link.sock"),
         env: vec![("PATH".into(), "/usr/bin:/bin".into())],
     };
     (target, request)
@@ -32,7 +35,8 @@ fn sh_target(script: &str, name: &str) -> (DialTarget, PathBuf) {
 #[cfg(unix)]
 #[test]
 fn one_dial_sends_one_v12_line_and_reads_one_answer() {
-    let script = r#"test "$1 $2 $3 $4" = "link dial --host host-vm-alpha01" || exit 9
+    let script = r#"test "$1 $2 $3 $4 $5" = "link dial --host host-vm-alpha01 --socket" || exit 9
+case "$6" in */custom-link.sock) ;; *) exit 9;; esac
 printf '%s\n' '{"relay_available":false,"path_state":"direct","ok":true}' >&2
 IFS= read -r line
 printf '%s' "$line" > "$OUT"
@@ -107,4 +111,38 @@ fn answers_and_errors_map_as_the_request_file_says() {
     assert_eq!(err.details, Some(json!({ "current": "s3-m9" })), "details are kept");
     let err = decode_answer("fs.stat", b"not json").unwrap_err();
     assert_eq!(err.code, "cmux.cloud.bad_response");
+}
+
+/// A cancel ends the dial child at once (the op answers long before its
+/// 30 s bound) and the child does not outlive the op.
+#[cfg(unix)]
+#[test]
+fn a_cancel_ends_the_dial_child() {
+    let script = r#"printf '%s\n' '{"ok":true,"path_state":"direct"}' >&2
+echo $$ > "$OUT"
+exec sleep 30"#;
+    let (target, pid_file) = sh_target(script, "cancel");
+    let cancel = Cancel::default();
+    let worker_cancel = cancel.clone();
+    let started = std::time::Instant::now();
+    let worker = std::thread::spawn(move || {
+        LinkDaemonFiles.call(&target, "fs.stat", json!({ "path": "/a" }), &worker_cancel)
+    });
+    // Wait until the child runs (tests may sleep).
+    for _ in 0..200 {
+        if std::fs::read_to_string(&pid_file).is_ok_and(|p| !p.trim().is_empty()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    cancel.cancel();
+    let outcome = worker.join().expect("worker");
+    assert!(outcome.is_err(), "a cancelled op is an error");
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "it ended at once");
+    let pid = std::fs::read_to_string(&pid_file).unwrap();
+    let alive = std::process::Command::new("/bin/kill")
+        .args(["-0", pid.trim()])
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(!alive, "the dial child {pid} was ended");
 }
