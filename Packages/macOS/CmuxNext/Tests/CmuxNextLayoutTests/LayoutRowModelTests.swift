@@ -37,3 +37,15 @@ struct LayoutRowModelTests {
         #expect(!base.hasSameStructure(as: .columns([moved])))
     }
 }
+
+/// Split queries see the row trees, never the compat chain's row splits
+/// (the daemon refuses those, `row-split-compat-readonly`).
+struct LayoutRowTreeTests {
+    @Test func treesAreTheRowTrees() {
+        let column = LayoutRowModelTests.column
+        #expect(column.trees.flatMap(\.splits) == ["s7"])
+        #expect(column.tree(containing: "a") == .leaf("a"))
+        #expect(ScreenLayout.columns([column]).tree(containing: "s7") == LayoutRowModelTests.inner)
+        #expect(ScreenLayout.columns([column]).tree(containing: "r2") == nil)
+    }
+}
