@@ -6,6 +6,7 @@ import { createStrings } from "../shared/i18n";
 import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
 import { MockCloudProvider, sampleMachines } from "./mockProvider";
+import { machineTitle } from "./model";
 import { ACTION_RUN, CloudOps } from "./ops";
 import { CloudStore } from "./store";
 import type { MachineLayout } from "./model";
@@ -69,7 +70,7 @@ describe("CloudPage", () => {
     const rows = $$(".cloud-machine.layout-rows");
     expect(rows.length).toBe(sampleMachines().length);
     expect($$(".cloud-machine-title").map((title) => title.textContent)).toEqual(
-      sampleMachines().map((machine) => machine.display_name ?? machine.id),
+      sampleMachines().map(machineTitle),
     );
     expect($$(".cloud-status-dot").length).toBe(sampleMachines().length);
   });
@@ -96,6 +97,9 @@ describe("CloudPage", () => {
     expect(provider.calls.find((call) => call.op === ACTION_RUN)?.params).toMatchObject({
       action: CloudOps.authSignIn,
     });
+    // The server does not serve sign-in yet: the page says so instead of failing.
+    expect($(".cloud-signed-out .cloud-unavailable")?.textContent).toBe("Not available yet");
+    expect($(".cloud-error")).toBeNull();
   });
 
   test("no host: the disconnected state", async () => {
@@ -136,9 +140,7 @@ describe("CloudPage", () => {
     await render(new MockCloudProvider());
     const list = $(".cloud-machine-list")!;
     await act(async () => key(list, "ArrowDown"));
-    expect($(".cloud-machine.selected .cloud-machine-title")?.textContent).toBe(
-      sampleMachines()[0].display_name ?? sampleMachines()[0].id,
-    );
+    expect($(".cloud-machine.selected .cloud-machine-title")?.textContent).toBe(machineTitle(sampleMachines()[0]));
     expect($(".cloud-detail")).not.toBeNull();
   });
 
@@ -187,9 +189,39 @@ describe("CloudPage", () => {
     const provider = new MockCloudProvider();
     await render(provider);
     await act(async () => {
-      provider.emitUpsert({ id: "vm-live", provider: "freestyle", status: "running", display_name: "live-box" });
+      provider.emitUpsert({ id: "vm-live", provider: "freestyle", status: "running", displayName: "live-box" });
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect($$(".cloud-machine-title").map((title) => title.textContent)).toContain("live-box");
+  });
+
+  test("the detail shows stats and size from the catalog fields and marks sections not available yet", async () => {
+    const provider = new MockCloudProvider();
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect($(".cloud-detail")).not.toBeNull();
+    expect($(".cloud-size-spec")?.textContent).toBe("4 CPU · 8 GB memory · 64 GB disk");
+    expect($$(".cloud-meter").length).toBe(3);
+    // Publications, domains, network and firewall are not served by the Cloud app server yet.
+    expect($$(".cloud-detail .cloud-unavailable").length).toBe(4);
+    expect($(".cloud-error")).toBeNull();
+    expect($$(".cloud-snapshot").length).toBeGreaterThan(0);
+  });
+
+  test("restore on a snapshot creates a machine with snapshot.restore, no confirmation", async () => {
+    const provider = new MockCloudProvider();
+    await render(provider);
+    await act(async () => $$(".cloud-machine")[0].click());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const before = $$(".cloud-machine").length;
+    await act(async () => $(".cloud-snapshot-restore")!.click());
+    expect(provider.calls.some((call) => call.op === ACTION_RUN)).toBe(false);
+    expect(provider.calls.filter((call) => call.op === CloudOps.snapshotRestore).length).toBe(1);
+    expect($$(".cloud-machine").length).toBe(before + 1);
   });
 });

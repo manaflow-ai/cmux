@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MockCloudProvider, sampleMachines } from "./mockProvider";
+import { MockCloudProvider, sampleMachines, SERVER_GAPS } from "./mockProvider";
 import { ACTION_RUN, CloudOps, type CloudMachine } from "./ops";
 import { CloudStore } from "./store";
 
@@ -24,7 +24,7 @@ describe("CloudStore", () => {
     const { provider, store } = await started();
     const snap = store.getSnapshot();
     expect(snap.connection).toBe("connected");
-    expect(snap.auth?.signed_in).toBe(true);
+    expect(snap.auth?.signedIn).toBe(true);
     expect(snap.rows.map((row) => row.id)).toEqual(sampleMachines().map((machine) => machine.id));
     expect(ops(provider, CloudOps.machineList).length).toBe(1);
     expect(provider.watchers).toBe(1);
@@ -33,13 +33,13 @@ describe("CloudStore", () => {
   test("signed out: no machine op runs and no watch starts", async () => {
     const provider = new MockCloudProvider({ signedIn: false });
     const { store } = await started(provider);
-    expect(store.getSnapshot().auth?.signed_in).toBe(false);
+    expect(store.getSnapshot().auth?.signedIn).toBe(false);
     expect(machineOps(provider)).toEqual([]);
     expect(provider.watchers).toBe(0);
   });
 
   test("sign in re-reads auth and then loads machines", async () => {
-    const provider = new MockCloudProvider({ signedIn: false });
+    const provider = new MockCloudProvider({ signedIn: false, unsupported: [] });
     const { store } = await started(provider);
     await store.signIn();
     await settle();
@@ -47,7 +47,7 @@ describe("CloudStore", () => {
     expect(ops(provider, ACTION_RUN).map((call) => (call.params as { action: string }).action)).toEqual([
       CloudOps.authSignIn,
     ]);
-    expect(store.getSnapshot().auth?.signed_in).toBe(true);
+    expect(store.getSnapshot().auth?.signedIn).toBe(true);
     expect(store.getSnapshot().rows.length).toBe(sampleMachines().length);
   });
 
@@ -58,7 +58,7 @@ describe("CloudStore", () => {
     provider.emitUpsert({ ...target, status: "paused" });
     await settle();
     expect(store.getSnapshot().rows.find((row) => row.id === target.id)?.status).toBe("paused");
-    provider.emitUpsert({ id: "vm-new", provider: "freestyle", status: "provisioning", display_name: "new-box" });
+    provider.emitUpsert({ id: "vm-new", provider: "freestyle", status: "provisioning", displayName: "new-box" });
     await settle();
     expect(store.getSnapshot().rows.map((row) => row.id)).toContain("vm-new");
     provider.emitRemoved(target.id);
@@ -106,7 +106,7 @@ describe("CloudStore", () => {
     );
     expect(keys.length).toBe(2);
     expect(keys[0]).toBe(keys[1]);
-    expect(provider.machines.filter((machine) => machine.display_name === "retry-box").length).toBe(1);
+    expect(provider.machines.filter((machine) => machine.displayName === "retry-box").length).toBe(1);
   });
 
   test("a pending intent shows until the owner's echo, then leaves the log", async () => {
@@ -154,7 +154,7 @@ describe("CloudStore", () => {
   });
 
   test("snapshot delete, firewall delete and billing go through native actions", async () => {
-    const { provider, store } = await started();
+    const { provider, store } = await started(new MockCloudProvider({ unsupported: [] }));
     const target = sampleMachines()[0];
     await store.select(target.id);
     await settle();
@@ -228,7 +228,7 @@ describe("CloudStore lifecycle and settlement (review fixes)", () => {
   test("an event during the first list is merged by revision", async () => {
     const provider = new MockCloudProvider();
     provider.onList = () =>
-      provider.emitUpsert({ id: "vm-during", provider: "freestyle", status: "running", display_name: "during" });
+      provider.emitUpsert({ id: "vm-during", provider: "freestyle", status: "running", displayName: "during" });
     const { store } = await started(provider);
     expect(store.getSnapshot().rows.map((row) => row.id)).toContain("vm-during");
   });
@@ -277,5 +277,142 @@ describe("CloudStore lifecycle and settlement (review fixes)", () => {
     provider.emitUpsert({ ...sampleMachines()[0], status: "hibernating" as never });
     await settle();
     expect(store.getSnapshot().rows[0].status).toBe("unknown");
+  });
+});
+
+describe("CloudStore against the landed catalog (C4i)", () => {
+  const running = () => sampleMachines().find((machine) => machine.status === "running") as CloudMachine;
+
+  test("machine ops send the catalog's camelCase params", async () => {
+    const { provider, store } = await started();
+    await store.rename(running().id, " renamed ");
+    expect(ops(provider, CloudOps.machineRename)[0].params).toEqual({
+      machine: running().id,
+      displayName: "renamed",
+      idempotency_key: "k1",
+    });
+    store.openCreate();
+    store.updateDraft({ name: "box" });
+    await store.submitCreate();
+    expect(ops(provider, CloudOps.machineCreate)[0].params).toEqual({
+      displayName: "box",
+      memoryMb: 4096,
+      idempotency_key: "k2",
+    });
+  });
+
+  test("an empty create name lets the owner name the machine", async () => {
+    const { provider, store } = await started();
+    store.openCreate();
+    await store.submitCreate();
+    expect(ops(provider, CloudOps.machineCreate)[0].params).toEqual({ memoryMb: 4096, idempotency_key: "k1" });
+  });
+
+  test("a mutation result's revision settles the intent with no refetch", async () => {
+    const provider = new MockCloudProvider({ holdEvents: true });
+    const { store } = await started(provider);
+    await store.pause(running().id);
+    const [intent] = store.getSnapshot().pending;
+    expect(intent.revision).toBe(provider.revision);
+    expect(intent.revision).toBeGreaterThan(store.getSnapshot().revision);
+    const lists = ops(provider, CloudOps.machineList).length;
+    provider.releaseEvents();
+    await settle();
+    expect(store.getSnapshot().pending).toEqual([]);
+    expect(store.getSnapshot().revision).toBe(intent.revision!);
+    expect(ops(provider, CloudOps.machineList).length).toBe(lists);
+  });
+
+  test("a resize settles on its result revision and shows the new stats", async () => {
+    const { provider, store } = await started();
+    await store.select(running().id);
+    await settle();
+    await store.resize(running().id, 8192);
+    expect(ops(provider, CloudOps.machineResize)[0].params).toEqual({
+      machine: running().id,
+      memoryMb: 8192,
+      idempotency_key: "k1",
+    });
+    expect(store.getSnapshot().pending).toEqual([]);
+    expect(store.getSnapshot().detail?.stats?.memoryTotalMb).toBe(8192);
+    expect((store.getSnapshot().detail?.stats as { revision?: number }).revision).toBeUndefined();
+  });
+
+  test("create from a snapshot calls snapshot.restore with the snapshot only", async () => {
+    const { provider, store } = await started();
+    await store.select(running().id);
+    await settle();
+    store.openCreate();
+    await settle();
+    const snapshot = store.getSnapshot().create!.snapshots![0];
+    store.updateDraft({ snapshot_id: snapshot.id });
+    await store.submitCreate();
+    await settle();
+    expect(ops(provider, CloudOps.machineCreate)).toEqual([]);
+    expect(ops(provider, CloudOps.snapshotRestore)[0].params).toEqual({
+      snapshot: snapshot.id,
+      idempotency_key: "k1",
+    });
+    expect(store.getSnapshot().create).toBeUndefined();
+    expect(store.getSnapshot().pending).toEqual([]);
+    expect(store.getSnapshot().machines.length).toBe(sampleMachines().length + 1);
+  });
+
+  test("restore and fork from the detail make a new machine through the watch stream", async () => {
+    const provider = new MockCloudProvider({ holdEvents: true });
+    const { store } = await started(provider);
+    await store.select(running().id);
+    await settle();
+    const snapshot = store.getSnapshot().detail!.snapshots![0];
+    await store.restoreSnapshot(snapshot);
+    await store.forkMachine(running().id);
+    expect(ops(provider, CloudOps.snapshotRestore)[0].params).toEqual({ snapshot: snapshot.id, idempotency_key: "k1" });
+    expect(ops(provider, CloudOps.snapshotFork)[0].params).toEqual({ machine: running().id, idempotency_key: "k2" });
+    expect(store.getSnapshot().rows.filter((row) => row.pending === "create").length).toBe(2);
+    provider.releaseEvents();
+    await settle();
+    expect(store.getSnapshot().pending).toEqual([]);
+    expect(store.getSnapshot().rows.length).toBe(sampleMachines().length + 2);
+  });
+
+  test("ops the server does not serve show not available, never an error", async () => {
+    const { provider, store } = await started();
+    expect(store.getSnapshot().unavailable).toContain(CloudOps.teamList);
+    await store.select(running().id);
+    await settle();
+    await store.setIdlePolicy(running().id, 300);
+    await store.openBilling();
+    const { unavailable, error, pending, detail } = store.getSnapshot();
+    for (const op of [
+      CloudOps.publicationList,
+      CloudOps.domainList,
+      CloudOps.networkList,
+      CloudOps.firewallList,
+      CloudOps.machineIdlePolicySet,
+      CloudOps.billingOpen,
+    ])
+      expect(unavailable).toContain(op);
+    expect(error).toBeUndefined();
+    expect(pending).toEqual([]);
+    expect(detail?.snapshots?.length).toBeGreaterThan(0);
+    expect(provider.calls.some((call) => call.op === CloudOps.machineIdlePolicySet)).toBe(true);
+  });
+
+  test("the mock answers the idle policy like the server", async () => {
+    expect(SERVER_GAPS).toContain(CloudOps.machineIdlePolicySet);
+    const provider = new MockCloudProvider();
+    await expect(
+      provider.call(CloudOps.machineIdlePolicySet, { machine: "vm-a1", idleTimeoutSeconds: 300, idempotency_key: "x" }),
+    ).rejects.toMatchObject({ code: "cmux.cloud.unsupported" });
+  });
+
+  test("a team switch the server does not serve keeps the same team loaded", async () => {
+    const { provider, store } = await started();
+    await store.selectTeam("team-acme");
+    await settle();
+    expect(store.getSnapshot().unavailable).toContain(CloudOps.teamSelect);
+    expect(store.getSnapshot().error).toBeUndefined();
+    expect(store.getSnapshot().rows.length).toBe(sampleMachines().length);
+    expect(provider.watchers).toBe(1);
   });
 });
