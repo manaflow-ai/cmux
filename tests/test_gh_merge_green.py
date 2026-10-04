@@ -176,20 +176,6 @@ class MainFixEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(module.Refused, "open"):
             self.validate()
 
-    def test_main_fix_requires_a_successful_exact_head_merge_gate(self):
-        with self.assertRaisesRegex(module.Refused, "merge-gate"):
-            module.require_merge_gate("manaflow-ai/cmux", HEAD, self.gh)
-        self.gh.head_checks.append({
-            "id": 5,
-            "name": "merge-gate",
-            "head_sha": HEAD,
-            "status": "completed",
-            "conclusion": "success",
-            "app": {"slug": "github-actions"},
-        })
-        module.require_merge_gate("manaflow-ai/cmux", HEAD, self.gh)
-
-
 class InstalledHelperRegression(unittest.TestCase):
     def test_main_fix_from_symlink_resolves_checked_in_validator(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -217,48 +203,74 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, workflow_present, check_name="ci-status"):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_args=(), event_log=None):
         gh = Path(directory) / "gh"
-        workflow_probe = "HTTP/2.0 200 OK\n{}" if workflow_present else "HTTP/2.0 404 Not Found\n{}"
-        workflow_exit = "exit 0" if workflow_present else "exit 1"
         gh.write_text(
             "#!/bin/sh\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
-            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\"}'; exit 0; fi\n"
-            "if [ \"$1 $2\" = 'pr merge' ]; then touch \"$MERGE_MARKER\"; exit 0; fi\n"
-            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/merge-gate.yml'; then "
-            "printf '%s\\n' '" + workflow_probe + "'; " + workflow_exit + "; fi\n"
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\"}'; exit 0; fi\n"
+            "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
+            "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
-            "printf '%s\\n' '[{\"check_runs\":[{\"id\":1,\"name\":\"" + check_name + "\",\"status\":\"completed\",\"conclusion\":\"success\"}]}]'; exit 0; fi\n"
+            "printf '%s\\n' '[{\"check_runs\":[{\"id\":1,\"name\":\"" + check_name + "\",\"status\":\"completed\",\"conclusion\":\"" + check_conclusion + "\"}]}]'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
         )
         gh.chmod(0o755)
         return subprocess.run(
-            [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", "--squash"],
-            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker)},
+            [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"],
+            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events")},
             capture_output=True,
             text=True,
         )
 
-    def test_pre_workflow_falls_back_to_ci_status(self):
+    def test_ci_status_is_required_on_the_exact_head(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
-            result = self.run_helper(directory, marker, workflow_present=False)
+            result = self.run_helper(directory, marker)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
 
-    def test_workflow_on_base_requires_merge_gate(self):
+    def test_ci_status_remains_required_after_gate_removal(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
-            result = self.run_helper(directory, marker, workflow_present=True, check_name="merge-gate")
+            result = self.run_helper(directory, marker)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
+
+    def test_override_posts_reason_before_merging_a_completed_red_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            events = Path(directory) / "events"
+            reason = "ci-status is a known main failure and this exact fix repairs the failing path"
+            result = self.run_helper(
+                directory,
+                marker,
+                check_conclusion="failure",
+                extra_args=("--override", reason),
+                event_log=events,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
+
+    def test_override_requires_eight_words(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(
+                directory,
+                marker,
+                check_conclusion="failure",
+                extra_args=("--override", "too short"),
+            )
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("8 words", result.stderr)
 
     def test_refusal_prints_repair_guidance(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"
-            result = self.run_helper(directory, marker, workflow_present=False, check_name="other-check")
+            result = self.run_helper(directory, marker, check_name="other-check")
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("fix:", result.stderr)
@@ -288,10 +300,6 @@ class InstalledHelperRegression(unittest.TestCase):
                 if [ "$1 $2" = 'pr merge' ]; then
                   touch "$MERGE_MARKER"
                   exit 0
-                fi
-                if [ "$1" = api ] && printf '%s' "$*" | grep -q 'contents/.github/workflows/merge-gate.yml'; then
-                  printf '%s\\n' 'HTTP/2.0 404 Not Found'
-                  exit 1
                 fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/pulls/42/files'; then
                   case "$*" in
