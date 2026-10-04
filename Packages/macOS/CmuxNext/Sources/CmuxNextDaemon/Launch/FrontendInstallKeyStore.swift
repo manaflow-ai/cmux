@@ -21,8 +21,11 @@ public protocol FrontendInstallKeyStore: Sendable {
 
 public enum FrontendInstallKeyStores {
     /// The store for this app process (see `FrontendInstallKeyStore`).
-    public static func forApp(session: String, stateDirectory: URL?, bundleID: String?) -> (any FrontendInstallKeyStore)? {
-        if CodeSigningTeam.current() != nil {
+    /// `team` is this process's Team ID: a signed build never reads or
+    /// writes the DEV file, whatever sits in its state directory.
+    public static func forApp(session: String, stateDirectory: URL?, bundleID: String?,
+                              team: String? = CodeSigningTeam.current()) -> (any FrontendInstallKeyStore)? {
+        if team != nil {
             let service = "\(bundleID?.isEmpty == false ? bundleID ?? "" : "com.cmuxterm.app").frontend-install-key"
             return KeychainFrontendInstallKeyStore(service: service, account: session)
         }
@@ -32,8 +35,8 @@ public enum FrontendInstallKeyStores {
 }
 
 /// This process's code signing Team ID, if it has one.
-enum CodeSigningTeam {
-    static func current() -> String? {
+public enum CodeSigningTeam {
+    public static func current() -> String? {
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
         var staticCode: SecStaticCode?
