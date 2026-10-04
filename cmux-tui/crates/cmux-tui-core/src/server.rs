@@ -20333,7 +20333,7 @@ mod tests {
             );
             connection_operations += usize::from(requires_connection);
         }
-        assert_eq!(connection_operations, 32);
+        assert_eq!(connection_operations, 34);
     }
 
     #[test]
