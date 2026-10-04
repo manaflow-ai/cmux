@@ -78,6 +78,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var requestPhaseFetches: Set<Int> = []
     /// Fetches waiting for a slot, oldest first, at most `maxQueuedFetches`.
     private var queuedFetches: [PendingFetch] = []
+    /// Driver calls running now, at most `maxConcurrentDriverCalls`.
+    private var runningDriverCalls = 0
+    /// Driver calls waiting for a slot, oldest first, at most `maxQueuedDriverCalls`.
+    private var queuedDriverCalls: [PendingDriverCall] = []
     /// The per-session temporary directory created when no cwd was given.
     private let ownedWorkingDirectory: String?
     /// The session's private temporary directory (mode 0700): `os.tmpdir()`
@@ -250,6 +254,13 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// The most fetches one session queues for a slot; past it a fetch fails at once.
     static let maxQueuedFetches = 256
 
+    /// The most driver calls one session runs at once; later ones wait in
+    /// order. The snapshot reads up to 256 frames at once (snapshot.js).
+    static let maxConcurrentDriverCalls = 256
+
+    /// The most driver calls one session queues; past it a call fails at once.
+    static let maxQueuedDriverCalls = 10_000
+
     /// The most timers a session has scheduled, or fired with their callback
     /// not yet run, at once; `setTimer` returns false past it.
     static let maxPendingTimers = 10_000
@@ -269,6 +280,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     private struct PendingFetch {
         let callID: Int
         let requestJSON: String
+        let evalID: Int?
+    }
+
+    /// A driver call the runtime asked for, its params already prepared.
+    private struct PendingDriverCall {
+        let callID: Int
+        let method: String
+        let paramsJSON: String
         let evalID: Int?
     }
 
@@ -456,6 +475,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         queuedFetches.removeAll()
         openFetches = 0
         requestPhaseFetches.removeAll()
+        queuedDriverCalls.removeAll()
+        runningDriverCalls = 0
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -507,21 +528,25 @@ public final class BrowserReplSession: @unchecked Sendable {
             self.cancelRunningCell(message, evalID: state.id)
         }
         finish(state, error: message)
-        cancelFetches(ofEval: state.id)
+        cancelWork(ofEval: state.id)
     }
 
-    /// Cancels the running fetches cell `evalID` started and fails its queued ones.
-    private func cancelFetches(ofEval evalID: Int) {
-        let (tasks, dropped): ([Task<Void, Never>], [PendingFetch]) = stateLock.withLock {
-            let tasks = inFlight.values.filter { $0.isFetch && $0.evalID == evalID }.map(\.task)
-            let dropped = queuedFetches.filter { $0.evalID == evalID }
+    /// Cancels the running fetches and driver calls cell `evalID` started
+    /// and fails its queued ones.
+    private func cancelWork(ofEval evalID: Int) {
+        let (tasks, droppedFetches, droppedCalls): ([Task<Void, Never>], [Int], [Int]) = stateLock.withLock {
+            let tasks = inFlight.values.filter { $0.evalID == evalID }.map(\.task)
+            let fetches = queuedFetches.filter { $0.evalID == evalID }.map(\.callID)
             queuedFetches.removeAll { $0.evalID == evalID }
-            return (tasks, dropped)
+            let calls = queuedDriverCalls.filter { $0.evalID == evalID }.map(\.callID)
+            queuedDriverCalls.removeAll { $0.evalID == evalID }
+            return (tasks, fetches, calls)
         }
         for task in tasks { task.cancel() }
-        guard !dropped.isEmpty else { return }
+        guard !droppedFetches.isEmpty || !droppedCalls.isEmpty else { return }
         thread.perform { [weak self] in
-            for fetch in dropped { self?.resolveCall(fetch.callID, .failure(Self.cancelledFetchError)) }
+            for callID in droppedFetches { self?.resolveCall(callID, .failure(Self.cancelledFetchError)) }
+            for callID in droppedCalls { self?.resolveCall(callID, .failure(Self.cancelledDriverCallError)) }
         }
     }
 
@@ -529,6 +554,63 @@ public final class BrowserReplSession: @unchecked Sendable {
         code: "cancelled",
         message: "fetch: cancelled because the cell that started it timed out"
     )
+
+    private static let cancelledDriverCallError = BrowserReplDriverError(
+        code: "cancelled",
+        message: "cancelled because the cell that started it timed out"
+    )
+
+    /// Runs the driver call now, or queues it while `maxConcurrentDriverCalls`
+    /// run. Returns why it was refused (the session is closed, or the queue
+    /// is full), or nil. The evaluation running when the runtime asked owns
+    /// the call, so its timeout cancels it.
+    private func startOrQueueDriverCall(callID: Int, method: String, paramsJSON: String) -> BrowserReplDriverError? {
+        stateLock.withLock {
+            guard !closed else { return Self.closedError }
+            let call = PendingDriverCall(callID: callID, method: method, paramsJSON: paramsJSON, evalID: currentEval?.id)
+            if queuedDriverCalls.isEmpty, runningDriverCalls < Self.maxConcurrentDriverCalls {
+                startDriverCallLocked(call)
+            } else if queuedDriverCalls.count < Self.maxQueuedDriverCalls {
+                queuedDriverCalls.append(call)
+            } else {
+                return BrowserReplDriverError(
+                    code: "invalid",
+                    message: "\(Self.maxQueuedDriverCalls) browser calls are already waiting for one of the session's \(Self.maxConcurrentDriverCalls) slots; await some before starting more"
+                )
+            }
+            return nil
+        }
+    }
+
+    /// Starts `call` as an in-flight task. Call with `stateLock` held.
+    private func startDriverCallLocked(_ call: PendingDriverCall) {
+        runningDriverCalls += 1
+        nextInFlightID += 1
+        let taskID = nextInFlightID
+        let driver = self.driver
+        let boundary = self.boundary
+        // The task finishes itself; it waits for the lock held here, so the
+        // entry exists before the removal runs.
+        let task = Task { [weak self] in
+            let result = boundary.redact(method: call.method, await driver.call(method: call.method, paramsJSON: call.paramsJSON))
+            guard let self else { return }
+            self.thread.perform { [weak self] in self?.resolveCall(call.callID, result) }
+            self.driverCallFinished(taskID)
+        }
+        inFlight[taskID] = InFlightWork(task: task, evalID: call.evalID, isFetch: false)
+    }
+
+    /// Frees the finished driver call's slot and starts queued ones.
+    private func driverCallFinished(_ taskID: Int) {
+        stateLock.withLock {
+            // close() already dropped every entry and the queue.
+            guard inFlight.removeValue(forKey: taskID) != nil else { return }
+            runningDriverCalls -= 1
+            while !closed, !queuedDriverCalls.isEmpty, runningDriverCalls < Self.maxConcurrentDriverCalls {
+                startDriverCallLocked(queuedDriverCalls.removeFirst())
+            }
+        }
+    }
 
     /// Runs the fetch now, or queues it while the slots are taken. Returns
     /// why it was refused (the session is closed, or the queue is full), or
@@ -778,26 +860,6 @@ public final class BrowserReplSession: @unchecked Sendable {
         return milliseconds >= 1000 ? "\(Double(milliseconds) / 1000) s" : "\(milliseconds) ms"
     }
 
-    /// Runs `body` as an in-flight task that `close()` cancels. Returns
-    /// false, without running it, when the session is closed.
-    @discardableResult
-    private func track(_ body: @escaping @Sendable () async -> Void) -> Bool {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard !closed else { return false }
-        nextInFlightID += 1
-        let taskID = nextInFlightID
-        // The task removes itself; it waits for the lock held here, so the
-        // entry exists before the removal runs.
-        let task = Task { [weak self] in
-            await body()
-            guard let self else { return }
-            self.stateLock.withLock { _ = self.inFlight.removeValue(forKey: taskID) }
-        }
-        inFlight[taskID] = InFlightWork(task: task, evalID: nil, isFetch: false)
-        return true
-    }
-
     // MARK: - JS thread
 
     private func beginEval(
@@ -1014,12 +1076,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self.resolveCall(Int(callID), .failure(boundary.redact(error)))
                 return
             }
-            let driver = self.driver
-            let started = self.track { [weak self] in
-                let result = boundary.redact(method: methodName, await driver.call(method: methodName, paramsJSON: paramsJSON))
-                self?.thread.perform { self?.resolveCall(Int(callID), result) }
+            if let refusal = self.startOrQueueDriverCall(callID: Int(callID), method: methodName, paramsJSON: paramsJSON) {
+                self.resolveCall(Int(callID), .failure(refusal))
             }
-            if !started { self.resolveCall(Int(callID), .failure(Self.closedError)) }
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
