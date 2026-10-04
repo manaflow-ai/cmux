@@ -300,7 +300,8 @@ function syntaxTokenColors(theme: any, foreground: string, renderedBackground: s
       settings: { foreground: color(8), fontStyle: "italic" },
     },
     {
-      scope: ["markup.list", "punctuation.definition.list", "markup.table"],
+      // The bullet only: `markup.list` spans the whole item, which would color every list line.
+      scope: ["punctuation.definition.list", "markup.table"],
       settings: { foreground: color(9, 1) },
     },
     { scope: ["markup.inserted", "punctuation.definition.inserted"], settings: { foreground: color(2) } },
