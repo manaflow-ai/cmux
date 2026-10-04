@@ -87,6 +87,7 @@ public final class PageInputReadiness {
         """
 
     /// Holds the readiness weakly (the user content controller retains its handlers).
+    @MainActor
     private final class Handler: NSObject, WKScriptMessageHandler {
         weak var owner: PageInputReadiness?
 
@@ -96,11 +97,11 @@ public final class PageInputReadiness {
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             if let body = message.body as? [String: Any], let list = body["list"] as? Bool {
-                MainActor.assumeIsolated { owner?.reportList(list) }
+                owner?.reportList(list)
                 return
             }
             let ready = message.body as? Bool == true
-            MainActor.assumeIsolated { owner?.report(ready) }
+            owner?.report(ready)
         }
     }
 }

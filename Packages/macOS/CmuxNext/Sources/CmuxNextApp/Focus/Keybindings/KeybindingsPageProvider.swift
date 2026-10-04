@@ -51,12 +51,12 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.recorded":
             let id = UUID()
             recordedListeners[id] = onEvent
-            return PageSubscription { [weak self] in MainActor.assumeIsolated { _ = self?.recordedListeners.removeValue(forKey: id) } }
+            return PageSubscription { [weak self] in _ = self?.recordedListeners.removeValue(forKey: id) }
         case "cmux.keybindings.changed":
             // Fires after a keymap import (and, with slice 4, when keybindings.json loads).
             let id = UUID()
             changedListeners[id] = onEvent
-            return PageSubscription { [weak self] in MainActor.assumeIsolated { _ = self?.changedListeners.removeValue(forKey: id) } }
+            return PageSubscription { [weak self] in _ = self?.changedListeners.removeValue(forKey: id) }
         default:
             throw PageError.unknownOp(stream)
         }
