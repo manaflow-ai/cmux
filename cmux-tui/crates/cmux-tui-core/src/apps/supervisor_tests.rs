@@ -1345,3 +1345,31 @@ fn native_pane_apps_install_and_list_but_never_spawn_a_host() {
         "a native-pane app never starts a host"
     );
 }
+
+#[test]
+fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
+    let root = temp_dir();
+    let bundled = root.0.join("bundled");
+    write_app(&bundled, "term", "cmux/term", json!({ "workspace:read": "r" }));
+    let path = bundled.join("term/cmux-app.json");
+    let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    manifest["optionalScopes"] = json!({ "terminal:backend": "Run terminals for you." });
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let entry = app_entry(&f.supervisor.list(), "cmux/term");
+    assert_eq!(
+        entry["scope_classes"],
+        json!({ "workspace:read": "standard", "terminal:backend": "elevated" })
+    );
+    f.install("cmux/term");
+    let installed = app_entry(&f.supervisor.list(), "cmux/term");
+    assert_eq!(installed["grants"], json!(["workspace:read"]), "never granted at install");
+    let refused = f
+        .set("cli", "cmux/term", Origin::Cli, |o| o.grant = Some(("terminal:backend".into(), true)))
+        .unwrap_err();
+    assert_eq!(refused.code, "apps.scope_elevated");
+    f.set("user", "cmux/term", Origin::User, |o| o.grant = Some(("terminal:backend".into(), true)))
+        .unwrap();
+    let granted = app_entry(&f.supervisor.list(), "cmux/term");
+    assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
+}
