@@ -92,7 +92,7 @@ describe("AppsPage", () => {
   test("Installed lists apps with Update, Permissions and Logs; first-party apps hide, never remove", async () => {
     const provider = new MockAppsProvider();
     await render(provider, "#/installed");
-    expect($$(".apps-installed-row .apps-name").map((name) => name.textContent)).toEqual(["GitHub PRs1.1.0"]);
+    expect($$(".apps-installed-row .apps-name").map((name) => name.textContent)).toEqual(["GitHub PRs 1.1.0"]);
     const buttons = () => $$(".apps-installed-actions .apps-button");
     expect(buttons().map((button) => button.textContent)).toEqual(["Update", "Permissions", "Logs", "Hide"]);
     await click(buttons().find((button) => button.textContent === "Hide"));

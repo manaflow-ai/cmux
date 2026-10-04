@@ -5,7 +5,7 @@
 // confirmation (coordinator Q4), so the page shows the owner's result, never its own guess.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
-import { categories, filterApps, parseRoute, type StoreLayout, type StoreTab } from "./model";
+import { categories, filterApps, listedInStore, parseRoute, type StoreLayout, type StoreTab } from "./model";
 import {
   AppsOps,
   type AppDetail,
@@ -67,7 +67,7 @@ export class AppsStore {
       visible: [],
       categories: [],
       installed: [],
-      selection: route.app,
+      selection: route.app && listedInStore({ id: route.app }) ? route.app : undefined,
       grants: {},
       logs: {},
       loading: client !== null,
@@ -145,11 +145,12 @@ export class AppsStore {
         this.client.call<InstalledListResult>(AppsOps.installedList, {}),
       ]);
       if (generation !== this.generation) return;
+      const listed = catalog.apps.filter(listedInStore);
       this.set({
-        catalog: catalog.apps,
-        visible: filterApps(catalog.apps, this.snapshot.query, this.snapshot.category),
-        categories: categories(catalog.apps),
-        installed: installed.apps,
+        catalog: listed,
+        visible: filterApps(listed, this.snapshot.query, this.snapshot.category),
+        categories: categories(listed),
+        installed: installed.apps.filter(listedInStore),
         loading: false,
         connection: "connected",
         error: undefined,
@@ -177,6 +178,7 @@ export class AppsStore {
   }
 
   async select(app: string | undefined): Promise<void> {
+    if (app && !listedInStore({ id: app })) app = undefined;
     this.set({ selection: app, detail: app === this.snapshot.detail?.id ? this.snapshot.detail : undefined });
     if (app) await this.loadDetail(app);
   }
@@ -247,6 +249,11 @@ export class AppsStore {
 
   setEnabled(app: string, enabled: boolean): Promise<void> {
     return this.intent(AppsOps.set, { app, enabled });
+  }
+
+  /** Hides or shows an app in the app areas; the only way to put a first-party app away. */
+  setHidden(app: string, hidden: boolean): Promise<void> {
+    return this.intent(AppsOps.set, { app, hidden });
   }
 
   setSandboxed(app: string, sandboxed: boolean): Promise<void> {

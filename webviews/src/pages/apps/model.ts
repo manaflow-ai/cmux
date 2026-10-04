@@ -1,7 +1,7 @@
 // Pure presentation model of the App Store page (plans/cmux-next/react-pages.md 3.3). Catalog
 // semantics (tiers, install states, grants) belong to the app platform lead's owner; this file
 // only filters, orders and labels what the owner returns.
-import type { AppTier, CatalogApp, GrantRow, ScopeRisk } from "./types";
+import { APP_STORE_ID, type AppTier, type CatalogApp, type GrantRow, type ScopeRisk } from "./types";
 
 export const RiskLabel: Record<ScopeRisk, string> = {
   standard: "store.risk.standard",
@@ -47,6 +47,19 @@ export function matches(app: CatalogApp, query: string): boolean {
     .join(" ")
     .toLowerCase();
   return words.every((word) => haystack.includes(word));
+}
+
+/** Whether the page shows `app` at all: the App Store never lists itself (FIRST-PARTY-APPS). */
+export function listedInStore(app: { id: string }): boolean {
+  return app.id !== APP_STORE_ID;
+}
+
+/**
+ * Whether the page offers Remove for `app`. First-party apps are hidable, never removable
+ * (FIRST-PARTY-APPS): the page offers Hide/Show instead, and the owner refuses an uninstall.
+ */
+export function isRemovable(app: { tier?: AppTier }): boolean {
+  return app.tier !== "first-party";
 }
 
 export function filterApps(apps: readonly CatalogApp[], query: string, category: string | undefined): CatalogApp[] {
