@@ -112,3 +112,7 @@ pub(super) fn shell_argv(
 #[cfg(test)]
 #[path = "split_respawn_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "frontend_shell_integration_tests.rs"]
+mod frontend_shell_integration_tests;
