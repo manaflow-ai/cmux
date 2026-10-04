@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 2 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 3 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -26,7 +26,8 @@ Decided: D-A, the remote approval minimum with no waiver (section 6); D-B, a dis
   peer. It connects to a **separate daemon remote-relay entry** (its own Unix socket, 0600), never
   to the admin socket. The daemon accepts a connection there only after it checks the peer with
   the audit token (`LOCAL_PEERTOKEN`, macOS) or `SO_PEERCRED` (Linux): same uid, and on macOS the
-  cmux team code signature of the link binary. There is no env or debug bypass, also not for
+  cmux team code signature of the link binary (on Linux, `SO_PEERCRED` checks the uid only; the
+  socket's 0600 mode and folder carry the rest). There is no env or debug bypass, also not for
   ad-hoc DEV builds (a DEV build without a team signature cannot serve remote peers).
 - Identity: WireGuard authenticates the peer static key; the link maps it to the install id
   through the pairing record (allowed IP: the /128 from the install id) and sends the **stamp**
@@ -79,42 +80,72 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
   and history do no participant check today, so the gate applies the clause below.
 - Unknown and unowned conversation or message IDs give the **same** error (`remote_denied`), so a
   peer cannot probe. Ref forms, prefixes and names are refused.
-- **Remote participant (D-B, decided).** Pairing adds a distinct participant
-  `remote_<install>` (kind human, display name "<owner name> (<device name>)") to the owner's
-  conversations, and the server adds it to a new owner conversation when that install first opens
-  it. The remote actor is always `remote_<install>`, **never** `user_local`; a request that names
-  another actor gives `actor_mismatch`. Authorship is per device: a remote peer can edit or retract
-  only messages that its own `remote_<install>` sent, never `user_local`, agent or another
-  device's messages (`not_author`). Every remote op and message also carries
-  `origin: {kind: "remote", install}` in the op ledger and on the message. Revocation removes the
-  participant (section 10), so it does not outlive the install.
+- **Remote participant (D-B).** Each paired install has a distinct participant
+  `remote_<install>` with kind `human` and a new field **`person: "user_local"`** (the same human
+  as the server's own user; display name "<owner name> (<device name>)").
+  - **Same person (DECISION, recommended yes):** the wake rule (home.md 2: with more than one human
+    the Chief wakes only on a mention, a reply or a DM) and the participant budget
+    (`MAX_PARTICIPANTS`) count distinct **persons**, not participant ids. A paired device therefore
+    does not change how the Chief answers the owner's plain local messages, and devices do not use
+    up the budget.
+  - **Which conversations:** every conversation whose participants include `user_local`, at
+    pairing time and later: a conversation created afterwards with `user_local` gets the
+    `remote_<install>` participant of every active paired install in the same commit.
+  - **Who adds and removes it:** new system-only ops `participants.add_system` and
+    `participants.remove_system`, accepted only from the daemon's own pairing and revocation path
+    (principal `System`), refused from local clients, agents and remote peers. A conversation at
+    its person budget refuses the add, and pairing reports it.
+  - **Remove:** `participants.remove_system` takes the participant out of the list; its past
+    messages stay with author `remote_<install>` and show "removed device"; nothing can be sent
+    or edited as that participant again.
+  - The remote actor is always `remote_<install>`, **never** `user_local`; a request that names
+    another actor gives `actor_mismatch`. Authorship is per device: a remote peer can edit or
+    retract only messages its own `remote_<install>` sent (`not_author` otherwise).
+  - Every remote op and message carries `origin: {kind: "remote", install}` in the op ledger and on
+    the message. This changes the `cmux-conversation` wire types and the conformance corpus that
+    the cloud `ConversationDO` replays, so the change lands with a coordination line and the corpus
+    update in the same push.
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
-  owner. The gate checks this clause for list, snapshot, history, typing and ops.
+  owner. The gate checks this for list, snapshot, history, typing and ops.
 
 ## 6. Remote prompts to agents (D-A, decided: no waiver)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
-**remote-origin turn**. Rules (enforced by the owner and the agent host's tool gate, never by the
-model):
+**remote-origin prompt chain**.
 
-1. **Fixed minimum.** In a remote-origin turn every side-effect tool needs an approval: every MCP
+1. **Fixed minimum.** In a remote-origin chain every side-effect tool needs an approval: every MCP
    write, Bash and other shell, file writes, child agent spawn, `automation.deploy`, settings,
    `CLAUDE.md` and hooks edits, every memory-file change (`LOG.txt`, `TREE/`) and every scheduled
-   automation change. Reads outside the conversation's workspace also need an approval, because
-   their output returns to the remote as text. The level can never be lowered by the remote, the
-   model or a setting; there is no waiver.
-2. **Propagation.** The remote origin passes to child sessions and to `[mux-event]` follow-ups of
-   that turn, and ends only at the next **local** human message.
-3. **Presence proof.** An approval needs a presence proof (lane 15: the presence key with Touch ID
-   on the approving device, or an approval on a second device), not only a tap on the sending
-   device.
-4. **Offline approver.** An approval that is not answered in 10 minutes is a deny and cancels the
-   turn.
-5. **Revocation** (section 10) cancels the turn, its child sessions, its open approvals and its
+   automation change. Reads outside the Chief's workspace need an approval too, because their
+   output returns to the remote as text. **Workspace** for the Chief is `$MUX_HOME` (its home
+   folder); for another agent it is the workspace root of its session. A tool the gate cannot
+   classify needs an approval. Nothing lowers the minimum: not the remote, the model, a setting,
+   `CLAUDE.md`, a hook config or a permission mode; there is no waiver.
+2. **Where it is enforced (DECISION, proposal):** in the daemon, not in the agent's permission
+   mode (Claude Code sets that per session, so a mixed session or a bypass-mode child would
+   escape it).
+   - Claude Code sessions (the Chief and every child it spawns): the agent host installs a
+     **PreToolUse hook** owned by the daemon for every session it starts, set in the managed
+     settings layer so the session cannot remove it. PreToolUse hooks run in every permission
+     mode, including bypass. The hook asks the daemon `turn.origin {session, tool, input}`; for a
+     remote chain the daemon decides: allow (classified read inside the workspace), or hold the
+     call until an approval arrives and then allow, or deny. A hook timeout or a daemon error
+     denies.
+   - ACP agents (acpmux): the same daemon decision at acpmux's permission step
+     (`session/request_permission`), per prompt, not per session.
+3. **Mixed prompts.** A prompt that contains any remote message is a remote prompt, also when
+   local messages are in it.
+4. **Lifetime of the mark (P2-A).** The mark belongs to the prompt chain for its whole life: the
+   prompt, its tool calls, its child sessions and its `[mux-event]` follow-ups. A later local
+   message starts a new chain; it never clears a chain that is still running.
+5. **Presence proof and channel.** Each approval needs a presence proof (lane 15: the presence key
+   with Touch ID, or an approval on a second device). Approvals go through the cloud (lane 15
+   approval ops on the owner's devices), never over the link: the link refuses approval ops.
+   **A LAN-only server (no cloud) therefore denies every remote side effect;** remote reads inside
+   the workspace still work.
+6. **Offline approver.** No answer in 10 minutes: deny, and the chain is cancelled.
+7. **Revocation** (section 10) cancels the chain, its child sessions, its open approvals and its
    queued outbox.
-6. **Approval routing.** Approval requests go to every signed-in client of the owner; the presence
-   proof decides, not the device that asked.
-
 
 ## 7. Params and content
 
@@ -137,9 +168,13 @@ model):
   conversations only. Everything else is dropped there, including `pairing-requested` (it carries
   the pairing code, today sent straight to the writer by `subscribe`), terminal output, tree
   events and `ClientChanged` echoes.
-- Errors to the remote are codes only (`remote_denied`, `actor_mismatch`, `not_author`,
-  `invalid_parts`, `idempotency_conflict`, `cursor_regression`, `approval_required`), never text
-  with paths or ids.
+- Errors to the remote are codes only, never text with paths or ids. Mapping: `unknown_conversation`,
+  `unknown_message`, `not_participant` and every gate refusal -> `remote_denied`; kept as is:
+  `actor_mismatch`, `not_author`, `invalid_parts`, `idempotency_conflict`, `cursor_regression`,
+  `approval_required`; anything else -> `remote_error`.
+- Projections for every event change: `Change::Message` and `Change::MessageUpdated` ->
+  `RemoteMessage`; `Change::ReadCursor` -> sent only for the peer's own cursor;
+  `Change::Conversation` -> `RemoteSummary`.
 
 ## 9. Policy tests (red first, before the feature)
 
@@ -173,23 +208,42 @@ Redaction:
 - a serialization test: the remote JSON of a summary, a message and each event contains only the
   section 8 fields (allow-list check, so a new local field cannot leak).
 
+Participants (section 5):
+- after pairing, the Chief's wake behavior on a plain local message is unchanged (person count);
+- pairing into a conversation at its person budget fails and is reported;
+- `participants.add_system` and `participants.remove_system` from a remote peer, a local client or
+  an agent: refused; after remove, the device's old messages keep their author and no op is
+  accepted as that participant.
+- `Change::ReadCursor` of another participant and `Change::Conversation` are projected (or
+  dropped) as section 8 says.
+
 Turns and revocation:
 - a remote-origin turn asks approval for a write tool and for an outside read; the origin reaches
   a child session and a `[mux-event]` follow-up; it ends at a local human message; an approval
   without a presence proof is not accepted; an unanswered approval after 10 minutes denies and
   cancels the turn; memory-file and scheduled-automation changes ask approval.
+- a prompt with one remote and one local message is fully remote; a local message during a running
+  remote chain does not clear its mark; a bypass-mode child of a remote chain still asks.
+- no setting, `CLAUDE.md`, hook config or permission mode lowers the minimum; an unclassified tool
+  asks; the hook's timeout or a daemon error denies.
+- revocation recheck with an injected clock: 1 hour -> new streams refused, 24 hours -> existing
+  closed, unreachable cloud before that closes nothing.
 - revocation cancels the turn, its children, its open approvals and its outbox, and closes the
   stream; also while the server is offline from the cloud (section 10).
 
 ## 10. Revocation
 
-- A revoke from the cloud (`host.revoke`, `install.revoke_by_team`) reaches the server through
-  the link: in one step the server deletes the pairing record of that install, removes its
-  `remote_<install>` participant, closes its streams and cancels its remote-origin turns
-  (section 6, rule 5).
-- While the server is offline from the cloud it cannot learn of a revoke, so the link rechecks
-  each peer's install with the control plane at a bounded interval (proposal: 5 minutes) and on
-  every new stream; a failed or revoked check closes the streams. Test with a fake control plane.
+- A revoke from the cloud (`host.revoke`, `install.revoke_by_team`) reaches the server through its
+  cloud connection; in one step the server deletes the pairing record of that install, runs
+  `participants.remove_system` for its `remote_<install>`, closes its streams and cancels its
+  remote-origin chains (section 6, rule 7).
+- Offline from the cloud (P2-C, DECISION, proposal): the link rechecks each paired install with
+  the control plane every 5 minutes and on each new stream. An unreachable cloud is not a revoke:
+  - last good check older than **1 hour**: new streams from that install are refused, existing
+    streams stay;
+  - last good check older than **24 hours**: existing streams are closed too;
+  - a check that says "revoked": everything at once, as above.
+  Tests use an injected clock.
 
 ## 11. Open items
 

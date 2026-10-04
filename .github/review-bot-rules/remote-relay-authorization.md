@@ -4,7 +4,7 @@ Apply this rule to any PR that adds or changes v2 socket methods, adds or change
 
 Background: GHSA-9vmv-3hjw-j28c. The `cmux ssh` reverse relay stores its credential on the remote host, so the remote host must be treated as a compromised client. The legacy app's `RemoteRelayCommandPolicy` (deleted with `CmuxRemoteWorkspace`) was the only authorization boundary between an authenticated relay client and command execution on the developer's Mac. The app in `Packages/macOS/CmuxNext` has no relay policy yet, so no relay path may reach its control socket until one exists. Any relay must deny by default; the allowlist, owned-target scoping, and command-parameter denial are the whole defense.
 
-The same rule covers the cmux-tui daemon's **remote-relay entry** for paired servers (`ClientTransport::RemoteRelay`, the socket that only `cmux link` may connect to; plans/cmux-next/server-remote-conversations.md): its frame-level gate, its command allowlist, the `set-client-info` and `subscribe` reductions, the outbound writer filter and the remote-only serialization structs. A change there needs the same analysis and allow/deny tests.
+The same rule covers the cmux-tui daemon's **remote-relay entry** for paired servers (`ClientTransport::RemoteRelay`, the socket that only `cmux link` may connect to; plans/cmux-next/server-remote-conversations.md): its frame-level gate, its command allowlist, the `set-client-info` and `subscribe` reductions, the outbound writer filter and the remote-only serialization structs. A change there needs the same analysis and allow/deny tests. Apply this rule to changes in `cmux-tui/crates/cmux-tui-core/src/server.rs` (`handle_connection_message`, `ClientTransport`, `is_unix`, `require_local`), `cmux-tui/crates/cmux-tui-core/src/server/conversations.rs`, and the remote-origin tool gate (the daemon's PreToolUse hook decision and acpmux's permission step).
 
 ## Fail
 
@@ -15,6 +15,7 @@ The same rule covers the cmux-tui daemon's **remote-relay entry** for paired ser
 - A workspace/surface/tab ID param (for example `source_workspace_id`, `destination_surface_id`) that the policy does not scope to the remote session's owned objects.
 - Weakening deny-by-default: prefix-allowing whole method families, accepting ref-form (non-UUID) IDs, or passing unmapped IDs through for convenience.
 - Relay policy changes without tests covering both the allow and deny cases.
+- Lowering the remote-origin approval minimum for any tool, permission mode or setting, or dropping or clearing the remote-origin mark of a running prompt chain.
 
 ## Pass
 
