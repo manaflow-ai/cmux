@@ -460,7 +460,7 @@ def run_wrapper(
     non_cmux: bool = False,
     dev_tag: str | None = None,
 ) -> tuple[int, list[str], str, dict[str, object]]:
-    with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
+    with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-", dir=str(Path.home())) as td:
         tmp = Path(td)
         wrapper_dir = tmp / "cmux.app" / "Contents" / "Resources" / "bin"
         real_dir = tmp / "real-bin"
