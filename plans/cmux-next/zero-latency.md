@@ -131,15 +131,26 @@ input frame stays under budget. The input frame does only the state change that 
 - Empty states and the other diff toolbar actions were already local-first; the harness confirms
   them.
 
+- Diff files panel (coordinator decision, 2026-10-04): the toggle no longer lays out the diff in
+  its frame. The panel slides at once (a composited transform, the same spring keyframes, so WebKit
+  still runs it at the display rate), and the diff column changes width once, when the slide ends.
+  Opening, the diff stays full width under the panel; closing, a curtain (the panel's resting box
+  in the panel's background, scaled from its left edge on the compositor with the slide) covers
+  the strip the panel uncovers. A toggle mid-slide reverses from the panel's position and keeps
+  the diff's width. `test/files-panel-coverage.test.ts` checks every animation frame of a close,
+  an open and both mid-slide reverses for an uncovered strip, in Chromium and WebKit; the harness
+  has a "sidebar reverse" case. WebKit sidebar toggle: frame gap 27 to 34 ms before, 16 ms after.
+
 ## Known limits
 
-- WebKit, diff viewer: the sidebar toggle and jump to file sit at the 2-frame limit on a loaded
-  machine. The sidebar toggle reflows the diff column in the toggle frame by design
-  (`files-panel-motion.ts`, step 1); jump to file waits for CodeView's next-frame render of the
-  target (laying it out in the input frame instead dropped a frame in WebKit, so it stays). Moving
-  the reflow to the end of the panel motion would take it off the input path, at the cost of the
-  panel sliding over (or away from) a diff that resizes only when the motion ends.
+- WebKit, diff viewer: jump to file sits at the 2-frame limit on a loaded machine. It waits for
+  CodeView's next-frame render of the target; laying the target out in the input frame instead
+  dropped a frame in WebKit, so it stays.
+- While a closing panel slides, the strip it uncovers shows the panel's background (the curtain),
+  not diff text: the diff widens only when the slide ends (131 ms).
 
-## Decision 31 (wire)
+## Follow-ups (for their owners)
 
-`call` may carry `"opid":"<string>"` (1 to 128 characters of `[A-Za-z0-9._:-]`), a client-generated operation id for one user intent. A provider that applies the call echoes the id on every event the call caused: `{"t":"ev","sub":…,"seq":…,"data":…,"opid":"<id>"}` (envelope field, outside the IR-validated `data`). A provider applies an opid once per caller identity (the token's `sub`, the page instance, so a resend on a new connection after a reconnect is covered): a repeated opid is answered with the first run's `ok` or `err` and runs nothing. Remember at least the last 1024 opids per caller for 10 minutes. `ok` and `err` are matched by `id` and carry no opid. A malformed opid is a bad message (`cmux.protocol.bad_message`). TS: `CallOptions.opid`, `HandlerContext.opid`, `emit(data, {opid})`, `onEvent(data, seq, {opid})`, `OpidLedger` for providers, and the page bridge carries it (`PageClient.call(op, params, {opid})`). Rust and Go providers follow; no Rust change in this slot.
+- Rust and Go providers: carry `opid` on `call`, echo it on every `ev` the call causes, and
+  apply each opid once per caller (decision 31; `OpidLedger` is the TS reference).
+- A side-effect-free `cmux.markdown.read` host op, so a followed link's file can be prefetched.

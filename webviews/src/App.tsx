@@ -1083,6 +1083,8 @@ export function App({ config, initialStatus }: ConfigProps) {
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebarBackdrop label={label} onClose={() => closeFileSearch(dispatch)} open={state.fileSearchOpen} />
+        {/* Covers the strip a closing panel uncovers until the diff widens (files-panel-motion.ts). */}
+        <div id="files-motion-curtain" aria-hidden="true" />
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
@@ -2979,6 +2981,7 @@ function usePageDataAttributes(state: AppState) {
   useLayoutEffect(() => {
     filesPanelMotion.current ??= createFilesPanelMotion({
       panel: () => document.getElementById("files-sidebar"),
+      curtain: () => document.getElementById("files-motion-curtain"),
       body: document.body,
       currentOffset: (panel) => computedTranslateX(panel as HTMLElement),
       requestFrame: (callback) => requestAnimationFrame(() => callback()),
