@@ -271,7 +271,7 @@ From home-messaging.md section 6, plus derived values.
 | A7 | mean / peak committed ops per second | 400 / 2,000 | 4,000 / 20,000 | peak = 5x mean (section 6) |
 | A8 | concurrent WebSockets at peak | about 23k | about 230k | 25% of DAU online, 1.5 devices each, 1 gateway + 0.5 conversation socket per device |
 | A9 | message size | human 300 B, chief 2 KB | same | section 6 |
-| A10 | indexed text per search row | 1 KB average, about 10M rows per day | 100M rows per day | section 6 |
+| A10 | indexed text per search row | follows A9: human rows about 300 B, agent rows about 2 KB (truncated at 16 KiB); about 10M rows per day | 100M rows per day | section 6, made consistent with A9 |
 | A11 | conversations per user | p50 30, p99 2,000 | same | section 6 |
 | A12 | SQLite rows written count each index entry written as one more row | | | Cloudflare documents this for D1; assumed for DO SQLite. Measure (C-4) |
 | A13 | DO duration is billed only while an object handles work; hibernated sockets cost nothing | | | pessimistic case in B11 |
@@ -320,8 +320,12 @@ Case: a chief streams work-card edits at 20 ops/s into a group of 64 humans with
 
 Today, per second: 20 commits; 1,280 bump items (20 x 64), coalesced per user per drain to about
 256 UserDO deliveries if a drain runs every 250 ms, each committing as a system op; 20 Postgres
-statements; 1,920 socket frames of about 2 KB, so about 3.8 MB/s out of one object. One hour of this
-writes about 17M SQLite rows across the UserDOs (about 17 USD, B11) for content nobody keeps.
+statements; 1,920 socket frames per second. A row-mode event carries the row AND the full
+conversation head (participants, cursors, settings): 15 to 30 KB per event in a 64-member group,
+not 2 KB (backend lead review, 2026-10-03). At about 20 KB that is about 38 MB/s out of one object,
+which no client link or object memory budget survives; head diffs (C-7) are a precondition for
+large groups, not an optimization. One hour of this also writes about 17M SQLite rows across the
+UserDOs (about 17 USD, B11) for content nobody keeps.
 
 Target:
 
@@ -339,10 +343,12 @@ Target:
   resync path). Progress frames to a lagging socket are dropped (latest wins). Without this, 96
   sockets at 1 MB each approach the 128 MB object memory limit, and an out-of-memory reset drops
   every socket of the conversation at once.
-- Events: row-mode events carry the row (`effects`), so each edit stores another 2 KB copy for
-  30 days. A chief thread with 50k events per day keeps 1.5M events, about 3 GB, inside its 10 GB.
-  RECOMMEND row-mode owners keep 7 days or 10,000 events, whichever is more (a resume older than that
-  takes a snapshot, E3 already supports it).
+- Events: row-mode events carry the row (`effects`) and the full head, so each edit stores another
+  15 to 30 KB copy in a large group (about 2 KB plus the head in a chief thread). A chief thread
+  with 50k events per day at about 20 KB writes about 1 GB of events per day and would pass the 10 GB
+  object limit in about 10 days under 30-day retention. RECOMMEND events carry a head diff instead
+  of the head (C-7), and row-mode owners keep 7 days or 10,000 events, whichever is more. Resume
+  today replays at most 1,000 events; a client further behind takes a snapshot (E3).
 
 Per-object throughput: one object is single-threaded. At 1 to 2 ms per commit (A14) the ceiling is
 500 to 1,000 commits per second; the 50 ops/s cap keeps a hot conversation under 10% and leaves room
@@ -351,12 +357,17 @@ for drains, reads and resyncs.
 ## B5. UserDO inbox
 
 - Size: p99 2,000 entries at about 600 B is about 1.2 MB of rows; no limit is needed at that size.
-- Paging: `inbox.list` pages by 200 with a keyset cursor (pinned first, then `last_at` desc, then
-  conversation id), never an offset; the `rows` order column `n` holds `last_at` in ms.
+- Paging: today `inbox.list` loads and sorts every entry, then slices (`inbox/reducer.ts`). Target:
+  pages of 200 with a keyset cursor (pinned first, then `last_at` desc, then conversation id), never
+  an offset; the `rows` order column `n` holds `last_at` in ms (gap G4, branch
+  feat-cmux-next-home-inbox).
 - Gateway snapshot: RECOMMEND the `inbox:` snapshot carries pinned entries plus the newest 200, and a
   reconnect resumes with `after_seq` (only changes). Sending all 2,000 rows on every mobile reconnect
   costs 1.2 MB per reconnect and multiplies a reconnect storm (B12, rank 3).
-- Unread totals: kept in the inbox head as running sums, so the badge is O(1).
+- Unread totals: NOT in the inbox head today. `InboxHead` holds only `user` and `next_pin`, and
+  `commitOutbox` passes no counts, so a badge needs a scan. Target: running sums (unread, mentions)
+  in the head, updated by each bump's delta, so the badge is O(1) (backend lead fixes the code,
+  C-28).
 - Load: the heaviest users receive about 2,300 bumps per day, peaking near 20 per second while
   several chiefs stream. Chief-thread bumps tolerate 2 s of delay (push for chief messages waits for
   turn end, B10), so their coalesce window can be 2 s; human-message bumps go at once because push
@@ -371,7 +382,8 @@ Today (`owner-do.ts` alarm): after every commit the alarm is set to now; each du
 to 100 rows; target channels are delivered one after another; the projection channel opens a new
 `pg` client through Hyperdrive and runs one statement per row inside one transaction; sent rows are
 marked `sent_at` and never deleted; a failing channel backs off exponentially to 5 minutes, without
-jitter.
+jitter; after 12 tries (about 24 minutes) a row is dead-lettered, so a Postgres outage longer than
+that silently loses projection rows (search and conversation index), and nothing replays them.
 
 Changes, in priority order:
 
@@ -387,6 +399,12 @@ Changes, in priority order:
    few hundred larger ones.
 4. Jitter every backoff (x0.5 to x1.5). When Postgres recovers from an outage, every object with a
    pending projection retries; without jitter they retry in waves at the same backoff steps.
+6. No dead letter for transient errors: network errors, timeouts, Hyperdrive or Postgres
+   unavailability and 5xx retry indefinitely with the capped, jittered backoff. Only a permanent
+   error (a row the target rejects for schema or validation, which no retry can fix) is
+   dead-lettered, counted and alerted. A replay tool re-drains dead-lettered rows and can rebuild a
+   projection for one object or a time range from the owner's rows (upserts are idempotent by
+   `source_seq`). The backend lead fixes the code (C-27).
 5. Keep the target channels immediate for human messages (push latency); allow the 2 s window for
    chief-thread bumps (B5).
 
@@ -412,13 +430,15 @@ What to skip or coalesce:
   twice in one drain.
 - Do not project: typing, work progress, read cursors (unread comes from UserDO).
 
-Storage and indexes. `0005_home.sql` stores a generated `tsvector`, a GIN on `(conversation_id,
-tsv)`, a trigram GIN on `body` and a btree, in 64 hash partitions. Assumed footprint per raw text
+Storage and indexes. `0006_home.sql` stores a generated `tsvector`, a GIN on `(conversation_id,
+tsv)`, a trigram GIN on `body` and a btree, in 64 hash partitions. The search query today uses only
+`ILIKE`, so the `tsvector` column and its GIN cost write load and storage and serve no query: either
+move the query to `tsvector` matching or drop them (C-11). Assumed footprint per raw text
 byte (A16): heap with the stored `tsvector` 1.2x, `tsvector` GIN 0.6x, trigram GIN 2.5x, total about
 4.3x. At 10 GB raw per day that is about 43 GB per day, about 15.7 TB per year on the primary, and
 again on each replica. Section 6's 3.5 TB per year is the raw text only.
 
-Target layout (a revision of `0005_home.sql`, applied by the backend lead through the label flow):
+Target layout (a revision of `0006_home.sql`, applied by the backend lead through the label flow):
 
 - Two tables: `home_message_search_human` and `home_message_search_agent`. Human rows are 13% of
   sends but are what people search for most.
@@ -455,7 +475,7 @@ hold with GIN write load (C-11).
 
 Replica lag adds to search freshness (assumed under 1 s, A17); the open conversation's client-side
 search over loaded pages covers "I just sent it". RECOMMEND an HA cluster of one primary and two
-replicas at 100k MAU; check how PlanetScale Postgres exposes a replica endpoint (UNVERIFIED). Search
+replicas at 100k MAU; the read-only binding `HYPERDRIVE_RO` already exists for this path. Search
 reads are small: at 3 searches per DAU per day, 1.2M per day at 1M MAU, about 14 per second mean.
 
 ## B9. Rate limits
@@ -552,6 +572,8 @@ Invites (email and SMS provider fees) are per invite, not per message, and are o
 | 9 | Push storms from chiefs; APNs throttling and user annoyance | from launch if chief messages push | push at turn end only, collapse ids, caps |
 | 10 | Hyperdrive connection churn (a new client per drain) | near peak | fewer, larger drains (B6) |
 | 11 | One heavy UserDO (a user with many streaming chiefs) | rare | 2 s coalesce for chief-thread bumps, `inbox.bump_many` |
+| 12 | `installGrant` is one hot key in the owner's UserDO that every chief op of that user reads, so many active chiefs serialize on it | a user with many chiefs | cache the grant in each MuxDO or ConversationDO head with its revision, pushed by UserDO on change (C-29) |
+| 13 | `bind()` creates an object for any id a caller names, so random ids create empty objects (storage and billing abuse) | any time | derive or verify ids before `get()`: deterministic ids from authenticated inputs, or an existence check in the owning UserDO; refuse unknown ids in the Worker (C-30) |
 
 ## B13. From 100k to 1M MAU
 
@@ -571,11 +593,11 @@ reconnect storms (230k sockets), and the absolute cost of row writes (B11).
 | C-4 | Measure rows written per op kind (`SqlStorageCursor.rowsWritten`) and DO active time per alarm on staging; confirm A12, A13, A14, A20 | backend lead |
 | C-5 | Per-socket output cap with resync; ephemeral frame channel (typing, `work.progress`) with latest-wins per card | backend lead |
 | C-6 | Row-mode event retention: 7 days or 10,000 events | backend lead (E3) |
-| C-7 | Dedicated `msg` table keyed by seq for row-mode conversations; ledger-less system ops for max-merge targets; `inbox.bump_many` | backend lead (engine) with lane 15 (inbox reducer) |
+| C-7 | Dedicated `msg` table keyed by seq for row-mode conversations; ledger-less system ops for max-merge targets; `inbox.bump_many`; events carry a head diff instead of the full head (15 to 30 KB per event in a 64-member group today) | backend lead (engine) with lane 15 (inbox reducer) |
 | C-8 | Rate-limit bindings and owner counters of B9 | backend lead |
 | C-9 | `fanOut`: search intent only when the text body changes; edit bumps only when the preview or a mention count changes; no delete for a message without a search row; corpus cases | lane 15 (`home-core`) |
 | C-10 | `conversation_busy`, `agent_edit_rate`, `work.progress` frame rules; corpus cases (cloud and the Rust owner where it applies) | lane 15, then cmux-tui (`cmux-conversation`) |
-| C-11 | Revise `0005_home.sql` before it reaches production: two tables, expression GIN, partial trigram, monthly range partitions, partition job, `home.message.delete_through`; replica Hyperdrive for search; plan the search split for 1M | backend lead (migrations through the label flow) |
+| C-11 | Revise `0006_home.sql` before it reaches production: two tables, expression GIN, partial trigram, monthly range partitions, partition job, `home.message.delete_through`; replica Hyperdrive for search; plan the search split for 1M | backend lead (migrations through the label flow) |
 | C-12 | Reap ConversationDOs left in `importing` for 7 days | backend lead |
 | C-13 | Attachment blobs in `conversation.import` (upload by hash before the batch) | lane 15 + backend lead |
 | C-14 | Push: turn-end rule for chief messages, collapse ids, per-user caps, `push.relay`, external badge counts | backend lead (UserDO, `push/`) |
@@ -591,6 +613,10 @@ reconnect storms (230k sockets), and the absolute cost of row writes (B11).
 | C-24 | `invite.relay` with team guest join for self-hosted servers | backend lead + enterprise lead |
 | C-25 | Join-screen disclosure that chiefs remember what they read | Home product (copy, localized) |
 | C-26 | Jurisdiction-scoped DO namespaces for EU teams | enterprise lead (later) |
+| C-27 | Outbox: no dead letter for transient errors (retry with capped jittered backoff); dead letter only permanent errors, with alerts; replay tool that re-drains dead letters and rebuilds a projection per object or time range | backend lead (`ownership`, `owner-do.ts`, `projection.ts`) |
+| C-28 | Unread and mention totals as running sums in `InboxHead`, with deltas passed through `commitOutbox` | backend lead with lane 15 (inbox reducer) |
+| C-29 | Cache `installGrant` per chief in MuxDO or ConversationDO heads with its revision; UserDO pushes changes | backend lead |
+| C-30 | Verify or derive DO ids before `bind()`/`get()`; refuse unknown ids in the Worker | backend lead |
 
 # D. Decisions needed
 
