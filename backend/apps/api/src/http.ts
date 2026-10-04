@@ -101,7 +101,7 @@ const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
   op.startsWith("inbox.") ? `inbox:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
-const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get"])
+const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info"])
 const cloudNotLive = (owner: string, op: string) =>
   owner === "cloud:CloudDO" && !CLOUD_LIVE_OPS.has(op) ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true }) : undefined
 
@@ -402,7 +402,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           catch: unreachable
         })
         if (!r.ok) {
-          if (r.code === "selector.not_found" || r.code === "validation.invalid" || r.code === "cloud.machine.not_found") return yield* new BadRequest({ code: r.code, message: r.message })
+          if (r.code === "selector.not_found" || r.code === "validation.invalid" || r.code === "cloud.machine.not_found" || r.code === "cloud.machine.not_bound") return yield* new BadRequest({ code: r.code, message: r.message })
           return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
         }
         // A webhook trigger's secret is derived in the Worker, never stored in the DO.

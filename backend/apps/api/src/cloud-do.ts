@@ -7,6 +7,7 @@ import { cloudConfig, cloudDriver, cloudProviderReady, type GuardedCloudDriver }
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
+import { AccessAudit, connectInfo } from "./cloud-connect.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import {
@@ -74,6 +75,12 @@ export class CloudDO extends OwnerDO<CloudState> {
 
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    if (op === "cloud.machine.connect_info") {
+      if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
+      if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+      const r = await connectInfo(entity, this.bind(entity).rows, principal, params, () => this.teamConnectServices(entity), this.audit)
+      return r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r
+    }
     // An object nobody created: answer from an empty head for this entity, without creating it.
     if (!this.isBound(entity)) {
       const r = this.read({ team: entity, rev: 0, active: 0, saved: 0, pending: {}, changed: null }, op, params, principal)
@@ -231,6 +238,17 @@ export class CloudDO extends OwnerDO<CloudState> {
     if (reply.t !== "result") return forbidden
     return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset } }
   }
+
+  /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
+  private teamConnectServices(entity: string): Promise<ReadonlyArray<string>> {
+    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { cloudConnectServices(e: string): Promise<ReadonlyArray<string>> }
+    return stub.cloudConnectServices(entity)
+  }
+
+  private get audit(): AccessAudit {
+    return (this.auditStore ??= new AccessAudit(this.sqlStore))
+  }
+  private auditStore: AccessAudit | null = null
 
   /** Single flight per machine: a call for a machine waits for the one running, then runs once more. */
   private runMachine(machine: string, dueBy: number | null): Promise<void> {
@@ -416,6 +434,6 @@ export class CloudDO extends OwnerDO<CloudState> {
     const ctl = this.sqlStore.exec<{ creates: number; deletes: number }>(`SELECT creates, deletes FROM cloud_fake_ctl WHERE id = 1`)[0]!
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null }>(`SELECT name, id, idle FROM cloud_fake_vm ORDER BY name`)
     const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
-    return { files, creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), now: Date.now() + this.skewMs }
+    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), now: Date.now() + this.skewMs }
   }
 }
