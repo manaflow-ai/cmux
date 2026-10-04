@@ -10,7 +10,7 @@ import type { Env } from "../src/env.ts"
 const testEnv = env as unknown as Env & { STACK_TEST_PRIVATE_JWK: string }
 const worker = (exports as unknown as { default: Fetcher }).default
 /** DO RPC stubs erase method types; these tests call the methods the classes define. */
-type Stub = { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string }> }>; readOp(e: string, p: Principal, op: string, params: unknown): Promise<unknown>; readInbox(e: string, p: Principal, op: string, params: unknown): Promise<unknown>; card(e: string): Promise<{ first_name: string } | null> }
+type Stub = { submit(e: string, p: Principal, f: unknown): Promise<{ frames: Array<{ t: string }> }>; readOp(e: string, p: Principal, op: string, params: unknown): Promise<unknown>; readInbox(e: string, p: Principal, op: string, params: unknown): Promise<unknown>; submitInbox(e: string, p: Principal, f: unknown): Promise<unknown>; card(e: string): Promise<{ first_name: string } | null> }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const stub = (ns: any, name: string): Stub & DurableObjectStub => ns.get(ns.idFromName(name))
 
@@ -101,6 +101,48 @@ describe("Home objects: ConversationDO fan-out to the UserDO inbox stream (E2, E
     // The primary stream's events never leak into the inbox subscription and vice versa.
     expect(frames.filter((f) => f.t === "event").every((f) => f.stream === `inbox:${user}`)).toBe(true)
     ws.close()
+  })
+})
+
+describe("Home objects: inbox.list pages with a keyset cursor (section 4.2)", () => {
+  type Page = { ok: boolean; code?: string; value: { entries: Array<{ conversation: string; pinned: boolean }>; next_cursor: string | null } }
+  const deliver = (s: DurableObjectStub, user: string, items: Array<{ id: number; op: string; params: unknown; key: string }>) =>
+    (s as unknown as { systemDeliver(e: string, source: string, items: unknown): Promise<{ done: Array<number> }> }).systemDeliver(user, "conv:paging", items)
+
+  it("pages 450 conversations by 200, pinned first then newest first, and the order index never reaches subscribers", async () => {
+    const user = userIdFor(testEnv.STACK_PROJECT_ID, "home-paging")
+    const userDO = stub(testEnv.USER_DO, user)
+    const me = session(user)
+    const ids = Array.from({ length: 450 }, (_, i) => `conv_${String(i).padStart(26, "0")}`)
+    const bumps = ids.map((conversation, i) => ({
+      id: i,
+      op: "inbox.bump",
+      key: `bump:${conversation}:1`,
+      params: { user, conversation, rev: 1, kind: "group", title: conversation, last_seq: 1, last_at: new Date(Date.UTC(2026, 9, 1) + i * 1000).toISOString(), preview: "" }
+    }))
+    expect((await deliver(userDO, user, bumps)).done).toHaveLength(450)
+    const pin = (await userDO.submitInbox(user, me, { t: "op", op: "inbox.pin", params: { conversation: ids[3], pinned: true }, idempotency_key: "pin" })) as { frames: Array<{ t: string }> }
+    expect(pin.frames.find((f) => f.t === "result" || f.t === "reject")).toMatchObject({ t: "result" })
+
+    const seen: Array<string> = []
+    let cursor: string | null = null
+    const sizes: Array<number> = []
+    do {
+      const page = (await userDO.readInbox(user, me, "inbox.list", { limit: 200, ...(cursor ? { cursor } : {}) })) as Page
+      expect(page.ok).toBe(true)
+      sizes.push(page.value.entries.length)
+      seen.push(...page.value.entries.map((e) => e.conversation))
+      cursor = page.value.next_cursor
+    } while (cursor)
+    expect(sizes).toEqual([200, 200, 50])
+    expect(seen.slice(0, 3)).toEqual([ids[3], ids[449], ids[448]])
+    expect(new Set(seen).size).toBe(450)
+    expect(((await userDO.readInbox(user, me, "inbox.list", { cursor: 7 })) as Page).ok).toBe(false)
+
+    await runInDurableObject(userDO, async (_i, state) => {
+      const leaked = state.storage.sql.exec("SELECT COUNT(*) AS c FROM inbox_events WHERE effects LIKE '%entry_order%'").toArray()[0]!.c
+      expect(leaked).toBe(0)
+    })
   })
 })
 
