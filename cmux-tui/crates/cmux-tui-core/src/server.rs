@@ -14531,6 +14531,10 @@ pub fn cleanup(path: &Path) {
 mod image_paste_tests;
 
 #[cfg(test)]
+#[path = "server/pane_browser_kind_tests.rs"]
+mod pane_browser_kind_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
