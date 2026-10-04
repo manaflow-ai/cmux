@@ -2,7 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { registerPicker } from "./pickerOpeners";
 
@@ -99,6 +99,7 @@ export function ComposerPickers({
   settleTimer = browserSettleTimer,
   measurePickerRoom,
 }: Props) {
+  const t = useT();
   const summary = snapshot.summary;
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
   const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
