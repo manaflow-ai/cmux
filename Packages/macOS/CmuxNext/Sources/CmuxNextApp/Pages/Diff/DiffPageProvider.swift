@@ -34,6 +34,8 @@ final class DiffPageProvider: PageProvider {
     private let sidecar: (any DiffSidecarRunning)?
     private let languages: DiffLanguageFeed?
     private weak var host: (any DiffTabHosting)?
+    /// Prefs and viewed marks (``DiffPageStores``); nil serves no store op.
+    let stores: DiffPageStores?
     /// Sessions of the current grant this tab named or was given, not closed yet.
     private(set) var sessions: Set<String> = []
     private var opening: (session: String, task: Task<JSONValue, any Error>)?
@@ -42,8 +44,9 @@ final class DiffPageProvider: PageProvider {
     private(set) var isClosed = false
 
     init(ready: Task<DiffTabReady, any Error>?, sidecar: (any DiffSidecarRunning)?, languages: DiffLanguageFeed?,
-         host: (any DiffTabHosting)? = nil) {
+         host: (any DiffTabHosting)? = nil, stores: DiffPageStores? = nil) {
         self.ready = ready
+        self.stores = stores
         self.sidecar = sidecar
         self.languages = languages
         self.host = host
@@ -71,6 +74,7 @@ final class DiffPageProvider: PageProvider {
             guard let path = params["path"]?.stringValue, path.hasPrefix("/") else { throw PageError.invalidParams("path is required") }
             return try await open(folder: URL(fileURLWithPath: path, isDirectory: true), source: DiffOpenSource(page: params["source"]))
         default:
+            if let value = try await storeCall(op, params: params) { return value }
             let method = String(op.dropFirst("cmux.diff.".count))
             guard op.hasPrefix("cmux.diff."), Self.methods.contains(method) else { throw PageError.unknownOp(op) }
             return try await request(method, params: params.objectValue ?? [:])
@@ -98,9 +102,9 @@ final class DiffPageProvider: PageProvider {
     var eventSubscriberCount: Int { events.count }
 
     private func config() async throws -> JSONValue {
-        guard let ready else { return ["pick": true] }
+        guard let ready else { return withStores(["pick": true]) }
         do {
-            return try await ready.value.config
+            return withStores(try await ready.value.config)
         } catch let failure as DiffTabFailure {
             return DiffPageConfig.failure(title: failure.title, message: failure.message)
         }
