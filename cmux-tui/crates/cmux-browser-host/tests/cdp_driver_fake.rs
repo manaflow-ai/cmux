@@ -93,6 +93,7 @@ impl FakeWire {
                 json!({"success": true})
             }
             "Target.activateTarget"
+            | "Target.detachFromTarget"
             | "Page.enable"
             | "Page.setLifecycleEventsEnabled"
             | "Emulation.setFocusEmulationEnabled"
@@ -913,4 +914,29 @@ fn a_redirect_onto_a_browser_page_is_left_and_refused() {
         .collect::<Vec<_>>();
     assert_eq!(leave.last().map(String::as_str), Some("about:blank"), "{leave:?}");
     assert_eq!(h.call("tab.info", json!({"targetId": target}))["url"], "about:blank");
+}
+
+#[test]
+fn the_relay_detaches_from_browser_page_targets() {
+    let h = Harness::new();
+    h.open(Some("https://a.test/"));
+    let mark = h.mark();
+    let attached = json!({"method": "Target.attachedToTarget", "params": {
+        "sessionId": "SPM",
+        "targetInfo": {"targetId": "TPM", "type": "page", "url": "chrome://password-manager/passwords", "title": ""},
+        "waitingForDebugger": true,
+    }});
+    h._conn.receive(&attached.to_string());
+    for _ in 0..2000 {
+        if h.methods_since(mark).iter().any(|m| m == "Target.detachFromTarget") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let sent = h.sent_since(mark);
+    let detach = sent.iter().find(|(m, _)| m == "Target.detachFromTarget");
+    assert_eq!(detach.map(|(_, p)| p["sessionId"].clone()), Some(json!("SPM")), "{sent:?}");
+    assert!(!sent.iter().any(|(m, _)| m == "Page.addScriptToEvaluateOnNewDocument" || m == "Runtime.enable"), "{sent:?}");
+    let tabs = h.call("tabs.list", json!({}));
+    assert!(!tabs.to_string().contains("TPM"), "{tabs}");
 }

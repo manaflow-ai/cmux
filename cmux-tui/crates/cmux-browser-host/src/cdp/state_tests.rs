@@ -312,3 +312,27 @@ fn closed_dialogs_forget_their_ids() {
     state.apply(&cdp(Some("S1"), "Page.javascriptDialogClosed", json!({"result": true})));
     assert!(state.dialogs.is_empty());
 }
+
+#[test]
+fn browser_page_targets_never_become_tabs() {
+    let mut state = State::default();
+    for (session, kind, url) in [
+        ("SP", "page", "chrome://password-manager/passwords"),
+        ("SE", "page", "chrome-extension://abc/options.html"),
+        ("SW", "service_worker", "chrome-extension://abc/background.js"),
+    ] {
+        let applied = state.apply(&cdp(
+            None,
+            "Target.attachedToTarget",
+            json!({"sessionId": session, "targetInfo": {"targetId": format!("T{session}"), "type": kind, "url": url}, "waitingForDebugger": true}),
+        ));
+        assert!(
+            !applied.follow_ups.iter().any(|f| matches!(f, FollowUp::SetUpPage { .. } | FollowUp::Resume { .. })),
+            "{url}: {:?}",
+            applied.follow_ups
+        );
+        assert!(!applied.follow_ups.is_empty(), "{url}: the target must be released");
+    }
+    assert!(state.tabs.is_empty());
+    assert!(state.sessions.is_empty());
+}
