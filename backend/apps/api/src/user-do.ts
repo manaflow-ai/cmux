@@ -11,6 +11,7 @@ import type { Env } from "./env.ts"
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
+import { reindexInbox } from "./inbox-reindex.ts"
 import { HOME_RATE_WINDOW_MS, homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
 const CHALLENGE_TTL_MS = 2 * 60_000
@@ -208,30 +209,15 @@ export class UserDO extends OwnerDO<UserState> {
     }
     if (op === "inbox.list") {
       if (params.cursor !== undefined && (typeof params.cursor !== "string" || params.cursor.length > 256)) return { ok: false, code: "validation.invalid", message: "cursor must be a next_cursor string" }
-      if (engine.currentState.ordered !== true) this.reindexInbox(entity)
+      if (engine.currentState.ordered !== true) {
+        reindexInbox(this.inbox, entity)
+        this.scheduleAlarm()
+      }
       const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(params.limit, homeInbox.INBOX_PAGE_LIMIT) : homeInbox.INBOX_PAGE_LIMIT
       const page = homeInbox.pageInbox(engine.rows, { limit, include_archived: params.include_archived === true, ...(params.cursor === undefined ? {} : { cursor: params.cursor as string }) })
       return { ok: true, value: page, revision: String(engine.currentSeq) }
     }
     return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
-  }
-
-  /**
-   * One-time migration of an inbox written before the list order index (home-core order.ts):
-   * reads the entry keys once, in key windows, and commits them as `inbox.reindex` system ops.
-   * Batch keys name their contents, so a rerun after a crash replays what committed.
-   */
-  private reindexInbox(entity: string): void {
-    const engine = this.inbox.open(entity)
-    const keys: Array<string> = []
-    for (let window = engine.rows.keyRange(homeInbox.TABLE_ENTRY, { limit: 1000 }); window.length > 0; window = engine.rows.keyRange(homeInbox.TABLE_ENTRY, { after: keys[keys.length - 1]!, limit: 1000 })) {
-      keys.push(...window.map((r) => r.key))
-    }
-    const principal: Principal = { identity: "system:inbox", kind: "system" }
-    for (const batch of homeInbox.inboxReindexBatches(keys)) {
-      this.inbox.submit(principal, { t: "op", op: "inbox.reindex", params: batch.params, idempotency_key: batch.key, origin: "script" }, () => {})
-    }
-    this.scheduleAlarm()
   }
 
   /**
