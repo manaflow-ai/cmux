@@ -7,7 +7,7 @@ use super::super::*;
 
 /// Host processes the daemon started (`__terminal-host`), by pid.
 fn daemon_host_pids(daemon: libc::pid_t) -> std::collections::BTreeSet<u32> {
-    let output = std::process::Command::new("pgrep")
+    let output = Command::new("pgrep")
         .args(["-P", &daemon.to_string(), "-f", "__terminal-host"])
         .output()
         .expect("run pgrep");
@@ -50,8 +50,8 @@ fn new_tab(harness: &RecoveryHarness, id: u64, pane: u64, value: &str) -> (u64, 
             "id": id,
             "cmd": "new-tab",
             "pane": pane,
-            "env": {"CMUX_R81": value},
-            "shell_args": ["/bin/sh", "-c", "printf 'R81=[%s]\\n' \"$CMUX_R81\"; exec /bin/cat"],
+            "env": {"CMUX_R81": value, "SHELL": "/bin/sh"},
+            "shell_args": ["-c", "printf 'R81=[%s]\\n' \"$CMUX_R81\"; exec /bin/cat"],
         }),
     );
     let surface = reply["surface"].as_u64().unwrap_or_else(|| panic!("new-tab failed: {reply}"));
@@ -104,7 +104,7 @@ fn the_second_new_tab_adopts_the_spare_host_with_its_own_environment() {
 fn wait_for_dead_or_gone(pid: u32) {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
-        let state = std::process::Command::new("ps")
+        let state = Command::new("ps")
             .args(["-o", "stat=", "-p", &pid.to_string()])
             .output()
             .expect("run ps");
