@@ -6,6 +6,8 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+// WebKit has AnimationEvent; without it React listens for the prefixed webkitAnimationEnd.
+(dom.window as unknown as Record<string, unknown>).AnimationEvent ??= dom.window.Event;
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
   ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
