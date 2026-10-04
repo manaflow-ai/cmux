@@ -194,14 +194,16 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         try blob("b", bytes: 40, age: 2 * 3_600)
         try blob("c", bytes: 40, age: 1 * 3_600)
 
-        await HomeStore.pruneBlobCache(at: root, keeping: ["pendingold"], now: now, maxAge: 7 * 86_400, maxBytes: 100)
+        await HomeStore.pruneBlobCache(at: root, keeping: ["pendingold"], now: now, maxAge: 7 * 86_400, maxBytes: 100,
+                                       tempsBefore: .distantFuture)
         let left = Set(try fm.contentsOfDirectory(atPath: root.path))
         #expect(left == ["pendingold", "b", "c"])
 
-        // The store's own pass keeps what it prepared and leaves the rest of a fresh cache alone.
+        // The store's own pass deletes temp files from before it started
+        // (a crash) and keeps what it prepared.
+        try Data("partial".utf8).write(to: root.appendingPathComponent(".incoming-\(UUID().uuidString)"))
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
         let prepared = try await store.prepareAttachment(data: Data("fresh".utf8), typeIdentifier: UTType.plainText.identifier)
-        try Data("partial".utf8).write(to: root.appendingPathComponent(".incoming-\(UUID().uuidString)"))
         await store.pruneBlobCache(now: now)
         #expect(fm.fileExists(atPath: prepared.fileURL.path))
         #expect(try fm.contentsOfDirectory(atPath: root.path).allSatisfy { !$0.hasPrefix(".incoming-") })

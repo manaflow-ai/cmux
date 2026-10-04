@@ -47,6 +47,19 @@ public final class HomeStore {
     @ObservationIgnored private var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
     @ObservationIgnored private var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
 
+    /// When this store was created: temp files older than this are crash leftovers.
+    @ObservationIgnored private let createdAt = Date()
+
+    /// Blobs unused this long are deleted at start unless a pending send
+    /// uses them. A week covers scrolling back through recent conversations
+    /// from the local copy; older rows fetch from the source, which caches.
+    public static let blobCacheMaxAge: TimeInterval = 7 * 86_400
+    /// Then the least recently used blobs go until the cache fits this cap.
+    /// 1 GB holds ten maximum-size videos; macOS never purges Caches, so the
+    /// cap is the only bound there, and on iOS it keeps the app well clear
+    /// of the purge the OS does under disk pressure.
+    public static let blobCacheMaxBytes = 1_000_000_000
+
     /// Attachment uploads in flight at once, per send.
     public static let uploadConcurrency = 3
 
@@ -69,6 +82,7 @@ public final class HomeStore {
     /// Starts consuming owner events. Idempotent.
     public func start() {
         guard eventTask == nil, !stopped else { return }
+        Task { await self.pruneBlobCache() }
         let source = self.source
         eventTask = Task { [weak self] in
             let stream = await source.events()
@@ -326,8 +340,22 @@ public final class HomeStore {
         return try await source.fetch(ref, at: location, variant: variant)
     }
 
+    /// This client's copy, or nil when it has none or the OS purged it (the
+    /// caller then fetches from the source).
     private func localAttachment(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL? {
         guard let files = localFiles[ref.hash] else { return nil }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: files.fileURL.path) else {
+            localFiles[ref.hash] = nil
+            for id in Array(transcriptVersion.keys) { bumpTranscript(id) }
+            return nil
+        }
+        if let poster = files.posterURL, !fm.fileExists(atPath: poster.path) {
+            localFiles[ref.hash]?.posterURL = nil
+            localFiles[ref.hash]?.posterHash = nil
+            return try await localAttachment(ref, variant: variant)
+        }
+        AttachmentMedia.touch(files.fileURL.deletingLastPathComponent())
         switch variant {
         case .original:
             return files.fileURL
@@ -508,9 +536,19 @@ public final class HomeStore {
 
     /// Uploads, at most `uploadConcurrency` at once, every attachment of the
     /// job not uploaded yet. Successes count even when another one fails.
+    /// A cached file the OS purged fails the pass with
+    /// `attachment_file_missing` before anything uploads: the bytes are
+    /// gone, so the user attaches the file again.
     private func uploadMissing(of key: IdempotencyKey, attempt: Int) async -> HomeRejection? {
         guard let job = uploads[key] else { return nil }
         let pending = job.attachments.filter { !job.uploaded.contains($0.ref.hash) }
+        let fm = FileManager.default
+        for attachment in pending {
+            let posterGone = attachment.ref.poster != nil && attachment.posterURL.map { !fm.fileExists(atPath: $0.path) } ?? true
+            if !fm.fileExists(atPath: attachment.fileURL.path) || posterGone {
+                return .invalid("attachment_file_missing")
+            }
+        }
         let source = self.source
         let conversation = job.conversation
         var failure: HomeRejection?
@@ -567,6 +605,60 @@ public final class HomeStore {
         if error is URLError { return .ownerUnreachable }
         if error is CancellationError { return .indeterminate }
         return .invalid("attachment_upload_failed")
+    }
+
+    // MARK: Blob cache
+
+    /// Prunes the blob cache (runs at `start`): temp files left by a crash,
+    /// blobs older than `blobCacheMaxAge`, then the least recently used
+    /// blobs over `blobCacheMaxBytes`. Never deletes a blob that a pending
+    /// send or this session's prepared attachments use.
+    public func pruneBlobCache(now: Date = Date()) async {
+        var keep = Set<String>()
+        func add(_ ref: AttachmentRef) {
+            keep.insert(ref.hash)
+            if let poster = ref.posterHash { keep.insert(poster) }
+        }
+        for job in uploads.values { job.attachments.forEach { add($0.ref) } }
+        for entry in log.entries {
+            guard case .sendMessage(_, let parts) = entry.intent.op else { continue }
+            for case .attachment(let ref) in parts { add(ref) }
+        }
+        for (hash, files) in localFiles {
+            keep.insert(hash)
+            if let poster = files.posterHash { keep.insert(poster) }
+        }
+        await Self.pruneBlobCache(at: blobCacheDirectory, keeping: keep, now: now, maxAge: Self.blobCacheMaxAge,
+                                  maxBytes: Self.blobCacheMaxBytes, tempsBefore: createdAt)
+    }
+
+    /// One pass over `<root>/<hash>/`: deletes `.incoming-*` files older
+    /// than `tempsBefore`, blob directories not in `keep` unused for
+    /// `maxAge`, then the least recently used ones not in `keep` while the
+    /// cache is over `maxBytes`. "Used" is the directory's modification
+    /// date, which a local fetch refreshes.
+    public nonisolated static func pruneBlobCache(at root: URL, keeping keep: Set<String>, now: Date,
+                                                  maxAge: TimeInterval, maxBytes: Int, tempsBefore: Date) async {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: root.path) else { return }
+        var blobs: [(name: String, url: URL, used: Date, bytes: Int)] = []
+        for name in names {
+            let url = root.appendingPathComponent(name)
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
+            let modified = values?.contentModificationDate ?? .distantPast
+            if name.hasPrefix(".incoming-") {
+                if modified < tempsBefore { try? fm.removeItem(at: url) }
+                continue
+            }
+            guard values?.isDirectory == true else { continue }
+            blobs.append((name, url, modified, AttachmentMedia.directorySize(url)))
+        }
+        var total = blobs.reduce(0) { $0 + $1.bytes }
+        for blob in blobs.sorted(by: { $0.used < $1.used }) where !keep.contains(blob.name) {
+            guard now.timeIntervalSince(blob.used) > maxAge || total > maxBytes else { continue }
+            try? fm.removeItem(at: blob.url)
+            total -= blob.bytes
+        }
     }
 
     // MARK: Internals
