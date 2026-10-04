@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextSettings
 
 /// One React page the app hosts (plans/cmux-next/react-pages.md 1, pane-protocol.md "Pages"):
 /// its id (also the origin host, `cmux-page://<id>`), its bundled resource directory, and what it
@@ -116,13 +117,15 @@ public extension PageDescriptor {
         ])
 
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
-    /// preview and sound ops share the namespace; the page may run only the two actions it links to.
+    /// preview and sound ops share the namespace; the page may run only its own actions and the
+    /// sections' buttons.
     static let settings = PageDescriptor(
         id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
         nativeOps: [PageNativeOp.actionRun],
-        actions: ["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
+        actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"],
+                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"])
+            .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop"])
 
     /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
@@ -138,6 +141,12 @@ public extension PageDescriptor {
     static let coderouter = PageDescriptor(
         id: "cmux.coderouter", resource: "coderouter", namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
         actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
+
+    /// The buttons at the end of each Settings section (`SettingsSchema.actions(in:)`), which the
+    /// page runs through cmux.app.action.run with origin page (the actions' own rules still apply).
+    static let settingsSectionActions: Set<String> = Set(SettingsSection.allCases.flatMap { section in
+        SettingsSchema.actions(in: section).map(\.rawValue)
+    })
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(

@@ -1572,7 +1572,9 @@ store records the conversation and the owner with the tab's frontend record
 in one commit and never reads conversation content. With `origin` and
 `mutation_id` (sent together) a retry returns the tab the first request
 created with `replayed:true`; a retry after a crash creates the tab under the
-recorded content id. The CLI has no verb for it.
+recorded content id; a retry after that tab was closed fails with
+`error_code:"frontend_browser_key_closed"` and creates nothing (send a new key
+for a new tab). The CLI has no verb for it.
 
 On the wire the tab's canonical kind is `conversation`: raw tree tabs carry
 `kind:"conversation"` and `conversation:{conversation, owner}`, and resource
@@ -1633,8 +1635,12 @@ tab commits, and keyed creations run one at a time, so a retry that arrives
 while the first request still runs waits for it. A retry with the same key
 and the same request returns the tab the first request created with
 `replayed:true`; after a crash between the two commits it creates the tab
-under the recorded browser id; after that tab was closed it fails and
-creates nothing (send a new key for a new tab). The same key with a different
+under the recorded browser id; after that tab was closed it fails with
+`error_code:"frontend_browser_key_closed"` and creates nothing (send a new key
+for a new tab). A browser id belongs to at most one tab, ever: a closed tab
+keeps its id as a tombstone, and the daemon refuses any creation that would
+bind a committed browser id to another tab
+(`error_code:"frontend_browser_bound"`) before it records a receipt. The same key with a different
 request (`url`, `engine`, `pane`, `title`, `favicon_url`, `profile_id`,
 `owner`; the size hint does not count) fails with an `idempotency.conflict`
 error and creates nothing. Without a key every request creates a tab and

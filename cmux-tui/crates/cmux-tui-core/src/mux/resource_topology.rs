@@ -4117,7 +4117,7 @@ impl Mux {
             // A frontend-rendered browser registers its content id before
             // the tab commits, so the creation must use that exact id.
             let browser_id = match fields.get("frontend_browser_id").and_then(Value::as_str) {
-                Some(id) => BrowserPublicId::parse(id.to_string())?,
+                Some(id) => Mux::unbound_frontend_browser_id(&registry.connection, id)?,
                 None => BrowserPublicId::random()?,
             };
             intent["browser_reservation"] = json!({

@@ -61,13 +61,75 @@ fn browser_for_key(connection: &Connection, key: &str) -> anyhow::Result<Option<
 
 /// Whether a tab ever committed browser content `browser_id` (live or
 /// closed: closed identities keep their row as a tombstone).
-fn browser_committed(connection: &Connection, browser_id: &str) -> anyhow::Result<bool> {
+pub(crate) fn browser_committed(connection: &Connection, browser_id: &str) -> anyhow::Result<bool> {
     Ok(connection
-        .query_row("SELECT 1 FROM resource_identities WHERE public_id = ?1", [browser_id], |_| {
-            Ok(())
-        })
+        .query_row(
+            "SELECT 1 FROM resource_identities WHERE public_id = ?1
+             UNION ALL SELECT 1 FROM resource_browsers WHERE public_id = ?1 LIMIT 1",
+            [browser_id],
+            |_| Ok(()),
+        )
         .optional()?
         .is_some())
+}
+
+/// A refused reuse of a frontend browser id. One browser id belongs to at
+/// most one tab, ever: a closed tab keeps its id as a tombstone.
+#[derive(Debug)]
+pub(crate) enum FrontendBrowserReuse {
+    /// A tab already committed this browser id (live or closed).
+    Bound(String),
+    /// The idempotency key's tab was closed: a new tab needs a new key.
+    KeyClosed(String),
+}
+
+impl FrontendBrowserReuse {
+    pub(crate) const BOUND_CODE: &'static str = "frontend_browser_bound";
+    pub(crate) const KEY_CLOSED_CODE: &'static str = "frontend_browser_key_closed";
+
+    fn code(&self) -> &'static str {
+        match self {
+            Self::Bound(_) => Self::BOUND_CODE,
+            Self::KeyClosed(_) => Self::KEY_CLOSED_CODE,
+        }
+    }
+}
+
+impl std::fmt::Display for FrontendBrowserReuse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Bound(id) => write!(f, "{}: browser {id} already belongs to a tab", self.code()),
+            Self::KeyClosed(id) => write!(
+                f,
+                "{}: the key's tab {id} is closed: send a new key for a new tab",
+                self.code()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FrontendBrowserReuse {}
+
+/// The raw `error_code` of a refused frontend browser id reuse.
+pub(crate) fn error_code(error: &anyhow::Error) -> Option<String> {
+    error.downcast_ref::<FrontendBrowserReuse>().map(|error| error.code().to_string())
+}
+
+impl Mux {
+    /// The `frontend_browser_id` of a browser creation (`tab.create_browser`),
+    /// parsed. Refused (`frontend_browser_bound`) before any receipt when a
+    /// tab ever committed it, so no retry or caller binds one browser id to
+    /// two tabs.
+    pub(crate) fn unbound_frontend_browser_id(
+        connection: &Connection,
+        browser_id: &str,
+    ) -> anyhow::Result<BrowserPublicId> {
+        let id = BrowserPublicId::parse(browser_id.to_string())?;
+        if browser_committed(connection, id.as_str())? {
+            return Err(FrontendBrowserReuse::Bound(id.to_string()).into());
+        }
+        Ok(id)
+    }
 }
 
 /// A created or replayed frontend browser tab.
@@ -110,10 +172,9 @@ impl Mux {
                 if let Some(surface) = placed {
                     return Ok(FrontendBrowserTabOutcome { surface, replayed: true });
                 }
-                anyhow::ensure!(
-                    !self.read_registry_state(|c| browser_committed(c, browser_id.as_str()))?,
-                    "the key's tab {browser_id} is closed: send a new key for a new tab"
-                );
+                if self.read_registry_state(|c| browser_committed(c, browser_id.as_str()))? {
+                    return Err(FrontendBrowserReuse::KeyClosed(browser_id.to_string()).into());
+                }
                 (browser_id, false)
             }
             None => (BrowserPublicId::random()?, true),

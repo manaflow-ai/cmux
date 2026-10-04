@@ -5,7 +5,9 @@
 //!
 //! With an idempotency key (`origin` + `mutation_id`) a retry returns the tab
 //! the first request created, and a retry after a crash between the two
-//! commits creates the tab under the recorded browser id.
+//! commits creates the tab under the recorded browser id. A retry after that
+//! tab was closed is refused (`frontend_browser_key_closed`) and creates
+//! nothing, like `new-frontend-browser-tab` (state/frontend_browser_keys.rs).
 
 use serde_json::Map;
 
@@ -16,6 +18,7 @@ use crate::state::conversation_tabs_store::{
     CONVERSATION_TAB_ENGINE, CONVERSATION_TAB_URL, ConversationTabRecord, browser_for_mutation,
     mark_conversation_tabs_present, write_conversation_tab,
 };
+use crate::state::frontend_browser_keys::{FrontendBrowserReuse, browser_committed};
 use crate::state::prelude::*;
 use crate::workspace_registry::FrontendBrowserRecord;
 
@@ -63,6 +66,11 @@ impl Mux {
                     state.surfaces.get(&surface).cloned()
                 }) {
                     return Ok(ConversationTabOutcome { surface, replayed: true });
+                }
+                // The key's tab committed and was closed: its browser id is a
+                // tombstone, never the content of a second tab.
+                if self.read_registry_state(|c| browser_committed(c, &browser_id))? {
+                    return Err(FrontendBrowserReuse::KeyClosed(browser_id).into());
                 }
                 (BrowserPublicId::parse(browser_id)?, false)
             }

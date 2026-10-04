@@ -13,4 +13,7 @@ public enum TabStripDebug {
 
     /// The pointer moves to `point`, as a mouse move does.
     public static func pointerMoved(in strip: TabStripView, to point: CGPoint) { strip.updateHover(at: point, moved: true) }
+
+    /// The image the strip's hover card shows now (nil: placeholder).
+    public static func cardThumbnail(in strip: TabStripView) -> CGImage? { strip.hoverCard.shownThumbnail }
 }

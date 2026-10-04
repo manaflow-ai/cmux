@@ -121,3 +121,42 @@ async fn no_connection_but_the_unix_socket_reads_preset_contents() {
     let all = local.call("_acpmux/presets", json!({})).await.to_string();
     assert!(all.contains(ARG) && all.contains(ENV), "the unix socket still reads them: {all}");
 }
+
+#[tokio::test]
+async fn a_local_app_preset_cwd_must_be_an_existing_directory_and_runs_canonical() {
+    let hub = hub();
+    let mut app = client(&hub, Origin::LocalApp);
+    let base = std::env::temp_dir().join(format!("alp-cwd-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let real = base.join("real");
+    std::fs::create_dir_all(&real).unwrap();
+    let file = base.join("file.txt");
+    std::fs::write(&file, "x").unwrap();
+    let link = base.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let start = |cwd: Value| json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"preset": "review"}}});
+    for bad in [
+        json!("relative/dir"),
+        json!(base.join("missing").to_string_lossy()),
+        json!(file.to_string_lossy()),
+        json!(format!("{}/../missing", real.display())),
+    ] {
+        let reply = app.call("session/new", start(bad.clone())).await;
+        let err = reply["error"]["message"].as_str().unwrap_or_default().to_owned();
+        assert!(err.contains("cwd is refused"), "{bad} was not refused: {reply}");
+    }
+    // A symlink to a directory starts, in the resolved path.
+    let ok = app.call("session/new", start(json!(link.to_string_lossy()))).await;
+    assert!(ok.get("error").is_none(), "{ok}");
+    let id = ok["result"]["sessionId"].as_str().unwrap().to_owned();
+    let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+    let canonical = std::fs::canonicalize(&real).unwrap();
+    assert_eq!(info["result"]["cwd"], json!(canonical.to_string_lossy()), "{info}");
+    // A `..` that resolves to a directory runs in its canonical form too.
+    let dotted = format!("{}/../real", real.display());
+    let ok = app.call("session/new", start(json!(dotted))).await;
+    let id = ok["result"]["sessionId"].as_str().unwrap().to_owned();
+    let info = app.call("_acpmux/info", json!({"sessionId": id})).await;
+    assert_eq!(info["result"]["cwd"], json!(canonical.to_string_lossy()), "{info}");
+    let _ = std::fs::remove_dir_all(&base);
+}

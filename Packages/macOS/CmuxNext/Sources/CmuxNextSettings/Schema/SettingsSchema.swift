@@ -9,7 +9,10 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + updates + columnLayout + palette + picker + tasks + appearance + terminal + sidebarSections + browser + notifications + labs + feed
+        general + UpdateSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
+            + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + BrowserSettingsSchema.descriptors + NotificationSettingsSchema.descriptors
+            + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors
     }
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
@@ -36,7 +39,7 @@ public nonisolated enum SettingsSchema {
         case .appearance: ["appearance.customize", "space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
-        case .keyboard: ["palette.searchShortcuts"]
+        case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
         case .notifications: []
         case .accounts: ["accounts.refresh", "openTeamPicker"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
@@ -97,10 +100,10 @@ public nonisolated enum SettingsSchema {
                 default: .string(TitlebarButtonsSetting.fallback.rawValue),
                 keywords: ["titlebar", "buttons", "back", "forward", "hover", "hide", "traffic lights", "toolbar"]
             ),
-            newTabKind(group: tabs),
-            plusButton(group: tabs),
+            TabSettingsSchema.newTabKind(group: tabs),
+            TabSettingsSchema.plusButton(group: tabs),
             ChromePlacementSetting.tabBarPositionDescriptor(group: tabs),
-            newTerminalOpensWorkspace(group: tabs),
+            TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
@@ -160,7 +163,7 @@ public nonisolated enum SettingsSchema {
 
     // MARK: Appearance
 
-    static var appearance: [SettingDescriptor] { AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + statusIndicator }
+    static var appearance: [SettingDescriptor] { AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {
         SettingNumber(Double(range.lowerBound)...Double(range.upperBound), step: step, unit: .points, placeholder: placeholder)

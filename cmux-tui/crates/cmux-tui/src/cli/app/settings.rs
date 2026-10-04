@@ -27,11 +27,17 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
             _ => Err(usage()),
         };
     }
-    let confirm = args.iter().any(|arg| arg == "--confirm");
-    let words: Vec<&String> = args.iter().filter(|arg| *arg != "--confirm").collect();
+    // `--` ends the options: every word after it is a path or value.
+    let (options, literal) = match args.iter().position(|arg| arg == "--") {
+        Some(end) => (&args[..end], &args[end + 1..]),
+        None => (args, &[][..]),
+    };
+    let confirm = options.iter().any(|arg| arg == "--confirm");
+    let mut words: Vec<&String> = options.iter().filter(|arg| *arg != "--confirm").collect();
     if let Some(flag) = words.iter().find(|word| word.starts_with("--")) {
         return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
     }
+    words.extend(literal);
     let (method, mut params) = match (verb.as_str(), words.as_slice()) {
         ("set", [path, value]) => {
             // A JSON value when it parses as one, else the literal string.
@@ -48,6 +54,14 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     // With --confirm a person answers: no client deadline cancels the wait.
     let timeout = if confirm { None } else { Some(READ_TIMEOUT) };
     Ok(AppCommand::Call { method, params, timeout, pick: None })
+}
+
+/// The line printed before a `--confirm` wait, so the person knows the
+/// sheet is in the app. None for every other request.
+pub(super) fn waiting_note(method: &str, params: &Value) -> Option<&'static str> {
+    (matches!(method, "settings.set" | "settings.reset" | "settings.unset")
+        && params.get("confirm") == Some(&Value::Bool(true)))
+    .then(|| crate::localization::catalog().app_control.settings_waiting)
 }
 
 fn read(params: Value) -> AppCommand {

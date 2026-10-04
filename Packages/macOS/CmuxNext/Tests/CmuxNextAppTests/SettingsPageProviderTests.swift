@@ -222,4 +222,20 @@ import Testing
             _ = try await provider.call("cmux.settings.folders.add", params: ["key": "appearance.density"], context: context)
         }
     }
+
+    /// Commit 6 parity: each section's registry buttons reach the page, and the page may run
+    /// exactly those (plus its own) through cmux.app.action.run.
+    @Test func sectionButtonsReachThePageAndAreAllowed() async throws {
+        let (provider, _, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        provider.sectionActions = { section in .array(SettingsSchema.actions(in: section).map { .string($0.rawValue) }) }
+        let general = try await provider.call("cmux.settings.section.actions", params: ["section": "general"], context: context)
+        #expect(general.arrayValue?.count == SettingsSchema.actions(in: .general).count)
+        for section in SettingsSection.allCases {
+            for id in SettingsSchema.actions(in: section) {
+                #expect(PageDescriptor.settings.actions.contains(id.rawValue), "\(id.rawValue) is not allowed on the Settings page")
+            }
+        }
+        #expect(SettingsSchema.actions(in: .keyboard).contains("keybindings.open"), "Keyboard opens the Keyboard Shortcuts page")
+    }
 }
