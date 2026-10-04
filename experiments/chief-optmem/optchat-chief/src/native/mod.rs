@@ -302,7 +302,7 @@ impl Native {
                 }
             }
         };
-        log(&usage_line(&start.key, first_usage, Some(totals)));
+        log(&usage_line(&start.key, first_usage, Some((totals, "turn total"))));
         TurnOutcome {
             reply,
             error,
