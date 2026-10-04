@@ -101,6 +101,11 @@ public:
     [[nodiscard]] Result<AttachedViewOutcomeResult> detach_attached_view(const DetachAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> detach_client(const DetachClientRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ExportLayoutResult> export_layout(const ExportLayoutRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_handoff_abort(const FeedLocalHandoffAbortRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_handoff_begin(const FeedLocalHandoffBeginRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_handoff_done(const FeedLocalHandoffDoneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_list(const FeedLocalListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> feed_local_read(const FeedLocalReadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FocusDirectionResult> focus_direction(const FocusDirectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> focus_pane(const FocusPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> forget_session(const ForgetSessionRequest& request, RequestOptions options = {});

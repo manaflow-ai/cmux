@@ -165,6 +165,12 @@ impl Mux {
         self.feed_local_handoff(|feed| feed.handoff_begin(id, now_ms()))
     }
 
+    /// `feed-local-handoff-abort`: `feed.adopt.cancel` answered `cancelled:
+    /// true`, so the item is owned here again. Repeating it is a no-op.
+    pub fn feed_local_handoff_abort(&self, id: &str) -> anyhow::Result<Item> {
+        self.feed_local_handoff(|feed| feed.handoff_abort(id, now_ms()))
+    }
+
     /// `feed-local-handoff-done`: the new owner committed the item; it moves
     /// to `home` (section 5 rule 3d). Repeating it is a no-op.
     pub fn feed_local_handoff_done(&self, id: &str, home: &str) -> anyhow::Result<Item> {
@@ -241,13 +247,17 @@ impl Mux {
             })
             .unwrap_or_default();
         let terminal = notification.terminal_id.as_ref().map(|id| id.as_str().to_string());
-        let host = Some(self.machine_public_id.as_str().to_string());
-        let actor = match (notification.source, terminal.clone()) {
-            (NotificationSource::Agent, id) => {
-                Actor { kind: "agent".into(), id: id.unwrap_or_else(|| "agent".into()), host }
-            }
-            (_, Some(id)) => Actor { kind: "terminal".into(), id, host },
-            (_, None) => Actor { kind: "client".into(), id: "cli".into(), host },
+        // The P8 stamp (identity.md section 3): a notice from a terminal
+        // (an agent's too) names that terminal and its host; one without a
+        // terminal came from the local user's connection.
+        let actor = match terminal.clone() {
+            Some(id) => Actor {
+                kind: "terminal".into(),
+                id,
+                host: Some(self.machine_public_id.as_str().to_string()),
+                agent: None,
+            },
+            None => Actor { kind: "user".into(), id: "user_local".into(), host: None, agent: None },
         };
         Notice {
             id: feed_item_id(&notification.id),

@@ -273,6 +273,34 @@ impl Feed {
         Ok((item.clone(), changes))
     }
 
+    /// The handoff abort: the cloud owner answered `feed.adopt.cancel` with
+    /// `cancelled: true`, so its tombstone refuses any delayed `feed.adopt`
+    /// with key `adopt:<item>` and this owner may take the item back. Never
+    /// call it on a timeout or a lost reply (section 5 rule 3e): only that
+    /// answer makes the unfreeze single-writer safe. Repeating it on an open
+    /// item is a no-op; a moved item refuses (the cloud owns it; the caller
+    /// sends handoff done instead, as on `cancelled: false`).
+    pub fn handoff_abort(&mut self, id: &str, at_ms: u64) -> Result<(Item, Changes), FeedError> {
+        let item = self.item_mut(id)?;
+        let mut changes = Changes::default();
+        match item.state {
+            ItemState::HandingOff => {
+                item.state = ItemState::Open;
+                item.updated_at_ms = item.updated_at_ms.max(at_ms);
+                changes.upsert(item);
+            }
+            ItemState::Open => {}
+            ItemState::Moved => {
+                return Err(FeedError::InvalidState {
+                    item: id.to_string(),
+                    state: item.state,
+                    op: "handoff abort",
+                });
+            }
+        }
+        Ok((item.clone(), changes))
+    }
+
     /// Drop read and moved items older than [`RETENTION_MS`], then the
     /// oldest items past [`MAX_ITEMS`] (read or moved first, then open).
     /// Items handing off are never dropped: the move must finish.

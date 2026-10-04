@@ -57,16 +57,22 @@ pub struct Context {
     pub terminal: Option<String>,
 }
 
-/// Who acted (B6, the P8 shape `{kind, id, host}`). It travels beside the
-/// origin and is never part of an idempotency fingerprint.
+/// Who acted (B6, the P8 actor stamp of plans/cmux-next/identity.md
+/// section 3: `{kind, id, host?, agent?}`). It travels beside the origin and
+/// is never part of an idempotency fingerprint.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Actor {
-    /// `user`, `terminal`, `client`, `agent` or `system`.
+    /// `user`, `terminal`, `acp_session`, `app` or `frontend`.
     pub kind: String,
+    /// `user_local` for the local user, else the terminal, session, app or
+    /// install id.
     pub id: String,
-    /// The machine the actor ran on, when known.
+    /// The machine the actor ran on (terminal, acp_session, app, frontend).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// The agent that runs in the terminal or ACP session, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 /// One local feed item.

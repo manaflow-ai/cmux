@@ -19,6 +19,7 @@
 use cmux_feed_core::{Changes, Context as FeedContext, Feed, Item, ItemState, Notice, PostOutcome};
 use rusqlite::{Transaction, params};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use super::*;
 use crate::resource::NotificationPublicId;
@@ -71,11 +72,14 @@ pub(crate) fn write_feed_local_changes(
     Ok(())
 }
 
-/// The local item id for the notification that creates it: the same hex as
-/// the notification's public id, so the migration and a live post agree.
+/// The local item id for the notification that creates it, derived from the
+/// notification's public id so the migration and a live post agree. It has
+/// the cloud owner's item id shape (`fi_` plus 20 of `[a-z0-9]`), because
+/// `feed.adopt` keeps the id and FeedDO refuses any other shape.
 pub(crate) fn feed_item_id(notification: &NotificationPublicId) -> String {
-    let id = notification.as_str();
-    format!("feeditem_{}", id.strip_prefix("notification_").unwrap_or(id))
+    let digest = Sha256::digest(format!("cmux-feed-item:{}", notification.as_str()));
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("fi_{}", &hex[..20])
 }
 
 /// `notify:<daemon session>:<public notification id>` (section 9.1 item 3).

@@ -357,8 +357,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "ad59d942ede04f936bd379f8bf94b2b07774fad327ac4b87aadc15db57cb9228",
-      "size": 56290
+      "sha256": "04005a099c0afb9ec0ed4cf876dee4519b380ddbda0a7ecebeef18b95d3883ad",
+      "size": 57591
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -621,6 +621,31 @@
       "size": 2648
     },
     {
+      "path": "FeedLocalHandoffAbortRequest.java",
+      "sha256": "1f67d1a72db95aa3c265f147b4a5e570a5e133d279947a916f11fa887fbc01c8",
+      "size": 2074
+    },
+    {
+      "path": "FeedLocalHandoffBeginRequest.java",
+      "sha256": "d9478cc5ec9344d78d70107391cfb987209394ab474b86cd064e220bad06f39f",
+      "size": 2074
+    },
+    {
+      "path": "FeedLocalHandoffDoneRequest.java",
+      "sha256": "c3c11ef70793ae3d13fc2f42311d48f8a2246eb3ae330affd0934dfb59c7d704",
+      "size": 2701
+    },
+    {
+      "path": "FeedLocalListRequest.java",
+      "sha256": "640fb5a361e80eace090f977c69bc1875437c26eb0513d8dd3f8893e9d943feb",
+      "size": 3285
+    },
+    {
+      "path": "FeedLocalReadRequest.java",
+      "sha256": "05515d1471829bfc968dc648ffa7dfff0b34c55bd68552e2faf5a7222b043318",
+      "size": 2110
+    },
+    {
       "path": "FocusDirectionRequest.java",
       "sha256": "65fb72361d8f01181619b85b9b35ea93e4655e773515e7cb704ca8fe8280c514",
       "size": 2577
@@ -682,8 +707,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "397ee6498d4ad88ce37aba0fe87797bf3b388affc2e234433752aea8e59999af",
-      "size": 49511
+      "sha256": "b16f573dd442118b88bb8ce5bff528a25fa7c3535bb16e9fbed2ecdf4f4128bf",
+      "size": 50673
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1262,7 +1287,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "2c28097561bc2f6ee752ff7fbc63761bffbfb6b429457b325e3ffc2aad81b893",
+      "sha256": "2c5a50d417f20d538d211314e7081d90c86620ac751ac98f7eb381b36410146e",
       "size": 4943
     },
     {
@@ -2337,7 +2362,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1",
+  "ir_sha256": "b26a50f2ed06531497d1b145fb3e63f37c2135d304453cda00220848bfe14f96",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

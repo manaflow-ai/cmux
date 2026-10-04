@@ -421,6 +421,7 @@
       "conversation-bind",
       "conversation-agent-token",
       "feed-local-handoff-begin",
+      "feed-local-handoff-abort",
       "feed-local-handoff-done"
     ],
     "provider-authority": [

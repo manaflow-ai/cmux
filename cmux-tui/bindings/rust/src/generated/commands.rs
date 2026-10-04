@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1.
+// cmux-tui mux protocol 12, IR b26a50f2ed06531497d1b145fb3e63f37c2135d304453cda00220848bfe14f96.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -887,6 +887,57 @@ pub struct ExportLayoutRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen: Optional<T::Id>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedLocalHandoffAbortRequest {
+    pub item: String,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalHandoffAbortResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedLocalHandoffBeginRequest {
+    pub item: String,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalHandoffBeginResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedLocalHandoffDoneRequest {
+    pub home: String,
+    pub item: String,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalHandoffDoneResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FeedLocalListRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub state: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub unread: Option<bool>,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalListResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FeedLocalReadRequest {
+    pub items: Vec<String>,
+}
+
+#[rustfmt::skip]
+pub type FeedLocalReadResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3179,6 +3230,26 @@ impl CmuxClient {
 
     pub fn export_layout(&mut self, request: ExportLayoutRequest) -> Result<T::ExportLayoutResult> {
         self.execute(&EXPORT_LAYOUT_METADATA, &request)
+    }
+
+    pub fn feed_local_handoff_abort(&mut self, request: FeedLocalHandoffAbortRequest) -> Result<FeedLocalHandoffAbortResult> {
+        self.execute(&FEED_LOCAL_HANDOFF_ABORT_METADATA, &request)
+    }
+
+    pub fn feed_local_handoff_begin(&mut self, request: FeedLocalHandoffBeginRequest) -> Result<FeedLocalHandoffBeginResult> {
+        self.execute(&FEED_LOCAL_HANDOFF_BEGIN_METADATA, &request)
+    }
+
+    pub fn feed_local_handoff_done(&mut self, request: FeedLocalHandoffDoneRequest) -> Result<FeedLocalHandoffDoneResult> {
+        self.execute(&FEED_LOCAL_HANDOFF_DONE_METADATA, &request)
+    }
+
+    pub fn feed_local_list(&mut self, request: FeedLocalListRequest) -> Result<FeedLocalListResult> {
+        self.execute(&FEED_LOCAL_LIST_METADATA, &request)
+    }
+
+    pub fn feed_local_read(&mut self, request: FeedLocalReadRequest) -> Result<FeedLocalReadResult> {
+        self.execute(&FEED_LOCAL_READ_METADATA, &request)
     }
 
     pub fn focus_direction(&mut self, request: FocusDirectionRequest) -> Result<T::FocusDirectionResult> {

@@ -100,6 +100,7 @@ mod feed_local;
 mod frontend_browser_history;
 mod home;
 mod launch_snapshot;
+mod notifications;
 mod personal;
 mod raw_tab;
 mod responses;
@@ -2070,7 +2071,8 @@ enum Command {
     /// The local feed owner (`feed-local-owner-v1`, server/feed_local.rs).
     FeedLocalList(feed_local::ListParams),
     FeedLocalRead(feed_local::ReadParams),
-    FeedLocalHandoffBegin(feed_local::BeginParams),
+    FeedLocalHandoffBegin(feed_local::ItemParams),
+    FeedLocalHandoffAbort(feed_local::ItemParams),
     FeedLocalHandoffDone(feed_local::DoneParams),
     /// Local conversations (`local-conversations-v1`, server/conversations.rs).
     ConversationList,
@@ -14575,37 +14577,8 @@ fn handle_command_with_cancellation(
             let outcome = mux.reopen_saved_tab_group(&saved, pane, transaction.as_deref())?;
             Ok(tab_group_outcome_json(&outcome))
         }
-        Command::AckTabNotifications { surface } => {
-            let ack = mux.acknowledge_tab_notifications(surface)?;
-            Ok(json!({
-                "surface": surface,
-                "cleared": ack.cleared,
-                "acknowledged": ack.acknowledged,
-                "refused": crate::mux::feed_local::refused_json(&ack.refused),
-            }))
-        }
-        Command::ListNotifications { limit } => {
-            let rows = mux.notification_rows(limit.unwrap_or(256).min(256))?;
-            Ok(json!({
-                "notifications": rows
-                    .iter()
-                    .map(|(row, acknowledged)| {
-                        json!({
-                            "id": row.id,
-                            "title": row.title,
-                            "subtitle": row.subtitle,
-                            "body": row.body,
-                            "level": row.level.as_str(),
-                            "terminal_id": row.terminal_id,
-                            "surface": row.surface,
-                            "created_at_ms": row.created_at_ms,
-                            "source": row.source.as_str(),
-                            "acknowledged": acknowledged,
-                        })
-                    })
-                    .collect::<Vec<_>>(),
-            }))
-        }
+        Command::AckTabNotifications { surface } => notifications::ack_tab(mux, surface),
+        Command::ListNotifications { limit } => notifications::list(mux, limit),
         Command::SetTabPinned { surface, pinned } => {
             get_surface(mux, surface)?;
             let change = mux.set_tab_pinned(surface, pinned)?;
@@ -14689,20 +14662,11 @@ fn handle_command_with_cancellation(
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
         Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, params),
         Command::ListBookmarks(params) => bookmarks::list(mux, params),
-        Command::FeedLocalList(params) => feed_local::list(mux, params),
-        Command::FeedLocalRead(params) => feed_local::read(mux, params),
-        Command::FeedLocalHandoffBegin(params) => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("feed handoff requires a trusted local connection");
-            }
-            feed_local::handoff_begin(mux, params)
-        }
-        Command::FeedLocalHandoffDone(params) => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("feed handoff requires a trusted local connection");
-            }
-            feed_local::handoff_done(mux, params)
-        }
+        cmd @ (Command::FeedLocalList(_)
+        | Command::FeedLocalRead(_)
+        | Command::FeedLocalHandoffBegin(_)
+        | Command::FeedLocalHandoffAbort(_)
+        | Command::FeedLocalHandoffDone(_)) => feed_local::dispatch(mux, client, cmd),
         Command::CreateBookmark(params) => bookmarks::create(mux, params),
         Command::UpdateBookmark(params) => bookmarks::update(mux, params),
         Command::MoveBookmark(params) => bookmarks::move_to(mux, params),

@@ -17749,6 +17749,34 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "feed-local-handoff-abort": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "feed-local-owner-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "item": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Send only after feed.adopt.cancel answered cancelled: true. Idempotent on an open item; a moved item refuses with feed.invalid_state.",
+    "See spec/commands.md for the result object."
+   ]
+  },
   "feed-local-handoff-done": {
    "authority": "local-admin",
    "since": 12,

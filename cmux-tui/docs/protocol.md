@@ -191,8 +191,9 @@ when the user has seen the tab instead of sending `select-tab`.
 committed in the same transaction. Selection and focus never clear unread: a
 client acknowledges with `ack-tab-notifications`, which also reads the tab's
 items. The app drives the move of an item to the cloud owner with
-`feed-local-handoff-begin` and `feed-local-handoff-done` (trusted local
-connections only) and rebuilds its queue at launch from
+`feed-local-handoff-begin` and `feed-local-handoff-done`, or takes it back
+with `feed-local-handoff-abort` after `feed.adopt.cancel` answered
+`cancelled: true` (trusted local connections only), and rebuilds its queue at launch from
 `feed-local-list {state:"handing_off"}`. A moved item refuses reads with
 `owner.unreachable`, which is retryable; nothing queues.
 

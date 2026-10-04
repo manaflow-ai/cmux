@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1";
+inline constexpr std::string_view kProtocolIrSha256 = "b26a50f2ed06531497d1b145fb3e63f37c2135d304453cda00220848bfe14f96";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -231,6 +231,11 @@ struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
 struct ExportLayoutRequest;
+struct FeedLocalHandoffAbortRequest;
+struct FeedLocalHandoffBeginRequest;
+struct FeedLocalHandoffDoneRequest;
+struct FeedLocalListRequest;
+struct FeedLocalReadRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
@@ -1566,6 +1571,34 @@ struct ExportLayoutResult {
     Layout layout{};
     std::vector<ExportedPane> panes{};
     friend bool operator==(const ExportLayoutResult&, const ExportLayoutResult&) = default;
+};
+
+struct FeedLocalHandoffAbortRequest {
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffAbortRequest&, const FeedLocalHandoffAbortRequest&) = default;
+};
+
+struct FeedLocalHandoffBeginRequest {
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffBeginRequest&, const FeedLocalHandoffBeginRequest&) = default;
+};
+
+struct FeedLocalHandoffDoneRequest {
+    std::string home{};
+    std::string item{};
+    friend bool operator==(const FeedLocalHandoffDoneRequest&, const FeedLocalHandoffDoneRequest&) = default;
+};
+
+struct FeedLocalListRequest {
+    Field<std::string> state{};
+    Field<std::string> terminal_id{};
+    std::optional<bool> unread{};
+    friend bool operator==(const FeedLocalListRequest&, const FeedLocalListRequest&) = default;
+};
+
+struct FeedLocalReadRequest {
+    std::vector<std::string> items{};
+    friend bool operator==(const FeedLocalReadRequest&, const FeedLocalReadRequest&) = default;
 };
 
 enum class PaneDirection {
@@ -5377,6 +5410,36 @@ template <>
 struct Codec<ExportLayoutRequest> {
     static Result<Json> encode(const ExportLayoutRequest& value);
     static Result<ExportLayoutRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffAbortRequest> {
+    static Result<Json> encode(const FeedLocalHandoffAbortRequest& value);
+    static Result<FeedLocalHandoffAbortRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffBeginRequest> {
+    static Result<Json> encode(const FeedLocalHandoffBeginRequest& value);
+    static Result<FeedLocalHandoffBeginRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalHandoffDoneRequest> {
+    static Result<Json> encode(const FeedLocalHandoffDoneRequest& value);
+    static Result<FeedLocalHandoffDoneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalListRequest> {
+    static Result<Json> encode(const FeedLocalListRequest& value);
+    static Result<FeedLocalListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FeedLocalReadRequest> {
+    static Result<Json> encode(const FeedLocalReadRequest& value);
+    static Result<FeedLocalReadRequest> decode(const Json& value);
 };
 
 template <>
