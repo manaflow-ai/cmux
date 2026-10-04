@@ -206,10 +206,7 @@ fn the_team_policy_survives_a_restart() {
     let refusal = restarted.apply(set("ui.animationSpeed", json!("fast"))).result.unwrap_err();
     assert_eq!(refusal.code(), "managed");
     // Clearing the layer removes the saved file.
-    restarted
-        .apply(cmux_config::Op::TeamPolicySet { layer: Default::default() })
-        .result
-        .unwrap();
+    restarted.apply(cmux_config::Op::TeamPolicySet { layer: Default::default() }).result.unwrap();
     drop(restarted);
     let cleared = open(&config, dir.path(), Default::default());
     assert_eq!(cleared.state().team(), &cmux_config::TeamPolicyLayer::default());

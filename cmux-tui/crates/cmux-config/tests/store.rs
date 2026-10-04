@@ -149,7 +149,8 @@ fn non_schema_paths_are_raw_but_guarded() {
 
 #[test]
 fn writes_that_overlap_a_row_are_refused() {
-    let start = state("{\"appearance\": {\"backgroundOpacity\": 0.5} // keep\n}", Default::default());
+    let start =
+        state("{\"appearance\": {\"backgroundOpacity\": 0.5} // keep\n}", Default::default());
     // An ancestor object would replace rows without validating them.
     let ancestor = apply(&start, set("appearance", json!({"backgroundOpacity": "garbage"})));
     assert_eq!(ancestor.unwrap_err().code(), "invalid_params");

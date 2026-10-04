@@ -42,16 +42,10 @@ impl ConfigStore {
         let schema = Schema::embedded();
         let cached = state_dir.as_deref().and_then(read_cache);
         let file = read_source(&config_path);
-        let team = state_dir.as_deref().and_then(|dir| read_team_policy(dir, schema)).unwrap_or_default();
+        let team =
+            state_dir.as_deref().and_then(|dir| read_team_policy(dir, schema)).unwrap_or_default();
         let revision = cached.as_ref().map_or(0, |(revision, _)| *revision);
-        let mut state = State::new(
-            schema,
-            file,
-            reader.read(),
-            team,
-            Domains::default(),
-            revision,
-        );
+        let mut state = State::new(schema, file, reader.read(), team, Domains::default(), revision);
         if let Some((revision, effective)) = cached
             && effective != state.effective().root
         {
