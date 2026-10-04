@@ -109,6 +109,11 @@ impl Host {
         self.input.as_ref().expect("open").send(bytes).expect("server reads");
     }
 
+    /// Ends the host's input (the client goes away); the loop then ends.
+    pub fn close_input(&mut self) {
+        drop(self.input.take());
+    }
+
     /// The next line that is not a relay request; relay requests are
     /// answered from the fixtures on the way. `None` after [`WAIT`].
     pub fn next(&mut self) -> Option<Value> {

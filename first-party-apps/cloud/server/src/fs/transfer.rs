@@ -143,7 +143,7 @@ impl Transfer for DaemonTransfer {
                 }
                 let params = json!({ "path": job.guest, "bytes_base64": STANDARD.encode(&bytes),
                     "mode": "create" });
-                self.files.call(&job.target, "fs.write", params)?;
+                self.files.call(&job.target, "fs.write", params, cancel)?;
                 Ok(bytes.len() as u64)
             }
             Direction::Pull => {
@@ -162,7 +162,7 @@ impl Transfer for DaemonTransfer {
                     }
                     let params =
                         json!({ "path": job.guest, "offset": offset, "max_bytes": CHUNK_BYTES });
-                    let answer = self.files.call(&job.target, "fs.read", params)?;
+                    let answer = self.files.call(&job.target, "fs.read", params, cancel)?;
                     let bytes = super::files::read_bytes(&answer)?;
                     let more = answer["truncated"].as_bool() == Some(true);
                     let total = *size.get_or_insert(answer["size"].as_u64().unwrap_or(0));

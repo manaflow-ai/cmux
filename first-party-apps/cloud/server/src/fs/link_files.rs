@@ -10,6 +10,7 @@
 //! `fs.list`, `fs.read`, `fs.write`, `fs.mkdir`, `fs.rename`, `fs.delete`),
 //! so the ops light up with no Cloud change when the daemon ships them.
 
+use super::Cancel;
 use crate::api::{CloudError, ControlPlane, codes};
 use crate::link::carrier::{Children, Dialed, end_all, end_child, open_dial};
 use crate::link::dial::dial_args;
@@ -42,7 +43,14 @@ pub struct DialTarget {
 /// Sends one daemon `fs.*` op and returns its `data`. The real one dials;
 /// tests use a fake.
 pub trait DaemonFiles: Send + Sync {
-    fn call(&self, target: &DialTarget, op: &str, params: Value) -> Result<Value, CloudError>;
+    /// `cancel` ends the op (its dial child) from another thread.
+    fn call(
+        &self,
+        target: &DialTarget,
+        op: &str,
+        params: Value,
+        cancel: &Cancel,
+    ) -> Result<Value, CloudError>;
 }
 
 /// The real [`DaemonFiles`]: one `cmux link dial --host <host_…>` per op,
@@ -54,7 +62,13 @@ fn unavailable(why: impl Into<String>) -> CloudError {
 }
 
 impl DaemonFiles for LinkDaemonFiles {
-    fn call(&self, target: &DialTarget, op: &str, params: Value) -> Result<Value, CloudError> {
+    fn call(
+        &self,
+        target: &DialTarget,
+        op: &str,
+        params: Value,
+        _cancel: &Cancel,
+    ) -> Result<Value, CloudError> {
         let mut request = match params {
             Value::Object(map) => map,
             _ => Map::new(),
@@ -187,5 +201,5 @@ pub(crate) fn call<C: ControlPlane>(
 ) -> Result<Value, CloudError> {
     let target = target(server, machine)?;
     let files = Arc::clone(&server.edge_parts().0.files);
-    files.call(&target, op, params)
+    files.call(&target, op, params, &Cancel::default())
 }

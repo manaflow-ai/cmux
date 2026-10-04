@@ -119,6 +119,11 @@ impl Attach {
         Self::new(Box::new(CarrierSpawner), None, Box::new(MissingRescueRoute))
     }
 
+    /// The clock of the `connect_info` cache (tests set their own time).
+    pub fn with_info_clock(self, _clock: std::sync::Arc<dyn crate::clock::Clock>) -> Self {
+        self
+    }
+
     /// The server's allowlisted environment (from the host's start).
     pub fn with_env(mut self, env: AppEnv) -> Self {
         self.env = env;

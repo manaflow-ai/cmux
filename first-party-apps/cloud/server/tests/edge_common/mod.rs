@@ -218,7 +218,13 @@ impl FakeFiles {
 }
 
 impl DaemonFiles for FakeFiles {
-    fn call(&self, target: &DialTarget, op: &str, params: Value) -> Result<Value, CloudError> {
+    fn call(
+        &self,
+        target: &DialTarget,
+        op: &str,
+        params: Value,
+        _cancel: &Cancel,
+    ) -> Result<Value, CloudError> {
         let mut log = self.log();
         log.calls.push((target.clone(), op.to_owned(), params));
         if let Some(code) = log.errors.get(op) {

@@ -32,6 +32,9 @@ pub const MAX_READ_BYTES: usize = 16 * 1024 * 1024;
 /// stream.
 pub const MAX_WRITE_BYTES: usize = 12 * 1024 * 1024;
 
+/// File ops that may run at once (each on its own worker).
+pub const MAX_FILE_OPS: usize = 8;
+
 pub const FILE_TOO_LARGE: &str = "cmux.cloud.file_too_large";
 
 /// Ops whose answer is live transfer state: never replayed from the ledger.
