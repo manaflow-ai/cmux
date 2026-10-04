@@ -90,6 +90,15 @@ fn the_server_serves_its_fragment_ops_and_the_backend_ops_it_consumes() {
         // Money and destructive ops need a person here, and the backend
         // keeps them off the CLI and MCP.
         let person = op["risk"] == "money" || op["risk"] == "destructive";
+        // The upgrade installs software through exec: a person runs it.
+        if name == "cloud.machine.upgrade" {
+            assert_eq!(op["risk"], "execute", "{name}");
+            assert!(user_only, "{name}: a person runs it");
+        }
+        // A snapshot counts against max_saved: it is a money op.
+        if name == "cloud.snapshot.create" {
+            assert_eq!(op["risk"], "money", "{name}");
+        }
         if person {
             assert!(user_only, "{name}: a {} op needs origin user", op["risk"]);
             assert_eq!(op["mcp"]["expose"], "never", "{name}");
@@ -126,8 +135,12 @@ fn the_link_token_is_its_own_op_that_the_app_does_not_consume() {
     let backend = backend_ops();
     assert!(backend.contains_key("cloud.machine.link_token"), "a cloud.machine.link_token row");
     let op = &backend["cloud.machine.link_token"];
+    // LINK-TOKEN-OP: every call mints a fresh token, so there is no key and
+    // no replay; an exec-like grant, audited by CloudDO.
     assert_eq!(op["class"], "mutation");
-    assert_eq!(op["idempotency"], "required");
+    assert_eq!(op["idempotency"], "none");
+    assert_eq!(op["risk"], "execute");
+    assert!(op["docs"].as_str().is_some_and(|d| d.contains("audited")), "{}", op["docs"]);
     assert_eq!(op["principals"], serde_json::json!(["install"]));
     assert_eq!(op["mcp"]["expose"], "never");
     assert_eq!(op["cli"]["visible"], false);

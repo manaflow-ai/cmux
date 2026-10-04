@@ -70,6 +70,7 @@ fn money_and_destructive_ops_need_origin_user() {
         ("cloud.machine.delete", json!({ "machine": vm(1) })),
         ("cloud.snapshot.delete", json!({ "snapshot": "snap_s0000000000000000001" })),
         ("cloud.snapshot.restore", json!({ "snapshot": "snap_s0000000000000000001" })),
+        ("cloud.snapshot.create", json!({ "machine": vm(1) })),
         ("cloud.billing.checkout", json!({ "plan": "pro" })),
         ("cloud.migration.start", json!({})),
         ("cloud.machine.upgrade", json!({ "machine": vm(7) })),

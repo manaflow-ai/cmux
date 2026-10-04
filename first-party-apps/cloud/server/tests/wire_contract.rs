@@ -161,3 +161,33 @@ fn a_connect_info_answer_with_a_link_token_is_a_bad_response() {
     assert_eq!(out["code"], "cmux.cloud.bad_response", "{out}");
     assert!(!out.to_string().contains("lt_leak"), "the token is never echoed: {out}");
 }
+
+/// `cloud.machine.link_token` has no idempotency key: each call mints a
+/// fresh token and nothing replays (LINK-TOKEN-OP).
+#[test]
+fn link_token_vectors_mint_a_fresh_token_per_call() {
+    let doc = wire_common::vectors();
+    let cases: Vec<&Value> = doc["cases"]
+        .as_array()
+        .expect("cases")
+        .iter()
+        .filter(|c| c["op"] == "cloud.machine.link_token")
+        .collect();
+    assert!(!cases.is_empty());
+    for case in cases {
+        assert_eq!(case["class"], "mutation", "{}", case["name"]);
+        assert!(case.get("idempotency_key").is_none(), "{}: no key", case["name"]);
+        let tokens: Vec<&Value> = case["responses"]
+            .as_array()
+            .expect("responses")
+            .iter()
+            .filter_map(|r| r["body"]["value"].get("token"))
+            .collect();
+        let unique: std::collections::BTreeSet<String> =
+            tokens.iter().map(|t| t.to_string()).collect();
+        assert_eq!(unique.len(), tokens.len(), "{}: a fresh token each call", case["name"]);
+        for r in case["responses"].as_array().expect("responses") {
+            assert_ne!(r["body"]["replayed"], true, "{}: nothing replays", case["name"]);
+        }
+    }
+}
