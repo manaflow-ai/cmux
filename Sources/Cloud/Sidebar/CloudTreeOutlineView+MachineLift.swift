@@ -42,7 +42,7 @@ extension CloudTreeOutlineView.Coordinator {
         }
         let lifted = outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: parent.children,
-            isPeer: isPeer, closes: { self.machineLiftClosesOpenRows && isPeer($0) },
+            isPeer: isPeer,
             onLeave: { [weak self, weak outline] in
                 guard let self, let outline else { return }
                 finishMachineLift()
@@ -62,8 +62,7 @@ extension CloudTreeOutlineView.Coordinator {
     }
 
     /// Lifts a machine row for the drag that just began. Open machines move
-    /// with their rows unless `machineLiftClosesOpenRows`, and closing them is
-    /// never recorded, so the person's expansion is what comes back afterwards.
+    /// with their rows so the person's expansion remains unchanged.
     func beginMachineLift(
         _ session: NSDraggingSession, node: CloudTreeNode, in outline: CloudTreeNSOutlineView, pressY: CGFloat? = nil
     ) {
@@ -71,8 +70,7 @@ extension CloudTreeOutlineView.Coordinator {
               let scope = CloudMachineReorderScope(machineNodeID: node.id, roots: nodes) else { return }
         outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings, pressY: pressY,
-            isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned },
-            closes: { if machineLiftClosesOpenRows, case .machine = $0.kind { return true }; return false }
+            isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned }
         ) { machines in
             self.withProgrammaticUpdate {
                 for machine in machines { outline.collapseItem(machine) }
@@ -134,17 +132,11 @@ extension CloudTreeOutlineView.Coordinator {
     @discardableResult
     func finishMachineLift(commit: (() -> Bool)? = nil) -> Bool {
         guard let outline = outlineView else { return false }
-        return outline.machineLift.finish(reopen: { [weak self] ids in
-            guard let self else { return }
-            let visibleNodes = outline.visibleItemsByID()
-            withProgrammaticUpdate {
-                for id in ids {
-                    if let machine = visibleNodes[id], !outline.isItemExpanded(machine) {
-                        outline.expandItem(machine)
-                    }
-                }
-                self.restoreSelection(in: outline)
-            }
-        }, mutate: commit)
+        return outline.machineLift.finish(reopen: { _ in }, mutate: { [weak self] in
+            guard let self else { return commit?() ?? false }
+            let result = commit?() ?? false
+            self.restoreSelection(in: outline)
+            return result
+        })
     }
 }

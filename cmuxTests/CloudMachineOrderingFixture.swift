@@ -48,9 +48,6 @@ final class CloudMachineOrderingFixture {
         coordinator.onDragStateChange = { [model] in model.setTreeDragging($0) }
         // These fixtures drive AppKit's row proposals; lift tests begin it themselves.
         coordinator.machineLiftEnabled = false
-        // The lift tests in CloudMachineOrderingTests cover open machines
-        // closing for a drag; CloudMachineLiftKeepOpenTests turns it off.
-        coordinator.machineLiftClosesOpenRows = true
         coordinator.nodeActions.organize = { _, _, _ in
             Issue.record("A machine move must not reach descendant organization")
             return false
