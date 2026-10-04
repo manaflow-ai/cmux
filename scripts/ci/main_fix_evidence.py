@@ -82,6 +82,16 @@ def completed_success(item: dict) -> bool:
     return item.get("status") == "completed" and item.get("conclusion") == "success"
 
 
+def require_merge_gate(repo: str, sha: str, github: GitHub) -> None:
+    gate = latest_checks(repo, sha, github).get("merge-gate")
+    if gate is None:
+        raise Refused(f"merge-gate has not reported for exact head {sha}")
+    if not completed_success(gate):
+        reason = (gate.get("output") or {}).get("summary", "")
+        suffix = f": {reason}" if isinstance(reason, str) and reason else ""
+        raise Refused(f"merge-gate is {gate.get('status')}/{gate.get('conclusion')} on exact head {sha}{suffix}")
+
+
 def job_for(repo: str, check: dict, sha: str, github: GitHub) -> dict:
     url = check.get("details_url", "")
     match = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)/job/(\d+)", url)
@@ -212,8 +222,12 @@ def main(argv: list[str] | None = None) -> int:
             body = Path(directory) / "audit.md"
             body.write_text(audit + "\n", encoding="utf-8")
             github.run(["pr", "comment", str(number), "--repo", repo, "--body-file", str(body)])
+        posted = github.json(f"repos/{repo}/pulls/{number}")
+        if posted.get("head", {}).get("sha") != after["head"]["sha"] or posted.get("state") != "open":
+            raise Refused("PR head moved while posting the audit comment; retry")
+        require_merge_gate(repo, posted["head"]["sha"], github)
         strategy = "--merge" if args.merge else "--rebase" if args.rebase else "--squash"
-        github.run(["pr", "merge", str(number), "--repo", repo, "--match-head-commit", after["head"]["sha"], strategy])
+        github.run(["pr", "merge", str(number), "--repo", repo, "--match-head-commit", posted["head"]["sha"], strategy])
         return 0
     except (Refused, json.JSONDecodeError, KeyError) as error:
         print(f"not green: {error}\nrefusing to merge {args.ref}; wait with: glaeda-gh wait pr {args.ref}", file=sys.stderr)

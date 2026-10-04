@@ -11,7 +11,25 @@ fix=0; args=(); for a in "$@"; do [ "$a" = --main-fix ] && fix=1 || args+=("$a")
 [ $# -gt 0 ] || set -- --squash
 if [ "$fix" -eq 1 ]; then
   script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-  exec python3 "$script_dir/ci/main_fix_evidence.py" "$ref" "$@"
+  validator="$script_dir/ci/main_fix_evidence.py"
+  if [ ! -f "$validator" ]; then
+    repo_root="${CMUX_REPO_ROOT:-}"
+    if [ -z "$repo_root" ]; then
+      repo_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+    fi
+    origin=""
+    [ -n "$repo_root" ] && origin=$(git -C "$repo_root" remote get-url origin 2>/dev/null || true)
+    case "$origin" in
+      https://github.com/manaflow-ai/cmux.git|git@github.com:manaflow-ai/cmux.git) ;;
+      *) repo_root="" ;;
+    esac
+    validator="${repo_root:+$repo_root/scripts/ci/main_fix_evidence.py}"
+  fi
+  if [ -z "$validator" ] || [ ! -f "$validator" ]; then
+    echo "not green: --main-fix validator is unavailable; set CMUX_REPO_ROOT to a cmux checkout" >&2
+    exit 1
+  fi
+  exec python3 "$validator" "$ref" "$@"
 fi
 read -r sha base < <(gh pr view "$num" --repo "$repo" --json headRefOid,baseRefName -q '.headRefOid+" "+.baseRefName')
 # merge-gate is the authority for ci-status: a reviewed override can make the

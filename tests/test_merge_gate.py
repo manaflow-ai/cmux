@@ -139,8 +139,8 @@ class MergeGateDecisionTests(unittest.TestCase):
                         "head_branch": "main",
                         "head_repository": {"full_name": "manaflow-ai/cmux"},
                         "check_runs": [
-                            {"name": "ci-status", "conclusion": "failure"},
-                            {"name": "CI fast guards", "conclusion": "failure"},
+                            {"name": "ci-status", "run_id": 101, "conclusion": "failure"},
+                            {"name": "CI fast guards", "run_id": 101, "conclusion": "failure"},
                         ],
                     }
                 ],
@@ -149,6 +149,44 @@ class MergeGateDecisionTests(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.failing_checks, ("ci-status", "CI fast guards"))
         self.assertEqual(result.override_comment["user"]["login"], "leo-agent")
+
+    def test_missing_push_timestamp_rejects_override(self) -> None:
+        result = merge_gate.evaluate_gate(
+            base(
+                head_pushed_at=None,
+                head_commit_timestamp="2026-10-03T14:00:00Z",
+                comments=[
+                    override(
+                        "merge-override: ci-status is not on main. "
+                        "This is safe because the affected path is isolated and tested."
+                    )
+                ],
+            )
+        )
+        self.assertFalse(result.passed)
+        self.assertIn("fresh merge-override", result.reason)
+
+    def test_unrelated_check_on_same_main_sha_does_not_prove_failure(self) -> None:
+        result = merge_gate.evaluate_gate(
+            base(
+                comments=[
+                    override(
+                        "merge-override: ci-status https://github.com/manaflow-ai/cmux/actions/runs/202 "
+                        "is safe because the change is isolated and tested."
+                    )
+                ],
+                main_runs=[
+                    {
+                        "id": 202,
+                        "head_branch": "main",
+                        "head_repository": {"full_name": "manaflow-ai/cmux"},
+                        "jobs": [{"name": "ci-status", "run_id": 202, "conclusion": "success"}],
+                        "check_runs": [{"name": "ci-status", "run_id": 999, "conclusion": "failure"}],
+                    }
+                ],
+            )
+        )
+        self.assertFalse(result.passed)
 
     def test_fresh_override_can_explain_that_failure_is_not_on_main(self) -> None:
         result = merge_gate.evaluate_gate(

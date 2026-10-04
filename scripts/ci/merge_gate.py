@@ -26,6 +26,7 @@ BOT_MARKER = "<!-- merge-gate -->"
 _SUCCESS = {"success"}
 _WRITE_PERMISSIONS = {"admin", "maintain", "write", "push"}
 _RUN_LINK = re.compile(r"https?://github\.com/[^/\s]+/[^/\s]+/actions/runs/(\d+)")
+_PUSH_MARKER = re.compile(r"merge-gate-head-pushed-at:\s*(\S+)")
 _NOT_ON_MAIN = re.compile(r"\bnot\s+on\s+main\b", re.I)
 _BOILERPLATE = {
     "lgtm", "looks good", "safe to merge", "merge override", "approved",
@@ -175,6 +176,18 @@ def _main_failure(
             continue
         name = item.get("name") or item.get("context")
         conclusion = item.get("conclusion") or item.get("state")
+        # Jobs are scoped by the Actions jobs endpoint. Check-runs are only
+        # trusted when the API loader proved their run provenance; a commit's
+        # aggregate check-runs endpoint also contains unrelated runs on the
+        # same SHA and cannot establish evidence for this linked run.
+        if "check_runs" in run and item in run.get("check_runs", []):
+            run_id = str(run.get("id"))
+            item_run_id = item.get("run_id")
+            details_url = _text(item.get("details_url"))
+            if item_run_id is not None and str(item_run_id) != run_id:
+                continue
+            if item_run_id is None and f"/actions/runs/{run_id}" not in details_url:
+                continue
         if (
             name == check
             and isinstance(conclusion, str)
@@ -219,7 +232,10 @@ def evaluate_gate(data: Mapping[str, Any]) -> Decision:
     if not failing:
         failing = ("ci-status",)
 
-    push_time = _time(data.get("head_pushed_at") or data.get("head_commit_timestamp"))
+    # A commit's author/committer date is not a push date: an old commit can
+    # be pushed to a PR today. The runtime records the synchronize event time
+    # in the gate check output and fails closed when neither source exists.
+    push_time = _time(data.get("head_pushed_at"))
     comments = data.get("comments") or []
     if not isinstance(comments, Sequence) or isinstance(comments, (str, bytes)):
         comments = []
@@ -240,7 +256,7 @@ def evaluate_gate(data: Mapping[str, Any]) -> Decision:
         comment_time = _latest_time(comment)
         if normal:
             prior_rationales.add(normal)
-        if push_time and (comment_time is None or comment_time <= push_time):
+        if push_time is None or comment_time is None or comment_time <= push_time:
             continue
         if not _author_can_override(comment, trusted) or not _has_real_sentence(rationale):
             continue
@@ -322,6 +338,25 @@ def _run_id_links(comments: Sequence[Any]) -> set[str]:
     return {run_id for c in comments if isinstance(c, Mapping) for run_id in _RUN_LINK.findall(_text(c.get("body")))}
 
 
+def _recorded_push_time(check_runs: Sequence[Any], head_sha: str) -> str | None:
+    recorded: list[tuple[int, str]] = []
+    for item in check_runs:
+        if not isinstance(item, Mapping) or item.get("name") != "merge-gate":
+            continue
+        if item.get("head_sha") != head_sha:
+            continue
+        output = item.get("output") or {}
+        text = " ".join(_text(output.get(key)) for key in ("title", "summary", "text"))
+        match = _PUSH_MARKER.search(text)
+        if match:
+            try:
+                identifier = int(item.get("id", 0))
+            except (TypeError, ValueError):
+                identifier = 0
+            recorded.append((identifier, match.group(1)))
+    return max(recorded, default=(0, None))[1]
+
+
 def _bot_comment(comment: Mapping[str, Any]) -> bool:
     user = comment.get("user") or {}
     if not isinstance(user, Mapping):
@@ -370,28 +405,15 @@ def run() -> int:
     if not isinstance(sha, str):
         print("merge-gate: pull request has no head SHA", file=sys.stderr)
         return 1
-    commit = gh.request(f"/repos/{repo}/commits/{sha}")
-    commit_info = commit.get("commit") if isinstance(commit, Mapping) else {}
-    author_info = commit_info.get("committer") if isinstance(commit_info, Mapping) else {}
-    pushed = author_info.get("date") if isinstance(author_info, Mapping) else None
-    # A commit timestamp is only a fallback. The synchronize event is the
-    # server's record of when this exact head was pushed to the pull request.
-    try:
-        events = gh.paged(f"/repos/{repo}/issues/{int(pr_number)}/events")
-        sync_times = [
-            event.get("created_at")
-            for event in events
-            if isinstance(event, Mapping)
-            and event.get("event") == "synchronize"
-            and event.get("commit_id") == sha
-            and isinstance(event.get("created_at"), str)
-        ]
-        if sync_times:
-            pushed = max(sync_times)
-    except RuntimeError:
-        pass
     check_payload = gh.request(f"/repos/{repo}/commits/{sha}/check-runs?per_page=100")
     status_payload = gh.request(f"/repos/{repo}/commits/{sha}/status?per_page=100")
+    check_runs = check_payload.get("check_runs", []) if isinstance(check_payload, Mapping) else []
+    event_pr = event.get("pull_request") if isinstance(event.get("pull_request"), Mapping) else {}
+    pushed = None
+    if event.get("action") == "synchronize":
+        pushed = event_pr.get("updated_at")
+    if not isinstance(pushed, str) or not pushed:
+        pushed = _recorded_push_time(check_runs, sha)
     rules = gh.request(f"/repos/{repo}/rules/branches/main")
     required = _required_checks({"rules": rules})
     comments = gh.paged(f"/repos/{repo}/issues/{int(pr_number)}/comments")
@@ -418,18 +440,27 @@ def run() -> int:
             jobs = gh.request(f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")
             checks = None
             run_sha = item.get("head_sha") if isinstance(item, Mapping) else None
-            if isinstance(run_sha, str) and run_sha:
-                checks = gh.request(f"/repos/{repo}/commits/{run_sha}/check-runs?per_page=100")
+            suite_id = item.get("check_suite_id") if isinstance(item, Mapping) else None
+            if suite_id is not None:
+                checks = gh.request(f"/repos/{repo}/check-suites/{int(suite_id)}/check-runs?per_page=100")
             if isinstance(item, Mapping):
                 item = dict(item)
                 item["jobs"] = jobs.get("jobs", []) if isinstance(jobs, Mapping) else []
-                item["check_runs"] = checks.get("check_runs", []) if isinstance(checks, Mapping) else []
+                check_items = checks.get("check_runs", []) if isinstance(checks, Mapping) else []
+                item["check_runs"] = [
+                    check for check in check_items
+                    if isinstance(check, Mapping)
+                    and (
+                        check.get("run_id") == int(run_id)
+                        or f"/actions/runs/{run_id}" in _text(check.get("details_url"))
+                    )
+                ]
                 main_runs.append(item)
         except RuntimeError:
             continue
     decision = evaluate_gate({
         "repository": repo, "head_sha": sha, "head_pushed_at": pushed,
-        "required_checks": required, "check_runs": check_payload.get("check_runs", []) if isinstance(check_payload, Mapping) else [],
+        "required_checks": required, "check_runs": check_runs,
         "statuses": status_payload.get("statuses", []) if isinstance(status_payload, Mapping) else [],
         "comments": comments, "main_runs": main_runs,
         "trusted_logins": [item for item in os.environ.get("MERGE_GATE_TRUSTED_LOGINS", "").split(",") if item],
@@ -438,7 +469,11 @@ def run() -> int:
     gh.request(f"/repos/{repo}/check-runs", "POST", {
         "name": "merge-gate", "head_sha": sha, "status": "completed",
         "conclusion": decision.conclusion,
-        "output": {"title": "Merge gate", "summary": summary},
+        "output": {
+            "title": "Merge gate",
+            "summary": summary,
+            "text": f"merge-gate-head-pushed-at: {pushed}" if isinstance(pushed, str) and pushed else "",
+        },
     })
     if not decision.passed:
         body = f"{BOT_MARKER}\n{decision.reason}"

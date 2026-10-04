@@ -168,6 +168,19 @@ class MainFixEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(module.Refused, "open"):
             self.validate()
 
+    def test_main_fix_requires_a_successful_exact_head_merge_gate(self):
+        with self.assertRaisesRegex(module.Refused, "merge-gate"):
+            module.require_merge_gate("manaflow-ai/cmux", HEAD, self.gh)
+        self.gh.head_checks.append({
+            "id": 5,
+            "name": "merge-gate",
+            "head_sha": HEAD,
+            "status": "completed",
+            "conclusion": "success",
+            "app": {"slug": "github-actions"},
+        })
+        module.require_merge_gate("manaflow-ai/cmux", HEAD, self.gh)
+
 
 class InstalledHelperRegression(unittest.TestCase):
     def test_main_fix_without_any_compile_evidence_refuses_to_merge(self):

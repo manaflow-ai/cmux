@@ -19,7 +19,10 @@ env:
 permissions: {}
 
 concurrency:
-  group: merge-gate-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.id || github.event.check_suite.id }}
+  # Every trigger can describe the same PR with a different identifier. A
+  # repository-wide group keeps check publication and the single diagnostic
+  # comment serialized even when CI completion races a push or comment event.
+  group: merge-gate-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
