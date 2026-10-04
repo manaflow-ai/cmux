@@ -279,7 +279,7 @@ mod tests {
     use std::os::unix::net::UnixStream;
     use std::sync::Mutex;
 
-    fn tab(target_id: &str, engine: &str) -> TabAnnounce {
+    pub(super) fn tab(target_id: &str, engine: &str) -> TabAnnounce {
         TabAnnounce {
             target_id: target_id.into(),
             engine: engine.into(),
@@ -294,13 +294,13 @@ mod tests {
     /// The app side: answers WebKit `call` frames, and plays one page per
     /// attached CEF tab on its `cdp` frames (page-level messages carry no
     /// sessionId). Records every frame it got.
-    struct FakeApp {
+    pub(super) struct FakeApp {
         writer: Arc<Mutex<UnixStream>>,
-        frames: Arc<Mutex<Vec<Frame>>>,
+        pub(super) frames: Arc<Mutex<Vec<Frame>>>,
     }
 
     impl FakeApp {
-        fn start(tabs: Vec<TabAnnounce>) -> (FakeApp, Arc<ProviderDriver>) {
+        pub(super) fn start(tabs: Vec<TabAnnounce>) -> (FakeApp, Arc<ProviderDriver>) {
             let (app, host) = UnixStream::pair().unwrap();
             let provider = ProviderDriver::start(
                 host.try_clone().unwrap(),
@@ -351,11 +351,11 @@ mod tests {
             (FakeApp { writer, frames }, provider)
         }
 
-        fn send(&self, frame: Frame) {
+        pub(super) fn send(&self, frame: Frame) {
             write_frame(&mut *self.writer.lock().unwrap(), &frame).unwrap();
         }
 
-        fn access(&self, provider: &ProviderDriver, target: &str) {
+        pub(super) fn access(&self, provider: &ProviderDriver, target: &str) {
             self.send(Frame::TabAccess {
                 target_id: target.into(),
                 extension_host_access: false,
@@ -394,7 +394,11 @@ mod tests {
         session(provider, kind, "s1")
     }
 
-    fn session(provider: &Arc<ProviderDriver>, kind: &str, name: &str) -> ProviderEngine {
+    pub(super) fn session(
+        provider: &Arc<ProviderDriver>,
+        kind: &str,
+        name: &str,
+    ) -> ProviderEngine {
         let lease = LeaseCaller {
             session: name.into(),
             actor: "uid:501".into(),
@@ -412,7 +416,7 @@ mod tests {
         .unwrap()
     }
 
-    fn leases(app: &FakeApp, target: &str) -> Vec<Option<crate::provider::Lease>> {
+    pub(super) fn leases(app: &FakeApp, target: &str) -> Vec<Option<crate::provider::Lease>> {
         app.frames
             .lock()
             .unwrap()
@@ -528,7 +532,7 @@ mod tests {
         assert_eq!(gone.code, crate::protocol::ErrorCode::NotFound, "{gone}");
     }
 
-    fn calls(app: &FakeApp, method: &str) -> usize {
+    pub(super) fn calls(app: &FakeApp, method: &str) -> usize {
         app.frames
             .lock()
             .unwrap()
@@ -664,3 +668,7 @@ mod tests {
         assert_eq!(open["engine"], "cef");
     }
 }
+
+#[cfg(test)]
+#[path = "provider_engine_lease_tests.rs"]
+mod lease_tests;
