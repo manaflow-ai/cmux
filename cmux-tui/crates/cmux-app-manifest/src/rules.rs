@@ -128,6 +128,13 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
         }
     }
     check_scopes(m, first_party, &mut out);
+    if !m["icon"].is_string() {
+        out.push(Issue::warning(
+            "/icon",
+            "icon.noImage",
+            "give the app an image icon: symbol icons render only on Mac hosts; other clients show a generic glyph",
+        ));
+    }
     if m.pointer("/server/kind").and_then(Value::as_str) == Some("native") && !first_party {
         out.push(Issue::error(
             "/server/kind",

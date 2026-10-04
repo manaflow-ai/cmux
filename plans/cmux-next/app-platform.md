@@ -299,4 +299,8 @@ The App Store page moves to React (webviews) with a Rust backend; the Swift App 
 | `cmux.apps.watch` | apps:read | typed stream `{revision, app?}` so the page never polls |
 | `cmux.apps.open {app, command?, focus?}` | apps:write | opens the app's page tab in the client; replaces the `app.open` action |
 
+Confirmation (coordinator decision, React UIs plan): install, uninstall, update and grant.set always show a native Swift confirmation sheet (app name, scopes with their risk class). Only that sheet stamps origin user; user activation in page JavaScript is not proof of a gesture. The supervisor asks the client that shows the page for the sheet and runs the op only after the user confirms there; a refusal answers `apps.confirmation_declined`.
+
+Icons: cmux never ships SF Symbols as web SVGs (Apple license). `cmux.apps.asset.get` renders a manifest symbol name to a PNG on a Mac host; other clients show a generic glyph. The validator warns (`icon.noImage`) when a manifest has no image icon.
+
 The CodeRouter entry needs no op of its own: a first-party listing plus `cmux.apps.open`. Third-party namespaces are `<publisher>.<name>` ('-' becomes '_'); the store registry (AppDO) keeps publisher ids unique.

@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 fn manifest(extra: Value) -> Value {
-    let mut m = json!({ "manifestVersion": 2, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" } });
+    let mut m = json!({ "manifestVersion": 2, "id": "local/x", "name": "X", "version": "1.0.0", "description": "d", "engines": { "cmux": "^2.0" }, "icon": "assets/icon.png" });
     for (k, v) in extra.as_object().expect("object") {
         m[k] = v.clone();
     }
@@ -157,4 +157,13 @@ fn every_first_party_app_package_validates() {
         checked += 1;
     }
     assert!(checked >= 14, "only {checked} first-party apps have a v2 manifest");
+}
+
+#[test]
+fn a_manifest_without_an_image_icon_warns() {
+    let symbol = manifest(json!({ "icon": { "symbol": "star" } }));
+    assert_eq!(codes(&validate_manifest(&symbol)), vec![("icon.noImage", Severity::Warning)]);
+    let mut none = manifest(json!({}));
+    none.as_object_mut().expect("object").remove("icon");
+    assert_eq!(codes(&validate_manifest(&none)), vec![("icon.noImage", Severity::Warning)]);
 }
