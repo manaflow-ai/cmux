@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 6 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 7 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -112,7 +112,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E, D-F, D-G, D-H; rev 6)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 7)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -132,9 +132,10 @@ crashed, slow or unsure, the tool does not run.
    chain runs in its own Claude process and **never forks or resumes a local session** (acpmux
    `fork()` copies the harness, argv, permission policy, modes, config options and models, and
    `--resume --fork-session` brings the whole local transcript with its tool results). It starts
-   fresh with only the **remote projection** of the conversation's messages (section 8 structs)
-   as context, or it resumes an earlier **remote-chain** session of the same conversation and
-   install. Its configuration is built from scratch (rule 4): pinned `claude`, empty extra argv,
+   fresh, always, with only the **remote projection** of the conversation's messages (section 8
+   structs) as context; it does not resume earlier remote-chain sessions either (P2-N). Revocation
+   archives that install's remote-chain sessions for good, so a re-paired device starts from the
+   remote projection only. Its configuration is built from scratch (rule 4): pinned `claude`, empty extra argv,
    policy `daemon`, no copied modes, config options or models. Cancel and revocation kill its
    process group through the agent host. Known gap: a child that an approved tool starts with
    `setsid` leaves the group and can survive; the approval text says "an approved shell call can
@@ -145,7 +146,20 @@ crashed, slow or unsure, the tool does not run.
    bypass disabled per session (`permissions.disableBypassPermissionsMode: "disable"`,
    `permissions.defaultMode: "default"`), the daemon's fast-allow PreToolUse hook and the cmux-tui
    status hooks; they set no `enabledPlugins` and no MCP-enable keys. The MCP config names only the
-   daemon's servers. User and repository `permissions.allow` rules, hooks and `.mcp.json` never
+   daemon's servers. **Every tool goes through the daemon (P1-M, DECISION, proposal yes):** in
+   `default` mode Claude Code runs Read, Glob and Grep inside the working folder, Task, Skill and
+   TodoWrite with no permission step, so the inline settings also carry:
+   - `permissions.deny` for every rule 2 deny path (as `Read(...)`, `Edit(...)`, `Write(...)`,
+     `Glob(...)`, `Grep(...)` rules) and for `Skill` and `SlashCommand`: these hold even when the
+     hook fails;
+   - `permissions.ask` for `Read`, `Glob`, `Grep`, `Task`, `TodoWrite`, `WebFetch`, `WebSearch` and
+     every other tool that does not ask by default, so each call reaches the permission step and the
+     daemon, which allows reads inside the read root at once.
+   - **No secrets on argv (P2-O):** the inline JSON is visible in `ps`, so it carries no token or
+     key. The daemon's hook and MCP servers authenticate the session by peer credentials, or read a
+     secret from the environment, or the config goes through `--mcp-config /dev/fd/N`.
+   - **Task** is a child spawn under rule 1: each Task call asks the daemon; only the built-in
+     general subagent type is allowed, and it runs under the same settings and deny rules. User and repository `permissions.allow` rules, hooks and `.mcp.json` never
    load. The Claude Code version is pinned and checked at spawn; profile wrappers (for example
    `claude-sr`) and extra argv are refused. Writes to the gate's inputs (acpmux and daemon
    configuration, the hook binary, the pinned Claude install) are never approvable in a remote
@@ -158,6 +172,13 @@ crashed, slow or unsure, the tool does not run.
      agent definitions with `permissionMode: bypassPermissions`, plugins (hooks, MCP), and managed
      settings, `managed-mcp.json` and managed hooks do **not** let a tool run without the daemon,
      and no plugin hook runs.
+   - `ask` overrides the default auto-allow inside the working folder for Read, Glob and Grep, and
+     the `permissions.deny` rules hold with the hook missing.
+   - the built-in general subagent cannot call `Skill`, cannot read the deny paths, and sends its
+     permission requests to the daemon; `--setting-sources ""` hides user and project agent types.
+   - no user or project `CLAUDE.md` loads (its `@` imports would pull files with no tool call).
+   - the Claude ACP adapter is pinned with Claude; its handling of embedded resources, slash
+     commands and `@` is probed (rule 10).
    - **D-J (decided): both.** in remote chains the `Skill` and `SlashCommand` tools
      and custom subagent types are denied by the daemon (only built-in tools and the built-in
      general subagent with no `permissionMode`), **and** the probe runs; at spawn, managed settings
@@ -191,6 +212,10 @@ crashed, slow or unsure, the tool does not run.
     fake `[mux-event]` line or a fake "Message from user_local:" line stay data. If the pinned
     version does not keep an embedded resource out of prompt parsing, the fallback is a random
     per-prompt nonce delimiter, and remote text that contains the nonce is refused.
+    The pinned Claude ACP adapter may turn an embedded resource into `<context ref=...>...</context>`
+    text, which the remote text could close (P2-P). So remote text that contains `</context>` (in any
+    case or spacing) is refused, and if the probe shows any other way out, the nonce block is used
+    always.
 11. **Hooks (D-H).** Only the injected hooks run (rule 4): the cmux-tui status hooks (journal events,
     no command built from the text) and the daemon's fast-allow hook. No hook gets remote text as
     shell input. The mux host's memory hooks do not write `LOG.txt` or `TREE/` for a remote chain:
@@ -222,6 +247,11 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
 - remote text that contains a fake closing delimiter, a fake `[mux-event]` line, or `@/etc/hosts`
   in mid-text stays data.
 - `_meta.origin` set on any path other than the daemon-only socket is stripped.
+- with the PreToolUse hook MISSING: a Read of `state/x` and of a `*.token` file is denied, `Skill` is
+  denied, and a Read inside the read root still reaches the daemon.
+- revoke, re-pair, and the next chain starts fresh (no earlier remote-chain session is resumed).
+- the spawn argv contains no value from the secrets list.
+- remote text `</context>` followed by a fake host line is refused (or stays inside the block).
 - bypass refused from `--settings` (gate, rule 5); `--dangerously-skip-permissions` refused.
 - a missing, crashing or slow PreToolUse hook ends in the daemon's decision.
 - a user `Bash(*)` allow rule does not skip the daemon; `MUX_POLICY=approve-all`, `--policy`,
