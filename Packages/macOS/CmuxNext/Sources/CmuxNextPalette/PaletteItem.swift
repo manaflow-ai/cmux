@@ -49,6 +49,12 @@ public struct PaletteItem: Identifiable {
     /// Real colors drawn in the icon's place (a color setting's value, a
     /// theme's colors; R98). Empty draws `symbol`.
     public var swatches: [ThemeRGB] = []
+    /// The row matches only a query that starts with this text, and never
+    /// shows for an empty query (the picker's hidden files: `.`).
+    public var queryPrefix: String?
+    /// The row shows for an empty query only, never as a match (the
+    /// picker's Locations).
+    public var hidesWhenTyping = false
 
     public init(
         id: String,

@@ -10201,59 +10201,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
-      "cli_name" : "browser open-diff-viewer",
-      "context_menu" : "unimplemented",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "g",
-        "modifiers" : [
-          "ctrl",
-          "shift",
-          "cmd"
-        ]
-      },
-      "id" : "openDiffViewer",
-      "mcp" : "unimplemented",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Diff Viewer",
-      "title_key" : "action.openDiffViewer",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "unimplemented",
-      "cli_name" : "browser open-directory-diff-viewer",
-      "context_menu" : "unimplemented",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.openDirectoryDiffViewer",
-      "mcp" : "unimplemented",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Directory Diff Viewer",
-      "title_key" : "action.palette.openDirectoryDiffViewer",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "liveInput",
       "cli_name" : "browser diff-next-line",
       "context_menu" : "noTargetSurface",
@@ -10802,6 +10749,82 @@
       },
       "title" : "Find Previous in Page",
       "title_key" : "action.browser.findPrevious",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-diff-viewer",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "openDiffViewer",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Diff Viewer",
+      "title_key" : "action.openDiffViewer",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-directory-diff-viewer",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.openDirectoryDiffViewer",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Diff Viewer in Folder…",
+      "title_key" : "action.palette.openDirectoryDiffViewer",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser open-markdown-file",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "openMarkdownFile",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Markdown File…",
+      "title_key" : "action.openMarkdownFile",
       "title_table" : "ActionCatalog"
     },
     {

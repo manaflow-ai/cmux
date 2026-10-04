@@ -151,7 +151,6 @@ enum BrowserHandlers {
         unavailable(["markdownZoomIn", "markdownZoomOut", "markdownZoomReset"], MiscHandlerStrings.markdownViewer)
         unavailable(["palette.vscodeServeWebStop", "palette.vscodeServeWebRestart"], MiscHandlerStrings.vscodeServer)
         unavailable([
-            "openDiffViewer", "palette.openDirectoryDiffViewer",
             "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp",
             "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop",
             "diffViewerSearch", "diffViewerNextFile", "diffViewerPreviousFile",
