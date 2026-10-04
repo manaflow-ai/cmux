@@ -206,6 +206,9 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
+    publisher = workflow_job(artifacts, "publish-pr-tree")
+    assert "adopting the verified write-once binary" in publisher
+    assert "already published with a different binary" not in publisher
     assert "for attempt in 1 2 3" in daemon
     assert "cargo test --workspace --locked cmux_next_" in daemon
 
