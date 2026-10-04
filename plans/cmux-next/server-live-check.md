@@ -1,5 +1,7 @@
 # cmux next: server live check (Login Items approval, helper XPC, Stop Serving)
 
+The pmset changes run only on a server Mac, never on the laptop.
+
 Status: ready for the first signed nightly-next build that contains 1eeaa5bb269 (app server status,
 helper fixes, Stop Serving). Lane 10. Run on the Mac that will be the server (the Mac mini), never on
 a developer laptop: the fixes change `pmset` power settings.
