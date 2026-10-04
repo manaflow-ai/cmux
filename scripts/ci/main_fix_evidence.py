@@ -28,6 +28,7 @@ ISSUE = re.compile(r"✘ Test (.+?) recorded an issue at ([^:]+\.swift):\d+:\d+:
 SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
 MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
 MAX_OUTPUT = 32 * 1024 * 1024
+MAX_ANCESTOR_DEPTH = 100
 
 
 class Refused(RuntimeError):
@@ -76,6 +77,29 @@ def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
             if check["id"] > previous.get("id", -1):
                 checks[check["name"]] = check
     return checks
+
+
+def _parent_shas(repo: str, sha: str, github: GitHub) -> list[str]:
+    commit = github.json(f"repos/{repo}/commits/{sha}")
+    parents = commit.get("parents", []) if isinstance(commit, dict) else []
+    return [parent["sha"] for parent in parents
+            if isinstance(parent, dict) and isinstance(parent.get("sha"), str)]
+
+
+def nearest_ancestor_check(repo: str, base: str, name: str, github: GitHub) -> tuple[str, dict, int] | None:
+    """Find the closest parent of BASE whose exact commit has NAME evidence."""
+    queue = [(parent, 1) for parent in _parent_shas(repo, base, github)]
+    visited: set[str] = set()
+    while queue:
+        sha, distance = queue.pop(0)
+        if sha in visited or distance > MAX_ANCESTOR_DEPTH:
+            continue
+        visited.add(sha)
+        checks = latest_checks(repo, sha, github)
+        if name in checks:
+            return sha, checks[name], distance
+        queue.extend((parent, distance + 1) for parent in _parent_shas(repo, sha, github))
+    return None
 
 
 def completed_success(item: dict) -> bool:
@@ -152,9 +176,20 @@ def validate(repo: str, number: int, github: GitHub) -> str:
             if step["name"] not in TEST_STEPS or step.get("status") != "completed" or step.get("conclusion") != "failure":
                 raise Refused(f"{step['name']}: non-test failure cannot be waived")
         base_checks = latest_checks(repo, base, github)
+        base_check_sha = base
+        base_reason = f"exact base `{base}`"
         if SWIFT not in base_checks:
-            raise Refused(f"Swift tests have not run on the exact base {base}")
-        base_job = job_for(repo, base_checks[SWIFT], base, github)
+            ancestor = nearest_ancestor_check(repo, base, SWIFT, github)
+            if ancestor is None:
+                raise Refused(f"Swift tests have not run on base {base} or any of its nearest {MAX_ANCESTOR_DEPTH} ancestors")
+            base_check_sha, base_checks[SWIFT], distance = ancestor
+            base_reason = (
+                f"nearest ancestor `{base_check_sha}` ({distance} parent step"
+                f"{'s' if distance != 1 else ''}) because the exact base `{base}`"
+                f" has no `{SWIFT}` run, as happens for path-filtered commits"
+            )
+            audit.append(f"- Base evidence: {base_reason}; using its `{SWIFT}` job ([job]({base_checks[SWIFT]['details_url']})).")
+        base_job = job_for(repo, base_checks[SWIFT], base_check_sha, github)
         require_build(base_job, BUILDS[SWIFT])
         head_log = github.log(repo, swift)
         base_log = github.log(repo, base_job)
@@ -162,11 +197,11 @@ def validate(repo: str, number: int, github: GitHub) -> str:
             name = step["name"]
             base_step = next((step for step in base_job["steps"] if step["name"] == name), {})
             if base_step.get("conclusion") != "failure" or base_step.get("status") != "completed":
-                raise Refused(f"{name}: failed tests not reproduced on exact base {base}")
+                raise Refused(f"{name}: failed tests not reproduced on {base_reason}")
             head_failures, base_failures = failures(head_log, name), failures(base_log, name)
             unmatched = head_failures - base_failures
             if unmatched:
-                raise Refused(f"{name}: failures not reproduced on exact base {base}: {sorted(unmatched)!r}")
+                raise Refused(f"{name}: failures not reproduced on {base_reason}: {sorted(unmatched)!r}")
             for test, source, issue in sorted(head_failures):
                 audit.append(f"- Matched base failure: `{source}` / `{test}`: {json.dumps(issue, ensure_ascii=False)} "
                              f"([head]({checks[SWIFT]['details_url']}), [base]({base_checks[SWIFT]['details_url']})).")
