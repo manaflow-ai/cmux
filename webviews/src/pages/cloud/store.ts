@@ -6,7 +6,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
-import type { FileTransfer } from "./transfers";
+import { TransferWatch, type FileTransfer } from "./transfers";
 import {
   applyEvent,
   atMachineLimit,
@@ -22,7 +22,9 @@ import {
 import {
   ACTION_RUN,
   CloudOps,
-  isUnsupported,
+  isGone,
+  isNotServed,
+  isRouteMissing,
   type ActionRunResult,
   type AuthStatus,
   type CloudMachine,
@@ -93,6 +95,7 @@ export class CloudStore {
   private session = 0;
   readonly detail: DetailReader;
   readonly files: FilesReader;
+  readonly transfers: TransferWatch;
 
   constructor(
     private readonly client: PageClient | null,
@@ -120,7 +123,13 @@ export class CloudStore {
       epoch: () => this.detail.epoch,
     };
     this.detail = new DetailReader(client, host);
-    this.files = new FilesReader(client, host);
+    this.transfers = new TransferWatch(client, {
+      get: () => this.state.transfers,
+      set: (transfers) => this.set({ transfers }),
+      ended: (event) => this.files.transferEnded(event),
+      unsupported: (op) => this.markUnavailable(op),
+    });
+    this.files = new FilesReader(client, host, this.transfers);
   }
 
   getSnapshot = (): CloudState => this.state;
@@ -218,7 +227,7 @@ export class CloudStore {
       await this.client!.call(CloudOps.teamSelect, { team, idempotency_key: this.key() });
     } catch (error) {
       if (session !== this.session) return;
-      if (!isUnsupported(error)) return this.set({ loading: false, ...failure(error) });
+      if (!isNotServed(CloudOps.teamSelect, error)) return this.set({ loading: false, ...failure(error) });
       // Nothing changed at the owner: show the same team again.
       this.markUnavailable(CloudOps.teamSelect);
     }
@@ -362,8 +371,11 @@ export class CloudStore {
       else this.replied(key, result);
     } catch (error) {
       this.dropIntent(key);
-      // The owner no longer knows the machine: it dropped it and sent `removed`. Nothing failed.
-      if (!isPageError(error) || error.code !== "cmux.cloud.not_found") this.fail(CloudOps.machineDelete, error);
+      // The machine's own 404 (`vm_not_found`): the owner dropped it and sent `removed`. Nothing
+      // failed. A bare 404 is a missing route: "Not available yet", and the machine stays.
+      if (isGone(CloudOps.machineDelete, error)) return;
+      if (isRouteMissing(CloudOps.machineDelete, error)) this.markUnavailable(CloudOps.machineDelete);
+      else this.fail(CloudOps.machineDelete, error);
     }
   }
 
@@ -392,6 +404,9 @@ export class CloudStore {
     this.session += 1;
     this.unwatch?.();
     this.unwatch = undefined;
+    // Without the event stream a running row would never end: the session's transfers go with it.
+    this.transfers.stop();
+    if (this.state.transfers.length) this.set({ transfers: [] });
   }
 
   private restartSession(): number {
@@ -443,7 +458,7 @@ export class CloudStore {
       [CloudOps.planGet, plan],
       [CloudOps.usageGet, usage],
     ] as const)
-      if (result.status === "rejected" && isUnsupported(result.reason)) this.markUnavailable(op);
+      if (result.status === "rejected" && isNotServed(op, result.reason)) this.markUnavailable(op);
     this.set({
       teams: teams.status === "fulfilled" ? teams.value : [],
       plan: plan.status === "fulfilled" ? plan.value : undefined,
@@ -543,7 +558,7 @@ export class CloudStore {
 
   /** A reject: "not available yet" for an op the owner does not serve, else the error banner. */
   private fail(op: string, error: unknown): void {
-    if (isUnsupported(error)) this.markUnavailable(op);
+    if (isNotServed(op, error)) this.markUnavailable(op);
     else this.set(failure(error));
   }
 

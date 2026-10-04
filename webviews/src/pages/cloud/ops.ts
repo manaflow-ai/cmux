@@ -145,6 +145,50 @@ export function isUnsupported(error: unknown): boolean {
   return typeof code === "string" && UNSUPPORTED_CODES.has(code);
 }
 
+/**
+ * The HTTP status and Cloud API code of a `cmux.cloud.not_found`. The server's error carries them as
+ * `status` and `upstream_code` (first-party-apps/cloud/server/src/api/error.rs); the page reads them
+ * from the page error's `details`, where the host puts the owner's extra error fields.
+ */
+function upstreamOf(error: unknown): { status?: number; code?: string } {
+  const details = (error as { details?: unknown } | null)?.details;
+  if (!details || typeof details !== "object") return {};
+  const { status, upstream_code: code } = details as { status?: unknown; upstream_code?: unknown };
+  return {
+    ...(typeof status === "number" ? { status } : {}),
+    ...(typeof code === "string" && code ? { code } : {}),
+  };
+}
+
+function isNotFound(error: unknown): boolean {
+  if ((error as { code?: unknown } | null)?.code !== "cmux.cloud.not_found") return false;
+  const { status } = upstreamOf(error);
+  return status === undefined || status === 404;
+}
+
+/**
+ * The Cloud API has no route for `op` yet: a 404 with no code (Next.js answers a missing route with
+ * a bare 404), or with a code that is not the op kind's own not-found code. Production has no
+ * `/api/vm/:id/fs/*`, firewall, network or tunnel routes today. The page shows "Not available yet",
+ * never "gone". A `not_found` without details counts as bare: the page cannot tell more.
+ */
+export function isRouteMissing(op: string, error: unknown): boolean {
+  if (!isNotFound(error)) return false;
+  const { code } = upstreamOf(error);
+  return code === undefined || code !== notFoundCode(op);
+}
+
+/** The route answered that the item of `op` is not there (its kind's own 404 code): it is gone. */
+export function isGone(op: string, error: unknown): boolean {
+  const own = notFoundCode(op);
+  return own !== undefined && isNotFound(error) && upstreamOf(error).code === own;
+}
+
+/** The owner does not serve `op` yet (an unsupported op, or a missing Cloud API route). */
+export function isNotServed(op: string, error: unknown): boolean {
+  return isUnsupported(error) || isRouteMissing(op, error);
+}
+
 /** The host's answer to a confirmation action. A declined sheet answers `confirmed: false`. */
 export interface ActionRunResult {
   confirmed?: boolean;
