@@ -485,6 +485,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_the_shared_home_listens_on_the_fixed_port() {
+        assert_eq!(first_run_listen(true, None), "127.0.0.1:47811");
+        assert_eq!(first_run_listen(false, None), "127.0.0.1:0");
+        // A tagged home that saved the fixed port moves to a free one; other choices stay.
+        assert_eq!(first_run_listen(false, Some("127.0.0.1:47811")), "127.0.0.1:0");
+        assert_eq!(first_run_listen(false, Some("127.0.0.1:5555")), "127.0.0.1:5555");
+        assert_eq!(first_run_listen(true, Some("0.0.0.0:47811")), "0.0.0.0:47811");
+    }
+
+    #[test]
     fn daemon_log_is_owner_only_when_created_and_when_an_old_log_is_wider() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("acpmux-log-{}", uuid::Uuid::now_v7()));
