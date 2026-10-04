@@ -28,7 +28,7 @@ The server never sees a credential. It sends each Cloud op as a `cmux.wire/1` ca
 
 ## Ops (`catalog/cloud-catalog.json`)
 
-Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<verb>`. The server accepts both and the old relay names.
+Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<verb>`. The server accepts both and the old relay names. The backend catalog (`backend/catalog/cloud-operations.json`, owner `cloud:CloudDO`) is the single owner of the client-facing machine, snapshot, plan, billing and migration ops; the fragment declares none of them and the manifest names them in `consumes.ops`. The server still serves them (projection, ledger, checks) and forwards each to the backend op of the same name. The fragment declares only the app-local ops (`cloud.auth.status`, `cloud.machine.watch`, attach, files, ports, browser).
 
 | Op | Class, risk | MCP | CLI | Cloud API | Rule |
 | --- | --- | --- | --- | --- | --- |

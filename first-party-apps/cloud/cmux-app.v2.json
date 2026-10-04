@@ -47,6 +47,29 @@
     },
     "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] }
   },
+  "consumes": {
+    "ops": [
+      "cloud.billing.checkout",
+      "cloud.machine.connect_info",
+      "cloud.machine.create",
+      "cloud.machine.delete",
+      "cloud.machine.get",
+      "cloud.machine.idle_policy.set",
+      "cloud.machine.list",
+      "cloud.machine.pause",
+      "cloud.machine.rename",
+      "cloud.machine.resize",
+      "cloud.machine.start",
+      "cloud.machine.upgrade",
+      "cloud.migration.start",
+      "cloud.migration.status",
+      "cloud.plan.get",
+      "cloud.snapshot.create",
+      "cloud.snapshot.delete",
+      "cloud.snapshot.list",
+      "cloud.snapshot.restore"
+    ]
+  },
   "scopes": {
     "cloud:read": "See your Cloud machines, their status and stats, snapshots, plan and usage.",
     "cloud:write": "Create, start, pause, resize and delete Cloud machines and snapshots, and forward their ports to this Mac, when you or an allowed agent asks. Deletes always need you.",
