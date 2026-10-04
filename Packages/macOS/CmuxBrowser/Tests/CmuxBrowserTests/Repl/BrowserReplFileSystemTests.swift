@@ -568,6 +568,49 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(fs.perform("readdir", arguments: ["path": "small"]).failureCode == "ok")
     }
 
+    /// A root that does not exist yet is opened (and made, by `mkdir -p`)
+    /// only when an operation first needs it. Another session whose root is
+    /// above it can move a link it holds into the place of the root's
+    /// parent before then; the root must not be made or opened through it.
+    @Test("A missing root whose parent became a link is neither made nor opened through it")
+    func missingRootThroughSwappedParentIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let fs = BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: scratch.root + "/a/b"),
+            temporaryDirectory: scratch.base + "/tmp"
+        )
+        // The link another session moved into place (fs.rename keeps a link a link).
+        try FileManager.default.createSymbolicLink(atPath: scratch.root + "/a", withDestinationPath: scratch.outside)
+
+        let made = fs.perform("mkdir", arguments: ["path": ".", "recursive": true])
+        let wrote = fs.perform("writeFile", arguments: ["path": "x.txt", "base64": Data("x".utf8).base64EncodedString()])
+        let read = fs.perform("readFile", arguments: ["path": "../secret.txt"])
+
+        #expect(made.failureCode == "EACCES", "\(made)")
+        #expect(wrote.failureCode != "ok")
+        #expect(read.failureCode != "ok")
+        #expect(!FileManager.default.fileExists(atPath: scratch.outside + "/b"))
+    }
+
+    @Test("A root that exists is held from a walk that follows no link, also when a parent is a link by then")
+    func existingRootThroughSwappedParentIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        try FileManager.default.createDirectory(atPath: scratch.outside + "/b", withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: scratch.root + "/a/b", withIntermediateDirectories: true)
+        let sandbox = BrowserReplFileSandbox(root: scratch.root + "/a/b")
+        // Swapped after the path was resolved, before the fs opens it.
+        try FileManager.default.removeItem(atPath: scratch.root + "/a")
+        try FileManager.default.createSymbolicLink(atPath: scratch.root + "/a", withDestinationPath: scratch.outside)
+        let fs = BrowserReplFileSystem(sandbox: sandbox, temporaryDirectory: scratch.base + "/tmp")
+
+        let wrote = fs.perform("writeFile", arguments: ["path": "x.txt", "base64": Data("x".utf8).base64EncodedString()])
+
+        #expect(wrote.failureCode == "EACCES", "\(wrote)")
+        #expect(!FileManager.default.fileExists(atPath: scratch.outside + "/b/x.txt"))
+    }
+
     @Test("A cancelled copy or write stops between chunks and a copy leaves no file")
     func cancelledCopyStops() throws {
         let scratch = try Scratch()
