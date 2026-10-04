@@ -638,7 +638,10 @@
         const list = await session.call("tabs.list", options && options.all ? { all: true } : {});
         const current = state.current && state.current._targetId;
         return list.map((t) => {
-          const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current };
+          // state: "live", "hibernated" (cmux unloaded the hidden page to
+          // save memory; the next call on it loads it again), "waking" or
+          // "crashed" (page.reload() loads it again).
+          const row = { id: t.targetId, title: t.title, url: t.url, active: !!t.active, current: t.targetId === current, state: t.state || "live" };
           if (options && options.all) row.workspace = t.windowId === undefined ? null : t.windowId;
           return row;
         });
