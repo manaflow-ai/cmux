@@ -25,8 +25,15 @@ extension LayoutStyle {
         max(stripGap + panePadding * 2, dividerHitThickness)
     }
 
-    /// Split dividers draw their line only while panes have no border.
-    public nonisolated var showsDividerLine: Bool { drawsLines && !showsPaneBorder }
+    /// Split dividers draw their line at rest only while panes have no
+    /// border and the separation allows one (not `cards` or `none`).
+    public nonisolated var showsDividerLine: Bool {
+        drawsLines && !showsPaneBorder && paneSeparation != .cards && paneSeparation != .none
+    }
+
+    /// Dividers and column edges show a line on hover and while dragged,
+    /// except under `layout.paneSeparation` none (the cursor is the cue).
+    public nonisolated var showsDividerFeedback: Bool { paneSeparation.drawsDividerFeedback }
 
     /// Whether panes differ from plain edge-to-edge rectangles.
     public nonisolated var hasPaneChrome: Bool {

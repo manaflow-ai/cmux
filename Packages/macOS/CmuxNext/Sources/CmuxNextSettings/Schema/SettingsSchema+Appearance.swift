@@ -159,6 +159,20 @@ nonisolated enum AppearanceSettingsSchema {
                 default: .string(AnimationSpeedSetting.fallback.rawValue), keywords: ["motion", "speed"]
             ),
             SettingDescriptor(
+                ["layout", "paneSeparation"], section: .appearance, group: panes,
+                title: SettingsText.keyed("settings.layout.paneSeparation", "Separation"),
+                help: SettingsText.keyed("settings.layout.paneSeparation.help",
+                                        "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."),
+                kind: .choice([
+                    SettingChoice(PaneSeparation.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
+                    SettingChoice(PaneSeparation.dividers.rawValue, SettingsText.keyed("settings.choice.dividers", "Dividers")),
+                    SettingChoice(PaneSeparation.borders.rawValue, SettingsText.keyed("settings.choice.borders", "Borders")),
+                    SettingChoice(PaneSeparation.cards.rawValue, SettingsText.keyed("settings.choice.cards", "Cards")),
+                ]),
+                default: .string(PaneSeparation.borders.rawValue),
+                keywords: ["border", "divider", "separator", "gap", "cards", "lines", "seamless", "pane"]
+            ),
+            SettingDescriptor(
                 ["layout", "panePadding"], section: .appearance, group: panes,
                 title: SettingsText.keyed("settings.layout.panePadding", "Padding"),
                 kind: .number(appearancePoints(PaneChromeOverrides.paddingRange, step: 1, placeholder: 4)),
