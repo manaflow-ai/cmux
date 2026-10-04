@@ -355,12 +355,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "input.key", "input.insertText":
             try await frameGate.checkFocus(in: webView, frames: frames)
         case "filechooser.respond":
-            // The chooser's frame is not recorded with it; while any frame
-            // of the tab shows a blocked page, files go to none.
-            if let entry = frameGate.blocked(frames, in: webView).first {
-                throw Self.error("blocked", "the tab shows frame \(entry.frame.url), which the domain policy blocks: \(entry.reason); a file chooser may only be cancelled")
+            // Files go only to the input of the chooser's own frame.
+            guard let chooserID = params["chooserId"] as? String,
+                  let frame = BrowserReplTabAttachments.shared.attachment(for: id)?.fileChooserFrame(id: chooserID, sessionID: sessionID) else {
+                return
             }
+            try await frameGate.checkFileChooser(frame: frame, in: webView, frames: frames)
+        case "tab.screenshot":
+            // Judged during the capture, which blanks blocked frames
+            // (BrowserReplFrameGate.coverBlockedFrames).
+            return
         default:
+            // A PDF is laid out for print; its frames' boxes cannot be
+            // blanked, so any blocked frame refuses it.
             try frameGate.checkCapture(in: webView, frames: frames)
         }
     }
@@ -2057,9 +2064,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let fullPage = params["fullPage"] as? Bool ?? false
         let clip = params["clip"] as? [String: Any]
         let masks = typedSecretMasks(params)
+        let frameGate = self.frameGate
         let image: CGImage = try await withWindow(panel) { webView, _ in
             try await Self.withSecretMasks(masks, webView: webView) {
-                try await BrowserReplCapture.snapshot(webView: webView, clip: clip, fullPage: fullPage)
+                // Frames the domain policy blocks (an ad or tracker under
+                // allowedDomains) are blanked, not the whole capture refused.
+                try await frameGate.coverBlockedFrames(in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) }) {
+                    try await BrowserReplCapture.snapshotWithRegion(webView: webView, clip: clip, fullPage: fullPage)
+                }
             }
         }
         let data = try BrowserReplCapture.encode(image, format: format, quality: quality)

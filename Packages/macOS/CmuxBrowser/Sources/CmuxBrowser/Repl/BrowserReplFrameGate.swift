@@ -179,40 +179,14 @@ public final class BrowserReplFrameGate {
     /// a blocked frame whose box cannot be found refuses every point.
     public func checkPointer(at points: [CGPoint], in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
         guard policy.isActive, !points.isEmpty else { return }
-        let blockedFrames = blocked(frames, in: webView)
-        guard let first = blockedFrames.first, let main = frames.first else { return }
-        if first.frame.frameID == main.frameID {
-            throw blocked(first.frame, document: nil, reason: first.reason)
-        }
-        let byID = Dictionary(frames.map { ($0.frameID, $0) }, uniquingKeysWith: { first, _ in first })
-        var tops: [(top: BrowserReplFrame, blocked: BrowserReplFrame, reason: String)] = []
-        for entry in blockedFrames {
-            var top = entry.frame
-            while let parentID = top.parentFrameID, parentID != main.frameID, let parent = byID[parentID] {
-                top = parent
-            }
-            guard top.parentFrameID == main.frameID else {
-                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.url) shows a page the domain policy blocks (\(entry.reason)) and its position is unknown, so pointer input to this tab is refused")
-            }
-            if !tops.contains(where: { $0.top.frameID == top.frameID }) {
-                tops.append((top, entry.frame, entry.reason))
-            }
-        }
-        let value = try await probe(
-            Self.boxesSource,
-            arguments: ["indexes": tops.map(\.top.indexInParent)],
-            in: webView,
-            frame: nil,
-            what: "the page did not report its frames' positions"
-        )
-        let boxes = value as? [Any] ?? []
-        for (index, entry) in tops.enumerated() {
-            guard index < boxes.count, let box = boxes[index] as? [String: Any],
-                  let x = (box["x"] as? NSNumber)?.doubleValue, let y = (box["y"] as? NSNumber)?.doubleValue,
-                  let width = (box["width"] as? NSNumber)?.doubleValue, let height = (box["height"] as? NSNumber)?.doubleValue else {
+        let tops = try blockedTops(frames, in: webView)
+        guard !tops.isEmpty else { return }
+        let found = try await boxes(of: tops, in: webView, frames: frames, effects: false)
+        for (entry, box) in zip(tops, found.boxes) {
+            guard let box else {
                 throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.blocked.url) shows a page the domain policy blocks (\(entry.reason)) and its position is unknown, so pointer input to this tab is refused")
             }
-            for point in points where point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height {
+            for point in points where point.x >= box.minX && point.x <= box.maxX && point.y >= box.minY && point.y <= box.maxY {
                 throw BrowserReplDriverError(code: "blocked", message: "The point (\(Self.format(point.x)), \(Self.format(point.y))) is over frame \(entry.blocked.url), which the domain policy blocks: \(entry.reason)")
             }
         }
@@ -269,6 +243,107 @@ public final class BrowserReplFrameGate {
         throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.frame.url), which the domain policy blocks: \(entry.reason); a capture would show it")
     }
 
+    /// Runs `capture`, which returns an image of `region` (CSS pixels of the
+    /// main frame's viewport, its origin at the image's top-left), and
+    /// blanks in it the box of every main-frame child frame that is, or
+    /// holds, a frame the policy blocks, as the tree is before and after
+    /// the capture. A frame's content draws only inside its frame element's
+    /// box, so the rest of the page stays as it is.
+    ///
+    /// Throws `blocked`, before or after the capture, when the main frame is
+    /// blocked or a blocked frame's content cannot be hidden this way: its
+    /// box is unknown, its frame element or an ancestor draws it elsewhere
+    /// (`-webkit-box-reflect`, `filter`), or an element of the page samples
+    /// what lies under it (`backdrop-filter`). The page can still move a
+    /// frame and put it back within the capture.
+    public func coverBlockedFrames(
+        in webView: WKWebView,
+        frames: @MainActor () async -> [BrowserReplFrame],
+        capture: () async throws -> (image: CGImage, region: CGRect)
+    ) async throws -> CGImage {
+        guard policy.isActive else { return try await capture().image }
+        let before = try await captureCovers(in: webView, frames: await frames())
+        let (image, region) = try await capture()
+        let after = try await captureCovers(in: webView, frames: await frames())
+        let covers = before + after
+        guard !covers.isEmpty else { return image }
+        return try Self.blank(covers, in: image, region: region)
+    }
+
+    /// The boxes (CSS pixels of the main frame's viewport) a capture must
+    /// blank; see ``coverBlockedFrames(in:frames:capture:)``.
+    func captureCovers(in webView: WKWebView, frames: [BrowserReplFrame]) async throws -> [CGRect] {
+        let tops = try blockedTops(frames, in: webView)
+        guard !tops.isEmpty else { return [] }
+        let found = try await boxes(of: tops, in: webView, frames: frames, effects: true)
+        if found.backdrop {
+            throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(tops[0].blocked.url), which the domain policy blocks (\(tops[0].reason)), and an element of the page blurs or filters what lies under it (backdrop-filter), so a capture could show the frame")
+        }
+        return try zip(tops, found.boxes).map { entry, box in
+            guard let box else {
+                throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.blocked.url), which the domain policy blocks (\(entry.reason)); its position is unknown, so a capture could show it")
+            }
+            if found.escapes.contains(entry.top.frameID) {
+                throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.blocked.url), which the domain policy blocks (\(entry.reason)), and the page draws it outside its box (-webkit-box-reflect or filter), so a capture could show it")
+            }
+            return box
+        }
+    }
+
+    /// `image` (of `region`) with `covers` filled in gray.
+    static func blank(_ covers: [CGRect], in image: CGImage, region: CGRect) throws -> CGImage {
+        let width = image.width
+        let height = image.height
+        guard region.width > 0, region.height > 0,
+              let context = CGContext(
+                  data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            throw BrowserReplDriverError(code: "invalid", message: "Could not hide the blocked frames in the capture")
+        }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let scaleX = CGFloat(width) / region.width
+        let scaleY = CGFloat(height) / region.height
+        context.setFillColor(CGColor(gray: 0.5, alpha: 1))
+        for cover in covers {
+            // Whole pixels, rounded outward, so no edge of the frame shows.
+            let x = floor((cover.minX - region.minX) * scaleX)
+            let top = floor((cover.minY - region.minY) * scaleY)
+            let right = ceil((cover.maxX - region.minX) * scaleX)
+            let bottom = ceil((cover.maxY - region.minY) * scaleY)
+            context.fill(CGRect(x: x, y: CGFloat(height) - bottom, width: right - x, height: bottom - top))
+        }
+        guard let result = context.makeImage() else {
+            throw BrowserReplDriverError(code: "invalid", message: "Could not hide the blocked frames in the capture")
+        }
+        return result
+    }
+
+    /// Throws `blocked` when the policy blocks the frame a file chooser
+    /// opened from: as WebKit recorded it when the chooser opened, and the
+    /// document it shows now when it is still in `frames`. Other frames of
+    /// the tab do not matter; the files go only to that frame's input.
+    public func checkFileChooser(frame info: WKFrameInfo, in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
+        guard policy.isActive else { return }
+        let refusal = { (shown: String, reason: String) in
+            BrowserReplDriverError(code: "blocked", message: "The file chooser opened in a frame showing \(shown), which the domain policy blocks: \(reason); it may only be cancelled")
+        }
+        let recorded = BrowserReplFrameDocument(info: info)
+        if let reason = policy.blockReason(document: recorded) {
+            throw refusal(recorded.origin ?? recorded.place, reason)
+        }
+        let frame: BrowserReplFrame?
+        if info.isMainFrame {
+            frame = frames.first
+        } else {
+            let id = BrowserReplFrame.frameID(of: info)
+            frame = id.flatMap { id in frames.first { $0.frameID == id } }
+        }
+        guard let frame else { return }
+        try await authorize(frame, in: webView)
+    }
+
     /// The frames whose recorded documents the policy blocks.
     public func blocked(_ frames: [BrowserReplFrame], in webView: WKWebView) -> [(frame: BrowserReplFrame, reason: String)] {
         guard policy.isActive else { return [] }
@@ -295,23 +370,53 @@ public final class BrowserReplFrameGate {
     return [location.origin, location.protocol + "//" + location.host];
     """
 
+    /// The boxes of the main frame's child frames at `indexes` (their
+    /// indexes in WebKit's frame tree). `window.frames` holds only the
+    /// frames of the document's own tree, not those in shadow trees, and
+    /// WebKit orders both lists the same way; so the indexes match only
+    /// when the main frame has no frame in a shadow tree (`window.frames`
+    /// is as long as the tree's `childCount`). Otherwise every box is
+    /// unknown. With `effects`, also whether a frame element or an
+    /// ancestor draws it outside its box, and whether any element samples
+    /// what lies under it. Agent code shares no state with this world, and
+    /// `window.frames`, `contentWindow` and computed styles come from the
+    /// engine.
     private static let boxesSource = """
+    if (window.frames.length !== childCount) return { boxes: indexes.map(() => null), escapes: [], backdrop: false };
     const owners = new Map();
+    let backdrop = false;
+    const styleOf = (el) => getComputedStyle(el);
+    const drawsElsewhere = (cs) => (cs.getPropertyValue("filter") || "none") !== "none"
+      || (cs.getPropertyValue("-webkit-box-reflect") || "none") !== "none";
     const visit = (root) => {
-      for (const el of root.querySelectorAll("iframe, frame, object")) {
+      for (const el of root.querySelectorAll("iframe, frame, object, embed")) {
         const w = el.contentWindow;
         if (w && !owners.has(w)) owners.set(w, el);
       }
-      for (const el of root.querySelectorAll("*")) if (el.shadowRoot) visit(el.shadowRoot);
+      for (const el of root.querySelectorAll("*")) {
+        if (effects && !backdrop) {
+          const cs = styleOf(el);
+          const value = cs.getPropertyValue("backdrop-filter") || cs.getPropertyValue("-webkit-backdrop-filter") || "none";
+          if (value !== "none") backdrop = true;
+        }
+        if (el.shadowRoot) visit(el.shadowRoot);
+      }
     };
     visit(document);
-    return indexes.map((i) => {
+    const escapes = [];
+    const boxes = indexes.map((i, n) => {
       const target = window.frames[i];
       const el = target ? owners.get(target) : null;
       if (!el) return null;
+      if (effects) {
+        for (let node = el; node; node = node.parentNode || node.host) {
+          if (node.nodeType === 1 && drawsElsewhere(styleOf(node))) { escapes.push(n); break; }
+        }
+      }
       const r = el.getBoundingClientRect();
       return { x: r.left, y: r.top, width: r.width, height: r.height };
     });
+    return { boxes, escapes, backdrop };
     """
 
     private static let focusSource = """
@@ -325,6 +430,71 @@ public final class BrowserReplFrameGate {
     const w = window.frames[index];
     return !!e && !!w && e.contentWindow === w;
     """
+
+    private struct BlockedTop {
+        /// The main frame's child frame that is, or holds, `blocked`.
+        let top: BrowserReplFrame
+        let blocked: BrowserReplFrame
+        let reason: String
+    }
+
+    /// The main frame's child frames that are or hold a blocked frame, one
+    /// per child. Throws `blocked` when the main frame is blocked, or a
+    /// blocked frame's place in the tree is unknown.
+    private func blockedTops(_ frames: [BrowserReplFrame], in webView: WKWebView) throws -> [BlockedTop] {
+        let blockedFrames = blocked(frames, in: webView)
+        guard let first = blockedFrames.first, let main = frames.first else { return [] }
+        if first.frame.frameID == main.frameID {
+            throw blocked(first.frame, document: nil, reason: first.reason)
+        }
+        let byID = Dictionary(frames.map { ($0.frameID, $0) }, uniquingKeysWith: { first, _ in first })
+        var tops: [BlockedTop] = []
+        for entry in blockedFrames {
+            var top = entry.frame
+            while let parentID = top.parentFrameID, parentID != main.frameID, let parent = byID[parentID] {
+                top = parent
+            }
+            guard top.parentFrameID == main.frameID else {
+                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.url) shows a page the domain policy blocks (\(entry.reason)) and its position is unknown, so input and captures of this tab are refused")
+            }
+            if !tops.contains(where: { $0.top.frameID == top.frameID }) {
+                tops.append(BlockedTop(top: top, blocked: entry.frame, reason: entry.reason))
+            }
+        }
+        return tops
+    }
+
+    /// The boxes (CSS pixels of the main frame's viewport) of `tops`, in
+    /// order, `nil` where unknown; see ``boxesSource``.
+    private func boxes(
+        of tops: [BlockedTop],
+        in webView: WKWebView,
+        frames: [BrowserReplFrame],
+        effects: Bool
+    ) async throws -> (boxes: [CGRect?], escapes: Set<String>, backdrop: Bool) {
+        let mainID = frames.first?.frameID
+        let childCount = frames.filter { $0.parentFrameID != nil && $0.parentFrameID == mainID }.count
+        let value = try await probe(
+            Self.boxesSource,
+            arguments: ["indexes": tops.map(\.top.indexInParent), "childCount": childCount, "effects": effects],
+            in: webView,
+            frame: nil,
+            what: "the page did not report its frames' positions"
+        ) as? [String: Any] ?? [:]
+        let list = value["boxes"] as? [Any] ?? []
+        let boxes: [CGRect?] = tops.indices.map { index in
+            guard index < list.count, let box = list[index] as? [String: Any],
+                  let x = (box["x"] as? NSNumber)?.doubleValue, let y = (box["y"] as? NSNumber)?.doubleValue,
+                  let width = (box["width"] as? NSNumber)?.doubleValue, let height = (box["height"] as? NSNumber)?.doubleValue,
+                  x.isFinite, y.isFinite, width.isFinite, height.isFinite else { return nil }
+            return CGRect(x: x, y: y, width: width, height: height)
+        }
+        // An effect check that did not answer counts as drawing elsewhere.
+        let escapeIndexes = (value["escapes"] as? [NSNumber])?.map(\.intValue) ?? (effects ? Array(tops.indices) : [])
+        let escapes = Set(escapeIndexes.compactMap { $0 < tops.count ? tops[$0].top.frameID : nil })
+        let backdrop = (value["backdrop"] as? Bool) ?? effects
+        return (boxes, escapes, backdrop)
+    }
 
     private func key(_ frame: BrowserReplFrame, _ webView: WKWebView) -> Key {
         if known.count > 4_096 { known.removeAll() }

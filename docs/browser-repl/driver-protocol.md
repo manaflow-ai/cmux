@@ -216,9 +216,18 @@ native (`BrowserReplBoundary` in the session, and the driver):
   every point), `input.key` and `input.insertText` while a blocked frame
   holds the focus (its document has it or holds a focused element, or its
   parent's focused element is its frame; a frame that cannot answer counts
-  as focused), captures while any frame shows a blocked page, and file
-  chooser answers other than `cancel` then too, since the chooser's frame
-  is not recorded. In tabs the session created the content rules keep a
+  as focused), PDFs while any frame shows a blocked page, and file
+  chooser answers other than `cancel` when the chooser's own frame (as
+  WebKit recorded it when the chooser opened, and the document it shows
+  now) is blocked. A screenshot blanks, in gray, the box of each main-frame
+  child frame that is or holds a blocked frame, as the tree is before and
+  after the capture, and shows the rest of the page; it is refused when
+  the main frame is blocked or a blocked frame's content cannot be hidden
+  that way (its box is unknown, its frame element or an ancestor has
+  `-webkit-box-reflect` or `filter`, or an element of the page has
+  `backdrop-filter`). Child frames are matched to their elements through
+  `window.frames`, which leaves out frames in shadow trees, so while the
+  main frame has a frame in a shadow tree every box counts as unknown. In tabs the session created the content rules keep a
   blocked frame from loading at all; its empty frame belongs to the parent
   and refuses nothing. The page can still move a frame or the focus in its
   own web process between the check and the input reaching it. Each of

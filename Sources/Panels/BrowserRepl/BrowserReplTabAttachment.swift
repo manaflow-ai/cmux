@@ -108,7 +108,8 @@ final class BrowserReplTabAttachment {
     /// Dialogs and file choosers waiting for the session each was routed
     /// to; only that session answers one.
     private var dialogs = BrowserReplRoutedRequests<(Bool, String?) -> Void>()
-    private var fileChoosers = BrowserReplRoutedRequests<([URL]?) -> Void>()
+    /// Each chooser's responder and the frame it opened from.
+    private var fileChoosers = BrowserReplRoutedRequests<(respond: ([URL]?) -> Void, frame: WKFrameInfo)>()
     private var nextID = 0
     private var resourceObserver: BrowserReplResourceLoadObserver?
     private var consoleHandler: BrowserReplConsoleMessageHandler?
@@ -451,7 +452,7 @@ final class BrowserReplTabAttachment {
         // Dialogs and choosers routed to the leaving session are answered as
         // unhandled ones are; no other session may answer them.
         for respond in dialogs.removeAll(ownedBy: sessionID) { respond(false, nil) }
-        for respond in fileChoosers.removeAll(ownedBy: sessionID) { respond(nil) }
+        for chooser in fileChoosers.removeAll(ownedBy: sessionID) { chooser.respond(nil) }
         sinks.removeValue(forKey: sessionID)
         ownership.detach(sessionID: sessionID)
         if sinks.isEmpty {
@@ -548,7 +549,7 @@ final class BrowserReplTabAttachment {
         // Playwright dismisses dialogs nobody handles; do the same so a page
         // is never left blocked on a dialog after its session goes away.
         for respond in dialogs.removeAll() { respond(false, nil) }
-        for respond in fileChoosers.removeAll() { respond(nil) }
+        for chooser in fileChoosers.removeAll() { chooser.respond(nil) }
         releaseHeldInput()
         uninstrument()
         agentUserScript.release()
@@ -792,7 +793,7 @@ final class BrowserReplTabAttachment {
     ) -> Bool {
         guard let owner = recipient(for: .fileChooser) else { return false }
         let id = makeID("c")
-        fileChoosers.add(id: id, owner: owner, respond: respond)
+        fileChoosers.add(id: id, owner: owner, respond: (respond, frame))
         let frameID = frame.isMainFrame ? nil : BrowserReplFrameTree.frameID(of: frame)
         Task { @MainActor [weak self] in
             let element = await self?.chooserElementHandle(in: frame)
@@ -808,9 +809,15 @@ final class BrowserReplTabAttachment {
 
     /// Answers file chooser `id` when `sessionID` is the session it was routed to.
     func respondToFileChooser(id: String, sessionID: String, files: [URL]?) -> Bool {
-        guard let respond = fileChoosers.take(id: id, sessionID: sessionID) else { return false }
-        respond(files)
+        guard let chooser = fileChoosers.take(id: id, sessionID: sessionID) else { return false }
+        chooser.respond(files)
         return true
+    }
+
+    /// The frame file chooser `id` opened from, when `sessionID` is the
+    /// session it was routed to.
+    func fileChooserFrame(id: String, sessionID: String) -> WKFrameInfo? {
+        fileChoosers.value(id: id, sessionID: sessionID)?.frame
     }
 
     /// The agent handle of the file input that opened the chooser.
