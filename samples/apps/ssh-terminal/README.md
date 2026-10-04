@@ -129,7 +129,7 @@ Registry id: `app:manaflow-ai/ssh-terminal/ssh`.
 6. `ByteEvent::Output` carries no offset, and `BackendCapabilities` has no
    `answers_queries`. The sample keeps offsets in the resume token and
    exports `ANSWERS_QUERIES`.
-7. The mirror's `LocalId` allows 32 characters; the interface schema allows 64.
+7. (Fixed) The mirror's `LocalId` follows the schema pattern `^[a-z][a-zA-Z0-9-]{0,63}$`.
 8. `ExitStatus` has no signal name for `exit-signal`.
 9. A credential handle that signs any bytes the app sends gives the app a
    signing oracle. The host must parse the payload as an SSH user-auth

@@ -24,16 +24,20 @@ use std::fmt;
 /// The interface id.
 pub const BACKEND_INTERFACE: &str = "cmux.terminal.backend/1";
 
-/// A local id (`options.kinds` entry, implementation id): `[a-z][a-z0-9-]{0,31}`.
+/// A local id (`options.kinds` entry, implementation id), the interface
+/// schema's pattern `^[a-z][a-zA-Z0-9-]{0,63}$`: at most 64 ASCII characters.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct LocalId(String);
+
+/// Longest local id (the `{0,63}` of the pattern plus the first letter).
+pub const MAX_LOCAL_ID: usize = 64;
 
 impl LocalId {
     pub fn new(value: &str) -> Result<Self, BackendError> {
         let mut chars = value.chars();
         let ok = chars.next().is_some_and(|c| c.is_ascii_lowercase())
-            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-            && value.len() <= 32;
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && value.len() <= MAX_LOCAL_ID;
         if ok {
             Ok(Self(value.to_owned()))
         } else {
