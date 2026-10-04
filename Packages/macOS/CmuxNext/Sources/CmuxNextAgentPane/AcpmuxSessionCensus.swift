@@ -14,9 +14,12 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
     /// above (and never ended by a quit).
     public var chiefInTurn: Bool
 
-    /// The tag key that marks a Home Chief session.
-    /// PROVISIONAL: the chief lane confirms the key (quit-persistence R138).
+    /// The tag key on every Home Chief turn and compactor session (value:
+    /// the home id), agreed with the chief lane. Untagged Chief sessions are
+    /// known by `chiefNamePrefix` and `chiefCompactorPresetPrefix`.
     public static let chiefTagKey = "cmux.chief"
+    public static let chiefNamePrefix = "optchat-"
+    public static let chiefCompactorPresetPrefix = "optchat-compact-"
 
     public init(live: Int = 0, inTurn: Int = 0, inTurnNames: [String] = [], chiefInTurn: Bool = false) {
         self.live = live
