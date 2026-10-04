@@ -64,6 +64,12 @@ pub(super) fn is_gone(name: &str, error: &CloudError) -> bool {
         && gone_code(name).is_some_and(|code| error.upstream_code.as_deref() == Some(code))
 }
 
+/// True when `error` is the Cloud API's 404 with `vm_not_found`: the
+/// machine is gone. A bare 404 or another code is not.
+pub(super) fn machine_gone(error: &CloudError) -> bool {
+    is_gone("cloud.machine.delete", error)
+}
+
 /// True when `error` does not say whether the call changed anything: the
 /// answer was lost on the way back (relay), or the Cloud API failed after it
 /// may have acted (5xx other than 501). A 4xx or 501 answer, or a call that
