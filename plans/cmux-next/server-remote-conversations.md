@@ -19,10 +19,16 @@ Cloud and SSH machines. This document is the remote relay analysis that
 
 ## 2. Principal and actor
 
-- The daemon accepts remote frames only from the link's per-peer stream, never on its local
-  Unix socket. The link hands each stream to the daemon with the **peer identity** it verified:
-  `{install, user, team}` (lane 12 provides the location of this identity; open item 1).
-- The daemon maps the peer to a principal `remote:<install>` and stamps every write's actor as
+- The daemon accepts remote frames only on a separate **remote-relay entry**, never on its admin
+  Unix socket. Only `cmux link` connects to that entry: the daemon checks the connecting process's
+  peer credentials (same uid; on macOS the cmux team code signature) and refuses anything else.
+- Identity (lane 12 v4 design): WireGuard authenticates the peer's static key; the link maps that
+  key to the install id through the pairing record (allowed IP: the /128 derived from the install
+  id) and stamps `{install_id, user_id, wg_key}` out of band on each stream it opens with
+  `link.dial {host, service: "daemon"}`. The daemon trusts this **stamp** and nothing in the frames;
+  a stream without a stamp, or a stamp that arrives on any socket other than the link's
+  remote-relay entry, is refused before the first frame.
+- The daemon maps the stamp to a principal `remote:<install_id>` and stamps every write's actor as
   the cloud participant `user_<user>`. `actor` in a request may be omitted; naming anyone else
   (including `user_local` or an agent) is refused with `actor_mismatch`, as for local
   connections today (home.md 2).
@@ -98,15 +104,20 @@ this list is refused with `error_code: remote_denied` and no detail.
   command list, so a new command is denied by default).
 - deny: each command-bearing param on every allowed method; a `work` part in `message.send`.
 - deny: a peer whose user is not the server owner; a revoked install.
+- deny: a stream with no link stamp; a stamp that arrives on the admin socket or from a process
+  that is not `cmux link` (wrong uid or signature); a stamp field sent inside a frame (ignored,
+  never trusted).
 - events: a subscribed remote stream never receives terminal, workspace or other events; an
   event for an unowned conversation is dropped; `acp_session` is redacted.
 
 ## 8. Open items
 
-1. Lane 12: where the daemon reads the verified peer identity of a link stream, and the stream
-   contract (framing of cmux.wire/1 on the interactive stream). The coordinator asked lane 12.
+1. Lane 12: `cmux link` does not exist yet. Proposed contract (lane 12 v4): link socket 0600 with
+   uid and code-signature checks; `link.dial {host: install_id, service: "daemon"}` returns a
+   daemon-protocol stream and `host.watch` path events; first slice direct path only (LAN or a
+   reachable UDP endpoint), pairing-record peers, no relay. Coordinator decision pending.
 2. The owner record on the server: `cmux server pair` (helper A, branch
    feat-cmux-next-server-pair) stores `{host, team, user, install}`; the gate reads `user` as the
    owner.
-3. The MacBook side: a `ServerMachineSession` in `MachineRegistry` that opens the link stream and
+3. The MacBook side: `MachineRegistry` kind `paired {install_id, name, path_state}` that opens the link stream and
    runs the existing `ConversationMirror` against it, with no local-admin assumptions.
