@@ -25,6 +25,13 @@ import {
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
 const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete"])
+const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.driver_result", "cloud.prune"])
+const forbidden = (entity: string, key: string): SubmitResult => ({
+  frames: [
+    { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "not this team's machines", retryable: false, replayed: false },
+    { t: "request-settled", tx: "", idempotency_key: key, stream: `cloud:${entity}`, sequence: 0, ok: false }
+  ]
+})
 
 /** What subscribers see of the head: the team and its counts (pending calls stay with the owner). */
 const headView = (s: unknown) => {
@@ -50,17 +57,40 @@ export class CloudDO extends OwnerDO<CloudState> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, cloudDomain(cloudConfig(env)) as Domain<CloudState>, "cloud", undefined, {
       rowMode: { snapshotTable: TABLE_MACHINE, snapshotTail: 0 },
-      redact: { privateTables: CLOUD_PRIVATE_TABLES, state: headView }
+      // P3-8: internal ops carry ledger keys and provider error text; subscribers see neither.
+      redact: { privateTables: CLOUD_PRIVATE_TABLES, state: headView, params: (op, params) => (INTERNAL_OPS.has(op) ? {} : params) }
     })
     this.config = cloudConfig(env)
   }
 
+  /** P3-8: a member of the team this object is bound to, also while the head has no team yet. */
   private member(state: CloudState, p: Principal) {
-    return p.team !== undefined && (state.team === null || state.team === p.team)
+    const team = state.team ?? this.boundEntity()
+    return p.team !== undefined && team !== null && p.team === team
+  }
+
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
+    if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    // An object nobody created: answer from an empty head for this entity, without creating it.
+    if (!this.isBound(entity)) {
+      const r = this.read({ team: entity, rev: 0, active: 0, saved: 0, pending: {}, changed: null }, op, params, principal)
+      return r.ok ? { ...r, revision: "0" } : r
+    }
+    return super.readOp(entity, principal, op, params)
+  }
+
+  /** P3-7: ops go through /v1/ops (rate limit, provider calls, answers); the socket only subscribes. */
+  protected override routeFrame(ws: WebSocket, _a: unknown, frame: { readonly t?: string }): boolean {
+    if (frame.t !== "op") return false
+    try {
+      ws.send(JSON.stringify({ t: "error", code: "validation.invalid", message: "send ops through /v1/ops" }))
+    } catch {}
+    return true
   }
 
   protected maySubscribe(state: CloudState, principal: Principal): boolean {
-    return this.member(state, principal)
+    // Before the first bind the base checks again on the bound object, which compares the entity.
+    return this.boundEntity() === null ? principal.team !== undefined : this.member(state, principal)
   }
 
   protected override subscriberView(state: CloudState): unknown {
@@ -70,6 +100,8 @@ export class CloudDO extends OwnerDO<CloudState> {
   protected read(state: CloudState, op: string, params: unknown, principal: Principal): ReadResult {
     // CLOUD-CONNECT-ACCESS: team members read team machines; an agent reads as its principal.
     if (!this.member(state, principal)) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    // P3-9: an install reads only with a grant that covers read.
+    if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
     const rows = this.boundEngine?.rows
     switch (op) {
       case "cloud.machine.list": {
@@ -115,6 +147,7 @@ export class CloudDO extends OwnerDO<CloudState> {
    * retries the same key, which replays the result and resumes the call); failed = the provider error.
    */
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    if (principal.team !== entity) return forbidden(entity, frame.idempotency_key)
     const limited = PROVIDER_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
     if (limited) return limited
     const result = await super.submit(entity, principal, frame)
