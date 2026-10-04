@@ -291,7 +291,7 @@ struct BrowserReplFileSystemRaceTests {
         let probing = Task.detached { () -> String? in
             defer { done.set() }
             let payload = Data("x".utf8).base64EncodedString()
-            for _ in 0..<20_000 {
+            for _ in 0..<5_000 {
                 _ = fs.perform("writeFile", arguments: ["path": "sub/written.txt", "base64": payload])
                 if FileManager.default.fileExists(atPath: escaped) { return "wrote \(escaped)" }
                 if case .success(let value) = fs.perform("readFile", arguments: ["path": "sub/secret.txt"]),

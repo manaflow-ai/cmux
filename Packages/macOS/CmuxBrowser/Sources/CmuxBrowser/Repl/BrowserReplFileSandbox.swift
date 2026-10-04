@@ -63,6 +63,11 @@ public struct BrowserReplFileSandbox: Sendable {
         readableFiles.insert(Self.canonicalize(Self.lexicallyNormalized(path)))
     }
 
+    /// Whether `canonicalPath` is a file outside the root allowed for reading.
+    func allowsReading(_ canonicalPath: String) -> Bool {
+        readableFiles.contains(canonicalPath)
+    }
+
     /// Keeps the files `other` allowed, when a session moves to a new root.
     public mutating func inheritReadableFiles(from other: BrowserReplFileSandbox) {
         readableFiles.formUnion(other.readableFiles)
