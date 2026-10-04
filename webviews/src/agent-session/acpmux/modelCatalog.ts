@@ -10,13 +10,17 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
 /// `names` (_acpmux/harnesses) with each harness's models from `probed` (_acpmux/models);
 /// harnesses only `probed` names (a peer's) are added. A list that already carries models
-/// (the mock daemon) keeps them.
+/// (the mock daemon) keeps them. A harness either list marks `unavailable` (its launcher check,
+/// its model probe) keeps the reason, the launcher's first.
 export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
   const catalog = normalizeCatalog(names);
   const entries = (probed as { harnesses?: unknown } | undefined)?.harnesses;
   if (!Array.isArray(entries)) return catalog;
   const byHarness = new Map<string, Catalog[number]["models"]>();
-  for (const entry of entries as { harness?: unknown; models?: unknown }[]) {
+  const refused = new Map<string, string>();
+  for (const entry of entries as { harness?: unknown; models?: unknown; unavailable?: unknown }[]) {
+    if (typeof entry?.harness === "string" && typeof entry.unavailable === "string" && entry.unavailable)
+      refused.set(entry.harness, entry.unavailable);
     if (typeof entry?.harness !== "string" || !Array.isArray(entry.models)) continue;
     byHarness.set(
       entry.harness,
@@ -27,11 +31,15 @@ export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
       })),
     );
   }
+  const withReason = (harness: Catalog[number]): Catalog[number] => {
+    const reason = harness.unavailable ?? refused.get(harness.id);
+    return reason ? { ...harness, unavailable: reason } : harness;
+  };
   const merged = catalog.map((harness) =>
-    harness.models.length > 0 ? harness : { ...harness, models: byHarness.get(harness.id) ?? [] },
+    withReason(harness.models.length > 0 ? harness : { ...harness, models: byHarness.get(harness.id) ?? [] }),
   );
   for (const [id, models] of byHarness) {
-    if (!merged.some((harness) => harness.id === id)) merged.push({ id, name: id, models });
+    if (!merged.some((harness) => harness.id === id)) merged.push(withReason({ id, name: id, models }));
   }
   return merged;
 }

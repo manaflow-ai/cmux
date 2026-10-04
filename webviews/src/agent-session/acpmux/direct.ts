@@ -1555,5 +1555,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
       id: String(model.id ?? model.modelId),
       name: model.name,
     })),
+    // Why acpmux will not start it (a launcher it could not find), when it says.
+    ...(typeof harness.unavailable === "string" && harness.unavailable ? { unavailable: harness.unavailable } : {}),
   }));
 }
