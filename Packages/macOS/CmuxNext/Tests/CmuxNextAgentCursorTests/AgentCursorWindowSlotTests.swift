@@ -72,4 +72,18 @@ private func click(_ seq: UInt64, target: String) -> AutomationInputEvent {
         #expect(layer.sublayers?.isEmpty ?? true)
         #expect(untracked == ["t1"])
     }
+
+    @Test func thePublisherExistsBeforeTheStackAndDropsReplays() throws {
+        let placements = Placements()
+        placements.placements["t1"] = .visible(content: viewport, clip: viewport, zoom: 1, magnification: 1)
+        let (slot, layer, made) = slot(placements)
+        _ = slot.publisher
+        #expect(made() == 0, "the input bridge holds the publisher of every window; no layer until it draws")
+        slot.publisher.publish(click(0, target: "t1"))
+        slot.publisher.publish(AutomationInputEvent(sessionID: "s1", targetID: "t1", seq: 0, kind: .click, space: .viewport,
+                                                    point: .init(x: 300, y: 300), tMs: 9))
+        let cursor = try #require(slot.stack?.host.cursorLayer(for: "s1"))
+        #expect(cursor.root.position == CGPoint(x: 280, y: 110), "a replayed seq is dropped")
+        #expect(layer.sublayers?.count == 1)
+    }
 }

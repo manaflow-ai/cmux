@@ -1,12 +1,22 @@
+/// Anything that draws cursors for lease sessions: an overlay model, or a
+/// window slot (which forwards to its stack once it exists).
+@MainActor
+public protocol AgentCursorLeaseTarget: AnyObject {
+    func leaseDidChange(session: String, state: AgentCursorLeaseState?)
+}
+
+extension AgentCursorOverlayModel: AgentCursorLeaseTarget {}
+extension AgentCursorWindowSlot: AgentCursorLeaseTarget {}
+
 /// Lease frames to cursor state: one router for all leases of a host, and
 /// every overlay model that may draw a session's cursor (each workspace
 /// content, shown and parked). A tab close, release, stop or session end is
 /// a clear frame, so no cursor stays on screen for a closed tab.
 public final class AgentCursorLeaseFanOut {
     private var router = AgentCursorLeaseRouter()
-    private let models: () -> [AgentCursorOverlayModel]
+    private let models: () -> [AgentCursorLeaseTarget]
 
-    public init(models: @escaping () -> [AgentCursorOverlayModel]) {
+    public init(models: @escaping () -> [AgentCursorLeaseTarget]) {
         self.models = models
     }
 
