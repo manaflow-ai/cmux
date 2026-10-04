@@ -321,7 +321,7 @@ fn get_blob_serves_files_only_for_stored_rows() {
         format!("blob:sha256-{hex}0"),
         format!("blob:sha256-{}", hex.to_uppercase()),
         format!("blob:sha256-{upload_id}"),
-        upload_id.clone(),
+        upload_id,
         format!("blob:sha256-{planted}"),
         format!("blob:sha256-{}/../{}", &hex[..2], &hex[3..]),
     ];
