@@ -86,12 +86,16 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
     /// The poster frame of a video: a separate blob in the same part (one
     /// part per attachment). Fetch it with `AttachmentVariant.poster`.
     public var poster: AttachmentPoster?
+    /// An image's preview (JPEG, at most 1024 px and 512 KB): readers load
+    /// it first with `AttachmentVariant.preview` and the original on tap.
+    /// Best effort: a small image, or one whose preview failed, has none.
+    public var preview: AttachmentDerivedImage?
 
     /// Content hash of the poster blob, when the part has one.
     public var posterHash: String? { poster?.hash }
 
     public init(hash: String, name: String, mimeType: String, byteCount: Int, width: Int? = nil, height: Int? = nil,
-                durationMs: Int? = nil, poster: AttachmentPoster? = nil) {
+                durationMs: Int? = nil, poster: AttachmentPoster? = nil, preview: AttachmentDerivedImage? = nil) {
         self.hash = hash
         self.name = name
         self.mimeType = mimeType
@@ -100,6 +104,7 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
         self.height = height
         self.durationMs = durationMs
         self.poster = poster
+        self.preview = preview
     }
 
     /// The owner's attachment part fields (snake_case); absent optionals are
@@ -108,7 +113,7 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
     /// not the owner's `{"type":"attachment",...}`. A cloud source maps parts
     /// to and from the owner's shape itself.
     enum CodingKeys: String, CodingKey {
-        case hash, name, width, height, poster
+        case hash, name, width, height, poster, preview
         case mimeType = "mime_type"
         case byteCount = "byte_count"
         case durationMs = "duration_ms"
@@ -132,16 +137,21 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
         height = try container.decodeIfPresent(Int.self, forKey: .height)
         durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
         poster = try container.decodeIfPresent(AttachmentPoster.self, forKey: .poster)
+        preview = try container.decodeIfPresent(AttachmentDerivedImage.self, forKey: .preview)
     }
 }
 
-/// A video part's poster, equal to the poster the owner recorded on the
-/// video's attachment record (home-messaging.md 10.1). Wire shape
-/// `{hash, mime_type, byte_count}`. The poster has no record or part of its
-/// own and the owner chooses its storage key, so a client fetches it only as
-/// `AttachmentVariant.poster` of the video part.
-public struct AttachmentPoster: Hashable, Sendable, Codable {
-    /// SHA-256 of the poster bytes.
+/// A small image stored with an attachment's record, equal to what the
+/// owner recorded (home-messaging.md 10.1): a video's poster frame, or an
+/// image's preview. Wire shape `{hash, mime_type, byte_count}`. It has no
+/// record or part of its own and the owner chooses its storage key, so a
+/// client fetches it only as `AttachmentVariant.poster` or `.preview` of
+/// its part.
+public typealias AttachmentPoster = AttachmentDerivedImage
+
+/// See `AttachmentPoster`.
+public struct AttachmentDerivedImage: Hashable, Sendable, Codable {
+    /// SHA-256 of the image bytes.
     public var hash: String
     /// `image/jpeg` or `image/webp` (`HomeAttachmentPolicy.posterTypes`).
     public var mimeType: String

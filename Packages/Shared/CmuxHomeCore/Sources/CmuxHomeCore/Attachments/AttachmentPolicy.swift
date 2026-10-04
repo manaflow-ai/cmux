@@ -15,6 +15,11 @@ public enum HomeAttachmentPolicy {
     /// A video's poster: at most this size, one of `posterTypes`.
     public static let posterMaxBytes = 2_000_000
     public static let posterTypes: Set<String> = ["image/jpeg", "image/webp"]
+    /// An image's preview: at most this size (decimal, like the owner), one
+    /// of `posterTypes`; the client makes a JPEG at most `previewMaxPixel`
+    /// on its long edge.
+    public static let previewMaxBytes = 512_000
+    public static let previewMaxPixel = 1024
 
     /// The allow list: mime type -> inbox preview kind. SVG, HTML and XML are never on it.
     public static let allowedTypes: [String: AttachmentPreview.Kind] = [

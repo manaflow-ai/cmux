@@ -9,11 +9,17 @@ public struct LocalAttachmentFiles: Hashable, Sendable {
     /// SHA-256 of the poster file. A part whose poster differs (the owner
     /// kept another device's poster) fetches the poster from the source.
     public var posterHash: String?
+    /// An image's preview file and its SHA-256 (same rule as the poster).
+    public var previewURL: URL?
+    public var previewHash: String?
 
-    public init(fileURL: URL, posterURL: URL? = nil, posterHash: String? = nil) {
+    public init(fileURL: URL, posterURL: URL? = nil, posterHash: String? = nil, previewURL: URL? = nil,
+                previewHash: String? = nil) {
         self.fileURL = fileURL
         self.posterURL = posterURL
         self.posterHash = posterHash
+        self.previewURL = previewURL
+        self.previewHash = previewHash
     }
 }
 
@@ -23,15 +29,19 @@ public struct LocalAttachment: Hashable, Sendable {
     public var ref: AttachmentRef
     public var fileURL: URL
     public var posterURL: URL?
+    /// An image's preview; its SHA-256 is `ref.preview?.hash`.
+    public var previewURL: URL?
 
-    public init(ref: AttachmentRef, fileURL: URL, posterURL: URL? = nil) {
+    public init(ref: AttachmentRef, fileURL: URL, posterURL: URL? = nil, previewURL: URL? = nil) {
         self.ref = ref
         self.fileURL = fileURL
         self.posterURL = posterURL
+        self.previewURL = previewURL
     }
 
     public var files: LocalAttachmentFiles {
-        LocalAttachmentFiles(fileURL: fileURL, posterURL: posterURL, posterHash: posterURL == nil ? nil : ref.posterHash)
+        LocalAttachmentFiles(fileURL: fileURL, posterURL: posterURL, posterHash: posterURL == nil ? nil : ref.posterHash,
+                             previewURL: previewURL, previewHash: previewURL == nil ? nil : ref.preview?.hash)
     }
 }
 
@@ -43,15 +53,18 @@ public struct AttachmentUpload: Sendable {
     public var ref: AttachmentRef
     /// The poster frame for video; its SHA-256 is `ref.posterHash`.
     public var posterURL: URL?
+    /// An image's preview; its SHA-256 is `ref.preview?.hash`.
+    public var previewURL: URL?
     /// Fraction uploaded, 0...1, from any thread.
     public var progress: @Sendable (Double) -> Void
 
     public init(conversation: ConversationID, fileURL: URL, ref: AttachmentRef, posterURL: URL? = nil,
-                progress: @escaping @Sendable (Double) -> Void = { _ in }) {
+                previewURL: URL? = nil, progress: @escaping @Sendable (Double) -> Void = { _ in }) {
         self.conversation = conversation
         self.fileURL = fileURL
         self.ref = ref
         self.posterURL = posterURL
+        self.previewURL = previewURL
         self.progress = progress
     }
 }
@@ -69,4 +82,10 @@ public enum AttachmentVariant: Hashable, Sendable {
     /// 404 `attachment.no_poster`) throws `HomeRejection.invalid("no_poster")`;
     /// renderers show a placeholder and never fetch the video in its place.
     case poster
+    /// An image part's preview as stored (`ref.preview`, JPEG or WebP, at
+    /// most 1024 px and 512 KB): the owner's url request with
+    /// `variant: "preview"`. Readers show it first and load `.original` on
+    /// tap. A part without one throws `HomeRejection.invalid("no_preview")`;
+    /// renderers then use `.thumbnail` or `.original`.
+    case preview
 }

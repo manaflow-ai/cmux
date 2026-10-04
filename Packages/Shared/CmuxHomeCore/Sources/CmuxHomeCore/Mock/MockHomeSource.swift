@@ -52,12 +52,13 @@ public actor MockHomeSource: HomeSource {
         var data: Data
         var mimeType: String
         var poster: AttachmentPoster?
+        var preview: AttachmentDerivedImage?
     }
 
     /// The attachment records, by content hash.
     private var blobs: [String: BlobRecord] = [:]
-    /// Poster bytes by poster hash. A poster has no record of its own: it
-    /// belongs to its video's record.
+    /// Poster and preview bytes by hash. Neither has a record of its own:
+    /// each belongs to its attachment's record.
     private var posterBlobs: [String: Data] = [:]
     private var uploadsPaused = false
     private var pausedUploads: [UUID: CheckedContinuation<Void, Never>] = [:]
@@ -229,9 +230,21 @@ public actor MockHomeSource: HomeSource {
             }
             posterBlobs[meta.hash] = poster
         }
+        // The same for an image's preview.
+        if let meta = file.ref.preview, posterBlobs[meta.hash] == nil {
+            guard file.ref.mimeType.hasPrefix("image/") else { throw HomeRejection.invalid("preview_refused") }
+            guard let previewURL = file.previewURL else { throw HomeRejection.invalid("preview_missing") }
+            let preview = try Data(contentsOf: previewURL)
+            guard HomeAttachmentPolicy.posterTypes.contains(meta.mimeType), preview.count <= HomeAttachmentPolicy.previewMaxBytes,
+                  preview.count == meta.byteCount, AttachmentMedia.sha256(of: preview) == meta.hash else {
+                throw HomeRejection.invalid("hash_mismatch")
+            }
+            posterBlobs[meta.hash] = preview
+        }
         let data = try Data(contentsOf: file.fileURL)
         guard AttachmentMedia.sha256(of: data) == file.ref.hash else { throw HomeRejection.invalid("hash_mismatch") }
-        let record = BlobRecord(data: data, mimeType: file.ref.mimeType.lowercased(), poster: file.ref.poster)
+        let record = BlobRecord(data: data, mimeType: file.ref.mimeType.lowercased(), poster: file.ref.poster,
+                                preview: file.ref.preview)
         blobs[file.ref.hash] = record
         file.progress(0.75)
         file.progress(1)
@@ -245,6 +258,7 @@ public actor MockHomeSource: HomeSource {
         ref.mimeType = record.mimeType
         ref.byteCount = record.data.count
         ref.poster = record.poster
+        ref.preview = record.preview
         return ref
     }
 
@@ -290,6 +304,16 @@ public actor MockHomeSource: HomeSource {
             if FileManager.default.fileExists(atPath: target.path) { return target }
             try Task.checkCancellation()
             try poster.write(to: target, options: .atomic)
+            return target
+        case .preview:
+            guard ref.preview != nil, let meta = blob.preview, let preview = posterBlobs[meta.hash] else {
+                throw HomeRejection.invalid("no_preview")
+            }
+            let ext = UTType(mimeType: meta.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let target = fetchDirectory.appendingPathComponent("\(ref.hash)-preview\(ext)")
+            if FileManager.default.fileExists(atPath: target.path) { return target }
+            try Task.checkCancellation()
+            try preview.write(to: target, options: .atomic)
             return target
         }
     }
@@ -382,7 +406,8 @@ public actor MockHomeSource: HomeSource {
             for case .attachment(let ref) in parts {
                 guard let record = blobs[ref.hash] else { throw HomeRejection.invalid("unknown_attachment") }
                 guard record.mimeType == ref.mimeType, record.data.count == ref.byteCount,
-                      ref.poster == nil || ref.poster == record.poster else {
+                      ref.poster == nil || ref.poster == record.poster,
+                      ref.preview == nil || ref.preview == record.preview else {
                     throw HomeRejection.invalid("attachment_mismatch")
                 }
             }

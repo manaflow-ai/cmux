@@ -92,7 +92,9 @@ public protocol HomeSource: Sendable {
     /// on a retried presigned PUT means the first attempt landed, so commit.
     /// A video with `ref.poster` declares it in the intent and PUTs the poster
     /// to the answer's `poster_upload` before the video's PUT or commit (the
-    /// owner answers 409 `attachment.poster_missing` until then).
+    /// owner answers 409 `attachment.poster_missing` until then). An image
+    /// with `ref.preview` does the same with its preview (intent field
+    /// `preview {sha256, byte_count, mime_type}`, url variant `preview`).
     /// Returns the stored ref; its `hash` equals `file.ref.hash`.
     func upload(_ file: AttachmentUpload) async throws -> AttachmentRef
 

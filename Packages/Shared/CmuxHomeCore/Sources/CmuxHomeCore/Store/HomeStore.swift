@@ -383,6 +383,11 @@ public final class HomeStore {
             localFiles[ref.hash]?.posterHash = nil
             return try await localAttachment(ref, variant: variant)
         }
+        if let preview = files.previewURL, !fm.fileExists(atPath: preview.path) {
+            localFiles[ref.hash]?.previewURL = nil
+            localFiles[ref.hash]?.previewHash = nil
+            return try await localAttachment(ref, variant: variant)
+        }
         AttachmentMedia.touch(files.fileURL.deletingLastPathComponent())
         switch variant {
         case .original:
@@ -394,6 +399,10 @@ public final class HomeStore {
             // The owner may have kept another device's poster for these bytes.
             guard let poster = files.posterURL, files.posterHash == wanted.hash else { return nil }
             return poster
+        case .preview:
+            guard let wanted = ref.preview else { throw HomeRejection.invalid("no_preview") }
+            guard let preview = files.previewURL, files.previewHash == wanted.hash else { return nil }
+            return preview
         }
     }
 
@@ -403,7 +412,8 @@ public final class HomeStore {
         guard let window = mirror.windows[conversation] else { return nil }
         for message in window.messages.reversed() where !message.isRetracted {
             for (index, part) in message.parts.enumerated() {
-                guard case .attachment(let ref) = part, ref.hash == hash || ref.posterHash == hash else { continue }
+                guard case .attachment(let ref) = part,
+                      ref.hash == hash || ref.posterHash == hash || ref.preview?.hash == hash else { continue }
                 return AttachmentLocation(conversation: conversation, message: message.id, partIndex: index)
             }
         }
@@ -557,6 +567,7 @@ public final class HomeStore {
             ref.mimeType = record.mimeType
             ref.byteCount = record.byteCount
             ref.poster = record.poster
+            ref.preview = record.preview
             return .attachment(ref)
         }
         return .sendMessage(conversation: conversation, parts: adopted)
@@ -573,7 +584,8 @@ public final class HomeStore {
         let fm = FileManager.default
         for attachment in pending {
             let posterGone = attachment.ref.poster != nil && attachment.posterURL.map { !fm.fileExists(atPath: $0.path) } ?? true
-            if !fm.fileExists(atPath: attachment.fileURL.path) || posterGone {
+            let previewGone = attachment.ref.preview != nil && attachment.previewURL.map { !fm.fileExists(atPath: $0.path) } ?? true
+            if !fm.fileExists(atPath: attachment.fileURL.path) || posterGone || previewGone {
                 return .invalid("attachment_file_missing")
             }
         }
@@ -585,7 +597,8 @@ public final class HomeStore {
             func add(_ attachment: LocalAttachment) {
                 let hash = attachment.ref.hash
                 let upload = AttachmentUpload(conversation: conversation, fileURL: attachment.fileURL, ref: attachment.ref,
-                                              posterURL: attachment.posterURL) { [weak self] fraction in
+                                              posterURL: attachment.posterURL,
+                                              previewURL: attachment.previewURL) { [weak self] fraction in
                     Task { @MainActor [weak self] in self?.uploadProgressed(key, attempt: attempt, hash: hash, fraction) }
                 }
                 group.addTask {
@@ -646,6 +659,7 @@ public final class HomeStore {
         func add(_ ref: AttachmentRef) {
             keep.insert(ref.hash)
             if let poster = ref.posterHash { keep.insert(poster) }
+            if let preview = ref.preview?.hash { keep.insert(preview) }
         }
         for job in uploads.values { job.attachments.forEach { add($0.ref) } }
         for entry in log.entries {
@@ -655,6 +669,7 @@ public final class HomeStore {
         for (hash, files) in localFiles {
             keep.insert(hash)
             if let poster = files.posterHash { keep.insert(poster) }
+            if let preview = files.previewHash { keep.insert(preview) }
         }
         await Self.pruneBlobCache(at: blobCacheDirectory, keeping: keep, now: now, maxAge: Self.blobCacheMaxAge,
                                   maxBytes: Self.blobCacheMaxBytes, tempsBefore: createdAt)

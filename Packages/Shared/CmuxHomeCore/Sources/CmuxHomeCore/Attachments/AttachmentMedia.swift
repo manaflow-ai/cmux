@@ -135,7 +135,7 @@ enum AttachmentMedia {
     }
 
     /// A JPEG whose longer side is at most `maxPixel`, orientation applied.
-    static func thumbnailJPEG(of url: URL, maxPixel: Int) throws -> Data {
+    static func thumbnailJPEG(of url: URL, maxPixel: Int, quality: Double = 0.85) throws -> Data {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { throw HomeRejection.invalid("not_an_image") }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -145,7 +145,21 @@ enum AttachmentMedia {
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             throw HomeRejection.invalid("not_an_image")
         }
-        return try jpeg(image)
+        return try jpeg(image, quality: quality)
+    }
+
+    /// An image's preview: a JPEG at most `previewMaxPixel` on its long edge
+    /// and `previewMaxBytes`, trying lower quality and size before giving
+    /// up. Nil when the image is small enough to show itself (and not HEIC,
+    /// which some readers cannot decode), or no attempt fits.
+    static func previewJPEG(of url: URL, mimeType: String, byteCount: Int, displaySize: (width: Int, height: Int)) -> Data? {
+        let maxPixel = HomeAttachmentPolicy.previewMaxPixel
+        let maxBytes = HomeAttachmentPolicy.previewMaxBytes
+        if mimeType != "image/heic", max(displaySize.width, displaySize.height) <= maxPixel, byteCount <= maxBytes { return nil }
+        for (pixels, quality) in [(maxPixel, 0.8), (maxPixel, 0.6), (maxPixel * 3 / 4, 0.6), (maxPixel / 2, 0.6)] {
+            if let data = try? thumbnailJPEG(of: url, maxPixel: pixels, quality: quality), data.count <= maxBytes { return data }
+        }
+        return nil
     }
 
     static func jpeg(_ image: CGImage, quality: Double = 0.85) throws -> Data {
@@ -396,9 +410,15 @@ enum AttachmentMedia {
                                  root: URL) async throws -> LocalAttachment {
         var ref = AttachmentRef(hash: hash, name: name, mimeType: mimeType, byteCount: byteCount)
         var posterURL: URL?
+        var previewURL: URL?
         if mimeType.hasPrefix("image/"), let size = imageDisplaySize(cached) {
             ref.width = size.width
             ref.height = size.height
+            if let preview = previewJPEG(of: cached, mimeType: mimeType, byteCount: byteCount, displaySize: size) {
+                let (previewHash, url) = try ingest(data: preview, fileExtension: "jpg", root: root)
+                ref.preview = AttachmentDerivedImage(hash: previewHash, mimeType: "image/jpeg", byteCount: preview.count)
+                previewURL = url
+            }
         } else if mimeType.hasPrefix("video/") || mimeType.hasPrefix("audio/"), let movie = try? await inspectMovie(cached) {
             ref.width = movie.width
             ref.height = movie.height
@@ -411,7 +431,8 @@ enum AttachmentMedia {
                 posterURL = url
             }
         }
-        return LocalAttachment(ref: HomeAttachmentPolicy.normalized(ref), fileURL: cached, posterURL: posterURL)
+        return LocalAttachment(ref: HomeAttachmentPolicy.normalized(ref), fileURL: cached, posterURL: posterURL,
+                               previewURL: previewURL)
     }
 
     /// A cached thumbnail next to the blob (`thumb-<maxPixel>.jpg`).
@@ -419,6 +440,8 @@ enum AttachmentMedia {
         let sourceURL: URL
         if let poster = files.posterURL {
             sourceURL = poster
+        } else if let preview = files.previewURL, maxPixel <= HomeAttachmentPolicy.previewMaxPixel {
+            sourceURL = preview // smaller to decode than the original
         } else if ref.mimeType.hasPrefix("image/") {
             sourceURL = files.fileURL
         } else {
