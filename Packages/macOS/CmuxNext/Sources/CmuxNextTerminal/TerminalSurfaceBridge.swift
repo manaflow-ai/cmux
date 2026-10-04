@@ -1,5 +1,5 @@
 import Foundation
-import GhosttyKit
+import GhosttyNextKit
 
 /// Per-surface userdata handed to Ghostty as both `userdata` and
 /// `io_write_userdata` (ghostty.h:607, :629).
