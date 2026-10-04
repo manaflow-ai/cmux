@@ -182,4 +182,26 @@ import Testing
         harness.controller.installStagedUpdate()
         #expect(readyBox.choice == nil)
     }
+
+    /// `updates.downloadAutomatically` off: a found update waits as the
+    /// prompt; the user's click downloads it and it stages like a
+    /// background download (the host installs it).
+    @Test func withDownloadsOffAFoundUpdateWaitsForTheClick() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.downloadsUpdatesInBackground = false
+        let found = ChoiceBox()
+        find(harness, into: found)
+        #expect(found.choice == nil)
+        guard case .updateAvailable = harness.model.state else {
+            Issue.record("expected the waiting prompt, got \(harness.model.state)")
+            return
+        }
+        harness.controller.acceptAvailableUpdate()
+        #expect(found.choice == .install)
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+        #expect(readyBox.choice == nil)
+        #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
+    }
 }

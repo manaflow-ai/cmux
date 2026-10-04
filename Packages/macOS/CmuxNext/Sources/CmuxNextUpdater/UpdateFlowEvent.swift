@@ -4,6 +4,8 @@ import Foundation
 nonisolated public enum UpdateFlowEffect: Equatable, Sendable {
     /// Install the staged update and relaunch now.
     case install
+    /// Download the update that waits for the click.
+    case download
     /// Show the CmuxDialog that installs although work runs.
     case confirmInterrupt(UpdateBlockers)
     /// Let the quit go on.

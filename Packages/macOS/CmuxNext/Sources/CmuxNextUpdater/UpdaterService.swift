@@ -206,7 +206,7 @@ public final class UpdaterService {
         case .ready, .downloading, .checking:
             // The gate installs once the update is staged and no agent is busy.
             send(.installRequested)
-        case .hidden, .installing, .note:
+        case .hidden, .installing, .note, .available:
             // Nothing found yet: an explicit install runs Sparkle's attempt
             // flow (a fresh check that installs the newest at once).
             controller.attemptUpdate()

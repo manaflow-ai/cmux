@@ -37,6 +37,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Opt-in background installs (see `UpdateDriver+BackgroundInstall.swift`); off keeps the
     /// prompt-driven flow unchanged.
     var installsInBackground = false
+    /// With background installs: whether a found update downloads without a click.
+    var downloadsInBackground = true
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?

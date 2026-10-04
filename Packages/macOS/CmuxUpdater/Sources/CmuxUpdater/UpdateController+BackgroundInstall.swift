@@ -32,4 +32,14 @@ extension UpdateController {
     public func cancelStagedUpdate() {
         driver.cancelStaged()
     }
+
+    /// With ``installsUpdatesInBackground``: whether a found update downloads at once (true,
+    /// the default) or waits as ``UpdateState/updateAvailable(_:)`` for ``acceptAvailableUpdate()``.
+    public var downloadsUpdatesInBackground: Bool {
+        get { driver.downloadsInBackground }
+        set { driver.downloadsInBackground = newValue }
+    }
+
+    /// Downloads the update that waits for the user; it then stages like a background download.
+    public func acceptAvailableUpdate() {}
 }

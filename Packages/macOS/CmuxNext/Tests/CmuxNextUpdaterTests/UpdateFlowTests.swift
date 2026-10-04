@@ -197,4 +197,25 @@ import Testing
         }
         walk(UpdateFlow(), depth: 5)
     }
+
+    /// `updates.downloadAutomatically` off: the found update is a card;
+    /// one click downloads, shows the progress, and installs once staged.
+    @Test func anUpdateThatWaitsForTheClickDownloadsThenInstalls() {
+        var flow = UpdateFlow()
+        _ = flow.handle(.sparkle(.available(version: "5")), preferences: prefs)
+        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .available(version: "5"))
+        #expect(flow.showsSettingsBadge(preferences: prefs))
+        #expect(flow.handle(.installRequested, preferences: prefs) == [.download])
+        _ = flow.handle(.sparkle(.downloading(progress: 0.5)), preferences: prefs)
+        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .downloading(progress: 0.5))
+        #expect(flow.handle(.sparkle(.ready(version: "5")), preferences: prefs) == [.install])
+    }
+
+    @Test func quietHoursAndNotifyModesHideAnAvailableUpdateToo() {
+        var flow = UpdateFlow()
+        _ = flow.handle(.sparkle(.available(version: "5")), preferences: prefs)
+        #expect(flow.card(preferences: UpdatePreferences(notify: .badge), minuteOfDay: noon) == nil)
+        let night = UpdatePreferences(quietHours: UpdateQuietHours(start: 0, end: 1439))
+        #expect(flow.card(preferences: night, minuteOfDay: noon) == nil)
+    }
 }

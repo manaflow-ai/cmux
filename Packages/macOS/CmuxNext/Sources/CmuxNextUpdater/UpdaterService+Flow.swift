@@ -22,7 +22,7 @@ extension UpdaterService {
         switch card {
         case .ready: installClicked()
         case .note(_, isError: true): presentUpdateUI?()
-        case .checking, .downloading, .waiting, .installing, .note, nil: break
+        case .checking, .available, .downloading, .waiting, .installing, .note, nil: break
         }
     }
 
@@ -88,7 +88,7 @@ extension UpdaterService {
                 log.append("gate: no dialog host, waiting for \(blockers.busyAgents) agents")
                 send(.interruptDeclined)
             }
-        case .quit:
+        case .quit, .download:
             break
         }
     }

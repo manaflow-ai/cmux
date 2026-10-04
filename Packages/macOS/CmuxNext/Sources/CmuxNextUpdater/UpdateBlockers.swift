@@ -21,6 +21,8 @@ nonisolated public enum UpdateCard: Equatable, Sendable {
     case checking
     /// The user asked and a found update downloads.
     case downloading(progress: Double?)
+    /// Found, not downloaded: one click downloads and installs.
+    case available(version: String?)
     /// Downloaded and verified: one click installs and relaunches.
     case ready(version: String?)
     /// The user clicked; the install waits for busy agents.

@@ -34,7 +34,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
                 // Installs once staged.
                 installRequested = true
                 return []
-            case .hidden, .installing, .note:
+            case .hidden, .installing, .note, .available:
                 return []
             }
         case .installNowRequested:
@@ -90,7 +90,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             installRequested = false
             confirmationOpen = false
             return []
-        case .checking, .downloading:
+        case .checking, .downloading, .available:
             return []
         }
     }
@@ -107,7 +107,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// the user asked for (a check, a held install) always shows.
     public func card(preferences: UpdatePreferences, minuteOfDay: Int) -> UpdateCard? {
         switch phase {
-        case .hidden:
+        case .hidden, .available:
             return nil
         case .checking:
             return userAsked ? .checking : nil
@@ -132,7 +132,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         guard preferences.notify != .silent else { return false }
         switch phase {
         case .ready, .installing: return true
-        case .hidden, .checking, .downloading, .note: return false
+        case .hidden, .checking, .available, .downloading, .note: return false
         }
     }
 }

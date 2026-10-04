@@ -21,7 +21,7 @@ extension UpdaterService {
     /// show a failure's details.
     public func indicatorClicked() {
         switch indicatorPhase {
-        case .ready, .downloading:
+        case .ready, .available, .downloading:
             installClicked()
         case .note(_, isError: true):
             presentUpdateUI?()
