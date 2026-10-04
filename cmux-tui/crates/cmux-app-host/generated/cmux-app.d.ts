@@ -446,7 +446,10 @@ interface CmuxGlobal {
   }
   feed: {
     /** `feed.adopt` (mutation, scope `feed:write`): Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect. */
-    adopt: CmuxOp<{ item: Cmux.FeedItem; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem }>>
+    adopt: CmuxOp<{ item: Cmux.FeedItem; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem }>> & {
+      /** `feed.adopt.cancel` (mutation, scope `feed:write`): Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item. */
+      cancel: CmuxOp<{ key: string; expected_revision?: string }, Cmux.MutationResult<{ cancelled: boolean; item?: Cmux.FeedItem }>>
+    }
     /** `feed.answer` (mutation, scope `feed:write`): Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed. */
     answer: CmuxOp<{ item: Cmux.FeedItemId; answer: string; device?: string; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem }>>
     /** `feed.archive` (mutation, scope `feed:write`): Archive items (done) by ids or a filter. Open requests cannot be archived: answer or decline them (a filter skips them). */

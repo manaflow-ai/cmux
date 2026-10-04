@@ -1,7 +1,8 @@
 import type { Principal, ReduceContext, ReduceResult } from "@cmux/ownership"
-import { checkAnswer, checkPrompt, FeedAdopt, FeedPost, kindDefaultPriority, kindNeedsMac, type FeedItem } from "@cmux/protocol"
+import { checkAnswer, checkPrompt, FeedAdopt, FeedAdoptCancel, FeedPost, kindDefaultPriority, kindNeedsMac, type FeedItem } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
 import {
+  ADOPT_TOMBSTONE_MS,
   claimDedupe,
   DEFAULT_NOTICE_EXPIRY_MS,
   DEFAULT_REQUEST_EXPIRY_MS,
@@ -9,6 +10,7 @@ import {
   fitsBudget,
   isActive,
   jsonBytes,
+  MAX_ADOPT_TOMBSTONES,
   MAX_INSTALL_POSTS_PER_MINUTE,
   MAX_ITEM_BYTES,
   MAX_OPEN_REQUESTS,
@@ -252,6 +254,7 @@ export const reduceAdopt = (state: FeedState, params: unknown, ctx: ReduceContex
     if (prior.poster.install !== p.install) return reject("validation.invalid", "the id belongs to another item")
     return { ok: true, state, value: { item: prior }, changed: false }
   }
+  if (state.adopt_cancelled?.[incoming.id]?.install === p.install) return reject("feed.adopt_cancelled", "the local owner withdrew this handoff (feed.adopt.cancel)")
   const problem = adoptProblem(incoming, p)
   if (problem) return reject("validation.invalid", `cannot adopt: ${problem}`)
   const counted = countPost(state, p, incoming.poster.scope, ctx.now)
@@ -272,4 +275,32 @@ export const reduceAdopt = (state: FeedState, params: unknown, ctx: ReduceContex
     updated_at: ctx.now
   }
   return insert(state, item, counted.rate)
+}
+
+/**
+ * feed.adopt.cancel: the local owner aborts a handoff (lane 9). The DO ledger commits the answer, so
+ * the daemon may unfreeze its item on `cancelled: true`: a delayed feed.adopt with the same key then
+ * finds the tombstone and is refused. On `cancelled: false` the cloud owns the item and the daemon
+ * commits `moved` as after an adopt result. An adopted item that the DO has since evicted counts as
+ * not adopted (the cloud copy is gone, so the local copy stays the only owner).
+ */
+export const reduceAdoptCancel = (state: FeedState, params: unknown, ctx: ReduceContext): ReduceResult<FeedState> => {
+  const d = decodeParams<typeof FeedAdoptCancel.params.Type>(FeedAdoptCancel, params)
+  if (!d.ok) return d
+  const p = ctx.principal
+  if (!p.install || p.agent) return reject("auth.forbidden", "only a local feed owner (an install, not an agent) withdraws a handoff")
+  const id = d.value.key.slice("adopt:".length)
+  const item = state.items[id]
+  if (item) {
+    if (item.poster.install !== p.install) return reject("validation.invalid", "the id belongs to another install's item")
+    return { ok: true, state, value: { cancelled: false, item }, changed: false }
+  }
+  const prior = state.adopt_cancelled?.[id]
+  if (prior) return prior.install === p.install ? { ok: true, state, value: { cancelled: true }, changed: false } : reject("validation.invalid", "the id belongs to another install")
+  const kept = Object.entries(state.adopt_cancelled ?? {})
+    .filter(([, t]) => t.at + ADOPT_TOMBSTONE_MS > ctx.now)
+    .sort((a, b) => b[1].at - a[1].at)
+    .slice(0, MAX_ADOPT_TOMBSTONES - 1)
+  const adopt_cancelled = Object.fromEntries([...kept, [id, { install: p.install, at: ctx.now }]])
+  return { ok: true, state: { ...state, adopt_cancelled }, value: { cancelled: true } }
 }

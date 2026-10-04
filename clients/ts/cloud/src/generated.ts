@@ -1264,6 +1264,16 @@ export interface CloudOps {
       readonly item: FeedItem
     }
   }
+  /** Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item. */
+  readonly "feed.adopt.cancel": {
+    readonly params: {
+      readonly key: string
+    }
+    readonly result: {
+      readonly cancelled: boolean
+      readonly item?: FeedItem
+    }
+  }
   /** Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed. */
   readonly "feed.answer": {
     readonly params: {
@@ -2558,6 +2568,7 @@ export const cloudOpMeta = {
   "domain.release": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "domain.verify": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "feed.adopt": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.adopt.cancel": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.answer": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.archive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.cancel": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },

@@ -217,6 +217,10 @@
       "scope": "feed:write",
       "class": "mutation"
     },
+    "feed.adopt.cancel": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
     "feed.answer": {
       "scope": "feed:write",
       "class": "mutation"

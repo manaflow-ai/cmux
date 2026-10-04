@@ -55,6 +55,7 @@
     "domain.list",
     "domain.verify",
     "feed.adopt",
+    "feed.adopt.cancel",
     "feed.answer",
     "feed.archive",
     "feed.cancel",
