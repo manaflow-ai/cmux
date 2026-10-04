@@ -71,6 +71,10 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func noteTreeFailure(_ description: String) {
+        // A tree failure is an event, not a persistent state banner. Clear a
+        // prior dismissal so repeating the same ownership hint remains
+        // visible on the next invalid attempt.
+        AppDelegate.shared?.cloudBannerDismissalStore.clear(id: "machines.tree-error")
         treeErrorDescription = description
     }
 
@@ -444,8 +448,8 @@ final class MachinesPanelViewModel: ObservableObject {
         awaitingCatalogScope = true
     }
 
-    /// Re-enables catalog rows only after the shared provider registry has
-    /// finished retiring the old team and resuming the new one.
+    /// Re-enables catalog rows once the registry has discovered the new team.
+    /// Remote workspace details continue refreshing independently.
     private func finishTeamScopeTransition() {
         awaitingCatalogScope = false
         readCatalog()
