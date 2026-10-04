@@ -58,7 +58,7 @@ struct WindowKindMatrixTests {
                 "appStore.show"].contains(descriptor.id.rawValue) { return .run }
             let content: Set<ActionTargetKind> = [.tab, .pane, .workspace, .workspaceGroup, .screen, .screenGroup, .tabGroup, .column, .window]
             if descriptor.isDestructive && !content.isDisjoint(with: descriptor.targets) {
-                return .disabled(reason: MiscHandlerStrings.noPane)
+                return .disabled(reason: MiscHandlerStrings.notInThisWindow)
             }
             return .run
         }
