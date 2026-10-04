@@ -37,6 +37,10 @@ use crate::resource::NotificationPublicId;
 /// Meta key set once the notification ledger migrated into local items.
 pub(crate) const FEED_LOCAL_MIGRATION_META_KEY: &str = "feed_local_ledger_migrated_v1";
 
+/// Meta key set once the folded set covers every retained ledger entry the
+/// local owner took (see `migrate_feed_local_from_ledger`).
+pub(crate) const FEED_LOCAL_FOLDED_META_KEY: &str = "feed_local_folded_v1";
+
 pub(super) fn create_feed_local_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS feed_local_items (
@@ -262,6 +266,7 @@ impl WorkspaceRegistry {
     pub(crate) fn forget_feed_local_for_test(&mut self) -> anyhow::Result<()> {
         self.connection.execute("DELETE FROM feed_local_items", [])?;
         self.connection.execute("DELETE FROM feed_local_folded", [])?;
+        self.connection.execute("DELETE FROM meta WHERE key = ?1", [FEED_LOCAL_FOLDED_META_KEY])?;
         self.forget_feed_local_marker_for_test()
     }
 
@@ -275,6 +280,15 @@ impl WorkspaceRegistry {
             self.connection.execute("DELETE FROM feed_local_items WHERE item_id = ?1", [id])?;
             self.connection.execute("DELETE FROM feed_local_folded WHERE item_id = ?1", [id])?;
         }
+        Ok(())
+    }
+
+    /// Drop the folded rows and their meta key, as a registry written by an
+    /// earlier build of the local owner that had no folded set.
+    #[cfg(test)]
+    pub(crate) fn forget_feed_local_folded_for_test(&mut self) -> anyhow::Result<()> {
+        self.connection.execute("DELETE FROM feed_local_folded", [])?;
+        self.connection.execute("DELETE FROM meta WHERE key = ?1", [FEED_LOCAL_FOLDED_META_KEY])?;
         Ok(())
     }
 

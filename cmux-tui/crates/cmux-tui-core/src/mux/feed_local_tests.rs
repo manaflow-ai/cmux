@@ -356,8 +356,16 @@ fn feedfix_reading_a_terminal_less_tab_item_clears_its_ring_durably() {
     let item = all(&mux).pop().unwrap();
     assert!(item.context.terminal.is_none() && item.context.tab.is_some(), "{item:?}");
     assert!(mux.surface_notification(browser).is_some());
+    let events = mux.subscribe();
     mux.feed_local_read(std::slice::from_ref(&item.id)).unwrap();
     assert!(mux.surface_notification(browser).is_none(), "the tab ring follows the item");
+    let mut tab_changed = false;
+    while let Ok(event) = events.try_recv() {
+        if let MuxEvent::TreeDelta(delta) = event {
+            tab_changed |= delta.kind == TreeDeltaKind::TabChanged && delta.surface == Some(browser);
+        }
+    }
+    assert!(tab_changed, "the cleared placement gets tab-changed");
     let acked = mux.workspace_registry.lock().unwrap().acked_notification_ids().unwrap();
     assert!(acked.contains(notification.as_str()), "the tab's ledger entry is acknowledged");
 }
@@ -390,4 +398,30 @@ fn feedfix_folded_rows_follow_clears_not_a_count() {
         assert!(folded.contains_key(id.as_str()), "{id} lost its folded row");
     }
     assert!(!folded.contains_key(cleared.as_str()), "a cleared notification keeps no row");
+}
+
+/// Review P3: a registry written by an earlier build of this branch has
+/// items and the migration marker but no folded rows. Its pruned items must
+/// not come back: the first open with the folded set treats every retained
+/// ledger entry as already taken, because that build's pass took them all.
+#[test]
+fn feedfix_a_registry_without_folded_rows_does_not_resurrect_pruned_items() {
+    let root = root("oldbranch");
+    let session = "feed-oldbranch";
+    let mux = open(&root, session);
+    let surface = mux.new_workspace(None, None).unwrap();
+    post(&mux, "agent waiting", Some(surface.id));
+    let item = all(&mux).pop().unwrap();
+    mux.feed_local_handoff_begin(&item.id).unwrap();
+    mux.feed_local_handoff_done(&item.id, "cloud").unwrap();
+    let mut registry = mux.workspace_registry.lock().unwrap();
+    registry.prune_feed_local_rows_for_test(std::slice::from_ref(&item.id)).unwrap();
+    registry.forget_feed_local_folded_for_test().unwrap();
+    drop(registry);
+    drop(mux);
+
+    let mux = open(&root, session);
+    assert!(all(&mux).is_empty(), "an old-branch registry resurrected {:?}", all(&mux));
+    post(&mux, "after the upgrade", Some(surface.id));
+    assert_eq!(all(&mux).len(), 1, "new notifications still post");
 }

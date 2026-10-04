@@ -178,6 +178,30 @@ fn prune_drops_old_read_and_moved_items_and_bounds_the_count() {
     assert!(feed.get("frozen").is_some(), "a handing-off item is never pruned");
 }
 
+/// The ledger pass posts old entries with their own times. `post_unpruned`
+/// never drops an item, even past [`MAX_ITEMS`] or retention, so the pass's
+/// copy keeps every item it still matches entries against.
+#[test]
+fn post_unpruned_never_prunes() {
+    let mut feed = Feed::default();
+    feed.post(notice("old-read", "k-old", None, 1)).unwrap();
+    feed.read(&["old-read".into()], 1).unwrap();
+    for index in 0..MAX_ITEMS {
+        let mut next = notice(&format!("i{index}"), &format!("k{index}"), None, 2 + index as u64);
+        next.coalesce = false;
+        let (_, changes) = feed.post_unpruned(next).unwrap();
+        assert!(changes.removed.is_empty(), "post_unpruned removed {:?}", changes.removed);
+    }
+    let late = notice("late", "k-late", None, 1 + RETENTION_MS * 2);
+    let (_, changes) = feed.post_unpruned(late.clone()).unwrap();
+    assert!(changes.removed.is_empty());
+    assert_eq!(feed.items().len(), MAX_ITEMS + 2);
+    assert!(feed.get("old-read").is_some(), "a read item past retention stays in the copy");
+    // The pruning post drops them.
+    let (_, changes) = feed.post(notice("later", "k-later", None, 2 + RETENTION_MS * 2)).unwrap();
+    assert!(changes.removed.contains(&"old-read".to_string()));
+}
+
 #[derive(Clone, Debug)]
 enum Op {
     Post { terminal: u8, key: u8 },
