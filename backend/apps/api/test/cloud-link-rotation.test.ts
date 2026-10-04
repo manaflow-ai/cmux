@@ -40,4 +40,10 @@ describe("link signing key publication lead", () => {
     const keys = parseSigningKeys(JSON.stringify({ active: "k2", keys: { k1: a, k2: b }, published_at: { k1: t0, k2: t0 } }))!
     expect(signingKid(keys, t0 + 3600_000)).toBeNull()
   })
+
+  it("a kid named like an object prototype member does not count as published (review P3-1)", async () => {
+    const [a, b] = [await priv(), await priv()]
+    for (const kid of ["constructor", "toString", "__proto__", "hasOwnProperty"])
+      expect(parseSigningKeys(JSON.stringify({ active: "k1", keys: { k1: a, [kid]: b }, published_at: { k1: 0 } })), kid).toBeNull()
+  })
 })
