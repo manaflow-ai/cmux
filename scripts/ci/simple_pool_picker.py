@@ -236,10 +236,10 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
 
     owned: list[Pool] = []
     if runners is not None:
+        # Only the configured class pools: a runner can carry an owned-looking
+        # label (the aws Macs' glaeda-std-xcode-26.3, five runners per Mac)
+        # that is not a pool PR compiles should land on.
         labels = set(_slots(env.get("CI_OWNED_POOL_SLOTS")))
-        for runner in runners:
-            labels.update(str(item.get("name", "")) for item in runner.get("labels", ())
-                          if OWNED.fullmatch(str(item.get("name", ""))))
         for label in sorted(labels, key=owned_order):
             online = [runner for runner in runners if runner.get("status") == "online"
                       and any(item.get("name") == label for item in runner.get("labels", ()))]
