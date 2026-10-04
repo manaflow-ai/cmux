@@ -31,14 +31,18 @@ pub(super) struct RemoteCaller {
 }
 
 fn caller(mux: &Mux, client: u64) -> anyhow::Result<RemoteCaller> {
-        let Some(Principal::Remote(peer)) = mux.principal(client) else { return Err(denied()) };
-        let _ = StreamPolicy::Close;
-        let owner = mux.remote_relay().owner_user();
-        Ok(RemoteCaller {
-            participant: remote_participant(&peer.install),
-            is_owner: owner.as_deref() == Some(peer.user.as_str()),
-        })
+    let Some(Principal::Remote(peer)) = mux.principal(client) else { return Err(denied()) };
+    // Every frame rechecks the revocation policy: a revoked install, or one
+    // past the 72 h offline limit, is refused even before its streams close.
+    if mux.remote_relay().revocation.lock().unwrap().policy(&peer.install) == StreamPolicy::Close {
+        return Err(denied());
     }
+    let owner = mux.remote_relay().owner_user();
+    Ok(RemoteCaller {
+        participant: remote_participant(&peer.install),
+        is_owner: owner.as_deref() == Some(peer.user.as_str()),
+    })
+}
 
 fn owns(caller: &RemoteCaller, participants: &[cmux_conversation::Participant]) -> bool {
     caller.is_owner && participants.iter().any(|p| p.id == caller.participant)

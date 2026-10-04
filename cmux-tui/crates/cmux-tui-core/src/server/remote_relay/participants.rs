@@ -51,20 +51,38 @@ impl Mux {
     /// conversations it joined.
     pub fn pair_remote_install(&self, install: &str, display_name: &str) -> anyhow::Result<usize> {
         let participant = remote_participant(install);
-        let summaries = self.with_conversations(|store| store.list())?;
-        let mut joined = 0;
-        for summary in summaries {
-            let ids: Vec<&str> = summary.participants.iter().map(|p| p.id.as_str()).collect();
-            if ids.contains(&LOCAL_USER) && !ids.contains(&participant.as_str()) {
-                let op = Op::ParticipantsAdd { participant: device(install, display_name) };
-                let key = format!("system-pair-{install}");
-                super::super::conversations::commit_op(self, &summary.id, &key, LOCAL_USER, &op, &None)?;
-                joined += 1;
-            }
-        }
-        let _ = (Arc::new(()), ConversationEvent::Typing { conversation: String::new(), participant: String::new(), on: false });
-        let _: Option<MuxEvent> = None;
-        Ok(joined)
+        let key = format!("system-pair-{install}");
+        let outcomes = self.conversation_write_many(
+            |store| {
+                let mut ops = Vec::new();
+                for summary in store.list()? {
+                    let ids: Vec<&str> =
+                        summary.participants.iter().map(|p| p.id.as_str()).collect();
+                    if ids.contains(&LOCAL_USER) && !ids.contains(&participant.as_str()) {
+                        let op =
+                            Op::ParticipantsAdd { participant: device(install, display_name) };
+                        ops.push((summary.id, key.clone(), LOCAL_USER.to_string(), op));
+                    }
+                }
+                let outcomes = store.apply_ops_atomically(&ops)?;
+                Ok(ops.into_iter().map(|(id, ..)| id).zip(outcomes).collect::<Vec<_>>())
+            },
+            |outcomes| {
+                outcomes
+                    .iter()
+                    .filter(|(_, outcome)| !outcome.replayed)
+                    .map(|(conversation, outcome)| {
+                        MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
+                            conversation: conversation.clone(),
+                            rev: outcome.result.rev,
+                            transaction: None,
+                            change: outcome.result.change.clone(),
+                        }))
+                    })
+                    .collect()
+            },
+        )?;
+        Ok(outcomes.len())
     }
 }
 

@@ -102,7 +102,7 @@ impl Mux {
     /// ids stay local: production registers every connection before its
     /// first frame, and in-process tests use unregistered ids as local.
     pub(super) fn is_remote_client(&self, client: u64) -> bool {
-        self.control_clients.is_remote(client)
+        self.control_clients.is_remote(client) || self.remote_relay().peer(client).is_some()
     }
 
     /// Record the verified link peer of remote connection `client` and bind
@@ -200,11 +200,17 @@ pub(super) fn handle_frame(
     message: &str,
     writer: &MessageWriter,
 ) -> bool {
-        match serde_json::from_str::<super::Request>(message) {
-            Ok(request) => super::handle_request(mux, client, request, writer),
-            Err(error) => super::responses::send_bad_request(writer, message, &error),
-        }
+    if mux.daemon_handoff_in_progress() {
+        return writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok();
     }
+    if gate::check_frame(message).is_err() {
+        return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
+    }
+    match serde_json::from_str::<super::Request>(message) {
+        Ok(request) => super::handle_request(mux, client, request, writer),
+        Err(_) => writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok(),
+    }
+}
 
 /// A refusal of `message` with `code` and no detail; its `id` when it has
 /// one.
