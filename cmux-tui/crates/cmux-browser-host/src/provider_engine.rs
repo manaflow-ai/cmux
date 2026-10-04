@@ -270,6 +270,13 @@ impl Driver for ProviderEngine {
             LeaseOp::Act { target }
         };
         self.provider.lease(&op, &self.lease).map_err(|error| lease_refusal(method, error))?;
+        // A close that ran between the check at the top and this lease call
+        // must not leave a lease that nothing ends.
+        if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
+            let release = LeaseOp::Release { target: target_id.to_owned() };
+            let _ = self.provider.lease(&release, &self.lease);
+            return Err(DriverError::closed("the session was closed"));
+        }
         if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
             self.call_cef(method, target_id, params)
         } else if let Some(evaluate) = observe {
