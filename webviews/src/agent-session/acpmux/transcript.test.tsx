@@ -1025,6 +1025,91 @@ describe("acpmux host handshake", () => {
     }
   });
 
+  /// Data loss: a prompt queued behind a harness that fails to start comes back to the composer
+  /// with its attachments, exactly as they were.
+  test("a queued prompt whose harness fails returns to the composer with its attachments", async () => {
+    let failNew: (() => void) | undefined;
+    class FailSocket extends FakeSocket {
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as { id: number; method: string; params: any };
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [{ sessionId: "s", harness: "claude" }] }
+            : method === "_acpmux/attach"
+              ? { session: { sessionId: params.sessionId, harness: "claude", model: "opus" }, events: [] }
+              : method === "_acpmux/harnesses"
+                ? {
+                    harnesses: [
+                      { id: "claude", name: "Claude Code", models: [{ id: "opus" }] },
+                      { id: "gemini", name: "Gemini CLI", models: [] },
+                    ],
+                  }
+                : {};
+        if (method === "session/new")
+          failNew = () =>
+            this.onmessage?.({ data: JSON.stringify({ id, error: { code: -32603, message: "API key is missing" } }) });
+        else queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    FakeSocket.made = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = FailSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                sessionId: "s",
+              },
+            });
+          },
+        },
+      },
+    };
+    const doc = dom.window.document;
+    const waitFor = async (done: () => boolean) => {
+      for (let tries = 0; tries < 100 && !done(); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    };
+    const actions = () => (dom.window as unknown as Window).cmuxAcpmuxActions!;
+    const file = { id: "a1", kind: "text", name: "notes.md", mimeType: "text/markdown", size: 2, text: "hi" };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await waitFor(
+        () => Boolean(actions()?.["chat.new"]) && doc.querySelector(".acpmux-title")?.textContent === "Claude Code",
+      );
+      act(() => {
+        void actions()["chat.new"]!({ harness: "gemini" });
+        void actions()["chat.send"]!({ text: "read this", attachments: [file] }).catch(() => undefined);
+      });
+      await waitFor(() => failNew !== undefined);
+      await act(async () => failNew!());
+      await waitFor(() => doc.querySelector(".acpmux-switch-failed") !== null);
+      const field = doc.querySelector<HTMLElement & { acpmuxMarkdownField?: { value(): string } }>(
+        ".acpmux-composer [contenteditable]",
+      );
+      await waitFor(() => (field?.textContent ?? "").includes("read this"));
+      expect(field?.textContent).toBe("read this");
+      expect(
+        [...doc.querySelectorAll(".acpmux-attachments .acpmux-attachment")].map((chip) => chip.getAttribute("title")),
+      ).toEqual(["notes.md"]);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+    }
+  });
+
   /// The model picker reads the catalog through TanStack Query and keeps the old one across a reconnect.
   test("the model picker loads each daemon's catalog and keeps the last one while reconnecting", async () => {
     class CatalogSocket extends FakeSocket {

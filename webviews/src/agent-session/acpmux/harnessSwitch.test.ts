@@ -250,6 +250,25 @@ describe("harness switch: failure", () => {
     expect(draw().switching?.phase).toBe("starting");
   });
 
+  // Data loss: a queued prompt's attachments must come back with its text, exactly as they were.
+  test("a failed or cancelled queued prompt hands back its attachments with its text", async () => {
+    const image = { id: "a1", kind: "image" as const, name: "shot.png", mimeType: "image/png", size: 3, data: "AAA" };
+    const file = { id: "a2", kind: "text" as const, name: "notes.md", mimeType: "text/markdown", size: 2, text: "hi" };
+    const { store, port } = setup();
+    const handedBack: unknown[][] = [];
+    store.setHandlers({ restore: (...args: unknown[]) => void handedBack.push(args) } as never);
+    void store.switchTo("opencode");
+    void store.send("with an image", [image])?.catch(() => undefined);
+    void store.send("with a file", [file])?.catch(() => undefined);
+    port.creates[0]!.reply.reject(new Error("boom"));
+    await settle();
+    expect(handedBack).toEqual([["with an image\n\nwith a file", [image, file]]]);
+    void store.switchTo("codex");
+    void store.send("cancel me", [file])?.catch(() => undefined);
+    store.cancelQueued(store.view().intent!.queued[0]!.id);
+    expect(handedBack[1]).toEqual(["cancel me", [file]]);
+  });
+
   test("Send after a failure retries with that prompt queued", async () => {
     const { store, port } = setup();
     void store.switchTo("opencode");
