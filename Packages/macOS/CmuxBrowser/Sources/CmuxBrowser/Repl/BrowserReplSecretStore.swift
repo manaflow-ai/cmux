@@ -10,7 +10,11 @@ public import Foundation
 /// hands back to JavaScript or prints (driver results, events, fetch
 /// responses, output, errors, files written and read back) is masked as
 /// `<secret:name>`, including the value's percent-encoded, JSON-escaped,
-/// HTML-escaped and Base64-wrapped forms (a Basic `Authorization` header).
+/// HTML-escaped and Base64-wrapped forms (a Basic `Authorization` header,
+/// Base64 at any offset in a longer run; see
+/// ``BrowserReplSecretScanner/minimumBytesAtEveryOffset`` for short
+/// values). A value transformed otherwise (compressed, hex, Base64 twice or
+/// broken across lines) is not found.
 /// Masking is one linear pass (``BrowserReplSecretScanner``) whose growth
 /// is bounded: text that masking would grow by more than
 /// ``maximumGrowth`` is withheld, and bytes are refused.

@@ -253,17 +253,44 @@ struct BrowserReplSecretScanner {
         }
     }
 
+    /// Values of at least this many bytes are looked for in every Base64
+    /// run at every offset. A shorter value turns up by chance in the
+    /// decoded bytes of unrelated runs (a 3-byte value in about one of
+    /// every 16 million positions, so in a few percent of megabyte images
+    /// per offset), so it is looked for only where it was before (at the
+    /// run's own offset in a run of eight or more characters) and, at every
+    /// offset, in a run no more than three characters longer than its own
+    /// encoding (`btoa(pin)`, `"x" + btoa(pin)`).
+    static let minimumBytesAtEveryOffset = 4
+
     /// The mask of a value the Base64 run `input[start..<end]` decodes to
-    /// contain, if any.
+    /// contain, read from each of its first four characters: a value's
+    /// encoding can start at any character of a run (`"x" + btoa(value)`),
+    /// and only a start in step with it decodes to the value's bytes.
     private func base64Mask(_ input: UnsafeBufferPointer<UInt8>, from start: Int, to end: Int, buffer: inout [UInt8]) -> [UInt8]? {
-        guard end - start >= 8 else { return nil }
-        Self.decodeBase64(input, from: start, to: end, into: &buffer)
-        guard !buffer.isEmpty else { return nil }
-        return buffer.withUnsafeBytes { decoded in
-            values.first { value in
-                value.utf8.withUnsafeBytes { memmem(decoded.baseAddress, decoded.count, $0.baseAddress, $0.count) != nil }
-            }?.mask
+        let length = end - start
+        guard length >= 2 else { return nil }
+        for offset in 0..<min(4, length - 1) {
+            Self.decodeBase64(input, from: start + offset, to: end, into: &buffer)
+            guard !buffer.isEmpty else { continue }
+            let hit = buffer.withUnsafeBytes { decoded in
+                values.first { value in
+                    Self.looksFor(value, inRunOf: length, at: offset)
+                        && value.utf8.withUnsafeBytes { memmem(decoded.baseAddress, decoded.count, $0.baseAddress, $0.count) != nil }
+                }
+            }
+            if let hit { return hit.mask }
         }
+        return nil
+    }
+
+    /// Whether `value` is looked for in a Base64 run of `length` characters
+    /// read from character `offset` (``minimumBytesAtEveryOffset``).
+    private static func looksFor(_ value: Value, inRunOf length: Int, at offset: Int) -> Bool {
+        let count = value.utf8.count
+        if count >= minimumBytesAtEveryOffset { return true }
+        let encodedLength = (count * 4 + 2) / 3
+        return length <= encodedLength + 3 || (offset == 0 && length >= 8)
     }
 
     /// Decodes `input[start..<end]` (Base64 characters only, no padding):
