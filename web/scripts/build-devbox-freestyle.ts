@@ -352,6 +352,12 @@ try {
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
+  await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
+  await put("cmux-python-completion.bash", "/usr/local/share/bash-completion/completions/python");
+  await step(
+    "python-completion",
+    `for f in /usr/share/bash-completion/completions/python?* /usr/share/bash-completion/completions/pypy* /usr/share/bash-completion/completions/micropython; do if [ -e "$f" ]; then ln -sf python "/usr/local/share/bash-completion/completions/\${f##*/}"; fi; done && bash -n /usr/local/share/bash-completion/completions/python`,
+  );
   await step("prompt-default-name", "echo cmux > /etc/cmux/vm-name");
   await put("seed-history", "/etc/cmux/seed-history");
   await put("cmux-terminfo.sh", "/etc/profile.d/cmux-terminfo.sh");
