@@ -8,7 +8,8 @@ import Foundation
 /// The caller is `LocalServerSource` for a user's Fix click; nothing else
 /// starts a fix.
 struct ServerHealthFixer {
-    /// Applies (`revert` false) or reverts one fix.
+    /// Applies (`revert` false) or reverts one fix. It calls `willCall` just
+    /// before the request goes to a registered, allowed helper.
     typealias Run = @MainActor (_ fix: ServerFix, _ revert: Bool, _ willCall: @escaping @MainActor () async throws -> Void)
         async throws(ServerHelperClient.Failure) -> Void
 
@@ -64,16 +65,14 @@ struct ServerHealthFixer {
         defer { gate.release() }
         for fix in fixes {
             guard !Task.isCancelled else { return Self.cancelled }
-            // Recorded before the call: a call that ends early (timeout) may
-            // still have changed the setting, and Stop Serving must revert it.
-            // Without the record the fix does not run.
-            do {
-                try await ledger.record(fix)
-            } catch {
-                return RefusalStrings.format("refusal.server.fixFailed", "Could not run the fix: %@", String(describing: error))
-            }
+            // Recorded just before the request goes to an allowed helper: a call
+            // that ends early (timeout) may still have changed the setting, and
+            // Stop Serving must revert it. An unsigned build, a missing helper or
+            // one awaiting approval never calls, so it records nothing. Without
+            // the record the request is not sent.
+            let ledger = ledger
             do throws(ServerHelperClient.Failure) {
-                try await run(fix, false) {}
+                try await run(fix, false) { try await ledger.record(fix) }
             } catch {
                 return Self.reject(for: error)
             }

@@ -33,12 +33,14 @@ struct ServerStopServing {
     enum Failure: Error, Equatable {
         case revert(String)
         case unregister(String)
+        /// Fixes are recorded but no helper is registered to restore them.
         case notRestored
 
         var message: String {
             switch self {
             case .notRestored:
-                ""
+                RefusalStrings.text("refusal.server.notRestored",
+                                    "Some power settings changed by Fix were not restored. Run Fix and Stop Serving again.")
             case let .revert(reason):
                 RefusalStrings.format("refusal.server.revertFailed", "Could not restore your power settings: %@", reason)
             case let .unregister(reason):
@@ -71,25 +73,26 @@ struct ServerStopServing {
         defer { gate.release() }
         let revertFailure = await revertRecorded()
         if let agent { try await unregister(agent) }
-        if let revertFailure { throw .revert(revertFailure) }
+        if let revertFailure { throw revertFailure }
         if let helper { try await unregister(helper) }
     }
 
     /// An enabled helper reverts every allowlisted fix, whatever the ledger
     /// says (a lost ledger must not leave a setting changed). Otherwise the
     /// ledger decides: recorded fixes and a helper awaiting approval keep the
-    /// helper; nothing recorded, or no helper registered, needs no helper.
-    /// Nil when nothing is left to restore, else the reason.
-    private func revertRecorded() async -> String? {
+    /// helper; nothing recorded needs no helper; recorded fixes with no
+    /// helper registered keep their entries and say so.
+    /// Nil when nothing is left to restore, else the failure.
+    private func revertRecorded() async -> Failure? {
         let recorded = await ledger.load()
         switch helper?.status() {
         case .enabled:
             break
         case .requiresApproval:
-            return recorded.toRevert.isEmpty ? nil : ServerHealthFixer.reject(for: .requiresApproval)
+            return recorded.toRevert.isEmpty ? nil : .revert(ServerHealthFixer.reject(for: .requiresApproval))
         default:
             // No helper is registered: none can revert; the ledger keeps its entries.
-            return nil
+            return recorded.toRevert.isEmpty ? nil : .notRestored
         }
         var failure: String?
         for fix in ServerFix.allCases {
@@ -104,8 +107,10 @@ struct ServerStopServing {
             // Only a revert that succeeded, or found nothing to revert, clears its entry.
             try? await ledger.clear(fix)
         }
+        // An unreadable ledger is emptied after a clean full revert; a foreign
+        // one keeps the ids this build cannot revert.
         if failure == nil, recorded == .unknown { try? await ledger.reset() }
-        return failure
+        return failure.map(Failure.revert)
     }
 
     private func unregister(_ job: ServerServiceRegistration) async throws(Failure) {

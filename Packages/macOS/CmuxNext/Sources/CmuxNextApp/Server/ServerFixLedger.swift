@@ -6,14 +6,18 @@ import Foundation
 /// 9.4). The helper's record is root-only; this one is the app's: a 0600 JSON
 /// file in the app's support folder, written atomically, keyed by fix id.
 /// A missing file is an empty ledger; a file that cannot be read is
-/// `.unknown`, which callers treat as "every fix may be applied" (fail safe).
+/// `.unknown`, and one that names a fix this build does not know is
+/// `.foreign`. Callers treat both as "every fix may be applied" (fail safe).
 nonisolated struct ServerFixLedger: Sendable {
     nonisolated enum Contents: Sendable, Equatable {
         case fixes(Set<ServerFix>)
+        /// The file cannot be read.
         case unknown
+        /// The file names a fix this build cannot revert (a newer build's);
+        /// only that build may empty it.
         case foreign
 
-        /// The fixes to revert, in allowlist order; every fix when unknown.
+        /// The fixes to revert, in allowlist order; every fix when not known.
         var toRevert: [ServerFix] {
             switch self {
             case let .fixes(set): ServerFix.allCases.filter(set.contains)
@@ -50,15 +54,15 @@ nonisolated struct ServerFixLedger: Sendable {
         }
         // An id this build does not know may be a fix it cannot name: fail safe.
         let fixes = file.fixes.keys.map(ServerFix.init(rawValue:))
-        guard fixes.allSatisfy({ $0 != nil }) else { return .unknown }
+        guard fixes.allSatisfy({ $0 != nil }) else { return .foreign }
         return .fixes(Set(fixes.compactMap { $0 }))
     }
 
     /// Adds a fix before the helper is asked to apply it (a timed-out call may
     /// still have changed the setting). A ledger that cannot be read stays as
-    /// it is (still `.unknown`, so nothing is lost).
+    /// it is (still `.unknown`, so nothing is lost); foreign ids are kept.
     @concurrent func record(_ fix: ServerFix) async throws {
-        guard case .fixes = await load() else { return }
+        guard await load() != .unknown else { return }
         var file = try readKnown()
         if file.fixes[fix.rawValue] == nil {
             file.fixes[fix.rawValue] = Int64(Date().timeIntervalSince1970 * 1000)
@@ -68,14 +72,14 @@ nonisolated struct ServerFixLedger: Sendable {
 
     /// Removes a fix after its revert succeeded or the helper had nothing to revert.
     @concurrent func clear(_ fix: ServerFix) async throws {
-        guard case .fixes = await load() else { return }
+        guard await load() != .unknown else { return }
         var file = try readKnown()
         guard file.fixes.removeValue(forKey: fix.rawValue) != nil else { return }
         try write(file)
     }
 
     /// Replaces any content (also an unreadable file) with an empty ledger:
-    /// after every fix was reverted.
+    /// after every fix was reverted. Never for a `.foreign` ledger.
     @concurrent func reset() async throws {
         try write(File())
     }
@@ -86,11 +90,26 @@ nonisolated struct ServerFixLedger: Sendable {
         return try JSONDecoder().decode(File.self, from: Data(contentsOf: url))
     }
 
+    /// A new temp file created 0600 (`O_CREAT | O_EXCL`, so it is never
+    /// readable by others, not even briefly), written in full, then renamed
+    /// over the ledger.
     private func write(_ file: File) throws {
         let directory = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
-        try JSONEncoder().encode(file).write(to: url, options: [.atomic])
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let data = try JSONEncoder().encode(file)
+        let temp = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        let descriptor = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+            try handle.close()
+            guard rename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        } catch {
+            unlink(temp.path)
+            throw error
+        }
     }
 }

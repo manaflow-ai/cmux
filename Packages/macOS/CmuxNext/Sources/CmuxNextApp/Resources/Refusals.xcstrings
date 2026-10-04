@@ -18340,6 +18340,137 @@
           }
         }
       }
+    },
+    "refusal.server.notRestored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some power settings changed by Fix were not restored. Run Fix and Stop Serving again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تتم استعادة بعض إعدادات الطاقة التي غيّرها الإصلاح. شغّل الإصلاح ثم إيقاف الخدمة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neke postavke napajanja koje je promijenila ispravka nisu vraćene. Ponovo pokrenite ispravku i zaustavljanje posluživanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nogle strømindstillinger, som Ret ændrede, blev ikke gendannet. Kør Ret og Stop server igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einige durch Korrigieren geänderte Energieeinstellungen wurden nicht wiederhergestellt. Führe Korrigieren und Serverbetrieb beenden erneut aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se restauraron algunos ajustes de energía cambiados por Corregir. Ejecuta Corregir y Dejar de servir de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Certains réglages d'énergie modifiés par Corriger n'ont pas été restaurés. Relancez Corriger puis Arrêter le service."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alcune impostazioni di alimentazione modificate da Correggi non sono state ripristinate. Esegui di nuovo Correggi e Interrompi servizio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正で変更された一部の電源設定が元に戻されていません。修正とサーバー停止をもう一度実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់ថាមពលមួយចំនួនដែលបានផ្លាស់ប្ដូរដោយការជួសជុលមិនត្រូវបានស្ដារឡើងវិញទេ។ សូមដំណើរការជួសជុល និងបញ្ឈប់ការបម្រើម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "수정으로 변경된 일부 전원 설정이 복원되지 않았습니다. 수정과 서버 중지를 다시 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noen strøminnstillinger som Rett endret, ble ikke gjenopprettet. Kjør Rett og Stopp server på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niektóre ustawienia zasilania zmienione przez Napraw nie zostały przywrócone. Uruchom ponownie Napraw i Zatrzymaj serwer."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algumas configurações de energia alteradas por Corrigir não foram restauradas. Execute Corrigir e Parar de servir novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Некоторые настройки питания, изменённые исправлением, не восстановлены. Снова выполните исправление и остановку сервера."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่าพลังงานบางรายการที่การแก้ไขเปลี่ยนไปยังไม่ได้คืนค่า เรียกใช้การแก้ไขและหยุดให้บริการอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzeltmenin değiştirdiği bazı güç ayarları geri yüklenmedi. Düzelt ve Sunucuyu durdur işlemlerini yeniden çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Деякі налаштування живлення, змінені виправленням, не відновлено. Знову виконайте виправлення та зупинку сервера."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một số cài đặt nguồn do Sửa thay đổi chưa được khôi phục. Hãy chạy Sửa và Dừng phục vụ lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“修复”更改的部分电源设置未恢复。请再次运行“修复”和“停止服务”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「修正」變更的部分電源設定未還原。請再次執行「修正」和「停止服務」。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
