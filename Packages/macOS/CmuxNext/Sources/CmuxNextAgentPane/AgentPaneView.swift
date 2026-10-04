@@ -100,7 +100,7 @@ public final class AgentPaneView: NSView {
             // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
             configuration.processPool = Self.processPool
             if renderRate != .capped {
-                configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
+                WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
             }
             source.register(on: configuration)
             // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
@@ -188,7 +188,7 @@ public final class AgentPaneView: NSView {
 
     /// WebKit's feature that renders a page at the display-rate divisor
     /// nearest 60 fps.
-    static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
+    static let near60FPSFeature = WebKitRenderRate.near60FPSFeature
 
     public let renderRate: AgentPaneRenderRate
     /// The display's refresh rate when the pane has no window screen to ask

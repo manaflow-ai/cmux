@@ -34,3 +34,26 @@ public extension WKPreferences {
         return features.first { $0.value(forKey: "key") as? String == key }
     }
 }
+
+/// WebKit's page render rate (one path for browser tabs, React pages and
+/// the agent pane). WebKit renders near 60 fps by default; full rate follows
+/// the display (120 Hz on ProMotion).
+public enum WebKitRenderRate {
+    /// WebKit's feature that renders a page at the display-rate divisor nearest 60 fps.
+    public static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
+
+    @MainActor private static var reportedMissingFeature = false
+
+    /// Sets `preferences` to render at the display's full rate, or near
+    /// 60 fps. A WebKit without the feature keeps its default; that is
+    /// logged once, never fatal.
+    @MainActor @discardableResult
+    public static func apply(fullRate: Bool, to preferences: WKPreferences) -> Bool {
+        if preferences.setWebKitFeature(near60FPSFeature, enabled: !fullRate) { return true }
+        if !reportedMissingFeature {
+            reportedMissingFeature = true
+            NSLog("cmux: WebKit has no %@ feature; pages keep WebKit's default render rate", near60FPSFeature)
+        }
+        return false
+    }
+}
