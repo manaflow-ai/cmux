@@ -48,4 +48,7 @@ extension UpdateDriver {
         setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
         install()
     }
+
+    /// Red-test stub.
+    func cancelStaged() {}
 }

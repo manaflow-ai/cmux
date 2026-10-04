@@ -160,4 +160,26 @@ import Testing
         harness.controller.installStagedUpdate()
         #expect(persisted(harness) == before)
     }
+
+    /// `updates.installOnQuit` off (cmux-next): a quit cancels the held
+    /// installer with Sparkle's Skip reply on the ready-to-install prompt,
+    /// which cancels the installer without recording a skipped version, so
+    /// the next check offers the update again.
+    @Test func cancellingAStagedUpdateRepliesSkipOnceAndClearsIt() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        find(harness, into: ChoiceBox())
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+        #expect(harness.controller.stagedUpdate != nil)
+
+        harness.controller.cancelStagedUpdate()
+        #expect(readyBox.choice == .skip)
+        #expect(harness.controller.stagedUpdate == nil)
+
+        readyBox.choice = nil
+        harness.controller.cancelStagedUpdate()
+        harness.controller.installStagedUpdate()
+        #expect(readyBox.choice == nil)
+    }
 }

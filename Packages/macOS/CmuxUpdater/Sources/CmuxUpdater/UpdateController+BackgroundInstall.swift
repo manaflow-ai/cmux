@@ -26,4 +26,10 @@ extension UpdateController {
         guard driver.stagedInstall == nil else { return driver.installStaged() }
         driver.installsWhenStaged = true
     }
+
+    /// Cancels the staged update's pending installer (Sparkle would install it when the app
+    /// quits) without skipping its version. No-op without one.
+    public func cancelStagedUpdate() {
+        driver.cancelStaged()
+    }
 }

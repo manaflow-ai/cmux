@@ -35,6 +35,17 @@ public final class UpdaterService {
     public internal(set) var showsProbeResult = false
     /// A fixed circle phase for screenshots (`debug.update_indicator`).
     public var debugIndicatorPhase: UpdateIndicatorPhase?
+    /// The R114 install gate over ``indicatorPhase``.
+    public internal(set) var flow = UpdateFlow()
+    /// The `updates.*` settings the gate reads (set by the App).
+    public var preferences = UpdatePreferences.defaults
+    /// The local minute of the day the card is evaluated at.
+    public internal(set) var minuteOfDay = 0
+    /// Asks the App to confirm an install although agents run (CmuxDialog).
+    @ObservationIgnored public var confirmInterrupt: ((UpdateBlockers) -> Void)?
+    /// Sparkle's staged install and its cancel (replaced by tests).
+    @ObservationIgnored var installStaged: () -> Void = {}
+    @ObservationIgnored var cancelStaged: () -> Void = {}
 
     /// Asks the App to show the update sheet (set by the App): a failure's
     /// details only.
