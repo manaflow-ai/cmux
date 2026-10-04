@@ -436,4 +436,16 @@ describe("CloudPage", () => {
     // No plan id is known for a quota refusal: no See plans.
     expect($(".cloud-see-plans")).toBeNull();
   });
+
+  test("no machine image configured: the create sheet and a restore say so in words", async () => {
+    const provider = new MockCloudProvider();
+    provider.noSnapshotConfigured = true;
+    await render(provider);
+    await act(async () => $(".cloud-create-button")!.click());
+    await act(async () => $(".cloud-create-submit")!.click());
+    const expected = "New machines are not available yet: no machine image is configured for this Cloud.";
+    expect($(".cloud-create-blocked")?.textContent).toBe(expected);
+    expect($(".cloud-error")).toBeNull();
+    expect($(".cloud-see-plans")).toBeNull();
+  });
 });

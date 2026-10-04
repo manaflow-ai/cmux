@@ -22,6 +22,7 @@ import {
 import {
   ACTION_RUN,
   AccountOps,
+  CloudErrors,
   CloudOps,
   isGone,
   isUnsupported,
@@ -57,6 +58,8 @@ export interface CreateDraft {
   error?: string;
   /** The backend refused the create for the plan (contract 1.5): a sentence and "See plans". */
   refusal?: PlanRefusal;
+  /** The backend cannot create machines yet (no machine image configured): its own sentence. */
+  blocked?: "no_snapshot_configured";
 }
 
 export interface CloudState {
@@ -75,6 +78,8 @@ export interface CloudState {
   migrationDismissed: boolean;
   /** A plan refusal of a change outside the create sheet (start, resize, snapshot). */
   refusal?: PlanRefusal;
+  /** A restore the backend cannot serve yet (no machine image configured): its own sentence. */
+  blocked?: "no_snapshot_configured";
   selection?: string;
   detail?: MachineDetail;
   create?: CreateDraft;
@@ -273,7 +278,8 @@ export class CloudStore {
   }
 
   dismissError(): void {
-    if (this.state.error || this.state.refusal) this.set({ error: undefined, refusal: undefined });
+    if (this.state.error || this.state.refusal || this.state.blocked)
+      this.set({ error: undefined, refusal: undefined, blocked: undefined });
   }
 
   // Create sheet.
@@ -294,7 +300,8 @@ export class CloudStore {
 
   updateDraft(patch: Partial<Pick<CreateDraft, "name" | "memoryMb" | "from_snapshot">>): void {
     const draft = this.state.create;
-    if (draft && !draft.submitting) this.set({ create: { ...draft, ...patch, error: undefined, refusal: undefined } });
+    if (draft && !draft.submitting)
+      this.set({ create: { ...draft, ...patch, error: undefined, refusal: undefined, blocked: undefined } });
   }
 
   /**
@@ -304,7 +311,7 @@ export class CloudStore {
   async submitCreate(): Promise<void> {
     const draft = this.state.create;
     if (!draft || draft.submitting || !draft.memoryMb || !this.canChange()) return;
-    this.set({ create: { ...draft, submitting: true, error: undefined, refusal: undefined } });
+    this.set({ create: { ...draft, submitting: true, error: undefined, refusal: undefined, blocked: undefined } });
     const snapshot = draft.from_snapshot ? draft.snapshots?.find((s) => s.id === draft.from_snapshot) : undefined;
     const name = draft.name.trim() || (snapshot?.name ?? "");
     this.pushIntent({ key: draft.key, kind: "create", name });
@@ -332,12 +339,15 @@ export class CloudStore {
       if (session === this.session) void this.account.readPlan(session);
     } catch (error) {
       this.dropIntent(draft.key);
-      const refusal = planRefusal(error);
-      if (this.state.create?.key === draft.key)
-        this.set({
-          create: { ...draft, submitting: false, ...(refusal ? { refusal } : { error: message(error) }) },
-        });
-      if (session === this.session && !refusal) this.set(failure(error, false));
+      const refusal = planRefusal(error, this.state.plan?.upgrade_plan);
+      const blocked = noImage(error);
+      const outcome = refusal
+        ? { refusal }
+        : blocked
+          ? { blocked: "no_snapshot_configured" as const }
+          : { error: message(error) };
+      if (this.state.create?.key === draft.key) this.set({ create: { ...draft, submitting: false, ...outcome } });
+      if (session === this.session && !refusal && !blocked) this.set(failure(error, false));
     }
   }
 
@@ -586,13 +596,14 @@ export class CloudStore {
    */
   private fail(op: string, error: unknown): void {
     if (this.refused(error)) return;
-    if (isUnsupported(error)) this.markUnavailable(op);
+    if (noImage(error)) this.set({ blocked: "no_snapshot_configured" });
+    else if (isUnsupported(error)) this.markUnavailable(op);
     else this.set(failure(error));
   }
 
   /** Shows a plan refusal; false when `error` is none. */
   private refused(error: unknown): boolean {
-    const refusal = planRefusal(error);
+    const refusal = planRefusal(error, this.state.plan?.upgrade_plan);
     if (refusal) this.set({ refusal });
     return !!refusal;
   }
@@ -642,6 +653,7 @@ function signedOutState(): Partial<CloudState> {
     plan: undefined,
     migration: undefined,
     refusal: undefined,
+    blocked: undefined,
     selection: undefined,
     detail: undefined,
     create: undefined,
@@ -654,6 +666,11 @@ function signedOutState(): Partial<CloudState> {
 function revisionOf(result: unknown): number | undefined {
   const revision = (result as { revision?: unknown } | null)?.revision;
   return typeof revision === "number" ? revision : undefined;
+}
+
+/** The backend has no machine image yet (`cloud.no_snapshot_configured`): create and restore cannot run. */
+function noImage(error: unknown): boolean {
+  return isPageError(error) && error.code === CloudErrors.noSnapshotConfigured;
 }
 
 function message(error: unknown): string {
