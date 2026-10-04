@@ -71,7 +71,12 @@ pub(crate) struct TerminalSnapshotFrame {
     pub version: u16,
     pub cols: u16,
     pub rows: u16,
+    /// The READY prefix: envelope through the READY record.
     pub data: Vec<u8>,
+    /// The rest of the same COMPLETE encode: HISTORY manifests, scrollback
+    /// PAGE records and FINISH (`terminal-snapshot-history-v1`). READY plus
+    /// this is one complete snapshot taken at one cut.
+    pub history: Vec<u8>,
     pub colors: TerminalColors,
     /// Row-marker epoch and the marker of the active area's top row at the
     /// snapshot, so `terminal-history` pages line up with this READY.
@@ -195,8 +200,10 @@ impl Surface {
         Ok(SnapshotAttachStream { receiver, lifecycle, requests })
     }
 
-    /// Take the READY snapshot a viewer's worker owes it and drop the queued
-    /// frames it supersedes, both under the terminal lock.
+    /// Take the snapshot a viewer's worker owes it and drop the queued
+    /// frames it supersedes, both under the terminal lock. One COMPLETE
+    /// encode at one cut gives the READY prefix and the history after it, so
+    /// the history always continues exactly that READY.
     pub(crate) fn take_viewer_snapshot(
         &self,
         receiver: &AttachFrameReceiver,
@@ -205,21 +212,29 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let term = pty.term.lock().unwrap();
-        let data = term.encode_snapshot(SnapshotPhase::Ready)?;
+        let mut data = term.encode_snapshot(SnapshotPhase::Complete)?;
         let (generation, offset) = pty.snapshot_position.load();
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
+        let (cols, rows) = (term.cols(), term.rows());
+        let (marker_epoch, active_top_marker) =
+            (term.history_marker_epoch(), term.active_top_marker());
         receiver.finish_snapshot_locked();
+        drop(term);
+        let ready_len =
+            ghostty_vt::snapshot_ready_len(&data).ok_or(ghostty_vt::Error::InvalidValue)?;
+        let history = data.split_off(ready_len);
         Ok(TerminalSnapshotFrame {
             generation,
             offset,
             version: ghostty_vt::snapshot_version(),
-            cols: term.cols(),
-            rows: term.rows(),
+            cols,
+            rows,
             data,
+            history,
             colors,
-            marker_epoch: term.history_marker_epoch(),
-            active_top_marker: term.active_top_marker(),
+            marker_epoch,
+            active_top_marker,
         })
     }
 
