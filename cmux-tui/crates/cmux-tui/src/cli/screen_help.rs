@@ -13,7 +13,7 @@ USAGE
   cmux screen <selector> layout undo [--confirm-close]
     [--confirmation-token <value>]
   cmux screen <selector> column <split_…> update [--sticky <bool>]
-    [--edge left|right] [--mode docked|overlay] [--width <fraction>]
+    [--edge left|right|top|bottom] [--mode docked|overlay] [--width <fraction>]
   cmux screen <selector> pane ...
   cmux screen group list [--workspace <selector>]
   cmux screen group create --screens <screen_…,...> [--name <value>] [--color <color>]

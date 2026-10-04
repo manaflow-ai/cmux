@@ -87,11 +87,14 @@ fn column_update(
     if let Some(sticky) = flags.take("sticky") {
         params.insert("sticky".into(), Value::Bool(parse_bool("--sticky", &sticky)?));
     }
-    for (flag, allowed) in [("edge", ["left", "right"]), ("mode", ["docked", "overlay"])] {
+    let choices: [(&str, &[&str], &str); 2] = [
+        ("edge", &["left", "right", "top", "bottom"], "left, right, top, or bottom"),
+        ("mode", &["docked", "overlay"], "docked or overlay"),
+    ];
+    for (flag, allowed, listed) in choices {
         if let Some(value) = flags.take(flag) {
             if !allowed.contains(&value.as_str()) {
-                let [first, second] = allowed;
-                return Err(UsageError::new(format!("--{flag} must be {first} or {second}")));
+                return Err(UsageError::new(format!("--{flag} must be {listed}")));
             }
             params.insert(flag.into(), Value::String(value));
         }
