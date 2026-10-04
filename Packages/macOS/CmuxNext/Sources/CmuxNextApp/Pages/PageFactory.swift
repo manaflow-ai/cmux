@@ -101,6 +101,15 @@ struct PageFactory {
         }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
+        provider.pickFolders = { [weak services] in
+            guard let urls = await services?.viewers.picker.open(.init(choose: .folders, allowsMultiple: true)) else { return nil }
+            let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+            return urls.map { url in
+                let path = url.standardizedFileURL.path
+                // Inside home: `~/…` (the schema accepts absolute or `~/` paths); home itself stays absolute.
+                return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+            }
+        }
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         let page = PageWebView(descriptor: .settings, routes: routes, route: route,
