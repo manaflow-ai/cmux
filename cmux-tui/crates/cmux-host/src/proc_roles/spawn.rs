@@ -10,9 +10,9 @@ use std::sync::mpsc::Sender;
 
 use cmux_server_core::role_spec::{Program, Readiness, RoleSpec};
 
-use super::{RolePaths, privilege};
 use super::log::{LOG_FILE_BYTES, LOG_FILES, RingLog, log_path};
 use super::supervisor::Msg;
+use super::{RolePaths, privilege};
 
 /// The descriptor number of the notify pipe in the child.
 pub const NOTIFY_FD: i32 = 3;
@@ -351,7 +351,8 @@ mod tests {
         let prog = bin.join("optchat-chief");
         std::fs::write(&prog, "#!/bin/sh\n").unwrap();
         std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let paths = RolePaths { store_bin: bin.clone(), state: dir.path().join("state"), work_user: None };
+        let paths =
+            RolePaths { store_bin: bin.clone(), state: dir.path().join("state"), work_user: None };
         let store = spec(Program::Store("optchat-chief".to_owned()));
         assert_eq!(resolve(&store, &paths).unwrap(), std::fs::canonicalize(&prog).unwrap());
         std::fs::set_permissions(&prog, std::fs::Permissions::from_mode(0o777)).unwrap();
