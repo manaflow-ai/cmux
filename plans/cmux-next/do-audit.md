@@ -17,6 +17,48 @@ Read for this revision (at 6099e49ab80): every class in `backend/apps/api/wrangl
 landed on `origin/feat-cmux-next` (its numbers are used here and cited by id: A3, A9, A14, B4, B11).
 Revision 1 sections that still hold (AddressDO detail, migration rules) are kept in shorter form.
 
+## 0. Decisions (Lawrence and the backend lead, 2026-10-03): read this first
+
+The backend lead accepted this revision with changes. Lawrence answered Q1, Q2, Q4 and Q5. Where
+this section and a later section disagree, this section wins.
+
+1. Revocation (Q2, replaces section 8.3 items 1 to 3): instant revocation. Every request (every op,
+   HTTP and socket frames) is checked by UserDO. There are no stateless-token tiers and no KV deny
+   list. Design: each op makes one RPC to `UserDO.authorize`, and UserDO answers from an in-memory
+   grant map that it loads once per wake (no SQLite read when warm). Batch path for users with many
+   agents: the Worker sends one authorize RPC for N queued ops, or holds a short-lived lease for
+   each op class that UserDO revokes by push. Sockets register (install -> owner class and name) in
+   UserDO when they open; `install.revoke` sends `closeInstall` to those owners (0 s). The 60 s
+   re-check in OwnerDO (shipped with the F-4 fix) stays as a safety net. Target: 10 chiefs x
+   10 ops/s on one user fits, and Lawrence's many-agent users fit with the batch path. Measure
+   the added latency on staging.
+2. Team size (Q5): 10k+ member teams must work at launch. Section 5.3 is high priority before
+   launch: members and hosts move into row tables, the head keeps only the current policy version,
+   every list op is paged, and members are projected to PlanetScale for filtered listing.
+3. Edits (Q1): messages stay editable forever. The R2 archive (5.1) supports rewrites. An archived
+   message's edit, retract, delete or reaction goes to `archive_overlay`. Compaction writes a new
+   segment under a new generation key, commits the segment table, then deletes the old segment.
+   Reads always apply the overlay. Remove "refuse edits older than 90 days" from 5.1.
+4. Usage (Q4): usage detail older than 35 days goes to ClickHouse (our ClickHouse Cloud service),
+   not PlanetScale. 5.13 and section 12 change. UsageMeterDO keeps the cap and the monthly totals.
+   The ClickHouse channel follows the same durable outbox rules.
+5. MailerDO (5.16): accepted. No new class. A Queue consumer sends mail, and suppression stays in AddressDO.
+6. PlanetScale store of record (section 12): accepted for audit, finished runs and later the
+   provider account index. The durable outbox is in place: no dead letter for transient errors, a
+   poison row is isolated by savepoint, and dead rows replay daily and by the operator route
+   `POST /v1/admin/outbox/replay`.
+7. JSON head guard (5.15): done. A commit whose state would pass 1.5 MB is refused with a
+   retryable `owner.state_full`.
+
+Status of the findings in code (backend lead): F-4 (sockets after expiry and revocation) is fixed.
+Sockets close at token expiry, by an alarm sweep with no events, and within 60 s of revocation on
+every owner. F-6 (the lossy audit channel) is fixed by item 6. F-1 has a guard (item 7), and the
+move of members and runs (5.3, 5.4) is next. Order of work: the head guard, outbox delete on send
+(C-1), byte-bounded events and the FeedDO post cap, instant revocation, TeamDO members out of the
+head with paging, SchedulerDO runs and inputs out, the R2 hot window with rewrite, usage to
+ClickHouse, then AccountIndexDO writes through the outbox and the AddressDO 180-day purge and
+3-day reminder.
+
 ## 1. Platform facts this audit depends on
 
 | Id | Fact | Status |
@@ -511,7 +553,7 @@ The read loss is the slowest to matter and the cheapest to bound by TTL. The pri
 one that must never ride on a cached decision; it is also low volume, so an online check costs
 little.
 
-### 8.3 Recommendation
+### 8.3 Recommendation (SUPERSEDED by section 0 item 1 for tokens, the deny list and online checks; item 4 for sockets is done)
 
 1. Access tokens: TTL 5 minutes (from 10), refreshed at 4 minutes. The token carries what owners
    need, signed at mint: `inst`, `grant`, the grant's op classes, `install_kind`, email and
