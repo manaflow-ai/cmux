@@ -245,3 +245,37 @@ wherever its tier allows).
   owner); that slice needs a cmux-tui landing window.
 - R59 is done only after a live Ctrl-Tab proof on cmux-lawrence-2 (never the laptop).
 - Reported, not changed: Ctrl-1/2/3 conflict with Spaces (R38) belongs to that lane.
+
+## 8. Customization slices (keys lead v2, 2026-10-04)
+
+8.1 **Chords of up to four keys.** `ChordTracker` keeps the armed key list. The shared
+sequence rules live in `KeyBindingTable.step(after:readings:in:isRunnable:)` (pure, in
+CmuxNextActions) so every client resolves the same way:
+- a key that leads to a longer entry whose action can run arms (extends) the chord, and
+  wins over an entry the same key completes (VS Code rule, as at the first key);
+- else the key completes the entry that wins for the whole sequence; else nothing;
+- the Cmd-J leader arms as a first key whenever any entry sits under it;
+- a fifth key never arms (`KeyBindingTable.maxSequenceLength` = 4).
+The which-key overlay shows for every armed prefix (`KeyBindingTable.nextKeys`): each
+next key once, what it runs now, "more keys…" for a key that only leads on, dimmed when
+pressing it does nothing here; a numbered family shows once as `1…9`. Escape cancels at
+any depth and reaches no view; a click, a focus change, another window or the app
+resigning active cancels too. After the leader an unbound key is consumed; after another
+prefix it goes on to the view (unchanged).
+
+8.2 **Arguments.** `ActionRegistry.setKeyBindingLayers` loads app and keybindings.json
+entries through `validated(_:)`: canonical id, each argument exists in the schema and fits
+its kind (text that fits is parsed), at most four keys, first key with Command or Control
+(only those reach the dispatcher). A bad entry is left out with a `KeyBindingIssue`
+(layer, position, kind); the others load (K4). A missing required argument loads: running
+the binding asks for it, as the palette does.
+
+8.3 **Negative entries.** `KeyBindingLayers.removals` (`KeyBindingRemoval`): removes the
+default and app entries of the command on the keys (every key when omitted) whose `when`
+is structurally equal (any `when` when omitted). User entries are never removed.
+
+8.4 **Conformance vectors.** `schemas/keybindings/keybinding-vectors.json`: context, key
+sequence, user entries, removals and the expected outcome (an action with its args, armed,
+or none). `KeybindingVectorTests` (CmuxNextSettingsTests) runs them against the real
+catalog through `KeyBindingTable.outcome(of:in:isRunnable:)`; other clients run the same
+file.

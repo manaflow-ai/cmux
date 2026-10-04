@@ -67,30 +67,26 @@ struct ChordTracker {
     }
 
     /// Steps with `table` resolved in `context` (the key window's context
-    /// keys). `canArm` says whether the focus lets a chord start (not a text
-    /// input, not browser focus mode, no marked text; `KeyRouter.canArm`);
-    /// asked only for a first key. `focus` is the window's focus, kept with
-    /// an armed chord for ``focusDidChange(to:in:)``.
+    /// keys; `KeyBindingTable.step(after:readings:in:isRunnable:)` holds the
+    /// shared sequence rules). `canArm` says whether the focus lets a chord
+    /// start (not a text input, not browser focus mode, no marked text;
+    /// `KeyRouter.canArm`); asked only for a first key. `focus` is the
+    /// window's focus, kept with an armed chord for ``focusDidChange(to:in:)``.
     mutating func step(_ event: NSEvent, window: ObjectIdentifier, focus: FocusState.Resolved? = nil, table: KeyBindingTable,
                        context: KeyContext, isRunnable: (ActionID) -> Bool, canArm: () -> Bool) -> Step {
-        step(event, window: window, focus: focus, first: { event in
-            let shortcuts = ActionRegistry.shortcuts(for: event)
-            if let first = shortcuts.first(where: { table.continues([$0], in: context, isRunnable: isRunnable) }) { return first }
-            // The leader arms whenever some binding sits under it, so its
-            // overlay can say what Cmd-J offers here.
-            return shortcuts.contains(LeaderLayer.prefix) && !table.entries(after: [LeaderLayer.prefix]).isEmpty ? LeaderLayer.prefix : nil
+        func tableStep(_ keys: [Shortcut], _ event: NSEvent) -> KeyBindingTable.SequenceStep {
+            table.step(after: keys, readings: ActionRegistry.shortcuts(for: event), in: context, isRunnable: isRunnable)
+        }
+        return step(event, window: window, focus: focus, first: { event in
+            // A first key only arms here; a single key runs through the dispatcher's tier check.
+            if case .extend(let key) = tableStep([], event) { return key }
+            return nil
         }, next: { keys, event in
-            let shortcuts = ActionRegistry.shortcuts(for: event)
-            if keys.count + 1 < KeyBindingTable.maxSequenceLength,
-               let longer = shortcuts.first(where: { table.continues(keys + [$0], in: context, isRunnable: isRunnable) }) {
-                return .extend(longer)
+            switch tableStep(keys, event) {
+            case .run(let winner): .run(winner.command, argument: winner.argument, arguments: winner.arguments)
+            case .extend(let key): .extend(key)
+            case .none: .none
             }
-            for shortcut in shortcuts {
-                if let winner = table.resolve(keys + [shortcut], in: context, isRunnable: isRunnable).winner {
-                    return .run(winner.command, argument: winner.argument, arguments: winner.arguments)
-                }
-            }
-            return .none
         }, canArm: canArm)
     }
 
