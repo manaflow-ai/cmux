@@ -41,6 +41,7 @@ pub(crate) fn recv_until<T>(
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let event = events.recv_timeout(remaining).unwrap_or_else(|error| {
+            // crash-allow: test-only module (#[cfg(test)] mod test_wait); a bounded wait must fail loudly.
             panic!("no {awaited} within {EVENT:?} ({error}) after {seen} other events")
         });
         if handle(event) {
