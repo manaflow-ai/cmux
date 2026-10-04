@@ -57,7 +57,7 @@ extension SidebarBridge {
     /// opens the app's screen or page as the manifest says) once it is
     /// registered. INTERIM until then: Home and the App Store keep their
     /// show actions, every other app opens its page (`app.open`).
-    static func appActivation(_ app: String, registered: (ActionID) -> Bool) -> (ActionID, [String: ControlValue]) {
+    static func appActivation(_ app: String, registered: (ActionID) -> Bool) -> (ActionID, [String: ActionValue]) {
         if registered("cmux.apps.open") { return ("cmux.apps.open", ["app": .string(app)]) }
         if let action = interimAppActions[app], registered(action) { return (action, [:]) }
         return ("app.open", ["app": .string(app)])
