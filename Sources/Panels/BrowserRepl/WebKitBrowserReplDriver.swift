@@ -409,8 +409,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func handle(method: String, params: [String: Any]) async throws -> Any? {
         switch method {
-        case "tabs.list": return try listTabs(all: params["all"] as? Bool == true)
-        case "history.search": return try searchHistory(params)
+        case "tabs.list": return try listTabs(all: params["all"] as? Bool == true).map(listedTabRow)
+        case "history.search": return try searchHistory(params).map(BrowserReplListedURLs(reader: sessionID).historyRow)
         case "tabs.dataStore": return try dataStore(params)
         case "tabs.open": return try await openTab(params)
         case "tabs.close": return try closeTab(params)
@@ -945,6 +945,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let json = JSONSerialization.browserReplString(visible) else { return }
         let sink = lock.withLock { self.sink }
         sink?(name, json)
+    }
+
+    /// A `tabs.list` row as this session gets it: the URL of a tab it did
+    /// not create (another session's or the user's) without its credential
+    /// values (``BrowserReplListedURLs``).
+    @MainActor
+    private func listedTabRow(_ row: [String: Any]) -> [String: Any] {
+        let creator = (row["targetId"] as? String).flatMap(UUID.init(uuidString:))
+            .flatMap { BrowserReplTabAttachments.shared.attachment(for: $0)?.creatorSessionID }
+        return BrowserReplListedURLs(reader: sessionID).tabRow(row, creator: creator)
     }
 
     @MainActor
