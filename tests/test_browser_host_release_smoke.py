@@ -41,7 +41,7 @@ if cmd == "serve":
     while True:
         c, _ = s.accept()
         c.recv(65536)
-        c.sendall(json.dumps({"sessions": []}).encode())
+        c.sendall(json.dumps([] if mode == "array-list" else {"sessions": []}).encode())
         c.close()
 if cmd == "list":
     if mode == "bad-list":
@@ -70,6 +70,12 @@ class SmokeTest(unittest.TestCase):
         done = self.smoke("good")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("all checks passed", done.stdout)
+
+    def test_the_real_list_shape_passes(self):
+        # The first release run (37212778565, 2026-10-04): the real binary's list
+        # prints a bare JSON array of sessions.
+        done = self.smoke("array-list")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
     def test_each_broken_contract_fails(self):
         for mode in ("wrong-sha", "empty-guide", "serve-dies", "bad-list"):
@@ -110,10 +116,15 @@ class ReleaseHelperTest(unittest.TestCase):
                 self.assertEqual((member.mode, member.mtime), (0o755, 0))
             done = self.helper("entries", "https://example.invalid/r", "0.1.0", *paths)
             self.assertEqual(done.returncode, 0, done.stderr)
-            got = json.loads(done.stdout)
-            self.assertEqual(sorted(e["target"] for e in got), ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"])
+            doc = json.loads(done.stdout)
+            # Channel manifest schema 2 (decision MANIFEST-ARCH, 2026-10-04): every entry
+            # names its arch and target, required, so no reader picks one by an ignored field.
+            self.assertEqual(doc["schema"], 2)
+            got = doc["packages"]
+            self.assertEqual(sorted((e["arch"], e["target"]) for e in got),
+                             [("aarch64", "aarch64-unknown-linux-gnu"), ("x86_64", "x86_64-unknown-linux-gnu")])
             for e in got:
-                self.assertEqual(set(e) - {"target"}, {"name", "version", "url", "sha256", "size", "roles"})
+                self.assertEqual(set(e), {"name", "version", "url", "sha256", "size", "roles", "arch", "target"})
                 self.assertEqual(len(e["sha256"]), 64)
             self.assertNotEqual(self.helper("entries", "https://x", "0.1.0", paths[0]).returncode, 0,
                                 "one target alone must be refused")
