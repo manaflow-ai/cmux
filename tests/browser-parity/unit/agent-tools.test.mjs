@@ -149,6 +149,48 @@ async function withRepl(fn, { maxOutput, setupContext } = {}) {
   }
 }
 
+// The app gives each session a private temporary directory (os.tmpdir(),
+// mode 0700) under <tmp>/cmux-browser-repl. Files the session writes go
+// straight into it; seen on the app, images landed in
+// <session tmp>/cmux-browser-repl/<session>/image-1.png, one session
+// directory inside another (18-print).
+test("files a session writes go straight into its private temporary directory", async () => {
+  const servers = await startFixtureServers();
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-tmp-")));
+  const browser = await createDevBrowser();
+  const lines = [];
+  const host = createNodeHost({ workDir: dir, sessionId: `tmp-${process.pid}`, print: (level, text) => lines.push(text) });
+  const repl = createDevRepl({ host, driver: browser.driver() });
+  try {
+    assert.equal(fs.statSync(host.tmpdir).mode & 0o777, 0o700, "the session's temporary directory is private");
+    assert.equal(path.dirname(host.tmpdir), path.join(fs.realpathSync(os.tmpdir()), "cmux-browser-repl"));
+    const r = await repl.evaluate(`
+      await page.goto(${JSON.stringify(servers.origins.primary + "/aria.html")});
+      display(await screenshot());
+      const rec = session.record({ screenshots: false });
+      await rec.stop();
+      console.log("record " + rec.dir);
+      console.log("tmp " + os.tmpdir());
+    `);
+    assert.equal(r.ok, true, r.error);
+    const image = lines.join("\n").match(/\[Image [^:]+: ([^\]]+)\]/);
+    assert.ok(image, lines.join("\n"));
+    assert.equal(path.dirname(image[1]), host.tmpdir);
+    const record = lines.join("\n").match(/^record (.+)$/m);
+    assert.equal(path.dirname(record[1]), host.tmpdir);
+    assert.ok(lines.includes(`tmp ${host.tmpdir}`));
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+    // Only ever the session's own directory, never the system's temporary
+    // directory itself (which a host without a private one would name).
+    const own = path.join(fs.realpathSync(os.tmpdir()), "cmux-browser-repl") + path.sep;
+    if (host.tmpdir.startsWith(own)) fs.rmSync(host.tmpdir, { recursive: true, force: true });
+  }
+});
+
 const filesUnder = (root) => {
   if (!fs.existsSync(root)) return [];
   return fs.readdirSync(root, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? filesUnder(path.join(root, e.name)) : [path.join(root, e.name)]));
