@@ -107,14 +107,20 @@ impl Mux {
     }
 }
 
-pub(super) fn kitty_image_limits_within(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
+pub(super) fn kitty_image_limits_within(
+    candidate: KittyGraphicsLimits,
+    ceiling: KittyGraphicsLimits,
+) -> bool {
     candidate.image_bytes <= ceiling.image_bytes
         && candidate.inflight_bytes <= ceiling.inflight_bytes
         && candidate.images <= ceiling.images
         && candidate.placements <= ceiling.placements
 }
 
-pub(super) fn kitty_image_limits_exceed(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
+pub(super) fn kitty_image_limits_exceed(
+    candidate: KittyGraphicsLimits,
+    ceiling: KittyGraphicsLimits,
+) -> bool {
     !kitty_image_limits_within(candidate, ceiling)
 }
 

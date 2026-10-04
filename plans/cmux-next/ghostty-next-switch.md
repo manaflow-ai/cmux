@@ -301,10 +301,15 @@ host creates the terminal with no tab: its local runtime is a portable_pty
 path shared with PTY children), so parsing, journal, snapshots and attach
 are unchanged. An exit status ends the process (`TerminalEnd::ProcessEnded`);
 a lost channel is a host loss. Resize and close go to the app as host events.
-The host broadcasts `apps-terminal {terminal, id, app, target, run_key}`; the
-client whose user run has that idempotency key places it in its own focused
-workspace with the workspace-store op `tab adopt {terminal, pane, index}`
-(`mux/app_terminals.rs`); a terminal no client placed within 60 s is closed.
+The terminal is a catalog-owned terminal with a public `term_…` id and
+zero views (spec/resource-api-v2.md: terminals work with zero views). The
+host broadcasts `apps-terminal {terminal, terminal_id, id, app, target,
+run_key}`; the client whose user run has that idempotency key gives it its
+first view with the existing public op `terminal.project` in its own
+focused workspace. That first projection also writes the terminal's durable
+record (destination workspace key, in-process identity) in the same commit
+(`mux/resource_content.rs`); later projections reuse it. A terminal that
+never had a view 60 s after its open is closed; one that had a view stays.
 `connection.channel.open` takes the terminal instead of a second token
 (P2). `resume` is a host op after a user run (P3); v1 answers unsupported.
 

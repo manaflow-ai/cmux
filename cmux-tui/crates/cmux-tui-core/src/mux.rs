@@ -2,7 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
-mod app_terminals;
+pub(crate) mod app_terminals;
 mod conversations;
 mod exit_settle;
 mod host_close;
@@ -2582,6 +2582,8 @@ pub struct Mux {
     deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
     kitty_image_budget_changed: Condvar,
+    /// App byte-backend terminals (`app_terminals.rs`), by catalog surface.
+    app_terminals: Mutex<HashSet<SurfaceId>>,
     #[cfg(debug_assertions)]
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
@@ -3050,6 +3052,7 @@ impl Mux {
             deadline_fanout_pool: DeadlineFanoutPool::new(),
             kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
             kitty_image_budget_changed: Condvar::new(),
+            app_terminals: Mutex::default(),
             #[cfg(debug_assertions)]
             terminal_host_reconnect_completion_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES")

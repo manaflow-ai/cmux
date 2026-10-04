@@ -415,11 +415,15 @@ impl Surface {
         opts: SurfaceOptions,
         mux: Weak<Mux>,
         cell_pixels: (u16, u16),
+        terminal_public_id: TerminalPublicId,
         side: crate::terminal_backend::pty::BackendSide,
     ) -> anyhow::Result<Arc<Surface>> {
         use crate::terminal_backend::pty::{BackendKiller, BackendMaster, wait_end};
-        let (opts, terminal_public_id, kitty_reservation) =
+        let (opts, _, kitty_reservation) =
             Self::spawn_prelude(id, opts, &mux, None, KittyQuota::AtLaunch)?;
+        // A catalog-owned terminal with zero views: its first projection
+        // (`terminal.project`) gives it a tab.
+        let terminal_public_id = Some(terminal_public_id);
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)

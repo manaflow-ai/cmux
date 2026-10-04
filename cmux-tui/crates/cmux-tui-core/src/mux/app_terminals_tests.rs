@@ -21,6 +21,7 @@ struct Fixture {
     channels: Arc<ChannelTable<TerminalMeta>>,
     lines: Arc<Mutex<Vec<Value>>>,
     surface: crate::SurfaceId,
+    terminal_id: crate::resource::TerminalPublicId,
 }
 
 fn fixture(name: &str) -> Fixture {
@@ -39,8 +40,14 @@ fn fixture(name: &str) -> Fixture {
         terminal,
         send: Arc::new(move |line| sink.lock().unwrap().push(line)),
     };
-    let surface = mux.spawn_backend_terminal(side).unwrap();
-    Fixture { mux, channels, lines, surface }
+    let created = mux.spawn_backend_terminal(side).unwrap();
+    Fixture { mux, channels, lines, surface: created.surface, terminal_id: created.terminal_id }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        self.mux.shutdown();
+    }
 }
 
 fn until(what: &str, mut ok: impl FnMut() -> bool) {
@@ -108,4 +115,113 @@ fn a_host_close_removes_the_terminal_and_tells_the_app() {
         l == &json!({ "t": "host.event", "op": "cmux.terminal.backend.close", "data": { "terminal": "term-1" } })
     });
     assert!(f.channels.get("term-1").is_none());
+}
+
+// MARK: first view (terminal.project, over the resource protocol)
+
+impl Fixture {
+    fn request(&self, operation: &str, params: Value, key: &str) -> Value {
+        let mut params = params;
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        let envelope = json!({
+            "protocol": "cmux.protocol/2", "type": "request", "id": key,
+            "operation": operation, "params": params, "idempotency_key": key,
+        });
+        crate::resource_router::handle_resource_message(&self.mux, &envelope.to_string()).unwrap()
+    }
+
+    /// A live pane's workspace, screen and pane ids (a new workspace with
+    /// one terminal tab).
+    fn pane(&self, key: &str) -> [String; 3] {
+        let created = self.request(
+            "workspace.create",
+            json!({ "initial_content": "terminal", "name": key }),
+            key,
+        );
+        let value = &created["result"]["value"];
+        let id =
+            |field: &str| value[field].as_str().unwrap_or_else(|| panic!("{created}")).to_owned();
+        [id("workspace_id"), id("screen_id"), id("pane_id")]
+    }
+
+    fn project(&self, destination: &[String; 3], key: &str) -> Value {
+        let [workspace, screen, pane] = destination;
+        self.request(
+            "terminal.project",
+            json!({
+                "terminal": self.terminal_id.to_string(),
+                "destination_workspace": workspace, "destination_screen": screen,
+                "destination_pane": pane, "index": 0,
+            }),
+            key,
+        )
+    }
+
+    fn records(&self) -> usize {
+        let registry = self.mux.workspace_registry.lock().unwrap();
+        registry.terminal_snapshot().unwrap().terminals.len()
+    }
+
+    fn identity(&self) -> Option<crate::terminal_host_runtime::TerminalHostIdentity> {
+        let surface = self.mux.surface(self.surface)?;
+        self.mux.resource_terminal_host_identity(&surface)
+    }
+}
+
+fn ok(response: &Value) -> bool {
+    response["ok"] == true
+}
+
+#[test]
+fn other_topology_commits_work_while_an_unviewed_app_terminal_exists() {
+    let f = fixture("backend-terminal-other-commits");
+    let [_, _, pane] = f.pane("ws-1");
+    assert!(pane.starts_with("pane_"), "{pane}");
+}
+
+#[test]
+fn the_first_view_writes_the_durable_record_and_a_second_view_reuses_it() {
+    let f = fixture("backend-terminal-first-view");
+    let pane = f.pane("ws-1");
+    let before = f.records();
+    assert!(!f.mux.backend_terminal_viewed(f.surface));
+    let first = f.project(&pane, "p-1");
+    assert!(ok(&first), "{first}");
+    assert!(f.mux.backend_terminal_viewed(f.surface));
+    assert_eq!(f.records(), before + 1, "one record, written by the first view");
+    let identity = f.identity().expect("a durable identity");
+    {
+        let registry = f.mux.workspace_registry.lock().unwrap();
+        let record = registry.terminal_record(&identity.terminal_id).unwrap().unwrap();
+        assert_eq!(record.incarnation.as_deref(), Some(identity.incarnation.as_str()));
+    }
+    let second = f.project(&pane, "p-2");
+    assert!(ok(&second), "{second}");
+    assert_eq!(f.records(), before + 1, "a second view does not register again");
+    assert_eq!(f.identity(), Some(identity));
+    // A viewed terminal is never closed as unplaced.
+    f.mux.close_backend_terminal(f.surface);
+    assert!(f.mux.surface(f.surface).is_some());
+}
+
+#[test]
+fn a_failed_first_view_leaves_no_record() {
+    let f = fixture("backend-terminal-failed-view");
+    let [workspace, screen, _] = f.pane("ws-1");
+    let missing = "pane_00000000000000000000000000000000".to_owned();
+    let before = f.records();
+    let failed = f.project(&[workspace, screen, missing], "p-1");
+    assert!(!ok(&failed), "{failed}");
+    assert_eq!(f.records(), before);
+    assert!(!f.mux.backend_terminal_viewed(f.surface));
+}
+
+#[test]
+fn a_never_viewed_terminal_closes_and_leaves_the_catalog() {
+    let f = fixture("backend-terminal-unviewed-close");
+    f.mux.close_backend_terminal(f.surface);
+    assert!(f.mux.surface(f.surface).is_none());
+    let pane = f.pane("ws-1");
+    assert!(!ok(&f.project(&pane, "p-1")), "a closed terminal cannot be projected");
 }

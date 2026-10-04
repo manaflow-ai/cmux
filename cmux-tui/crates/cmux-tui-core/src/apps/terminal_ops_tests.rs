@@ -326,21 +326,20 @@ fn a_channel_open_needs_an_open_terminal_of_the_same_app() {
 }
 
 #[test]
-fn an_unplaced_terminal_closes_after_60_seconds_and_a_placed_one_stays() {
+fn backend_terminals_leave_the_deadline_list_at_60_seconds() {
     use crate::apps::terminal_backends::{PLACEMENT, Placement};
     let c = connectors(&["cloudy"]);
     let sup = &c.f.supervisor;
     let now = Instant::now();
     {
         let mut placements = sup.terminals.backend.placements.lock().unwrap();
-        for (terminal, surface) in [("term-1", 1), ("term-2", 2)] {
-            let placement = Placement { surface, deadline: now + PLACEMENT, placed: false };
-            placements.insert(terminal.into(), placement);
-        }
+        placements.insert("term-1".into(), Placement { surface: 1, deadline: now + PLACEMENT });
+        let later = now + Duration::from_secs(30) + PLACEMENT;
+        placements.insert("term-2".into(), Placement { surface: 2, deadline: later });
     }
-    assert_eq!(sup.place_backend_terminal("term-2"), Some(2));
-    assert_eq!(sup.place_backend_terminal("term-2"), None, "placed once");
     assert!(sup.close_unplaced_terminals_at(now + Duration::from_secs(59)).is_empty());
+    // The fake session host reports no views, so the due terminal closes.
     assert_eq!(sup.close_unplaced_terminals_at(now + Duration::from_secs(61)), vec!["term-1"]);
-    assert!(sup.terminals.backend.placements.lock().unwrap().contains_key("term-2"));
+    let placements = sup.terminals.backend.placements.lock().unwrap();
+    assert_eq!(placements.keys().collect::<Vec<_>>(), vec!["term-2"]);
 }

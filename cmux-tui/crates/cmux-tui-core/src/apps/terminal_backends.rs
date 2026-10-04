@@ -2,11 +2,12 @@
 //! `cmux.terminal.backend.open`, `.resume` and `cmux.terminal.channel.open`,
 //! the tab-less session-host terminal, and its placement.
 //!
-//! Placement: the session host creates the terminal with no tab and
-//! broadcasts `apps-terminal {terminal, id, app, run_key}`. The client that
-//! made the gesture knows its run key and places the terminal in its own
-//! focused workspace ([`Supervisor::place_backend_terminal`]); others ignore
-//! it. A terminal no client placed within 60 s is closed.
+//! Placement: the session host creates a catalog-owned terminal with zero
+//! views and broadcasts `apps-terminal {terminal, terminal_id, id, app,
+//! target, run_key}`. The client that made the gesture knows its run key and
+//! gives the terminal its first view with `terminal.project` in its own
+//! focused workspace; others ignore it. A terminal that never had a view
+//! 60 s after its open is closed; one that had a view stays.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -23,11 +24,10 @@ use crate::terminal_backend::{BACKEND_INTERFACE, BackendError, OpenTokenGate, Pt
 /// How long a tab-less terminal waits for its client to place it.
 pub(super) const PLACEMENT: Duration = Duration::from_secs(60);
 
-/// One tab-less terminal's surface and placement state.
+/// One backend terminal's surface and placement deadline.
 pub(crate) struct Placement {
     pub surface: crate::SurfaceId,
     pub deadline: Instant,
-    pub placed: bool,
 }
 
 /// Backend terminal state beside the channel table.
@@ -80,8 +80,8 @@ impl Supervisor {
             terminal: terminal.clone(),
             send: self.server_sender(app),
         };
-        let surface = match self.router.spawn_backend_terminal(side) {
-            Ok(surface) => surface,
+        let created = match self.router.spawn_backend_terminal(side) {
+            Ok(created) => created,
             Err(error) => {
                 let _ = backends.close(&terminal);
                 return Err(BackendError::Unavailable {
@@ -90,7 +90,7 @@ impl Supervisor {
                 });
             }
         };
-        let placement = Placement { surface, deadline: now + PLACEMENT, placed: false };
+        let placement = Placement { surface: created.surface, deadline: now + PLACEMENT };
         self.terminals.backend.placements.lock().unwrap().insert(terminal.clone(), placement);
         let me = self.me.clone();
         self.timers.schedule(PLACEMENT, move || {
@@ -101,6 +101,7 @@ impl Supervisor {
         let (_, meta) = backends.get(&terminal).ok_or_else(BackendError::not_open)?;
         self.emit(vec![Out::Broadcast(json!({
             "event": "apps-terminal", "terminal": terminal, "app": app,
+            "terminal_id": created.terminal_id.as_str(),
             "id": meta.id.as_str(), "target": meta.target, "run_key": meta.run_key,
         }))]);
         Ok(json!({ "terminal": terminal, "window_bytes": window_bytes }))
@@ -163,36 +164,37 @@ impl Supervisor {
         Ok(json!({ "channel": open.channel, "window_bytes": open.window_bytes }))
     }
 
-    /// The client that made the gesture placed `terminal` (tab adopt).
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn place_backend_terminal(&self, terminal: &str) -> Option<crate::SurfaceId> {
-        let mut placements = self.terminals.backend.placements.lock().unwrap();
-        let placement = placements.get_mut(terminal).filter(|p| !p.placed)?;
-        placement.placed = true;
-        Some(placement.surface)
-    }
-
-    /// Closes every tab-less terminal whose placement deadline passed at
-    /// `now`; answers their ids.
+    /// At `now`, every backend terminal whose deadline passed leaves the
+    /// deadline list; the ones that never had a view are closed. Answers the
+    /// closed ids.
     pub(crate) fn close_unplaced_terminals_at(&self, now: Instant) -> Vec<String> {
-        let expired: Vec<(String, crate::SurfaceId)> = {
-            let placements = self.terminals.backend.placements.lock().unwrap();
-            let late = placements.iter().filter(|(_, p)| !p.placed && p.deadline <= now);
-            late.map(|(t, p)| (t.clone(), p.surface)).collect()
+        let due: Vec<(String, crate::SurfaceId)> = {
+            let mut placements = self.terminals.backend.placements.lock().unwrap();
+            let due: Vec<String> = placements
+                .iter()
+                .filter(|(_, p)| p.deadline <= now)
+                .map(|(t, _)| t.clone())
+                .collect();
+            due.into_iter().filter_map(|t| placements.remove(&t).map(|p| (t, p.surface))).collect()
         };
-        for (terminal, surface) in &expired {
-            self.terminals.backend.placements.lock().unwrap().remove(terminal);
-            // The surface's killer closes the channel and tells the app.
-            self.router.close_backend_terminal(*surface);
+        let mut closed = Vec::new();
+        for (terminal, surface) in due {
+            if !self.router.backend_terminal_viewed(surface) {
+                // The surface's killer closes the channel and tells the app.
+                self.router.close_backend_terminal(surface);
+                closed.push(terminal);
+            }
         }
-        expired.into_iter().map(|(terminal, _)| terminal).collect()
+        closed.sort();
+        closed
     }
 
     /// A backend terminal ended: an unplaced one leaves the session host.
     /// Runs outside the supervisor lock (the mux is called).
     pub(super) fn backend_terminal_ended(&self, ended: &ChannelEnd) -> Out {
         let placement = self.terminals.backend.placements.lock().unwrap().remove(&ended.channel);
-        if let Some(placement) = placement.filter(|p| !p.placed) {
+        if let Some(placement) = placement {
+            // Only a never-viewed terminal goes; a viewed one keeps its views.
             self.router.close_backend_terminal(placement.surface);
         }
         Out::Broadcast(json!({
