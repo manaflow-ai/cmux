@@ -127,7 +127,7 @@ fn the_key_is_never_in_argv_debug_or_errors() {
         ssh_add: "/nonexistent/ssh-add".into(),
         scp: "/nonexistent/scp".into(),
     };
-    let error = real.run(&job, &key).unwrap_err();
+    let error = real.run(&job, &key, &cmux_cloud::fs::Cancel::default()).unwrap_err();
     for secret in secrets(&key) {
         assert!(!argv.contains(&secret), "argv");
         assert!(!debug.contains(&secret), "Debug");
