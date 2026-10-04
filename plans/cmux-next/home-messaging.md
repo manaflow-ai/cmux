@@ -469,7 +469,8 @@ Store (`personal_blobs`, additive columns, same digest key):
 
 - `purpose TEXT NOT NULL DEFAULT 'icon'`: `icon` or `attachment` (posters and previews are
   `attachment`). A purpose only moves `icon` to `attachment` (an upload of bytes already stored
-  as an icon keeps the row and upgrades it); never back.
+  as an icon keeps the row and upgrades it, C2 below); never back.
+- `grace_ms INTEGER NOT NULL DEFAULT 604800000`: the unreferenced grace of the row (C2).
 - `storage TEXT NOT NULL DEFAULT 'inline'`: `inline` (bytes in `data`) or `file` (`data` NULL,
   bytes in `<state dir>/blobs/sha256/<first 2 hex>/<64 hex>`, 0600 in 0700 directories). Icons
   stay inline. Attachment-purpose bytes are always `file`, whatever their size.
@@ -499,8 +500,9 @@ Limits (decimal, as `HomeAttachmentPolicy` and home-core `ATTACHMENT_LIMITS`):
 | attachment used as preview | image/jpeg, image/webp | 512,000 bytes | (attachment total) |
 
 Image types are checked by signature at commit (as icons are today); other types are stored as
-declared and the app shows them only as files (never rendered inline). Open uploads: at most 8
-per connection; staged bytes count toward the store total.
+declared and the app shows them only as files (never rendered inline). Begin reserves
+`byte_count` against the store total and the disk floor (C1 below); open uploads: at most 8 per
+connection (`too_many_uploads`).
 
 Upload (chunks; works on every transport, no path on the wire):
 
@@ -515,7 +517,9 @@ Upload (chunks; works on every transport, no path on the wire):
   `<state dir>/blobs/staging/<upload>` (0600). A chunk past `byte_count` is refused.
 - `blob-upload-commit {upload}` -> `{ref: "blob:sha256-<hex>", media_type, size}`: the daemon
   checks size, SHA-256 and the image signature, then stores the file and the row (write order
-  above). A staging file with no chunk for 15 minutes is deleted with its upload.
+  above). A staging file with no chunk for 15 minutes is deleted with its upload and its
+  reservation (the idle clock is the staging file's mtime, set by each chunk; begin, chunk and
+  commit run the expiry pass, so no timer polls). The daemon empties `blobs/staging/` at start.
 - One message line stays far below the 16 MiB line limit, and other commands on the same
   connection interleave between chunks.
 - Local fast path (deferred; `home-attachments-staged-v1` if measured as needed): begin with
@@ -571,10 +575,56 @@ Retention (the icon rule, with one more reference source):
   after the other, never nested the other way.
 - The reference scan reads the indexed `attachment_refs` table, never message JSON.
 
-Errors (`error_code`): `invalid_params` (shape, type, size, signature), `upload_not_found`,
+Errors (`error_code`): `invalid_params` (shape, type, size, signature, a `mode`, `path` or
+`staged_path` field), `forbidden` (not a trusted local connection, C3), `too_many_uploads`,
+`upload_not_found`,
 `upload_offset_mismatch` (with `received`), `blob_size_mismatch`, `blob_hash_mismatch`,
 `blob_store_full`, `not_found`, `blob_corrupt`; conversation rejects `unknown_attachment`,
 `attachment_mismatch`, `invalid_parts`.
+
+Owner conditions (protocol owner approval, 2026-10-04; the red tests in
+`cmux-tui-core/src/server/attachment_safety_tests.rs` pin each one):
+
+- Staging: the daemon empties `<state dir>/blobs/staging/` at start (no upload survives a
+  restart; the client begins again on its new connection). An abandoned upload expires after
+  15 minutes without a chunk, with its staged bytes and its reservation.
+- C1 reservation: `blob-upload-begin` RESERVES `byte_count` against the store total
+  (10,000,000,000 bytes, stored rows plus every open reservation) AND the 1 GB free-disk floor
+  (free disk minus open reservations minus `byte_count` stays at or above 1 GB). A begin that
+  does not fit is `blob_store_full` and writes nothing. Commit, expiry and connection close
+  release the reservation. At most 8 open uploads per connection is a second limit
+  (`too_many_uploads`). A reservation never preallocates disk: begin creates an EMPTY staging
+  file `blobs/staging/<upload>` (0600), whose mtime starts the idle clock.
+- C2 icon to attachment upgrade: an attachment begin (or commit) for bytes stored as an inline
+  icon row turns the row into a file row. Order: write and fsync the digest file, rename it into
+  place, then update the row (`purpose = 'attachment'`, `storage = 'file'`, `data = NULL`) in
+  one registry transaction. A crash between the steps leaves an inline row beside a digest file;
+  the next upgrade renames over that file (C6) and the open sweep unlinks a digest file whose row
+  is inline. The upgrade never shortens the life of the row: an icon
+  reference keeps it as before, and the grace of an unreferenced row is the LONGER of the two
+  purposes it had: an additive column `grace_ms INTEGER NOT NULL DEFAULT 604800000` (7 days, the
+  icon grace) is set to 86,400,000 for a new attachment row, an upgrade sets
+  `grace_ms = MAX(grace_ms, 86400000)`, and the sweep uses each row's `grace_ms`. Refs win over
+  any grace.
+- C3 transports: every upload verb (`blob-upload-begin`, `-chunk`, `-commit`) and `get-blob`
+  need a trusted LOCAL connection (`ClientTransport::Unix`). WebSocket and remote (`cmux link`,
+  forwarded) connections get `forbidden`, for icon rows too (no client reads icons off-box
+  today; a remote icon read is a later, separate verb with its own scoping).
+- C4 pages and paths: a page (app platform bridge) may upload and read with no gesture token,
+  because the verbs carry none. No reply ever carries `staged_path`, and v1 refuses a `mode`,
+  `path` or `staged_path` request field as `invalid_params`. The staged fast path below stays
+  deferred and, when it lands, is never offered to a page.
+- C5 paths: the daemon builds a file path ONLY from a validated 64-lowercase-hex digest of an
+  EXISTING `personal_blobs` row (look up the row first, then join `sha256/<2 hex>/<64 hex>`). An
+  upload id is never a blob reference. `get-blob` with `../`, 63 or 65 hex, upper case, an
+  upload id, or valid hex with a file but no row is `invalid_params` or `not_found`, and no file
+  is opened for it.
+- C6 existing digest file: a commit whose digest file already exists (a crash left it, or a
+  process changed it) never trusts it. The daemon renames the verified staged copy over it
+  atomically (same directory, `rename(2)`), or hashes the existing file and keeps it only on a
+  match. The red test plants wrong bytes under the right name and expects the uploaded bytes.
+- Disk floor: UNTESTED by a red test (it depends on the host disk); it refuses through the same
+  `blob_store_full` path as the total.
 
 Capability: `home-attachments-v1` (requires `icon-assets-v1` and `local-conversations-v1`). The
 app enables the attach button on a local conversation only when the daemon advertises it;

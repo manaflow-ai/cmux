@@ -396,3 +396,6 @@ fn the_sweep_keeps_blobs_a_message_names_and_collects_them_after_retraction() {
     assert_eq!(sweep(later), 3, "a retracted message names nothing");
     assert!(blob_exists(&mux, client, &icon_png), "an icon blob keeps its 7-day grace");
 }
+
+#[path = "attachment_safety_tests.rs"]
+mod safety;
