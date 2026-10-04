@@ -25,6 +25,21 @@ nonisolated struct SidebarCardStackLayout: Equatable {
     var height: CGFloat
 
     static func layout(_ cards: [SidebarCard], revealed: Bool, expanded: Bool, width: CGFloat, cardHeight: CGFloat) -> Self {
-        Self(placements: [], height: 0)
+        let visible = cards.filter { $0.alwaysVisible || revealed }
+        guard !visible.isEmpty else { return Self(placements: [], height: 0) }
+        if expanded {
+            let placements = visible.enumerated().map { index, card in
+                Placement(id: card.id, frame: CGRect(x: 0, y: CGFloat(index) * (cardHeight + spacing), width: width, height: cardHeight),
+                          depth: index, isPeek: false)
+            }
+            return Self(placements: placements, height: CGFloat(visible.count) * cardHeight + CGFloat(visible.count - 1) * spacing)
+        }
+        let shown = visible.prefix(maxPeeks + 1)
+        let placements = shown.enumerated().map { depth, card in
+            let inset = CGFloat(depth) * peekInset
+            return Placement(id: card.id, frame: CGRect(x: inset, y: CGFloat(depth) * peek, width: max(0, width - 2 * inset), height: cardHeight),
+                             depth: depth, isPeek: depth > 0)
+        }
+        return Self(placements: placements, height: cardHeight + CGFloat(shown.count - 1) * peek)
     }
 }

@@ -37,6 +37,10 @@ public final class SidebarModel {
     public var collapsedLayoutSections: Set<LayoutSectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
+    /// The card stack above the bottom band (R114): update, what's new, announcements.
+    public var cards: [SidebarCard] = []
+    /// A card's click, button or dismiss.
+    @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
     /// Machine sections list loose workspaces before groups (a daemon-backed
