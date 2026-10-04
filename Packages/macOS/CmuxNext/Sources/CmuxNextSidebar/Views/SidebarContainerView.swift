@@ -77,6 +77,7 @@ public final class SidebarContainerView: NSView {
         ])
         panel.isHidden = model.isHidden
         handle.isHidden = model.isHidden
+        handle.restingLineWidth = Metrics.sidebarBorderWidth
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
         observe()
     }
@@ -169,11 +170,12 @@ public final class SidebarContainerView: NSView {
     private func observe() {
         let model = model
         observation = Task { [weak self] in
-            for await (_, _, defaultWidth) in Observations({
+            for await (_, _, defaultWidth, border) in Observations({
                 // The default width token is tracked so a settings change
                 // resizes live.
-                (model.presentation, model.width, Metrics.sidebarWidth)
+                (model.presentation, model.width, Metrics.sidebarWidth, Metrics.sidebarBorderWidth)
             }) {
+                self?.handle.restingLineWidth = border
                 self?.followDefaultWidth(defaultWidth)
                 self?.apply()
             }
@@ -248,8 +250,22 @@ final class SidebarResizeHandle: NSView {
     private var startX: CGFloat = 0
     private let line = CALayer()
 
-    /// The hairline shows only on hover or while dragging.
-    var isLineVisible: Bool { isHovered || isDragging }
+    /// Width of the line at rest (`sidebar.border`); 0 shows it only on
+    /// hover or while dragging.
+    var restingLineWidth: CGFloat = 0 {
+        didSet {
+            guard restingLineWidth != oldValue else { return }
+            needsLayout = true
+            updateLine()
+        }
+    }
+
+    /// The hairline shows at rest when the sidebar border is on, else only
+    /// on hover or while dragging.
+    var isLineVisible: Bool { isHovered || isDragging || restingLineWidth > 0 }
+
+    /// The drawn width: the border's, else the divider hairline.
+    var lineWidth: CGFloat { restingLineWidth > 0 ? restingLineWidth : Metrics.lineWidth(Metrics.dividerThickness) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -272,7 +288,7 @@ final class SidebarResizeHandle: NSView {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let width = Metrics.lineWidth(Metrics.dividerThickness)
+        let width = lineWidth
         line.frame = CGRect(x: (bounds.width - width) / 2, y: 0, width: width, height: bounds.height)
         CATransaction.commit()
     }

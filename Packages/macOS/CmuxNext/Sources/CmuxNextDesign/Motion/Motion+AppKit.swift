@@ -166,6 +166,20 @@ extension Motion {
         return animation
     }
 
+    /// A movement (scale, position) timed with a fade token, as a panel's
+    /// shrink while it fades out. Unlike `set(_:_:to:fade:)` it applies at
+    /// once when movement does not animate (Reduce Motion, speed "off"), so
+    /// only the opacity crossfade remains (motion.md rule 7).
+    @discardableResult
+    public static func set(_ layer: CALayer, _ keyPath: String, to value: Any, movementFade token: MotionFade, from: Any? = nil) -> CAAnimation? {
+        guard animatesMovement else {
+            setModel(layer, keyPath, value)
+            layer.removeAnimation(forKey: keyPath)
+            return nil
+        }
+        return set(layer, keyPath, to: value, fade: token, from: from)
+    }
+
     private static func setModel(_ layer: CALayer, _ keyPath: String, _ value: Any) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

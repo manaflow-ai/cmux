@@ -86,7 +86,7 @@ import { Undo } from "./conversation/icons";
 import { DATE, PREVIEW, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { DateLine } from "./conversation/DateLine";
-import { SearchChats } from "./SearchChats";
+import { nextSearchState, SearchChats, searchAnimates, type SearchState } from "./SearchChats";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
 import { FALLBACK_LINK_SCHEME, revealTurnWhenShown, setLinkScheme } from "./links";
 import { CopyChatLink } from "./CopyChatLink";
@@ -1199,7 +1199,9 @@ function AcpmuxPane() {
   // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
   // Settings and cmux.json), which calls the bridge's command("searchChats"). The host pushes the
   // live bindings through applyShortcuts, so labels follow a rebind.
-  const [searching, setSearching] = useState(false);
+  const [search, setSearch] = useState<SearchState>("closed");
+  const searchEvent = (event: "toggle" | "close" | "exited") =>
+    setSearch((state) => nextSearchState(state, event, searchAnimates()));
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
@@ -1299,7 +1301,7 @@ function AcpmuxPane() {
     window.cmuxAcpmuxBridge = {
       command(name) {
         // The Quick Composer has no chat list to search or switch to.
-        if (name === "searchChats" && surfaceRef.current !== "quick") setSearching((open) => !open);
+        if (name === "searchChats" && surfaceRef.current !== "quick") searchEvent("toggle");
         if (name === "createCheckpoint") showCheckpoint.current();
         if (
           [
@@ -2027,16 +2029,18 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {searching && (
+        {search !== "closed" && (
           <SearchChats
             sessions={snapshot.sessions}
-            onClose={() => setSearching(false)}
+            closing={search === "closing"}
+            onExited={() => searchEvent("exited")}
+            onClose={() => searchEvent("close")}
             onSelect={(sessionId) => {
-              setSearching(false);
+              searchEvent("close");
               selectSession(sessionId);
             }}
             onNewChat={() => {
-              setSearching(false);
+              searchEvent("close");
               newChat();
             }}
           />

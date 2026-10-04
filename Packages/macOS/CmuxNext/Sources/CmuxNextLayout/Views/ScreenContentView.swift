@@ -153,6 +153,7 @@ final class ScreenContentView: NSView {
             }
             view.lineThickness = context.style.dividerThickness
             view.showsIdleLine = context.style.showsDividerLine
+            view.showsActiveLine = context.style.showsDividerFeedback
             if var frame = dividerFrames[kind] {
                 frame.setTarget(target.rect, alpha: 1)
                 if !animateFrames { frame.snap() }
@@ -254,9 +255,11 @@ final class ScreenContentView: NSView {
 
     /// The dividers' drawn lines, in this view's coordinates: native UI that
     /// Chromium pages leave uncovered (they sit in the gap between panes).
+    /// A divider that never draws (`layout.paneSeparation` none) leaves no
+    /// hole, so neighboring pages meet with no seam.
     var dividerLineRects: [CGRect] {
         dividerViews.values.compactMap { view in
-            guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
+            guard !view.isHidden, view.alphaValue > 0.01, view.showsIdleLine || view.showsActiveLine else { return nil }
             let rect = view.lineFrameInSuperview.intersection(bounds)
             return rect.isNull || rect.isEmpty ? nil : rect
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
