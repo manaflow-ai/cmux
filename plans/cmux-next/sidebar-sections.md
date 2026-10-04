@@ -222,7 +222,7 @@ Look: setting `sidebar.sectionLook` in cmux.json and Settings > Appearance > Sid
 `quiet` (Lawrence, 2026-10-02); Debug Settings `sidebar.sections.look` overrides it in DEV. The band
 caps are settings too: `sidebar.topBandMaxShare` (default 1/3), `sidebar.bottomBandMaxShare`
 (default 1/4), `sidebar.pinnedBandsScroll` (default true; false = the bands never scroll and the list
-shrinks to three rows). In both modes the two bands together leave the list three rows (they
+shrinks to three rows; the pre-R87 key `sidebar.stickyBandsScroll` is read for one release). In both modes the two bands together leave the list three rows (they
 shrink in proportion and scroll inside), and each band keeps at least its first row, so Home and
 Settings never vanish in a short window. The two shares together are at most 0.8; past that both
 shrink in proportion. Looks:

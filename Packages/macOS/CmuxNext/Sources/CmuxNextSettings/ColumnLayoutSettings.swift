@@ -11,6 +11,10 @@ public nonisolated enum ColumnLayoutSettings {
     public static let newColumnWidthPath = ["layout", "newColumnWidth"]
     public static let dockEdgePath = ["layout", "dockColumnEdge"]
     public static let dockModePath = ["layout", "dockColumnMode"]
+    /// R87: the keys nightly-next builds wrote before the dock rename, read
+    /// for one release when the dock key is absent. Remove after it.
+    static let legacyDockEdgePath = ["layout", "stickyColumnEdge"]
+    static let legacyDockModePath = ["layout", "stickyColumnMode"]
     public static let frameOrientationPath = ["layout", "frameOrientation"]
     public static let minimumPaneWidthPath = ["layout", "minimumPaneWidth"]
     public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
@@ -64,6 +68,11 @@ public nonisolated enum ColumnLayoutSettings {
         return (choice(root, newColumnWidthPath, fallback: newColumnWidthFallback, diagnostics: &diagnostics), nil)
     }
 
+    /// `path`, or `legacy` when only the old key is set (R87).
+    static func path(_ root: JSONValue, _ path: [String], legacy: [String]) -> [String] {
+        root.value(at: path) == nil && root.value(at: legacy) != nil ? legacy : path
+    }
+
     /// Parses every key into `snapshot`.
     static func parse(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
         var diagnostics: [SettingsDiagnostic] = []
@@ -71,12 +80,14 @@ public nonisolated enum ColumnLayoutSettings {
         let (mode, fixed) = newColumnWidth(root, diagnostics: &diagnostics)
         snapshot.newColumnWidth = mode
         if let fixed { snapshot.defaultColumnWidth = fixed }
-        snapshot.dockColumnEdge = choice(root, dockEdgePath, fallback: dockEdgeFallback, diagnostics: &diagnostics)
+        let edgePath = path(root, dockEdgePath, legacy: legacyDockEdgePath)
+        snapshot.dockColumnEdge = choice(root, edgePath, fallback: dockEdgeFallback, diagnostics: &diagnostics)
         // "floating" is the UI name of `overlay`; both are accepted.
-        if root.value(at: dockModePath)?.stringValue == "floating" {
+        let modePath = path(root, dockModePath, legacy: legacyDockModePath)
+        if root.value(at: modePath)?.stringValue == "floating" {
             snapshot.dockColumnMode = .overlay
         } else {
-            snapshot.dockColumnMode = choice(root, dockModePath, fallback: dockModeFallback, diagnostics: &diagnostics)
+            snapshot.dockColumnMode = choice(root, modePath, fallback: dockModeFallback, diagnostics: &diagnostics)
         }
         snapshot.frameOrientation = choice(root, frameOrientationPath, fallback: frameOrientationFallback, diagnostics: &diagnostics)
         let width = number(root, minimumPaneWidthPath, fallback: minimumPaneWidthFallback, range: minimumPaneWidthRange, diagnostics: &diagnostics)

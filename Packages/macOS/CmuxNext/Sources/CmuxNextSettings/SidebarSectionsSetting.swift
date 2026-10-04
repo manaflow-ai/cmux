@@ -7,6 +7,9 @@ public nonisolated enum SidebarSectionsSetting {
     public static let topSharePath = ["sidebar", "topBandMaxShare"]
     public static let bottomSharePath = ["sidebar", "bottomBandMaxShare"]
     public static let scrollPath = ["sidebar", "pinnedBandsScroll"]
+    /// R87: the key nightly-next builds wrote before the rename, read for
+    /// one release when `sidebar.pinnedBandsScroll` is absent. Remove after it.
+    static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
 
@@ -57,11 +60,12 @@ public nonisolated enum SidebarSectionsSetting {
             result.topBandMaxShare *= scale
             result.bottomBandMaxShare *= scale
         }
-        if let value = root.value(at: scrollPath) {
+        let scroll = ColumnLayoutSettings.path(root, scrollPath, legacy: legacyScrollPath)
+        if let value = root.value(at: scroll) {
             if let flag = value.boolValue {
                 result.pinnedBandsScroll = flag
             } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.pinnedBandsScroll", message: "expected true or false"))
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: scroll.joined(separator: "."), message: "expected true or false"))
             }
         }
         if let value = root.value(at: minimalModePath) {
