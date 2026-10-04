@@ -5,6 +5,7 @@ import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-v
 import { MAX_ATTEMPTS, teamVmDomain, teamVmSlug, teamVmWakeAt, type TeamVmState } from "./domains/team-vm.ts"
 import { fromBase64, isStream, MAX_ENTRY_BYTES, sha256Hex, TeamJournal } from "./team-vm-journal.ts"
 import { TeamVmLedger, type LedgerRow } from "./team-vm-ledger.ts"
+import { RegistryOutbox } from "./team-vm-registry-outbox.ts"
 import { TeamVmRegistry, type RegistryCounts, type RegistryEvent, type RegistryEventKind } from "./team-vm-registry.ts"
 import { TEAM_VM_REGISTRY } from "./team-vm-admin.ts"
 
@@ -14,8 +15,6 @@ const REPORT_MAX_PAGES = 50
 const REPORT_MAX_NAMES = 200
 /** Retry of undelivered registry events when the alarm next runs for this object. */
 const REGISTRY_RETRY_MS = 60_000
-/** Sends of one registry event before it stops waking the object (it stays in the table, logged as an error). */
-const REGISTRY_MAX_ATTEMPTS = 20
 
 /** How long the request path waits for the provider before it answers with the current state. */
 const ENSURE_AWAKE_WAIT_MS = 25_000
@@ -93,7 +92,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   protected override nextWakeAt(state: TeamVmState, now: number): number | null {
     const own = teamVmWakeAt(state)
     // Undelivered registry events retry with the alarm (only while some are left; no idle work).
-    const outbox = this.registryOutboxSize() > 0 ? now + REGISTRY_RETRY_MS : null
+    const outbox = this.outbox.size() > 0 ? now + REGISTRY_RETRY_MS : null
     return own === null ? outbox : outbox === null ? own : Math.min(own, outbox)
   }
 
@@ -202,7 +201,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
 
   /** Backfill: the team record's VM enters the ledger by its exact id if no row holds it yet. */
   private backfillLedger(): void {
-    this.seedRegistry()
+    this.outbox.seed(this.vmLedger.rows())
     const state = this.boundEngine?.currentState
     if (!state?.vm || !state.team) return
     const wrote = this.vmLedger.backfill({ id: state.vm, name: state.slug ?? state.vm, env: this.env.ENVIRONMENT ?? "unknown", team: state.team, epoch: state.epoch, now: Date.now() })
@@ -343,72 +342,21 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     }
   }
 
-  // Registry delivery (team instances): events go to an outbox table in the same synchronous step as
-  // the ledger write, then to the registry instance; a failed send stays and retries with the alarm.
-
-  private outboxReady = false
-
-  /** Events still to deliver (an event that failed REGISTRY_MAX_ATTEMPTS times stays, logged, and no longer wakes the object). */
-  private registryOutboxSize(): number {
-    if (!this.outboxReady) {
-      this.sqlStore.exec(
-        `CREATE TABLE IF NOT EXISTS team_vm_registry_outbox (key TEXT PRIMARY KEY, kind TEXT NOT NULL, team TEXT NOT NULL, name TEXT NOT NULL, provider_id TEXT, at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`
-      )
-      this.sqlStore.exec(`CREATE TABLE IF NOT EXISTS team_vm_registry_seed (id INTEGER PRIMARY KEY CHECK (id = 1), at INTEGER NOT NULL)`)
-      this.outboxReady = true
-    }
-    return this.sqlStore.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM team_vm_registry_outbox WHERE attempts < ?`, REGISTRY_MAX_ATTEMPTS)[0]?.n ?? 0
+  // Registry delivery (team instances): team-vm-registry-outbox.ts.
+  private outboxStore: RegistryOutbox | null = null
+  private get outbox(): RegistryOutbox {
+    if (!this.outboxStore) this.outboxStore = new RegistryOutbox(this.sqlStore)
+    return this.outboxStore
   }
 
   private enqueueRegistry(kind: RegistryEventKind, team: string, name: string, providerId: string | null): void {
-    this.registryOutboxSize()
-    this.sqlStore.exec(`INSERT OR IGNORE INTO team_vm_registry_outbox (key, kind, team, name, provider_id, at) VALUES (?, ?, ?, ?, ?, ?)`, `${kind}:${providerId ?? name}`, kind, team, name, providerId, Date.now())
-  }
-
-  /**
-   * One-time seed: ledger rows written before the registry existed send their event once
-   * (idempotent at the registry by provider id, so a row that already reached it changes nothing).
-   */
-  private seedRegistry(): void {
-    this.registryOutboxSize()
-    if (this.sqlStore.exec(`SELECT 1 AS x FROM team_vm_registry_seed WHERE id = 1`).length > 0) return
-    for (const row of this.vmLedger.rows()) {
-      if (!row.provider_id) continue
-      if (row.state === "confirmed" || row.state === "backfilled") this.enqueueRegistry(row.state === "confirmed" ? "created" : "backfilled", row.team, row.name, row.provider_id)
-      else if (row.state === "deleted") {
-        this.enqueueRegistry("created", row.team, row.name, row.provider_id)
-        this.enqueueRegistry("deleted", row.team, row.name, row.provider_id)
-      }
-    }
-    this.sqlStore.exec(`INSERT OR IGNORE INTO team_vm_registry_seed (id, at) VALUES (1, ?)`, Date.now())
+    this.outbox.enqueue(kind, team, name, providerId)
   }
 
   private async drainRegistry(): Promise<void> {
-    if (this.registryOutboxSize() === 0) return
-    const rows = this.sqlStore.exec<{ key: string; kind: RegistryEventKind; team: string; name: string; provider_id: string | null; attempts: number }>(
-      `SELECT key, kind, team, name, provider_id, attempts FROM team_vm_registry_outbox WHERE attempts < ? ORDER BY at, rowid LIMIT 50`,
-      REGISTRY_MAX_ATTEMPTS
-    )
     const ns = this.env.TEAM_VM_DO as unknown as DurableObjectNamespace
     const registry = ns.get(ns.idFromName(TEAM_VM_REGISTRY)) as unknown as { registryEvent(ev: RegistryEvent): Promise<void> }
-    let failed = false
-    let delivered = false
-    for (const r of rows) {
-      try {
-        await registry.registryEvent({ kind: r.kind, team: r.team, name: r.name, provider_id: r.provider_id })
-        this.sqlStore.exec(`DELETE FROM team_vm_registry_outbox WHERE key = ?`, r.key)
-        delivered = true
-      } catch (e) {
-        // A failing event does not block the others (every event is idempotent by provider id).
-        failed = true
-        this.sqlStore.exec(`UPDATE team_vm_registry_outbox SET attempts = attempts + 1 WHERE key = ?`, r.key)
-        const level = r.attempts + 1 >= REGISTRY_MAX_ATTEMPTS ? "error" : "warn"
-        console[level](JSON.stringify({ msg: level === "error" ? "team vm registry event given up" : "team vm registry event not delivered", kind: r.kind, team: r.team, error: String(e).slice(0, 200) }))
-      }
-    }
-    // The registry answers again: events given up during an outage get a new set of attempts.
-    if (delivered) this.sqlStore.exec(`UPDATE team_vm_registry_outbox SET attempts = 0 WHERE attempts >= ?`, REGISTRY_MAX_ATTEMPTS)
-    if (failed && this.boundEngine) this.scheduleAlarm()
+    if ((await this.outbox.drain((ev) => registry.registryEvent(ev))) && this.boundEngine) this.scheduleAlarm()
   }
 
   // Registry instance (TEAM_VM_REGISTRY only).
@@ -490,10 +438,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     teamVmDriver(this.env, this.sqlStore)
     if (cmd.seed_vm) this.sqlStore.exec(`INSERT OR REPLACE INTO fake_vm (slug, id, state, team) VALUES (?, ?, 'running', NULL)`, cmd.seed_vm.slug, cmd.seed_vm.id)
     if (cmd.drop_registry) this.registry.clear()
-    if (cmd.reset_registry_seed) {
-      this.registryOutboxSize()
-      this.sqlStore.exec(`DELETE FROM team_vm_registry_seed`)
-    }
+    if (cmd.reset_registry_seed) this.outbox.resetSeed()
     if (cmd.drop_ledger) {
       void this.vmLedger
       this.sqlStore.exec(`DELETE FROM team_vm_ledger`)
