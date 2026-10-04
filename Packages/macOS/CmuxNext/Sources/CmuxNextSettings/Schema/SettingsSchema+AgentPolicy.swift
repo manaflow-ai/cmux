@@ -21,6 +21,7 @@ extension SettingsSchema {
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
+        "shortcuts.showModifierHoldHints",
         "navigation.historyScope",
         "sidebar.minimalMode",
         "tabs.newTabKind",

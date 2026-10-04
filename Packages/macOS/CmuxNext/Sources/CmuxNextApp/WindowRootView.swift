@@ -167,7 +167,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         return titlebarBadgeFrame.map { band.union($0) } ?? band
     }
 
+    var onHintGeometryChange: (() -> Void)?
+
     override func layout() {
+        defer { onHintGeometryChange?() }
         super.layout()
         TitlebarDragPolicy.layoutBandBlocker(titlebarBandBlocker, in: self)
         // The band depends only on the window's traffic lights and top row,

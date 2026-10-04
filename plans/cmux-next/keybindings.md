@@ -295,3 +295,13 @@ the `recorded` stream (the key dispatcher gives the page window's keys to a `Key
 Return or the fourth stroke ends, Escape cancels; the page never reads key events) and the
 `changed` stream. `set`, `remove` and `reset` answer `cmux.keybindings.unsupported` until
 keybindings.json has its owner (slice 4, cmux-config).
+
+### Modifier hold hints
+
+`shortcuts.showModifierHoldHints` defaults to `true` and is editable in Keyboard
+Shortcuts. Hold Command or Control by itself for 0.30 seconds to show the current
+workspace, space, focused pane tab, and titlebar shortcuts beside their targets.
+Hints use the resolved default and user binding table, so a rebind or unbind
+changes the hints too. Typing, releasing the modifier, disabling the setting,
+or leaving the key window hides them immediately. The hints use small rectangles
+and appear without a fade; they never handle clicks or consume terminal input.

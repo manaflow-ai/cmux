@@ -612,6 +612,49 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.shortcuts.hintsGroup",
+        "text" : "Shortcut Hints"
+      },
+      "help" : {
+        "key" : "settings.shortcuts.showModifierHoldHints.help",
+        "text" : "Hold Command or Control for 0.30 seconds to show shortcut hints."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "shortcuts.showModifierHoldHints",
+      "keywords" : [
+        "command",
+        "control",
+        "hold",
+        "hints",
+        "keyboard"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "shortcuts",
+        "showModifierHoldHints"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "title" : {
+        "key" : "settings.shortcuts.showModifierHoldHints",
+        "text" : "Show Shortcuts When Holding a Modifier"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -7233,7 +7276,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "de3d4ccbc727d92d9db549e77670bf342ba5345b4f4ada26acaa83909bd64424",
+  "schema_hash" : "07881959316e73c1d1c321321a6244bceccc36d8b900a77425a894e6c646b14a",
   "sections" : [
     {
       "id" : "general",
