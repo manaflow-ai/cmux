@@ -3,16 +3,33 @@
 
 use super::*;
 
+/// The shutdown's decision about hosted agents (`Hub::shutdown_plan`).
+#[derive(Default)]
+pub(crate) struct ShutdownPlan {
+    /// The shutdown read this plan; it can no longer change.
+    started: bool,
+    end_agents: bool,
+    keep: std::collections::HashSet<String>,
+}
+
 impl Hub {
     /// The coming shutdown ends hosted agents too (the app's Quit
     /// Everything), except those of the sessions in `keep` (the app's Home
     /// Chief), which detach; without it a shutdown detaches every one.
+    /// Refused once a shutdown has started: it already handed the agents
+    /// off, and nothing would end them.
     pub fn end_agents_at_shutdown(
         &self,
         keep: std::collections::HashSet<String>,
     ) -> Result<(), RpcError> {
-        *self.keep_on_shutdown.lock().unwrap() = keep;
-        self.end_agents_on_shutdown.store(true, Ordering::SeqCst);
+        let mut plan = self.shutdown_plan.lock().unwrap();
+        if plan.started {
+            return Err(RpcError::invalid_params(
+                "the daemon is already shutting down and hands its agents off; endAgents comes too late",
+            ));
+        }
+        plan.end_agents = true;
+        plan.keep = keep;
         Ok(())
     }
 
@@ -35,8 +52,11 @@ impl Hub {
         self.stop_idle_reaper();
         // A pass that already started finishes first (bounded by its kills).
         drop(self.idle_pass.lock().await);
-        let end_agents = self.end_agents_on_shutdown.load(Ordering::SeqCst);
-        let keep = self.keep_on_shutdown.lock().unwrap().clone();
+        let (end_agents, keep) = {
+            let mut plan = self.shutdown_plan.lock().unwrap();
+            plan.started = true;
+            (plan.end_agents, plan.keep.clone())
+        };
         let sessions = self.sessions();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
@@ -140,4 +160,3 @@ mod tests {
         );
     }
 }
-

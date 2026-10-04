@@ -20,6 +20,7 @@ mod pool;
 mod resolve;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod shutdown;
+use shutdown::ShutdownPlan;
 mod spawn;
 mod stream;
 mod tap;
@@ -258,12 +259,9 @@ pub struct Hub {
     pub(super) handoffs: handoff::Handoffs,
     /// New agents run under agent hosts (`enable_agent_hosts`).
     pub(super) agent_hosts: AtomicBool,
-    /// `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything):
-    /// the coming shutdown ends hosted agents instead of detaching them.
-    pub(super) end_agents_on_shutdown: AtomicBool,
-    /// Sessions whose hosted agents a shutdown with `endAgents` still keeps
-    /// (`keepSessions`: the app's Home Chief).
-    pub(super) keep_on_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// What the coming shutdown does with hosted agents, decided once:
+    /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
+    pub(super) shutdown_plan: StdMutex<ShutdownPlan>,
     /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
     /// futures must not write a second result when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
@@ -342,8 +340,7 @@ impl Hub {
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
             agent_hosts: AtomicBool::new(false),
-            end_agents_on_shutdown: AtomicBool::new(false),
-            keep_on_shutdown: StdMutex::new(Default::default()),
+            shutdown_plan: StdMutex::new(ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
