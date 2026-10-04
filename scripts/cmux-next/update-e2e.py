@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+"""Real auto-update proof for cmux-next NIGHTLY (R114), socket-driven, no display.
+
+Installs an older published nightly-next build into a scratch folder, starts
+terminals, asks Sparkle to check (the palette action), waits until the update
+is staged (downloaded and verified, delta when the feed has one), then:
+
+  1. quit -> Sparkle installs on quit; the bundle becomes the newer build;
+     relaunch -> same version as the feed's newest, the terminal still has
+     its output and still answers (the daemon kept it across the update);
+  2. (--click) a second older build, staged the same way, installs with the
+     one-click action and Sparkle relaunches it by itself.
+
+Rollback refusal is reported PENDING until `cmux update rollback` exists.
+
+Host rules (coordinator 2026-10-04): an Aqua GUI session for this user, no
+com.cmuxterm.app.nightly installed or running, no /tmp/cmux-nightly.sock.
+Everything this run creates (scratch folder, Sparkle cache, defaults domain,
+state dirs) is removed at the end; anything that existed before is kept.
+
+  scripts/cmux-next/update-e2e.py [--feed URL] [--from BUILD] [--to BUILD] [--click] [--keep]
+"""
+import argparse, json, os, plistlib, re, shutil, subprocess, sys, tempfile, time, urllib.request
+
+BUNDLE_ID = "com.cmuxterm.app.nightly"
+SOCKET = "/tmp/cmux-nightly.sock"
+HOME = os.path.expanduser("~")
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+parser.add_argument("--from", dest="from_build", help="installed build (default: the feed's second item)")
+parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the feed's newest)")
+parser.add_argument("--click", action="store_true", help="also prove the one-click install with an older build")
+parser.add_argument("--keep", action="store_true", help="keep the scratch folder (debugging)")
+opts = parser.parse_args()
+
+results = []  # (check, PASS|FAIL|PENDING, detail)
+
+
+def record(check, ok, detail=""):
+    state = ok if isinstance(ok, str) else ("PASS" if ok else "FAIL")
+    results.append((check, state, detail))
+    print(f"[{state}] {check}" + (f": {detail}" if detail else ""), flush=True)
+
+
+def run(*args, timeout=60, **kw):
+    return subprocess.run(list(args), capture_output=True, text=True, timeout=timeout, **kw)
+
+
+def wait(predicate, seconds, step=0.5):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(step)
+    return None
+
+
+# ---- preflight -------------------------------------------------------------
+
+def preflight():
+    if run("launchctl", "print", f"gui/{os.getuid()}").returncode != 0:
+        sys.exit("refused: no Aqua GUI session for this user (launchctl print gui/<uid> failed)")
+    running = run("pgrep", "-fl", "cmux NIGHTLY.app/Contents/MacOS").stdout.strip()
+    if running:
+        sys.exit(f"refused: a cmux NIGHTLY runs here:\n{running}")
+    installed = [p for p in run("mdfind", f"kMDItemCFBundleIdentifier == '{BUNDLE_ID}'").stdout.splitlines() if p.endswith(".app")]
+    if installed:
+        sys.exit("refused: an app with bundle id %s is installed: %s" % (BUNDLE_ID, ", ".join(installed)))
+    if os.path.exists(SOCKET):
+        sys.exit(f"refused: {SOCKET} exists (another nightly's socket)")
+
+
+# What may be created: compared before/after; only new entries are removed.
+STATE_ROOTS = [f"{HOME}/Library/Application Support", f"{HOME}/Library/Caches", f"{HOME}/Library/Preferences",
+               f"{HOME}/Library/HTTPStorages", f"{HOME}/Library/Saved Application State", f"{HOME}/Library/WebKit",
+               f"{HOME}/.cmuxterm", f"{HOME}/.local/state/cmux", f"{HOME}/.config/cmux", "/tmp"]
+
+
+def snapshot():
+    found = set()
+    for root in STATE_ROOTS:
+        try:
+            for name in os.listdir(root):
+                found.add(os.path.join(root, name))
+        except OSError:
+            pass
+    for root in STATE_ROOTS:
+        found.add(root) if os.path.exists(root) else None
+    return found
+
+
+def cleanup(before, work):
+    # The app and its daemon end through the app's own quit (end everything),
+    # then any process still running from the scratch folder is ended by PID.
+    leftovers = [line.split(None, 1) for line in run("pgrep", "-fl", work).stdout.splitlines()]
+    for pid, command in leftovers:
+        print(f"ending leftover pid {pid}: {command[:120]}")
+        try:
+            os.kill(int(pid), 15)
+        except OSError:
+            pass
+    run("defaults", "delete", BUNDLE_ID) if f"{HOME}/Library/Preferences/{BUNDLE_ID}.plist" not in before else None
+    for path in sorted(snapshot() - before, key=len, reverse=True):
+        name = os.path.basename(path).lower()
+        if "cmux" in name or BUNDLE_ID in name or path.startswith(work):
+            print(f"removing created {path}")
+            shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
+    if not opts.keep:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# ---- feed and install -------------------------------------------------------
+
+def feed_items():
+    xml = urllib.request.urlopen(opts.feed, timeout=30).read().decode()
+    items = []
+    for item in re.findall(r"<item>.*?</item>", xml, re.S):
+        build = re.search(r"<sparkle:version>(.*?)<", item)
+        build = build.group(1) if build else re.search(r'sparkle:version="([^"]+)"', item).group(1)
+        url = re.search(r'<enclosure[^>]*url="([^"]+\.dmg)"', item).group(1)
+        deltas = {m.group(2): int(m.group(1)) for m in re.finditer(
+            r'<enclosure[^>]*length="(\d+)"[^>]*sparkle:deltaFrom="([^"]+)"', item)}
+        deltas.update({m.group(1): int(m.group(2)) for m in re.finditer(
+            r'<enclosure[^>]*sparkle:deltaFrom="([^"]+)"[^>]*length="(\d+)"', item)})
+        items.append({"build": build, "url": url, "deltas": deltas})
+    return items
+
+
+def install(item, folder):
+    dmg = os.path.join(folder, "build.dmg")
+    print(f"downloading {item['url']}")
+    urllib.request.urlretrieve(item["url"], dmg)
+    mount = os.path.join(folder, "mnt")
+    os.makedirs(mount, exist_ok=True)
+    attach = run("hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", mount, dmg, timeout=300)
+    if attach.returncode != 0:
+        sys.exit(f"hdiutil attach failed: {attach.stderr}")
+    try:
+        app_name = next(n for n in os.listdir(mount) if n.endswith(".app"))
+        app = os.path.join(folder, app_name)
+        run("ditto", os.path.join(mount, app_name), app, timeout=300)
+    finally:
+        run("hdiutil", "detach", mount, timeout=120)
+    os.unlink(dmg)
+    return app
+
+
+def bundle_build(app):
+    with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+        return plistlib.load(f).get("CFBundleVersion")
+
+
+# ---- app control -------------------------------------------------------------
+
+class App:
+    def __init__(self, path, config):
+        self.path, self.config, self.proc = path, config, None
+
+    @property
+    def cli_path(self):
+        return os.path.join(self.path, "Contents/Resources/bin/cmux")
+
+    def cli(self, *args, timeout=30):
+        env = {"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
+        return run(self.cli_path, "--socket", SOCKET, *args, timeout=timeout, env=env)
+
+    def rpc(self, method, params=None):
+        r = self.cli("rpc", method, json.dumps(params or {}))
+        try:
+            return json.loads(r.stdout)
+        except ValueError:
+            return {"error": (r.stdout + r.stderr).strip()}
+
+    def launch(self, log):
+        binary = os.path.join(self.path, "Contents/MacOS", next(iter(os.listdir(os.path.join(self.path, "Contents/MacOS")))))
+        env = {"HOME": HOME, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
+               "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
+               "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": self.config}
+        self.proc = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        return self.wait_ready()
+
+    def wait_ready(self):
+        return wait(lambda: os.path.exists(SOCKET) and self.rpc("updates.status").get("build"), 90)
+
+    def status(self):
+        return self.rpc("updates.status")
+
+    def quit(self):
+        self.rpc("action.run", {"id": "quit"})
+        if self.proc:
+            try:
+                self.proc.wait(60)
+            except subprocess.TimeoutExpired:
+                self.proc.terminate()
+                self.proc.wait(30)
+
+
+def staged(app):
+    s = app.status()
+    return s if s.get("phase") == "installing" else None
+
+
+def stage_update(app, label):
+    app.rpc("action.run", {"id": "palette.checkForUpdates"})
+    s = wait(lambda: staged(app), 900, 2)
+    log = "\n".join(app.status().get("log", []))
+    record(f"{label}: update downloaded, verified and staged", bool(s), f"detected {s.get('detected_version') if s else None}")
+    return s, log
+
+
+def main():
+    preflight()
+    before = snapshot()
+    work = tempfile.mkdtemp(prefix="cmux-update-e2e-")
+    config = os.path.join(work, "cmux.json")
+    with open(config, "w") as f:
+        json.dump({"app": {"quitBehavior": "keep"}, "updates": {"installOnQuit": True}}, f)
+    log = open(os.path.join(work, "app.log"), "a")
+    try:
+        items = feed_items()
+        by_build = {i["build"]: i for i in items}
+        to_item = by_build[opts.to_build] if opts.to_build else items[0]
+        from_item = by_build[opts.from_build] if opts.from_build else items[1]
+        print(f"feed {opts.feed}: {len(items)} items; {from_item['build']} -> {to_item['build']}")
+        apps = os.path.join(work, "apps")
+        os.makedirs(apps)
+        path = install(from_item, apps)
+        record("installed the older build", bundle_build(path) == from_item["build"], bundle_build(path))
+
+        app = App(path, config)
+        record("older build launched, control socket answers", bool(app.launch(log)))
+        ws = app.cli("new-workspace", "--name", "update-e2e", "--focus", "false").stdout.split()
+        token = f"before-update-{int(time.time())}"
+        surface = None
+        for line in app.cli("tree", "--workspace", ws[1] if len(ws) > 1 else "").stdout.splitlines():
+            m = re.search(r"surface (surface:\d+) \[terminal\]", line)
+            if m:
+                surface = m.group(1)
+        app.cli("send", "--surface", surface, f"echo {token}; echo $$ > {work}/shell.pid\n")
+        record("terminal ran before the update", bool(wait(lambda: token in app.cli("read-screen", "--surface", surface).stdout, 20)))
+        shell_pid = wait(lambda: open(f"{work}/shell.pid").read().strip() if os.path.exists(f"{work}/shell.pid") else None, 10)
+
+        s, sparkle_log = stage_update(app, "quit path")
+        delta_len = to_item["deltas"].get(from_item["build"])
+        lengths = [int(x) for x in re.findall(r"download expected length: (\d+)", sparkle_log)]
+        if delta_len:
+            record("delta update used", delta_len in lengths, f"expected lengths {lengths}, delta {delta_len}")
+
+        app.quit()
+        record("install on quit replaced the bundle", bool(wait(lambda: bundle_build(path) == to_item["build"], 300, 2)),
+               f"bundle build {bundle_build(path)}")
+        record("relaunched", bool(app.launch(log)))
+        record("running the newest build", app.status().get("build") == to_item["build"], app.status().get("build"))
+        record("terminal output kept across the update", token in app.cli("read-screen", "--surface", surface).stdout)
+        alive = shell_pid and run("kill", "-0", shell_pid).returncode == 0
+        record("terminal shell process survived (daemon kept it)", bool(alive), f"pid {shell_pid}")
+        token2 = f"after-update-{int(time.time())}"
+        app.cli("send", "--surface", surface, f"echo {token2}\n")
+        record("terminal still answers after the update", bool(wait(lambda: token2 in app.cli("read-screen", "--surface", surface).stdout, 20)))
+
+        if opts.click and len(items) > 2:
+            app.quit()
+            old = next(i for i in items if i["build"] not in (to_item["build"], from_item["build"]))
+            shutil.rmtree(path)
+            path = install(old, apps)
+            app = App(path, config)
+            record("click path: older build launched", bool(app.launch(log)))
+            stage_update(app, "click path")
+            app.rpc("action.run", {"id": "palette.applyUpdateIfAvailable"})
+            # Sparkle relaunches the app by itself (no launch environment).
+            if app.proc:
+                app.proc.wait(120)
+            relaunched = wait(lambda: bundle_build(path) == to_item["build"] and app.status().get("build") == to_item["build"], 300, 2)
+            record("click path: one click installed and Sparkle relaunched", bool(relaunched), f"bundle {bundle_build(path)}")
+            app.proc = None
+
+        record("rollback refused when the store schema is newer", "PENDING", "cmux update rollback is not built yet")
+    finally:
+        try:
+            with open(config, "w") as f:
+                json.dump({"app": {"quitBehavior": "end-everything"}}, f)
+            time.sleep(1)  # the app reloads cmux.json from its file watcher
+            app.quit()
+        except Exception as error:  # noqa: BLE001 - cleanup continues
+            print(f"final quit: {error}")
+        log.close()
+        cleanup(before, work)
+    failed = [r for r in results if r[1] == "FAIL"]
+    print(json.dumps({"results": results, "ok": not failed}, indent=1))
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()
