@@ -144,7 +144,7 @@ pub(super) fn validate_page(value: u32, field: &str) -> anyhow::Result<()> {
 }
 
 pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    if mux.control_clients.is_remote(client) {
+    if mux.is_remote_client(client) {
         return super::remote_relay::conversations::list(mux, client);
     }
     require_local(mux, client)?;
@@ -180,7 +180,7 @@ pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Re
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
-    if mux.control_clients.is_remote(client) {
+    if mux.is_remote_client(client) {
         return super::remote_relay::conversations::snapshot(mux, client, params);
     }
     require_local(mux, client)?;
@@ -192,7 +192,7 @@ pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow
 }
 
 pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::Result<Value> {
-    if mux.control_clients.is_remote(client) {
+    if mux.is_remote_client(client) {
         return super::remote_relay::conversations::history(mux, client, params);
     }
     require_local(mux, client)?;
@@ -214,7 +214,7 @@ pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Re
 }
 
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
-    if mux.control_clients.is_remote(client) {
+    if mux.is_remote_client(client) {
         return super::remote_relay::conversations::op(mux, client, params);
     }
     require_local(mux, client)?;
@@ -272,7 +272,7 @@ pub(super) fn op_reply(outcome: &OpOutcome, change: Value, transaction: Option<A
 }
 
 pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
-    if mux.control_clients.is_remote(client) {
+    if mux.is_remote_client(client) {
         return super::remote_relay::conversations::typing(mux, client, params);
     }
     require_local(mux, client)?;

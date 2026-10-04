@@ -6,9 +6,12 @@
 
 use cmux_conversation::{Op, Participant, ParticipantKind};
 
-use super::super::Mux;
+use std::sync::Arc;
+
+#[cfg(test)]
 use super::super::conversations::commit_op;
-use crate::conversation_store::LOCAL_USER;
+use super::super::{Mux, MuxEvent};
+use crate::conversation_store::{ConversationEvent, LOCAL_USER};
 use crate::remote_relay_state::remote_participant;
 
 /// The device participant of `install`: a human that is the same person as
@@ -27,7 +30,9 @@ fn device(install: &str, display_name: &str) -> Participant {
 impl Mux {
     /// `participants.add_system` for one conversation: add the device
     /// participant of `install` and publish the change. Idempotent per
-    /// conversation and install.
+    /// conversation and install. Tests place a device in one conversation
+    /// with it; pairing uses [`Mux::pair_remote_install`].
+    #[cfg(test)]
     pub(crate) fn add_remote_participant_system(
         &self,
         conversation: &str,
@@ -41,7 +46,8 @@ impl Mux {
     }
 
     /// Pairing: add the device of `install` to every conversation of the
-    /// server's own user that does not list it yet. Returns how many
+    /// server's own user that does not list it yet, in one transaction: all
+    /// of them join or none does (no half-applied pairing). Returns how many
     /// conversations it joined.
     pub fn pair_remote_install(&self, install: &str, display_name: &str) -> anyhow::Result<usize> {
         let participant = remote_participant(install);
@@ -50,10 +56,14 @@ impl Mux {
         for summary in summaries {
             let ids: Vec<&str> = summary.participants.iter().map(|p| p.id.as_str()).collect();
             if ids.contains(&LOCAL_USER) && !ids.contains(&participant.as_str()) {
-                self.add_remote_participant_system(&summary.id, install, display_name)?;
+                let op = Op::ParticipantsAdd { participant: device(install, display_name) };
+                let key = format!("system-pair-{install}");
+                super::super::conversations::commit_op(self, &summary.id, &key, LOCAL_USER, &op, &None)?;
                 joined += 1;
             }
         }
+        let _ = (Arc::new(()), ConversationEvent::Typing { conversation: String::new(), participant: String::new(), on: false });
+        let _: Option<MuxEvent> = None;
         Ok(joined)
     }
 }

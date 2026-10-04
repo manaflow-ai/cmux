@@ -10535,6 +10535,9 @@ fn handle_connection_message(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
+    if mux.is_remote_client(client) {
+        return remote_relay::handle_frame(mux, client, message, writer);
+    }
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
     // serving. Closing here would drop the requester's pending

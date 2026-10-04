@@ -31,9 +31,20 @@ impl Mux {
         write: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
         publish: impl FnOnce(&T) -> Option<MuxEvent>,
     ) -> anyhow::Result<T> {
+        self.conversation_write_many(write, |value| publish(value).into_iter().collect())
+    }
+
+    /// [`Self::conversation_write`] for a write that commits several changes
+    /// in one transaction: every event is published after the commit, in
+    /// order.
+    pub(crate) fn conversation_write_many<T>(
+        &self,
+        write: impl FnOnce(&mut ConversationStore) -> anyhow::Result<T>,
+        publish: impl FnOnce(&T) -> Vec<MuxEvent>,
+    ) -> anyhow::Result<T> {
         let _order = self.conversations.publish.lock().unwrap();
         let value = self.with_conversations(write)?;
-        if let Some(event) = publish(&value) {
+        for event in publish(&value) {
             self.emit(event);
         }
         Ok(value)

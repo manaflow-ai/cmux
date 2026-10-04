@@ -228,8 +228,8 @@ struct RemoteAdmission {
 }
 
 impl LineAdmission for RemoteAdmission {
-    fn registered(&self, mux: &Arc<Mux>, client: u64) {
-        mux.bind_remote_peer(client, &self.peer);
+    fn registered(&self, mux: &Arc<Mux>, client: u64) -> bool {
+        mux.bind_remote_peer(client, &self.peer)
     }
 
     fn refusal(&self, line: &str) -> Option<Value> {

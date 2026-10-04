@@ -20,7 +20,7 @@ use super::super::{
 };
 use super::{Principal, denied, project};
 use crate::conversation_store::{ConversationEvent, ConversationRejected};
-use crate::remote_relay_state::remote_participant;
+use crate::remote_relay_state::{StreamPolicy, remote_participant};
 
 /// A remote peer resolved from its connection's peer record.
 pub(super) struct RemoteCaller {
@@ -31,13 +31,14 @@ pub(super) struct RemoteCaller {
 }
 
 fn caller(mux: &Mux, client: u64) -> anyhow::Result<RemoteCaller> {
-    let Some(Principal::Remote(peer)) = mux.principal(client) else { return Err(denied()) };
-    let owner = mux.remote_relay().owner_user();
-    Ok(RemoteCaller {
-        participant: remote_participant(&peer.install),
-        is_owner: owner.as_deref() == Some(peer.user.as_str()),
-    })
-}
+        let Some(Principal::Remote(peer)) = mux.principal(client) else { return Err(denied()) };
+        let _ = StreamPolicy::Close;
+        let owner = mux.remote_relay().owner_user();
+        Ok(RemoteCaller {
+            participant: remote_participant(&peer.install),
+            is_owner: owner.as_deref() == Some(peer.user.as_str()),
+        })
+    }
 
 fn owns(caller: &RemoteCaller, participants: &[cmux_conversation::Participant]) -> bool {
     caller.is_owner && participants.iter().any(|p| p.id == caller.participant)

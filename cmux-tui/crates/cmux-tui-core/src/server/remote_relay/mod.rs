@@ -97,18 +97,31 @@ impl super::ClientRegistry {
 }
 
 impl Mux {
+    /// True for a remote client: it came through the remote entry, or it has
+    /// a peer record (even if the registry no longer lists it). Unregistered
+    /// ids stay local: production registers every connection before its
+    /// first frame, and in-process tests use unregistered ids as local.
+    pub(super) fn is_remote_client(&self, client: u64) -> bool {
+        self.control_clients.is_remote(client)
+    }
+
     /// Record the verified link peer of remote connection `client` and bind
-    /// its participant `remote_<install>`. A peer whose install may not open
-    /// new streams (section 10) is not recorded and the connection is
-    /// closed, so every later frame fails closed.
-    pub(crate) fn bind_remote_peer(self: &Arc<Self>, client: u64, peer: &LinkPeer) {
-        let policy = self.remote_relay().revocation.lock().unwrap().policy(&peer.install);
-        if policy != StreamPolicy::Serve {
-            super::disconnect_client(self, client, false);
-            return;
+    /// its participant `remote_<install>`. Returns false, and records
+    /// nothing, when the install may not open new streams (section 10); the
+    /// connection loop then closes the stream before its first frame.
+    ///
+    /// Lock order: revocation, then peers. The revocation lock is held while
+    /// the peer is added, so a concurrent revoke either sees the new stream
+    /// (and closes it) or runs first (and this refuses it).
+    pub(crate) fn bind_remote_peer(&self, client: u64, peer: &LinkPeer) -> bool {
+        let revocation = self.remote_relay().revocation.lock().unwrap();
+        if revocation.policy(&peer.install) != StreamPolicy::Serve {
+            return false;
         }
         self.remote_relay().peers.lock().unwrap().insert(client, peer.clone());
+        drop(revocation);
         self.bind_conversation_principal(client, remote_participant(&peer.install));
+        true
     }
 
     /// The principal of `client`, or `None` for a remote connection without
@@ -157,7 +170,7 @@ pub(super) fn intercept(
     cmd: &Command,
     writer: &MessageWriter,
 ) -> Option<anyhow::Result<Value>> {
-    if !mux.control_clients.is_remote(client) {
+    if !mux.is_remote_client(client) {
         return None;
     }
     Some(match cmd {
@@ -175,6 +188,33 @@ pub(super) fn intercept(
         | Command::ConversationTyping(_) => return None,
         _ => Err(denied()),
     })
+}
+
+/// Every frame of a remote client, from the top of the connection handler:
+/// one path, so no local router or error path (url-open, vt-state,
+/// shutdown, the pending-handoff refusal, a bad-request text) ever answers
+/// a remote client. Refusals are codes only.
+pub(super) fn handle_frame(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> bool {
+        match serde_json::from_str::<super::Request>(message) {
+            Ok(request) => super::handle_request(mux, client, request, writer),
+            Err(error) => super::responses::send_bad_request(writer, message, &error),
+        }
+    }
+
+/// A refusal of `message` with `code` and no detail; its `id` when it has
+/// one.
+pub(super) fn refusal(message: &str, code: &str) -> Value {
+    let id = serde_json::from_str::<Value>(message).ok().and_then(|frame| frame.get("id").cloned());
+    let mut response = json!({"ok": false, "error": code, "error_code": code});
+    if let Some(id) = id {
+        response["id"] = id;
+    }
+    response
 }
 
 /// The remote `identify` reply: protocol version and the conversation
@@ -211,7 +251,7 @@ pub(super) fn redact_response(
     response: Response,
     reason: Option<String>,
 ) -> (Response, Option<String>) {
-    if response.ok || !mux.control_clients.is_remote(client) {
+    if response.ok || !mux.is_remote_client(client) {
         return (response, reason);
     }
     let code = remote_error_code(reason.as_deref(), response.error.as_deref());
