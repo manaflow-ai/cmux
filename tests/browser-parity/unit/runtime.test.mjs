@@ -720,6 +720,41 @@ test("snapshot: the page walk stops at its node budget with a note, and frames p
   }
 });
 
+test("snapshot: one huge text or value is cut at the snapshot's size budget with a note, per frame and in total", async () => {
+  // The node budget does not bound one node: a hostile page can put
+  // megabytes in one text node or field value, which would cross to the
+  // session, be kept as the diff baseline and be diffed. The walk stops at
+  // a size budget (characters), per frame and over all frames, and says so.
+  // `_maxSize` lowers it for the test.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        document.body.innerHTML = '<button>First</button><p id="big"></p><textarea aria-label="Field"></textarea><button>Last</button><iframe title="inner" srcdoc="<button>Inner</button>"></iframe>';
+        document.getElementById("big").textContent = "A".repeat(5000000);
+        document.querySelector("textarea").value = "V".repeat(5000000);
+      });
+      await page.waitForFunction(() => { const d = document.querySelector("iframe").contentDocument; return !!(d && d.querySelector("button")); });
+      const whole = await snapshot({ maxChars: Infinity });
+      const small = await snapshot({ maxChars: Infinity, _maxSize: 3000 });
+      const keep = (s) => s.tree.split("\\n").filter((l) => /button|iframe|^#/.test(l));
+      console.log("@@" + JSON.stringify({ wholeLength: whole.tree.length, whole: keep(whole), smallLength: small.tree.length, small: keep(small) }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const { wholeLength, whole, smallLength, small } = JSON.parse(line.slice(2));
+    assert.ok(wholeLength < 2200000, `a 10,000,000-character page printed a ${wholeLength}-character tree`);
+    assert.match(whole[whole.length - 1], /^# the page is too large to read whole: the snapshot stopped after [\d,]+ characters/, whole.join("\n"));
+    assert.ok(smallLength < 3600, `the tree is ${smallLength} characters`);
+    assert.ok(small.some((l) => /button "First"/.test(l)), small.join("\n"));
+    assert.ok(!small.some((l) => /button "Last"|button "Inner"/.test(l)), small.join("\n"));
+    assert.match(small[small.length - 1], /^# the page is too large to read whole: the snapshot stopped after 3,000 characters/, small.join("\n"));
+  } finally {
+    await server.close();
+  }
+});
+
 // Page text reaches the caller's terminal. Escape sequences and other C0,
 // C1 and DEL controls a page puts in its text, title, option labels, URLs or
 // error messages print as visible escapes (`\u001b`), never raw, whichever
