@@ -378,6 +378,8 @@ final class CloudBrowserAccessState {
     func retry() {
         attempt += 1
         trace("retry")
+        // An explicit retry is a new first connection with its own quiet retries.
+        resetDesktopRetries()
         navigationURL = nil
         preservingCommittedRoute = false
         hasCommittedNavigation = false
