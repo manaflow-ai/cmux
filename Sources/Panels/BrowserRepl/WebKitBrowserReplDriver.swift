@@ -1144,8 +1144,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 return nil
             }
         }
-        let workspace = try workspace()
-        BrowserReplTabAttachments.shared.panelDidClose(panel.id)
+        // The workspace that holds the tab closes it: a user's tab in another
+        // workspace is reachable too. What is kept for the tab (its
+        // attachment, the secrets sessions typed into it) is forgotten when
+        // the tab really closes (`BrowserPanel.close()`), never here: a
+        // close the workspace refuses leaves the tab open, and its typed
+        // values must stay masked for every other session.
+        let workspace = try allBrowserPanels().first { $0.panel.id == panel.id }?.workspace ?? workspace()
         _ = workspace.closePanel(panel.id, force: true)
         if activeTargetID == panel.id.uuidString { activeTargetID = nil }
         return nil
@@ -2686,8 +2691,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let opened = openedTargetIDs
         openedTargetIDs.removeAll()
         guard let workspace = try? workspace() else { return }
+        // The panel's own close forgets what is kept for it
+        // (`BrowserPanel.close()`), only once it really closes.
         for id in opened where workspace.panels[id] is BrowserPanel {
-            BrowserReplTabAttachments.shared.panelDidClose(id)
             _ = workspace.closePanel(id, force: true)
         }
     }
