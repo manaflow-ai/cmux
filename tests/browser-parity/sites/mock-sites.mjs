@@ -54,8 +54,9 @@ export function createState() {
   // between a draft and its confirmation; null keeps the defaults.
   // slackChannels: the user's channels; googleAccounts: ListAccounts rows;
   // gmailThreadExtra: messages added to every thread; linkedinViewer: the
-  // signed-in member's public identifier.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null };
+  // signed-in member's public identifier; linkedinSwitchOnCompose: the
+  // member another session signs in as when the share composer loads.
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -534,7 +535,7 @@ function linkedin(req, url, body, state) {
   const signed = cookieOf(req, "li_at") === "li-at-secret";
   if (url.pathname.startsWith("/voyager/api/")) {
     if (!signed || req.headers["csrf-token"] !== SECRETS.linkedinJsession) return { status: 403, json: { status: 403 } };
-    if (url.pathname === "/voyager/api/me") return { json: { data: { plainId: 424242, "*miniProfile": "urn:li:fs_miniProfile:ACo1" }, included: [{ $type: "com.linkedin.voyager.identity.shared.MiniProfile", firstName: "Ada", lastName: "Lovelace", occupation: "Analyst", publicIdentifier: state.linkedinViewer || "ada-lovelace", entityUrn: "urn:li:fs_miniProfile:ACo1" }] } };
+    if (url.pathname === "/voyager/api/me") return { json: { data: { plainId: state.linkedinViewer ? 666001 : 424242, "*miniProfile": "urn:li:fs_miniProfile:ACo1" }, included: [{ $type: "com.linkedin.voyager.identity.shared.MiniProfile", firstName: "Ada", lastName: "Lovelace", occupation: "Analyst", publicIdentifier: state.linkedinViewer || "ada-lovelace", entityUrn: "urn:li:fs_miniProfile:ACo1" }] } };
     if (url.pathname === "/voyager/api/identity/dash/profiles") {
       const id = url.searchParams.get("memberIdentity");
       return { json: { data: {}, included: [{ $type: "com.linkedin.voyager.dash.identity.profile.Profile", publicIdentifier: id, firstName: "Grace", lastName: "Hopper", headline: "Rear Admiral", geoLocation: { geo: { defaultLocalizedName: "Arlington, Virginia" } } }] } };
@@ -552,7 +553,9 @@ function linkedin(req, url, body, state) {
     return { html: html(`<main><ul>${card("grace-hopper", "Grace Hopper", "Rear Admiral")}${card("alan-t", "Alan Turing", "Mathematician")}</ul></main>`, "Search | LinkedIn") };
   }
   if (url.pathname === "/feed/") {
-    if (url.searchParams.get("shareActive") === "true")
+    if (url.searchParams.get("shareActive") === "true") {
+      // Another session signs in as someone else while the composer loads.
+      if (state.linkedinSwitchOnCompose) (state.linkedinViewer = state.linkedinSwitchOnCompose), (state.linkedinSwitchOnCompose = null);
       return {
         html: html(`<div role="dialog"><div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
         <script>
@@ -560,6 +563,7 @@ function linkedin(req, url, body, state) {
           document.querySelector("button").addEventListener("click", async () => { await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[role="textbox"]').innerText }) }); document.querySelector('[role="dialog"]').remove(); });
         </script>`, "Feed | LinkedIn"),
       };
+    }
     // The 2026 feed: posts are list items with a componentkey and an
     // expandable text box; no activity URNs in the markup.
     const post = (key, slug, name, text) => `<div role="listitem" componentkey="${key}"><div componentkey="${key}-actor"><a href="/in/${slug}/">${name}</a><span>2h</span></div><div data-testid="expandable-text-box">${text}</div><button data-testid="expandable-text-button">more</button><a href="/feed/">Like</a></div>`;
