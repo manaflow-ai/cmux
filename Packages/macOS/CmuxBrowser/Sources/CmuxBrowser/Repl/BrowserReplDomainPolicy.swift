@@ -455,6 +455,9 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
                 host = "[^/@:]+"
             } else if pattern.host.hasPrefix("*.") {
                 host = "([^/@:]*\\.)?" + escape(String(pattern.host.dropFirst(2))) + "\\.?"
+            } else if pattern.host.split(separator: ".").count == 2 {
+                // A root domain also covers www (`hostMatches`).
+                host = "(www\\.)?" + escape(pattern.host) + "\\.?"
             } else {
                 host = escape(pattern.host) + "\\.?"
             }
