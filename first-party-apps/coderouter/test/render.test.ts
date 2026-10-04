@@ -169,6 +169,28 @@ describe("states", () => {
     expect(h.calls.find((c) => c.name === "action.run")!.params).toEqual({ id: "palette.auth.signIn", args: {} })
   })
 
+  test("signed out: the dashboard works locally and asks for sign-in only at team features", async () => {
+    for (const variant of ["sections", "tabs"]) {
+      const h = host("signedout", { variant })
+      h.mount("d", "renderDashboard")
+      await h.settle(10)
+      const all = texts(h, "d")
+      // Local features: the sign-ins found on this Mac.
+      expect(missing(all, ["ChatGPT / Codex", "This Mac"])).toEqual([])
+      // No full-page sign-in wall.
+      expect(all).not.toContain("CodeRouter acts as your cmux account and team.")
+      // Team features ask inline.
+      expect(all).toContain("Sign in to cmux to share accounts with your team")
+    }
+  })
+
+  test("signed out: the status item shows no sign-in state", async () => {
+    const h = host("signedout")
+    h.mount("st", "renderStatus")
+    await h.settle(10)
+    expect(texts(h, "st")).not.toContain("Signed out")
+  })
+
   test("empty personal scope: share step not needed, accounts empty state", async () => {
     const h = host("empty", { variant: "tabs" })
     h.mount("d", "renderDashboard")
