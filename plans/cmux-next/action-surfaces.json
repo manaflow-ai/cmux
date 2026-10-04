@@ -9348,63 +9348,6 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "liveInput",
-      "cli_name" : "action omnibar-open-in-background-tab",
-      "context_menu" : "liveInput",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "\r",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
-      "id" : "omnibar.openInBackgroundTab",
-      "mcp" : "liveInput",
-      "palette" : "liveInput",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Address in New Background Tab",
-      "title_key" : "action.omnibar.openInBackgroundTab",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "liveInput",
-      "cli_name" : "action omnibar-open-in-foreground-tab",
-      "context_menu" : "liveInput",
-      "context_menus" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "\r",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
-      "id" : "omnibar.openInForegroundTab",
-      "mcp" : "liveInput",
-      "palette" : "liveInput",
-      "palette_section" : {
-        "id" : "category.browser",
-        "order" : 106,
-        "title" : "Browser and Viewers",
-        "title_key" : "category.browser",
-        "title_table" : "Localizable"
-      },
-      "title" : "Open Address in New Tab",
-      "title_key" : "action.omnibar.openInForegroundTab",
-      "title_table" : "ActionCatalog"
-    },
-    {
       "cli" : "stepAdjust",
       "cli_name" : "browser zoom-in",
       "context_menu" : "stepAdjust",
@@ -9726,13 +9669,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "g",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "toggleReactGrab",
       "mcp" : "guiOnly",
       "palette" : "offered",
@@ -10723,6 +10660,149 @@
       "title" : "More Browser Actions…",
       "title_key" : "action.browser.overflow.menu",
       "title_table" : "BrowserToolbarActions"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action omnibar-open-in-background-tab",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "\r",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "omnibar.openInBackgroundTab",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Address in New Background Tab",
+      "title_key" : "action.omnibar.openInBackgroundTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "action omnibar-open-in-foreground-tab",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "\r",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "omnibar.openInForegroundTab",
+      "mcp" : "liveInput",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Address in New Tab",
+      "title_key" : "action.omnibar.openInForegroundTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser stop-loading",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : ".",
+        "modifiers" : [
+          "cmd"
+        ]
+      },
+      "id" : "browserStop",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Stop Loading",
+      "title_key" : "action.browserStop",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "clipboard",
+      "cli_name" : "action browser-copy-u-r-l",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserPage"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "c",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "browser.copyURL",
+      "mcp" : "clipboard",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Copy Page URL",
+      "title_key" : "action.browser.copyURL",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "familyMember",
+      "cli_name" : "action browser-find-previous",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "browser.findPrevious",
+      "mcp" : "familyMember",
+      "palette" : "familyMember",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "title" : "Find Previous in Page",
+      "title_key" : "action.browser.findPrevious",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "guiOnly",
