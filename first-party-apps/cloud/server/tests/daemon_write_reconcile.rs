@@ -151,3 +151,100 @@ fn a_stat_that_also_fails_is_indeterminate() {
     assert_eq!(err.code, "cmux.cloud.indeterminate", "{err:?}");
     assert!(!err.retryable, "the file may have changed: no blind retry");
 }
+
+/// An overwrite has no precondition: a file of the same size may be the old
+/// one (the daemon may never have read the line), so it is never "landed".
+#[cfg(unix)]
+#[test]
+fn an_overwrite_with_a_size_match_is_not_reported_as_landed() {
+    let target = eof_on_write("overwrite-same-size", &stat_answer("s2-m1", 2));
+    let err = write(
+        &target,
+        json!({ "path": "/home/cmux/a.txt", "bytes_base64": "aGk=", "mode": "overwrite" }),
+        2,
+    )
+    .unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.link_down", "{err:?}");
+    assert!(err.retryable, "an overwrite may run again");
+    assert!(err.message.contains("may have landed"), "{}", err.message);
+}
+
+/// A create whose path holds a file of the written size cannot tell its own
+/// file from one that was there before (the daemon may have refused with
+/// fs.exists into the lost answer).
+#[cfg(unix)]
+#[test]
+fn a_create_with_a_size_match_is_indeterminate() {
+    let target = eof_on_write("create-same-size", &stat_answer("s2-m1", 2));
+    let err = write(
+        &target,
+        json!({ "path": "/home/cmux/a.txt", "bytes_base64": "aGk=", "mode": "create" }),
+        2,
+    )
+    .unwrap_err();
+    assert_eq!(err.code, "cmux.cloud.indeterminate", "{err:?}");
+    assert_eq!(err.details, Some(json!({ "current": "s2-m1" })));
+}
+
+/// A partial answer line (bytes, then EOF) is a lost answer too.
+#[cfg(unix)]
+#[test]
+fn a_partial_answer_line_is_a_lost_answer() {
+    let dir = std::env::temp_dir().join(format!("cx-write-eof-partial-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let wrapper = dir.join("dial.sh");
+    std::fs::write(
+        &wrapper,
+        "#!/bin/sh\nprintf '%s\\n' '{\"ok\":true,\"path_state\":\"direct\"}' >&2\nIFS= read -r line\nprintf '%s' '{\"id\":1,\"ok\":tr'\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let target = DialTarget {
+        binary: wrapper,
+        host: "host-vm-alpha01".into(),
+        socket: dir.join("link.sock"),
+        env: vec![("PATH".into(), "/usr/bin:/bin".into())],
+    };
+    let err = LinkDaemonFiles
+        .call(&target, "fs.stat", json!({ "path": "/a" }), &Cancel::default())
+        .unwrap_err();
+    assert_eq!(err.code, ANSWER_LOST, "{err:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A lost answer of a changing op (mkdir, rename, delete) may hide an op that
+/// acted: no blind retry.
+#[cfg(unix)]
+#[test]
+fn a_lost_answer_of_a_changing_op_is_not_retryable() {
+    let target = eof_on_write("mkdir-eof", "");
+    for op in ["fs.mkdir", "fs.rename", "fs.delete"] {
+        let err = LinkDaemonFiles
+            .call(&target, op, json!({ "path": "/a" }), &Cancel::default())
+            .unwrap_err();
+        assert_eq!(err.code, ANSWER_LOST, "{op}: {err:?}");
+        assert!(!err.retryable, "{op}");
+    }
+}
+
+/// A cancel that ends the dial after the line went out still reconciles: the
+/// file may be on the machine.
+#[cfg(unix)]
+#[test]
+fn a_cancelled_write_that_lost_its_answer_still_reconciles() {
+    let target = eof_on_write("cancel-landed", &stat_answer("s2-m5", 2));
+    let cancel = Cancel::default();
+    cancel.cancel();
+    let data = write_reconciled(
+        &LinkDaemonFiles,
+        &target,
+        json!({ "path": "/home/cmux/a.txt", "bytes_base64": "aGk=", "mode": "replace",
+            "expected": "s12-m1" }),
+        2,
+        &cancel,
+    );
+    // A cancel before the call sends nothing: it is an error, never "landed"
+    // from a stat of a file this call did not write.
+    assert!(data.is_err(), "{data:?}");
+}
