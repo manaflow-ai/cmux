@@ -156,9 +156,9 @@ describe("Cloud detail on ports and the browser route (C5)", () => {
     expect(store.getSnapshot().detail!.ports).toEqual([]);
   });
 
-  test("open in browser shows the URL and asks the host for a proxied tab", async () => {
+  test("open in browser shows the URL and asks the host for a CEF tab with the machine store", async () => {
     const { provider, store } = await selected();
-    await store.detail.openBrowser(running().id, 3000);
+    await store.detail.openBrowser(running().id, 3000, "api-dev");
     const route = store.getSnapshot().detail!.browser!;
     expect(route.url).toBe("http://localhost:3000/");
     expect(ops(provider, CloudOps.browserOpen)[0].params).toEqual({
@@ -166,17 +166,39 @@ describe("Cloud detail on ports and the browser route (C5)", () => {
       port: 3000,
       idempotency_key: "k1",
     });
+    // The browser lead's host action: the proxy rides the tab configuration's machine store, and only
+    // the CEF engine may load it (WebKit ignores the store and would load this Mac's localhost).
+    expect(HostActions.browserTabOpen).toBe("browser.tab.open");
     expect(runs(provider).at(-1)).toEqual({
-      action: HostActions.browserTabOpen,
-      args: { url: route.url, proxy: route.proxy },
+      action: "browser.tab.open",
+      args: {
+        url: route.url,
+        machineStore: { machine: running().id, machineName: "api-dev", proxy: route.proxy },
+        engine: "cef",
+      },
     });
+  });
+
+  test("a typed refusal of the proxied tab shows the message and never retries", async () => {
+    const provider = new MockCloudProvider({ unsupported: [] });
+    provider.tabError = "cmux.browser.proxy_refused";
+    const { store } = await selected(provider);
+    await store.detail.openBrowser(running().id, 3000, "api-dev");
+    const tabRuns = runs(provider).filter((run) => run.action === HostActions.browserTabOpen);
+    expect(tabRuns.length).toBe(1);
+    expect(runs(provider).length).toBe(1);
+    expect(store.getSnapshot().detail!.browserRefused).toBe(true);
+    expect(store.getSnapshot().detail!.browser?.url).toBe("http://localhost:3000/");
+    // A refusal is not an op failure: no error banner, and the URL is never opened without the proxy.
+    expect(store.getSnapshot().error).toBeUndefined();
   });
 
   test("a host that cannot open a proxied tab yet: the URL stays, no error", async () => {
     const { store } = await selected(new MockCloudProvider());
-    await store.detail.openBrowser(running().id, 3000);
+    await store.detail.openBrowser(running().id, 3000, "api-dev");
     expect(store.getSnapshot().detail!.browser?.url).toBe("http://localhost:3000/");
     expect(store.getSnapshot().unavailable).toContain(HostActions.browserTabOpen);
+    expect(store.getSnapshot().detail!.browserRefused).toBeUndefined();
     expect(store.getSnapshot().error).toBeUndefined();
   });
 });
