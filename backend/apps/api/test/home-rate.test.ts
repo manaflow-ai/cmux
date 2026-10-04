@@ -136,4 +136,19 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     // The owner's own budget is separate from the chiefs' total.
     expect((await stub.homeRateTake(gus.user, gus.user, "conversation.create")).ok).toBe(true)
   })
+
+  it("a retry of an already-decided key after the budget is spent gets its stored result, not home.rate_limited", async () => {
+    const hal = await signIn("rate-replay-hal", "Hal")
+    const key = crypto.randomUUID()
+    const create = () => conversationMutate(testEnv as never, sessionPrincipal(hal), { t: "op", op: "conversation.create", params: { title: "once", participants: [human(hal, "Hal")] }, idempotency_key: key })
+    const first = (await create()).frames.find((f) => f.t === "result") as { value: { conversation: { id: string } } } | undefined
+    expect(first).toBeDefined()
+    await spend(hal, hal.user, "conversation.create", 60)
+    const again = await create()
+    expect(rejectOf(again)).toBeUndefined()
+    expect(again.frames.find((f) => f.t === "result")).toMatchObject({ replayed: true, value: { conversation: { id: first!.value.conversation.id } } })
+    // A new key is still refused.
+    const fresh = await conversationMutate(testEnv as never, sessionPrincipal(hal), { t: "op", op: "conversation.create", params: { title: "new", participants: [human(hal, "Hal")] }, idempotency_key: crypto.randomUUID() })
+    expect(rejectOf(fresh)).toMatchObject({ code: "home.rate_limited" })
+  })
 })
