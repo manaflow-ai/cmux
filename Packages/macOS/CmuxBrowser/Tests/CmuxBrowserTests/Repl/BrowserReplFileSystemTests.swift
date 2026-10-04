@@ -427,6 +427,29 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(error.code == "ERR_FS_FILE_TOO_LARGE")
         #expect(error.message.contains("64 MiB"), "\(error.message)")
     }
+
+    @Test("copyFile refuses a source larger than one call's write limit before creating the destination")
+    func largeCopyIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        // A sparse file: its size, not its blocks, is past the limit.
+        let path = scratch.root + "/large.bin"
+        let descriptor = open(path, O_WRONLY | O_CREAT, 0o600)
+        #expect(descriptor >= 0)
+        #expect(ftruncate(descriptor, off_t((256 << 20) + 1)) == 0)
+        close(descriptor)
+        let fs = BrowserReplFileSystem(sandbox: BrowserReplFileSandbox(root: scratch.root), temporaryDirectory: scratch.base + "/tmp")
+
+        let result = fs.perform("copyFile", arguments: ["from": "large.bin", "to": "copy.bin"])
+
+        guard case .failure(let error) = result else {
+            Issue.record("a 256 MiB + 1 byte file was copied whole")
+            return
+        }
+        #expect(error.code == "EFBIG")
+        #expect(error.message.contains("256 MiB"), "\(error.message)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root) == ["large.bin"])
+    }
 }
 
 private extension Result where Success == Any, Failure == BrowserReplFileSystemError {
