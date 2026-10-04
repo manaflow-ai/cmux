@@ -12,41 +12,15 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorRenameTests {
-    @Test func everyMultiPaneSurfaceRenamesItsOwningTmuxWindow() throws {
+    @Test func everyMultiPaneSurfaceRenamesOnlyItsTmuxPane() throws {
         let harness = try RemoteTmuxMirrorRenameHarness()
         defer { harness.tearDown() }
 
         let initialSurfaces = try harness.surfaces()
         #expect(initialSurfaces.map(\.title) == ["main", "main [1]"])
         let focusedSurface = try #require(initialSurfaces.first(where: { $0.isFocused }))
-        let containerIDs = try initialSurfaces.map {
-            try #require(harness.workspace.remoteTmuxControlPane(surfaceID: $0.surfaceID)?.containerPanelID)
-        }
-        let containerID = try #require(containerIDs.first)
-        #expect(containerIDs.allSatisfy { $0 == containerID })
-
-        for action in ["clear_name", "mark_unread"] {
-            let unrelatedAction = TerminalController.shared.controlTabAction(
-                routing: ControlRoutingSelectors(
-                    hasWindowIDParam: false,
-                    windowID: nil,
-                    groupID: nil,
-                    workspaceID: harness.workspace.id,
-                    surfaceID: focusedSurface.surfaceID,
-                    paneID: nil
-                ),
-                actionKey: action,
-                title: nil,
-                rawURL: nil,
-                surfaceID: focusedSurface.surfaceID,
-                requestedFocus: false,
-                moveParams: [:]
-            )
-            #expect(unrelatedAction == .tabNotFound(surfaceID: focusedSurface.surfaceID))
-        }
-
         for (index, surface) in initialSurfaces.enumerated() {
-            let title = "dogfood-multi-renamed-\(index)"
+            let title = "multi-pane-renamed-\(index)"
             let routing = ControlRoutingSelectors(
                 hasWindowIDParam: false,
                 windowID: nil,
@@ -73,15 +47,10 @@ struct RemoteTmuxMirrorRenameTests {
             #expect(outcome.surfaceID == surface.surfaceID)
             #expect(outcome.paneID == surface.paneID)
             #expect(outcome.extras == .title(title))
-            #expect(harness.workspace.panelCustomTitles[containerID] == title)
-
-            harness.connection.handleMessageForTesting(
-                .windowRenamed(windowId: 2, name: title)
-            )
-            #expect(try harness.surfaces().map(\.title) == [title, "\(title) [1]"])
+            #expect(harness.workspace.panelCustomTitles[surface.surfaceID] == title)
         }
 
-        let focusedTitle = "dogfood-multi-renamed-focused"
+        let focusedTitle = "multi-pane-renamed-focused"
         let focusedResolution = TerminalController.shared.controlTabAction(
             routing: ControlRoutingSelectors(
                 hasWindowIDParam: false,
@@ -104,19 +73,51 @@ struct RemoteTmuxMirrorRenameTests {
         }
         #expect(focusedOutcome.surfaceID == focusedSurface.surfaceID)
         #expect(focusedOutcome.paneID == focusedSurface.paneID)
-        #expect(harness.workspace.panelCustomTitles[containerID] == focusedTitle)
+        #expect(harness.workspace.panelCustomTitles[focusedSurface.surfaceID] == focusedTitle)
 
-        let renameCommands = try harness.finishCommands().filter {
-            $0.hasPrefix("rename-window ")
-        }
-        #expect(renameCommands == [
-            "rename-window -t @2 'dogfood-multi-renamed-0'",
-            "rename-window -t @2 'dogfood-multi-renamed-1'",
-            "rename-window -t @2 'dogfood-multi-renamed-focused'",
+        let commands = try harness.finishCommands()
+        #expect(commands.filter { $0.hasPrefix("rename-window ") }.isEmpty)
+        #expect(commands.filter { $0.hasPrefix("select-pane ") } == [
+            "select-pane -t @2.%4 -T 'multi-pane-renamed-0'",
+            "select-pane -t @2.%5 -T 'multi-pane-renamed-1'",
+            "select-pane -t @2.%4 -T 'multi-pane-renamed-focused'",
         ])
     }
 
-    @Test func routedRemotePaneRenamesItsWindowInsteadOfTheFocusedWindow() throws {
+    @Test func clearNameOnProjectedPaneClearsOnlyThatTmuxPane() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+
+        let surface = try #require(harness.surfaces().first)
+        let resolution = TerminalController.shared.controlTabAction(
+            routing: ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: harness.workspace.id,
+                surfaceID: surface.surfaceID,
+                paneID: nil
+            ),
+            actionKey: "clear_name",
+            title: nil,
+            rawURL: nil,
+            surfaceID: surface.surfaceID,
+            requestedFocus: false,
+            moveParams: [:]
+        )
+
+        guard case .completed = resolution else {
+            Issue.record("Expected a completed clear_name, got \(resolution)")
+            return
+        }
+        let commands = try harness.finishCommands()
+        #expect(commands.filter { $0.hasPrefix("rename-window ") }.isEmpty)
+        #expect(commands.filter { $0.hasPrefix("select-pane ") } == [
+            "select-pane -t @2.%4 -T ''",
+        ])
+    }
+
+    @Test func routedRemotePaneRenamesItsAddressedPaneInsteadOfTheFocusedWindow() throws {
         let harness = try RemoteTmuxMirrorRenameHarness(includeSecondWindow: true)
         defer { harness.tearDown() }
 
@@ -135,7 +136,7 @@ struct RemoteTmuxMirrorRenameTests {
         let resolution = TerminalController.shared.controlTabAction(
             routing: routing,
             actionKey: "rename",
-            title: "dogfood-pane-routed",
+            title: "pane-routed",
             rawURL: nil,
             surfaceID: nil,
             requestedFocus: false,
@@ -148,9 +149,10 @@ struct RemoteTmuxMirrorRenameTests {
         }
         #expect(outcome.surfaceID == logs.surfaceID)
         #expect(outcome.paneID == logsPaneID)
-        let renameCommands = try harness.finishCommands().filter {
-            $0.hasPrefix("rename-window ")
-        }
-        #expect(renameCommands == ["rename-window -t @3 'dogfood-pane-routed'"])
+        let commands = try harness.finishCommands()
+        #expect(commands.filter { $0.hasPrefix("rename-window ") }.isEmpty)
+        #expect(commands.filter { $0.hasPrefix("select-pane ") } == [
+            "select-pane -t @3.%6 -T 'pane-routed'",
+        ])
     }
 }
