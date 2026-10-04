@@ -31,37 +31,44 @@ public enum ProcessRunner {
         process.standardError = stderrFile.handle
 
         let box = ProcessBox(process)
-        let status: Int32 = try await withThrowingTaskGroup(of: Int32?.self) { group in
-            group.addTask {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Int32?, Never>) in
-                    box.process.terminationHandler = { process in
-                        continuation.resume(returning: process.terminationStatus)
-                    }
-                    do {
-                        try box.process.run()
-                    } catch {
-                        box.process.terminationHandler = nil
-                        continuation.resume(returning: nil)
+        // A cancelled caller kills the child, so the waiter below ends now
+        // instead of at the child's own exit or the deadline.
+        let status: Int32 = try await withTaskCancellationHandler {
+            try await withThrowingTaskGroup(of: Int32?.self) { group in
+                group.addTask {
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Int32?, Never>) in
+                        box.process.terminationHandler = { process in
+                            continuation.resume(returning: process.terminationStatus)
+                        }
+                        do {
+                            try box.process.run()
+                            if Task.isCancelled { box.kill() }
+                        } catch {
+                            box.process.terminationHandler = nil
+                            continuation.resume(returning: nil)
+                        }
                     }
                 }
+                group.addTask {
+                    // wakeup-allow: one-shot deadline (child process timeout)
+                    try await clock.sleep(for: timeout)
+                    return Int32.min
+                }
+                defer { group.cancelAll() }
+                guard let first = try await group.next() else { return Int32.min }
+                guard let status = first else {
+                    throw DaemonError.launchFailed("could not start \(executable.path)")
+                }
+                if status == Int32.min {
+                    // Interactive shells ignore SIGTERM, so kill outright; the
+                    // waiter task resumes once the child is reaped.
+                    kill(box.process.processIdentifier, SIGKILL)
+                    throw DaemonError.timedOut("\(executable.lastPathComponent) \(arguments.joined(separator: " "))")
+                }
+                return status
             }
-            group.addTask {
-                // wakeup-allow: one-shot deadline (child process timeout)
-                try await clock.sleep(for: timeout)
-                return Int32.min
-            }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { return Int32.min }
-            guard let status = first else {
-                throw DaemonError.launchFailed("could not start \(executable.path)")
-            }
-            if status == Int32.min {
-                // Interactive shells ignore SIGTERM, so kill outright; the
-                // waiter task resumes once the child is reaped.
-                kill(box.process.processIdentifier, SIGKILL)
-                throw DaemonError.timedOut("\(executable.lastPathComponent) \(arguments.joined(separator: " "))")
-            }
-            return status
+        } onCancel: {
+            box.kill()
         }
         return ProcessResult(status: status, stdout: stdoutFile.contents(), stderr: stderrFile.contents())
     }
@@ -71,4 +78,11 @@ public enum ProcessRunner {
 private final class ProcessBox: @unchecked Sendable {
     let process: Process
     init(_ process: Process) { self.process = process }
+
+    /// SIGKILL to this child only; never before launch (pid 0 would be our group).
+    func kill() {
+        let pid = process.processIdentifier
+        guard pid > 0, process.isRunning else { return }
+        Darwin.kill(pid, SIGKILL)
+    }
 }

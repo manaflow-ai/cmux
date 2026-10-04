@@ -46,6 +46,7 @@ final class LocalServerSource: ServerSource {
     private let runCLI: RunCLI
     private let fix: Fix
     private let makeWatcher: MakeWatcher
+    private let localFixes: [HealthCheckID: HealthFix]
     private var sink: (@MainActor (ServerSourceEvent) -> Void)?
     private var watchers: [any ServerFileWatching] = []
     private var reading: Task<Void, Never>?
@@ -62,6 +63,7 @@ final class LocalServerSource: ServerSource {
         self.runCLI = runCLI
         self.fix = fix
         self.makeWatcher = makeWatcher
+        self.localFixes = localFixes
     }
 
     /// The App's source: the bundled CLI, the user-mode server's files, and
@@ -73,7 +75,8 @@ final class LocalServerSource: ServerSource {
             watchedFiles: watchedFiles(home: FileManager.default.homeDirectoryForCurrentUser),
             runCLI: { executable, arguments in await runProcess(executable, arguments) },
             fix: { await fixer.fix($0) },
-            makeWatcher: { file, onChange in ConfigFileWatcher(url: file, onChange: onChange) })
+            makeWatcher: { file, onChange in ConfigFileWatcher(url: file, onChange: onChange) },
+            localFixes: ServerHealthFixer.localFixes)
     }
 
     /// `Contents/Resources/bin/cmux`, or nil when this build does not carry it.
@@ -97,7 +100,7 @@ final class LocalServerSource: ServerSource {
     func start(_ sink: @escaping @MainActor (ServerSourceEvent) -> Void) {
         self.sink = sink
         watchers = watchedFiles.map { file in
-            makeWatcher(file) { Task { @MainActor [weak self] in self?.refresh() } }
+            makeWatcher(file) { [weak self] in Task { @MainActor in self?.refresh() } }
         }
         watchers.forEach { $0.start() }
         refresh()
@@ -140,10 +143,10 @@ final class LocalServerSource: ServerSource {
             readAgain = true
             return
         }
-        let binary = binary, hostName = hostName, runCLI = runCLI
+        let binary = binary, hostName = hostName, runCLI = runCLI, localFixes = localFixes
         // task-owner: LocalServerSource, one status read at a time; cancelled by stop().
         reading = Task { @MainActor [weak self] in
-            let event = await Self.read(binary: binary, hostName: hostName, runCLI: runCLI)
+            let event = await Self.read(binary: binary, hostName: hostName, runCLI: runCLI, localFixes: localFixes)
             guard let self, !Task.isCancelled else { return }
             reading = nil
             emit(event)
@@ -157,7 +160,10 @@ final class LocalServerSource: ServerSource {
     // MARK: - Reading
 
     /// One read: both CLI calls at once, then the pure mapping.
-    @concurrent nonisolated static func read(binary: URL?, hostName: String, runCLI: RunCLI) async -> ServerSourceEvent {
+    /// `localFixes` replaces the fix of an alert whose check this app fixes
+    /// itself (the button names what the click runs).
+    @concurrent nonisolated static func read(binary: URL?, hostName: String, runCLI: RunCLI,
+                                             localFixes: [HealthCheckID: HealthFix] = [:]) async -> ServerSourceEvent {
         guard let binary else {
             return .connection(.unavailable(RefusalStrings.text("refusal.server.cliMissing", "This build does not include the cmux command-line tool.")))
         }
@@ -171,7 +177,11 @@ final class LocalServerSource: ServerSource {
         // `host roles` exits 3 before the supervisor wrote its first status: no process roles yet.
         let rolesData = rolesResult?.status == 0 ? rolesResult?.stdout : nil
         do {
-            return .snapshot(try LocalServerStatus.snapshot(status: statusResult.stdout, roles: rolesData, hostName: hostName))
+            var snapshot = try LocalServerStatus.snapshot(status: statusResult.stdout, roles: rolesData, hostName: hostName)
+            for index in snapshot.alerts.indices {
+                if let fix = localFixes[snapshot.alerts[index].check] { snapshot.alerts[index].fix = fix }
+            }
+            return .snapshot(snapshot)
         } catch is LocalServerStatus.NotServerStatus {
             return .connection(.unavailable(notInBuild))
         } catch {

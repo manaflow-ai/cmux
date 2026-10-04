@@ -12,11 +12,34 @@ struct ServerHealthFixer {
     typealias Run = @MainActor (_ fix: ServerFix, _ revert: Bool) async throws(ServerHelperClient.Failure) -> Void
 
     let run: Run
+    /// Shared with Stop Serving, so a revert never overtakes an apply.
     var gate: ServerFixGate = .shared
 
     /// The App's fixer: the helper of this build.
-    static let helper = ServerHealthFixer { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in
+    static let helper = ServerHealthFixer(run: { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in
         try await ServerHelperClient.run(fix, revert: revert)
+    })
+
+    /// The Fix button for a check this app fixes itself: app text, never the
+    /// server's title (the click runs the allowlist, not the server's words).
+    static func localFix(for check: HealthCheckID) -> HealthFix? {
+        switch check {
+        case .sleepEnabled:
+            HealthFix(title: String(localized: "server.fix.sleep", defaultValue: "Keep Awake on Power",
+                                    table: "Server", bundle: .module), needsAdmin: true)
+        case .noAutoRestart:
+            HealthFix(title: String(localized: "server.fix.autoRestart", defaultValue: "Restart After Power Loss",
+                                    table: "Server", bundle: .module), needsAdmin: true)
+        default:
+            nil
+        }
+    }
+
+    /// `localFix` for every check with allowlisted fixes.
+    static var localFixes: [HealthCheckID: HealthFix] {
+        Dictionary(uniqueKeysWithValues: Set(ServerFix.allCases.map { HealthCheckID($0.check) }).compactMap { check in
+            localFix(for: check).map { (check, $0) }
+        })
     }
 
     /// `sleep.enabled`: no system or disk sleep on AC, wake for network;
@@ -26,12 +49,17 @@ struct ServerHealthFixer {
     }
 
     /// Runs the check's fixes; nil on success, else the refusal to show.
+    /// Holds the gate for the whole run and stops before the next fix once
+    /// the caller is cancelled (Stop Serving hides the panel first).
     func fix(_ check: HealthCheckID) async -> String? {
         let fixes = Self.fixes(for: check)
         guard !fixes.isEmpty else {
             return RefusalStrings.text("refusal.server.noFix", "This check has no automatic fix.")
         }
+        await gate.acquire()
+        defer { gate.release() }
         for fix in fixes {
+            guard !Task.isCancelled else { return nil }
             do throws(ServerHelperClient.Failure) {
                 try await run(fix, false)
             } catch {

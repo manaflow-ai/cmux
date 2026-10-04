@@ -21,12 +21,16 @@ public nonisolated enum LocalServerStatus {
         let processRoles = roles.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         let service = root["service"] as? [String: Any]
         let mode = string(root["mode"]).flatMap(ServerInstallMode.init(rawValue:)) ?? .user
+        let enabled = bool(root["enabled"]) ?? bool(service?["installed"]) ?? false
+        var roles = roleStatuses(processRoles?["roles"] ?? root["roles"], postgres: root["postgres"])
+        // A stopped server runs no role; a stale roles file must not say otherwise.
+        if !enabled { roles = roles.map { ServerRoleStatus($0.role, .off) } }
         return ServerSnapshot(
             hostName: string(root["host_name"]) ?? hostName,
             platform: string(root["platform"]).flatMap(ServerPlatform.init(rawValue:)) ?? .macOS,
-            enabled: bool(root["enabled"]) ?? bool(service?["installed"]) ?? false,
+            enabled: enabled,
             mode: mode,
-            roles: roleStatuses(processRoles?["roles"] ?? root["roles"], postgres: root["postgres"]),
+            roles: roles,
             terminals: int(root["terminals"]) ?? 0,
             appServers: objects(root["app_servers"] ?? root["apps"]).compactMap(appServer),
             databases: objects(root["databases"]).compactMap(database),
