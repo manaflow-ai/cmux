@@ -487,6 +487,19 @@ export class TeamDO extends OwnerDO<TeamState> {
     return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
   }
 
+  /**
+   * Home reach (home-messaging.md section 16.7, home-reach.ts): which of `targets` share this
+   * team with `adder`, with their directory names. Only owner, admin and member roles may add
+   * people. Never binds or creates storage for a team this object does not serve.
+   */
+  async homeCoMembers(entity: string, adder: string, targets: ReadonlyArray<string>): Promise<Array<{ user: string; display_name: string }>> {
+    const row = this.sqlStore.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
+    if (!row || row.entity !== entity) return []
+    const members = this.bind(entity).currentState.members
+    if (!["owner", "admin", "member"].includes(members[adder]?.role ?? "")) return []
+    return targets.flatMap((user) => (user !== adder && members[user] ? [{ user, display_name: members[user].display_name }] : []))
+  }
+
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
     return memberOf(state, this.rows, principal.user) !== undefined
   }

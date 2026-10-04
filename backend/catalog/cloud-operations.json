@@ -13676,6 +13676,7 @@
         "invalid_title",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -16260,6 +16261,7 @@
         "invite_limit",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -34270,6 +34272,7 @@
         "invalid_participant",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
