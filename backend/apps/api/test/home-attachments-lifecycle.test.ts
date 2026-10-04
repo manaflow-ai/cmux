@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import { runDurableObjectAlarm } from "cloudflare:test"
 import type { PresignInput } from "../src/r2-presign.ts"
-import { bytesOf, group, intent, post, runInDurableObject, sha, signIn, testEnv } from "./home-attachments-support.ts"
+import { attachmentPart, bytesOf, group, intent, op, post, runInDurableObject, sha, signIn, testEnv, upload } from "./home-attachments-support.ts"
 
 type Inst = { nextWakeAt(s: unknown, now: number): number | null }
 const VIDEO = { mime_type: "video/mp4", name: "slow.mp4", width: undefined, height: undefined }
@@ -79,5 +79,51 @@ describe("Home attachments: presigned slots outlive their URL by the upload grac
     await drainAlarms(stub)
     expect(await testEnv.HOME_ATTACHMENTS.head(key)).toBeNull()
     expect(await slotRows(stub)).toEqual([])
+  })
+})
+
+describe("Home attachments: a release during a sweep's R2 delete is not lost (B)", { timeout: 120_000 }, () => {
+  it("markDirty while the last batch awaits R2 queues another pass, which collects the released record", async () => {
+    const alice = await signIn("att-life-redo-alice")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    const orphan = bytesOf("collected in the first pass")
+    const kept = bytesOf("released during the first pass")
+    await upload(alice, g.id, orphan)
+    const keptHash = await upload(alice, g.id, kept)
+    const sent = await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [attachmentPart(keptHash, kept)] }, "m1")
+    expect(sent.json.ok).toBe(true)
+    const later = Date.now() + 25 * 3_600_000
+    const store = await import("../src/home-attachment-store.ts")
+    const left = await runInDurableObject(stub, async (i: any, state) => {
+      const bucket = i.env.HOME_ATTACHMENTS as R2Bucket
+      // During the first pass's R2 delete, the message's reference goes (as a retract does) and the owner marks the sweep dirty.
+      let released = false
+      const hooked = new Proxy(bucket, {
+        get(target, prop) {
+          if (prop === "delete")
+            return async (keys: string | Array<string>) => {
+              if (!released) {
+                released = true
+                state.storage.sql.exec("DELETE FROM own_rows WHERE tbl = 'attref' AND k >= ? AND k < ?", `${keptHash}:`, `${keptHash};`)
+                store.markDirty({ exec: (q: string, ...b: Array<unknown>) => state.storage.sql.exec(q, ...b).toArray() } as never, Date.now())
+              }
+              return target.delete(keys)
+            }
+          const v = Reflect.get(target, prop)
+          return typeof v === "function" ? v.bind(target) : v
+        }
+      })
+      i.env = { ...i.env, HOME_ATTACHMENTS: hooked }
+      expect(await i.collectAttachments(g.id, later)).toBe(1)
+      expect(released).toBe(true)
+      // The release during the pass leaves a pass due now, not lost until the next release.
+      const due = (i as Inst).nextWakeAt(null, later)
+      expect(due).not.toBeNull()
+      expect(due!).toBeLessThanOrEqual(later)
+      await i.collectAttachments(g.id, later)
+      return (state.storage.sql.exec("SELECT COUNT(*) AS n FROM home_attachment_objects").toArray()[0] as { n: number }).n
+    })
+    expect(left).toBe(0)
   })
 })
