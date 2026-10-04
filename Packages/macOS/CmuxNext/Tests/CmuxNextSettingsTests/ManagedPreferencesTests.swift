@@ -149,9 +149,13 @@ import Testing
 
         try FileManager.default.createDirectory(at: profile.deletingLastPathComponent(), withIntermediateDirectories: true)
         try PropertyListSerialization.data(fromPropertyList: [Self.speed: "off"], format: .xml, options: 0).write(to: profile, options: .atomic)
-        while settings.managedKeys.isEmpty {
+        // waitForLoad returns at once when the test is cancelled (time limit):
+        // stop then, or this loop spins on the main actor and starves every
+        // other main-actor test in the process.
+        while settings.managedKeys.isEmpty, !Task.isCancelled {
             await settings.waitForLoad(atLeast: settings.loadCount + 1)
         }
+        try #require(!settings.managedKeys.isEmpty, "the profile change never reloaded the settings")
         #expect(settings.snapshot.animationSpeed == .off)
     }
 

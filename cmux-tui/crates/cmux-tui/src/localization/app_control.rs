@@ -25,6 +25,9 @@ pub(crate) struct AppControlMessages {
     pub acp_open_usage: &'static str,
     pub browser_page_usage: &'static str,
     pub keybinding_usage: &'static str,
+    pub app_call_usage: &'static str,
+    pub app_call_bad_json: &'static str,
+    pub app_call_debug_only: &'static str,
 }
 
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
@@ -47,8 +50,11 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     invalid_response: "the cmux app sent an answer this cmux cannot read",
     acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
     browser_page_usage: "usage: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT",
+    app_call_usage: "usage: cmux [--app-socket PATH] app call METHOD [JSON_OBJECT] (debug builds only)",
+    app_call_bad_json: "app call: the params must be one JSON object, for example '{\"window\":\"win_1\"}'",
+    app_call_debug_only: "app call works only with a DEV or tagged debug build's socket; this app is {bundle}",
     keybinding_usage: "usage: cmux keybinding list [--query TEXT] [--command ID] [--source default|app|user] | resolve KEYS [--window ID] | context [--window ID]",
-    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history (list, search <text>)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
+    root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history (list, search <text>)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
 };
 
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
@@ -71,6 +77,9 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     invalid_response: "cmux アプリの応答を読み取れません",
     acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
     browser_page_usage: "使い方: cmux browser <tab_…|page> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト",
+    app_call_usage: "使い方: cmux [--app-socket パス] app call メソッド [JSON オブジェクト] (デバッグビルドのみ)",
+    app_call_bad_json: "app call: パラメータは 1 つの JSON オブジェクトにしてください (例: '{\"window\":\"win_1\"}')",
+    app_call_debug_only: "app call は DEV またはタグ付きデバッグビルドのソケットでのみ使えます。このアプリは {bundle} です",
     keybinding_usage: "使い方: cmux keybinding list [--query テキスト] [--command ID] [--source default|app|user] | resolve キー [--window ID] | context [--window ID]",
-    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索 (list、search <テキスト>)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
+    root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities、call (デバッグビルド) とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索 (list、search <テキスト>)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
 };

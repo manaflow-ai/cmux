@@ -41,6 +41,8 @@ public final class BrowserHostProvider {
     /// Consumers of lease changes (`observeLeases`), in registration order.
     @ObservationIgnored var leaseObservers: [(id: UInt64, consumer: (String, ProviderLease?) -> Void)] = []
     @ObservationIgnored var nextLeaseObserverID: UInt64 = 0
+    @ObservationIgnored var inputObservers: [(id: UInt64, consumer: (DriverJSON) -> Void)] = []
+    @ObservationIgnored var nextInputObserverID: UInt64 = 0
     /// The host's page agent bundle (`hello.ack`): source and fingerprint.
     @ObservationIgnored public var onAgentBundle: ((String, String) -> Void)?
     /// A tab the host knew left the app (`tab.gone` was sent).

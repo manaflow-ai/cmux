@@ -1201,6 +1201,16 @@
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
+    "tabs.barOrder" : {
+      "default" : "aboveToolbar",
+      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "enum" : [
+        "aboveToolbar",
+        "belowToolbar"
+      ],
+      "title" : "Tab Bar and Browser Toolbar",
+      "type" : "string"
+    },
     "tabs.barPosition" : {
       "default" : "top",
       "description" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",

@@ -137,6 +137,26 @@ import Testing
         #expect(main.contentView?.subviews.last === carrier(host))
     }
 
+    /// `sortSubviews` and a `subviews =` assignment add nothing, so no add
+    /// hook sees them: the root's layout pass puts the cursor back on top and
+    /// reports that it had to.
+    @Test func aReorderWithoutAnAddIsRepairedOnLayout() throws {
+        let main = makeMain()
+        defer { close(main) }
+        let host = WindowOverlayHost.host(for: main)
+        _ = host.agentCursorLayer
+        let content = try #require(main.contentView)
+        content.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 50, height: 50)))
+        #expect(host.repairAgentCursorOrder() == false, "nothing to repair")
+        content.subviews = content.subviews.reversed()
+        #expect(content.subviews.last !== carrier(host))
+        #expect(host.repairAgentCursorOrder() == true, "the reorder is caught")
+        #expect(content.subviews.last === carrier(host))
+        let handle = tooltip(host)
+        defer { handle.dismiss() }
+        #expect(host.repairAgentCursorOrder() == false, "attached: the panel order is the host's own")
+    }
+
     @Test func tearDownRemovesTheCursor() {
         let main = makeMain()
         let host = WindowOverlayHost.host(for: main)
