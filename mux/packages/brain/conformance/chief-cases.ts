@@ -1206,11 +1206,8 @@ function childCases(): CorpusCase[] {
         sessions: [session("s_w", "writer", "running")],
         events: [ev(1, "user_message", { promptId: "perm:s_w:p1" }), ev(2, "turn_started"), chunk(3, "allowed it")],
       },
-      ["persist", "typing", "list_conversations"],
-      (e) => {
-        c.check(!e.some((x) => x.kind === "prompt"), "the running prompt is not resent");
-        c.check(c.persisted(e).prompts["perm:s_w:p1"] !== undefined, "the running prompt is kept");
-      },
+      ["typing", "list_conversations"],
+      (e) => c.check(!e.some((x) => x.kind === "prompt"), "the running prompt is kept and not resent (no persist: nothing dropped)"),
     );
     c.step(mux(ev(4, "turn_end")), ["persist", "conversation_op", "typing"], (e) => {
       const op = c.get(e, "conversation_op");

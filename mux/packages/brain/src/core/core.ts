@@ -596,10 +596,17 @@ export class Core {
     // (or the session is gone): dropped, not resent. (The `sessions` reply path keeps its
     // rule: acpmux's event order there is not confirmed.)
     const waiting = new Set(sessions.filter((s) => s.status === "waiting").map((s) => s.sessionId));
+    // The prompt of the turn that runs now is kept (its reply still posts) and not resent.
+    const running = this.folder.running?.promptId;
+    let keptRunning: string | undefined;
     for (const promptId of Object.keys(this.state.prompts).sort(compare)) {
       if (!promptId.startsWith("perm:")) continue;
       const session = permissionSession(promptId);
       if (session !== undefined && waiting.has(session)) continue;
+      if (promptId === running) {
+        keptRunning = promptId;
+        continue;
+      }
       delete this.state.prompts[promptId];
       this.dirty = true;
       this.log(`dropping permission prompt ${promptId}: its session is not waiting`);
@@ -607,7 +614,7 @@ export class Core {
     // Prompts acpmux may have dropped with an old connection, in recorded order; it dedupes the rest by promptId.
     const order = (id: string) => this.state.prompts[id].order ?? 0;
     for (const promptId of Object.keys(this.state.prompts).sort((a, b) => order(a) - order(b) || compare(a, b)))
-      this.sendPrompt(promptId);
+      if (promptId !== keptRunning) this.sendPrompt(promptId);
     // Permissions that waited for a session list (a failed fetch, or the last connection's loss).
     // One whose session is no longer waiting was answered meanwhile: dropped.
     if (this.pendingPermissions.length > 0) this.sessions(sessions.filter((s) => s.status === "waiting"));
