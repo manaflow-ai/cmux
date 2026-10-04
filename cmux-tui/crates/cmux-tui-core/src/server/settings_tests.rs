@@ -95,8 +95,8 @@ fn error_code(response: &Value) -> &str {
 #[test]
 fn identify_advertises_settings_and_the_schema_hash() {
     let fixture = Fixture::new("{}", &[]);
-    let identity = handle_command(&fixture.mux, 0, Command::Identify, &tests::captured_writer().0)
-        .unwrap();
+    let identity =
+        handle_command(&fixture.mux, 0, Command::Identify, &tests::captured_writer().0).unwrap();
     assert!(identity["capabilities"].as_array().unwrap().iter().any(|c| c == "settings-v1"));
     assert_eq!(identity["settings_schema_hash"], cmux_config::Schema::embedded().schema_hash);
 }
@@ -127,13 +127,21 @@ fn every_read_answers_from_the_owner() {
 fn writes_return_a_mutation_result_and_emit_settings_changed() {
     let fixture = Fixture::new("{\n  // mine\n}\n", &[]);
     let events = fixture.mux.subscribe();
-    let set = fixture.call("settings.set", json!({"key": "ui.animationSpeed", "value": "off"}), Some("k1"));
+    let set = fixture.call(
+        "settings.set",
+        json!({"key": "ui.animationSpeed", "value": "off"}),
+        Some("k1"),
+    );
     assert_eq!(set["ok"], true, "{set}");
     assert_eq!(set["result"]["value"], json!({"keys": ["ui.animationSpeed"]}));
     assert_eq!(set["result"]["revision"], "1");
     assert_eq!(set["result"]["replayed"], false);
     assert_eq!(fixture.file()["ui"]["animationSpeed"], "off");
-    let replay = fixture.call("settings.set", json!({"key": "ui.animationSpeed", "value": "off"}), Some("k1"));
+    let replay = fixture.call(
+        "settings.set",
+        json!({"key": "ui.animationSpeed", "value": "off"}),
+        Some("k1"),
+    );
     assert_eq!(replay["result"]["replayed"], true);
     let reset = fixture.call("settings.reset", json!({"key": "ui.animationSpeed"}), Some("k2"));
     assert_eq!(reset["result"]["revision"], "2");
@@ -155,14 +163,26 @@ fn writes_return_a_mutation_result_and_emit_settings_changed() {
 #[test]
 fn refusals_carry_the_catalog_codes_and_the_owner_data() {
     let fixture = Fixture::new("{}", &[("appearance.density", json!("compact"))]);
-    let invalid = fixture.call("settings.set", json!({"key": "ui.animationSpeed", "value": "warp"}), Some("a"));
+    let invalid = fixture.call(
+        "settings.set",
+        json!({"key": "ui.animationSpeed", "value": "warp"}),
+        Some("a"),
+    );
     assert_eq!(error_code(&invalid), "settings.invalid");
     assert_eq!(invalid["error"]["details"]["kind"], "choice");
-    assert_eq!(invalid["error"]["details"]["accepted"]["choices"], json!(["fast", "normal", "off"]));
-    let managed = fixture.call("settings.set", json!({"key": "appearance.density", "value": "comfortable"}), Some("b"));
+    assert_eq!(
+        invalid["error"]["details"]["accepted"]["choices"],
+        json!(["fast", "normal", "off"])
+    );
+    let managed = fixture.call(
+        "settings.set",
+        json!({"key": "appearance.density", "value": "comfortable"}),
+        Some("b"),
+    );
     assert_eq!(error_code(&managed), "settings.managed");
     assert_eq!(managed["error"]["details"]["source"], "mdm");
-    let reset_managed = fixture.call("settings.reset", json!({"key": "appearance.density"}), Some("c"));
+    let reset_managed =
+        fixture.call("settings.reset", json!({"key": "appearance.density"}), Some("c"));
     assert_eq!(error_code(&reset_managed), "settings.managed");
     let agent = fixture.call(
         "settings.set",
@@ -171,13 +191,25 @@ fn refusals_carry_the_catalog_codes_and_the_owner_data() {
     );
     assert_eq!(error_code(&agent), "settings.agent_refused");
     assert_eq!(agent["error"]["details"]["reason"], "privacy");
-    let removed = fixture.call("settings.set", json!({"key": "appearance.tabBarBackground", "value": "darker"}), Some("e"));
+    let removed = fixture.call(
+        "settings.set",
+        json!({"key": "appearance.tabBarBackground", "value": "darker"}),
+        Some("e"),
+    );
     assert_eq!(error_code(&removed), "settings.removed");
-    let stale = fixture.call("settings.set", json!({"key": "ui.animationSpeed", "value": "off", "if_revision": "9"}), Some("f"));
+    let stale = fixture.call(
+        "settings.set",
+        json!({"key": "ui.animationSpeed", "value": "off", "if_revision": "9"}),
+        Some("f"),
+    );
     assert_eq!(error_code(&stale), "revision.conflict");
     assert_eq!(stale["error"]["details"], json!({"expected": "9", "actual": "0"}));
     fixture.call("settings.set", json!({"key": "ui.animationSpeed", "value": "off"}), Some("g"));
-    let reused = fixture.call("settings.set", json!({"key": "ui.animationSpeed", "value": "fast"}), Some("g"));
+    let reused = fixture.call(
+        "settings.set",
+        json!({"key": "ui.animationSpeed", "value": "fast"}),
+        Some("g"),
+    );
     assert_eq!(error_code(&reused), "idempotency.conflict");
     assert_eq!(reused["error"]["details"]["committed_operation"], "settings.set");
 }
@@ -210,12 +242,20 @@ fn only_the_hosting_app_publishes_domains_and_the_team_policy() {
     declare_host(&fixture, &app);
     let published = fixture.send(&app, &publish);
     assert_eq!(published["ok"], true, "{published}");
-    let theme = fixture.call("settings.set", json!({"key": "appearance.theme", "value": "Dracula"}), Some("x"));
+    let theme = fixture.call(
+        "settings.set",
+        json!({"key": "appearance.theme", "value": "Dracula"}),
+        Some("x"),
+    );
     assert_eq!(error_code(&theme), "settings.invalid");
     let enforced = fixture.send(&app, &team);
     assert_eq!(enforced["ok"], true, "{enforced}");
     assert_eq!(enforced["result"]["value"]["keys"], json!(["ui.animationSpeed"]));
-    let managed = fixture.call("settings.set", json!({"key": "ui.animationSpeed", "value": "fast"}), Some("y"));
+    let managed = fixture.call(
+        "settings.set",
+        json!({"key": "ui.animationSpeed", "value": "fast"}),
+        Some("y"),
+    );
     assert_eq!(managed["error"]["details"]["team"], "Acme");
 }
 
@@ -233,7 +273,9 @@ fn a_hand_edit_produces_one_settings_changed_event() {
     assert!(fixture.mux.reload_settings().is_none(), "a second hint changes nothing");
     assert_eq!(
         settings_events(&events),
-        vec![json!({"event":"settings-changed","revision":1,"keys":["ui.animationSpeed"],"origin":"file"})]
+        vec![
+            json!({"event":"settings-changed","revision":1,"keys":["ui.animationSpeed"],"origin":"file"})
+        ]
     );
     // A comment-only edit publishes nothing.
     std::fs::write(&temporary, "// note\n{\"ui\": {\"animationSpeed\": \"normal\"}}").unwrap();

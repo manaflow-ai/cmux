@@ -766,14 +766,34 @@ fn settings_cases() -> Vec<(Vec<&'static str>, &'static str)> {
         (vec!["settings", "snapshot"], "settings.snapshot"),
         (vec!["settings", "schema"], "settings.schema"),
         (
-            vec!["settings", "set", "ui.animationSpeed", "off", "--if-revision", "3", "--origin", "user"],
+            vec![
+                "settings",
+                "set",
+                "ui.animationSpeed",
+                "off",
+                "--if-revision",
+                "3",
+                "--origin",
+                "user",
+            ],
             "settings.set",
         ),
         (
-            vec!["settings", "reset", "ui.animationSpeed", "--if-revision", "3", "--origin", "user"],
+            vec![
+                "settings",
+                "reset",
+                "ui.animationSpeed",
+                "--if-revision",
+                "3",
+                "--origin",
+                "user",
+            ],
             "settings.reset",
         ),
-        (vec!["settings", "reset-all", "--if-revision", "3", "--origin", "user"], "settings.reset_all"),
+        (
+            vec!["settings", "reset-all", "--if-revision", "3", "--origin", "user"],
+            "settings.reset_all",
+        ),
     ]
 }
 

@@ -150,8 +150,10 @@ fn send(global: &GlobalArgs, plan: &RequestPlan) -> Result<Answer, String> {
     let request = super::wire::request_value(plan).map_err(|error| error.to_string())?;
     let (socket, derived) = super::wire::resolve_socket_with_origin(global)
         .map_err(|_| crate::localization::catalog().startup.invalid_session_name.to_owned())?;
-    let stream = cmux_tui_core::server::connect_session_socket(&socket, derived)
-        .map_err(|error| format!("cannot connect to session socket {}: {error}", socket.display()))?;
+    let stream =
+        cmux_tui_core::server::connect_session_socket(&socket, derived).map_err(|error| {
+            format!("cannot connect to session socket {}: {error}", socket.display())
+        })?;
     let _ = stream.set_read_timeout(Some(super::wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     let identify = json!({"id": super::wire::random_request_id().map_err(|e| e.to_string())?, "cmd": "identify"});
@@ -274,7 +276,9 @@ pub(super) fn refusal_text(error: &Value) -> String {
     let hint = if let Some(choices) = accepted["choices"].as_array() {
         let choices = choices.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", ");
         match accepted["range"].as_object() {
-            Some(range) => format!(" (accepted: {choices}, or {} to {})", range["min"], range["max"]),
+            Some(range) => {
+                format!(" (accepted: {choices}, or {} to {})", range["min"], range["max"])
+            }
             None => format!(" (accepted: {choices})"),
         }
     } else if let Some(range) = accepted["range"].as_object() {

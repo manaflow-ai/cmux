@@ -58,8 +58,11 @@ impl Mux {
     fn default_settings_paths(self: &Arc<Self>) -> SettingsPaths {
         if cfg!(test) {
             // Unit tests never touch the user's settings file.
-            let directory = std::env::temp_dir()
-                .join(format!("cmux-settings-test-{}-{}", std::process::id(), self.session));
+            let directory = std::env::temp_dir().join(format!(
+                "cmux-settings-test-{}-{}",
+                std::process::id(),
+                self.session
+            ));
             return SettingsPaths {
                 config: directory.join("cmux.json"),
                 state_dir: Some(directory),
@@ -111,7 +114,8 @@ fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
 
 fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
     let watch = paths.watch;
-    let store = Arc::new(Mutex::new(ConfigStore::open(paths.config, paths.state_dir, paths.reader)));
+    let store =
+        Arc::new(Mutex::new(ConfigStore::open(paths.config, paths.state_dir, paths.reader)));
     let watcher = watch.then(|| start_watcher(Arc::downgrade(mux), &store)).flatten();
     SettingsOwner { store, _watcher: watcher }
 }

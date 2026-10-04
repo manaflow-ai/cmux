@@ -91,9 +91,10 @@ fn target(fields: &Map<String, Value>) -> Result<Target, ResourceError> {
     if let Some(key) = fields.get("key").and_then(Value::as_str) {
         return Ok(Target::Key(key.to_owned()));
     }
-    let path = fields.get("path").and_then(Value::as_array).ok_or_else(|| {
-        validation_error("settings need key or path", json!({"field":"key"}))
-    })?;
+    let path = fields
+        .get("path")
+        .and_then(Value::as_array)
+        .ok_or_else(|| validation_error("settings need key or path", json!({"field":"key"})))?;
     let path = path
         .iter()
         .map(|part| part.as_str().map(str::to_owned))
@@ -107,7 +108,12 @@ fn meta(fields: &Map<String, Value>, key: Option<String>) -> Result<WriteMeta, R
         .get("if_revision")
         .map(|value| {
             serde_json::from_value::<WireDecimal>(value.clone()).map(WireDecimal::get).map_err(
-                |_| validation_error("if_revision is a decimal string", json!({"field":"if_revision"})),
+                |_| {
+                    validation_error(
+                        "if_revision is a decimal string",
+                        json!({"field":"if_revision"}),
+                    )
+                },
             )
         })
         .transpose()?;
@@ -143,9 +149,9 @@ fn write_op(
             font_families: strings(fields, "font_families"),
             sounds: strings(fields, "sounds"),
         },
-        ResourceOperation::SettingsTeamPolicySet => Op::TeamPolicySet {
-            layer: team_layer(fields.get("layer").unwrap_or(&Value::Null))?,
-        },
+        ResourceOperation::SettingsTeamPolicySet => {
+            Op::TeamPolicySet { layer: team_layer(fields.get("layer").unwrap_or(&Value::Null))? }
+        }
         other => unreachable!("{} is not a settings write", other.wire_name()),
     })
 }

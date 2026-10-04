@@ -45,7 +45,12 @@ fn set_takes_json_first_then_a_bare_string() {
     assert_eq!(number.params["key"], "layout.panePadding");
     let text = plan(&["settings", "set", "window.titlebar", "minimal"]);
     assert_eq!(text.params["value"], json!("minimal"));
-    let object = plan(&["settings", "set", "notifications.quietHours", r#"{"start":"22:00","end":"07:00"}"#]);
+    let object = plan(&[
+        "settings",
+        "set",
+        "notifications.quietHours",
+        r#"{"start":"22:00","end":"07:00"}"#,
+    ]);
     assert_eq!(object.params["value"]["start"], "22:00");
     assert_eq!(parse_value("true"), json!(true));
     assert_eq!(parse_value("\"quoted\""), json!("quoted"));
@@ -114,7 +119,9 @@ fn refusals_exit_two_with_the_accepted_values() {
     assert!(is_refusal(&invalid));
     let range = json!({"code": "settings.invalid", "message": "m", "details": {"accepted": {"range": {"min": 0, "max": 16}}}});
     assert_eq!(refusal_text(&range), "cmux: m (accepted: 0 to 16)\n");
-    for code in ["settings.managed", "settings.agent_refused", "revision.conflict", "validation.invalid"] {
+    for code in
+        ["settings.managed", "settings.agent_refused", "revision.conflict", "validation.invalid"]
+    {
         assert!(is_refusal(&json!({"code": code})), "{code}");
     }
     assert!(!is_refusal(&json!({"code": "operation.failed"})));

@@ -12,8 +12,8 @@ mod owner;
 mod session;
 mod topology;
 
-pub(crate) use owner::requires_connection_context;
 use effects::indeterminate_error;
+pub(crate) use owner::requires_connection_context;
 use owner::{OperationOwner, operation_owner};
 
 use std::collections::{HashMap, HashSet};

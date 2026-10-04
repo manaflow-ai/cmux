@@ -625,10 +625,10 @@ impl ResourceOperation {
     }
 }
 
+mod error_contract;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
-mod error_contract;
 mod scope;
 mod wire_decimal;
 mod wire_name;

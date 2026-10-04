@@ -120,7 +120,9 @@ fn settings_answer(
     };
     let target = cmux_config::Target::Key(params["key"].as_str().unwrap_or_default().to_owned());
     let op = match request["operation"].as_str() {
-        Some("settings.set") => cmux_config::Op::Set { target, value: params["value"].clone(), meta },
+        Some("settings.set") => {
+            cmux_config::Op::Set { target, value: params["value"].clone(), meta }
+        }
         Some("settings.reset") => cmux_config::Op::Reset { target, meta },
         other => panic!("the fake owner does not answer {other:?}"),
     };
@@ -129,7 +131,9 @@ fn settings_answer(
         Ok(applied) => {
             let keys = applied.outcome.keys.clone();
             *settings.borrow_mut() = applied.state;
-            Ok(json!({"value": {"keys": keys}, "revision": "1", "generation": "g", "replayed": false}))
+            Ok(
+                json!({"value": {"keys": keys}, "revision": "1", "generation": "g", "replayed": false}),
+            )
         }
         Err(refusal) => {
             let code = match refusal.code() {
@@ -711,7 +715,9 @@ fn settings_server() -> Server<Fake> {
 fn settings_tools_send_origin_mcp_and_an_agent_refused_key_is_refused() {
     let mut server = settings_server();
     let tools = v2_tools::tools().iter().map(|tool| tool.wire).collect::<BTreeSet<_>>();
-    for wire in ["settings.list", "settings.get", "settings.set", "settings.reset", "settings.reset_all"] {
+    for wire in
+        ["settings.list", "settings.get", "settings.set", "settings.reset", "settings.reset_all"]
+    {
         assert!(tools.contains(wire), "{wire} is a tool");
     }
     for wire in ["settings.domains.publish", "settings.team_policy.set"] {
@@ -731,7 +737,8 @@ fn settings_tools_send_origin_mcp_and_an_agent_refused_key_is_refused() {
     assert_eq!(refused["structuredContent"]["error"]["code"], "settings.agent_refused");
     assert_eq!(refused["structuredContent"]["error"]["details"]["reason"], "privacy");
 
-    let allowed = call(&mut server, "settings_set", json!({"key": "ui.animationSpeed", "value": "off"}));
+    let allowed =
+        call(&mut server, "settings_set", json!({"key": "ui.animationSpeed", "value": "off"}));
     assert_eq!(allowed["isError"], false, "{allowed}");
     let spoofed = call(
         &mut server,
