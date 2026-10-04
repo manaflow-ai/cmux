@@ -75,6 +75,11 @@ impl InfoCache {
         self.entries.insert(machine.to_owned(), (now, info));
     }
 
+    /// Forgets every machine (a sign-out).
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+
     pub(crate) fn forget(&mut self, machine: &str) {
         self.entries.remove(machine);
     }
