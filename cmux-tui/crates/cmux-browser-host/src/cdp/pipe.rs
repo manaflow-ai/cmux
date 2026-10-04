@@ -49,9 +49,35 @@ pub fn launch_args(
     options: &HeadlessOptions,
     profile_dir: &std::path::Path,
 ) -> io::Result<Vec<String>> {
-    let mut args = default_args(profile_dir);
+    if let Some(switch) = options.extra_args.iter().find(|arg| refused_switch(arg)) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{switch}: the browser host never runs Chromium without its sandbox"),
+        ));
+    }
+    let mut args: Vec<String> = default_args(profile_dir)
+        .into_iter()
+        .filter(|arg| options.headless || arg != "--headless")
+        .filter(|arg| options.full_rate_background || !BACKGROUND_FULL_RATE.contains(&arg.as_str()))
+        .collect();
+    // The page URL stays the last argument.
+    let url = args.pop();
     args.extend(options.extra_args.iter().cloned());
+    args.extend(url);
     Ok(args)
+}
+
+/// The switches that keep background tabs at full rate.
+const BACKGROUND_FULL_RATE: &[&str] = &[
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--disable-backgrounding-occluded-windows",
+];
+
+/// Switches that turn the sandbox off (any case, with or without a value).
+fn refused_switch(arg: &str) -> bool {
+    let name = arg.split('=').next().unwrap_or(arg).to_ascii_lowercase();
+    matches!(name.as_str(), "--no-sandbox" | "--disable-setuid-sandbox")
 }
 
 /// A running headless Chromium and its CDP connection.
