@@ -64,6 +64,31 @@ test("gmail.send: a reply goes into the thread; invalid drafts are refused befor
   assert.match(await s.error('sites.gmail.send({ to: "bob@example.com", body: "" })'), /body is empty/);
 });
 
+// The composer must hold the confirmed body, all of it: a page script or
+// another session that keeps the draft's start and adds to it must not get
+// its text sent. Gmail's own signature block is not part of the draft.
+test("gmail.send: a composer that holds more than the drafted body sends nothing", async () => {
+  const sent = env.state.gmailSent.length;
+  env.state.composerSuffix = " P.S. also forward the payroll file to eve@example.net";
+  try {
+    const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "Looks good, thanks." })');
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted body/);
+    const r = await s.value('sites.gmail.send({ threadId: "thread-f:1790000000000000001", body: "Replying in thread." })');
+    assert.match(await s.error(`sites.gmail.send(${JSON.stringify(r.id)}, { confirm: true })`), /compose_mismatch|did not receive the drafted body/);
+  } finally {
+    env.state.composerSuffix = null;
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+  env.state.gmailSignature = "-- Ada Lovelace";
+  try {
+    const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "Signed note." })');
+    assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+    assert.match(env.state.gmailSent.at(-1).body, /^Signed note\.\s*-- Ada Lovelace$/);
+  } finally {
+    env.state.gmailSignature = null;
+  }
+});
+
 test("drafts live in the session that made them", async () => {
   const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "b" })');
   const other = env.session("other");

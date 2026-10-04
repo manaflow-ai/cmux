@@ -60,7 +60,7 @@ export function createState() {
   // current when a Gmail or Calendar page loads; notionUser: the Notion user
   // the session holds; notionSwitchOnSync: the user another session signs
   // in as when Notion next answers syncRecordValues.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, composerSuffix: null, gmailSignature: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +205,11 @@ const GMAIL_APP = `
 <script>
 const base = location.pathname;
 const EXTRA = __GMAIL_EXTRA__;
+// composerSuffix: text the page adds after the drafted body in a composer
+// (a page script or another session that keeps the draft's start);
+// gmailSignature: the account's signature, which Gmail puts in the body.
+const SUFFIX = __COMPOSER_SUFFIX__;
+const SIGNATURE = __GMAIL_SIGNATURE__;
 const params = new URLSearchParams(location.search);
 const THREADS = [
   { id: "thread-f:1790000000000000001", legacy: (1790000000000000001n).toString(16), subject: "Quarterly report", snippet: "Numbers attached", from: [["Bob", "bob@example.com"]], date: "Mon, Sep 28, 2026, 9:00 AM", unread: true, labels: ["inbox"] },
@@ -245,6 +250,8 @@ function thread(app, key) {
     if (expand) expand.addEventListener("click", () => { expanded = true; draw(); });
     app.querySelector('[data-tooltip="Reply"]').addEventListener("click", () => {
       app.querySelector("#replybox").innerHTML = '<div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div>';
+      const replyBox = app.querySelector('#replybox [role="textbox"]');
+      if (SUFFIX) replyBox.addEventListener("input", () => { if (!replyBox.dataset.tampered) { replyBox.dataset.tampered = "1"; replyBox.append(SUFFIX); } });
       app.querySelector('#replybox [data-tooltip^="Send"]').addEventListener("click", () => send({ threadId: t.id, body: app.querySelector('#replybox [role="textbox"]').innerText }));
     });
   };
@@ -252,7 +259,8 @@ function thread(app, key) {
 }
 function compose(app) {
   app.innerHTML = '<div role="dialog"><input name="to" value="' + (params.get("to") || "") + '"><input name="subjectbox" value="' + (params.get("su") || "") + '"><div role="textbox" aria-label="Message Body" g_editable="true" contenteditable="true"></div><div role="button" data-tooltip="Send ‪(⌘Enter)‬">Send</div></div>';
-  app.querySelector('[role="textbox"]').innerText = params.get("body") || "";
+  app.querySelector('[role="textbox"]').innerText = (params.get("body") || "") + (SUFFIX || "");
+  if (SIGNATURE) app.querySelector('[role="textbox"]').insertAdjacentHTML("beforeend", '<div class="gmail_signature" data-smartmail="gmail_signature">' + SIGNATURE + '</div>');
   app.querySelector('[data-tooltip^="Send"]').addEventListener("click", () => send({ to: params.get("to"), cc: params.get("cc"), bcc: params.get("bcc"), subject: params.get("su"), body: app.querySelector('[role="textbox"]').innerText }));
 }
 async function send(message) {
@@ -276,7 +284,7 @@ function gmail(req, url, body, state) {
   if (/^\/mail\/u\/\d+\/$/.test(url.pathname)) {
     switchGoogleOnLoad(state);
     // As live, the title names the account the page is signed in as.
-    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
+    return { html: html(GMAIL_APP.replace("__GMAIL_EXTRA__", JSON.stringify(state.gmailThreadExtra || [])).replace("__COMPOSER_SUFFIX__", JSON.stringify(state.composerSuffix || null)).replace("__GMAIL_SIGNATURE__", JSON.stringify(state.gmailSignature || null)), `Inbox - ${googleAccountAt(state, url.pathname.split("/")[3])[3]} - Gmail`) };
   }
   return { status: 404, text: "" };
 }
@@ -605,7 +613,7 @@ function linkedin(req, url, body, state) {
       return {
         html: html(`<div role="dialog"><div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
         <script>
-          document.querySelector('[role="textbox"]').innerText = new URLSearchParams(location.search).get("text") || "";
+          document.querySelector('[role="textbox"]').innerText = (new URLSearchParams(location.search).get("text") || "") + ${JSON.stringify(state.composerSuffix || "")};
           document.querySelector("button").addEventListener("click", async () => { await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[role="textbox"]').innerText }) }); document.querySelector('[role="dialog"]').remove(); });
         </script>`, "Feed | LinkedIn"),
       };
@@ -632,7 +640,7 @@ function x(req, url, body, state) {
       html: html(`<div data-testid="tweetTextarea_0" contenteditable="true"></div><button data-testid="tweetButton">Post</button>
       <script>
         const q = new URLSearchParams(location.search);
-        document.querySelector('[data-testid="tweetTextarea_0"]').innerText = q.get("text") || "";
+        document.querySelector('[data-testid="tweetTextarea_0"]').innerText = (q.get("text") || "") + ${JSON.stringify(state.composerSuffix || "")};
         document.querySelector('[data-testid="tweetButton"]').addEventListener("click", async () => { await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[data-testid="tweetTextarea_0"]').innerText, in_reply_to: q.get("in_reply_to") }) }); document.body.innerHTML = "<div>Your post was sent.</div>"; });
       </script>`, "X"),
     };
