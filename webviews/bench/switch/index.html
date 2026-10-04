@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Harness switch bench</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fff;
+        --fg: #1d1d1f;
+        --muted: #6e6e73;
+        --line: #d2d2d7;
+        --accent: #0a66d8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1c1e;
+          --fg: #f5f5f7;
+          --muted: #98989d;
+          --line: #3a3a3c;
+          --accent: #4c9bff;
+        }
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          13px/1.4 -apple-system,
+          system-ui,
+          sans-serif;
+      }
+      .harnesses {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      .harnesses button {
+        border: 1px solid var(--line);
+        background: none;
+        color: inherit;
+        border-radius: 6px;
+        padding: 4px 10px;
+      }
+      .harnesses button[aria-pressed="true"] {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      .harnesses button[data-warm="true"]::after {
+        content: " ●";
+        color: #2a9d55;
+      }
+      #chip {
+        margin: 12px 0 6px;
+        color: var(--muted);
+      }
+      #chip[data-pending="true"] {
+        font-style: italic;
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        min-height: 60px;
+        background: none;
+        color: inherit;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px;
+      }
+      #status,
+      #reply {
+        white-space: pre-wrap;
+        color: var(--muted);
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="harnesses" id="harnesses"></div>
+    <div id="chip"></div>
+    <textarea id="composer" placeholder="Do anything"></textarea>
+    <div id="status"></div>
+    <div id="reply"></div>
+    <script type="module" src="./bench.ts?v=4"></script>
+  </body>
+</html>
