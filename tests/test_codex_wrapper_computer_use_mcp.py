@@ -157,10 +157,60 @@ def record(event, payload=None):
         stream.write(json.dumps(value, sort_keys=True) + "\n")
 
 
+# Codex declares -c/--config, --enable, and --disable as clap `global`
+# arguments. Codex 0.159.3 keeps only the subcommand-level occurrences when the
+# subcommand also receives one: `codex -c a=1 exec -c b=2` sees only b=2.
+# Emulate that rule so wrapper output is checked against what Codex applies.
+GLOBAL_LIST_OPTIONS = {"-c": "config", "--config": "config", "--enable": "enable", "--disable": "disable"}
+VALUE_OPTIONS = {
+    "-m", "--model", "-p", "--profile", "-C", "--cd", "-s", "--sandbox",
+    "-a", "--ask-for-approval", "-i", "--image", "--output-last-message",
+    "--output-schema", "--add-dir", "--color", "--local-provider", "--remote",
+    "--remote-auth-token-env",
+}
+SUBCOMMANDS = {"exec", "e", "resume", "fork", "review", "mcp"}
+
+
+def effective_globals(argv):
+    root = {"config": [], "enable": [], "disable": []}
+    sub = {"config": [], "enable": [], "disable": []}
+    target = root
+    seen_subcommand = False
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--":
+            break
+        if arg in GLOBAL_LIST_OPTIONS and index + 1 < len(argv):
+            target[GLOBAL_LIST_OPTIONS[arg]].append(argv[index + 1])
+            index += 2
+            continue
+        matched = False
+        for option, name in GLOBAL_LIST_OPTIONS.items():
+            if arg.startswith(option + "="):
+                target[name].append(arg.split("=", 1)[1])
+                matched = True
+                break
+        if not matched and arg.startswith("-c") and not arg.startswith("--") and len(arg) > 2:
+            target["config"].append(arg[2:])
+            matched = True
+        if matched:
+            index += 1
+            continue
+        if arg.startswith("-"):
+            index += 2 if arg in VALUE_OPTIONS else 1
+            continue
+        if not seen_subcommand and arg in SUBCOMMANDS and target is root:
+            seen_subcommand = True
+            target = sub
+        index += 1
+    return {name: (sub[name] if sub[name] else root[name]) for name in root}
+
+
 def config(prefix, args):
-    for arg in args:
-        if arg.startswith(prefix):
-            return arg.split("=", 1)[1]
+    for override in effective_globals(args)["config"]:
+        if override.startswith(prefix):
+            return override[len(prefix):]
     return None
 
 
@@ -207,6 +257,15 @@ record(
         "auth_matches": os.environ.get("CMUX_CUA_SOCKET_AUTH_TOKEN") == "cmux-test-auth-token",
     },
 )
+EFFECTIVE = effective_globals(args)
+record(
+    "codex:effective_globals",
+    {
+        "config_keys": [override.split("=", 1)[0] for override in EFFECTIVE["config"]],
+        "enable": EFFECTIVE["enable"],
+        "disable": EFFECTIVE["disable"],
+    },
+)
 
 if os.environ.get("FAKE_MCP_HANDSHAKE") == "1":
     command_raw = config("mcp_servers.cmux-cua.command=", args)
@@ -222,7 +281,7 @@ if os.environ.get("FAKE_MCP_HANDSHAKE") == "1":
         forwarded.extend(json.loads(env_vars_raw))
     child_env = {name: os.environ[name] for name in forwarded if name in os.environ}
     env_prefix = "mcp_servers.cmux-cua.env."
-    for arg in args:
+    for arg in EFFECTIVE["config"]:
         if not arg.startswith(env_prefix):
             continue
         key, value = arg[len(env_prefix) :].split("=", 1)
@@ -1536,6 +1595,109 @@ def test_codex_fork_gets_hooks_and_cmux_cua(failures: list[str]) -> None:
     )
 
 
+def effective_globals_event(skill: dict[str, object]) -> dict[str, object]:
+    return next(
+        (
+            event.get("payload")
+            for event in trace_events(skill)
+            if event.get("event") == "codex:effective_globals"
+            and isinstance(event.get("payload"), dict)
+        ),
+        {},
+    )
+
+
+def expect_session_globals_survive(
+    argv: list[str],
+    user_config_keys: list[str],
+    user_enabled: list[str],
+    context: str,
+    failures: list[str],
+) -> None:
+    code, args, stderr, skill = run_wrapper(
+        argv,
+        auth_token=False,
+        auth_token_file=True,
+        mcp_handshake=True,
+    )
+    expect(code == 0, f"{context}: wrapper exited {code}: {stderr}", failures)
+    effective = effective_globals_event(skill)
+    keys = effective.get("config_keys") or []
+    for key in [
+        "mcp_servers.cmux-cua.command",
+        "mcp_servers.cmux-cua.env_vars",
+        "hooks.cmux-test",
+        *user_config_keys,
+    ]:
+        expect(key in keys, f"{context}: Codex would drop -c {key}; effective keys {keys}, argv {args}", failures)
+    enabled = effective.get("enable") or []
+    for feature in ["hooks", *user_enabled]:
+        expect(feature in enabled, f"{context}: Codex would drop --enable {feature}; effective {enabled}, argv {args}", failures)
+    expect(
+        "computer_use" in (effective.get("disable") or []),
+        f"{context}: Codex would drop --disable computer_use; effective {effective}, argv {args}",
+        failures,
+    )
+    helper_env = next(
+        (
+            event.get("payload")
+            for event in trace_events(skill)
+            if event.get("event") == "helper:started"
+        ),
+        None,
+    )
+    expect(
+        isinstance(helper_env, dict) and helper_env.get("auth_matches") is True,
+        f"{context}: cmux-cua MCP server must start with the credential, got {helper_env!r}",
+        failures,
+    )
+    expect(
+        not any("cmux-test-auth-token" in arg for arg in args),
+        f"{context}: daemon credential value is visible in the Codex argv",
+        failures,
+    )
+
+
+def test_codex_exec_with_subcommand_config_keeps_cmux_cua(failures: list[str]) -> None:
+    expect_session_globals_survive(
+        ["exec", "-c", 'model="gpt-test"', "--enable", "user_feature", "hello"],
+        ["model"],
+        ["user_feature"],
+        "exec with -c after the subcommand",
+        failures,
+    )
+
+
+def test_codex_exec_keeps_root_and_subcommand_user_config(failures: list[str]) -> None:
+    expect_session_globals_survive(
+        ["-c", 'user.root="1"', "exec", "--config=user.sub=\"2\"", "-m", "gpt-test-model", "hello"],
+        ["user.root", "user.sub"],
+        [],
+        "exec with root and subcommand -c",
+        failures,
+    )
+
+
+def test_codex_resume_with_subcommand_config_keeps_cmux_cua(failures: list[str]) -> None:
+    expect_session_globals_survive(
+        ["resume", "--last", "-c", 'model="gpt-test"'],
+        ["model"],
+        [],
+        "resume with -c after the subcommand",
+        failures,
+    )
+
+
+def test_codex_exec_double_dash_prompt_is_not_hoisted(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["exec", "--", "-c", "literal prompt"])
+    expect(code == 0, f"exec -- wrapper exited {code}: {stderr}", failures)
+    expect(
+        args[-4:] == ["exec", "--", "-c", "literal prompt"],
+        f"tokens after -- are prompt text and must stay in place, got {args}",
+        failures,
+    )
+
+
 def test_codex_rejects_cmux_cua_override_under_world_writable_ancestor(failures: list[str]) -> None:
     code, args, stderr, _ = run_wrapper(
         ["hello"],
@@ -1722,6 +1884,10 @@ def main() -> int:
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)
     test_codex_credential_reaches_mcp_server_only_through_environment(failures)
+    test_codex_exec_with_subcommand_config_keeps_cmux_cua(failures)
+    test_codex_exec_keeps_root_and_subcommand_user_config(failures)
+    test_codex_resume_with_subcommand_config_keeps_cmux_cua(failures)
+    test_codex_exec_double_dash_prompt_is_not_hoisted(failures)
     test_codex_rejects_proxy_only_cmux_cua_override(failures)
     test_codex_rejects_cmux_cua_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)
