@@ -76,13 +76,20 @@ final class PaneHostView: NSView {
         PaneChromeGeometry.roundedRect(inPadded: clipView.frame, headerHeight: headerHeight, footerHeight: footerHeight)
     }
 
-    /// Applies the pane padding and corner radius (live style values).
-    func applyShape(padding: CGFloat, cornerRadius: CGFloat) {
+    /// Applies the pane padding and corner radius (live style values). A
+    /// `bare` pane (an app screen's, app-screens.md 3) has neither, and no
+    /// ring, dim, border or tab emphasis (`setChrome`).
+    func applyShape(padding: CGFloat, cornerRadius: CGFloat, bare: Bool = false) {
+        isBare = bare
+        let padding = bare ? 0 : padding, cornerRadius = bare ? 0 : cornerRadius
         guard padding != self.padding || cornerRadius != self.cornerRadius else { return }
         self.padding = padding
         self.cornerRadius = cornerRadius
         layoutClip()
     }
+
+    /// An app screen's pane: drawn edge to edge without chrome.
+    private(set) var isBare = false
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
@@ -145,9 +152,12 @@ final class PaneHostView: NSView {
     func setChrome(showsRing: Bool, dim: CGFloat, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
                    tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border, attention: AttentionMark?,
                    attentionSettings: AttentionSettings, animated: Bool) {
-        reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
-        chrome.update(showsRing: showsRing, dim: dim, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
-                      attention: attention, attentionSettings: attentionSettings, animated: animated)
+        // A bare pane keeps only an unread attention mark.
+        var border = border
+        if isBare { border.shows = false }
+        reporter?.setChromeEmphasis(isBare ? .full : tabEmphasis, animated: animated)
+        chrome.update(showsRing: showsRing && !isBare, dim: isBare ? 0 : dim, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride,
+                      border: border, attention: attention, attentionSettings: attentionSettings, animated: animated)
     }
 }
 

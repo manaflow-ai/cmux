@@ -92,6 +92,11 @@ public nonisolated enum ScreenLayout: Hashable, Sendable {
         Set(columns.lazy.filter { $0.app != nil }.flatMap(\.root.panes))
     }
 
+    /// `pane` is drawn without chrome (an app screen's column holds it).
+    public func isChromeless(_ pane: PaneID) -> Bool {
+        columns.contains { $0.app != nil && $0.root.contains(pane) }
+    }
+
     /// Columns in the order the user sees them: the left dock, the top dock,
     /// the scrolling strip, the bottom dock, the right dock
     /// (DockStripGeometry S1, S2; layout-model.md). Focus, close-focus and

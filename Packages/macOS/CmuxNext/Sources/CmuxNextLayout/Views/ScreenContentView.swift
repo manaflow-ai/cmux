@@ -124,7 +124,7 @@ final class ScreenContentView: NSView {
                 }
                 paneFrames[pane] = AnimatedFrame(target)
             }
-            applyShape(pane, style: style)
+            context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, bare: layout.isChromeless(pane))
         }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             paneFrames[pane] = nil
@@ -281,7 +281,6 @@ final class ScreenContentView: NSView {
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused
-            guard !applyBareChrome(pane, host, attention: attention[pane], animated: animated) else { continue }
             host.setChrome(
                 showsRing: ringAllowed && isFocused,
                 // With appearance.borders none the ring is off; the dim stands in

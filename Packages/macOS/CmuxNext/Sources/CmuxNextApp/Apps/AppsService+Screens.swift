@@ -38,8 +38,8 @@ extension AppsService {
         if appTabs[tab.id] != nil { releaseTabView(tab.id) }
         let key = tab.id
         let view = AppTabView(state: { [registry] in Self.tabState(registry, appID: appID) },
-                              mount: { [unowned self] in pageProvider(for: appID).makeView(for: key, in: nil) },
-                              unmount: { [unowned self] in pageProvider(for: appID).tabClosed(key) })
+                              mount: { [weak self] in self?.pageProvider(for: appID).makeView(for: key, in: nil) ?? NSView() },
+                              unmount: { [weak self] in self?.pageProvider(for: appID).tabClosed(key) })
         appTabs[tab.id] = (appID, view)
         return view
     }
@@ -51,6 +51,13 @@ extension AppsService {
     }
 
     func existingTabView(_ key: String) -> AppTabView? { appTabs[key]?.view }
+
+    /// A closed tab's frontend views (`TabContentCache.onRelease`): its Home
+    /// conversation view and its app page.
+    static func releaseTabViews(_ key: String, services: AppServices) {
+        services.home.releaseTabView(key)
+        services.apps.releaseTabView(key)
+    }
 
     /// The tab closed or its surface was dropped: unmount its page.
     func releaseTabView(_ key: String) {
