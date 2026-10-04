@@ -358,6 +358,27 @@ describe("review fixes: authority, bounds and adopt", () => {
     expect(g.do(daemon, "feed.adopt", { item: answered }).item).toMatchObject({ home: "cloud", state: "answered" })
   })
 
+  it("feed.adopt.cancel tombstones a key that was not adopted and reports one that was", () => {
+    const src = driver()
+    const home = `local:${daemon.install}`
+    const g = driver()
+    // Not adopted yet: cancelled, and the delayed adopt with that key is refused.
+    const late = { ...src.do(agentA, "feed.post", approve()).item, home }
+    expect(g.do(daemon, "feed.adopt.cancel", { key: `adopt:${late.id}` })).toMatchObject({ cancelled: true })
+    expect(g.try(daemon, "feed.adopt", { item: late })).toMatchObject({ ok: false, code: "feed.adopt_cancelled" })
+    expect(g.state.items[late.id]).toBeUndefined()
+    // A retried cancel answers the same.
+    expect(g.do(daemon, "feed.adopt.cancel", { key: `adopt:${late.id}` })).toMatchObject({ cancelled: true })
+    // Already adopted: not cancelled, and the reply carries the cloud record.
+    const moved = { ...src.do(agentA, "feed.post", approve()).item, home }
+    g.do(daemon, "feed.adopt", { item: moved })
+    expect(g.do(daemon, "feed.adopt.cancel", { key: `adopt:${moved.id}` })).toMatchObject({ cancelled: false, item: { id: moved.id, home: "cloud" } })
+    // Only the install that posted the item, never a user client, an agent or another install; only adopt keys.
+    expect(g.try(mac, "feed.adopt.cancel", { key: `adopt:${moved.id}` })).toMatchObject({ ok: false })
+    expect(g.try(agentA, "feed.adopt.cancel", { key: `adopt:${late.id}` })).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(g.try(daemon, "feed.adopt.cancel", { key: `post:${late.id}` })).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
   it("adopt clamps a daemon clock that runs ahead and takes push timing from the cloud prefs", () => {
     const src = driver()
     const home = `local:${daemon.install}`
