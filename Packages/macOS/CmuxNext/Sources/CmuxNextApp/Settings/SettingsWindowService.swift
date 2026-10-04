@@ -146,8 +146,7 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
         guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
-            SettingsListRow(id: room.id.rawValue, title: room.name, subtitle: nil,
-                            symbol: room.icon ?? "square.stack", isActive: room.id == current)
+            SettingsListRow.space(id: room.id.rawValue, title: room.name, icon: room.icon, isActive: room.id == current)
         }
     }
 

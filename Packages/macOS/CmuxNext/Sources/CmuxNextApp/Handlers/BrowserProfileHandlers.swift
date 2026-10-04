@@ -47,9 +47,13 @@ enum BrowserProfileHandlers {
             let id = record.id
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 try profiles.setIcon(id, icon)
-            } else if let window = context.activeWindow?.window {
-                RenamePrompt.run(title: BrowserProfileAppStrings.iconTitle, initial: record.icon ?? "", in: window) { icon in
-                    try? profiles.setIcon(id, icon)
+            } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
+                context.services.iconPicker.pick(current: record.icon, at: anchor) { result in
+                    switch result {
+                    case .set(let icon): try? profiles.setIcon(id, icon)
+                    case .clear: try? profiles.setIcon(id, nil)
+                    case .cancel: break
+                    }
                 }
             } else {
                 throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidIcon)

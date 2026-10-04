@@ -50,6 +50,7 @@ public final class SettingsApplier {
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
+        if design.sidebarBorder != snapshot.sidebarBorder { design.sidebarBorder = snapshot.sidebarBorder }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
         if design.statusIndicator != snapshot.statusIndicator { design.statusIndicator = snapshot.statusIndicator }
         if design.statusBehavior != snapshot.statusBehavior { design.statusBehavior = snapshot.statusBehavior }
