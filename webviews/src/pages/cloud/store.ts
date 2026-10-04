@@ -407,7 +407,8 @@ export class CloudStore {
       let machines = result.machines.map(normalizeMachine);
       let revision = result.revision;
       for (const event of buffer) {
-        if (event.revision <= revision) continue;
+        // The list holds its own revision; events of that revision are re-applied (idempotent).
+        if (event.revision < revision) continue;
         machines = applyEvent(machines, event);
         revision = event.revision;
       }
@@ -440,7 +441,9 @@ export class CloudStore {
   private onEvent(event: MachineEvent): void {
     // An event proves the owner is reachable again.
     const patch: Partial<CloudState> = this.state.connection === "disconnected" ? { connection: "connected" } : {};
-    if (event.revision <= this.state.revision) {
+    // Events of one projection change share its revision, so only an older revision is stale.
+    // An event of the mirror's own revision is applied again; it describes the same state.
+    if (event.revision < this.state.revision) {
       if (patch.connection) this.set(patch);
       return;
     }
