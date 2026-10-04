@@ -71,6 +71,8 @@ pub struct Config {
     /// Arguments for the host binary (empty in production; the tests run a
     /// scripted host from the test executable).
     pub host_args: Vec<String>,
+    /// Where first-party app server binaries ship (`servers.rs`).
+    pub server_dir: Option<PathBuf>,
     pub sources: Sources,
     /// `apps.idleStopSeconds` (default 60).
     pub idle_stop: Duration,
@@ -168,6 +170,9 @@ pub(super) struct Inner {
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
     pub run_key_order: VecDeque<String>,
+    /// One server process per app with a manifest `server` (`servers.rs`).
+    pub servers: HashMap<String, super::servers::Server>,
+    pub server_crashes: HashMap<String, super::servers::Crashes>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -238,6 +243,8 @@ impl Supervisor {
                 next_provider_request: 0,
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),
+                servers: HashMap::new(),
+                server_crashes: HashMap::new(),
             }),
             config,
             router,
@@ -250,6 +257,7 @@ impl Supervisor {
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
+        supervisor.start_always_servers();
         supervisor
     }
 
@@ -319,6 +327,7 @@ impl Supervisor {
         transaction: &str,
         outs: &mut Vec<Out>,
     ) -> Result<(), ApiError> {
+        let app = op.app.clone();
         let facts = inner.catalog.packages.get(&op.app).map(Package::facts);
         let outcome = mirror::reduce(&inner.mirror, &Op::Set(op), facts.as_ref())
             .map_err(|r| ApiError::new(r.code(), r.message()))?;
@@ -331,6 +340,9 @@ impl Supervisor {
         inner.mirror = outcome.mirror;
         for effect in &outcome.effects {
             outs.extend(self.apply_effect(inner, effect));
+        }
+        if outcome.changed {
+            outs.extend(self.sync_server_locked(inner, &app));
         }
         if outcome.changed {
             outs.push(Out::Broadcast(json!({ "event": "apps-changed", "revision": inner.mirror.revision, "transaction": transaction })));
@@ -348,7 +360,11 @@ impl Supervisor {
                 }
                 vec![]
             }
-            Effect::StopHost(app) => self.stop_app_locked(inner, app, "disabled"),
+            Effect::StopHost(app) => {
+                let mut outs = self.stop_app_locked(inner, app, "disabled");
+                outs.extend(self.stop_server_locked(inner, app, "disabled"));
+                outs
+            }
             Effect::GrantsChanged(app) => self.regrant_locked(inner, app),
         }
     }
@@ -481,6 +497,10 @@ impl Drop for Supervisor {
             if let Some(process) = &host.process {
                 process.shutdown();
             }
+        }
+        // Servers are children of the daemon; none outlives the supervisor.
+        for server in inner.servers.values() {
+            server.process.kill();
         }
     }
 }
