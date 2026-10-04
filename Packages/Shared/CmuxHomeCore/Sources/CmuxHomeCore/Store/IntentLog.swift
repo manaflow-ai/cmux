@@ -24,6 +24,10 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
     /// A send still uploading its attachments: not sent to the owner yet,
     /// so a disconnect or reconnect never resends it.
     public var isUploading = false
+    /// A send waiting for an earlier send in its conversation to reach the
+    /// owner first: not sent yet, so a disconnect or reconnect never
+    /// resends it.
+    public var isQueued = false
 
     public init(intent: HomeIntent, state: State = .sending) {
         self.intent = intent
@@ -89,6 +93,10 @@ public struct IntentLog: Hashable, Sendable {
         entries[index] = entry
     }
 
+    public mutating func setQueued(_ key: IdempotencyKey, _ queued: Bool) {
+        update(key) { $0.isQueued = queued }
+    }
+
     public mutating func discard(_ key: IdempotencyKey) {
         entries.removeAll { $0.intent.key == key }
     }
@@ -123,7 +131,8 @@ public struct IntentLog: Hashable, Sendable {
 
     /// On disconnect: everything still in flight becomes unconfirmed.
     public mutating func markDisconnected() {
-        for index in entries.indices where entries[index].state == .sending && !entries[index].isUploading {
+        for index in entries.indices
+        where entries[index].state == .sending && !entries[index].isUploading && !entries[index].isQueued {
             entries[index].state = .unconfirmed
         }
     }

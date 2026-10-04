@@ -39,6 +39,14 @@ public final class HomeStore {
     /// commits them (kept after a refusal, so a retry can upload again).
     @ObservationIgnored private var uploads: [IdempotencyKey: UploadJob] = [:]
 
+    /// Sends the owner has not decided yet, per conversation, in the order
+    /// the user made them. A send goes to the owner only when it is first:
+    /// every earlier send in its conversation was committed, refused,
+    /// cancelled or failed its upload. So a text sent while a photo uploads
+    /// waits for the photo, and the owner commits them in that order.
+    @ObservationIgnored private var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
+    @ObservationIgnored private var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
+
     /// Attachment uploads in flight at once, per send.
     public static let uploadConcurrency = 3
 
@@ -79,6 +87,9 @@ public final class HomeStore {
         resendTask?.cancel()
         resendTask = nil
         connection = .offline(since: Date())
+        let waiters = turnWaiters.values
+        turnWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
     }
 
     // MARK: Reading
@@ -154,6 +165,12 @@ public final class HomeStore {
         let intent = HomeIntent(key: key, op: op)
         guard log.append(intent) else { throw HomeRejection.invalid("duplicate intent") }
         afterLogChange(op)
+        if case .sendMessage(let conversation, _) = op {
+            enqueueSend(key, in: conversation)
+            await waitForTurn(key, in: conversation)
+            // Cancelled or dropped while it waited.
+            guard log.entries.contains(where: { $0.intent.key == key }), !stopped else { throw CancellationError() }
+        }
         return try await submit(intent)
     }
 
@@ -176,6 +193,7 @@ public final class HomeStore {
             } else {
                 log.setUploading(key, true)
             }
+            enqueueSend(target, in: job.conversation)
             afterLogChange(entry.intent.op)
             try await uploadAndSubmit(target)
             return
@@ -285,6 +303,7 @@ public final class HomeStore {
             localFiles[attachment.ref.hash] = attachment.files
         }
         uploads[key] = UploadJob(conversation: conversation, attachments: unique)
+        enqueueSend(key, in: conversation)
         afterLogChange(op)
         try await uploadAndSubmit(key)
     }
@@ -392,6 +411,7 @@ public final class HomeStore {
                 }
                 log.setUploading(key, false)
                 log.fail(key, failure)
+                leaveSendQueue(key)
                 afterLogChange(entry.intent.op)
                 throw failure
             }
@@ -402,8 +422,10 @@ public final class HomeStore {
             let op = Self.adopting(uploads[key]?.stored ?? [:], in: entry.intent.op)
             if op != entry.intent.op { log.replaceOp(key, with: op) }
             log.setUploading(key, false)
-            uploads[key]?.reachedOwner = true
             afterLogChange(op)
+            await waitForTurn(key, in: uploads[key]?.conversation ?? job.conversation)
+            guard log.entries.contains(where: { $0.intent.key == key }), !stopped else { throw CancellationError() }
+            uploads[key]?.reachedOwner = true
             do {
                 _ = try await submit(HomeIntent(key: key, op: op, issuedAt: entry.intent.issuedAt))
                 return
@@ -411,10 +433,40 @@ public final class HomeStore {
                 uploadedAgain = true
                 let next = IdempotencyKey.make()
                 restartUploads(from: key, as: next)
+                enqueueSend(next, in: job.conversation)
                 afterLogChange(op)
                 key = next
             }
         }
+    }
+
+    private func enqueueSend(_ key: IdempotencyKey, in conversation: ConversationID) {
+        guard sendQueue[conversation]?.contains(key) != true else { return }
+        sendQueue[conversation, default: []].append(key)
+    }
+
+    /// Returns once `key` is first in its conversation's queue, or left it.
+    /// While it waits the entry is marked queued (never resent).
+    private func waitForTurn(_ key: IdempotencyKey, in conversation: ConversationID) async {
+        guard !stopped, let keys = sendQueue[conversation], keys.contains(key), keys.first != key else { return }
+        log.setQueued(key, true)
+        await withCheckedContinuation { turnWaiters[key] = $0 }
+        log.setQueued(key, false)
+    }
+
+    /// The owner decided `key` (or it will never be sent): the next send in
+    /// its conversation may go.
+    private func leaveSendQueue(_ key: IdempotencyKey) {
+        for (conversation, keys) in sendQueue where keys.contains(key) {
+            removeFromSendQueue(conversation) { $0 == key }
+        }
+    }
+
+    private func removeFromSendQueue(_ conversation: ConversationID, where gone: (IdempotencyKey) -> Bool) {
+        guard var keys = sendQueue[conversation] else { return }
+        keys.removeAll(where: gone)
+        sendQueue[conversation] = keys.isEmpty ? nil : keys
+        if let first = keys.first, let waiter = turnWaiters.removeValue(forKey: first) { waiter.resume() }
     }
 
     /// Uploads again every send whose upload a disconnect interrupted, in
@@ -524,6 +576,7 @@ public final class HomeStore {
             let result = try await source.submit(intent)
             log.acknowledge(intent.key, rev: result.rev)
             uploads[intent.key] = nil
+            leaveSendQueue(intent.key)
             settle()
             afterLogChange(intent.op)
             return result
@@ -536,6 +589,7 @@ public final class HomeStore {
                 afterLogChange(intent.op)
                 throw HomeSendState.pendingResend
             default:
+                leaveSendQueue(intent.key)
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
                 } else {
@@ -586,9 +640,11 @@ public final class HomeStore {
             case .inbox(let snapshot):
                 me = snapshot.me
                 log.dropIntents(outside: Set(mirror.conversations.keys))
+                dropOrphanUploadJobs()
                 for stream in mirror.stale { scheduleRefetch(stream) }
             case .conversationRemoved:
                 log.dropIntents(outside: Set(mirror.conversations.keys))
+                dropOrphanUploadJobs()
             case .message(let message, _):
                 bumpTranscript(message.conversation)
             default:
@@ -642,11 +698,14 @@ public final class HomeStore {
         for id in Array(transcriptVersion.keys) { bumpTranscript(id) }
     }
 
-    /// Upload jobs live only as long as their log entry.
+    /// Upload jobs and queued sends live only as long as their log entry.
+    /// A waiter whose entry left resumes (and finds it gone).
     private func dropOrphanUploadJobs() {
-        guard !uploads.isEmpty else { return }
+        guard !uploads.isEmpty || !sendQueue.isEmpty else { return }
         let keys = Set(log.entries.map(\.intent.key))
         for key in uploads.keys where !keys.contains(key) { uploads[key] = nil }
+        for conversation in Array(sendQueue.keys) { removeFromSendQueue(conversation) { !keys.contains($0) } }
+        for key in Array(turnWaiters.keys) where !keys.contains(key) { turnWaiters.removeValue(forKey: key)?.resume() }
     }
 
     private func afterLogChange(_ op: HomeOp) {
