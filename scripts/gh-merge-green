@@ -190,6 +190,12 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
 fi
+# HQ's optional Vercel review check is advisory: neutral or skipped means that
+# no review was available, not that an exact-head validation failed. Keep this
+# allowlist narrow; every other check-run and status context remains fail-closed.
+is_advisory_check_run() {
+  [ "$1" = "Vercel Agent Review" ]
+}
 if [ "$has_ci" -eq 0 ]; then
   # Include legacy commit status contexts (for example review services), not
   # only Actions check runs. Both endpoints are pinned to the evaluated head.
@@ -208,6 +214,9 @@ if [ "$has_ci" -eq 0 ]; then
     [ -n "$name" ] || continue
     reported=$((reported + 1))
     if [ "$st" != completed ] || [ "$co" != success ]; then
+      if [ "$st" = completed ] && { [ "$co" = neutral ] || [ "$co" = skipped ]; } && is_advisory_check_run "$name"; then
+        continue
+      fi
       refuse \
         "not green: '$name' is $st/$co on $sha (no ci-status workflow on base $base)" \
         "wait for or repair '$name'; every reported exact-head check must succeed without the aggregate workflow"
