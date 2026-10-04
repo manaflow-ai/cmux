@@ -68,7 +68,9 @@ ensure_args=(--optional)
 [[ "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]] && ensure_args=()
 arm_dir=""; x86_dir=""
 if (( want_arm )); then
-  arm_dir="$("$SCRIPT_DIR/ensure-cef.sh" "${ensure_args[@]}")"
+  # `${a[@]+...}`: bash 3.2 (Xcode's /bin/bash) treats an empty array as
+  # unset under `set -u`, so CMUX_NEXT_REQUIRE_CEF=1 failed here.
+  arm_dir="$("$SCRIPT_DIR/ensure-cef.sh" ${ensure_args[@]+"${ensure_args[@]}"})"
 fi
 if (( want_x86 )); then
   # Optional even with CMUX_NEXT_REQUIRE_CEF while the x86_64 engine is new:

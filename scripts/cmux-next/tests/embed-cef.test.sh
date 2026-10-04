@@ -19,7 +19,7 @@ run() { # <require> -> output of embed-cef.sh under /bin/bash
 }
 out=$(run 1)
 grep -q 'stub ensure-cef args=\[\]$' <<<"$out" || { printf 'REQUIRE_CEF=1 did not reach ensure-cef.sh:\n%s\n' "$out" >&2; exit 1; }
-! grep -q 'unbound variable' <<<"$out"
+if grep -q 'unbound variable' <<<"$out"; then printf 'unbound variable:\n%s\n' "$out" >&2; exit 1; fi
 out=$(run 0)
 grep -q 'stub ensure-cef args=\[--optional\]$' <<<"$out" || { printf 'optional mode lost --optional:\n%s\n' "$out" >&2; exit 1; }
 printf 'embed-cef tests: ok\n'
