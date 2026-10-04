@@ -20,6 +20,10 @@ use crate::fold::{Entry, TurnFold, Usage, answer_usage, is_cancelled, stop_error
 /// is lost (audit round 2), and nothing acknowledges it but the turn's end.
 pub const CANCEL_RESEND: Duration = Duration::from_secs(1);
 
+/// How long a turn whose `turn_end` is folded waits for the prompt's answer,
+/// which acpmux sends after it and which alone carries the token use.
+pub const ANSWER_WAIT: Duration = Duration::from_secs(10);
+
 /// A human message arrived during the turn (decision 2026-10-04: interrupt
 /// at once, even mid-thinking; a running tool call finishes first). The
 /// brain requests it; the turn's runner acts on it.
@@ -173,6 +177,8 @@ pub fn run(
     };
     let mut orphan = None;
     let mut totals = None;
+    // The prompt's answer arrived (or never will: lost, past the limit).
+    let mut answered = false;
     let mut last_cancel: Option<Instant> = None;
     loop {
         // A newer human message: stop the model at once, but let a running
@@ -212,6 +218,7 @@ pub fn run(
                     continue;
                 }
                 Err(RecvTimeoutError::Timeout) => {
+                    answered = true;
                     let _ = fetch(&mut fold);
                     let limit = start.limit.unwrap_or_default();
                     append(fold.finish(Some(format!(
@@ -251,6 +258,7 @@ pub fn run(
                 }
             }
             TurnSignal::Done(answer) => {
+                answered = true;
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 let stopped = answer
                     .as_ref()
@@ -264,6 +272,7 @@ pub fn run(
                 break;
             }
             TurnSignal::Lost => {
+                answered = true;
                 // The session may still run and act: it cannot be ended now
                 // (no connection), so the brain keeps it as an orphan. What
                 // can still be read is folded now (a fetch fails harmlessly
@@ -278,6 +287,18 @@ pub fn run(
                 )));
                 break;
             }
+        }
+    }
+    // The fold ended on `turn_end`: the answer with the token use follows.
+    let until = Instant::now() + ANSWER_WAIT;
+    while !answered {
+        match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
+            Ok(TurnSignal::Changed) => {}
+            Ok(TurnSignal::Done(answer)) => {
+                totals = answer.as_ref().ok().and_then(answer_usage);
+                answered = true;
+            }
+            Ok(TurnSignal::Lost) | Err(_) => answered = true,
         }
     }
     interrupt.wake_with(None);
