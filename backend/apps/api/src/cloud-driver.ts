@@ -46,6 +46,25 @@ export interface ListedVm {
  * VMs, vmimg = image bakes; no lane owns the bare env prefix). A configured prefix that differs from
  * this environment's disables the provider.
  */
+/** The short environment tag in names, the link token's iss and the bind file (dev, stg, prod; test in tests). */
+export const cloudEnvTag = (environment: string | undefined): string | null =>
+  ({ development: "dev", staging: "stg", production: "prod", test: "test" } as Record<string, string>)[environment ?? ""] ?? null
+
+/**
+ * The API origin the VM's bind agent calls, from CLOUD_API_ORIGIN: https only, no path. The image
+ * also refuses an origin that is not on its per-environment allowlist (a9's bind-file contract).
+ */
+export const cloudApiOrigin = (env: { CLOUD_API_ORIGIN?: string }): string | null => {
+  const raw = env.CLOUD_API_ORIGIN?.trim()
+  if (!raw) return null
+  try {
+    const u = new URL(raw)
+    return u.protocol === "https:" && (u.pathname === "/" || u.pathname === "") && !u.search && !u.hash && !u.username && !u.password ? u.origin : null
+  } catch {
+    return null
+  }
+}
+
 export const ENV_PREFIX: Readonly<Record<string, string>> = { development: "cmuxnp-dev-cld-", staging: "cmuxnp-stg-cld-", production: "cmuxnp-prod-cld-", test: "cmuxnp-test-cld-" }
 /** The image lane's snapshot prefix per environment (CLOUD-DEV-SNAPSHOT): not the machine prefix. */
 export const ENV_IMAGE_PREFIX: Readonly<Record<string, string>> = { development: "cmuxnp-dev-vmimg-", staging: "cmuxnp-stg-vmimg-", production: "cmuxnp-prod-vmimg-", test: "cmuxnp-test-vmimg-" }

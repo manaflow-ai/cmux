@@ -3,7 +3,7 @@ import { CloudMachineList } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError } from "./team-vm-driver.ts"
-import { cloudConfig, cloudDriver, cloudProviderReady, type GuardedCloudDriver } from "./cloud-driver.ts"
+import { cloudApiOrigin, cloudConfig, cloudDriver, cloudEnvTag, cloudProviderReady, type GuardedCloudDriver } from "./cloud-driver.ts"
 import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
 import { newBindToken, parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
@@ -244,7 +244,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
     const keys = parseSigningKeys(this.env.CLOUD_LINK_SIGNING_KEYS)
-    return mintLinkToken({ entity, rows, p: principal, params, request, environment: this.env.ENVIRONMENT, keys }, () => this.teamConnectServices(entity), this.audit)
+    return mintLinkToken({ entity, rows, p: principal, params, request, environment: cloudEnvTag(this.env.ENVIRONMENT) ?? "unknown", keys }, () => this.teamConnectServices(entity), this.audit)
   }
 
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
@@ -304,7 +304,11 @@ export class CloudDO extends OwnerDO<CloudState> {
             const id = (await driver.ensure(row.provider_name, tag, { idleSeconds: idle })).id
             // 5.8 item 1: a fresh one-time bind token into the VM; only its sha256 is committed.
             const token = newBindToken()
-            await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token }))
+            // a9's contract: one image for every environment, so the file names the https API origin and the env tag.
+            const origin = cloudApiOrigin(this.env)
+            const envTag = cloudEnvTag(this.env.ENVIRONMENT)
+            if (!origin || !envTag) throw new DriverError("cloud.provider.unavailable", "CLOUD_API_ORIGIN (https) or the environment tag is not configured", true)
+            await driver.writeBindFile(row.provider_name, tag, JSON.stringify({ team: tag.team, machine: row.machine, bind_token: token, api_origin: origin, env: envTag }))
             result = { key: row.key, ok: true, provider_id: id, bind_token_sha256: await sha256Hex(token) }
           }
           else result = (await driver.remove(row.provider_name, tag), { key: row.key, ok: true })
