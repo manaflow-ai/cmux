@@ -488,6 +488,10 @@ import WebKit
                     break
                 case .session:
                     if replAttachment.handlePopup(request: request) { return }
+                case .inputSession(let sessionID):
+                    // A user's tab opening a tab for an agent's click: a
+                    // background tab for that agent, never a focused one.
+                    if replAttachment.handlePopup(request: request, forInputSession: sessionID) { return }
                 }
             }
             if let requestNavigation {

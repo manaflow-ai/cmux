@@ -52,6 +52,7 @@ final class BrowserReplNavigationGuard {
             url: url,
             openerCreatedBySession: attachment.appliesSessionPolicies,
             creatorPolicy: attachment.creatorSessionID.flatMap { policies[$0] } ?? BrowserReplDomainPolicy(),
+            inputSession: attachment.inputSessionID.map { ($0, policies[$0] ?? BrowserReplDomainPolicy()) },
             allowlist: BrowserURLAllowlistPolicy(defaults: .standard)
         )
     }

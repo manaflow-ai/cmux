@@ -134,13 +134,26 @@ extension WKWebView {
             forBrowserNativeKey: nativeKey,
             additionalModifierFlags: activeModifiers
         )
-        return replayBrowserKeyboardSpecification(
+        let result = replayBrowserKeyboardSpecification(
             specification,
             action: action,
             characters: nativeKey.characters,
             marksBrowserAutomation: true
         )
+        // WebKit leaves Command+A/C/X/V/Z to the app's Edit menu, which the
+        // resend of an automated key no longer reaches; run the command on
+        // this web view, as the REPL does, never on the key window.
+        if result == .delivered, action != .keyUp,
+           let command = BrowserReplKeyStroke.editingCommand(code: event.code, key: event.key, flags: specification.modifierFlags),
+           Self.menuEditingCommands.contains(command) {
+            let selector = NSSelectorFromString(command)
+            if responds(to: selector) { _ = perform(selector, with: nil) }
+        }
+        return result
     }
+
+    /// Edit menu commands `cmux browser press` runs on the web view itself.
+    static let menuEditingCommands: Set<String> = ["selectAll:", "copy:", "cut:", "paste:", "undo:", "redo:"]
 
     /// Delivers an already-resolved AppKit key specification. The mobile
     /// browser stream and socket automation both use this seam so key-down

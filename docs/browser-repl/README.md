@@ -351,13 +351,16 @@ rest. Measurements: [performance.md](performance.md).
   with `tabs.use()` or one a finished run kept with `page.keep()`: it keeps
   its own user agent, headers and content, and cmux's own dialogs, file
   panel, download location, permission prompts and insecure-HTTP prompt,
-  except that a dialog or file chooser the page opens while it handles one
-  of the session's own clicks, keys, drags or navigations goes to that
-  session, as in a tab it created: the agent caused it, so cmux's UI must
-  not come up in front of the user (an Open panel over their work from a
-  hidden workspace) or leave the agent waiting for an answer only the user
-  could give. The windows its page opens stay the user's tabs, with no
-  `popup` event.
+  except while the page handles one of the session's own clicks, keys,
+  drags or evaluated scripts, or one of its navigations until it commits:
+  a dialog or file chooser the page opens then goes to that session, as in
+  a tab it created, and a window it opens becomes a background tab that
+  the session gets as a `popup` (under the session's domain policy) and
+  that stays the user's (never closed with the session). The agent caused
+  them, so cmux's UI must not come up in front of the user (an Open panel
+  or a key popup window over their work from a hidden workspace) or leave
+  the agent waiting for an answer only the user could give. Windows the
+  user's page opens otherwise stay the user's, with no `popup` event.
   The domain policy there only refuses the session's reads and input while
   the tab, or a frame of it, shows a blocked page (see "Guards" in
   [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that

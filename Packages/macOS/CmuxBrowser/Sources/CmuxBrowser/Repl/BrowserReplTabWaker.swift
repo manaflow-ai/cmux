@@ -1,3 +1,5 @@
+public import Foundation
+
 /// The state of a tab's web content as the REPL reports it (`tabs.list`,
 /// `tab.info`).
 public enum BrowserReplTabState: String, Sendable {
@@ -98,6 +100,7 @@ public struct BrowserReplTabWaker {
     /// and navigations away, which replace the page anyway.
     private static let independentOfPage: Set<String> = [
         "tabs.close", "tab.keep", "tab.navigate", "tab.history",
+        "tab.handleEvents", "tabs.activate", "tab.bringToFront",
     ]
 
     /// Methods a crashed tab still answers: the navigations that start a new
@@ -173,7 +176,8 @@ public struct BrowserReplTabWaker {
         )
     }
 
-    /// Whether `body` finished before the deadline.
+    /// Whether `body` finished before the deadline. A cancelled call stops
+    /// waiting at once.
     private func race(_ body: @escaping @MainActor () async -> Void) async -> Bool {
         let race = BrowserReplWakeRace()
         let work = Task { @MainActor in
@@ -190,10 +194,43 @@ public struct BrowserReplTabWaker {
             }
             race.finish(false)
         }
-        let finished = await race.value()
+        let finished = await withTaskCancellationHandler {
+            await race.value()
+        } onCancel: {
+            Task { @MainActor in race.finish(false) }
+        }
         deadline.cancel()
         if !finished { work.cancel() }
         return finished
+    }
+
+    /// Waits until the tab's current web view commits a document, following
+    /// a web view that replaces it meanwhile (a crash recovery).
+    ///
+    /// - Parameters:
+    ///   - instance: The tab's current web view instance, or `nil` when it
+    ///     has none.
+    ///   - waitForCommit: `BrowserAutomationDocumentReadiness.waitForCommit`.
+    /// - Returns: Whether a commit arrived. A wait answered `superseded`
+    ///   while the instance stayed the same (the readiness was invalidated by
+    ///   a close or crash, and answers at once) ends with `false`, so the
+    ///   loop never spins on the main actor.
+    public static func waitForPageCommit(
+        instance: () -> UUID?,
+        waitForCommit: (UUID) async -> BrowserAutomationDocumentReadinessOutcome
+    ) async -> Bool {
+        while !Task.isCancelled, let waited = instance() {
+            switch await waitForCommit(waited) {
+            case .committed:
+                return true
+            case .cancelled:
+                return false
+            case .superseded:
+                guard let next = instance(), next != waited else { return false }
+                await Task.yield()
+            }
+        }
+        return false
     }
 
     private static func seconds(_ duration: Duration) -> Int {

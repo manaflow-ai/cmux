@@ -127,10 +127,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
 
-    /// The session's own input and navigations: a dialog or file chooser the
-    /// page opens while it handles one goes to the session.
+    /// The session's own input and script (an `el.click()` or
+    /// `form.submit()` can open a dialog too): a dialog, file chooser or
+    /// window the page opens while it handles one goes to the session.
+    /// Navigations hold that window only until they commit
+    /// (`navigate`, `history`, `reload`), so a dialog from the user's own
+    /// click while the page loads stays the user's.
     private static func isActionOnPage(_ method: String) -> Bool {
-        method.hasPrefix("input.") || method == "tab.navigate" || method == "tab.reload" || method == "tab.history"
+        method.hasPrefix("input.") || method == "frame.evaluate"
     }
 
     /// Methods that read or act on a page or its cookies; refused while the
@@ -236,13 +240,25 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         do {
             if let panel = tabToPrepare {
-                let preparation = try await prepareTab(panel, for: method)
+                // The policy judges the tab's recorded URL before a wake would
+                // load a page it blocks.
+                try checkPagePolicy(method: method, params: params)
                 let attachment = attachment(panel)
+                // A dialog the restored page opens while it loads is this
+                // session's doing, as is one from its own input.
+                let preparation = tabCondition(panel).state == .live
+                    ? try await prepareTab(panel, for: method, params: params)
+                    : try await attachment.withInput(sessionID: sessionID) {
+                        try await prepareTab(panel, for: method, params: params)
+                    }
                 // WebKit signals the update; the bound only guards a web process
                 // that goes away before answering.
                 _ = await withTimeout(milliseconds: 2_000) { await attachment.renderingSettled() }
                 if preparation == .reloaded {
-                    // Loading the crashed or hibernated tab again was the reload.
+                    // Loading the crashed or hibernated tab again was the
+                    // reload; it waited for DOMContentLoaded, and `waitUntil`
+                    // may ask for more within the call's timeout.
+                    try await waitForLoadState(panel, Self.waitUntil(params), remainingMilliseconds: Self.timeout(params))
                     var result: [String: Any] = [:]
                     if let status = attachment.mainDocumentStatus { result["status"] = status }
                     guard let json = JSONSerialization.browserReplString(result.isEmpty ? nil : result as Any?) else {
@@ -351,8 +367,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("blocked", "\(url) is blocked: \(reason)")
         }
         guard Self.isGuarded(method), let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
-              let panel = try? reachablePanel(id), let url = panel.webView.url?.absoluteString,
-              let reason = policy.blockReason(url) else { return }
+              let panel = try? reachablePanel(id) else { return }
+        // A hibernated tab has no page yet; its recorded URL is what a wake would load.
+        let url = Self.url(panel)
+        guard !url.isEmpty, let reason = policy.blockReason(url) else { return }
         throw Self.error("blocked", "the tab shows \(url), which the domain policy blocks: \(reason); navigate it to an allowed page")
     }
 
@@ -546,9 +564,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// stopped). Waking renders the tab off screen; it never shows or
     /// focuses it.
     @MainActor
-    private func prepareTab(_ panel: BrowserPanel, for method: String) async throws -> BrowserReplTabPreparation {
+    private func prepareTab(_ panel: BrowserPanel, for method: String, params: [String: Any]) async throws -> BrowserReplTabPreparation {
         let label = BrowserReplTabLabel(id: panel.id.uuidString, title: Self.title(panel), url: Self.url(panel))
-        return try await BrowserReplTabWaker(sleeper: sleeper).prepare(
+        // A reload keeps its own timeout; other calls get the wake's bound.
+        let timeout: Duration = method == "tab.reload" ? .milliseconds(Self.timeout(params)) : BrowserReplTabWaker.defaultTimeout
+        return try await BrowserReplTabWaker(sleeper: sleeper, timeout: timeout).prepare(
             method: method,
             tab: label,
             condition: { self.tabCondition(panel) },
@@ -562,11 +582,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             waitUntilLoaded: { [self] in
                 // The page commits into the web view the discard or the crash
                 // recovery put in place; one replaced again meanwhile is waited for too.
-                while !Task.isCancelled {
-                    let outcome = await panel.automationDocumentReadiness.waitForCommit(instanceID: panel.webViewInstanceID)
-                    guard outcome == .superseded else { break }
-                }
-                guard !panel.hiddenWebViewDiscardManager.isDiscardedForMemory, !Task.isCancelled else { return }
+                let committed = await BrowserReplTabWaker.waitForPageCommit(
+                    instance: { panel.webViewInstanceID },
+                    waitForCommit: { await panel.automationDocumentReadiness.waitForCommit(instanceID: $0) }
+                )
+                guard committed, !panel.hiddenWebViewDiscardManager.isDiscardedForMemory, !Task.isCancelled else { return }
                 try? await self.waitForLoadState(panel, "domcontentloaded", remainingMilliseconds: Int(BrowserReplTabWaker.defaultTimeout.components.seconds) * 1000)
             }
         )
@@ -696,7 +716,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         if name == "tab.created", let id = payload["targetId"] as? String, payload["openerTargetId"] != nil {
             activeTargetID = id
-            if let uuid = UUID(uuidString: id) {
+            // A popup of a user's tab (`userOwned`) stays the user's: it is
+            // neither labelled nor closed when the session ends.
+            if payload["userOwned"] as? Bool != true, let uuid = UUID(uuidString: id) {
                 openedTargetIDs.append(uuid)
                 applySessionLabel(to: uuid)
             }
@@ -946,9 +968,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let started = ContinuousClock.now
         attachment(panel).rememberCredentials(in: url)
         _ = attachment(panel).takeAuthenticationFailure()
-        let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
-        let outcome = try await withTimeoutThrowing(milliseconds: timeout, what: "navigating to \"\(raw)\"") {
-            await panel.finishAutomationNavigation(ticket)
+        // Until the navigation commits, a dialog the page opens (beforeunload)
+        // is this session's doing; while the new page loads, it is not.
+        let outcome = try await attachment(panel).withInput(sessionID: sessionID) {
+            let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
+            return try await withTimeoutThrowing(milliseconds: timeout, what: "navigating to \"\(raw)\"") {
+                await panel.finishAutomationNavigation(ticket)
+            }
         }
         do {
             try Self.check(outcome, url: raw)
@@ -982,15 +1008,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
-        let ticket = panel.automationNavigationCoordinator.begin(
-            instanceID: panel.webViewInstanceID,
-            targetURL: item.url,
-            allowsSameDocumentCompletion: true
-        )
-        let navigation = delta < 0 ? webView.goBack() : webView.goForward()
-        panel.automationNavigationCoordinator.didStart(ticket, navigationID: navigation.map { ObjectIdentifier($0) })
-        let outcome = try await withTimeoutThrowing(milliseconds: timeout, what: "navigating history") {
-            await panel.finishAutomationNavigation(ticket)
+        let outcome = try await attachment(panel).withInput(sessionID: sessionID) {
+            let ticket = panel.automationNavigationCoordinator.begin(
+                instanceID: panel.webViewInstanceID,
+                targetURL: item.url,
+                allowsSameDocumentCompletion: true
+            )
+            let navigation = delta < 0 ? webView.goBack() : webView.goForward()
+            panel.automationNavigationCoordinator.didStart(ticket, navigationID: navigation.map { ObjectIdentifier($0) })
+            return try await withTimeoutThrowing(milliseconds: timeout, what: "navigating history") {
+                await panel.finishAutomationNavigation(ticket)
+            }
         }
         try Self.check(outcome, url: item.url.absoluteString)
         try await waitForLoadState(
@@ -1006,11 +1034,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let panel = try panel(params)
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
-        guard let (ticket, target) = panel.beginAutomationReloadFromCLI() else {
-            throw Self.error("invalid", "Nothing to reload")
-        }
-        let outcome = try await withTimeoutThrowing(milliseconds: timeout, what: "reloading") {
-            await panel.finishAutomationNavigation(ticket)
+        let (outcome, target) = try await attachment(panel).withInput(sessionID: sessionID) {
+            guard let (ticket, target) = panel.beginAutomationReloadFromCLI() else {
+                throw Self.error("invalid", "Nothing to reload")
+            }
+            let outcome = try await withTimeoutThrowing(milliseconds: timeout, what: "reloading") {
+                await panel.finishAutomationNavigation(ticket)
+            }
+            return (outcome, target)
         }
         try Self.check(outcome, url: target.absoluteString)
         try await waitForLoadState(

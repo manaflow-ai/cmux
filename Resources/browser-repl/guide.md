@@ -158,8 +158,9 @@ dialog is open the page cannot run script, so page calls fail with a message
 that says so. A tab you did not open (`tabs.use()` of the user's tab) is the
 user's: its dialogs, file choosers, downloads and permission prompts go to
 the user unless you have a listener for that event on the page, or your own
-click, key, drag or navigation opened the dialog or chooser, which then
-comes to you as in a tab you opened. A dialog
+click, key, drag, `page.evaluate()` or navigation opened the dialog or
+chooser, which then comes to you as in a tab you opened; a window your
+action opens there comes to you as a `popup` and stays the user's tab. A dialog
 that opens during Meta+C, Meta+X or Meta+V is dismissed at once, so it
 cannot hold the clipboard command; listeners still get it, and the next
 snapshot prints `dialog dismissed: ...` once.

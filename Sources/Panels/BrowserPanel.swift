@@ -8826,6 +8826,21 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                 if attachment.handlePopup(request: navigationAction.request) {
                     return nil
                 }
+            case .inputSession(let sessionID):
+                // A user's tab opened the window for an agent's click: a
+                // background tab for that agent, never a key popup window
+                // over the user's work.
+                if case .opened(let popup)? = attachment.adoptPopup(
+                    request: navigationAction.request,
+                    configuration: configuration,
+                    forInputSession: sessionID
+                ) {
+                    return popup
+                }
+                if attachment.handlePopup(request: navigationAction.request, forInputSession: sessionID) {
+                    return nil
+                }
+                return nil
             }
         }
         if let url = navigationAction.request.url {

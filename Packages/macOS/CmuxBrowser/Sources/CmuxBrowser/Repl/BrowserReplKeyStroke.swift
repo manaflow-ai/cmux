@@ -124,7 +124,7 @@ public struct BrowserReplKeyStroke: Equatable, Sendable {
         return scalar.value >= 0x20 && scalar.value < 0x7F
     }
 
-    private static func editingCommand(
+    static func editingCommand(
         code: String,
         key: String,
         flags: NSEvent.ModifierFlags

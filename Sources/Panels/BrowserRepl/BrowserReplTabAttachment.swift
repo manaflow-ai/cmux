@@ -273,6 +273,12 @@ final class BrowserReplTabAttachment {
         return try await body()
     }
 
+    /// The attached session whose input the page is handling now, if any.
+    var inputSessionID: String? {
+        guard let sessionID = ownership.inputSessionID, sinks[sessionID] != nil else { return nil }
+        return sessionID
+    }
+
     /// Whether `event` goes to a session instead of cmux's UI.
     func routesToSessions(_ event: BrowserReplTabEvent) -> Bool {
         recipient(for: event) != nil
@@ -861,7 +867,10 @@ final class BrowserReplTabAttachment {
         case opened(WKWebView?)
     }
 
-    func adoptPopup(request: URLRequest, configuration: WKWebViewConfiguration) -> PopupAdoption? {
+    /// - Parameter forInputSession: The session whose input the opener, a
+    ///   user's tab, was handling: the popup goes to that session only and
+    ///   stays the user's (`BrowserReplPopupRoute.inputSession`).
+    func adoptPopup(request: URLRequest, configuration: WKWebViewConfiguration, forInputSession: String? = nil) -> PopupAdoption? {
         guard isAttached, let panel,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
                 .tabs.first(where: { $0.id == panel.workspaceId }),
@@ -893,30 +902,36 @@ final class BrowserReplTabAttachment {
         ) else {
             return nil
         }
-        announcePopup(created, url: url)
+        announcePopup(created, url: url, forInputSession: forInputSession)
         return .opened(created.webView === webView ? webView : nil)
     }
 
-    private func announcePopup(_ created: BrowserPanel, url: URL) {
+    private func announcePopup(_ created: BrowserPanel, url: URL, forInputSession: String? = nil) {
+        // A popup a user's tab opened for a session's input goes to that
+        // session only, and stays the user's: no creator, never closed with
+        // the session (`userOwned`).
+        let recipients = forInputSession.map { id in sinks.filter { $0.key == id } } ?? sinks
         var child: BrowserReplTabAttachment?
-        for (sessionID, sink) in sinks {
+        for (sessionID, sink) in recipients {
             child = BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, sink: sink)
         }
         child?.openerTargetID = targetID
         // A popup of a tab a session created is that session's too.
-        if ownership.isSessionOwned, let creator = ownership.creatorSessionID {
+        if forInputSession == nil, ownership.isSessionOwned, let creator = ownership.creatorSessionID {
             child?.markCreated(by: creator)
         }
-        for sink in sinks.values {
-            sink("tab.created", [
-                "targetId": created.id.uuidString,
-                "openerTargetId": targetID,
-                "url": url.absoluteString,
-            ])
+        var payload: [String: Any] = [
+            "targetId": created.id.uuidString,
+            "openerTargetId": targetID,
+            "url": url.absoluteString,
+        ]
+        if forInputSession != nil { payload["userOwned"] = true }
+        for sink in recipients.values {
+            sink("tab.created", payload)
         }
     }
 
-    func handlePopup(request: URLRequest) -> Bool {
+    func handlePopup(request: URLRequest, forInputSession: String? = nil) -> Bool {
         guard isAttached, let panel, let url = request.url,
               let workspace = AppDelegate.shared?.tabManagerFor(tabId: panel.workspaceId)?
                 .tabs.first(where: { $0.id == panel.workspaceId }),
@@ -936,7 +951,7 @@ final class BrowserReplTabAttachment {
         ) else {
             return false
         }
-        announcePopup(created, url: url)
+        announcePopup(created, url: url, forInputSession: forInputSession)
         return true
     }
 

@@ -57,11 +57,12 @@ sessions instead. The runtime sends `tab.handleEvents` whenever a page's
 the tab waits for it. A download keeps the route it started with.
 
 A dialog or file chooser the page opens while it handles a session's
-`input.*`, `tab.navigate`, `tab.reload` or `tab.history` call is sent to
-that session too, also in a user's tab (the call caused it, so cmux's own
-dialog or Open panel must not come up in front of the user, and the call
-must not wait for an answer only the user can give); downloads keep the
-user's location.
+`input.*` or `frame.evaluate` call, or its `tab.navigate`, `tab.reload` or
+`tab.history` until the navigation commits, or while a call wakes the tab,
+is sent to that session too, also in a user's tab (the call caused it, so
+cmux's own dialog or Open panel must not come up in front of the user, and
+the call must not wait for an answer only the user can give); downloads
+keep the user's location.
 
 Each such event goes to one session, never to every session driving the
 tab: a session with a handler for it in its last `tab.handleEvents` (the
@@ -293,7 +294,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   a busy page answers late.
 - Page-opened windows: a window a page opens from a user's tab, also one
   a session drives, goes to the browser's own popup handling and never to
-  a session, so no session adopts it or closes it when it ends. A window
+  a session, so no session adopts it or closes it when it ends, except one
+  it opens while it handles a session's own call (as for dialogs above):
+  the browser's path would put a key popup window over the user's work,
+  out of the agent's reach, so that window becomes a background tab sent
+  to that session alone (`tab.created` with `userOwned: true`), under the
+  URL checks below with that session's policy, and stays the user's: it is
+  neither labelled nor closed when the session ends. A window
   a page opens from a tab a session created becomes a popup tab through
   cmux's own navigation, which trusts local files and cmux's internal
   schemes, and the page controls its URL. So it goes to the sessions

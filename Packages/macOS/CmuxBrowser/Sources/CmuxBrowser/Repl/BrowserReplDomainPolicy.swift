@@ -448,6 +448,9 @@ extension BrowserReplDomainPolicy {
 public enum BrowserReplPopupRoute: Equatable, Sendable {
     /// To the REPL sessions driving the tab, as a new background tab.
     case session
+    /// To the session whose input the user's tab was handling, as a new
+    /// background tab that stays the user's (never closed with the session).
+    case inputSession(String)
     /// The browser's own popup path, as if no session drove the tab.
     case browser
     /// Nowhere: the window does not open.
@@ -463,20 +466,32 @@ public enum BrowserReplPopupRoute: Equatable, Sendable {
     /// allowlist and the creating session's domain policy; otherwise it
     /// does not open.
     ///
+    /// A user's tab that opens a window while it handles a session's own
+    /// input (an agent's click) is the exception: the browser's path would
+    /// put a key popup window over the user's work, out of the agent's
+    /// reach, so the window opens as a background tab for that session, under
+    /// the same URL checks with that session's policy, and stays the user's.
+    ///
     /// - Parameters:
     ///   - openerCreatedBySession: Whether an attached session created the
     ///     opener tab (`BrowserReplTabOwnership.isSessionOwned`).
     ///   - creatorPolicy: That session's domain policy.
+    ///   - inputSession: The session whose input the opener tab is handling,
+    ///     with its domain policy, if any.
     public init(
         url: URL?,
         openerCreatedBySession: Bool,
         creatorPolicy: BrowserReplDomainPolicy,
+        inputSession: (id: String, policy: BrowserReplDomainPolicy)? = nil,
         allowlist: BrowserURLAllowlistPolicy
     ) {
-        guard openerCreatedBySession else {
+        if openerCreatedBySession {
+            self = creatorPolicy.popupBlockReason(url, allowlist: allowlist).map(Self.refused) ?? .session
+        } else if let inputSession {
+            self = inputSession.policy.popupBlockReason(url, allowlist: allowlist).map(Self.refused)
+                ?? .inputSession(inputSession.id)
+        } else {
             self = .browser
-            return
         }
-        self = creatorPolicy.popupBlockReason(url, allowlist: allowlist).map(Self.refused) ?? .session
     }
 }

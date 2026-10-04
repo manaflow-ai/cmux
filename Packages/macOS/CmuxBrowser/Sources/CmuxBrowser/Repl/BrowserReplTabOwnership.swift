@@ -70,6 +70,11 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         inputSessionIDs.append(sessionID)
     }
 
+    /// The session whose input the page is handling now, if any.
+    public var inputSessionID: String? {
+        inputSessionIDs.last
+    }
+
     /// Ends one ``beginInput(sessionID:)``.
     public mutating func endInput(sessionID: String) {
         if let index = inputSessionIDs.lastIndex(of: sessionID) {

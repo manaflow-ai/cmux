@@ -962,8 +962,9 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   // Reads and input on a tab whose page the session's policy blocks are
   // refused, as the app's driver does.
   const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.)/;
-  // The session's own input and navigations (WebKitBrowserReplDriver.isActionOnPage).
-  const ACTIONS = /^(input\.|tab\.navigate$|tab\.reload$|tab\.history$)/;
+  // The session's own input, script and navigations (WebKitBrowserReplDriver.isActionOnPage).
+  const ACTIONS = /^(input\.|frame\.evaluate$|tab\.navigate$|tab\.reload$|tab\.history$)/;
+  const NAVIGATIONS = /^tab\.(navigate|reload|history)$/;
 
   function createDriver() {
     const driver = {
@@ -1003,6 +1004,17 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         const tab = params.targetId && tabs.get(params.targetId);
         if (!tab || !ACTIONS.test(method)) return fn(params, driver);
         tab.inputDrivers.push(driver);
+        let ended = false;
+        const end = () => {
+          if (ended) return;
+          ended = true;
+          tab.inputDrivers.splice(tab.inputDrivers.lastIndexOf(driver), 1);
+        };
+        // As in the app, a navigation is the session's action until it
+        // commits; a dialog while the new page loads is not.
+        const navigation = NAVIGATIONS.test(method);
+        const onCommit = (frame) => { if (frame === tab.page.mainFrame()) end(); };
+        if (navigation) tab.page.on("framenavigated", onCommit);
         try {
           const result = await fn(params, driver);
           // Like the app's round trip after input: what the page opened while
@@ -1011,7 +1023,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
           if (method === "input.mouse" || method === "input.key") await tab.page.evaluate(() => 0).catch(() => {});
           return result;
         } finally {
-          tab.inputDrivers.splice(tab.inputDrivers.lastIndexOf(driver), 1);
+          if (navigation) tab.page.off("framenavigated", onCommit);
+          end();
         }
       },
       on(event, handler) {
