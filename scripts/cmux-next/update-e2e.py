@@ -78,23 +78,38 @@ STATE_ROOTS = [f"{HOME}/Library/Application Support", f"{HOME}/Library/Caches", 
                f"{HOME}/.cmuxterm", f"{HOME}/.local/state/cmux", f"{HOME}/.config/cmux", "/tmp"]
 
 
-def snapshot():
+def snapshot(depth=3):
+    """Every path under the state roots, `depth` levels deep: the nightly's
+    daemon writes inside shared folders (cmux-tui/sessions, cmux-next)."""
     found = set()
     for root in STATE_ROOTS:
-        try:
-            for name in os.listdir(root):
-                found.add(os.path.join(root, name))
-        except OSError:
-            pass
-    for root in STATE_ROOTS:
-        found.add(root) if os.path.exists(root) else None
+        if not os.path.exists(root):
+            continue
+        found.add(root)
+        base = root.rstrip("/").count("/")
+        for current, dirs, files in os.walk(root):
+            level = current.rstrip("/").count("/") - base
+            if level >= depth or os.path.basename(current) == "cmux-cli-shims":
+                dirs[:] = []
+            for name in dirs + files:
+                found.add(os.path.join(current, name))
     return found
+
+
+SESSION_HINTS = [""]
+
+
+def note_sessions(work):
+    """Remembers the daemon session names of the app this run started."""
+    SESSION_HINTS[0] += " " + run("pgrep", "-fl", work).stdout
 
 
 def cleanup(before, work):
     # The app and its daemon end through the app's own quit (end everything),
     # then any process still running from the scratch folder is ended by PID.
     leftovers = [line.split(None, 1) for line in run("pgrep", "-fl", work).stdout.splitlines()]
+    # The nightly's daemon session names (cmux-app-<hash>, terminal-hosts-<hash>).
+    hashes = set(re.findall(r"(?:cmux-app|terminal-hosts)-([0-9a-f]{12,})", " ".join(c for _, c in leftovers) + SESSION_HINTS[0]))
     for pid, command in leftovers:
         print(f"ending leftover pid {pid}: {command[:120]}")
         try:
@@ -102,11 +117,19 @@ def cleanup(before, work):
         except OSError:
             pass
     run("defaults", "delete", BUNDLE_ID) if f"{HOME}/Library/Preferences/{BUNDLE_ID}.plist" not in before else None
-    for path in sorted(snapshot() - before, key=len, reverse=True):
-        name = os.path.basename(path).lower()
-        if "cmux" in name or BUNDLE_ID in name or path.startswith(work):
+    created = snapshot() - before
+    # Only the topmost created path of each tree is removed.
+    tops = [p for p in created if os.path.dirname(p) not in created]
+    for path in sorted(tops, key=len, reverse=True):
+        if not os.path.lexists(path):
+            continue
+        name = path.lower()
+        if path.startswith(work) or "nightly" in name or any(h in name for h in hashes):
             print(f"removing created {path}")
             shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
+    for path in sorted(tops):
+        if os.path.lexists(path) and re.search(r"(cmux-app|terminal-hosts)-[0-9a-f]+", path):
+            print(f"NOT removed (unknown owner, check by hand): {path}")
     if not opts.keep:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -267,6 +290,7 @@ def main():
 
         app = App(path, config)
         record("older build launched, control socket answers", bool(app.launch(log)))
+        note_sessions(work)
         app.cli("workspace", "create", "--name", "update-e2e")
         terminal = wait(lambda: next(iter(app.cli_json("terminal", "list") or []), None), 30)
         term = terminal.get("id") if isinstance(terminal, dict) else None
