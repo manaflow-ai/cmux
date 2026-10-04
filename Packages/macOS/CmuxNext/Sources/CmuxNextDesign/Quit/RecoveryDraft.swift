@@ -3,6 +3,7 @@ public import Foundation
 /// One recovery draft: the unsaved contents of a document, written on
 /// every edit so a signal, crash or power-off never loses them.
 public nonisolated struct RecoveryDraft: Codable, Equatable, Sendable {
+    /// The participant's id, `file:<host id>:<canonical path>`.
     public var id: String
     /// The machine the document lives on: "local" for this Mac, else the
     /// Cloud or remote host id. A restore never writes a remote draft into
@@ -11,8 +12,9 @@ public nonisolated struct RecoveryDraft: Codable, Equatable, Sendable {
     public var title: String
     public var savedAt: Date
     public var contents: Data
-    /// The document's file, and its modification date and size when the
-    /// draft was written (nil for an unsaved new document).
+    /// The document's file (the id's path), and its modification date and
+    /// size: the base's when the participant gave one, else the file's when
+    /// the draft was written.
     public var filePath: String?
     public var fileModified: Date?
     public var fileSize: Int64?
@@ -50,6 +52,9 @@ public nonisolated struct RecoveryDraftBase: Codable, Equatable, Sendable {
         self.size = size
         self.contentHash = contentHash
     }
+
+    /// No field set: the store treats it as no base.
+    public var isEmpty: Bool { modified == nil && size == nil && contentHash == nil }
 }
 
 /// Whether `update` kept a draft.
