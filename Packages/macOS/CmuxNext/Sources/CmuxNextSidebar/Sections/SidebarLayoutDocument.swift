@@ -106,8 +106,8 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
-                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store")),
-                              LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
+        // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
                       arrangement: SectionArrangement(layout: .grid, align: .fill, columns: 8), items: [

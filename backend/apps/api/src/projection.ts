@@ -110,14 +110,15 @@ export const applyRows = async (
         sent.push(row.id)
         continue
       }
-      await client.query("SAVEPOINT row")
+      // Not `row`: Vitess (PlanetScale MySQL) reserves it, so `SAVEPOINT row` is a syntax error there.
+      await client.query("SAVEPOINT projection_row")
       try {
         await client.query(statement[0], statement[1])
-        await client.query("RELEASE SAVEPOINT row")
+        await client.query("RELEASE SAVEPOINT projection_row")
         sent.push(row.id)
       } catch (e) {
         if (isTransientError(e)) throw e
-        await client.query("ROLLBACK TO SAVEPOINT row")
+        await client.query("ROLLBACK TO SAVEPOINT projection_row")
         dead.push({ id: row.id, error: describeError(e) })
       }
     }

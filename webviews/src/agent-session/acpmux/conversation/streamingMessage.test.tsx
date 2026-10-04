@@ -47,7 +47,7 @@ afterAll(async () => {
   for (const key of domClasses) delete globals[key];
 });
 
-const { act, createElement } = await import("react");
+const { act, createElement, Profiler } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("./Markdown");
 const { RevealedMarkdown, revealFrames } = await import("./RevealedMarkdown");
@@ -59,13 +59,14 @@ revealFrames.request = (callback) => frames.push(callback);
 revealFrames.cancel = (handle) => {
   frames[handle - 1] = () => {};
 };
-const step = (count = 1) =>
-  act(() => {
-    for (let index = 0; index < count; index += 1) {
+/// Runs `count` display frames at 120 Hz, each in its own act(), as a browser commits per frame.
+const step = (count = 1) => {
+  for (let index = 0; index < count; index += 1)
+    act(() => {
       clock += 1000 / 120;
       for (const callback of frames.splice(0)) callback(clock);
-    }
-  });
+    });
+};
 
 function mount() {
   const host = document.createElement("div");
@@ -110,7 +111,8 @@ describe("revealed reply", () => {
     const more = "Hi there, this reply keeps arriving in one burst of many words at once.";
     view.render(createElement(RevealedMarkdown, { text: more, streaming: true }));
     expect(view.host.textContent).toBe("Hi");
-    step(2);
+    // Commits run at 60 Hz: the first frame starts the clock, the next commit moves the text.
+    step(4);
     const partial = view.host.textContent ?? "";
     expect(partial.length).toBeGreaterThan(2);
     expect(partial.length).toBeLessThan(more.length);
@@ -185,6 +187,43 @@ describe("soft reveal", () => {
     step(200);
     expect(view.host.querySelectorAll(".cv-fresh")).toHaveLength(0);
     expect(view.host.textContent).toBe(more);
+    view.root.unmount();
+  });
+});
+
+/// The live edge and the commit rate (acp-streaming.md "Reveal animation").
+describe("live edge", () => {
+  test("a soft caret follows the newest character while the reply streams, and leaves when it ends", () => {
+    const view = mount();
+    view.render(<RevealedMarkdown text="Para one.\n\nStreaming now" streaming />);
+    step(2);
+    const caret = view.host.querySelector(".cv-caret");
+    expect(caret?.getAttribute("aria-hidden")).toBe("true");
+    expect(caret?.parentElement?.textContent).toContain("Streaming now");
+    // Caught up and waiting for more: the edge pulses.
+    step(100);
+    expect(view.host.querySelector(".cv-md.is-waiting")).not.toBeNull();
+    view.render(<RevealedMarkdown text="Para one.\n\nStreaming now" streaming={false} />);
+    step(2);
+    expect(view.host.querySelector(".cv-caret")).toBeNull();
+    view.root.unmount();
+  });
+
+  test("the reveal commits at most 60 times a second on a 120 Hz display", () => {
+    const view = mount();
+    let commits = 0;
+    const draw = (text: string) => (
+      <Profiler id="reveal" onRender={() => (commits += 1)}>
+        <RevealedMarkdown text={text} streaming />
+      </Profiler>
+    );
+    view.render(draw("Hi"));
+    view.render(draw("word ".repeat(200)));
+    commits = 0;
+    step(60);
+    // 60 frames at 120 Hz is 0.5 s: about 30 commits, not 60.
+    expect(commits).toBeGreaterThan(10);
+    expect(commits).toBeLessThanOrEqual(32);
     view.root.unmount();
   });
 });

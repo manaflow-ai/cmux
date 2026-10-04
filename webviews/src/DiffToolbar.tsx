@@ -578,16 +578,19 @@ function OverflowMenuRow({
 export function ViewMenuButton({
   checked,
   icon,
+  id,
   label,
   onClick,
 }: {
   checked?: boolean;
   icon: IconName;
+  id?: string;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
+      id={id}
       type="button"
       role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
       className="menu-item toolbar-menu-item"
@@ -598,5 +601,91 @@ export function ViewMenuButton({
       <span className="menu-label">{label}</span>
       <span className="menu-check">{checked ? <Icon name="check" /> : null}</span>
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// File bar "..." menu
+// ---------------------------------------------------------------------------
+
+export type FileMenuItem = { id: string; icon: IconName; label: string; onChoose: () => void };
+
+/**
+ * The file bar's "..." button and its menu (the classic viewer's last bar
+ * control). The menu is portaled to the body like the toolbar popovers, so
+ * the sticky header never clips it. The button is a bar control: its click
+ * never toggles the file (file-header-toggle.ts).
+ */
+export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label: string }) {
+  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const menuId = useId();
+  const style = useAnchoredPopover(open, buttonRef, 200);
+  const close = (refocus = true) => {
+    setOpen(false);
+    if (refocus) buttonRef.current?.focus();
+  };
+  useDismissOnOutsidePress(open, [buttonRef, menuRef], () => close(false));
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="file-header-menu-button"
+        data-file-header-control=""
+        title={label}
+        aria-label={label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+      >
+        <Icon name="dots" />
+      </button>
+      {open && style
+        ? createPortal(
+            <div
+              ref={(node) => {
+                menuRef.current = node;
+                focusFirstMenuItem(node);
+              }}
+              id={menuId}
+              className="toolbar-menu file-header-menu"
+              role="menu"
+              tabIndex={-1}
+              aria-label={label}
+              style={{ position: "fixed", top: style.top, left: style.left, width: style.width }}
+              // React bubbles portal events through the file bar: keep the
+              // menu's clicks and keys from reaching its toggle.
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                onMenuKeyDown(event, close);
+              }}
+            >
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="menuitem"
+                  className="menu-item toolbar-menu-item"
+                  onClick={() => {
+                    close();
+                    item.onChoose();
+                  }}
+                >
+                  <Icon name={item.icon} />
+                  <span className="menu-label">{item.label}</span>
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }

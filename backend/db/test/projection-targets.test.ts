@@ -34,7 +34,7 @@ describe("projection targets during the MySQL move", () => {
     try {
       const res = await projectRows({ PROJECTION_SHADOW: "mysql" } as never, "s", rows, fake(log, { postgres: "ok", mysql: "throw" }))
       expect(res.sent).toEqual([1, 2, 3])
-      expect(JSON.parse(String(errors.mock.calls[0]?.[0]))).toMatchObject({ event: "projection.shadow.failed", level: "error", target: "mysql", rows: 3, code: "ECONNRESET" })
+      expect(JSON.parse(String(errors.mock.calls[0]?.[0]))).toMatchObject({ event: "projection.shadow.failed", level: "error", target: "mysql", rows: 3, code: "ECONNRESET", errno: null, sql_state: null })
     } finally {
       errors.mockRestore()
     }

@@ -21,10 +21,18 @@ let package = Package(
     products: [
         .library(
             name: "CmuxGhosttyKit",
-            targets: ["GhosttyNextKit"]
+            targets: ["GhosttyNextKit", "CmuxGhosttyKitLink"]
         ),
     ],
     targets: [
+        // libghostty-internal.a carries C++ (glslang): every consumer of the
+        // product links libc++ through this target (Xcode 27's per-target
+        // test bundles failed without it).
+        .target(
+            name: "CmuxGhosttyKitLink",
+            dependencies: ["GhosttyNextKit"],
+            linkerSettings: [.linkedLibrary("c++")]
+        ),
         .binaryTarget(
             name: "GhosttyNextKit",
             url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-68ac618db09623a3582d7b1e7cd5c9c61416973a-apple-v6/GhosttyNextKit.xcframework.zip",

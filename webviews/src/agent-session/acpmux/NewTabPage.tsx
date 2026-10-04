@@ -15,7 +15,7 @@ import {
   type OmnibarRow,
 } from "./omnibar";
 import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -39,7 +39,6 @@ export const NEW_TAB_LABELS = {
   switchLabel: "Open as",
   editShortcut: (kind: string, keys: string) => `${kind} (${keys}). Right-click to change the shortcut`,
   open: "Open",
-  importAndSync: t("newtab.importAndSync"),
   suggestions: "Suggestions",
   rows: {
     tab: "Switch to tab",
@@ -227,6 +226,7 @@ export function NewTabPage({
   onImport,
   onBrowseProject,
 }: Props) {
+  const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
   const [defaultKind, setDefaultKind] = useState(initialDefault);
   const [projectCwd, setProjectCwd] = useState(cwd);
@@ -499,7 +499,7 @@ export function NewTabPage({
         </button>
         {onImport && (
           <button type="button" className="acpmux-newtab-all" onClick={onImport}>
-            {NEW_TAB_LABELS.importAndSync}
+            {t("newtab.importAndSync")}
           </button>
         )}
       </div>

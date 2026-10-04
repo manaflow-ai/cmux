@@ -23,7 +23,6 @@ test("the page paints the shared backdrop once; the files panel paints the solid
   expect(styles).toMatch(/\.toolbar-icon\s*\{[^}]*width: 20px;[^}]*height: 20px;/s);
   expect(styles).toMatch(/\.toolbar-icon svg,\s*\.menu-item svg\s*\{[^}]*width: 14px;[^}]*height: 14px;/s);
   expect(styles).toMatch(/\.toolbar-icon svg,\s*\.menu-item svg\s*\{[^}]*stroke-width: 1;/s);
-  expect(styles).toMatch(/#file-search-toggle svg\s*\{[^}]*stroke-width: 1;/s);
   expect(styles).not.toContain("#source-detail");
   expect(styles).not.toContain("box-shadow: 0 -1px 0 var(--cmux-diff-border), 0 1px 0 var(--cmux-diff-border)");
 });

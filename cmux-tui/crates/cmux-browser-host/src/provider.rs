@@ -68,6 +68,17 @@ pub struct Lease {
     pub origin: String,
     pub label: String,
     pub since_ms: u64,
+    /// The lease state machine's state (plans/cmux-next/automation-lease.md).
+    pub state: LeaseState,
+}
+
+/// `driving | paused | user_driving` (automation lease contract).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaseState {
+    Driving,
+    Paused,
+    UserDriving,
 }
 
 /// One provider frame, tagged by `t`.

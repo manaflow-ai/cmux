@@ -4,6 +4,7 @@ import pg from "pg"
 import { projectionStatement } from "../../apps/api/src/projection.ts"
 import { projectionStatementMysql } from "../../apps/api/src/projection-mysql.ts"
 import { cases, iso, T0 } from "./projection-cases.ts"
+import { norm, PROJECTION_TABLES as TABLES } from "../projection-compare.ts"
 
 /**
  * Parity (state-placement.md 4.5): the same projection inputs through the Postgres path and the
@@ -13,22 +14,6 @@ import { cases, iso, T0 } from "./projection-cases.ts"
 const pgUrl = process.env.SCRATCH_URL
 const myUrl = process.env.MYSQL_URL
 const run = pgUrl && myUrl ? describe : describe.skip
-
-const TABLES: Record<string, { key: ReadonlyArray<string>; skip: ReadonlyArray<string> }> = {
-  users: { key: ["id"], skip: ["created_at", "updated_at"] },
-  teams: { key: ["id"], skip: ["created_at", "updated_at"] },
-  installs: { key: ["id"], skip: ["updated_at"] },
-  memberships: { key: ["team_id", "user_id"], skip: ["updated_at"] },
-  hosts: { key: ["id"], skip: ["updated_at", "deleted_at"] },
-  automations: { key: ["id"], skip: ["deleted_at"] },
-  automation_runs: { key: ["id"], skip: ["updated_at"] },
-  connections: { key: ["id"], skip: [] },
-  audit_events: { key: ["team_id", "n"], skip: ["created_at"] },
-  home_conversations: { key: ["id"], skip: ["updated_at"] },
-  home_participants: { key: ["conversation_id", "participant_id"], skip: ["updated_at"] },
-  home_invites: { key: ["id"], skip: ["updated_at"] },
-  home_message_search: { key: ["conversation_id", "seq"], skip: [] }
-}
 
 /** The inputs: every case at seq 5, 3 (older, ignored), 7, then deletes, audit and a participant re-upsert. */
 const script = (): Array<[string, Record<string, unknown>, string, number]> => {
@@ -40,19 +25,6 @@ const script = (): Array<[string, Record<string, unknown>, string, number]> => {
   out.push(["home.participant.upsert", { conversation_id: "conv_P1", participant_id: "user_p1", kind: "human", visible_from_seq: 9, left_at: iso(T0 + 50) }, "s:1", 9])
   return out
 }
-
-/** One comparable value: times as epoch ms, JSON canonical, numbers as numbers, booleans as 0/1. */
-const norm = (v: unknown): unknown => {
-  if (v === null || v === undefined) return null
-  if (v instanceof Date) return v.getTime()
-  if (typeof v === "boolean") return v ? 1 : 0
-  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/.test(v)) return Date.parse(v.includes("T") ? v : `${v.replace(" ", "T")}Z`)
-  if (typeof v === "string" && /^-?\d+$/.test(v) && v.length < 16) return Number(v)
-  if (typeof v === "object") return JSON.stringify(sortKeys(v))
-  return v
-}
-const sortKeys = (v: unknown): unknown =>
-  Array.isArray(v) ? v.map(sortKeys) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, sortKeys((v as Record<string, unknown>)[k])])) : v
 
 run("Postgres and MySQL projections give the same rows", () => {
   const pgc = new pg.Client({ connectionString: pgUrl })

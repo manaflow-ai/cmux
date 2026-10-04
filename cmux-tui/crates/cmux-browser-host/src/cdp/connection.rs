@@ -45,10 +45,26 @@ pub struct CdpConnection {
     handler: Mutex<Option<CdpEventHandler>>,
     on_close: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     closed: Mutex<Option<String>>,
+    /// A page-rooted connection (one CEF tab's DevTools relay): the page's
+    /// own messages carry no `sessionId` on the wire, and the driver sees
+    /// them under this alias, as if the page were a flat session of a
+    /// browser connection.
+    root_alias: Option<String>,
 }
 
 impl CdpConnection {
     pub fn new(wire: Box<dyn CdpWire>) -> Arc<Self> {
+        Self::build(wire, None)
+    }
+
+    /// A connection to one page target (`Target.getTargetInfo` with no
+    /// argument names it). Calls on `alias` go out without `sessionId`;
+    /// inbound messages without `sessionId` arrive tagged with `alias`.
+    pub fn page_rooted(wire: Box<dyn CdpWire>, alias: impl Into<String>) -> Arc<Self> {
+        Self::build(wire, Some(alias.into()))
+    }
+
+    fn build(wire: Box<dyn CdpWire>, root_alias: Option<String>) -> Arc<Self> {
         Arc::new(CdpConnection {
             wire,
             next_id: AtomicU64::new(1),
@@ -56,7 +72,13 @@ impl CdpConnection {
             handler: Mutex::new(None),
             on_close: Mutex::new(None),
             closed: Mutex::new(None),
+            root_alias,
         })
+    }
+
+    /// The page alias of a page-rooted connection.
+    pub fn root_alias(&self) -> Option<&str> {
+        self.root_alias.as_deref()
     }
 
     pub fn set_event_handler(&self, handler: CdpEventHandler) {
@@ -131,8 +153,21 @@ impl CdpConnection {
         message.insert("id".into(), json!(id));
         message.insert("method".into(), json!(method));
         message.insert("params".into(), if params.is_null() { json!({}) } else { params });
-        if let Some(session_id) = session_id {
-            message.insert("sessionId".into(), json!(session_id));
+        match session_id {
+            Some(session_id) if Some(session_id) == self.root_alias.as_deref() => {}
+            Some(session_id) => {
+                message.insert("sessionId".into(), json!(session_id));
+            }
+            // A page-rooted connection has no browser target: a browser-level
+            // call would reach the page instead.
+            None if self.root_alias.is_some() => {
+                self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+                return Err(DriverError::new(
+                    ErrorCode::Unsupported,
+                    format!("{method}: not available on a relayed tab (no browser target)"),
+                ));
+            }
+            None => {}
         }
         if let Err(error) = self.wire.send(&Value::Object(message).to_string()) {
             self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
@@ -178,7 +213,11 @@ impl CdpConnection {
             return;
         };
         let event = CdpEvent {
-            session_id: object.get("sessionId").and_then(Value::as_str).map(str::to_owned),
+            session_id: object
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| self.root_alias.clone()),
             method,
             params: object.remove("params").unwrap_or_else(|| json!({})),
         };
@@ -251,6 +290,51 @@ mod tests {
             self.sent.lock().unwrap().push(serde_json::from_str(message).unwrap());
             Ok(())
         }
+    }
+
+    #[test]
+    fn a_provider_relay_connection_maps_its_page_alias_to_no_session() {
+        let wire = Arc::new(RecordingWire::default());
+        let conn = CdpConnection::page_rooted(Box::new(wire.clone()), "root");
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let seen = events.clone();
+        conn.set_event_handler(Arc::new(move |event| seen.lock().unwrap().push(event)));
+        let caller = conn.clone();
+        let call = thread::spawn(move || {
+            caller.call(Some("root"), "Page.enable", json!({}), Duration::from_secs(5))
+        });
+        let child = conn.clone();
+        let child_call = thread::spawn(move || {
+            child.call(Some("frame-1"), "Runtime.enable", json!({}), Duration::from_secs(5))
+        });
+        while wire.sent.lock().unwrap().len() < 2 {
+            thread::yield_now();
+        }
+        let sent = wire.sent.lock().unwrap().clone();
+        let page = sent.iter().find(|m| m["method"] == "Page.enable").unwrap();
+        assert!(page.get("sessionId").is_none(), "{page}");
+        let frame = sent.iter().find(|m| m["method"] == "Runtime.enable").unwrap();
+        assert_eq!(frame["sessionId"], "frame-1");
+        for message in &sent {
+            let id = &message["id"];
+            conn.receive(&json!({"id": id, "result": {}}).to_string());
+        }
+        call.join().unwrap().unwrap();
+        child_call.join().unwrap().unwrap();
+        // Page events come back under the alias; child events keep theirs.
+        conn.receive(&json!({"method": "Page.loadEventFired", "params": {}}).to_string());
+        conn.receive(
+            &json!({"method": "Runtime.executionContextCreated", "sessionId": "frame-1", "params": {}})
+                .to_string(),
+        );
+        let events = events.lock().unwrap();
+        assert_eq!(events[0].session_id.as_deref(), Some("root"));
+        assert_eq!(events[1].session_id.as_deref(), Some("frame-1"));
+        // No browser target behind a relayed tab: browser-level calls fail at once.
+        let error =
+            conn.call(None, "Target.getTargets", json!({}), Duration::from_secs(5)).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Unsupported, "{error}");
+        assert_eq!(wire.sent.lock().unwrap().len(), 2, "nothing was sent for it");
     }
 
     fn connection() -> (Arc<CdpConnection>, Arc<RecordingWire>) {

@@ -227,6 +227,25 @@ The entitlement comes from the billing webhook path (section 2: Stripe -> MySQL 
 op to the owner), never from the request. VM-hours: CloudDO emits usage events per state change
 to UsageMeterDO (hard cap) and ClickHouse (detail); MySQL holds the monthly summary.
 
+### 5.8 VM bind and `cloud.machine.connect_info` (contract 1.7)
+
+1. Create: CloudDO mints the machine id, the overlay host id (`host_...`, stable for the machine's
+   life) and epoch 1, and a one-time bind token (32 random bytes; only its sha256 is stored; expires
+   15 minutes after the provider reports running). The token goes into the VM at create (Freestyle
+   file write), never into a log or the client.
+2. Bind: the image's bind agent calls internal op `cloud.machine.bind {machine, bind_token,
+   wg_public_key, daemon: {version, capabilities}}` once. CloudDO checks the token hash and expiry,
+   spends it, records `host`, `epoch`, `wg_public_key`, `daemon`, and emits `cloud.machine.upsert`
+   (revision = stream seq) plus an outbox item to TeamDO's peer map (lane 12). A restore or a re-bind
+   raises `epoch` and needs a fresh token; a second bind with a spent token is refused.
+3. `connect_info` (read, session or install; `cmux link` through the host credential relay): CloudDO
+   checks the caller may reach the machine (team policy), derives `overlay_address` from the host id,
+   reads `vpc_endpoint`/`gateway` from TeamDO's peer map (lane 12), and mints a `link_token` (signed,
+   single host, single install, the allowed services, this epoch, at most 5 minutes). Not bound
+   answers `cloud.machine.not_bound`; paused answers the record with `state: paused`.
+4. Revocation: install revocation through UserDO closes links (the token is checked at hello and
+   bound to one install); a machine delete emits `cloud.machine.removed` and drops the peer entry.
+
 ## 6. Classic Cloud migration
 
 Inputs: classic users and VMs live in classic Postgres `cmux-prod` (`cloud_vms`) and on the same
@@ -254,14 +273,19 @@ per wave.
    every imported id, and a report in MySQL. Rollback before the fence: delete the imported rows
    (no provider change). After the fence, rollback is a classic flag flip.
 
-## 7. Order of work (after acceptance)
+## 7. Order of work and target dates (updated 2026-10-04)
 
-1. MySQL: schema + baseline + harness + guard helper + ported queries (tests first), development
-   branch; then the rebuild op and the verified-copy job; staging dual write; cutover per env.
-2. CloudDO skeleton: ledger, driver (port the TeamVmDO driver), create/get/list/delete, quotas.
-3. Snapshots, start/pause/resize, idle policy, events, MySQL projection.
-4. Shell relay, migration import, upgrade.
-5. (g) continues in parallel; its g2 history goes to MySQL `automation_runs`.
+1. MySQL step 1 (done 2026-10-04, 019d7ff4d24) and step 2a (done 2026-10-04, e94afacf348): development
+   Hyperdrive configs, copy and verify job, live dual write on development (verified: 13 tables equal).
+2. MySQL step 2b: staging schema, staging Hyperdrive configs, one-time copy, dual write with hourly
+   compare, target 2026-10-06; main schema by deploy request (id reported first, coordinator's go),
+   target 2026-10-08; read switch per environment after 3 clean days.
+3. CloudDO skeleton: ledger, Freestyle driver (port of TeamVmDO's), create/get/list/delete, quotas,
+   per-environment keys and prefixes (cmuxnp-dev-, cmuxnp-stg-, cmuxnp-prod-), target 2026-10-08.
+4. VM bind and `connect_info` (5.8), snapshots, start/pause/resize, events, MySQL projection, target
+   2026-10-10; staging deploy for the Cloud v2 client, target 2026-10-12.
+5. Shell relay, classic migration import, upgrade: after 2026-10-12.
+6. (g) continues in parallel; g2 history goes to MySQL `automation_runs`.
 
 ## 8. Open decisions
 
