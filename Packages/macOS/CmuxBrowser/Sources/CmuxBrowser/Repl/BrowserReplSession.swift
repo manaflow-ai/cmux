@@ -804,8 +804,16 @@ public final class BrowserReplSession: @unchecked Sendable {
             var args = JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
             // Text the runtime writes (output spill files, traces, any file)
             // is redacted like output.
+            func failure(_ code: String, _ message: String) -> String {
+                JSONSerialization.browserReplString(["error": ["code": code, "message": message]])
+                    ?? #"{"error":{"code":"EIO","message":"error"}}"#
+            }
             if op == "writeFile", let base64 = args["base64"] as? String {
-                args["base64"] = self.boundary.redactFileContents(base64)
+                do {
+                    args["base64"] = try self.boundary.redactFileContents(base64)
+                } catch {
+                    return failure("EINVAL", "writeFile: \(BrowserReplSecretStore.limitMessage(Data(base64Encoded: base64)?.count ?? 0))")
+                }
             }
             let result = self.fileSystem.perform(op, arguments: args)
             switch result {
@@ -813,12 +821,15 @@ public final class BrowserReplSession: @unchecked Sendable {
                 // So is a file read back (a secrets file, a page's download),
                 // text or binary.
                 if op == "readFile", let base64 = value as? String {
-                    value = self.boundary.redactFileContents(base64)
+                    do {
+                        value = try self.boundary.redactFileContents(base64)
+                    } catch {
+                        return failure("EINVAL", "readFile: \(BrowserReplSecretStore.limitMessage(Data(base64Encoded: base64)?.count ?? 0))")
+                    }
                 }
                 return JSONSerialization.browserReplString(["ok": value]) ?? #"{"ok":null}"#
             case .failure(let error):
-                return JSONSerialization.browserReplString(["error": ["code": error.code, "message": error.message]])
-                    ?? #"{"error":{"code":"EIO","message":"error"}}"#
+                return failure(error.code, error.message)
             }
         }
         let secrets: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
@@ -926,7 +937,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self.fileSystem.sandbox.allowReading(path)
             }
             guard let context = self.context, !self.isClosedNow, let handler = self.entryPoints?.onEvent else { return }
-            let payload = self.boundary.redactJSON(payloadJSON)
+            // An event masking would grow past the limit arrives without its payload.
+            let payload = (try? self.boundary.redactJSON(payloadJSON))
+                ?? (JSONSerialization.browserReplString(["withheld": BrowserReplSecretStore.limitMessage(payloadJSON.utf8.count)]) ?? "{}")
             self.enter(context) { _ = handler.call(withArguments: [name, payload]) }
         }
     }
