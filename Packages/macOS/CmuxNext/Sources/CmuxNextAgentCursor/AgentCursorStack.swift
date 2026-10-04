@@ -15,7 +15,7 @@ public final class AgentCursorStack {
     public init(hostLayer: CALayer, color: @escaping AgentCursorLayerHost.Coloring = AgentCursorStack.neutralColor) {
         let resolver = AgentCursorResolverSlot()
         let host = AgentCursorLayerHost(hostLayer: hostLayer, color: color)
-        let model = AgentCursorOverlayModel(resolver: OneLayerPerEventStub(), host: host)
+        let model = AgentCursorOverlayModel(resolver: resolver, host: host)
         self.resolver = resolver
         self.host = host
         self.model = model
@@ -39,15 +39,6 @@ public final class AgentCursorResolverSlot: AgentCursorTargetResolving {
     public init() {}
 
     public func placement(forTarget targetID: String) -> AgentCursorPlacement {
-        _ = (inner, targetID)
-        return .visible(content: .zero, magnification: 1)
-    }
-}
-
-/// Red-commit stand-in: claims every target is visible, so events draw.
-final class OneLayerPerEventStub: AgentCursorTargetResolving {
-    func placement(forTarget targetID: String) -> AgentCursorPlacement {
-        _ = targetID
-        return .visible(content: CGRect(x: 0, y: 0, width: 1, height: 1), magnification: 1)
+        inner?.placement(forTarget: targetID) ?? .elsewhere
     }
 }

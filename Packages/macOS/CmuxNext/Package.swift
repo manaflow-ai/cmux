@@ -172,6 +172,7 @@ let package = Package(
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
+                "CmuxNextAgentCursor",
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
