@@ -9,11 +9,15 @@ public enum TabChipAnchor {
     /// area, keeping its size. Nil when the tab has no laid-out chip (unknown
     /// id, or a member of a collapsed group).
     public static func rect(of id: TabID, in strip: TabStripView) -> CGRect? {
-        nil // red
+        guard let cell = strip.cells[id], cell.frame.width > 0.5 else { return nil }
+        let chip = clamped(cell.frame, into: strip.tabsClip.bounds)
+        return strip.tabsClip.convert(chip, to: strip)
     }
 
     /// `chip` moved horizontally into `area`, never wider than it.
     static func clamped(_ chip: CGRect, into area: CGRect) -> CGRect {
-        chip // red
+        let width = min(chip.width, area.width)
+        let x = min(max(chip.minX, area.minX), area.maxX - width)
+        return CGRect(x: x, y: chip.minY, width: width, height: chip.height)
     }
 }
