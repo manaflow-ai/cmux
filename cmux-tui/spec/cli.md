@@ -17,7 +17,7 @@ cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
-cmux link dial --host <install or host id> [--service daemon|ssh]
+cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -31,7 +31,11 @@ on SIGTERM or SIGINT.
 host (`host_…`) through this machine's running `cmux link` (the caller never
 holds peer keys or link tokens). `--service` is `daemon` (the default; the
 session's remote entry) or `ssh` (the host's sshd, Cloud hosts only, when
-their policy allows it; paired installs serve only `daemon`). Standard error
+their policy allows it; paired installs serve only `daemon`). `--socket`
+dials exactly that link socket instead of looking up the running link (for a
+caller with a private `HOME`, or a tagged link); it must be an absolute path
+to a socket (otherwise exit 64), and a path that does not exist means the
+link is not running (exit 6). Standard error
 always gets exactly one JSON line first: `{"ok":true,"path_state":"direct"|"tunnel",
 "relay_available":false}` when connected, then the stream's bytes use
 standard input and output until the stream ends; otherwise

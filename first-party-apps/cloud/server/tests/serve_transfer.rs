@@ -111,7 +111,7 @@ fn a_fifth_transfer_while_four_run_is_busy_and_starts_nothing() {
             "idempotency_key": format!("p-{id}"),
             "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
     };
-    // Each started transfer checks the daemon capability once (a read).
+    // The daemon capability gate: one connect_info read, then cached.
     let endpoints = |host: &Host| {
         host.cloud.ops().iter().filter(|op| *op == "cloud.machine.connect_info").count()
     };
@@ -120,13 +120,13 @@ fn a_fifth_transfer_while_four_run_is_busy_and_starts_nothing() {
         let started = result_of(&mut host, id);
         assert_eq!(started.map(|r| r["result"]["state"].clone()), Some(json!("running")), "{id}");
     }
-    assert_eq!(endpoints(&host), 4);
+    assert_eq!(endpoints(&host), 1, "one cached capability read for four pushes");
     push(&host, "5");
     let busy = result_of(&mut host, "5").expect("the fifth push answers");
     assert_eq!(busy["ok"], false, "{busy}");
     assert_eq!(busy["error"]["code"], "cmux.cloud.transfer_busy", "{busy}");
     assert_eq!(busy["error"]["retryable"], true);
-    assert_eq!(endpoints(&host), 4, "the refused push asked the backend for nothing");
+    assert_eq!(endpoints(&host), 1, "the refused push asked the backend for nothing");
     // One transfer ends: a new one starts.
     releases.remove(0).send(()).unwrap();
     let mut ended = false;
@@ -141,6 +141,6 @@ fn a_fifth_transfer_while_four_run_is_busy_and_starts_nothing() {
     push(&host, "6");
     let started = result_of(&mut host, "6");
     assert_eq!(started.map(|r| r["result"]["state"].clone()), Some(json!("running")));
-    assert_eq!(endpoints(&host), 5);
+    assert_eq!(endpoints(&host), 1, "still cached");
     drop(releases);
 }

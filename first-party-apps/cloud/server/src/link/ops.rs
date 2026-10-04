@@ -69,7 +69,11 @@ pub(crate) fn run<C: ControlPlane>(
     match name {
         CONNECT => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?.to_owned();
-            let start_key = key.map(|k| format!("{k}/start"));
+            // One start key per attempt: a start key reused across attempts
+            // would replay an old start and never start a machine that
+            // paused again (v2 review P3).
+            let nonce = server.attach_mut().attempt_nonce();
+            let start_key = key.map(|k| format!("{k}/start/{nonce}"));
             let carrier = connect(server, &id, origin, start_key)?;
             Ok(carrier_json(&carrier))
         }
@@ -323,6 +327,8 @@ fn ensure_running<C: ControlPlane>(
             .origin(origin)
             .key(start_key);
         server.handle(&start)?;
+        // The machine's state changed: read its link facts again.
+        server.attach_mut().infos.forget(machine);
     }
     Ok(())
 }

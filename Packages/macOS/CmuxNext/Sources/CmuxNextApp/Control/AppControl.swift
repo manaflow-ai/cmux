@@ -187,6 +187,13 @@ final class AppControl {
                 let attachments = call.params["attachments"]?.boolValue ?? false
                 return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments))
             },
+            // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
+            // files enter the shown Home composer through the same intake as
+            // a real drop, paste or pick (HomeNativeTranscriptView.attachFiles).
+            .mainActor("debug.home.attach") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeNativeFixture.attach(call.params, services: services))
+            },
             .mainActor("debug.window_list") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugWindowList.list(services: services))

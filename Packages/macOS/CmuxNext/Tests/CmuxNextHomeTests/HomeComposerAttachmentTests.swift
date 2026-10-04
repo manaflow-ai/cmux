@@ -65,6 +65,55 @@ import Testing
         #expect(view.field.tray.isHidden)
     }
 
+    /// A Finder Copy puts the file's URL and its name as text on the
+    /// pasteboard, never the bytes. Cmd-V in a Home bound to a real store
+    /// must take it as an attachment (nxdog34: no chip, no bubble).
+    @Test func aFinderCopiedFilePastedIntoABoundHomeBecomesAChip() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 900), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent("l16-paste-\(UUID().uuidString)")
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: cache)
+        let view = HomeNativeTranscriptView(conversation: Self.conversation, me: Self.me)
+        window.contentView = view
+        let binding = HomeStoreBinding(store: store, controller: view.controller)
+        defer { binding.stop() }
+        view.connect(binding)
+        let notes = try Self.file("notes.pdf")
+        let finderCopy = FakePasteboard(fileURLs: [notes], data: [.string: Data(notes.lastPathComponent.utf8)])
+        #expect(view.handlePaste(finderCopy), "a copied file is an attachment, not its name as text")
+        await view.attachmentsReady()
+        #expect(view.field.draftAttachments.map(\.ref.name) == [notes.lastPathComponent], "the chip shows")
+        #expect(!view.field.attachButton.isHidden, "a bound Home offers the file picker too")
+    }
+
+    /// The DEBUG socket verb (`debug.home.attach`) drives the composer
+    /// through the same intake as a real drop, paste or pick, so a
+    /// preflight proves the user's path, not a side path.
+    @Test func theDebugAttachVerbMakesTheSameChipAsADrop() async throws {
+        let notes = try Self.file("notes.pdf")
+        let (w1, dropped, _) = host()
+        defer { w1.close() }
+        #expect(dropped.handleDrop(FakePasteboard(fileURLs: [notes])))
+        await dropped.attachmentsReady()
+        for mode in HomeAttachVia.allCases {
+            let (window, view, preparer) = host()
+            defer { window.close() }
+            let result = view.attachFiles(paths: [notes.path], via: mode)
+            #expect(result == .accepted, "\(mode)")
+            await view.attachmentsReady()
+            #expect(view.field.draftAttachments.map(\.ref) == dropped.field.draftAttachments.map(\.ref), "\(mode) makes the drop's chip")
+            #expect(preparer.inputs == [.file(notes)], "\(mode) goes through the preparer like a drop")
+        }
+        let (window, view, preparer) = host()
+        defer { window.close() }
+        #expect(view.attachFiles(paths: ["/no/such/file.pdf"], via: .drop) == .missingFile)
+        view.attachmentPreparer = nil
+        #expect(view.attachFiles(paths: [notes.path], via: .paste) == .notConnected, "an unconnected composer says so")
+        #expect(preparer.inputs.isEmpty)
+    }
+
     @Test func plainTextPasteStaysText() {
         let (window, view, _) = host()
         defer { window.close() }

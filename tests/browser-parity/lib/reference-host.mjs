@@ -30,7 +30,7 @@ const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
 const isIPHost = (host) => /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || /^\[[0-9a-f:.]+\]$/i.test(host);
 const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const TITLES = { "tab.navigate": "page.goto", "tabs.open": "tabs.open" };
-const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
+const GUARDED = /^(frame\.evaluate|frame\.observe|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
 const NAVIGATIONS = new Set(["tab.navigate", "tab.history", "tab.reload"]);
 const BINARY = new Set(["tab.screenshot", "tab.pdf", "clipboard.read"]);
 const CAPTURES = new Set(["tab.screenshot", "tab.pdf"]);
@@ -549,6 +549,10 @@ export function createReferenceHost(ns, { host, driver }) {
   const vmCalls = [];
   async function hostedCall(method, params = {}) {
     vmCalls.push({ method, params: JSON.parse(JSON.stringify(params)) });
+    if (method === "input.insertText" && params && typeof params.secret === "string") {
+      const { secret, ...rest } = params;
+      params = { ...rest, text: { __secret: secret } };
+    }
     try {
       await rulesSync;
       if (method === "frame.evaluate" && params.world === "host") throw Object.assign(new Error("frame.evaluate: the host world is the host's"), { code: "forbidden" });
@@ -625,7 +629,9 @@ export function createReferenceHost(ns, { host, driver }) {
     name: driver.name,
     call: hostedCall,
     on: (event, handler) => driver.on(event, (payload) => handler(maskValue(payload))),
-    capabilities: () => (driver.capabilities ? driver.capabilities() : []),
+    // secret.insert: this host types a secret from input.insertText
+    // { secret: name } (main's shape), so agent code never holds a handle.
+    capabilities: () => [...(driver.capabilities ? driver.capabilities() : []), "secret.insert"],
     detach: () => (driver.detach ? driver.detach() : undefined),
   });
 

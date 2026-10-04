@@ -47,6 +47,8 @@ pub use reaper::tree_rss_bytes;
 /// Most a pooled start's `initialize` and harness session may take before
 /// it counts as failed (and its host is ended).
 const START_BUDGET: Duration = Duration::from_secs(90);
+/// How often the pool's RSS is measured again while it holds entries.
+const RSS_TICK: Duration = Duration::from_secs(60);
 /// Most a `session/new` waits for a matching entry that is still starting
 /// before it starts cold.
 const CLAIM_WAIT: Duration = Duration::from_secs(15);
@@ -564,8 +566,39 @@ impl Hub {
 
     /// End entries nobody will take (in the background).
     fn pool_discard(&self, entries: Vec<Pooled>) {
+        // Also called from a drop (`ClaimGuard`): without a runtime the
+        // next daemon's sweep ends the host.
+        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
         for p in entries {
-            tokio::spawn(end_pooled(p));
+            rt.spawn(end_pooled(p));
+        }
+    }
+
+    /// Hold a claimed entry for `session/new` until `ensure_child` takes it.
+    pub(super) fn pool_claim_guard(self: &Arc<Self>, id: String) -> ClaimGuard {
+        ClaimGuard { hub: self.clone(), id }
+    }
+
+    /// A claimed entry nobody took (the create failed or was cancelled):
+    /// back to the pool while its key is still wanted, else it ends.
+    fn pool_return_claimed(self: &Arc<Self>, id: &str) {
+        let Some(p) = self.pool_take_claimed(id) else { return };
+        if self.pool.stopping.load(Ordering::SeqCst) {
+            self.pool_discard(vec![p]);
+            return;
+        }
+        let now = lock(&self.clock).now();
+        let key = p.key.clone();
+        match lock(&self.pool.pool).restore(&key, p, now) {
+            Some(p) => self.pool_discard(vec![p]),
+            None => {
+                tracing::info!(harness = %key.harness, "an unused claimed session went back to the pool");
+                // Park it again and check the cap, as for a new entry.
+                let hub = self.clone();
+                if let Ok(rt) = tokio::runtime::Handle::try_current() {
+                    rt.spawn(async move { hub.pool_after_ready().await });
+                }
+            }
         }
     }
 
@@ -586,13 +619,14 @@ impl Hub {
         loop {
             let took = lock(&self.pool.pool).take(&spec.key);
             match took {
-                Take::Ready(p) => {
+                Take::Ready(mut p) => {
                     if !p.child.is_alive().await {
                         self.pool_discard(vec![p]);
                         return None;
                     }
                     if p.parked {
                         signal_harness(&p.record, libc::SIGCONT);
+                        p.parked = false;
                     }
                     let id = p.session_id.clone();
                     lock(&self.pool.claimed).insert(id.clone(), p);
@@ -624,13 +658,6 @@ impl Hub {
     /// The claimed pooled session for `id`, if `session/new` claimed one.
     pub(super) fn pool_take_claimed(&self, id: &str) -> Option<Pooled> {
         lock(&self.pool.claimed).remove(id)
-    }
-
-    /// End a claimed pooled session that was not taken.
-    pub(super) fn pool_drop_claimed(&self, id: &str) {
-        if let Some(p) = self.pool_take_claimed(id) {
-            self.pool_discard(vec![p]);
-        }
     }
 
     /// `ensure_child` takes a claimed pooled session for `session`: move its
@@ -825,6 +852,13 @@ impl Hub {
                             tokio::spawn(end_pooled(p));
                         }
                     },
+                    RSS_TICK,
+                    || {
+                        // An idle harness grows (opencode does): measure
+                        // again and keep the pool under its cap.
+                        let hub = hub.clone();
+                        tokio::spawn(async move { hub.pool_after_ready().await });
+                    },
                 )
                 .await;
                 hub.pool.reaper.store(false, Ordering::SeqCst);
@@ -839,6 +873,20 @@ impl Hub {
                 }
             }
         });
+    }
+}
+
+/// A claim on a pooled entry, held by `session/new` until `ensure_child`
+/// takes the entry. Dropping it on any other path (an error after the
+/// claim, or the request future dropped) puts the entry back or ends it.
+pub(super) struct ClaimGuard {
+    hub: Arc<Hub>,
+    id: String,
+}
+
+impl Drop for ClaimGuard {
+    fn drop(&mut self) {
+        self.hub.pool_return_claimed(&self.id);
     }
 }
 

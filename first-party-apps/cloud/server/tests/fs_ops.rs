@@ -117,8 +117,8 @@ fn list_stat_and_read_map_the_daemon_answers() {
     drop(log);
     assert_eq!(
         rig.server.control_plane().ops().iter().filter(|o| o.ends_with("connect_info")).count(),
-        4,
-        "each file op checks the daemon capability with a read (no token)"
+        1,
+        "the capability gate is one cached read (no token) for all four ops"
     );
 }
 

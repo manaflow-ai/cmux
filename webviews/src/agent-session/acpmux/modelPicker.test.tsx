@@ -281,6 +281,27 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       expect(hints.at(-1)).toBeUndefined();
     });
 
+    test("opening the harness choices by keyboard hints the harness the highlight lands on", async () => {
+      hints = [];
+      await render(snapshot());
+      await open();
+      // Arrow to the harness row (the cascade's "Claude Code ›", the drill's harness section).
+      for (let step = 0; step < 12 && !hints.length; step += 1) {
+        const active = chip().getAttribute("aria-activedescendant");
+        const label = active ? doc.getElementById(active)?.querySelector(".acpmux-menu-label")?.textContent : undefined;
+        if (layout === "cascade" && label === "Claude Code") {
+          await key("ArrowRight");
+          break;
+        }
+        await key("ArrowUp");
+      }
+      // No further key: the highlight the submenu opens on is hinted by itself.
+      expect(hints.filter((hint) => hint !== undefined).length).toBeGreaterThan(0);
+      expect(hints.filter((hint) => hint !== undefined).every((hint) => ["claude", "codex"].includes(hint!))).toBe(
+        true,
+      );
+    });
+
     test("typing filters this harness's models; Return picks the best match, Escape clears then closes", async () => {
       await render(snapshot());
       await act(async () => chip().click());

@@ -40,6 +40,9 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("input.text") ? null : "no text field";
     case "host_list":
       return has("input.token-input") ? null : "no token field";
+    case "folder_list":
+      // No editor yet (the React UIs lead builds it): an empty control.
+      return control.childElementCount === 0 ? null : "an editor before the folder_list editor exists";
     case "time_range":
       return has('input[type="time"]', 2) ? null : "no time fields";
   }
@@ -59,6 +62,13 @@ describe("editors", () => {
       page = null;
     }
     expect(failures).toEqual([]);
+  });
+
+  test("a folder list row (picker.pinned) renders without an editor and without crashing", async () => {
+    page = await renderPage({ path: "/settings/general" });
+    const row = rowElement(page.container, "picker.pinned");
+    expect(row.textContent).toContain("Pinned Folders");
+    expect(row.querySelector(".row-control")?.childElementCount).toBe(0);
   });
 
   test("the window material is a material choice, never a radius slider", async () => {

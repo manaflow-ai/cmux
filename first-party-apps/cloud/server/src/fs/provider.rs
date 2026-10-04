@@ -100,12 +100,12 @@ impl<C: ControlPlane> FsProvider for CloudFs<'_, C> {
             return Err(unsupported("cmux/cloud answers one listing batch; it has no list cursor"));
         }
         let path = GuestPath::parse(path)?;
-        files::list(self.server, root.machine(), &path)
+        files::list(&super::link_files::daemon(self.server, root.machine())?, &path)
     }
 
     fn stat(&mut self, root: &Root, path: &str) -> Result<Entry, CloudError> {
         let path = GuestPath::parse(path)?;
-        files::stat(self.server, root.machine(), &path)
+        files::stat(&super::link_files::daemon(self.server, root.machine())?, &path)
     }
 
     fn read(
@@ -116,13 +116,14 @@ impl<C: ControlPlane> FsProvider for CloudFs<'_, C> {
     ) -> Result<Vec<u8>, CloudError> {
         let path = GuestPath::parse(path)?;
         let Some((offset, length)) = range else {
-            return files::read(self.server, root.machine(), &path);
+            return files::read(&super::link_files::daemon(self.server, root.machine())?, &path);
         };
         let limit = length.min(super::MAX_READ_BYTES as u64);
         if limit == 0 {
             return Ok(Vec::new());
         }
-        files::read_range(self.server, root.machine(), &path, offset, limit).map(|(bytes, _)| bytes)
+        let d = super::link_files::daemon(self.server, root.machine())?;
+        files::read_range(&d, &path, offset, limit).map(|(bytes, _)| bytes)
     }
 
     fn write(
@@ -133,6 +134,11 @@ impl<C: ControlPlane> FsProvider for CloudFs<'_, C> {
         base_revision: Option<&str>,
     ) -> Result<Revision, CloudError> {
         let path = GuestPath::parse(path)?;
-        files::write(self.server, root.machine(), &path, bytes, base_revision)
+        files::write(
+            &super::link_files::daemon(self.server, root.machine())?,
+            &path,
+            bytes,
+            base_revision,
+        )
     }
 }

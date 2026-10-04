@@ -10,6 +10,7 @@
 //! `fs.list`, `fs.read`, `fs.write`, `fs.mkdir`, `fs.rename`, `fs.delete`),
 //! so the ops light up with no Cloud change when the daemon ships them.
 
+use super::Cancel;
 use crate::api::{CloudError, ControlPlane, codes};
 use crate::link::carrier::{Children, Dialed, end_all, end_child, open_dial};
 use crate::link::dial::dial_args;
@@ -42,7 +43,14 @@ pub struct DialTarget {
 /// Sends one daemon `fs.*` op and returns its `data`. The real one dials;
 /// tests use a fake.
 pub trait DaemonFiles: Send + Sync {
-    fn call(&self, target: &DialTarget, op: &str, params: Value) -> Result<Value, CloudError>;
+    /// `cancel` ends the op (its dial child) from another thread.
+    fn call(
+        &self,
+        target: &DialTarget,
+        op: &str,
+        params: Value,
+        cancel: &Cancel,
+    ) -> Result<Value, CloudError>;
 }
 
 /// The real [`DaemonFiles`]: one `cmux link dial --host <host_…>` per op,
@@ -54,7 +62,13 @@ fn unavailable(why: impl Into<String>) -> CloudError {
 }
 
 impl DaemonFiles for LinkDaemonFiles {
-    fn call(&self, target: &DialTarget, op: &str, params: Value) -> Result<Value, CloudError> {
+    fn call(
+        &self,
+        target: &DialTarget,
+        op: &str,
+        params: Value,
+        cancel: &Cancel,
+    ) -> Result<Value, CloudError> {
         let mut request = match params {
             Value::Object(map) => map,
             _ => Map::new(),
@@ -79,6 +93,9 @@ impl DaemonFiles for LinkDaemonFiles {
                 })
                 .map_err(|e| unavailable(format!("no worker for the daemon op: {e}")))?
         };
+        // A cancel ends the dial child (ours) at any step, like the deadline.
+        let on_cancel = Arc::clone(&children);
+        cancel.on_cancel(move || end_all(&on_cancel));
         let answer = match receiver.recv_timeout(DAEMON_OP_TIMEOUT) {
             Ok(answer) => answer,
             Err(_) => Err(unavailable(format!(
@@ -178,14 +195,35 @@ pub(crate) fn target<C: ControlPlane>(
     Ok(DialTarget { binary, host: info.host, env })
 }
 
-/// One daemon `fs.*` op on `machine`, behind the gate.
-pub(crate) fn call<C: ControlPlane>(
+/// One file op's way to the machine's daemon: the dial target, the daemon
+/// file ops and the op's cancel. Built on the loop (it passes the gate),
+/// used on a worker.
+pub(crate) struct Daemon {
+    pub(crate) files: Arc<dyn DaemonFiles>,
+    pub(crate) target: DialTarget,
+    pub(crate) cancel: Cancel,
+}
+
+impl Daemon {
+    /// One daemon `fs.*` op; a cancelled op sends nothing more.
+    pub(crate) fn call(&self, op: &str, params: Value) -> Result<Value, CloudError> {
+        if self.cancel.is_cancelled() {
+            return Err(cancelled());
+        }
+        self.files.call(&self.target, op, params, &self.cancel)
+    }
+}
+
+fn cancelled() -> CloudError {
+    CloudError::new(super::FILE_OP_CANCELLED, "The file op was cancelled")
+}
+
+/// The [`Daemon`] of `machine`, behind the gate.
+pub(crate) fn daemon<C: ControlPlane>(
     server: &mut Server<C>,
     machine: &str,
-    op: &str,
-    params: Value,
-) -> Result<Value, CloudError> {
+) -> Result<Daemon, CloudError> {
     let target = target(server, machine)?;
     let files = Arc::clone(&server.edge_parts().0.files);
-    files.call(&target, op, params)
+    Ok(Daemon { files, target, cancel: Cancel::default() })
 }

@@ -53,6 +53,8 @@ pub struct Attach {
     /// Machines whose paused dial already got its one start (cleared when
     /// a link comes up).
     pub(crate) paused_restarts: BTreeSet<String>,
+    /// `cloud.machine.connect_info` answers by machine (info::InfoCache).
+    pub(crate) infos: info::InfoCache,
     /// The server's allowlisted environment; children get only
     /// [`AppEnv::child_env`].
     pub(crate) env: AppEnv,
@@ -90,6 +92,7 @@ impl Attach {
             link: paths.map_or(config::LinkConfig::Unrequested, config::LinkConfig::Ready),
             hosts: BTreeMap::new(),
             paused_restarts: BTreeSet::new(),
+            infos: info::InfoCache::default(),
             env: AppEnv::default(),
             rescue: RescueBackend::new(rescue),
             rescue_terminals: BTreeMap::new(),
@@ -119,6 +122,12 @@ impl Attach {
         Self::new(Box::new(CarrierSpawner), None, Box::new(MissingRescueRoute))
     }
 
+    /// The clock of the `connect_info` cache (tests set their own time).
+    pub fn with_info_clock(mut self, clock: std::sync::Arc<dyn crate::clock::Clock>) -> Self {
+        self.infos.set_clock(clock);
+        self
+    }
+
     /// The server's allowlisted environment (from the host's start).
     pub fn with_env(mut self, env: AppEnv) -> Self {
         self.env = env;
@@ -136,6 +145,13 @@ impl Attach {
     pub(crate) fn drain_link_events(&mut self) {
         self.supervisor.pump();
         for event in self.supervisor.take_events() {
+            // A link that went down or was revoked: its facts may be stale.
+            match &event {
+                CarrierEvent::Down { target, .. } | CarrierEvent::Revoked { target, .. } => {
+                    self.infos.forget(target);
+                }
+                CarrierEvent::Up { .. } => {}
+            }
             if let Some(end) = crate::connector::end_event(&event) {
                 hold(&mut self.connector_events, end, "connector");
             }

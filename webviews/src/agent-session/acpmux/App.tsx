@@ -1628,7 +1628,9 @@ function AcpmuxPane() {
           setMode: (modeId) => client.setMode(modeId),
           setConfig: (configId, value) => client.setConfig(configId, value),
           discard: (sessionId) => client.discard(sessionId),
-          prewarm: (harness) => client.prewarm(harness),
+          prewarm: (harness, cwd) => client.prewarm(harness, cwd),
+          // A function, not a getter: the React Compiler skips a component with a getter.
+          prewarmSupported: () => client.prewarmSupported,
         };
         harnessSwitch.setHandlers({
           restore: restorePrompt,
