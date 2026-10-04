@@ -58,8 +58,38 @@ impl RelaySet {
         emit: Emit,
         gone: ClientGone,
     ) -> io::Result<PathBuf> {
-        let _ = (self, dir, links, channel, emit, gone);
-        Err(io::Error::other("the link relay is not built yet"))
+        let name = format!("{}.sock", channel.trim_start_matches("link-"));
+        let mut path = dir.join(&name);
+        if path.as_os_str().len() > MAX_SOCKET_PATH {
+            let uid = crate::platform::effective_uid();
+            path = std::env::temp_dir().join(format!("cmux-tl-{uid}")).join(&name);
+        }
+        let parent = path.parent().expect("a socket path has a directory");
+        prepare_dir(parent)?;
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        let listener = UnixListener::bind(&path)?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+        let relay = Relay {
+            path: path.clone(),
+            stopped: Arc::new(AtomicBool::new(false)),
+            client: Arc::new(Mutex::new(None)),
+        };
+        let accept = Accept {
+            listener,
+            links: links.clone(),
+            channel: channel.to_owned(),
+            stopped: relay.stopped.clone(),
+            client: relay.client.clone(),
+            emit,
+            gone,
+        };
+        std::thread::Builder::new().name("cmux-link-accept".into()).spawn(move || accept.run())?;
+        self.relays.lock().unwrap().insert(channel.to_owned(), relay);
+        Ok(path)
     }
 
     /// Stops the relay of an ended link: no new client, the client's socket
