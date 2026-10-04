@@ -23,11 +23,22 @@ use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
+mod keybinding;
 mod run;
 
 /// Scopes that belong to the app, whatever follows.
-pub(super) const APP_SCOPES: &[&str] =
-    &["app", "action", "settings", "window", "events", "history", "bookmark", "accounts", "open"];
+pub(super) const APP_SCOPES: &[&str] = &[
+    "app",
+    "action",
+    "settings",
+    "window",
+    "events",
+    "history",
+    "bookmark",
+    "accounts",
+    "open",
+    "keybinding",
+];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
 /// that waits for its work may wait for a terminal to start (6 s) or for a
@@ -83,6 +94,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
         ("open", _) => parse_open(rest)?,
+        ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
