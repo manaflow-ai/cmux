@@ -16,6 +16,8 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod paging;
+mod pool;
+pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod shutdown;
 mod spawn;
 mod stream;
@@ -279,6 +281,8 @@ pub struct Hub {
     pub(super) stopping: AtomicBool,
     /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
     pub(super) idle_pass: Mutex<()>,
+    /// Hidden pre-created sessions for instant harness switches (`pool/`).
+    pub(super) pool: Arc<pool::PoolState>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -348,6 +352,7 @@ impl Hub {
             idle_reaper: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
+            pool: Arc::new(pool::PoolState::new()),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {

@@ -60,12 +60,15 @@ impl Hub {
             current.auto_default = next.auto_default;
             current.auto_prefer = next.auto_prefer;
             current.unavailable = next.unavailable;
+            current.pool = next.pool;
             (
                 current.harnesses.keys().cloned().collect::<Vec<_>>(),
                 current.default_harness.clone(),
                 retained,
             )
         };
+        // Pooled sessions started under the old catalog are never served.
+        self.drain_pool();
         self.probe_models_with(true, false).await;
         Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
             "retainedProfiles": retained, "modelProbePending": true}))
@@ -79,55 +82,9 @@ impl Hub {
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let (agent, profile, defaults, head, preset_name) = {
+        let Resolved { agent, profile, defaults, head, preset_name } = {
             let cfg = self.config.read().await;
-            let preset_cfg = match &preset {
-                Some(n) => Some(cfg.presets.get(n).cloned().ok_or_else(|| {
-                    RpcError::invalid_params(format!(
-                        "unknown preset {n:?}; presets: {}",
-                        if cfg.presets.is_empty() {
-                            "none".to_owned()
-                        } else {
-                            cfg.presets.keys().cloned().collect::<Vec<_>>().join(", ")
-                        }
-                    ))
-                })?),
-                None => None,
-            };
-            let head = harness
-                .clone()
-                .or_else(|| preset_cfg.as_ref().map(|p| p.harness.clone()))
-                .or_else(|| cfg.default_harness.clone())
-                .ok_or_else(|| {
-                    RpcError::invalid_params("no harnesses configured; add one to config.json")
-                })?;
-            let resolved = cfg.resolve_harness(&head).map_err(|e| {
-                RpcError::invalid_params(self.with_model_hint(&cfg, &head, model.as_deref(), e))
-            })?;
-            if let Some(reason) = cfg.unavailable.get(&resolved) {
-                return Err(RpcError::invalid_params(format!(
-                    "harness {resolved} is unavailable: {reason}"
-                )));
-            }
-            let profile = cfg.harnesses[&resolved].clone();
-            let mut d = cfg.defaults_for(&resolved);
-            if let Some(p) = &preset_cfg {
-                if remote && p.shapes_command() {
-                    return Err(RpcError::invalid_params(format!(
-                        "preset {:?} carries harness args or a system prompt, which a remote-origin session never starts with (remote chains build their settings from scratch)",
-                        preset.as_deref().unwrap_or_default()
-                    )));
-                }
-                check_preset_args(profile.kind, &p.args).map_err(RpcError::invalid_params)?;
-                d.overlay(&crate::config::SessionDefaults {
-                    model: p.model.clone(),
-                    effort: p.effort.clone(),
-                    policy: p.policy,
-                    prefer: vec![],
-                    env: p.env.clone(),
-                });
-            }
-            (resolved, profile, d, head, preset)
+            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote)?
         };
         let agent = agent.as_str();
         let family = crate::config::derive_family(agent, &profile);
@@ -145,44 +102,27 @@ impl Hub {
             Adoption::Found(recorded) => recorded,
         };
         let cwd = session_cwd(cwd, recorded, &family)?;
-        let id = uuid::Uuid::now_v7().to_string();
-        let now = now_ms();
-        let mut meta = SessionMeta {
-            schema: META_SCHEMA.into(),
-            id: id.clone(),
-            name: String::new(),
-            harness: agent.into(),
-            harness_argv: profile.argv.clone(),
-            family: Some(family.clone()),
+        let mut meta = draft_meta(Draft {
+            id: String::new(),
+            agent,
+            profile: &profile,
+            family: &family,
             preset: preset_name.clone(),
             model_request: if spawn_model { model.clone() } else { None },
             cwd,
             // Set before the first spawn, so the harness resumes it.
             agent_session_id: adopt.as_ref().map(|a| a.agent_session_id.clone()),
-            status: SessionStatus::Idle,
-            created_at: now,
-            updated_at: now,
-            last_seq: 0,
-            parent_id: None,
-            fork_seq: None,
-            agent_info: None,
-            agent_capabilities: None,
-            modes: None,
-            config_options: None,
-            models: None,
-            permission_policy: policy.map(|p| p.to_string()),
-            title: None,
-            last_prompt: None,
-            preview: None,
-            event_count: 0,
-            turn_count: 0,
-            usage: None,
-            permission_rules: None,
-            tags: Default::default(),
-            unread: false,
-            last_turn: None,
-            remote_origin: remote,
+            policy,
+            remote,
+        });
+        // A pooled session of exactly this shape (`pool/`) gives the session
+        // its id; `ensure_child` then takes it instead of starting cold.
+        let pooled = match &adopt {
+            None => self.pool_claim(&meta, &profile, &defaults.env).await,
+            Some(_) => None,
         };
+        let id = pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        meta.id = id.clone();
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
         let session = {
@@ -197,6 +137,7 @@ impl Hub {
             meta.name = match name {
                 Some(n) => {
                     if sessions.values().any(|s| s.meta().name == n) {
+                        self.pool_drop_claimed(&id);
                         return Err(RpcError::invalid_params(format!(
                             "session name {n:?} is taken"
                         )));
@@ -211,6 +152,7 @@ impl Hub {
         };
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
+            self.pool_drop_claimed(&id);
             return Err(RpcError::internal(e.to_string()));
         }
         self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
@@ -221,6 +163,8 @@ impl Hub {
             Ok(spawn) => self.ensure_child(&session, &spawn).await,
             Err(e) => Err(e),
         };
+        // A claimed pooled session that was not taken is never left behind.
+        self.pool_drop_claimed(&id);
         if let Err(e) = spawned {
             // A session whose agent never started is not left behind, and
             // neither is a child that spawned but failed to initialize.
@@ -263,7 +207,69 @@ impl Hub {
             let _ = self.kill(&session, true).await;
             return Err(e);
         }
+        if adopt.is_none() {
+            self.pool_note_used(&session);
+        }
         Ok(session)
+    }
+
+    /// What a new session for `harness`/`preset` resolves to: the profile,
+    /// its defaults chain with the preset on top, the head and preset name.
+    pub(super) fn resolve_new(
+        &self,
+        cfg: &crate::config::Config,
+        harness: Option<String>,
+        preset: &Option<String>,
+        model: Option<&str>,
+        remote: bool,
+    ) -> Result<Resolved, RpcError> {
+        let preset_cfg = match preset {
+            Some(n) => Some(cfg.presets.get(n).cloned().ok_or_else(|| {
+                RpcError::invalid_params(format!(
+                    "unknown preset {n:?}; presets: {}",
+                    if cfg.presets.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        cfg.presets.keys().cloned().collect::<Vec<_>>().join(", ")
+                    }
+                ))
+            })?),
+            None => None,
+        };
+        let head = harness
+            .clone()
+            .or_else(|| preset_cfg.as_ref().map(|p| p.harness.clone()))
+            .or_else(|| cfg.default_harness.clone())
+            .ok_or_else(|| {
+                RpcError::invalid_params("no harnesses configured; add one to config.json")
+            })?;
+        let resolved = cfg
+            .resolve_harness(&head)
+            .map_err(|e| RpcError::invalid_params(self.with_model_hint(cfg, &head, model, e)))?;
+        if let Some(reason) = cfg.unavailable.get(&resolved) {
+            return Err(RpcError::invalid_params(format!(
+                "harness {resolved} is unavailable: {reason}"
+            )));
+        }
+        let profile = cfg.harnesses[&resolved].clone();
+        let mut d = cfg.defaults_for(&resolved);
+        if let Some(p) = &preset_cfg {
+            if remote && p.shapes_command() {
+                return Err(RpcError::invalid_params(format!(
+                    "preset {:?} carries harness args or a system prompt, which a remote-origin session never starts with (remote chains build their settings from scratch)",
+                    preset.as_deref().unwrap_or_default()
+                )));
+            }
+            check_preset_args(profile.kind, &p.args).map_err(RpcError::invalid_params)?;
+            d.overlay(&crate::config::SessionDefaults {
+                model: p.model.clone(),
+                effort: p.effort.clone(),
+                policy: p.policy,
+                prefer: vec![],
+                env: p.env.clone(),
+            });
+        }
+        Ok(Resolved { agent: resolved, profile, defaults: d, head, preset_name: preset.clone() })
     }
 
     /// "did you mean codex/gpt-5.5": a `-m` head that is no harness may be a
@@ -364,6 +370,16 @@ impl Hub {
                     }
                     self.append(session, "mux", "host_unreachable_ended", json!({}));
                 }
+            }
+        }
+
+        // A pooled session claimed for this id (`pool/`): its host already
+        // runs with the harness initialized and its session created.
+        if let Some(pooled) = self.pool_take_claimed(&session.id) {
+            match self.adopt_pooled(session, pooled).await {
+                Ok(child) => return Ok(child),
+                // Not promotable: it was ended; start cold below.
+                Err(e) => tracing::warn!(session = %session.id, "pooled session not taken: {e:#}"),
             }
         }
 
@@ -945,4 +961,67 @@ pub struct NewRequest {
     pub remote: bool,
     /// A harness session to resume instead of starting a new one.
     pub adopt: Option<crate::adopt::AdoptRequest>,
+}
+
+/// `Hub::resolve_new`: what a new session resolves to before it exists.
+pub(super) struct Resolved {
+    pub(super) agent: String,
+    pub(super) profile: HarnessProfile,
+    pub(super) defaults: crate::config::SessionDefaults,
+    pub(super) head: String,
+    pub(super) preset_name: Option<String>,
+}
+
+/// The inputs of a new session's meta (`draft_meta`).
+pub(super) struct Draft<'a> {
+    pub(super) id: String,
+    pub(super) agent: &'a str,
+    pub(super) profile: &'a HarnessProfile,
+    pub(super) family: &'a str,
+    pub(super) preset: Option<String>,
+    pub(super) model_request: Option<String>,
+    pub(super) cwd: PathBuf,
+    pub(super) agent_session_id: Option<String>,
+    pub(super) policy: Option<PermissionPolicy>,
+    pub(super) remote: bool,
+}
+
+/// A new session's meta, before it has a name.
+pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
+    let now = now_ms();
+    SessionMeta {
+        schema: META_SCHEMA.into(),
+        id: d.id,
+        name: String::new(),
+        harness: d.agent.into(),
+        harness_argv: d.profile.argv.clone(),
+        family: Some(d.family.to_owned()),
+        preset: d.preset,
+        model_request: d.model_request,
+        cwd: d.cwd,
+        agent_session_id: d.agent_session_id,
+        status: SessionStatus::Idle,
+        created_at: now,
+        updated_at: now,
+        last_seq: 0,
+        parent_id: None,
+        fork_seq: None,
+        agent_info: None,
+        agent_capabilities: None,
+        modes: None,
+        config_options: None,
+        models: None,
+        permission_policy: d.policy.map(|p| p.to_string()),
+        title: None,
+        last_prompt: None,
+        preview: None,
+        event_count: 0,
+        turn_count: 0,
+        usage: None,
+        permission_rules: None,
+        tags: Default::default(),
+        unread: false,
+        last_turn: None,
+        remote_origin: d.remote,
+    }
 }

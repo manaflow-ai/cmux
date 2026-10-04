@@ -20,6 +20,12 @@ impl Hub {
     /// their host (else by nonce proof), and a turn in progress is recorded
     /// as cancelled.
     pub async fn shutdown_all(&self) {
+        // Pooled sessions are hidden, never user sessions: they end with the
+        // daemon, alongside the sessions below.
+        tokio::join!(self.stop_pool(), self.shutdown_sessions());
+    }
+
+    async fn shutdown_sessions(&self) {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
         // The idle reaper must not end a hosted agent this shutdown hands off.
         self.stop_idle_reaper();

@@ -244,9 +244,8 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     let (first, cold) = new_session(&mut rpc, &home, "fake").await;
     assert!(!taken(&daemon, &first), "nothing was pooled yet");
 
-    let warmed = rpc
-        .call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true}))
-        .await;
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
     assert_eq!(warmed["accepted"], true, "{warmed}");
     let status = wait_pool_ready(&mut rpc, "fakeb").await;
     // Hidden: not listed, not counted, nothing in the store, and its host
@@ -272,7 +271,8 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     // Its log holds the pooled start, in order, then it works.
     let kinds: Vec<String> =
         daemon.events(&second).iter().map(|e| e["kind"].as_str().unwrap().to_owned()).collect();
-    let pos = |k: &str| kinds.iter().position(|x| x == k).unwrap_or_else(|| panic!("{k}: {kinds:?}"));
+    let pos =
+        |k: &str| kinds.iter().position(|x| x == k).unwrap_or_else(|| panic!("{k}: {kinds:?}"));
     assert!(pos("created") < pos("host_started"));
     assert!(pos("host_started") < pos("initialize"));
     assert!(pos("initialize") < pos("session/new"));
