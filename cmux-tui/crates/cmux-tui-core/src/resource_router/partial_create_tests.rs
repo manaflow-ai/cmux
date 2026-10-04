@@ -39,7 +39,7 @@ fn a_create_whose_commit_fails_leaves_no_workspace_or_terminal() {
         &mux,
         parsed_request(
             "workspace.create",
-            json!({"initial_content":"terminal","name":"partial"}),
+            json!({"initial_content":"terminal","name":"partial","correlation_key":"partial-correlation"}),
             "partial-create",
         ),
     );
@@ -52,11 +52,14 @@ fn a_create_whose_commit_fails_leaves_no_workspace_or_terminal() {
         &mux,
         parsed_request(
             "workspace.create",
-            json!({"initial_content":"terminal","name":"partial"}),
+            json!({"initial_content":"terminal","name":"partial","correlation_key":"partial-correlation"}),
             "partial-create",
         ),
     );
     assert!(replay.is_err(), "the replay of a failed create succeeded: {replay:?}");
+    // Settled as a failure, not left indeterminate.
+    let resolution = mux.resource_creation_resolution("partial-correlation").unwrap();
+    assert_eq!(resolution["state"], "not_applied", "{resolution}");
     assert_eq!(workspaces(&mux), before_workspaces);
     mux.shutdown();
 }

@@ -29,14 +29,15 @@ impl Mux {
             self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
             return Ok(ResourceCreationSettlement::Indeterminate);
         }
-        // A rollback that fails leaves the effect indeterminate, as before.
-        let rolled_back =
-            self.rollback_interrupted_workspace_creation(&recovery.intent).and_then(|()| {
-                match recovery.intent["terminal_reservation"]["terminal_id"].as_str() {
-                    Some(terminal_id) => self.close_unpublished_terminal(terminal_id),
-                    None => Ok(()),
-                }
-            });
+        // The terminal ends first: if that fails (or the daemon stops here),
+        // the receipt's evidence is a closed terminal, whose settlement
+        // already rolls the workspace back. A rollback that fails leaves the
+        // effect indeterminate, as before.
+        let rolled_back = match recovery.intent["terminal_reservation"]["terminal_id"].as_str() {
+            Some(terminal_id) => self.close_unpublished_terminal(terminal_id),
+            None => Ok(()),
+        }
+        .and_then(|()| self.rollback_interrupted_workspace_creation(&recovery.intent));
         if let Err(error) = rolled_back {
             eprintln!("cmux-tui: a failed creation could not be rolled back: {error:#}");
             self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
@@ -73,13 +74,19 @@ impl Mux {
     /// its host. The creation fence is already held by the caller, so this
     /// does not go through `close_terminal_guarded` (which takes it).
     fn close_unpublished_terminal(&self, terminal_id: &str) -> anyhow::Result<()> {
-        self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).close_terminal(
-            &WorkspaceMutation::local("cmux-tui"),
-            None,
-            None,
-            terminal_id,
-            None,
-        )?;
+        {
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let commit = registry.close_terminal(
+                &WorkspaceMutation::local("cmux-tui"),
+                None,
+                None,
+                terminal_id,
+                None,
+            )?;
+            // Subscribers saw the terminal's Launching and Running rows.
+            self.emit_terminal_registry_changed(&registry, commit.revision);
+        }
         let (runtime, removed) = {
             let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let runtime = state
