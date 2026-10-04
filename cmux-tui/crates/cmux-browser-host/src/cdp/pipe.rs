@@ -22,6 +22,36 @@ pub struct HeadlessOptions {
     pub user_data_dir: Option<PathBuf>,
     /// Extra switches, appended after the defaults.
     pub extra_args: Vec<String>,
+    /// `--headless`; false runs a headful browser (Cloud user tabs with a
+    /// remote presentation).
+    pub headless: bool,
+    /// Background tabs keep timers and rendering at full rate (the three
+    /// background-throttling switches); false lets Chromium throttle them,
+    /// which saves idle CPU.
+    pub full_rate_background: bool,
+}
+
+impl HeadlessOptions {
+    pub fn new(binary: PathBuf) -> HeadlessOptions {
+        HeadlessOptions {
+            binary,
+            user_data_dir: None,
+            extra_args: Vec::new(),
+            headless: true,
+            full_rate_background: true,
+        }
+    }
+}
+
+/// The switches a launch passes, or an error for a switch the host never
+/// allows (`--no-sandbox`: never default to running without the sandbox).
+pub fn launch_args(
+    options: &HeadlessOptions,
+    profile_dir: &std::path::Path,
+) -> io::Result<Vec<String>> {
+    let mut args = default_args(profile_dir);
+    args.extend(options.extra_args.iter().cloned());
+    Ok(args)
 }
 
 /// A running headless Chromium and its CDP connection.
@@ -61,7 +91,7 @@ impl HeadlessChromium {
         let child_write = from_browser_write.as_raw_fd();
 
         let mut command = Command::new(&options.binary);
-        command.args(default_args(&profile_dir)).args(&options.extra_args);
+        command.args(launch_args(options, &profile_dir)?);
         command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         // Its own process group, so stopping it also stops renderers and the GPU process.
         command.process_group(0);
@@ -250,4 +280,46 @@ fn install_pipe_fds(read: RawFd, write: RawFd) -> io::Result<()> {
         libc::close(high_write);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod launch_args_tests {
+    use super::*;
+
+    fn options() -> HeadlessOptions {
+        HeadlessOptions::new(PathBuf::from("/bin/chromium"))
+    }
+
+    #[test]
+    fn launch_args_refuse_running_without_the_sandbox() {
+        for switch in ["--no-sandbox", "--NO-SANDBOX", "--no-sandbox=1", "--disable-setuid-sandbox"]
+        {
+            let mut options = options();
+            options.extra_args = vec!["--lang=en".into(), switch.into()];
+            let error = launch_args(&options, std::path::Path::new("/tmp/p")).unwrap_err();
+            assert!(error.to_string().contains("sandbox"), "{switch}: {error}");
+        }
+    }
+
+    #[test]
+    fn launch_args_follow_the_headless_and_background_options() {
+        let path = std::path::Path::new("/tmp/p");
+        let default = launch_args(&options(), path).unwrap();
+        assert!(default.contains(&"--headless".to_string()));
+        assert!(default.contains(&"--disable-background-timer-throttling".to_string()));
+        let mut headful = options();
+        headful.headless = false;
+        headful.full_rate_background = false;
+        let args = launch_args(&headful, path).unwrap();
+        assert!(!args.iter().any(|a| a.starts_with("--headless")), "{args:?}");
+        for switch in [
+            "--disable-background-timer-throttling",
+            "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows",
+        ] {
+            assert!(!args.contains(&switch.to_string()), "{switch} in {args:?}");
+        }
+        // The page URL stays last.
+        assert_eq!(args.last().map(String::as_str), Some("about:blank"));
+    }
 }
