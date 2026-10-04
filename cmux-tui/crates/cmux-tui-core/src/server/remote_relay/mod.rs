@@ -292,7 +292,8 @@ pub(super) fn refusal(message: &str, code: &str) -> Value {
 fn identify() -> Value {
     json!({
         "app": "cmux-tui",
-        "protocol": crate::provider_management::PROTOCOL_VERSION,
+        // The daemon socket protocol, as the local `identify` answers (clients read it as that).
+        "protocol": crate::server::PROTOCOL_VERSION,
         "capabilities": gate::REMOTE_CAPABILITIES,
     })
 }

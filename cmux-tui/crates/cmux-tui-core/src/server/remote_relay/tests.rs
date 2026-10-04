@@ -269,6 +269,7 @@ fn a_remote_identify_reveals_no_local_state() {
     keys.sort();
     assert_eq!(keys, ["app", "capabilities", "protocol"], "{reply}");
     assert_eq!(data["capabilities"], json!(["local-conversations-v1"]));
+    assert_eq!(data["protocol"], json!(crate::server::PROTOCOL_VERSION), "{reply}");
 }
 
 #[test]
