@@ -755,6 +755,51 @@ test("snapshot: one huge text or value is cut at the snapshot's size budget with
   }
 });
 
+test("snapshot: reading outside the walk (offscreen counts, table shape) stays within the walk's bounds", async () => {
+  // Counting the interactive elements outside the viewport, and telling a
+  // layout table from a data table, read DOM the walk does not visit. Both
+  // read lazily and stop at a bound: the offscreen count reads at most the
+  // walk's node budget of elements and then says it is a lower bound, and a
+  // table's shape is judged from its first 50 rows (a later row of another
+  // length does not make a 60,000-row table a layout table).
+  // `_maxNodes` lowers the budget for the test.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        document.body.innerHTML = '<button>Seen</button><div id="off" style="position:absolute;top:100000px"></div>';
+        const off = document.getElementById("off");
+        const b = document.createElement("button");
+        b.textContent = "x";
+        for (let i = 0; i < 5000; i++) off.appendChild(b.cloneNode(true));
+      });
+      const offscreen = (await snapshot({ viewport: true, maxChars: Infinity, _maxNodes: 1000 })).tree.split("\\n").filter((l) => /outside the viewport/.test(l));
+      await page.evaluate(() => {
+        const t = document.createElement("table");
+        const tb = t.appendChild(document.createElement("tbody"));
+        const row = document.createElement("tr");
+        for (let j = 0; j < 3; j++) row.appendChild(document.createElement("td")).textContent = "c" + j;
+        for (let i = 0; i < 60000; i++) tb.appendChild(row.cloneNode(true));
+        tb.lastChild.appendChild(document.createElement("td")).textContent = "extra";
+        document.body.replaceChildren(t);
+      });
+      const table = (await snapshot({ maxChars: Infinity, _maxNodes: 200 })).tree.split("\\n").slice(2, 6);
+      console.log("@@" + JSON.stringify({ offscreen, table }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const { offscreen, table } = JSON.parse(line.slice(2));
+    assert.equal(offscreen.length, 1, JSON.stringify(offscreen));
+    const m = /^# at least ([\d,]+) interactive elements outside the viewport are not shown/.exec(offscreen[0]);
+    assert.ok(m, offscreen[0]);
+    assert.ok(Number(m[1].replace(/,/g, "")) <= 1000, offscreen[0]);
+    assert.ok(table.some((l) => /^- table/.test(l)) && table.some((l) => /row: "c0 \| c1 \| c2"/.test(l)), table.join("\n"));
+  } finally {
+    await server.close();
+  }
+});
+
 // Page text reaches the caller's terminal. Escape sequences and other C0,
 // C1 and DEL controls a page puts in its text, title, option labels, URLs or
 // error messages print as visible escapes (`\u001b`), never raw, whichever
