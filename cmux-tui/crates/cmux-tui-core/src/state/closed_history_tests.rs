@@ -143,39 +143,79 @@ fn reopen_without_an_id_is_scoped_to_the_window() {
     assert_eq!(pane_tab_ids(&mux, second[0]).len(), 2);
 }
 
-/// A registry from before groups: every v1 item becomes a one-member group
-/// with the same id, newest first, and the v1 table is dropped.
+/// A group whose window record is live is never reopened from another
+/// window: a press in another window refuses, the group stays, and its own
+/// window still reopens it (decision P1-2).
 #[test]
-fn v1_closed_items_migrate_to_one_member_groups() {
-    use crate::state::closed_history_store::{closed_items, create_closed_history_schema};
-    let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+fn a_group_of_a_live_window_is_never_reopened_from_another_window() {
+    let mux = Mux::new_for_test("closed-v2-live-window", SurfaceOptions::default());
+    let first = terminal_tabs(&mux, 2);
+    let second = terminal_tabs(&mux, 2);
+    put_window(&mux, "win_1", &[&workspace_key(&mux, first[0])]);
+    put_window(&mux, "win_2", &[&workspace_key(&mux, second[0])]);
+    assert!(mux.close_surface(second[1]).unwrap());
+    let group = read(&mux, "closed.list", json!({}))[0]["id"].clone();
+
+    let other = send(&mux, "closed.reopen", json!({"window": "install_a/win_1"}), Some("w1"));
+    assert_eq!(error_code(other), "resource.not_found");
+    assert!(read(&mux, "closed.list", json!({"window": "install_a/win_1"}))
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(read(&mux, "closed.list", json!({}))[0]["id"], group);
+    assert_eq!(pane_tab_ids(&mux, second[0]).len(), 1);
+
+    let own = mutate(&mux, "closed.reopen", json!({"window": "install_a/win_2"}), "w2");
+    assert_eq!(own["closed_id"], group);
+    assert_eq!(pane_tab_ids(&mux, second[0]).len(), 2);
+}
+
+const V1_TABLE: &str = "CREATE TABLE closed_history (
+    closed_id TEXT PRIMARY KEY NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('tab','screen','workspace')),
+    record_json TEXT NOT NULL,
+    closed_at_ms INTEGER NOT NULL CHECK(closed_at_ms >= 0),
+    sequence INTEGER NOT NULL
+);";
+
+/// What a v1 daemon writes for one closed workspace.
+fn insert_v1(connection: &rusqlite::Connection, name: &str, sequence: i64) {
+    let id = format!("closed_{name}");
+    let record = json!({"id": id, "kind": "workspace", "name": name, "workspace_id": null,
+        "pane_id": null, "index": 3, "closed_at_ms": "1000",
+        "screens": [{"name": null, "tabs": [{"kind": "terminal", "name": null,
+            "cwd": "/tmp", "url": null, "browser_profile_id": null, "pinned": false}]}]});
     connection
-        .execute_batch(
-            "CREATE TABLE closed_history (
-               closed_id TEXT PRIMARY KEY NOT NULL,
-               kind TEXT NOT NULL CHECK(kind IN ('tab','screen','workspace')),
-               record_json TEXT NOT NULL,
-               closed_at_ms INTEGER NOT NULL CHECK(closed_at_ms >= 0),
-               sequence INTEGER NOT NULL
-             );",
+        .execute(
+            "INSERT INTO closed_history VALUES(?1, 'workspace', ?2, 1000, ?3)",
+            rusqlite::params![id, record.to_string(), sequence],
         )
         .unwrap();
-    for (sequence, name) in [(1, "older"), (2, "newer")] {
-        let id = format!("closed_{name}");
-        let record = json!({"id": id, "kind": "workspace", "name": name, "workspace_id": null,
-            "pane_id": null, "index": 3, "closed_at_ms": "1000",
-            "screens": [{"name": null, "tabs": [{"kind": "terminal", "name": null,
-                "cwd": "/tmp", "url": null, "browser_profile_id": null, "pinned": false}]}]});
-        connection
-            .execute(
-                "INSERT INTO closed_history VALUES(?1, 'workspace', ?2, 1000, ?3)",
-                rusqlite::params![id, record.to_string(), sequence],
-            )
-            .unwrap();
-    }
+}
+
+fn open_schema(connection: &mut rusqlite::Connection) {
     let transaction = connection.transaction().unwrap();
-    create_closed_history_schema(&transaction).unwrap();
+    crate::state::closed_history_store::create_closed_history_schema(&transaction).unwrap();
     transaction.commit().unwrap();
+}
+
+fn v1_names(connection: &rusqlite::Connection) -> Vec<String> {
+    let mut statement =
+        connection.prepare("SELECT closed_id FROM closed_history ORDER BY sequence").unwrap();
+    statement.query_map([], |row| row.get::<_, String>(0)).unwrap().map(Result::unwrap).collect()
+}
+
+/// A registry from before groups: every v1 item is COPIED to a one-member
+/// group with the same id, newest first. The v1 table stays untouched for
+/// one release, so a downgraded daemon still reads its history.
+#[test]
+fn v1_closed_items_are_copied_to_one_member_groups_and_v1_stays_readable() {
+    use crate::state::closed_history_store::closed_items;
+    let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+    connection.execute_batch(V1_TABLE).unwrap();
+    insert_v1(&connection, "older", 1);
+    insert_v1(&connection, "newer", 2);
+    open_schema(&mut connection);
 
     let items = closed_items(&connection).unwrap();
     assert_eq!(items.len(), 2);
@@ -185,12 +225,38 @@ fn v1_closed_items_migrate_to_one_member_groups() {
     assert_eq!(items[0]["window"], Value::Null);
     assert_eq!(items[0]["members"][0]["index"], 3);
     assert_eq!(items[0]["members"][0]["screens"][0]["tabs"][0]["cwd"], "/tmp");
-    let v1_left: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'closed_history'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(v1_left, 0);
+    // An old reader on the migrated store sees its rows.
+    assert_eq!(v1_names(&connection), vec!["closed_older", "closed_newer"]);
+}
+
+/// The copy is idempotent: opening twice gives the same groups, a group
+/// reopened after the copy does not come back, and rows a downgraded v1
+/// daemon added meanwhile are copied once, as the newest groups.
+#[test]
+fn the_v1_copy_is_idempotent_across_reopens_and_downgrades() {
+    use crate::state::closed_history_store::closed_items;
+    let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+    connection.execute_batch(V1_TABLE).unwrap();
+    insert_v1(&connection, "older", 1);
+    insert_v1(&connection, "newer", 2);
+    open_schema(&mut connection);
+    let first = closed_items(&connection).unwrap();
+    open_schema(&mut connection);
+    assert_eq!(closed_items(&connection).unwrap(), first, "a second open copies nothing");
+
+    connection.execute("DELETE FROM closed_groups WHERE closed_id = 'closed_newer'", []).unwrap();
+    open_schema(&mut connection);
+    let ids = |items: Vec<Value>| items.iter().map(|i| i["id"].clone()).collect::<Vec<_>>();
+    assert_eq!(ids(closed_items(&connection).unwrap()), vec![json!("closed_older")]);
+
+    // A downgraded daemon closes one more workspace (v1 sequences restart
+    // at 1 when its table empties, so the copy keys on ids, not sequences).
+    insert_v1(&connection, "downgraded", 1);
+    open_schema(&mut connection);
+    assert_eq!(
+        ids(closed_items(&connection).unwrap()),
+        vec![json!("closed_downgraded"), json!("closed_older")]
+    );
+    open_schema(&mut connection);
+    assert_eq!(closed_items(&connection).unwrap().len(), 2);
 }
