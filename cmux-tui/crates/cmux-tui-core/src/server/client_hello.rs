@@ -52,6 +52,13 @@ pub(super) struct Peer {
     pub(super) token: Option<PeerToken>,
 }
 
+impl Peer {
+    /// A transport with no socket peer facts (a WebSocket).
+    pub(super) const fn unknown() -> Self {
+        Self { key: None, token: None }
+    }
+}
+
 /// The hello state of ONE connection, owned by its read loop, so ordinary
 /// lines pay one enum check after the window closes.
 pub(super) struct HelloGate {

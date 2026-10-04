@@ -433,8 +433,8 @@ fn legacy_user_origin_gestures_need_the_verified_app() {
 fn hello(mux: &Arc<Mux>, role: &str, peer: &str) -> Conn {
     use cmux_local_auth::frontend_proof::{NONCE_LEN, hello_proof, unhex};
     let conn = connect(mux);
-    let mut gate = super::client_hello::HelloGate::new(ClientTransport::Unix);
-    let peer = || super::client_hello::Peer { key: Some(peer.to_string()), token: None };
+    let mut gate = client_hello::HelloGate::new(ClientTransport::Unix);
+    let peer = || client_hello::Peer { key: Some(peer.to_string()), token: None };
     let start = json!({"id": 1, "cmd": "client-hello", "role": role, "install_id": "inst_p8"});
     let started = gate.observe(mux, conn.client, &start.to_string(), peer).expect("handled");
     assert_eq!(started["ok"], true, "{started}");
@@ -453,8 +453,8 @@ const P8_KEY_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a
 
 fn keyed_mux(label: &str) -> Arc<Mux> {
     let mux = mux(label);
-    let key = crate::server::FrontendKey::parse(&format!("cmuxik1 inst_p8 {P8_KEY_HEX}")).unwrap();
-    assert!(crate::server::install_frontend_key(&mux, key));
+    let key = FrontendKey::parse(&format!("cmuxik1 inst_p8 {P8_KEY_HEX}")).unwrap();
+    assert!(install_frontend_key(&mux, key));
     mux
 }
 
