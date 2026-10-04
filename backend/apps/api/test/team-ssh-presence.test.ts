@@ -144,6 +144,7 @@ describe("a crash during a certificate request replays the same certificate", { 
       await sshExternal(
         {
           state: () => instance.boundEngine.currentState,
+          rows: instance.boundEngine.rows,
           team: t.team,
           stream: engine.stream,
           kek: instance.env.INTEGRATIONS_KEK,
@@ -197,10 +198,9 @@ describe("a crash during a certificate request replays the same certificate", { 
     const m = t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000096")
     const idem2 = crypto.randomUUID()
     const lost2 = await crashOnce(t, m, { public_key: key }, idem2)
-    await inDO(t.stub, async (instance) => {
-      const engine = instance.boundEngine
-      const { [t.member]: _gone, ...members } = engine.currentState.members
-      engine.state = { ...engine.currentState, members }
+    // The member leaves: members are rows ((f)); the row goes.
+    await inDO(t.stub, async (_instance, state: DurableObjectState) => {
+      state.storage.sql.exec("DELETE FROM own_rows WHERE tbl = 'member' AND k = ?", t.member)
     })
     expect((await t.op(m, "team_vm.ssh_cert", { public_key: key }, idem2)).error!.code).toBe("auth.forbidden")
     // Refused at the membership gate, before the request runs; its prepared certificate is never signed.
@@ -231,7 +231,7 @@ describe("a crash during a certificate request replays the same certificate", { 
       const running = new Set([`${p.identity}|${busy}`])
       state.storage.sql.exec(`INSERT INTO ssh_requests (identity, idem, op, hash, reply, at) VALUES (?, ?, 'team_vm.ssh_cert', ?, NULL, ?)`, p.identity, busy, hash, Date.now())
       return sshExternal(
-        { state: () => instance.boundEngine.currentState, team: t.team, stream: instance.boundEngine.stream, kek: instance.env.INTEGRATIONS_KEK, sql: state.storage.sql, now: () => Date.now(), submitSystem: (op, prm, k) => instance.submitSystem(op, prm, k), running },
+        { state: () => instance.boundEngine.currentState, rows: instance.boundEngine.rows, team: t.team, stream: instance.boundEngine.stream, kek: instance.env.INTEGRATIONS_KEK, sql: state.storage.sql, now: () => Date.now(), submitSystem: (op, prm, k) => instance.submitSystem(op, prm, k), running },
         p,
         { op: "team_vm.ssh_cert", params: { public_key: keyA }, idempotency_key: busy }
       )

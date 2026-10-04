@@ -4,15 +4,19 @@ import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enro
 import { POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
 import { sshCaView } from "./domains/team-ssh.ts"
 import type { ReadResult } from "./owner-do.ts"
+import { listHosts, listMembers, memberOf, type RowsWithScan } from "./domains/team-members.ts"
+
+const DIRECTORY_PAGE = 200
 
 /** TeamDO reads (members only; admin reads for owners and admins). Pure over the team state. */
-export const teamRead = (state: TeamState, op: string, params: unknown, principal: Principal): ReadResult => {
-  const member = principal.user ? state.members[principal.user] : undefined
+export const teamRead = (state: TeamState, op: string, params: unknown, principal: Principal, rows?: RowsWithScan): ReadResult => {
+  const member = memberOf(state, rows, principal.user)
   if (!member) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
   const p = (params ?? {}) as { version?: unknown; limit?: unknown }
   switch (op) {
     case "team.directory":
-      return { ok: true, value: { team: state.team?.id, members: Object.values(state.members), hosts: Object.values(state.hosts) }, revision: "" }
+      // The first page of each list (old clients); team.members.list and team.hosts.list page the rest.
+      return { ok: true, value: { team: state.team?.id, members: listMembers(state, rows, undefined, DIRECTORY_PAGE).items, hosts: listHosts(state, rows, undefined, DIRECTORY_PAGE).items }, revision: "" }
     case "team.policy.get": {
       if (p.version !== undefined && (typeof p.version !== "number" || !Number.isInteger(p.version))) return { ok: false, code: "validation.invalid", message: "version must be an integer" }
       const policy = policyAt(state, p.version as number | undefined)

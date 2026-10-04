@@ -225,6 +225,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       ] as const
   ),
   [
+    "team.rows_migrate",
+    {
+      name: "team.rows_migrate",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({}),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: moves an old head's members and hosts maps into rows ((f), DO audit F-1).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "team.policy.runs_synced",
     {
       name: "team.policy.runs_synced",
