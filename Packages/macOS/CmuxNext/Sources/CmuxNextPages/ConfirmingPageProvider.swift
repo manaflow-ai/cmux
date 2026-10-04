@@ -27,7 +27,7 @@ public final class ConfirmingPageProvider: PageProvider {
             return try await inner.call(op, params: params, context: context)
         }
         guard await presenter.confirm(confirmation, anchor: anchor()) else { throw PageError.cancelled }
-        return try await inner.call(op, params: params, context: PageCallContext(page: context.page, origin: "user", confirmed: true))
+        return try await inner.call(op, params: params, context: PageCallContext(page: context.page, origin: "user", confirmed: true, opid: context.opid))
     }
 
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,

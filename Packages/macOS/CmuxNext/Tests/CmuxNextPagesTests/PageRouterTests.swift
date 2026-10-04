@@ -59,6 +59,18 @@ import Testing
         #expect(native.calls.map(\.op) == [PageNativeOp.actionRun])
     }
 
+    /// Decision 31: the page's operation id reaches the provider; a malformed one is refused.
+    @Test func theOpidReachesTheProviderAndAMalformedOneIsRefused() async {
+        let (router, daemon, _, _) = router()
+        _ = await router.handle(["t": "call", "id": 1, "op": "cmux.settings.list", "params": [:], "opid": "p1:42"])
+        #expect(daemon.calls.first?.context.opid == "p1:42")
+        for bad: JSONValue in ["", "has space", .string(String(repeating: "a", count: 129)), 7] {
+            let reply = await router.handle(["t": "call", "id": 2, "op": "cmux.settings.list", "params": [:], "opid": bad])
+            #expect(reply["code"] == "cmux.protocol.bad_message", "\(bad)")
+        }
+        #expect(daemon.calls.count == 1)
+    }
+
     @Test func everythingElseIsUnknownAndReachesNoProvider() async {
         let (router, daemon, native, _) = router()
         for op in ["terminal.input.write", "cmux.history.entries.list", "cmux.settings", "cmux.settings.domains.publish",

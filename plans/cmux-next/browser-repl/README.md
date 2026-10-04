@@ -436,8 +436,9 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
   `cmux browser repl reset` always ends a stuck one.
   cmux-next: the native session is the Rust browser host (`gate.rs`,
   `secrets.rs`, `policy.rs`, browser-host.md section 4); its QuickJS-ng VM
-  bounds a callback outside a cell at 5 s and does not yet remove the
-  runtime's entry points before the first cell.
+  bounds a callback outside a cell at 5 s. It does not yet mask generated
+  TOTP codes, non-UTF-8 bytes or refuse a capture whose mask the page
+  dropped (the reference host does; slice S1).
 - Runtime: `cmux-tui/crates/cmux-browser-host/js/` (`runtime-core.js` Playwright model,
   `api.js` globals, `snapshot.js` host-side stitching and diff, `page-agent.js`
   per-frame script in an isolated content world, `repl-host.js`). Locators use
@@ -451,8 +452,8 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
   host is its own site (a narrower scope). The dev backend uses a small
   stand-in (`tests/browser-parity/lib/public-suffix.mjs`).
   cmux-next: the Rust host has no Public Suffix List yet (port plan decision
-  D6); `storageState` scopes with the runtime's compact stand-in
-  (`registrableDomain` in agent-tools.js) until the host answers sites.
+  D6); its `policy site` op answers from a compact suffix list (the same
+  list as `registrableDomain` in agent-tools.js).
 - The format studies and the representation comparison live in the private repository `manaflow-ai/cmux-browser-parity-private`.
 
 ## Tests
