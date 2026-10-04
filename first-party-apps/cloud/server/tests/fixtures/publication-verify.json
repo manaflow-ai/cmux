@@ -1,0 +1,26 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/publications/[id]/verify/route.ts (no customer data).",
+  "request": {
+    "method": "POST",
+    "path": "/api/vm/publications/00000000-0000-4000-8000-000000000001/verify"
+  },
+  "status": 200,
+  "body": {
+    "publication": {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "hostname": "app.example.test",
+      "url": "https://app.example.test",
+      "domainKind": "custom",
+      "vmId": "vm-alpha01",
+      "port": 3000,
+      "publicPort": 443,
+      "targetPort": 3000,
+      "protocol": "https",
+      "accessMode": "personal",
+      "teamId": null,
+      "state": "active",
+      "routingRevision": 2,
+      "verification": null
+    }
+  }
+}

@@ -1,5 +1,6 @@
 export { apply, isSend, targetMessageId } from "./apply.ts"
 export { BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS } from "./budget.ts"
+export { consentMarkerWrites, hasConsentMarker, TABLE_CONSENT, withConsentMarkers } from "./consent.ts"
 export { checkTyping, create, summary, type CreateRequest, type CreateResult } from "./create.ts"
 export {
   actorOf,
@@ -12,7 +13,8 @@ export {
   TABLE_MSGKEY,
   type ConversationDomainOptions,
   type ConversationParams,
-  type ConversationState
+  type ConversationState,
+  unreadFloor
 } from "./domain.ts"
 export type { Domain, OutboxItem, Principal, ReduceContext, ReduceResult, RowRange, RowReader, RowWrite, StoredRow } from "./engine-types.ts"
 export {
@@ -53,6 +55,7 @@ export {
   type ParticipantDecision,
   type ParticipantPolicy
 } from "./policy.ts"
+export { ALLOW_REQUESTS_FROM, NOT_REACHABLE, reachDecision, type AllowRequestsFrom, type HumanReach, type ReachDecision } from "./reach.ts"
 export { safeDisplayName } from "./validate.ts"
 export { commitOutbox, createOutbox } from "./outbox.ts"
 export { CLOUD_REJECT_CODES, LOCAL_REJECT_CODES, REJECT_CODES, type ConversationReject, type RejectCode } from "./reject.ts"

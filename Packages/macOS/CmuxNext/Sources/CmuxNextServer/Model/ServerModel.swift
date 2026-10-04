@@ -152,6 +152,8 @@ public final class ServerModel {
             snapshot = next
             connection = .connected
         case let .candidate(found):
+            // A late reply for a code the user has since changed is stale.
+            if let found, found.code != PairingCode.normalize(approval.code) { return }
             candidate = found
             guard let found else { return }
             if approval.team == nil || !found.teams.contains(where: { $0.id == approval.team }) {

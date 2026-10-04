@@ -90,7 +90,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool) async throws -> AcpmuxWebEndpoint {
         do {
-            return try await AcpmuxStatusClient.endpoint(socketPath: environment.socketPath)
+            let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+            // After an update the daemon may be the previous build's: hand it
+            // off (its agents keep running under their hosts) and start ours.
+            guard startsDaemon, await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment) else {
+                return try status.endpoint()
+            }
         } catch AcpmuxStatusClient.Failure.unreachable {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
             // Nothing listens on the socket: start a daemon below, unless

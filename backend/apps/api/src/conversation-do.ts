@@ -1,4 +1,4 @@
-import type { Domain, EventFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import { tablesFor, type Domain, type EventFrame, type OwnerEngine, type OwnerFrame, type Principal } from "@cmux/ownership"
 import { conversation, invites } from "@cmux/home-core"
 
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
@@ -16,7 +16,8 @@ const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.cr
 /**
  * Reach policy with owner records: an agent participant is allowed when it is one of the
  * caller's chiefs (principal.owned_agents, resolved by the Worker from UserDO); everything
- * else follows home-core's default policy.
+ * else follows home-core's default policy. An agent caller always has reach facts here (its
+ * owner's, or none): the stored record of a departed human is never a shortcut back in.
  */
 const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participant, head) => {
   if (participant.kind === "agent") {
@@ -24,6 +25,8 @@ const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participan
     const actor = conversation.actorOf(principal)
     if (owned && actor?.startsWith("user_")) return { ok: true, owner_user: actor, display_name: owned.display_name }
   }
+  if (participant.kind === "human" && principal.agent && principal.kind !== "system" && principal.home_reach === undefined)
+    return conversation.defaultParticipantPolicy({ ...principal, home_reach: [] }, participant, head)
   return conversation.defaultParticipantPolicy(principal, participant, head)
 }
 /** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */
@@ -183,7 +186,8 @@ export class ConversationDO extends OwnerDO<Head> {
   /**
    * Whether `principal` is a current participant of an existing conversation. The Worker asks
    * before invite.create stashes a secret and a raw address in an AddressDO, so a stranger can
-   * never make AddressDOs for conversations it is not in (security review P2). Never writes.
+   * never make AddressDOs for conversations it is not in (security review P2), and before
+   * participants.add resolves reach facts (home-reach.ts). Never writes.
    */
   async mayInvite(entity: string, principal: Principal): Promise<boolean> {
     const state = this.existingState(entity)
@@ -207,6 +211,36 @@ export class ConversationDO extends OwnerDO<Head> {
       kind: state.kind === "dm" ? "dm" : "group",
       ...(state.kind === "group" && state.title ? { title: state.title } : {})
     }
+  }
+
+  /**
+   * Worker only (home-reach.ts): the reach facts this DM gives `adder` about `target`. `peer` is
+   * the target's name while both are current human participants; `consented` holds when the
+   * pair gave consent (16.8): both have sent a message here, or the DM came from an invite one of
+   * them sent and the other accepted (16.4). Authorship comes from the private `consent`
+   * markers (home-core consent.ts), which retention never deletes, so an old DM stays connected
+   * after its messages expire. A DM from before the markers falls back to its `msgkey` rows
+   * (keyed `<author>:<client_msg_id>`, an index range read): any commit that deletes such a row
+   * writes the author's marker in the same commit, so the fallback is only read while the rows
+   * it reads still exist.
+   */
+  async homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null> {
+    const state = this.existingState(entity)
+    if (!state || state.kind !== "dm") return null
+    const current = (id: string) => state.participants.find((p) => p.id === id && p.kind === "human" && p.left_at === undefined)
+    if (!current(adder)) return null
+    const peer = current(target)
+    if (!peer) return { peer: null, consented: false }
+    const rows = tablesFor().rows
+    const authored = (who: string) =>
+      conversation.hasConsentMarker(this.boundEngine!.rows, who) ||
+      this.sqlStore.exec<{ one: number }>(`SELECT 1 AS one FROM ${rows} WHERE tbl = ? AND k >= ? AND k < ? LIMIT 1`, conversation.TABLE_MSGKEY, `${who}:`, `${who};`).length > 0
+    const pair = new Set([adder, target])
+    const invited = () =>
+      [...(state.invites ?? []), ...this.boundEngine!.rows.scan<conversation.Invite>(conversation.TABLE_INV, 1000).map((r) => r.row)].some(
+        (i) => i.status === "accepted" && i.accepted_by !== undefined && i.invited_by !== i.accepted_by && pair.has(i.invited_by) && pair.has(i.accepted_by)
+      )
+    return { peer: peer.display_name, consented: (authored(adder) && authored(target)) || invited() }
   }
 
   /** State of an object that already serves this conversation; never creates storage for unknown ids. */

@@ -912,6 +912,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
 
+      - name: Validate nightly version numbers per track
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_version.py
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |

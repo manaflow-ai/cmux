@@ -1144,7 +1144,7 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
   readonly "conversation.create": {
     readonly params: {
       readonly kind?: "group"
@@ -1634,17 +1634,19 @@ export interface CloudOps {
       readonly cursor?: string
     }
   }
-  /** Choose who can find you by email or phone and who may start a DM with you. */
+  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
   readonly "home.settings.set": {
     readonly params: {
       readonly discoverable_by_email?: boolean
       readonly discoverable_by_phone?: boolean
-      readonly allow_dm_from?: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from?: "anyone" | "teams" | "nobody"
+      readonly email_requests?: boolean
     }
     readonly result: {
       readonly discoverable_by_email: boolean
       readonly discoverable_by_phone: boolean
-      readonly allow_dm_from: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from: "anyone" | "teams" | "nobody"
+      readonly email_requests: boolean
     }
   }
   /** Enroll the calling install's machine as a host in the team directory. */
@@ -1686,9 +1688,11 @@ export interface CloudOps {
     readonly params: {
       readonly limit?: number
       readonly include_archived?: boolean
+      readonly cursor?: string
     }
     readonly result: {
       readonly entries: ReadonlyArray<HomeInboxEntry>
+      readonly next_cursor: string | null
       readonly revision: string
     }
   }
@@ -2003,7 +2007,7 @@ export interface CloudOps {
       }>
     }
   }
-  /** Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms). */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId
@@ -2353,7 +2357,7 @@ export interface CloudOps {
     }
     readonly result: DeviceStatus
   }
-  /** Read a team's directory: members and enrolled hosts (U2). */
+  /** Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list. */
   readonly "team.directory": {
     readonly params: {
       readonly team?: TeamId
@@ -2392,6 +2396,21 @@ export interface CloudOps {
     }
     readonly result: EnrollmentToken
   }
+  /** Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor). */
+  readonly "team.hosts.list": {
+    readonly params: {
+      readonly team?: TeamId
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly hosts: ReadonlyArray<Host>
+      readonly host_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor: string | null
+      readonly revision: string
+    }
+  }
   /** Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
   readonly "team.integration.release_lock": {
     readonly params: {
@@ -2399,6 +2418,22 @@ export interface CloudOps {
     }
     readonly result: {
       readonly released: "sso" | "mdm"
+    }
+  }
+  /** Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role. */
+  readonly "team.members.list": {
+    readonly params: {
+      readonly team?: TeamId
+      readonly cursor?: string
+      readonly limit?: number
+      readonly role?: "owner" | "admin" | "member"
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly members: ReadonlyArray<TeamMember>
+      readonly member_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor: string | null
+      readonly revision: string
     }
   }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
@@ -2672,7 +2707,9 @@ export const cloudOpMeta = {
   "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.hosts.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.members.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },

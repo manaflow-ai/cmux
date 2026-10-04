@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 import os
 import Synchronization
 
@@ -92,7 +92,6 @@ public final class GhosttyRuntime {
         runtime.confirm_read_clipboard_cb = ghosttyConfirmReadClipboard
         runtime.write_clipboard_cb = ghosttyWriteClipboard
         runtime.close_surface_cb = ghosttyCloseSurface
-        runtime.tmux_control_cb = ghosttyTmuxControl
         app = ghostty_app_new(&runtime, config)
         guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
@@ -223,6 +222,16 @@ public final class GhosttyRuntime {
             return .black
         }
         guard backgroundOpacity >= 1 else { return .clear }
+        return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
+    }
+
+    /// The copy-mode cursor box color: `cursor-color` when set, else the
+    /// configured foreground (Ghostty colors, never a fixed accent).
+    var copyCursorColor: NSColor {
+        var color = ghostty_config_color_s()
+        guard let config,
+              Self.configGet(config, &color, key: "cursor-color") || Self.configGet(config, &color, key: "foreground")
+        else { return .textColor }
         return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
     }
 

@@ -16,6 +16,6 @@ extension AgentPaneView {
         }
         guard let data = try? JSONSerialization.data(withJSONObject: turnId, options: [.fragmentsAllowed, .withoutEscapingSlashes]),
               let json = String(data: data, encoding: .utf8) else { return }
-        evaluateScript("window.cmuxAcpmuxBridge?.revealTurn?.(\(json));")
+        deliver([.revealTurn(turnId)], scripts: ["window.cmuxAcpmuxBridge?.revealTurn?.(\(json));"])
     }
 }

@@ -29,6 +29,9 @@ import type {
 } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { listTeamMemberIdsWithTimeout, vmClientRoutesTeamNetworks } from "../services/vms/teamDirectory";
+import { deleteVmFirewallRule, getVmFirewallRule } from "../services/vms/workflows";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
 import {
   VmRepository,
   type CloudVmAccessGrantRow,
@@ -1191,5 +1194,43 @@ describe("Cloud VM access grant revocation", () => {
     expect(result.stackSessionIds).toEqual(["session-stable", "session-nightly"]);
     expect(deleted).toEqual(["tun-userspace", "tun-vpn"]);
     expect(revoked).toEqual(rows.map((row) => row.id));
+  });
+});
+
+
+describe("firewall rule not found (404 vm_firewall_rule_not_found)", () => {
+  const rule = { id: "rule-1", action: "allow", source: { vpcId: NETWORK.id }, destination: { vpcId: NETWORK.id } };
+  const gatewayWith = (deleted: string[], deleteFailure?: unknown) => ({
+    ...testGateway(),
+    listFirewallRules: () => Effect.succeed([rule]),
+    deleteFirewallRule: (_provider: string, ruleId: string) =>
+      deleteFailure === undefined
+        ? Effect.sync(() => void deleted.push(ruleId))
+        : Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "deleteFirewallRule", cause: deleteFailure })),
+  }) as unknown as VmProviderGatewayShape;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tagOf = async (program: Effect.Effect<unknown, unknown, any>, gateway: VmProviderGatewayShape) => {
+    const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(layerFor(testRepo({ network: networkRow() }), gateway))) as Effect.Effect<unknown, unknown>);
+    if (Exit.isSuccess(exit)) return null;
+    const f = Cause.failureOption(exit.cause);
+    return f._tag === "Some" ? ((f.value as { _tag?: string })._tag ?? "unknown") : "die";
+  };
+
+  test("deleting a rule that is not in the owner's network is VmFirewallRuleNotFoundError; nothing is deleted", async () => {
+    const deleted: string[] = [];
+    expect(await tagOf(deleteVmFirewallRule({ userId: "user-1", provider: "freestyle", ruleId: "rule-missing" }), gatewayWith(deleted))).toBe("VmFirewallRuleNotFoundError");
+    expect(deleted).toEqual([]);
+  });
+
+  test("a rule deleted by someone else between the list and the delete (provider 404) is the same not-found", async () => {
+    const deleted: string[] = [];
+    expect(await tagOf(deleteVmFirewallRule({ userId: "user-1", provider: "freestyle", ruleId: "rule-1" }), gatewayWith(deleted, Object.assign(new Error("rule not found"), { status: 404 })))).toBe("VmFirewallRuleNotFoundError");
+  });
+
+  test("an existing rule is deleted; a missing rule read is the same not-found", async () => {
+    const deleted: string[] = [];
+    expect(await tagOf(deleteVmFirewallRule({ userId: "user-1", provider: "freestyle", ruleId: "rule-1" }), gatewayWith(deleted))).toBeNull();
+    expect(deleted).toEqual(["rule-1"]);
+    expect(await tagOf(getVmFirewallRule({ userId: "user-1", provider: "freestyle", ruleId: "rule-missing" }), gatewayWith([]))).toBe("VmFirewallRuleNotFoundError");
   });
 });

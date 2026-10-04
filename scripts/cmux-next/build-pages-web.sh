@@ -12,7 +12,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT_ROOT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 MODE="${1:-build}"
-PAGES="history"
+PAGES="history cloud keybindings"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 
@@ -28,9 +28,8 @@ else
   node scripts/pages/gen-strings.mjs
 fi
 
-# Inline script and style only, and no network: the page talks to the app through the cmuxPage
-# message handler. The scheme handler sends the same policy as a header.
-CSP="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
+# No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
+# first-party page widens it). A meta policy would also apply and could only narrow it.
 status=0
 for page in $PAGES; do
   src="$ROOT/webviews/src/pages/$page"
@@ -41,7 +40,6 @@ for page in $PAGES; do
   {
     printf '<!doctype html>\n<html lang="en" data-cmux-page="%s">\n<head>\n' "$page"
     printf '<meta charset="utf-8" />\n'
-    printf '<meta http-equiv="Content-Security-Policy" content="%s" />\n' "$CSP"
     printf '<meta name="viewport" content="width=device-width, initial-scale=1" />\n'
     printf '<style>\n'
     [ -f "$WORK/$page/app.css" ] && cat "$WORK/$page/app.css"

@@ -121,6 +121,8 @@ pub struct TransportLog {
     pub signals: Vec<(StreamId, Signal)>,
     pub closes: Vec<StreamId>,
     pub events: Vec<(StreamId, TransportEvent)>,
+    /// Every write fails as if the network dropped.
+    pub fail_writes: bool,
     next: StreamId,
 }
 
@@ -155,7 +157,14 @@ impl RescueTransport for FakeTransport {
     }
 
     fn write(&mut self, stream: StreamId, bytes: &[u8]) -> Result<(), BackendError> {
-        self.log().writes.push((stream, bytes.to_vec()));
+        let mut log = self.log();
+        if log.fail_writes {
+            return Err(BackendError::Unavailable {
+                reason: "the network dropped".into(),
+                retryable: true,
+            });
+        }
+        log.writes.push((stream, bytes.to_vec()));
         Ok(())
     }
 

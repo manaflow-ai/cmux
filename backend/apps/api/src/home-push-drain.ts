@@ -1,7 +1,9 @@
 import { inbox as homeInbox } from "@cmux/home-core"
 import type { PushTarget } from "@cmux/protocol"
-import { FOREGROUND_MAX_WAIT_MS, FOREGROUND_RECHECK_MS, HOURLY_PUSH_CAP, homeApnsMessage, RETRY_LIMIT, retryBackoffMs, stillPushable, type HomePushQueue } from "./home-push.ts"
-import type { ApnsMessage, SendResult } from "./push/apns.ts"
+import type { OwnerFrame } from "@cmux/ownership"
+import type { Env } from "./env.ts"
+import { FOREGROUND_MAX_WAIT_MS, FOREGROUND_RECHECK_MS, HOURLY_PUSH_CAP, homeApnsMessage, pushCandidate, RETRY_LIMIT, retryBackoffMs, stillPushable, type HomePushQueue } from "./home-push.ts"
+import { apnsConfig, sendApnsMessage, type ApnsMessage, type SendResult } from "./push/apns.ts"
 
 /** What one drain needs from its UserDO (the only writer of the queue and of the push targets). */
 export interface HomePushDrainDeps {
@@ -83,4 +85,45 @@ export const drainHomePush = async (deps: HomePushDrainDeps, now: number): Promi
       console.error(JSON.stringify({ msg: "home.push.failed", conversation: row.conversation, error: String(e).slice(0, 200) }))
     }
   }
+}
+
+/**
+ * Home push decision for one delivered `inbox.bump` of `entity` (home-messaging.md section 5
+ * step 3): the committed rules, queued once per conversation and seq; the user's own message or
+ * a full read settles what was pending. The UserDO runs it synchronously in the delivery, so the
+ * queue row is written in the same storage batch as the bump's commit.
+ */
+export const decideHomePush = (queue: HomePushQueue, entity: string, frames: ReadonlyArray<OwnerFrame>, params: unknown): void => {
+  const result = frames.find((f) => f.t === "result")
+  if (!result || result.t !== "result" || !homeInbox.validBump(params)) return
+  const now = Date.now()
+  const decision = pushCandidate(entity, params, result.value as homeInbox.InboxEntry, now)
+  if (decision.push) {
+    queue.offer(params.conversation, decision.seq, decision.approval, { title: params.title, preview: params.preview }, now)
+    return
+  }
+  // The user wrote or read up to here elsewhere: nothing older is worth a notification.
+  if (decision.reason === "own" || decision.reason === "read") queue.settle(params.conversation, params.last_seq, now, false)
+  // A skipped message stays skipped: a later bump for the same seq (a rename, an edit) must not notify for it.
+  else if (decision.reason === "muted" || decision.reason === "agent" || decision.reason === "before_join") queue.skip(params.conversation, params.last_seq, now)
+}
+
+/**
+ * Whether the user is at their Mac, for Home push: FeedDO holds the Mac's presence (its feed
+ * socket sends `presence.set`) and the feed's push preference, so both kinds of push follow one
+ * rule. A failed check counts as not quiet (the push goes).
+ */
+export const feedHomePushQuiet = async (env: Env, entity: string): Promise<boolean> => {
+  try {
+    return await env.FEED_DO.get(env.FEED_DO.idFromName(entity)).homePushQuiet(entity)
+  } catch (e) {
+    console.error(JSON.stringify({ msg: "home.push.presence_failed", error: String(e).slice(0, 200) }))
+    return false
+  }
+}
+
+/** Sends one Home alert through the APNs sender FeedDO uses; null when APNs is not configured (the decision is only logged). */
+export const apnsHomePushSender = (env: Env) => async (targets: ReadonlyArray<PushTarget>, message: ApnsMessage, now: number): Promise<ReadonlyArray<SendResult> | null> => {
+  const config = apnsConfig(env)
+  return config ? sendApnsMessage(config, targets, message, now) : null
 }

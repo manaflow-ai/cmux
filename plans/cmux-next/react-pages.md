@@ -22,6 +22,14 @@ history.md (entry kinds, owners, retention), app-platform.md (catalog semantics,
 | Theme | `WebTheme.bootstrapScript` + `--cmux-*` variables (windows.md "Web theme") | html/body transparent, separators `--cmux-separator`, hover/selection `--cmux-hover`/`--cmux-selection`, no blue, `appearance.borders = none` gives no lines |
 | Swift host | one generic `PageWebView` (WKWebView, `drawsBackground = false`) + scheme handler `cmux-page://<page id>/` serving the bundled webviews output | one origin per page id (pane-protocol.md Pages); proposed to the settings lead as the shared host instead of a per-page scheme |
 
+### 1.0a First-party page roots (coordinator decision 2026-10-04)
+
+`PageID.registerBundledRoot(root, for: id)` (H10) stays as the one way to give a first-party page a root
+in the app bundle outside CmuxNextPages (for example cmux.diff on the one webviews-app build, with
+`PageDescriptor.entry`). It accepts only ids in `PageID.firstParty`, is called once at launch, and the
+first registration wins. P5 of the agent pane move deletes only the agent pane's own special path, not
+H10. App pages never use it.
+
 ### 1.1 Transport
 
 The pane protocol router is not in the daemon yet. The page code calls one interface:
@@ -133,7 +141,7 @@ does not apply (the module keeps its own SQLite file, not a projection).
 | `cmux.history.entries.remove` | mutation | `{ids[], idempotency_key}` -> `{removed}` | new |
 | `cmux.history.site.remove` | mutation | `{host, profile?, idempotency_key}` | new |
 | `cmux.history.clear` | mutation | `{kinds?, range, profile?, idempotency_key}` | new |
-| `cmux.history.visit.record` | mutation (app connection only) | `{profile, url, title?, tab, at_ms, idempotency_key}` | new |
+| `cmux.history.visit.record` | mutation (app connection only: today a connection that declares set-client-info kind `frontend`, accepted by the coordinator 2026-10-04 because a forged visit only adds a row; switch to `verified_app` when the peer verification lands) | `{profile, url, title?, tab, at_ms, idempotency_key}` | new |
 | `cmux.history.visit.summaries` | read | `{profile, limit?}` -> `[{url, title, visit_count, last_visit_ms}]` | new (omnibox seed) |
 | `cmux.history.changed` | event | `{revision, kinds[]}` | new (no polling; the page re-reads its window) |
 | `closed.list`, `closed.reopen`, `session.journal.subscribe` | existing v2 | used by the module, not by the page | exist |

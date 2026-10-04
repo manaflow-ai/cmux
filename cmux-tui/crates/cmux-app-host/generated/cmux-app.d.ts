@@ -444,6 +444,42 @@ interface CmuxGlobal {
       /** `cloud.auth.status` (read, scope `cloud:read`, owner `app:cmux/cloud`): Whether cmux is signed in to cmux Cloud and which team requests use. cmux answers from its own sign-in; the app server never sees a token. */
       status: CmuxOp<Record<string, never>, { signedIn: boolean; team?: string | null }>
     }
+    browser: {
+      /** `cloud.browser.open` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Give the browser host a proxy route to the machine's localhost: an HTTP proxy on 127.0.0.1 that reaches only the machine (other hosts get 403) and the URL to load through it. It opens no browser tab; the browser host owns tabs. */
+      open: CmuxOp<{ machine: string; port: number; host?: string; path?: string }, { machine: string; proxy: { kind: "http" | "socks5"; host: "127.0.0.1"; port: number }; url: string; generation: number }>
+    }
+    domain: {
+      /** `cloud.domain.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List your custom domains with their DNS records to add and the publications they route (GET /api/vm/domains). */
+      list: CmuxOp<Record<string, never>, { domains: Array<{ id: string; hostname: string; verificationState: string; certificateState?: string | null; createdAt?: string | null; dnsInstructions?: Array<{ purpose?: string; recordTypes?: Array<string>; name?: string; value?: string }> | null; publications: Array<{ id?: string; hostname?: string; state?: string }> }> }>
+      /** `cloud.domain.verify` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Start or refresh the DNS and certificate check of a custom domain (POST /api/vm/domains/:name/verify). An unknown host name claims a new zone; a verified zone takes its waiting publications live. Runs every time (no replay of an old answer). Needs an idempotency key. */
+      verify: CmuxOp<{ domain: string }, { domain: { id: string; hostname: string; verificationState: string; certificateState?: string | null; createdAt?: string | null; dnsInstructions?: Array<{ purpose?: string; recordTypes?: Array<string>; name?: string; value?: string }> | null; publications: Array<{ id?: string; hostname?: string; state?: string }> } }>
+    }
+    file: {
+      /** `cloud.file.pull` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Copy a file from a machine to this Mac, like cloud.file.push in the other direction. Never overwrites: an existing local path gets cmux.cloud.local_exists. Only a person may transfer: the local path reaches any file this Mac's user can read or write, so the host stamps origin user only after a native file panel; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. */
+      pull: CmuxOp<{ machine: string; localPath: string; path: string }, { ok: true; machine: string; path: string; localPath: string; bytes: number }>
+      /** `cloud.file.push` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Copy a local file to a machine over SSH through the machine's link. The server makes a new key in memory for each transfer and sends only its public half to the Cloud API; the guest host key is pinned from the Cloud API answer. Needs fs:write. Only a person may transfer: the local path reaches any file this Mac's user can read or write, so the host stamps origin user only after a native file panel; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. */
+      push: CmuxOp<{ machine: string; localPath: string; path: string }, { ok: true; machine: string; path: string; localPath: string; bytes: number }>
+    }
+    firewall: {
+      /** `cloud.firewall.create` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Allow traffic from a source to a destination on your private network (POST /api/vm/firewall). It can open a machine to new traffic. The Cloud API does not dedup this create: after an attempt with no answer, a same-key retry answers cmux.cloud.outcome_unknown; list first, then retry with a new key. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. */
+      create: CmuxOp<{ source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: true; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: true; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string }, { id: string; action: "allow"; source: Record<string, unknown>; destination: Record<string, unknown>; description?: string; createdAt?: string; updatedAt?: string }>
+      /** `cloud.firewall.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Read one firewall rule (GET /api/vm/firewall?ruleId=). */
+      get: CmuxOp<{ rule: string }, { id: string; action: "allow"; source: Record<string, unknown>; destination: Record<string, unknown>; description?: string; createdAt?: string; updatedAt?: string }>
+      /** `cloud.firewall.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List the allow rules of your private network, optionally for one machine, network or tunnel (GET /api/vm/firewall). */
+      list: CmuxOp<{ machine?: string; network?: string; tunnel?: string }, { rules: Array<{ id: string; action: "allow"; source: Record<string, unknown>; destination: Record<string, unknown>; description?: string; createdAt?: string; updatedAt?: string }> }>
+    }
+    fs: {
+      /** `cloud.fs.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List a folder on a machine (cmux.fs.provider/1, scheme cloud-vm) through the Cloud API file route. One batch: the route has no cursor. */
+      list: CmuxOp<{ machine: string; path: string }, { path: string; entries: Array<{ name?: string; path?: string; kind: "file" | "directory" | "symlink"; size?: number | null; mode?: number | null; modifiedAt?: number | null }> }>
+      /** `cloud.fs.mkdir` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Make a folder on a machine. Needs fs:write. */
+      mkdir: CmuxOp<{ machine: string; path: string }, { ok: true; path: string }>
+      /** `cloud.fs.read` (read, scope `cloud:read`, owner `app:cmux/cloud`): Read a whole file of at most 16 MiB (base64). A larger file is refused with cmux.cloud.file_too_large before its bytes move. No ranges: the route reads whole files. */
+      read: CmuxOp<{ machine: string; path: string }, { path: string; dataBase64: string; size: number }>
+      /** `cloud.fs.stat` (read, scope `cloud:read`, owner `app:cmux/cloud`): Read the kind, size, mode and change time of one path on a machine. */
+      stat: CmuxOp<{ machine: string; path: string }, { name?: string; path?: string; kind: "file" | "directory" | "symlink"; size?: number | null; mode?: number | null; modifiedAt?: number | null }>
+      /** `cloud.fs.write` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Write a whole file (at most 16 MiB, atomic on the machine). Needs an idempotency key: a retry with the same key writes once. Writes files on the machine, so it needs fs:write. There is no conflict check (no revision on the route). */
+      write: CmuxOp<{ machine: string; path: string; dataBase64: string; mode?: number; baseRevision?: string | null }, { ok: true; path: string; size: number }>
+    }
     machine: {
       /** `cloud.machine.connect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger. */
       connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string }>
@@ -472,9 +508,29 @@ interface CmuxGlobal {
       /** `cloud.machine.watch` (read, scope `cloud:read`, owner `app:cmux/cloud`): The machine change stream. The catalog has no stream class yet, so this read answers the current projection revision; the server then sends cloud.machine.watch events after each op: {type: upsert, revision, machine} or {type: removed, revision, id}. One revision per projection change; no timer, no polling. */
       watch: CmuxOp<Record<string, never>, { revision: number }>
     }
+    network: {
+      /** `cloud.network.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List your private Cloud networks (GET /api/vm/network). The network records stay with the cmux Cloud API. */
+      list: CmuxOp<Record<string, never>, { networks: Array<{ id: string; cidr?: string | null; cidrV6?: string | null; scope: "user" | "team" }> }>
+    }
     plan: {
       /** `cloud.plan.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Your plan: machine limit, active machines, memory sizes the plan includes and the plan that adds larger ones. Read from the cmux Cloud API; cmux keeps no plan logic. */
       get: CmuxOp<Record<string, never>, { planId?: string | null; maxActiveVms?: number | null; activeVmCount?: number | null; memoryOptionsMb?: Array<number>; lockedMemoryOptionsMb?: Array<number>; memoryUpgradePlanId?: string | null; freeAccessWindowDays?: number | null; freeAccessExpiresAt?: number | null }>
+    }
+    port: {
+      /** `cloud.port.forward` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Forward a port of the machine's localhost to 127.0.0.1 and a random port on this Mac, through the machine's link (a paused machine is started first). One forward per machine and port: a second call returns the same localPort. When the link goes down the forward goes down and nothing queues; call forward again for a new one. Never replayed from the idempotency ledger. */
+      forward: CmuxOp<{ machine: string; port: number }, { machine: string; port: number; host: "127.0.0.1"; localPort: number; generation: number; state: "up" | "down"; reason?: string | null }>
+      /** `cloud.port.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List this Mac's port forwards to Cloud machines, up or down. It does not list the machine's listening ports (no route for that). */
+      list: CmuxOp<{ machine?: string }, { forwards: Array<{ machine: string; port: number; host: "127.0.0.1"; localPort: number; generation: number; state: "up" | "down"; reason?: string | null }> }>
+    }
+    publication: {
+      /** `cloud.publication.create` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Publish an HTTP port of a machine on a host name (POST /api/vm/publications). A generated name when hostname is absent. Public access needs confirmPublic: true. A same-key retry after an answer returns that answer and makes no call. The Cloud API does not dedup this create: after an attempt with no answer, a same-key retry answers cmux.cloud.outcome_unknown; list first, then retry with a new key. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. */
+      create: CmuxOp<{ machine: string; port: number; accessMode?: "personal" | "team" | "public"; hostname?: string; teamId?: string; confirmPublic?: boolean }, { publication: { id: string; hostname: string; url?: string | null; domainKind?: string | null; vmId: string; port: number; accessMode: "personal" | "team" | "public"; teamId?: string | null; state: string; routingRevision?: number | null; verification?: Record<string, unknown> | null } }>
+      /** `cloud.publication.list` (read, scope `cloud:read`, owner `app:cmux/cloud`): List the machine ports you published on a host name (GET /api/vm/publications), optionally for one machine. */
+      list: CmuxOp<{ machine?: string }, { publications: Array<{ id: string; hostname: string; url?: string | null; domainKind?: string | null; vmId: string; port: number; accessMode: "personal" | "team" | "public"; teamId?: string | null; state: string; routingRevision?: number | null; verification?: Record<string, unknown> | null }> }>
+      /** `cloud.publication.update` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Change who can open a publication (PATCH /api/vm/publications/:id). It can make a machine port public. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. */
+      update: CmuxOp<{ publication: string; accessMode: "personal" | "team" | "public"; teamId?: string; confirmPublic?: boolean }, { publication: { id: string; hostname: string; url?: string | null; domainKind?: string | null; vmId: string; port: number; accessMode: "personal" | "team" | "public"; teamId?: string | null; state: string; routingRevision?: number | null; verification?: Record<string, unknown> | null } }>
+      /** `cloud.publication.verify` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Re-check the DNS and certificate state of a publication (POST /api/vm/publications/:id/verify). A reserved publication whose zone is verified goes live. Runs every time (no replay of an old answer). Needs an idempotency key. */
+      verify: CmuxOp<{ publication: string }, { publication: { id: string; hostname: string; url?: string | null; domainKind?: string | null; vmId: string; port: number; accessMode: "personal" | "team" | "public"; teamId?: string | null; state: string; routingRevision?: number | null; verification?: Record<string, unknown> | null } }>
     }
     rescue: {
       /** `cloud.rescue.open` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open a shell on a machine whose cmux daemon does not answer (the cmux.terminal.backend/1 rescue kind). The new terminal gets focus only for origin user or focus true (focuses stays false: focus is not the op's purpose). Answers cmux.cloud.unsupported until the cmux Cloud API has an interactive shell route. */
@@ -489,6 +545,14 @@ interface CmuxGlobal {
       list: CmuxOp<{ machine: string }, { snapshots: Array<{ id: string; name?: string | null; createdAt?: string | number | null }> }>
       /** `cloud.snapshot.restore` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Create a new machine from a snapshot. A retry with the same idempotency key returns the same machine. Alias: vm.snapshot.restore. */
       restore: CmuxOp<{ snapshot: string }, { id: string; provider?: string; status: "provisioning" | "running" | "failed" | "paused" | "destroyed" | "unknown"; displayName?: string | null; slug?: string | null; kind?: string | null; image?: string | null; imageVersion?: string | null; createdAt?: number | null; address?: { ipv4?: string | null; ipv6?: string | null } | null; createdBy?: { userId?: string; displayName?: string | null } | null; freeAccessExpiresAt?: number | null; revision: number }>
+    }
+    tunnel: {
+      /** `cloud.tunnel.attach` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Attach a device's WireGuard tunnel to one of your private networks (POST /api/vm/tunnel/network/attach). It gives the device a path into the network. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. */
+      attach: CmuxOp<{ deviceFingerprint: string; network: string; tunnelPurpose?: "browser" | "terminal" }, { tunnelId: string; networkId?: string; addressV4?: string; addressV6?: string; detached?: boolean }>
+      /** `cloud.tunnel.detach` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Detach a device's WireGuard tunnel from a private network (POST /api/vm/tunnel/network/detach). Needs an idempotency key. */
+      detach: CmuxOp<{ deviceFingerprint: string; network: string; tunnelPurpose?: "browser" | "terminal" }, { tunnelId: string; networkId?: string; addressV4?: string; addressV6?: string; detached?: boolean }>
+      /** `cloud.tunnel.rotate_key` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Give a tunnel a new WireGuard public key; its address stays and the server public key changes (take the new [Peer] key from clientConfig) (POST /api/vm/tunnel/network/rotate-key). Takes the public key only; a value that is not base64 of 32 bytes is refused before any call. It gives the device a path into the network. Only a person may run it: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. */
+      rotate_key: CmuxOp<{ deviceFingerprint: string; clientPublicKey: string; tunnelPurpose?: "browser" | "terminal" }, { tunnelId: string; networkId?: string; clientPublicKey: string; serverPublicKey?: string; clientConfig?: string }>
     }
     usage: {
       /** `cloud.usage.get` (read, scope `cloud:read`, owner `app:cmux/cloud`): Machine hours used and included in this period (plans with an hour allowance) and the saved machine limit. */
@@ -526,7 +590,7 @@ interface CmuxGlobal {
     update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; column: string /* split_… */; sticky?: boolean; edge?: "left" | "right"; mode?: "docked" | "overlay"; width?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
   }
   conversation: {
-    /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+    /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
     create: CmuxOp<{ kind?: "group"; title?: string; participants: Array<Cmux.HomeParticipantInput>; settings?: Cmux.HomeConversationSettings; expected_revision?: string }, Cmux.MutationResult<{ conversation: Cmux.HomeConversationSummary }>>
     /** `conversation.history` (read, scope `conversation:read`): Page older messages before before_seq (newest first within the page). */
     history: CmuxOp<{ conversation: Cmux.ConversationId; before_seq?: number; limit?: number }, { messages: Array<Cmux.HomeMessage>; next_before_seq: number | null; revision: string }>
@@ -655,8 +719,8 @@ interface CmuxGlobal {
     /** `home.search` (read, scope `home:read`): Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
     search: CmuxOp<{ q: string; conversation?: Cmux.ConversationId; author?: Cmux.ParticipantId; kind?: Cmux.ConversationKind; before?: Cmux.Timestamp; cursor?: string; limit?: number }, { hits: Array<{ conversation: Cmux.ConversationId; title: string | null; seq: number; message_id: string; author: Cmux.ParticipantId; created_at: Cmux.Timestamp; snippet: string; ranges: Array<{ start: number; length: number }> }>; cursor?: string }>
     settings: {
-      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone and who may start a DM with you. */
-      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_dm_from?: "anyone" | "teams" | "contacts"; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_dm_from: "anyone" | "teams" | "contacts" }>>
+      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
+      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_requests_from?: "anyone" | "teams" | "nobody"; email_requests?: boolean; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_requests_from: "anyone" | "teams" | "nobody"; email_requests: boolean }>>
     }
   }
   inbox: {
@@ -665,7 +729,7 @@ interface CmuxGlobal {
     /** `inbox.dm_peer` (read, scope `inbox:read`): Your existing one-to-one conversation with a peer, if any (dm.open checks it before deriving a new id). */
     dm_peer: CmuxOp<{ peer: Cmux.ParticipantId }, { conversation: Cmux.ConversationId | null }>
     /** `inbox.list` (read, scope `inbox:read`): List your Home conversations: pinned first by position, then newest activity first. */
-    list: CmuxOp<{ limit?: number; include_archived?: boolean }, { entries: Array<Cmux.HomeInboxEntry>; revision: string }>
+    list: CmuxOp<{ limit?: number; include_archived?: boolean; cursor?: string }, { entries: Array<Cmux.HomeInboxEntry>; next_cursor: string | null; revision: string }>
     /** `inbox.mark_unread` (mutation, scope `inbox:write`): Flag a conversation unread (the read cursor stays). */
     mark_unread: CmuxOp<{ conversation: Cmux.ConversationId; unread: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeInboxEntry>>
     /** `inbox.mute` (mutation, scope `inbox:write`): Mute a conversation (until a time in ms, or until unmuted). Approvals still notify. */
@@ -866,7 +930,7 @@ interface CmuxGlobal {
     zoom: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; enabled?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
   }
   participants: {
-    /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+    /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms). */
     add: CmuxOp<{ conversation: Cmux.ConversationId; participant: Cmux.HomeParticipantInput; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   push: {
@@ -1150,7 +1214,7 @@ interface CmuxGlobal {
       /** `team.device.report_status` (mutation, scope `team:write`): Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one. */
       report_status: CmuxOp<{ policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; expected_revision?: string }, Cmux.MutationResult<Cmux.DeviceStatus>>
     }
-    /** `team.directory` (read, scope `team:read`): Read a team's directory: members and enrolled hosts (U2). */
+    /** `team.directory` (read, scope `team:read`): Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list. */
     directory: CmuxOp<{ team?: Cmux.TeamId }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; hosts: Array<Cmux.Host>; revision: string }>
     enrollment_token: {
       /** `team.enrollment_token.create` (mutation, scope `team:write`): Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once. */
@@ -1158,9 +1222,17 @@ interface CmuxGlobal {
       /** `team.enrollment_token.list` (read, scope `team:read`): List enrollment tokens and managed devices (owners and admins). */
       list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; tokens: Array<Cmux.EnrollmentToken>; devices: Array<Cmux.ManagedDevice>; revision: string }>
     }
+    hosts: {
+      /** `team.hosts.list` (read, scope `team:read`): Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor). */
+      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number }, { team: Cmux.TeamId; hosts: Array<Cmux.Host>; host_count: unknown; next_cursor: string | null; revision: string }>
+    }
     integration: {
       /** `team.integration.release_lock` (mutation, scope `team:write`): Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
       release_lock: CmuxOp<{ reason?: string; expected_revision?: string }, Cmux.MutationResult<{ released: "sso" | "mdm" }>>
+    }
+    members: {
+      /** `team.members.list` (read, scope `team:read`): Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role. */
+      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number; role?: "owner" | "admin" | "member" }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; member_count: unknown; next_cursor: string | null; revision: string }>
     }
     policy: {
       /** `team.policy.get` (read, scope `team:read`): Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */

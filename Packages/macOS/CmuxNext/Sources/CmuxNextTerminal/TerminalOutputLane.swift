@@ -1,5 +1,5 @@
 import Foundation
-import GhosttyKit
+import GhosttyNextKit
 import Synchronization
 
 /// Serial, non-main lane for every call that must be serialized with
@@ -75,8 +75,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
 
     /// Resumes once every chunk queued so far has been parsed. The session
     /// awaits this before a call that must observe the parsed state but is
-    /// not lane-safe (`ghostty_surface_set_grid_size` resizes through the
-    /// apprt on the main thread). The main thread never blocks on it.
+    /// not lane-safe. The main thread never blocks on it.
     func drained() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             queue.async { done.resume() }

@@ -1,4 +1,5 @@
 import type { ConversationKind } from "../conversation/types.ts"
+import { inboxSortKey } from "./order.ts"
 
 /**
  * The UserDO inbox (home-messaging.md section 4.2): one entry per
@@ -70,6 +71,11 @@ export interface InboxHead {
   /** The position the next pin without an explicit position gets. */
   readonly next_pin: number
   /**
+   * Every entry has its order row (order.ts). A new inbox starts ordered; one written before the
+   * order index existed lacks the flag until the owner's `inbox.reindex` batches finish.
+   */
+  readonly ordered?: boolean
+  /**
    * Badge totals over entries that are not removed (muted and archived included; clients filter):
    * unread messages, mentions, and conversations that are unread or marked unread. Absent in heads
    * written before totals existed; the next change computes them from the rows once.
@@ -104,13 +110,18 @@ export const totalsOf = (entries: Iterable<InboxEntry>): InboxTotals => {
   return t
 }
 
-export const INITIAL_INBOX_HEAD: InboxHead = { next_pin: 0 }
+export const INITIAL_INBOX_HEAD: InboxHead = { next_pin: 0, ordered: true }
 
 export type InboxRejectCode = "invalid_params" | "unknown_conversation" | "forbidden"
 export type InboxResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly code: InboxRejectCode }
 
 const KINDS: ReadonlyArray<ConversationKind> = ["chief", "dm", "group"]
 const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0
+/**
+ * The largest pin position: the order key pads it to 16 digits (order.ts), and `next_pin` is
+ * `position + 1`, which must stay an exact integer.
+ */
+export const MAX_PIN_POSITION = Number.MAX_SAFE_INTEGER - 1
 const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max
 
 export const validBump = (params: unknown): params is InboxBumpParams => {
@@ -213,6 +224,7 @@ export const userOp = (
         return { ok: true, value: { head, entry: { ...rest, pinned: false } } }
       }
       const position = (p.position as number | undefined) ?? (entry.pinned && entry.pin_position !== undefined ? entry.pin_position : head.next_pin)
+      if (position > MAX_PIN_POSITION) return { ok: false, code: "invalid_params" }
       return { ok: true, value: { head: { ...head, next_pin: Math.max(head.next_pin, position + 1) }, entry: { ...entry, pinned: true, pin_position: position } } }
     }
     case "inbox.mute": {
@@ -237,18 +249,23 @@ export const isMuted = (entry: InboxEntry, now: number): boolean => entry.muted 
 export interface InboxListQuery {
   readonly limit: number
   readonly include_archived?: boolean
+  /** A page cursor (order.ts `pageInbox`): only entries after this sort key. */
+  readonly cursor?: string
 }
 
-/** `inbox.list`: pinned by position, then `last_at` newest first; ties by conversation id. Removed entries never show. */
+/**
+ * `inbox.list` over plain entries (tests, a self-hosted owner without row tables): pinned by
+ * position, then `last_at` newest first; ties by conversation id. Removed entries never show.
+ * The same order and cursor as the row-backed `pageInbox`, which reads only one page.
+ */
 export const listInbox = (entries: Iterable<InboxEntry>, query: InboxListQuery): Array<InboxEntry> => {
-  const visible = [...entries].filter((entry) => !entry.removed && (query.include_archived || !entry.archived))
-  visible.sort((a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
-    if (a.pinned && b.pinned && a.pin_position !== b.pin_position) return (a.pin_position ?? 0) - (b.pin_position ?? 0)
-    if (!a.pinned && a.last_at !== b.last_at) return a.last_at < b.last_at ? 1 : -1
-    return a.conversation < b.conversation ? -1 : a.conversation > b.conversation ? 1 : 0
-  })
-  return visible.slice(0, Math.max(0, query.limit))
+  const cursor = query.cursor ?? ""
+  const visible = [...entries]
+    .filter((entry) => !entry.removed && (query.include_archived || !entry.archived))
+    .map((entry) => ({ entry, sort: inboxSortKey(entry) }))
+    .filter((e) => e.sort > cursor)
+  visible.sort((a, b) => (a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0))
+  return visible.slice(0, Math.max(0, query.limit)).map((e) => e.entry)
 }
 
 /** A plain-record inbox (tests, a self-hosted owner without row tables). */

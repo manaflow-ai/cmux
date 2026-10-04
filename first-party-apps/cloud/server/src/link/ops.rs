@@ -6,17 +6,15 @@ use super::argv::{AttachEndpoint, link_command};
 use super::supervisor::{LinkFailure, LinkState};
 use crate::api::models::MachineStatus;
 use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes};
-use crate::connector::iface::{BackendError, Carrier, CarrierEvent};
+use crate::connector::iface::{Carrier, CarrierEvent};
 use crate::ops::Server;
-use crate::rescue::iface::{Grid, OpenRequest, TerminalBackend};
+use crate::rescue::iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
 use crate::rescue::{MISSING_ROUTE, RESCUE_KIND};
 use serde_json::{Value, json};
 
 pub const LINK_REVOKED: &str = "cmux.cloud.link_revoked";
 pub const LINK_DOWN: &str = "cmux.cloud.link_down";
 pub const LINK_UNAVAILABLE: &str = "cmux.cloud.link_unavailable";
-pub const KIND_REFUSED: &str = "cmux.cloud.kind_refused";
-pub const TERMINAL_CLOSED: &str = "cmux.cloud.terminal_closed";
 
 pub(crate) const CONNECT: &str = "cloud.machine.connect";
 pub(crate) const DISCONNECT: &str = "cloud.machine.disconnect";
@@ -94,18 +92,20 @@ fn carrier_json(carrier: &Carrier) -> Value {
     })
 }
 
+/// A typed rescue backend error (`cmux.terminal.backend/1` `errors`) as an
+/// op error.
 pub(crate) fn backend_error(error: BackendError) -> CloudError {
     match error {
-        BackendError::KindRefused { kind } => {
-            CloudError::new(KIND_REFUSED, format!("kind {kind} is not served by cmux/cloud"))
+        BackendError::Unsupported => {
+            CloudError::new(codes::UNSUPPORTED, "The rescue shell cannot do this")
         }
         BackendError::Unavailable { reason, retryable } => {
             CloudError { retryable, ..CloudError::new(LINK_DOWN, reason) }
         }
-        BackendError::Revoked { reason } => CloudError::new(LINK_REVOKED, reason),
-        BackendError::Closed => CloudError::new(TERMINAL_CLOSED, "The terminal is not open"),
-        BackendError::Unsupported(why) => CloudError::new(codes::UNSUPPORTED, why),
-        BackendError::Invalid(why) => CloudError::invalid(why),
+        BackendError::HostKey { .. } | BackendError::Denied { .. } => {
+            CloudError::new(codes::FORBIDDEN, error.to_string())
+        }
+        BackendError::Invalid { reason } => CloudError::invalid(reason),
     }
 }
 
@@ -229,14 +229,17 @@ fn rescue_open<C: ControlPlane>(
     ensure_running(server, &machine, origin, &start_key)?;
     let attach = server.attach_mut();
     let terminal = attach.next_terminal_id();
-    let grid =
-        Grid { cols: u16::try_from(cols).unwrap_or(80), rows: u16::try_from(rows).unwrap_or(24) };
+    let grid = Grid::new(u16::try_from(cols).unwrap_or(80), u16::try_from(rows).unwrap_or(24));
     let opened = attach
         .rescue
         .open(OpenRequest {
             kind: RESCUE_KIND.into(),
             terminal: terminal.clone(),
             target: machine.clone(),
+            // GAP: the host issues open tokens after the user's gesture; this
+            // op has no host token to pass on yet, so it passes none. The
+            // rescue backend does not check it (no route behind it today).
+            open_token: OpenToken(String::new()),
             command: None,
             cwd: None,
             env: Vec::new(),

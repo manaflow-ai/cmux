@@ -252,6 +252,7 @@ describe("team SSH CA (TeamDO, workerd)", () => {
       sshExternal(
         {
           state: () => instance.boundEngine.currentState,
+          rows: instance.boundEngine.rows,
           team: t.team,
           stream: `team:${t.team}`,
           kek: undefined,

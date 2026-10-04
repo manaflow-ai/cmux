@@ -9,7 +9,7 @@
   "properties": {
     "$schema": { "type": "string" },
     "schema_version": { "const": 1 },
-    "family": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+    "family": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}(\\.[a-z][a-z0-9_]{0,63}){0,2}$", "description": "First-party: a bare family. Third-party: the app namespace <publisher>.<name> ('-' -> '_')." },
     "owner": { "$ref": "#/$defs/owner" },
     "trigger_events": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/opName" } },
     "operations": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/operation" } }

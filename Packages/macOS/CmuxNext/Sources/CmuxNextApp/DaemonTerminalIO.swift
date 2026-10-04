@@ -31,7 +31,8 @@ import os
 ///   screen and a status label) until an event re-attaches it: shown again,
 ///   a key press, a click or focus, or the App's ``reconnect()`` (terminal or
 ///   connection back). A re-attach after failed ones waits a capped backoff.
-///   ``processExited()`` ends it for good.
+///   ``processExited()`` ends it until the daemon reports the terminal
+///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
     struct Target: Sendable {
         var attachment: TerminalAttachment.Target
@@ -132,6 +133,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// with "Process exited" and never re-attach.
     @MainActor func processExited() {
         driver.processExited()
+    }
+
+    /// The daemon reports the terminal running again after a dead report:
+    /// an exited view re-attaches.
+    @MainActor func processRevived() {
+        driver.processRevived()
     }
 
     /// Capped backoff before the `failed + 1`th re-attach in a row. Only a

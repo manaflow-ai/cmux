@@ -4,6 +4,8 @@ import { decodeParams } from "./domains/common.ts"
 import { txtContains } from "./domains/team-domains.ts"
 import type { TeamState } from "./domains/team.ts"
 import type { DomainDO } from "./domain-do.ts"
+import type { RowReader } from "@cmux/ownership"
+import { hostByInstall, memberOf, roleOf } from "./domains/team-members.ts"
 
 export type Http = (request: Request) => Promise<Response>
 
@@ -47,6 +49,8 @@ export const txtAnswers = async (http: Http, request: Request): Promise<Array<st
 
 export interface DomainExternalDeps {
   readonly state: TeamState
+  /** TeamDO rows (members and hosts, team-members.ts). */
+  readonly rows?: RowReader
   readonly team: string
   readonly stream: string
   readonly http: Http
@@ -67,7 +71,7 @@ export const domainExternal = async (
 ): Promise<DomainReply> => {
   const base = { op: frame.op, transaction: "", idempotency_key: frame.idempotency_key, stream: deps.stream, sequence: 0, replayed: false }
   const fail = (code: string, message: string, retryable = false): DomainReply => ({ ...base, ok: false, error: { code, message, retryable } })
-  const role = principal.user ? deps.state.members[principal.user]?.role : undefined
+  const role = roleOf(deps.state, deps.rows, principal.user)
   if (principal.kind !== "session" || principal.agent) return fail("auth.forbidden", "domain changes need a person's session")
   if (role !== "owner" && role !== "admin") return fail("auth.forbidden", "only team owners and admins may verify or release domains")
   const decoded = decodeParams<{ domain: string }>(frame.op === "domain.verify" ? DomainVerify : DomainRelease, frame.params)
