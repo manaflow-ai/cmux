@@ -39,6 +39,11 @@ public struct BrowserReplFileSystem: Sendable {
     /// The largest file `readFile` reads, 64 MiB (the fetch body limit).
     public static let maxReadFileBytes = 64 << 20
 
+    /// The most entries `readdir` lists: its whole list goes to the
+    /// session's JavaScript thread, so a larger directory is refused
+    /// (`ERR_FS_DIR_TOO_LARGE`) once the read passes this many.
+    public static let maxDirectoryEntries = 10_000
+
     /// The sandbox that authorizes every path.
     public var sandbox: BrowserReplFileSandbox
 
@@ -184,7 +189,8 @@ public struct BrowserReplFileSystem: Sendable {
         case "readdir":
             let display = try raw("path")
             let directory = try openDirectory(try locate(.read), display: display)
-            return try Self.entries(of: directory, display: display, isCancelled: isCancelled).map { entry -> [String: Any] in
+            let entries = try Self.entries(of: directory, display: display, isCancelled: isCancelled, limit: Self.maxDirectoryEntries)
+            return entries.map { entry -> [String: Any] in
                 ["name": entry.name, "type": entry.type]
             }
         case "stat":
@@ -654,11 +660,13 @@ public struct BrowserReplFileSystem: Sendable {
 
     /// The entries of an open directory, by name, with their types (a link
     /// is a `symlink`). Stops with `ECANCELED` when `isCancelled` says so,
-    /// checked every ``entriesPerCancellationCheck`` entries.
+    /// checked every ``entriesPerCancellationCheck`` entries, and with
+    /// `ERR_FS_DIR_TOO_LARGE` at the entry past `limit`.
     static func entries(
         of directory: BrowserReplDescriptor,
         display: String = "",
-        isCancelled: () -> Bool = { false }
+        isCancelled: () -> Bool = { false },
+        limit: Int = .max
     ) throws -> [(name: String, type: String)] {
         let copy = dup(directory.fd)
         guard copy >= 0, let stream = fdopendir(copy) else {
@@ -677,6 +685,12 @@ public struct BrowserReplFileSystem: Sendable {
                 String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
             }
             if name == "." || name == ".." { continue }
+            guard result.count < limit else {
+                throw BrowserReplFileSystemError(
+                    code: "ERR_FS_DIR_TOO_LARGE",
+                    message: "ERR_FS_DIR_TOO_LARGE: scandir '\(display)' has more than \(limit) entries, more than readdir lists; read a subdirectory, or move files into subdirectories"
+                )
+            }
             let type: String
             switch Int32(entry.pointee.d_type) {
             case DT_REG: type = "file"
