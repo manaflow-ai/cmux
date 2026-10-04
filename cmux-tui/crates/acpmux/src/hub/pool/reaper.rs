@@ -40,40 +40,47 @@ pub fn tree_rss_bytes(root: u32) -> u64 {
     rows.iter().filter(|r| tree.contains(&r.0)).map(|r| r.2 * 1024).sum()
 }
 
-/// End idle entries at their deadline. Waits only on `clock`, the pool's
-/// wake signal and `stopped`, so an idle pool costs no CPU; returns when
-/// `stopped` resolves or `clock` reports the owner gone (None).
+/// End idle entries at their deadline, and call `on_tick` every `tick`
+/// (the RSS re-check). Waits only on `clock`, the pool's wake signal and
+/// `stopped`, so an idle pool costs no CPU; returns when the pool is empty
+/// (no timer runs for an empty pool), when `stopped` resolves, or when
+/// `clock` reports the owner gone (None).
 pub(crate) async fn run_reaper<T>(
     pool: &StdMutex<Pool<T>>,
     wake: &Notify,
     stopped: impl Future<Output = ()>,
     mut clock: impl FnMut() -> Option<Arc<dyn Clock>>,
     mut expired: impl FnMut(Vec<T>),
-    _tick: Duration,
-    mut _on_tick: impl FnMut(),
+    tick: Duration,
+    mut on_tick: impl FnMut(),
 ) {
     tokio::pin!(stopped);
+    let mut next_tick: Option<Duration> = None;
     loop {
+        if super::lock(pool).is_empty() {
+            return;
+        }
         let Some(clock) = clock() else { return };
-        let next = super::lock(pool).next_deadline();
+        let tick_at = *next_tick.get_or_insert_with(|| clock.now() + tick);
+        let next = super::lock(pool).next_deadline().map_or(tick_at, |d| d.min(tick_at));
         let woke = async {
-            match next {
-                Some(at) => {
-                    tokio::select! {
-                        _ = clock.sleep_until(at) => {}
-                        _ = wake.notified() => {}
-                    }
-                }
-                None => wake.notified().await,
+            tokio::select! {
+                _ = clock.sleep_until(next) => {}
+                _ = wake.notified() => {}
             }
         };
         tokio::select! {
             _ = &mut stopped => return,
             _ = woke => {}
         }
-        let out = super::lock(pool).expire(clock.now());
+        let now = clock.now();
+        let out = super::lock(pool).expire(now);
         if !out.is_empty() {
             expired(out);
+        }
+        if now >= tick_at {
+            on_tick();
+            next_tick = Some(now + tick);
         }
     }
 }

@@ -176,7 +176,10 @@ impl Rpc {
     /// The error a request answers with.
     async fn call_err(&mut self, method: &str, params: Value) -> String {
         let v = self.raw(method, params).await;
-        v["error"]["message"].as_str().unwrap_or_else(|| panic!("{method} did not fail: {v}")).to_owned()
+        v["error"]["message"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{method} did not fail: {v}"))
+            .to_owned()
     }
 
     async fn raw(&mut self, method: &str, params: Value) -> Value {
