@@ -125,7 +125,17 @@ def summarize(label, results):
             names.setdefault(span["name"], []).append(span["ms"])
     for name, values in sorted(names.items(), key=lambda kv: -statistics.median(kv[1])):
         print(f"  span {name}: n={len(values)} p50={statistics.median(values):.2f} p95={p95(values):.2f} ms", flush=True)
-    print(f"  sample run: {json.dumps(results[len(results) // 2])[:1500]}", flush=True)
+    # Where the missed frames fall (ms after the key, interval), to match them with spans.
+    for i, r in enumerate(results):
+        t, misses = 0.0, []
+        period = r["frames"]["refresh_ms"] or 8.33
+        for interval in r["frames"]["intervals_ms"]:
+            t += interval
+            if interval > period * 1.5:
+                misses.append(f"{t:.0f}ms:{interval:.1f}")
+        if misses:
+            spans = ", ".join(f"{s['name']}@{s['at']:.0f}={s['ms']:.1f}" for s in r["spans"] if s["ms"] >= 0.5 or s["name"].startswith(("daemon", "bridge")))
+            print(f"  run {i}: misses {misses}; spans {spans}", flush=True)
 
 
 def ready_spare():
