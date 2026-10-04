@@ -205,7 +205,8 @@ public final class BrowserChromeView: NSView {
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
             density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
-            toolbarButtons.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            // On the omnibar's vertical center, wherever the row places the omnibar.
+            toolbarButtons.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             extensionSlot.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
             density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
             // Soft minimums below the window's stay-put priority (500): the
