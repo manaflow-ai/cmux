@@ -178,6 +178,40 @@ nonisolated final class FakeLocalHomeSource: HomeSource {
         #expect(!store.log.entries.contains { $0.intent.key == keyA })
     }
 
+    /// A cloud conversation that only its stream showed (opened by a deep
+    /// link, never in the cloud inbox) leaves the merged inbox with the next
+    /// cloud inbox, like any conversation the cloud inbox does not list.
+    @Test func aConversationOnlyItsStreamShowedLeavesWithTheNextCloudInbox() async throws {
+        let unlisted = "conv_dm_01J0000000000000000000000G"
+        let local = FakeLocalHomeSource()
+        let daemon = FakeCloudDaemon(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm), unlisted: F.head(unlisted)]))
+        let cloud = CloudHomeSource(me: local.me)
+        let router = HomeSourceRouter(local: local, cloud: cloud)
+        let tape = await EventTape(router)
+        cloud.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: F.identity)
+        func inboxChange(_ event: HomeEvent, _ id: String) -> Bool {
+            if case .conversationChanged(let summary, stream: .inbox, rev: _) = event { summary.id.rawValue == id } else { false }
+        }
+        // Listed and hydrated (named after its peer): no later read publishes it again.
+        #expect(await tape.wait { events in
+            events.contains { event in
+                guard case .conversationChanged(let summary, stream: .inbox, rev: _) = event else { return false }
+                return summary.id.rawValue == dm && summary.participants.contains { $0.displayName == "Bob" }
+            }
+        })
+        // Opened on the cloud source: the router routes an id the cloud inbox does not list to the local owner.
+        _ = try await cloud.snapshot(of: ConversationID(unlisted), tail: 10)
+        cloud.handle(.changed(CloudConversationChanged(conversation: unlisted, rev: 5, seq: 9, change: .conversation(F.head(unlisted, rev: 5)))))
+        let mark = tape.all.count
+        cloud.handle(.inboxReset(seq: 9))
+        // The cloud inbox after the reset reaches the merged stream as a diff.
+        #expect(await tape.wait { $0.count > mark && $0[mark...].contains { inboxChange($0, dm) } })
+        var mirror = HomeMirror()
+        for event in tape.all { mirror.apply(event) }
+        #expect(mirror.conversations[ConversationID(dm)] != nil)
+        #expect(mirror.conversations[ConversationID(unlisted)] == nil, "a conversation the cloud inbox does not list stays listed")
+    }
+
     /// Yields until `condition` holds; the suite's time limit bounds it.
     @MainActor func until(_ condition: () -> Bool) async -> Bool {
         for _ in 0..<100_000 {

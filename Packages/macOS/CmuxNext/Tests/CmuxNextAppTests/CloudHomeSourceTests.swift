@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
+import Synchronization
 import Testing
 @testable import CmuxNextApp
 
@@ -337,6 +338,88 @@ import Testing
         source.handle(.inboxChanged(CloudInboxChanged(seq: 8, entries: [F.entry(opened, rev: 1, lastSeq: 0)])))
         source.handle(.inboxChanged(CloudInboxChanged(seq: 9, entries: [F.entry(opened, rev: 2, lastSeq: 0, archived: true)])))
         #expect(!source.currentInbox().conversations.contains { $0.id.rawValue == opened })
+    }
+
+    func inboxCount(_ events: ArraySlice<HomeEvent>) -> Int {
+        events.filter { if case .inbox = $0 { true } else { false } }.count
+    }
+
+    /// Signing in publishes the emptied inbox, then the listed one.
+    func signedIn(_ tape: EventTape) async -> Bool {
+        await tape.wait { inboxCount($0[...]) >= 2 }
+    }
+
+    static let other = CloudIdentity(stackUserID: "stack-other", displayName: "Other", localID: CloudFixtures.localMe)
+
+    /// A stream event of account A's conversation that arrives after the
+    /// switch to B (before the daemon processed A's unsubscribe, or from a
+    /// socket the daemon reopened) never lists A's conversation for B.
+    @Test func aLateStreamEventOfThePreviousAccountNeverEntersTheNextInbox() async throws {
+        let theirs = "conv_dm_01J0000000000000000000000F"
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm)]))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        let mark = tape.all.count
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: Self.other)
+        #expect(await tape.wait { inboxCount($0[mark...]) >= 2 })
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 5, seq: 9, change: .conversation(F.head(dm, rev: 5)))))
+        source.handle(.changed(CloudConversationChanged(conversation: dm, rev: 6, seq: 10, change: .message(F.message(dm, seq: 2)))))
+        source.handle(.resynced(CloudConversationResynced(conversation: dm, rev: 7, seq: 11, summary: F.head(dm, rev: 7, lastSeq: 2),
+                                                          messages: [F.message(dm, seq: 1), F.message(dm, seq: 2)])))
+        // B's own inbox event still lists B's conversation.
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 1, entries: [F.entry(theirs)])))
+        #expect(await tape.wait { !summaries($0, theirs).isEmpty })
+        var mirror = HomeMirror()
+        for event in tape.all { mirror.apply(event) }
+        #expect(mirror.conversations[ConversationID(dm)] == nil, "A's conversation listed for B")
+        #expect(mirror.conversations[ConversationID(theirs)] != nil)
+    }
+
+    /// Typing is never sent, and an op the owner refused for good is never
+    /// resent: neither stays bound to the account, so a later switch does
+    /// not carry them in its revocation (which would grow without bound).
+    @Test func typingAndRefusedOpsAreNotHeldForRevocation() async throws {
+        let (source, daemon, tape) = await configured(.init())
+        #expect(await signedIn(tape))
+        await #expect(throws: HomeRejection.invalid("unsupported_op")) {
+            try await source.submit(HomeIntent(key: IdempotencyKey("cmk_pin"), op: .setPinned(conversation: ConversationID(dm), rank: 0)))
+        }
+        _ = try? await source.submit(HomeIntent(key: IdempotencyKey("cmk_typing"), op: .setTyping(conversation: ConversationID(dm), on: true)))
+        let mark = tape.all.count
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: Self.other)
+        // The revocation, when there is one, comes before the emptied inbox.
+        #expect(await tape.wait { inboxCount($0[mark...]) >= 1 })
+        let revoked = tape.all.flatMap { event -> [IdempotencyKey] in
+            if case .intentsRevoked(let keys) = event { Array(keys) } else { [] }
+        }
+        #expect(revoked.isEmpty, "held for revocation: \(revoked)")
+    }
+
+    /// A and B share a conversation. A's unsubscribe after the switch must
+    /// reach the daemon before B's subscribe, or it ends B's subscription.
+    @Test func aConversationBothAccountsShareStaysSubscribedAfterTheSwitch() async throws {
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm)]))
+        #expect(await signedIn(tape))
+        _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+        let gate = Gate()
+        daemon.script.withLock { $0.unsubscribeGate = gate }
+        source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: Self.other)
+        await gate.arrived()
+        let reopened = Mutex(false)
+        let reopen = Task {
+            _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
+            reopened.withLock { $0 = true }
+        }
+        // Gives B's open every chance to overtake A's held unsubscribe.
+        var turns = 0
+        while turns < 10_000, !reopened.withLock({ $0 }) {
+            turns += 1
+            await Task.yield()
+        }
+        gate.open()
+        try await reopen.value
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) })
+        #expect(daemon.subscribed.contains(dm), "B's subscription ended: \(daemon.calls)")
     }
 }
 
