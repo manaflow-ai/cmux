@@ -312,11 +312,14 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   After a refusal, a retry of a key already decided in the target conversation goes straight to
   the owner with the plain principal (no reach RPC): its stored result, or `idempotency.conflict`
   for other params. A refused `dm.open` with a user peer still reopens the caller's existing DM
-  (inbox peer index, no charge). A caller whose UserDO never served them (no `user.ensure`) gets
+  (inbox peer index, no charge; not for a chief). A caller whose UserDO never served them (no `user.ensure`) gets
   `home.user_not_ready`, not retryable. A create the owner refuses (reach, policy) opens an empty
   ConversationDO: the refusal is decided on the initial state and writes no storage or ledger.
   Open follow-up: `conversation.import` with a new `local_id` and `dm.open` with an address peer
   have no Worker budget yet (only the per-network limits below).
+  Open follow-up (accepted for now): with the budget spent, the DM reopen still lets a client
+  write one idempotency entry per new key into its own DM (the same size as an entry on the
+  budget path, and only in the caller's own DM). A chief never reopens through its owner's inbox.
 - Per network: Cloudflare rate limiting on `invite.create`, `dm.open` with an address, and
   `invite.preview`: 30 per minute per IP.
 - Content: inviter text appears in the invite only for trusted inviters (verified email, account

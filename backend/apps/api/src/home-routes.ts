@@ -173,7 +173,8 @@ const replayDecided = async (env: Env, principal: Principal, frame: OpFrame): Pr
  */
 const reopenDm = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult | null> => {
   const peer = (frame.params as { peer?: unknown } | undefined)?.peer
-  if (frame.op !== "dm.open" || typeof peer !== "string" || !peer.startsWith("user_") || !principal.user) return null
+  // A chief never reopens through its owner's inbox (as resolveHumanReach): forbidden vs home.rate_limited would tell it whether the owner has that DM.
+  if (frame.op !== "dm.open" || typeof peer !== "string" || !peer.startsWith("user_") || !principal.user || principal.agent) return null
   const inbox = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readInbox(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { conversation?: string | null } }> }
   const found = await inbox.readInbox(principal.user, principal, "inbox.dm_peer", { peer })
   const id = found.ok ? found.value?.conversation : null
