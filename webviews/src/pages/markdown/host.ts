@@ -32,6 +32,10 @@ import type { DiffViewerAppearance } from "../../appearance";
 
 export const MARKDOWN_CONFIG_OP = "cmux.markdown.config";
 export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
+/** Page to host: `{path, text, baseHash}` after an edit (the quit hook's unsaved state and draft). */
+export const MARKDOWN_EDITED_OP = "cmux.markdown.edited";
+/** Host to page: saves pending edits now and answers `{dirty}` (before a tab closes or the app quits). */
+export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
