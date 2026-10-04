@@ -22,7 +22,7 @@ public nonisolated struct BackdropTexture: Equatable, Sendable {
     }
 
     /// A stable cache component for one treatment.
-    public var id: String { "\(filter.rawValue):\(String(format: \"%.3f\", strength))" }
+    public var id: String { "\(filter.rawValue):\(String(format: "%.3f", strength))" }
 }
 
 /// A texture algorithm supported by the backdrop renderer.
