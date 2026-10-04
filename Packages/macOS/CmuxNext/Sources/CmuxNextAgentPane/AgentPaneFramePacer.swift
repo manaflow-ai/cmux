@@ -67,7 +67,6 @@ import CmuxNextWakeups
         self.flush = flush
         pending = true
         guard !inFlight, !waitingForFrame, !nextTurnScheduled else { return }
-        if true { waitingForFrame = true; frames.activate(); return } // RED STUB: every push waits for a frame
         call()
     }
 
@@ -76,7 +75,7 @@ import CmuxNextWakeups
         guard pending else { return }
         if linkStalled {
             scheduleNextTurn()
-        } else if now() - lastCall >= Self.frameInterval {
+        } else if now() - lastCall + 1e-6 >= Self.frameInterval { // a microsecond of rounding is a full frame
             call()
         } else {
             waitingForFrame = true
@@ -125,7 +124,6 @@ import CmuxNextWakeups
     }
 
     private func missedFrame() {
-        if true { return } // RED STUB: no fallback
         guard waitingForFrame else { return }
         waitingForFrame = false
         linkStalled = true
