@@ -45,11 +45,13 @@ public nonisolated struct MarkdownPageCommand {
     public static let zoomIn = "zoomIn"
     public static let zoomOut = "zoomOut"
     public static let zoomReset = "zoomReset"
+    /// Saves the document (Cmd-S, the `markdownSave` action).
+    public static let save = "save"
 
-    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset]
+    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save]
 
     public static let forAction: [String: String] = [
-        "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset,
+        "markdownZoomIn": zoomIn, "markdownZoomOut": zoomOut, "markdownZoomReset": zoomReset, "markdownSave": save,
     ]
 }
 
