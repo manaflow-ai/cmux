@@ -168,12 +168,20 @@ export const PRODUCTION_PLAN_GATE_LANDED = false
 export const providerRefusal = (env: Pick<Env, "ENVIRONMENT">, gateLanded = PRODUCTION_PLAN_GATE_LANDED): string | null =>
   env.ENVIRONMENT === "production" && !gateLanded ? "team_vm.plan_gate_missing" : null
 
-/** The configured driver, or null: without a key, a snapshot and a slug prefix (cmuxnp-dev- outside production) nothing is created. */
+/**
+ * The prefix a non-production environment's new team VM names must start with (decision
+ * FREESTYLE-NAMES: `cmuxnp-<env>-<lane>-<rest>`): staging `cmuxnp-stg-`, everything else `cmuxnp-dev-`.
+ * The prefix only names NEW VMs. Nothing lists provider VMs or matches them by prefix: a team's VM
+ * is reached by the id in its TeamVmDO record, so a VM created under an older prefix keeps working.
+ */
+export const requiredSlugPrefix = (environment: string | undefined) => (environment === "staging" ? "cmuxnp-stg-" : "cmuxnp-dev-")
+
+/** The configured driver, or null: without a key, a snapshot and a slug prefix (requiredSlugPrefix outside production) nothing is created. */
 export const teamVmDriver = (env: Env, sql: SqlStore): TeamVmDriver | null => {
   if (env.ENVIRONMENT === "test" && env.TEAM_VM_DRIVER === "fake") return new FakeDriver(sql)
   if (!env.FREESTYLE_API_KEY || !env.TEAM_VM_SNAPSHOT || !env.TEAM_VM_SLUG_PREFIX) return null
   // Development and staging share the production provider account: their VMs must carry the
-  // prefix that marks agent-created resources, so nothing can mistake them for customer VMs.
-  if (env.ENVIRONMENT !== "production" && !env.TEAM_VM_SLUG_PREFIX.startsWith("cmuxnp-dev-")) return null
+  // prefix that marks agent-created resources of that environment, so nothing can mistake them for customer VMs.
+  if (env.ENVIRONMENT !== "production" && !env.TEAM_VM_SLUG_PREFIX.startsWith(requiredSlugPrefix(env.ENVIRONMENT))) return null
   return new FreestyleDriver(env.FREESTYLE_API_KEY, env.FREESTYLE_API_URL || "https://api.freestyle.sh", env.TEAM_VM_SNAPSHOT)
 }
