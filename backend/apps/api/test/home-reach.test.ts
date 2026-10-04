@@ -49,6 +49,28 @@ const joinTeam = async (owner: Person, member: Person) => {
     engine.state = { ...engine.currentState, members: { ...engine.currentState.members, [member.user]: { user: member.user, role: "member", display_name: member.name } } }
   })
 }
+/** Removes `member` from `owner`'s team (a departure from the team). */
+const leaveTeam = async (owner: Person, member: Person) => {
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(owner.team)), async (instance) => {
+    const engine = instance.boundEngine
+    const { [member.user]: _gone, ...members } = engine.currentState.members
+    engine.state = { ...engine.currentState, members }
+  })
+}
+const send = (p: Person, conversation: string, text: string) => {
+  const key = crypto.randomUUID()
+  return op(p.token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)
+}
+/** Waits until the outbox drain put `dm` into `who`'s inbox `peer` index for `peer`. */
+const waitPeer = async (who: Person, peer: Person, dm: string) => {
+  const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm))
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if ((await read(who.token, "inbox.dm_peer", { peer: peer.user })).value?.conversation === dm) return
+    await runDurableObjectAlarm(conv)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error("the DM never reached the inbox")
+}
 const human = (p: Person | string, name = "anything") => ({ id: typeof p === "string" ? p : p.user, kind: "human", display_name: name })
 /** `inviter` invites `invitee` by email in a DM and `invitee` accepts; waits until the outbox drain put the DM into the inviter's inbox. */
 const becomeContacts = async (inviter: Person, invitee: Person, email: string) => {
@@ -130,5 +152,52 @@ describe("Home human reach", { timeout: 60_000 }, () => {
     expect((await op(frank.token, "participants.add", { conversation: id, participant: human(hank) })).error.code).toBe("not_reachable")
     const after = await read(erin.token, "conversation.snapshot", { conversation: id, tail: 0 })
     expect(after.value.state.participants.map((p: { id: string }) => p.id).sort()).toEqual([erin.user, frank.user, gina.user].sort())
+  })
+
+  it("a DM only one side wrote in is no connection; it becomes one when both have written (16.8)", async () => {
+    const ivy = await signIn("reach-consent-ivy", "Ivy")
+    const jack = await signIn("reach-consent-jack", "Jack")
+    await joinTeam(ivy, jack)
+    const dm = (await op(ivy.token, "dm.open", { peer: jack.user })).value.conversation.id as string
+    expect((await send(ivy, dm, "hello")).error).toBeUndefined()
+    await waitPeer(ivy, jack, dm)
+    const conversation = (await op(ivy.token, "conversation.create", { title: "Plans", participants: [human(ivy, "Ivy")] })).value.conversation.id as string
+    // Jack accepts contacts only: the shared team does not count, and Ivy's one-sided DM is no contact.
+    expect((await op(jack.token, "home.settings.set", { allow_dm_from: "contacts" })).value.allow_dm_from).toBe("contacts")
+    expect((await op(ivy.token, "participants.add", { conversation, participant: human(jack) })).error?.code).toBe("not_reachable")
+    // Ivy leaves the team: the one-sided DM gives her no reach either.
+    expect((await op(jack.token, "home.settings.set", { allow_dm_from: "anyone" })).value.allow_dm_from).toBe("anyone")
+    await leaveTeam(ivy, jack)
+    expect((await op(ivy.token, "participants.add", { conversation, participant: human(jack) })).error?.code).toBe("not_reachable")
+    // Jack answers: both have written, so they are connected.
+    expect((await send(jack, dm, "hi")).error).toBeUndefined()
+    expect((await op(ivy.token, "participants.add", { conversation, participant: human(jack) })).error).toBeUndefined()
+  })
+
+  it("a human who left a group is added back only by someone with a current link to them", async () => {
+    const kim = await signIn("reach-left-kim", "Kim")
+    const leo = await signIn("reach-left-leo", "Leo")
+    await joinTeam(kim, leo)
+    const conversation = (await op(kim.token, "conversation.create", { title: "Plans", participants: [human(kim, "Kim"), human(leo, "Leo")] })).value.conversation.id as string
+    expect((await op(leo.token, "participants.remove", { conversation, participant: leo.user })).error).toBeUndefined()
+    await leaveTeam(kim, leo)
+    expect((await op(kim.token, "participants.add", { conversation, participant: human(leo) })).error?.code).toBe("not_reachable")
+    await joinTeam(kim, leo)
+    expect((await op(kim.token, "participants.add", { conversation, participant: human(leo) })).error).toBeUndefined()
+  })
+
+  it("a caller who is not in the conversation learns nothing about the target's setting", async () => {
+    const nora = await signIn("reach-probe-nora", "Nora")
+    const owen = await signIn("reach-probe-owen", "Owen")
+    const pat = await signIn("reach-probe-pat", "Pat")
+    const quinn = await signIn("reach-probe-quinn", "Quinn")
+    await joinTeam(owen, pat)
+    await joinTeam(owen, quinn)
+    expect((await op(pat.token, "home.settings.set", { allow_dm_from: "contacts" })).value.allow_dm_from).toBe("contacts")
+    const conversation = (await op(nora.token, "conversation.create", { title: "Private", participants: [human(nora, "Nora")] })).value.conversation.id as string
+    const refused = await op(owen.token, "participants.add", { conversation, participant: human(pat) })
+    const allowed = await op(owen.token, "participants.add", { conversation, participant: human(quinn) })
+    expect(refused.error?.code).toBeDefined()
+    expect(refused.error?.code).toBe(allowed.error?.code)
   })
 })

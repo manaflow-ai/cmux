@@ -99,9 +99,46 @@ describe("conversation Domain with Worker-resolved reach", () => {
   })
 })
 
+describe("a departed human (review: the stored record is not a reach link)", () => {
+  const host = () => new DomainHost<ConversationState, ConversationParams>(conversationDomain)
+  const group = (participants: Array<unknown>) => ({ id: "conv_R", kind: "group", title: "Plans", participants })
+  /** Alice and Bob share a team; Alice makes a group with Bob, and Bob leaves it. */
+  const departed = () => {
+    const h = host()
+    expect(h.run(session(ALICE, "Alice", [reach(BOB, { shared_team: true })]), "conversation.create", group([human(ALICE, "Alice"), human(BOB)]), "c1")).toMatchObject({ ok: true })
+    expect(h.run(session(BOB, "Bob", []), "participants.remove", { participant: BOB }, "r1")).toMatchObject({ ok: true })
+    expect(h.state?.participants.find((p) => p.id === BOB)?.left_at).toBeDefined()
+    return h
+  }
+
+  it("a member with no link to the departed human cannot add them back", () => {
+    const h = departed()
+    expect(h.run(session(ALICE, "Alice", []), "participants.add", { participant: human(BOB) }, "p1")).toMatchObject({ ok: false, code: NOT_REACHABLE })
+    // A link the target's setting excludes is refused as well.
+    expect(h.run(session(ALICE, "Alice", [reach(BOB, { shared_team: true, allow_dm_from: "contacts" })]), "participants.add", { participant: human(BOB) }, "p2")).toMatchObject({
+      ok: false,
+      code: NOT_REACHABLE
+    })
+    expect(h.state?.participants.find((p) => p.id === BOB)?.left_at).toBeDefined()
+  })
+
+  it("a member who shares a team with them may add them back; the stored name stays", () => {
+    const h = departed()
+    expect(h.run(session(ALICE, "Alice", [reach(BOB, { shared_team: true, display_name: "Robert" })]), "participants.add", { participant: human(BOB, "Mallory") }, "p1")).toMatchObject({ ok: true })
+    const bob = h.state?.participants.find((p) => p.id === BOB)
+    expect(bob?.left_at).toBeUndefined()
+    expect(bob?.display_name).toBe("Bob")
+  })
+
+  it("without reach facts (local and self-hosted owners) a departed human rejoins as before", () => {
+    const h = departed()
+    expect(h.run(session(ALICE, "Alice"), "participants.add", { participant: human(BOB) }, "p1")).toMatchObject({ ok: true })
+  })
+})
+
 describe("home.settings.set (UserDO, section 4.2)", () => {
   it("defaults, partial updates, and refuses unknown values", () => {
-    expect(DEFAULT_HOME_SETTINGS).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_dm_from: "anyone" })
+    expect(DEFAULT_HOME_SETTINGS).toEqual({ discoverable_by_email: false, discoverable_by_phone: false, allow_dm_from: "anyone", email_requests: true })
     expect(reduceHomeSettings(undefined, { allow_dm_from: "teams" })).toEqual({ ok: true, settings: { ...DEFAULT_HOME_SETTINGS, allow_dm_from: "teams" } })
     const current = { ...DEFAULT_HOME_SETTINGS, allow_dm_from: "contacts" as const }
     expect(reduceHomeSettings(current, { discoverable_by_email: true })).toEqual({ ok: true, settings: { ...current, discoverable_by_email: true } })
@@ -109,5 +146,11 @@ describe("home.settings.set (UserDO, section 4.2)", () => {
     expect(reduceHomeSettings(current, { discoverable_by_phone: "yes" })).toEqual({ ok: false, code: "invalid_settings" })
     expect(reduceHomeSettings(current, {})).toEqual({ ok: false, code: "invalid_settings" })
     expect(reduceHomeSettings(current, null)).toEqual({ ok: false, code: "invalid_settings" })
+    // R2 (2026-10-02): message-request email, on by default; the recipient can turn it off.
+    expect(reduceHomeSettings(current, { email_requests: false })).toEqual({ ok: true, settings: { ...current, email_requests: false } })
+    expect(reduceHomeSettings(current, { email_requests: "off" })).toEqual({ ok: false, code: "invalid_settings" })
+    // Settings stored before email_requests existed read it as the default.
+    const legacy = { discoverable_by_email: true, discoverable_by_phone: false, allow_dm_from: "teams" } as unknown as typeof current
+    expect(reduceHomeSettings(legacy, { discoverable_by_phone: true })).toEqual({ ok: true, settings: { discoverable_by_email: true, discoverable_by_phone: true, allow_dm_from: "teams", email_requests: true } })
   })
 })
