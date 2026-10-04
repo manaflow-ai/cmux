@@ -131,8 +131,22 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
     let paths = Paths::new(&home);
     paths.create().unwrap();
     let harness = std::env::var("OPTCHAT_COMPACTOR_HARNESS").unwrap_or_else(|_| "claude-sr".into());
+    let socket = optchat_chief::acpmux_daemon::socket_path();
+    let family = optchat_chief::acpmux::harness_family(
+        &optchat_chief::acpmux::query_harnesses(&socket, &|l: &str| println!("acpmux: {l}"))
+            .unwrap(),
+        &harness,
+    )
+    .unwrap();
     prepare_config(&paths.compactor_config).unwrap();
-    let presets = compactor_presets(&paths, &home, &harness);
+    if family == optchat_chief::acpmux::Family::Codex {
+        optchat_chief::compactor::prepare_codex_homes(
+            &paths,
+            &optchat_chief::compactor::user_codex_home(),
+        )
+        .unwrap();
+    }
+    let presets = compactor_presets(&paths, &home, &harness, family);
     let agents = Acpmux::new(optchat_chief::acpmux_daemon::socket_path(), None, presets);
     let up = Arc::new((Mutex::new(None::<bool>), Condvar::new()));
     let signal = up.clone();
@@ -159,12 +173,14 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         *guard
     };
     assert_eq!(connected, Some(true), "acpmux did not connect");
-    let model = std::env::var("OPTCHAT_COMPACTOR_MODEL")
-        .unwrap_or_else(|_| optchat_host::DEFAULT_MODEL.into());
+    let model = std::env::var("OPTCHAT_COMPACTOR_MODEL").ok().or_else(|| {
+        (family == optchat_chief::acpmux::Family::Claude)
+            .then(|| optchat_host::DEFAULT_MODEL.to_owned())
+    });
     let compactor = Arc::new(
         AcpmuxCompactor::new(
             agents.clone(),
-            compactor_spec(&paths, &home, &harness, Some(&model)),
+            compactor_spec(&paths, &home, &harness, family, model.as_deref()),
             Slots::new(optchat_core::JOBS),
         )
         .with_log(Arc::new(|line: &str| println!("compactor: {line}"))),
@@ -209,8 +225,22 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
         started.elapsed().as_millis()
     );
     assert!(line.is_ok(), "{line:?}");
-    // No transcript of a compactor slot is left in any Claude home.
-    let spec = compactor_spec(&paths, &home, &harness, Some(&model));
+    // No transcript of a compactor slot is left in any Claude home, nor
+    // anything but the configuration in a codex slot's CODEX_HOME.
+    for k in 0..optchat_core::JOBS {
+        let slot = optchat_chief::compactor::codex_slot_home(&paths.compactor_codex, k);
+        let left: Vec<String> = std::fs::read_dir(&slot)
+            .map(|d| {
+                d.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .filter(|n| !optchat_chief::compactor::CODEX_KEPT_FILES.contains(&n.as_str()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        println!("left in {}: {left:?}", slot.display());
+        assert!(left.is_empty(), "codex files left: {left:?}");
+    }
+    let spec = compactor_spec(&paths, &home, &harness, family, model.as_deref());
     let tag = format!("optchat-compact-{}", optchat_chief::paths::home_id(&home));
     for root in &spec.transcript_dirs {
         let left: Vec<String> = std::fs::read_dir(root.join("projects"))
@@ -262,11 +292,12 @@ fn the_acpmux_compactor_builds_a_node_through_claude_sr() {
 fn two_turns_and_two_nodes_through_local_acp() {
     use std::sync::Condvar;
 
-    use optchat_chief::acpmux::{Acpmux, AgentEvent, AgentPort, Preset};
+    use optchat_chief::acpmux::{Acpmux, AgentEvent, AgentPort};
     use optchat_chief::compactor::{
         AcpmuxCompactor, Slots, compactor_presets, compactor_spec, prepare_config,
     };
-    use optchat_chief::host::is_claude;
+    use optchat_chief::acpmux::{Family, harness_family, query_harnesses};
+    use optchat_chief::host::turn_preset;
     use optchat_chief::paths::{Paths, home_id};
     use optchat_chief::prompt::{Tools, cached_layout, system_text};
     use optchat_chief::session_dir::{self, SessionSetup};
@@ -274,7 +305,16 @@ fn two_turns_and_two_nodes_through_local_acp() {
     use optchat_host::{CompactRequest, NodeId, run_node};
 
     let harness = std::env::var("OPTCHAT_CHIEF_HARNESS").unwrap_or_else(|_| "claude-sr".into());
-    let claude = is_claude(&harness);
+    let socket = optchat_chief::acpmux_daemon::socket_path();
+    let family = harness_family(
+        &query_harnesses(&socket, &|l: &str| println!("acpmux: {l}")).unwrap(),
+        &harness,
+    )
+    .unwrap();
+    let claude = family == Family::Claude;
+    // OPTCHAT_LIVE_NO_CACHE_KEY=1 measures the same run without the
+    // Chief's codex cache keys (the thread-id default).
+    let keyed = std::env::var("OPTCHAT_LIVE_NO_CACHE_KEY").as_deref() != Ok("1");
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -284,6 +324,13 @@ fn two_turns_and_two_nodes_through_local_acp() {
     let paths = Paths::new(&home);
     paths.create().unwrap();
     prepare_config(&paths.compactor_config).unwrap();
+    if family == Family::Codex {
+        optchat_chief::compactor::prepare_codex_homes(
+            &paths,
+            &optchat_chief::compactor::user_codex_home(),
+        )
+        .unwrap();
+    }
     // The memory's own lines come from the fake compactor (free); the live
     // compactor is measured on its own below.
     let chat = open_chat(&paths.chat);
@@ -318,18 +365,26 @@ fn two_turns_and_two_nodes_through_local_acp() {
     };
     session_dir::write(&paths, &setup).unwrap();
     let system = system_text(None, &tools);
-    let turn_preset = format!("optchat-chief-{}", home_id(&home));
-    let agents = Acpmux::new(
-        optchat_chief::acpmux_daemon::socket_path(),
-        Some(Preset {
-            name: turn_preset.clone(),
-            harness: harness.clone(),
-            env: session_dir::isolation_env(&paths),
-            args: Vec::new(),
-            system_prompt: claude.then(|| system.clone()),
-        }),
-        compactor_presets(&paths, &home, &harness),
-    );
+    let turn_preset_name = format!("optchat-chief-{}", home_id(&home));
+    let mut preset = turn_preset(&paths, &home, &harness, family, true, &system).unwrap();
+    assert_eq!(preset.name, turn_preset_name);
+    let mut presets = compactor_presets(&paths, &home, &harness, family);
+    if !keyed {
+        preset.env.remove(optchat_chief::compactor::CODEX_CACHE_KEY_ENV);
+        for p in &mut presets {
+            p.env.remove(optchat_chief::compactor::CODEX_CACHE_KEY_ENV);
+        }
+    }
+    // OPTCHAT_LIVE_CODEX_PATH: the codex binary codex-acp runs (a fork build
+    // in a temporary directory; the installed codex stays untouched).
+    if let Ok(codex) = std::env::var("OPTCHAT_LIVE_CODEX_PATH") {
+        preset.env.insert("CODEX_PATH".into(), codex.clone());
+        for p in &mut presets {
+            p.env.insert("CODEX_PATH".into(), codex.clone());
+        }
+    }
+    println!("turn preset env {:?}", preset.env);
+    let agents = Acpmux::new(socket.clone(), Some(preset), presets);
     let up = Arc::new((Mutex::new(None::<bool>), Condvar::new()));
     let signal = up.clone();
     agents.spawn_link(
@@ -356,7 +411,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
     }
     if claude {
         assert!(
-            agents.system_prompt(&turn_preset),
+            agents.system_prompt(&turn_preset_name),
             "this acpmux takes no preset systemPrompt"
         );
         session_dir::set_claude_md(&paths.session, None).unwrap();
@@ -375,7 +430,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
             (
                 layout.blocks,
                 Some(layout.system),
-                Some(turn_preset.clone()),
+                Some(turn_preset_name.clone()),
             )
         } else {
             (turn_blocks(&view, std::slice::from_ref(&text)), None, None)
@@ -424,7 +479,7 @@ fn two_turns_and_two_nodes_through_local_acp() {
         .or_else(|| claude.then(|| optchat_host::DEFAULT_MODEL.to_owned()));
     let compactor = AcpmuxCompactor::new(
         agents.clone(),
-        compactor_spec(&paths, &home, &harness, compactor_model.as_deref()),
+        compactor_spec(&paths, &home, &harness, family, compactor_model.as_deref()),
         Slots::new(optchat_core::JOBS),
     )
     .with_log(Arc::new(|line: &str| println!("host.log: {line}")));

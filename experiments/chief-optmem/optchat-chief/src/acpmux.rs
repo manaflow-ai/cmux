@@ -45,6 +45,51 @@ pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
     ])
 }
 
+/// A harness's family, as acpmux reports it: it decides the layout and the
+/// isolation each Chief session gets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Family {
+    /// Claude Code (claude, claude-sr, ...): preset system prompts, cache
+    /// markers, `CLAUDE_CONFIG_DIR`.
+    Claude,
+    /// Codex (codex-acp): automatic prefix caching routed by
+    /// `prompt_cache_key`, `CODEX_HOME`.
+    Codex,
+    /// Any other harness: the codex layout without codex's settings.
+    Other,
+}
+
+impl Family {
+    pub fn from_name(family: &str) -> Family {
+        match family {
+            "claude" => Family::Claude,
+            "codex" => Family::Codex,
+            _ => Family::Other,
+        }
+    }
+}
+
+/// The family of `harness` in an `_acpmux/harnesses` answer: the `family`
+/// acpmux reports (a declared one, else derived from the harness kind and
+/// command). A daemon from before that field: derived here the same way,
+/// from `kind` and the command's words, never from the harness's name.
+pub fn harness_family(_answer: &Value, harness: &str) -> Result<Family, String> {
+    // Red stub: the old name prefix.
+    Ok(if harness.starts_with("claude") {
+        Family::Claude
+    } else if harness.starts_with("codex") {
+        Family::Codex
+    } else {
+        Family::Other
+    })
+}
+
+/// `_acpmux/harnesses` from the daemon at `socket` (started when it does not
+/// answer, as the link starts it), on a connection of its own.
+pub fn query_harnesses(_socket: &std::path::Path, _log: &dyn Fn(&str)) -> Result<Value, String> {
+    Err("not implemented (red)".into())
+}
+
 /// What a running turn hears about its session.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TurnSignal {

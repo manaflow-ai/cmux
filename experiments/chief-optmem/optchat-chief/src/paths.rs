@@ -53,6 +53,10 @@ pub struct Paths {
     /// (`CLAUDE_CONFIG_DIR` of their required preset), separate from the
     /// turn sessions' so nothing a turn writes reaches a compactor call.
     pub compactor_config: PathBuf,
+    /// The codex compactor sessions' own `CODEX_HOME`s, one per slot
+    /// (`slot-<k>`): no user AGENTS.md, skills, plugins, hooks or MCP
+    /// servers, and no transcript kept past its node.
+    pub compactor_codex: PathBuf,
     /// The user's own instructions file, the end of every turn's system
     /// prompt (section 7.2); read once per host start.
     pub instructions: PathBuf,
@@ -71,6 +75,7 @@ impl Paths {
             bin: root.join("bin"),
             claude_config: root.join("claude"),
             compactor_config: root.join("compactor-claude"),
+            compactor_codex: root.join("compactor-codex"),
             instructions: root.join("AGENTS.md"),
             root,
         }

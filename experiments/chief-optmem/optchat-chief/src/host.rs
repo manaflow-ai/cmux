@@ -10,12 +10,12 @@ use std::time::Duration;
 
 use optchat_host::{AnthropicModel, CompactModel, Config, OptChat, Report, SystemClock};
 
-use crate::acpmux::{Acpmux, AgentEvent, AgentPort, Preset};
+use crate::acpmux::{Acpmux, AgentEvent, AgentPort, Family, Preset};
 use crate::brain::{Brain, Engine, Input, Settings, parent_tag};
 use crate::cli::{Flags, env};
 use crate::compactor::{
-    AcpmuxCompactor, CompactRoute, Slots, compact_route, compactor_presets, compactor_spec,
-    probe_models,
+    AcpmuxCompactor, CODEX_CACHE_KEY_ENV, CompactRoute, Slots, codex_cache_key, compact_route,
+    compactor_presets, compactor_spec, probe_models,
 };
 use crate::daemon::{self, LinkConfig};
 use crate::lock::{HostLock, LockError};
@@ -70,10 +70,45 @@ pub fn harness_choice(
 /// launched through `sr claude proxy`, the team subrouter's account pool.
 pub const DEFAULT_HARNESS: &str = "claude-sr";
 
-/// A Claude Code harness (claude, claude-sr, ...): the cached layout's preset
-/// system prompt and cache marker apply.
-pub fn is_claude(harness: &str) -> bool {
-    harness.starts_with("claude")
+/// The turn sessions' acpmux preset, or None when a turn needs none: on
+/// a Claude harness it carries each turn's system prompt (the cached
+/// layout); on codex the Chief's turn `prompt_cache_key` (an env the cmux
+/// codex fork reads; upstream codex ignores it); with `isolate`, the turn
+/// sessions' own Claude Code configuration (`session_dir::isolation_env`).
+pub fn turn_preset(
+    paths: &Paths,
+    home: &std::path::Path,
+    harness: &str,
+    family: Family,
+    isolate: bool,
+    system_text: &str,
+) -> Option<Preset> {
+    let mut env = if isolate {
+        session_dir::isolation_env(paths)
+    } else {
+        BTreeMap::new()
+    };
+    let _ = (CODEX_CACHE_KEY_ENV, codex_cache_key(home, "turn"));
+    (isolate || family == Family::Claude).then(|| Preset {
+        name: format!("optchat-chief-{}", crate::paths::home_id(home)),
+        harness: harness.to_owned(),
+        env,
+        args: Vec::new(),
+        system_prompt: (family == Family::Claude).then(|| system_text.to_owned()),
+    })
+}
+
+/// The families of the turn and the compactor harness, from acpmux's own
+/// harness metadata (`_acpmux/harnesses`).
+pub fn harness_families(
+    answer: &serde_json::Value,
+    harness: &str,
+    compactor_harness: &str,
+) -> Result<(Family, Family), String> {
+    Ok((
+        crate::acpmux::harness_family(answer, harness)?,
+        crate::acpmux::harness_family(answer, compactor_harness)?,
+    ))
 }
 
 /// Runs the host; returns the exit code.
@@ -164,7 +199,26 @@ fn start(
         env("MUX_HARNESS").as_deref(),
         env("OPTCHAT_COMPACTOR_HARNESS").as_deref(),
     );
-    let claude = is_claude(&harness);
+    let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
+    let config = Config {
+        agent: crate::prompt::AGENT.to_owned(),
+        reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
+        ..Config::default()
+    };
+    let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
+    // The harness family decides each session's layout and isolation; acpmux
+    // says what a harness is (its declared family, else its kind and
+    // command), never its name. Only the native engine with the API
+    // compactor runs without acpmux.
+    let (family, compactor_family) =
+        if engine_choice.as_deref() == Some("native") && route == CompactRoute::Api {
+            (Family::Other, Family::Other)
+        } else {
+            let answer = crate::acpmux::query_harnesses(&acpmux_socket, &|line: &str| log(line))
+                .map_err(|e| format!("reading acpmux's harnesses: {e}"))?;
+            harness_families(&answer, &harness, &compactor_harness)?
+        };
+    let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
     // directory; acpmux gives any other harness no MCP server, so its memory
     // tools are the launcher's commands.
@@ -183,12 +237,6 @@ fn start(
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
 
-    let config = Config {
-        agent: crate::prompt::AGENT.to_owned(),
-        reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
-        ..Config::default()
-    };
-    let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
     let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
 
     // acpmux first: the compactor's acpmux route needs the connection before
@@ -201,18 +249,8 @@ fn start(
     // a Claude harness the preset also carries each turn's system prompt
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
-    let turn_preset = format!("optchat-chief-{}", crate::paths::home_id(home));
-    let preset = (isolate || claude).then(|| Preset {
-        name: turn_preset.clone(),
-        harness: harness.clone(),
-        env: if isolate {
-            session_dir::isolation_env(paths)
-        } else {
-            BTreeMap::new()
-        },
-        args: Vec::new(),
-        system_prompt: claude.then(|| system_text.clone()),
-    });
+    let preset = turn_preset(paths, home, &harness, family, isolate, &system_text);
+    let turn_preset_name = format!("optchat-chief-{}", crate::paths::home_id(home));
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
     // run the user's hooks, MCP servers and auto-memory on the chat's text.
@@ -220,7 +258,15 @@ fn start(
     if route == CompactRoute::Acpmux {
         crate::compactor::prepare_config(&paths.compactor_config)
             .map_err(|e| format!("creating {}: {e}", paths.compactor_config.display()))?;
-        required.extend(compactor_presets(paths, home, &compactor_harness));
+        if compactor_family == Family::Codex {
+            crate::compactor::prepare_codex_homes(paths, &crate::compactor::user_codex_home())?;
+        }
+        required.extend(compactor_presets(
+            paths,
+            home,
+            &compactor_harness,
+            compactor_family,
+        ));
     }
     let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
     let first_link = Arc::new((Mutex::new(false), Condvar::new()));
@@ -260,7 +306,7 @@ fn start(
             // The Claude models are Claude-only: another harness builds with
             // its own default model unless OPTCHAT_COMPACTOR_MODEL names one,
             // and has no refusal fallback model.
-            let compactor_claude = is_claude(&compactor_harness);
+            let compactor_claude = compactor_family == Family::Claude;
             let compactor_model = env("OPTCHAT_COMPACTOR_MODEL")
                 .or_else(|| compactor_claude.then(|| config.model.clone()));
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
@@ -271,7 +317,7 @@ fn start(
             let build = |model: Option<&str>| {
                 let spec = crate::compactor::CompactorSpec {
                     effort: compactor_effort.clone(),
-                    ..compactor_spec(paths, home, &compactor_harness, model)
+                    ..compactor_spec(paths, home, &compactor_harness, compactor_family, model)
                 };
                 Arc::new(
                     AcpmuxCompactor::new(port.clone(), spec, slots.clone())
@@ -334,7 +380,7 @@ fn start(
     // calls for Claude models with 429 (it serves Claude Code clients), so
     // the native engine needs an endpoint that takes API calls
     // (OPTCHAT_ANTHROPIC_BASE_URL plus a key). Checked live on 2026-10-04.
-    let engine = match env("OPTCHAT_CHIEF_ENGINE").as_deref() {
+    let engine = match engine_choice.as_deref() {
         Some("native") => {
             let native_config = NativeConfig {
                 model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
@@ -363,10 +409,13 @@ fn start(
         None | Some("acpmux") => {
             log(format!(
                 "turns: {harness} sessions through acpmux ({}); no Messages API",
-                if claude {
-                    "cached layout: the turn preset's system prompt holds the view head, one cache marker"
-                } else {
-                    "automatic prefix caching: instructions in AGENTS.md, view first, messages last"
+                match family {
+                    Family::Claude => "cached layout: the turn preset's system prompt holds the view head, one cache marker".to_owned(),
+                    Family::Codex => format!(
+                        "automatic prefix caching: instructions in AGENTS.md, view first, messages last, prompt_cache_key {}",
+                        codex_cache_key(home, "turn")
+                    ),
+                    Family::Other => "automatic prefix caching: instructions in AGENTS.md, view first, messages last".to_owned(),
                 }
             ));
             Engine::Acpmux
@@ -390,7 +439,7 @@ fn start(
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
         engine,
-        turn_preset: claude.then_some(turn_preset),
+        turn_preset: claude.then_some(turn_preset_name),
         chief_id: crate::paths::home_id(home),
         system_text,
     };

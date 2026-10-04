@@ -418,6 +418,7 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
             &paths,
             &dir.path().join("mux"),
             "claude-sr",
+            optchat_chief::acpmux::Family::Claude,
             Some("claude-sonnet-5-5"),
         )
     };
@@ -494,4 +495,64 @@ fn the_turn_line_reports_the_answers_usage_after_turn_end() {
             "{expected}: {lines:?}"
         );
     }
+}
+
+/// The family (layout, isolation, cache key) comes from acpmux's harness
+/// metadata, never from the harness's name: a `claude-*` name that runs
+/// codex-acp is codex, and a Claude Code harness named anything is Claude.
+#[test]
+fn the_harness_family_comes_from_acpmuxs_metadata_not_the_name() {
+    use optchat_chief::acpmux::{Family, harness_family};
+    let answer = json!({"harnesses": {
+        "claude-sr": {"kind": "claude-stdio", "argv": ["sr", "claude", "proxy"], "family": "claude"},
+        "codex": {"argv": ["/u/.local/share/cmux-acp/current/bin/codex-acp"], "family": "codex"},
+        "claude-router": {"argv": ["/opt/bin/codex-acp"], "family": "codex"},
+        "work": {"kind": "claude-stdio", "argv": ["/opt/cc"]},
+        "cx": {"argv": ["/opt/bin/codex-acp", "--profile", "x"]},
+        "pi": {"argv": ["pi-acp"], "family": "pi"},
+    }});
+    for (name, family) in [
+        ("claude-sr", Family::Claude),
+        ("codex", Family::Codex),
+        ("claude-router", Family::Codex),
+        ("work", Family::Claude),
+        ("cx", Family::Codex),
+        ("pi", Family::Other),
+    ] {
+        assert_eq!(harness_family(&answer, name), Ok(family), "{name}");
+    }
+    let missing = harness_family(&answer, "claude").unwrap_err();
+    assert!(missing.contains("claude"), "{missing}");
+}
+
+/// A codex turn session gets the Chief's stable turn cache key through the
+/// turn preset's env (the cmux codex fork sends it as `prompt_cache_key`),
+/// with or without the isolation; a Claude turn keeps its system prompt and
+/// no key; another harness without isolation needs no preset.
+#[test]
+fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::host::turn_preset;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let id = optchat_chief::paths::home_id(&home);
+    let key = format!("optchat-{id}-turn");
+    let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
+    assert_eq!(codex.name, format!("optchat-chief-{id}"));
+    assert_eq!(codex.env["CODEX_PROMPT_CACHE_KEY"], key);
+    assert!(codex.args.is_empty(), "the preset args allowlist is untouched");
+    assert_eq!(codex.system_prompt, None);
+    let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
+    assert_eq!(
+        bare.env,
+        std::collections::BTreeMap::from([("CODEX_PROMPT_CACHE_KEY".to_owned(), key)])
+    );
+    let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, false, "SYS").unwrap();
+    assert_eq!(claude.system_prompt.as_deref(), Some("SYS"));
+    assert!(!claude.env.contains_key("CODEX_PROMPT_CACHE_KEY"));
+    assert_eq!(
+        turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
+        None
+    );
 }

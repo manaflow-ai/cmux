@@ -504,3 +504,42 @@ fn session_tags_are_set_right_after_session_new() {
         json!({"sessionId": "s-1", "set": {"cmux.chief": "1a2b3c4d", "cmux.chief.role": "compactor"}})
     );
 }
+
+/// At start the host reads acpmux's harness metadata on a connection of its
+/// own (`_acpmux/harnesses`), the source of every harness family.
+#[test]
+fn query_harnesses_reads_the_daemons_harness_metadata() {
+    use optchat_chief::acpmux::{Family, harness_family, query_harnesses};
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("acpmux.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let methods = Arc::new(Mutex::new(Vec::<String>::new()));
+    let seen = methods.clone();
+    std::thread::spawn(move || {
+        for conn in listener.incoming().flatten() {
+            let mut out = conn.try_clone().unwrap();
+            for line in BufReader::new(conn).lines() {
+                let Ok(line) = line else { break };
+                let req: Value = serde_json::from_str(&line).unwrap();
+                let method = req["method"].as_str().unwrap().to_owned();
+                seen.lock().unwrap().push(method.clone());
+                let result = match method.as_str() {
+                    "_acpmux/harnesses" => json!({"harnesses": {
+                        "claude-sr": {"kind": "claude-stdio", "argv": ["sr", "claude", "proxy"], "family": "claude"},
+                        "codex": {"argv": ["/x/codex-acp"], "family": "codex"},
+                    }, "defaultHarness": "claude-sr"}),
+                    _ => json!({}),
+                };
+                writeln!(out, "{}", json!({"jsonrpc": "2.0", "id": req["id"], "result": result}))
+                    .unwrap();
+            }
+        }
+    });
+    let answer = query_harnesses(&socket, &|_: &str| {}).unwrap();
+    assert_eq!(harness_family(&answer, "codex"), Ok(Family::Codex));
+    assert_eq!(harness_family(&answer, "claude-sr"), Ok(Family::Claude));
+    assert_eq!(
+        *methods.lock().unwrap(),
+        vec!["initialize".to_owned(), "_acpmux/harnesses".to_owned()]
+    );
+}

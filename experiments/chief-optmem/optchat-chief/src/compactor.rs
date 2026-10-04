@@ -42,7 +42,7 @@ use optchat_host::{
 };
 use serde_json::{Value, json};
 
-use crate::acpmux::{AgentPort, Preset, SessionSpec, TurnSignal};
+use crate::acpmux::{AgentPort, Family, Preset, SessionSpec, TurnSignal};
 use crate::fold::{TurnFold, Usage, answer_usage};
 use crate::paths::{Paths, home_id};
 
@@ -132,6 +132,12 @@ pub struct CompactorSpec {
     /// `k` uses `<preset>-slot-<k>` (`slot_preset`).
     pub preset: String,
     pub harness: String,
+    /// The harness's family as acpmux reports it (`acpmux::harness_family`).
+    pub family: Family,
+    /// Codex: the slots' own `CODEX_HOME`s live under it (`<dir>/slot-<k>`,
+    /// `codex_slot_home`), emptied but for their configuration around
+    /// every node.
+    pub codex_home: PathBuf,
     pub model: Option<String>,
     /// acpmux's `effort`; None (the harness default) until verified live.
     pub effort: Option<String>,
@@ -253,7 +259,22 @@ impl AcpmuxCompactor {
     /// apply, and each slot needs its own directory (Claude Code keeps a
     /// transcript per project directory, deleted per node).
     fn claude(&self) -> bool {
-        self.spec.harness.starts_with("claude")
+        self.spec.family == Family::Claude
+    }
+
+    /// Codex: empties the slot's `CODEX_HOME` but for its configuration
+    /// (the node's transcript, thread database and logs go).
+    fn wipe_codex(&self, slot: usize) {
+        if self.spec.family != Family::Codex {
+            return;
+        }
+        let dir = codex_slot_home(&self.spec.codex_home, slot);
+        if let Err(e) = wipe_codex_home(&dir) {
+            self.say(&format!(
+                "emptying the compactor's CODEX_HOME {}: {e}",
+                dir.display()
+            ));
+        }
     }
 
     /// The slot's working directory, created, by its real path (Claude
@@ -303,6 +324,7 @@ impl AcpmuxCompactor {
         }
         // A transcript left by a crash in this slot.
         self.delete_transcript(&cwd);
+        self.wipe_codex(slot);
         let name = self.session_name(node);
         // Left by a host that stopped while the node was being built.
         if let Ok(Some(old)) = self.port.find(&name) {
@@ -527,6 +549,7 @@ impl CompactModel for AcpmuxCompactor {
         // So is Claude Code's own transcript of it (the whole view, each time),
         // and the slot preset's system prompt (the view's first piece).
         self.delete_transcript(&live.cwd);
+        self.wipe_codex(live.slot);
         if live.prompted {
             let _ = self.port.set_system_prompt(&live.preset, "");
         }
@@ -656,7 +679,8 @@ pub fn project_dir_name(cwd: &Path) -> String {
 
 /// Section 4.2 says a compactor call has no tools: the probe fails when the
 /// session's Claude Code reports a tool or an MCP server (its `system/init`,
-/// which acpmux records as a `session_info_update`).
+/// which acpmux records as a `session_info_update`), or when the session
+/// offers a skill (codex-acp's `available_commands_update`).
 pub fn check_isolation(events: &[AcpmuxEvent]) -> Result<(), String> {
     for event in events {
         if event.kind != "session_info_update" {
@@ -767,7 +791,13 @@ pub fn slot_preset(base: &str, k: usize) -> String {
 /// The compactor's acpmux presets (`optchat-compact-<home id>-slot-<k>`, one
 /// per JOBS slot), which every compactor session requires.
 /// OPTCHAT_CHIEF_ISOLATE=0 does not touch them.
-pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str) -> Vec<Preset> {
+pub fn compactor_presets(
+    paths: &Paths,
+    home: &Path,
+    harness: &str,
+    family: Family,
+) -> Vec<Preset> {
+    let base = format!("optchat-compact-{}", home_id(home));
     let mut env = BTreeMap::new();
     env.insert(
         "CLAUDE_CONFIG_DIR".to_owned(),
@@ -784,8 +814,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str) -> Vec<Prese
     }
     // Claude Code flags and system prompts: a Claude harness only (claude,
     // claude-sr, ...); another harness keeps the old layout.
-    let claude = harness.starts_with("claude");
-    let base = format!("optchat-compact-{}", home_id(home));
+    let claude = family == Family::Claude;
     (0..optchat_core::JOBS)
         .map(|k| Preset {
             name: slot_preset(&base, k),
@@ -806,6 +835,7 @@ pub fn compactor_spec(
     paths: &Paths,
     home: &Path,
     harness: &str,
+    family: Family,
     model: Option<&str>,
 ) -> CompactorSpec {
     let name = format!("optchat-compact-{}", home_id(home));
@@ -815,11 +845,99 @@ pub fn compactor_spec(
         preset: name.clone(),
         name,
         harness: harness.to_owned(),
+        family,
+        codex_home: paths.compactor_codex.clone(),
         model: model.map(str::to_owned),
         effort: None,
         timeout: CALL_TIMEOUT,
         chief: home_id(home),
     }
+}
+
+/// The env the cmux codex fork reads its `prompt_cache_key` from (in
+/// place of the thread id, which is new for every acpmux session).
+pub const CODEX_CACHE_KEY_ENV: &str = "CODEX_PROMPT_CACHE_KEY";
+
+/// The Chief's codex `prompt_cache_key` for `role` (`turn`, `compact`):
+/// `optchat-<home id>-<role>`. One key per prefix family, so every turn
+/// (and every node) of one Chief lands on the cache the one before wrote.
+pub fn codex_cache_key(home: &Path, role: &str) -> String {
+    format!("optchat-{}-{role}", home_id(home))
+}
+
+/// Compactor slot `k`'s own `CODEX_HOME` under `base`.
+pub fn codex_slot_home(base: &Path, k: usize) -> PathBuf {
+    base.join(format!("slot-{k}"))
+}
+
+/// The user's codex home: `CODEX_HOME` of the host, else `~/.codex`.
+pub fn user_codex_home() -> PathBuf {
+    if let Some(dir) = crate::cli::env("CODEX_HOME") {
+        return PathBuf::from(dir);
+    }
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/".into())
+        .join(".codex")
+}
+
+/// Top-level keys of the user's codex config.toml a compactor slot keeps:
+/// where its requests go (the team subrouter) and the model it asks for.
+/// Nothing else: no MCP servers, profiles, hooks, notify, projects,
+/// plugins or skills.
+pub const CODEX_KEPT_KEYS: [&str; 8] = [
+    "model",
+    "model_provider",
+    "model_providers",
+    "openai_base_url",
+    "chatgpt_base_url",
+    "service_tier",
+    "model_reasoning_effort",
+    "model_verbosity",
+];
+
+/// A compactor slot's codex config.toml: the routing and model keys of the
+/// user's (`user`, its text), then the isolation: no project AGENTS.md, no
+/// skills (none loaded, none listed in the prompt), no apps, plugins,
+/// memories, hooks or subagents, no history file.
+pub fn codex_compactor_config(user: Option<&str>) -> Result<String, String> {
+    // Red stub: the user's config as it is.
+    Ok(user.unwrap_or_default().to_owned())
+}
+
+/// Creates every compactor slot's `CODEX_HOME` (0700) under
+/// `paths.compactor_codex` with `codex_compactor_config` of the user's
+/// config.toml in `user_home`, and empties it (`wipe_codex_home`).
+pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String> {
+    let user = match std::fs::read_to_string(user_home.join("config.toml")) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("reading {}: {e}", user_home.display())),
+    };
+    let config = codex_compactor_config(user.as_deref())?;
+    private_dir(&paths.compactor_codex)
+        .map_err(|e| format!("creating {}: {e}", paths.compactor_codex.display()))?;
+    for k in 0..optchat_core::JOBS {
+        let dir = codex_slot_home(&paths.compactor_codex, k);
+        let made = private_dir(&dir)
+            .and_then(|()| wipe_codex_home(&dir))
+            .and_then(|()| {
+                crate::session_dir::write_if_changed(&dir.join("config.toml"), config.as_bytes())
+            });
+        made.map_err(|e| format!("preparing {}: {e}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Files of a compactor `CODEX_HOME` that hold no chat text and survive
+/// `wipe_codex_home`: its configuration and codex's model catalog cache.
+pub const CODEX_KEPT_FILES: [&str; 3] = ["config.toml", "models_cache.json", "version.json"];
+
+/// Removes everything in a compactor `CODEX_HOME` but `CODEX_KEPT_FILES`:
+/// the node's rollout (`sessions/`), thread and log databases, history,
+/// shell snapshots, the bundled skills codex unpacks.
+pub fn wipe_codex_home(_dir: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 /// Which model builds the compactor's nodes.

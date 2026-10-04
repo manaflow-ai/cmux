@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::*;
+use optchat_chief::acpmux::Family;
 use optchat_chief::brain::Input;
 use optchat_chief::compactor::{
     AcpmuxCompactor, COMPACTOR_ARGS, CompactRoute, CompactorSpec, DENIED_TOOLS, POLICY, Slots,
@@ -50,6 +51,8 @@ fn spec(dir: &std::path::Path) -> CompactorSpec {
         transcript_dirs: vec![dir.join("compactor-claude"), dir.join("user-claude")],
         preset: "optchat-compact-test-preset".into(),
         harness: "claude-sr".into(),
+        family: Family::Claude,
+        codex_home: dir.join("codex"),
         model: Some("claude-sonnet-5-5".into()),
         effort: None,
         timeout: Duration::from_secs(30),
@@ -598,7 +601,7 @@ fn the_compactor_has_its_own_isolated_configuration() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("mux");
     let paths = Paths::new(&home);
-    let presets = compactor_presets(&paths, &home, "claude-sr");
+    let presets = compactor_presets(&paths, &home, "claude-sr", Family::Claude);
     let preset = &presets[0];
     assert!(
         preset.name.starts_with("optchat-compact-"),
@@ -637,7 +640,13 @@ fn the_compactor_has_its_own_isolated_configuration() {
     }
     assert_eq!(settings["cleanupPeriodDays"], 1);
     assert_eq!(settings["autoMemoryEnabled"], false);
-    let spec = compactor_spec(&paths, &home, "claude-sr", Some("claude-sonnet-5-5"));
+    let spec = compactor_spec(
+        &paths,
+        &home,
+        "claude-sr",
+        Family::Claude,
+        Some("claude-sonnet-5-5"),
+    );
     assert_eq!(spec.effort, None);
     assert_eq!(slot_preset(&spec.preset, 0), preset.name);
     assert!(spec.transcript_dirs.contains(&paths.compactor_config));
@@ -840,7 +849,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("mux");
     let paths = Paths::new(&home);
-    let presets = compactor_presets(&paths, &home, "claude-sr");
+    let presets = compactor_presets(&paths, &home, "claude-sr", Family::Claude);
     assert_eq!(
         presets.len(),
         JOBS,
@@ -864,7 +873,7 @@ fn the_compactor_presets_are_one_per_slot_with_allowlisted_args_and_a_system_pro
     }
     assert_eq!(presets[0].args, COMPACTOR_ARGS);
     // Claude Code flags and system prompts mean nothing to another harness.
-    let codex = compactor_presets(&paths, &home, "codex");
+    let codex = compactor_presets(&paths, &home, "codex", Family::Codex);
     assert_eq!(codex.len(), JOBS);
     assert!(
         codex
@@ -883,6 +892,7 @@ fn a_codex_compactor_shares_one_working_directory_and_keeps_a_byte_stable_prefix
     agents.inner.lock().unwrap().system_prompts = true;
     let spec = CompactorSpec {
         harness: "codex".into(),
+        family: Family::Codex,
         model: None,
         ..spec(dir.path())
     };
@@ -936,6 +946,7 @@ fn a_codex_node_logs_its_cached_tokens() {
     let sink = lines.clone();
     let spec = CompactorSpec {
         harness: "codex".into(),
+        family: Family::Codex,
         model: None,
         ..spec(dir.path())
     };
@@ -957,4 +968,218 @@ fn a_codex_node_logs_its_cached_tokens() {
     ] {
         assert!(line.contains(part), "{part} in {line}");
     }
+}
+
+/// Codex compactor slots: each preset points `CODEX_HOME` at its slot's own
+/// home and carries the Chief's compactor cache key; no Claude Code env,
+/// args or system prompt.
+#[test]
+fn codex_compactor_presets_give_each_slot_its_own_codex_home_and_the_compact_cache_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("mux");
+    let paths = Paths::new(&home);
+    let id = optchat_chief::paths::home_id(&home);
+    let presets = compactor_presets(&paths, &home, "codex", Family::Codex);
+    assert_eq!(presets.len(), JOBS);
+    let mut homes = std::collections::BTreeSet::new();
+    for (k, p) in presets.iter().enumerate() {
+        assert_eq!(p.name, format!("optchat-compact-{id}-slot-{k}"));
+        assert_eq!(
+            p.env["CODEX_HOME"],
+            paths
+                .compactor_codex
+                .join(format!("slot-{k}"))
+                .display()
+                .to_string()
+        );
+        assert_eq!(
+            p.env["CODEX_PROMPT_CACHE_KEY"],
+            format!("optchat-{id}-compact")
+        );
+        assert!(!p.env.contains_key("CLAUDE_CONFIG_DIR"));
+        assert!(p.args.is_empty() && p.system_prompt.is_none());
+        homes.insert(p.env["CODEX_HOME"].clone());
+    }
+    assert_eq!(homes.len(), JOBS, "one CODEX_HOME per slot");
+}
+
+/// A slot's codex config.toml keeps where requests go and the model, and
+/// nothing else of the user's (MCP servers, notify, projects, hooks,
+/// profiles); it turns off project AGENTS.md, skills, apps, plugins,
+/// memories and hooks.
+#[test]
+fn the_codex_compactor_config_keeps_routing_and_drops_everything_else() {
+    use optchat_chief::compactor::{codex_compactor_config, prepare_codex_homes};
+    let user = r#"
+model = "gpt-6-astra"
+openai_base_url = "http://router:31415/v1"
+chatgpt_base_url = "http://router:31415/backend-api"
+notify = ["/bin/notifier"]
+approval_policy = "never"
+developer_instructions = "be terse"
+
+[mcp_servers.github]
+command = "gh-mcp"
+
+[projects."/"]
+trust_level = "trusted"
+
+[model_providers.sr]
+name = "subrouter"
+base_url = "http://router:31415/v1"
+"#;
+    let text = codex_compactor_config(Some(user)).unwrap();
+    let config: toml::Table = text.parse().unwrap();
+    assert_eq!(config["model"].as_str(), Some("gpt-6-astra"));
+    assert_eq!(
+        config["openai_base_url"].as_str(),
+        Some("http://router:31415/v1")
+    );
+    assert_eq!(
+        config["model_providers"]["sr"]["base_url"].as_str(),
+        Some("http://router:31415/v1")
+    );
+    for gone in [
+        "mcp_servers",
+        "notify",
+        "projects",
+        "approval_policy",
+        "developer_instructions",
+    ] {
+        assert!(!config.contains_key(gone), "{gone} in {text}");
+    }
+    assert_eq!(config["project_doc_max_bytes"].as_integer(), Some(0));
+    assert_eq!(
+        config["skills"]["include_instructions"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        config["skills"]["bundled"]["enabled"].as_bool(),
+        Some(false)
+    );
+    for feature in ["apps", "plugins", "memories", "hooks", "multi_agent"] {
+        assert_eq!(
+            config["features"][feature].as_bool(),
+            Some(false),
+            "{feature}"
+        );
+    }
+    assert_eq!(
+        config["features"]["skip_host_skill_discovery"].as_bool(),
+        Some(true)
+    );
+    // Without a user config: the isolation alone.
+    let bare: toml::Table = codex_compactor_config(None).unwrap().parse().unwrap();
+    assert!(!bare.contains_key("model"));
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(&dir.path().join("mux"));
+    let user_home = dir.path().join("user-codex");
+    std::fs::create_dir_all(user_home.join("skills/mine")).unwrap();
+    std::fs::write(user_home.join("config.toml"), user).unwrap();
+    std::fs::write(user_home.join("AGENTS.md"), "user instructions").unwrap();
+    std::fs::write(user_home.join("auth.json"), "{}").unwrap();
+    prepare_codex_homes(&paths, &user_home).unwrap();
+    for k in 0..JOBS {
+        let slot = paths.compactor_codex.join(format!("slot-{k}"));
+        let mut names: Vec<String> = std::fs::read_dir(&slot)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["config.toml"], "slot {k}: only its config");
+        assert_eq!(std::fs::read_to_string(slot.join("config.toml")).unwrap(), text);
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&slot).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+    }
+}
+
+/// Everything codex writes into a slot's CODEX_HOME during a node (its
+/// rollout, thread database, history) is gone when the node ends; so is a
+/// crash's leftover before the next node starts. The config stays.
+#[test]
+fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
+    use optchat_chief::compactor::prepare_codex_homes;
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(&dir.path().join("mux"));
+    prepare_codex_homes(&paths, &dir.path().join("no-user-codex")).unwrap();
+    let base = paths.compactor_codex.clone();
+    // A crash's leftover in every slot.
+    for k in 0..JOBS {
+        let slot = base.join(format!("slot-{k}"));
+        std::fs::create_dir_all(slot.join("sessions/2026/10/04")).unwrap();
+        std::fs::write(slot.join("sessions/2026/10/04/rollout-old.jsonl"), "old").unwrap();
+    }
+    let seen_leftover = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let seen = seen_leftover.clone();
+    let writes = base.clone();
+    // The fake harness writes as codex does, into every slot (it does not
+    // know which one the node holds).
+    let agents = FakeAgents::new(Box::new(move |_, _| {
+        for k in 0..JOBS {
+            let slot = writes.join(format!("slot-{k}"));
+            seen.lock()
+                .unwrap()
+                .push(slot.join("sessions/2026/10/04/rollout-old.jsonl").exists());
+            std::fs::create_dir_all(slot.join("sessions/2026/10/05")).unwrap();
+            std::fs::write(slot.join("sessions/2026/10/05/rollout-new.jsonl"), "chat").unwrap();
+            std::fs::write(slot.join("state_5.sqlite"), "threads").unwrap();
+            std::fs::write(slot.join("history.jsonl"), "chat").unwrap();
+            std::fs::write(slot.join("models_cache.json"), "{}").unwrap();
+        }
+        answer("user: a line")
+    }));
+    let spec = CompactorSpec {
+        harness: "codex".into(),
+        family: Family::Codex,
+        codex_home: base.clone(),
+        model: None,
+        ..spec(dir.path())
+    };
+    let compactor = AcpmuxCompactor::new(agents.clone(), spec, Slots::new(JOBS));
+    run_node(&compactor, &request(1)).unwrap();
+    // The node held slot 0: its leftover was gone before the session started.
+    assert_eq!(seen_leftover.lock().unwrap()[0], false);
+    let slot = base.join("slot-0");
+    let mut names: Vec<String> = std::fs::read_dir(&slot)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["config.toml", "models_cache.json"]);
+}
+
+/// The probe fails when a codex compactor session offers a skill (codex-acp
+/// lists each as a `$name` command): a chat line naming it would pull the
+/// skill's text into the node.
+#[test]
+fn the_probe_fails_when_a_codex_session_offers_skills() {
+    let dir = tempfile::tempdir().unwrap();
+    let with = |commands: Value| {
+        let agents = FakeAgents::new(Box::new(move |_, _| {
+            let mut events = vec![update(
+                "available_commands_update",
+                json!({"availableCommands": commands.clone()}),
+            )];
+            events.extend(answer("user: ping"));
+            events
+        }));
+        let spec = CompactorSpec {
+            harness: "codex".into(),
+            family: Family::Codex,
+            model: None,
+            ..spec(dir.path())
+        };
+        probe(
+            &AcpmuxCompactor::new(agents, spec, Slots::new(JOBS)),
+            "SYS",
+        )
+    };
+    let builtin = json!([{"name": "compact", "description": "Summarize"}, {"name": "status"}]);
+    assert_eq!(with(builtin), Ok("user: ping".into()));
+    let error = with(json!([{"name": "status"}, {"name": "$cmux-browser"}, {"name": "$imagegen"}]))
+        .unwrap_err();
+    assert!(error.message.contains("$cmux-browser"), "{error:?}");
+    assert!(error.message.contains("$imagegen"), "{error:?}");
 }
