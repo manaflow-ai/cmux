@@ -78,7 +78,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let listen_ok =
         saved_listen.as_deref() == Some(first_run_listen(shared_home, saved_listen.as_deref()));
     if needs_token || !listen_ok {
-        let listen = Some(first_run_listen(shared_home, saved_listen.as_deref()).to_owned());
         let kept_token = config
             .websocket
             .as_ref()
@@ -90,7 +89,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
             .unwrap_or_default();
         config.websocket = Some(crate::config::WebSocketConfig {
-            listen: listen.unwrap_or_else(|| "127.0.0.1:47811".into()),
+            listen: first_run_listen(shared_home, saved_listen.as_deref()).to_owned(),
             token: Some(kept_token.unwrap_or_else(random_token)),
             allowed_origins,
             allowed_hosts,
