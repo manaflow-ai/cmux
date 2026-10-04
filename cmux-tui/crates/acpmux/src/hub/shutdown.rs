@@ -24,7 +24,7 @@ impl Hub {
     ) -> Result<(), RpcError> {
         let mut plan = self.shutdown_plan.lock().unwrap();
         if plan.started {
-            return Err(RpcError::invalid_params(
+            return Err(RpcError::internal(
                 "the daemon is already shutting down and hands its agents off; endAgents comes too late",
             ));
         }
