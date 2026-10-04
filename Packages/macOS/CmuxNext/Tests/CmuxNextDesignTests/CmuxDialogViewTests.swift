@@ -125,12 +125,12 @@ struct CmuxDialogViewTests {
     /// dialog never does.
     @Test func anAppScopeDialogActivatesTheAppAndAWindowDialogDoesNot() throws {
         var activations = 0
-        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(activate: { activations += 1 }))
+        let center = CmuxDialogCenter(host: CmuxDialogOverlayHost(activate: { activations += 1 }, isAppActive: { false }))
         let windowDialog = center.present(Self.credentials, in: .window(Self.window())) { _ in }
         #expect(activations == 0)
         center.dismiss(windowDialog)
         let appDialog = center.present(Self.credentials, in: .app) { _ in }
-        #expect(activations == (NSApp.isActive ? 0 : 1))
+        #expect(activations == 1)
         center.dismiss(appDialog)
     }
 

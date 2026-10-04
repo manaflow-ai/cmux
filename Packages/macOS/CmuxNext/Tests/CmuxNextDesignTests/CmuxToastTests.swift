@@ -44,12 +44,13 @@ struct CmuxToastTests {
         await clock.sleepers(atLeast: 1)
         center.setHovered(true, handle)
         clock.advance(by: .seconds(10))
-        await Task.yield()
+        for _ in 0..<50 { await Task.yield() }
         #expect(reasons.isEmpty, "the pointer on the toast keeps it")
         center.setHovered(false, handle)
         await clock.sleepers(atLeast: 1)
         clock.advance(by: .seconds(5))
-        for _ in 0..<5 { await Task.yield() }
+        // The timer's action hops to the main actor: yield until it ran (bounded).
+        for _ in 0..<500 where reasons.isEmpty { await Task.yield() }
         #expect(reasons == [.timeout])
         #expect(host.slots.isEmpty)
     }

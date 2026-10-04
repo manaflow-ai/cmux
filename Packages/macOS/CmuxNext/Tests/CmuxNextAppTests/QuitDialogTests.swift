@@ -59,6 +59,22 @@ struct QuitDialogTests {
         #expect(answers() == [.quit(.endKeepLayout, remember: false)])
     }
 
+    /// hq-48's fleet quit script drives the dialog only through `debug.quit`
+    /// press names: quit, cancel, end, end-everything (and quit-anyway on
+    /// the failure dialog, QuitFailureDialogTests). They stay valid.
+    @Test func theSocketPressNamesStayValid() {
+        let (keep, _, keepAnswers) = Self.open()
+        #expect(keep.press("quit"))
+        #expect(keepAnswers() == [.quit(.keep, remember: false)])
+        let (cancel, _, cancelAnswers) = Self.open()
+        #expect(cancel.press("cancel"))
+        #expect(cancelAnswers() == [.cancel])
+        let (end, _, endAnswers) = Self.open()
+        #expect(end.press("end"))
+        #expect(end.press("end-everything"))
+        #expect(endAnswers() == [.quit(.endEverything, remember: false)])
+    }
+
     /// A second Cmd-Q while the dialog shows confirms the default; on the
     /// confirmation step it does nothing (it never confirms a destructive choice).
     @Test func aSecondQuitKeepsOnTheFirstStepOnly() {
