@@ -112,6 +112,21 @@ test("! turns the tab into a terminal at once and forwards what follows", async 
   await act(async () => root.unmount());
 });
 
+// R81: the "!" frame shows the terminal at once (a placeholder over the same background, the
+// typed command and a cursor) while the daemon starts the shell; the field keeps the keyboard.
+test("! shows a terminal placeholder in the same render, echoing what is typed", async () => {
+  const { container, root, field, type } = await mount();
+  await type("!");
+  const terminal = container.querySelector(".nt-terminal");
+  expect(terminal).not.toBeNull();
+  expect(container.querySelector(".nt-screen")!.hasAttribute("data-converting")).toBe(true);
+  expect(container.querySelector(".nt-terminal .nt-cursor")).not.toBeNull();
+  await type("!ls -la");
+  expect(container.querySelector(".nt-terminal-command")!.textContent).toBe("ls -la");
+  expect(dom.window.document.activeElement).toBe(field);
+  await act(async () => root.unmount());
+});
+
 test("one input (R86): a prompt lists the agents and an explicit search row; no Search/Ask mode", async () => {
   const { container, root, type, key, calls } = await mount();
   await type("fix the build");
