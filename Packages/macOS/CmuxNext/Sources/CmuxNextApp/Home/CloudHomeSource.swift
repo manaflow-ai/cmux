@@ -600,32 +600,27 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     // MARK: Subscriptions
 
-    private enum SubscribeStep {
-        case skip
-        case start(evicted: ConversationID?)
-    }
 
     /// Subscribes once per conversation; the least recently used of 64 makes room.
     private func subscribe(_ conversation: ConversationID, commands: any CloudConversationCommands, generation: UInt64) async {
-        let step = state.withLock { state -> SubscribeStep in
-            guard state.generation == generation else { return .skip }
+        let start = state.withLock { state -> Bool in
+            guard state.generation == generation else { return false }
             if state.targets[conversation] != nil {
                 state.recent.removeAll { $0 == conversation }
                 state.recent.append(conversation)
-                return .skip
+                return false
             }
-            var evicted: ConversationID?
             if state.recent.count >= CloudConversationSubscribeRequest.maxSubscriptions {
                 let oldest = state.recent.removeFirst()
                 state.targets[oldest] = nil
-                evicted = oldest
+                // Queued with the others, so opening it again at once subscribes after this ends it.
+                Self.chainUnsubscribes([oldest], commands: commands, &state)
             }
             state.targets[conversation] = Target(state: "connecting")
             state.recent.append(conversation)
-            return .start(evicted: evicted)
+            return true
         }
-        guard case .start(let evicted) = step else { return }
-        if let evicted { _ = try? await commands.unsubscribe(evicted.rawValue) }
+        guard start else { return }
         await state.withLock { $0.unsubscribing }?.value
         do {
             let reply = try await commands.subscribe(conversation.rawValue)
