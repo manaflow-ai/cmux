@@ -65,7 +65,7 @@ fail() {
     echo "warning: CEF unavailable: $*; building without the Chromium engine" >&2
     exit 0
   fi
-  echo "error: $*" >&2
+  echo "error: $*; see cmuxterm-hq REPAIR.md (ensure-cef store parser)" >&2
   exit 1
 }
 
@@ -82,7 +82,31 @@ if [[ -n "${CMUX_CEF_PATH:-}" ]]; then
   exit 0
 fi
 
-field() { /usr/bin/plutil -extract "$1" raw -o - "$MANIFEST" 2>/dev/null || true; }
+field() {
+  local key="$1"
+  if command -v plutil >/dev/null 2>&1; then
+    plutil -extract "$key" raw -o - "$MANIFEST" 2>/dev/null || true
+    return
+  fi
+  # The shared script is also checked on Linux, where macOS plutil is absent.
+  # Keep the manifest read-only and use the system Python already required by
+  # the CI script tests instead of treating every field as missing.
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$MANIFEST" "$key" <<'PY' 2>/dev/null || true
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+for part in sys.argv[2].split("."):
+    if not isinstance(value, dict):
+        value = None
+        break
+    value = value.get(part)
+if isinstance(value, (str, int, float)):
+    print(value)
+PY
+  fi
+}
 version="$(field version)"; tag="$(field tag)"; repo="$(field repo)"
 r2_bucket="$(field r2_bucket)"
 if [[ "$arch" == "arm64" ]]; then
