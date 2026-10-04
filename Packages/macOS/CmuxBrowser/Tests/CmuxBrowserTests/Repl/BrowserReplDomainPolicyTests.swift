@@ -44,6 +44,49 @@ struct BrowserReplDomainPolicyTests {
         #expect(throws: Never.self) { try BrowserReplDomainPattern.parse("*.example.co.uk", title: "t") }
     }
 
+    /// Agent code chooses the policy, and every navigation, subresource rule
+    /// and WebKit content-rule compilation pays for each pattern, so a
+    /// policy list, and each pattern in it, is bounded before any is parsed.
+    @Test("A policy list past 1,024 patterns, or an oversized pattern, is refused before it reaches the driver")
+    func policyPatternsAreBounded() throws {
+        let boundary = BrowserReplBoundary(publicSuffixes: BrowserReplPublicSuffixList(isPublicSuffix: { $0 == "com" }))
+        let many = (0...1024).map { "h\($0).example.com" }
+        for key in ["allowed", "prohibited"] {
+            let (result, updated) = boundary.policyOperation("set", [key: many, "title": "session.allowedDomains"])
+            #expect(updated == nil, "\(key)")
+            guard case .failure(let error) = result else {
+                Issue.record("\(key): 1,025 patterns were accepted")
+                continue
+            }
+            #expect(error.code == "invalid")
+            #expect(error.message.contains("1024") || error.message.contains("1,024"), "\(error.message)")
+        }
+        // 1,024 is still accepted.
+        let (fits, applied) = boundary.policyOperation("set", ["allowed": Array(many.prefix(1024)), "title": "session.allowedDomains"])
+        #expect(throws: Never.self) { try fits.get() }
+        #expect(applied?.allowed?.count == 1024)
+
+        let oversized = [
+            "https://" + String(repeating: "a", count: 2000) + ".example.com",
+            String(repeating: "\u{4E2D}", count: 64) + ".example.com",
+            String(repeating: "abcdefghi.", count: 30) + "example.com",
+            "h*t*p://example.com",
+            String(repeating: "x", count: 40) + "://example.com",
+        ]
+        for raw in oversized {
+            let (result, updated) = boundary.policyOperation("set", ["prohibited": [raw], "title": "session.prohibitedDomains"])
+            #expect(updated == nil, "\(raw.prefix(40))")
+            guard case .failure(let error) = result else {
+                Issue.record("\(raw.prefix(40)): an oversized pattern was accepted")
+                continue
+            }
+            #expect(error.code == "invalid")
+            #expect(error.message.count < 600, "the error repeats the whole pattern: \(error.message.count) characters")
+            let secret = boundary.secretsOperation("set", ["name": "pw", "value": "hunter22", "domains": [raw]])
+            #expect(throws: BrowserReplDriverError.self, "secret \(raw.prefix(40))") { try secret.get() }
+        }
+    }
+
     @Test("Setting a cookie on a parent domain needs every subdomain allowed and none prohibited")
     func cookieSetScope() throws {
         let one = try policy(allowed: ["https://www.parent.test"])
