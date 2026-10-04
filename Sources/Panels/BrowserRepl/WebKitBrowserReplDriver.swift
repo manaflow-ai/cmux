@@ -153,13 +153,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// The session's working and temporary directories (canonical), the
     /// only ones its tabs may show local files from. Only the native
     /// session sets them, through `setFileRoots`.
-    private var fileRoots: [String] = []
+    /// Each with the identity of its directory when the session named it,
+    /// which a file navigation requires it still has.
+    private var fileRoots: [BrowserReplFileRoot] = []
 
     func setFileRoots(_ roots: [String]) {
-        lock.withLock { fileRoots = roots }
+        let pinned = roots.map(BrowserReplFileRoot.init(path:))
+        lock.withLock { fileRoots = pinned }
     }
 
-    private var currentFileRoots: [String] { lock.withLock { fileRoots } }
+    private var currentFileRoots: [String] { lock.withLock { fileRoots.map(\.path) } }
 
     /// The session's own input: a dialog, file chooser or window the page
     /// opens while it handles one goes to the session. A page-world
@@ -1193,7 +1196,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // Until the navigation commits, a dialog the page opens (beforeunload)
         // is this session's doing; while the new page loads, it is not.
         let outcome = try await attachment(panel).withInput(sessionID: sessionID) {
-            let ticket = panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
+            let ticket = try self.beginNavigation(panel, to: url, raw: raw)
             return try await withTimeoutThrowing(milliseconds: timeout, what: "navigating to \"\(raw)\"") {
                 await panel.finishAutomationNavigation(ticket)
             }
@@ -1213,6 +1216,23 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         var result: [String: Any] = ["url": panel.webView.url?.absoluteString ?? raw]
         if let status = attachment(panel).mainDocumentStatus { result["status"] = status }
         return result
+    }
+
+    /// Starts `panel`'s navigation to `url`. A local file loads with read
+    /// access to the session directory that holds it, checked and granted
+    /// while no REPL session can rename an entry
+    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``): a link
+    /// another session swaps in after the session's check leads the load
+    /// nowhere outside that directory.
+    @MainActor
+    private func beginNavigation(_ panel: BrowserPanel, to url: URL, raw: String) throws -> BrowserAutomationNavigationTicket {
+        guard url.scheme?.lowercased() == "file" else {
+            return panel.beginAutomationNavigation(to: url, recordTypedNavigation: false)
+        }
+        let roots = lock.withLock { fileRoots }
+        return try BrowserReplFileSandbox.withPinnedFileAccess(raw, roots: roots) { readAccess in
+            panel.beginAutomationNavigation(to: url, recordTypedNavigation: false, fileReadAccessURL: readAccess)
+        }
     }
 
     @MainActor

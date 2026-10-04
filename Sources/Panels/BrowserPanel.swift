@@ -1078,10 +1078,14 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 
 @MainActor
 @discardableResult
+/// - Parameter fileReadAccessURL: For a file URL, the directory to grant the
+///   page read access to instead of the file's own directory (a browser REPL
+///   session's pinned root, `BrowserReplFileSandbox.withPinnedFileAccess`).
 func browserLoadRequest(
     _ request: URLRequest,
     in webView: WKWebView,
-    trustedInternalNavigation: Bool = false
+    trustedInternalNavigation: Bool = false,
+    fileReadAccessURL: URL? = nil
 ) -> WKNavigation? {
     guard let url = request.url else { return nil }
     let policy = BrowserURLAllowlistPolicy(defaults: .standard)
@@ -1097,7 +1101,7 @@ func browserLoadRequest(
     webView.applyBrowserUserAgentPolicy(for: url)
     let nudgeReason = "navigationStart:\(url.scheme?.lowercased() ?? "none")"
     if url.isFileURL {
-        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        guard let readAccessURL = fileReadAccessURL ?? browserReadAccessURL(forLocalFileURL: url) else { return nil }
         webView.browserPortalMarkFirstSizedRevealNudgeIfNavigationStartsWithoutPresentation(reason: nudgeReason)
         return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
     }
@@ -5549,6 +5553,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func navigate(
         to url: URL,
         recordTypedNavigation: Bool = false,
+        fileReadAccessURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         var leaveCloudRouteAfterValidation = false
@@ -5586,6 +5591,7 @@ final class BrowserPanel: Panel, ObservableObject {
             request: request,
             recordTypedNavigation: recordTypedNavigation,
             trustedInternalNavigation: true,
+            fileReadAccessURL: fileReadAccessURL,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5615,6 +5621,7 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool = false,
         trustedInternalNavigation: Bool = false,
+        fileReadAccessURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         guard let url = request.url else {
@@ -5639,6 +5646,12 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         if cloudBrowserMachineID == nil, usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
+            // A pinned file load is granted its read access now or not at
+            // all: a later load would not be under the session's check.
+            if fileReadAccessURL != nil {
+                onNavigationStarted?(nil)
+                return nil
+            }
             pendingRemoteNavigation?.onNavigationStarted?(nil)
             pendingRemoteNavigation = PendingRemoteNavigation(
                 request: request,
@@ -5658,6 +5671,7 @@ final class BrowserPanel: Panel, ObservableObject {
             originalURL: url,
             recordTypedNavigation: recordTypedNavigation,
             preserveRestoredSessionHistory: preserveRestoredSessionHistory,
+            fileReadAccessURL: fileReadAccessURL,
             onNavigationStarted: onNavigationStarted
         )
     }
@@ -5691,6 +5705,7 @@ final class BrowserPanel: Panel, ObservableObject {
         originalURL: URL,
         recordTypedNavigation: Bool,
         preserveRestoredSessionHistory: Bool,
+        fileReadAccessURL: URL? = nil,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
         cancelHiddenWebViewDiscard()
@@ -5745,7 +5760,8 @@ final class BrowserPanel: Panel, ObservableObject {
         let startedNavigation = browserLoadRequest(
             effectiveRequest,
             in: webView,
-            trustedInternalNavigation: trustedInternalNavigation
+            trustedInternalNavigation: trustedInternalNavigation,
+            fileReadAccessURL: fileReadAccessURL
         )
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")

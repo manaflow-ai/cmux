@@ -194,16 +194,51 @@ public struct BrowserReplFileSandbox: Sendable {
         return nil
     }
 
-    /// Runs `load`, which starts the browser's load of the file `url`, with
-    /// the directory to grant the page read access to.
+    /// Held by every REPL `fs.rename` around its `renameat`, and by a file
+    /// navigation from its last check until the browser took its read
+    /// access (``withPinnedFileAccess(_:roots:_:)``): no REPL session (this
+    /// one included, from its own thread) moves an entry in between.
+    /// `rename` is the only `fs` operation that can put a link, or a
+    /// directory that holds one, at a path; the others make regular files
+    /// and directories or remove entries.
+    static let pathChangeLock = NSLock()
+
+    /// Runs `load`, which must start the browser's load of the file `url`
+    /// before it returns, with the directory to grant the page read access
+    /// to: the session root that holds the file.
+    ///
+    /// The browser loads a file by path and resolves the read-access
+    /// directory's links when it grants it, so a check that runs before
+    /// the load can be raced: another REPL session sharing the directory
+    /// could rename a link in for a checked directory. Here, while no REPL
+    /// `fs.rename` can run (``pathChangeLock``), the file's path is checked
+    /// again (``navigationRefusal(_:roots:)``), the root must still be the
+    /// directory the session named (same identity, no link on its path),
+    /// and the browser is given that root. A link swapped in below it later
+    /// leads nowhere outside it: WebKit refuses a file outside the directory
+    /// it granted, as it resolved it then.
+    /// - Throws: `blocked` when the file is outside the roots or a root was
+    ///   moved or replaced.
     public static func withPinnedFileAccess<T>(_ url: String, roots: [BrowserReplFileRoot], _ load: (URL) throws -> T) throws -> T {
-        if let reason = navigationRefusal(url, roots: roots.map(\.path)) {
-            throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)")
+        try pathChangeLock.withLock {
+            if let reason = navigationRefusal(url, roots: roots.map(\.path)) {
+                throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)")
+            }
+            guard let file = URL(string: url.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+                throw BrowserReplDriverError(code: "invalid", message: "Invalid URL")
+            }
+            let path = lexicallyNormalized(file.path(percentEncoded: false))
+            guard let root = roots.first(where: { root in aliases(of: root.path).contains { path.hasPrefix($0 + "/") } }) else {
+                throw BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: it is not inside the session's directories")
+            }
+            guard root.isStillInPlace else {
+                throw BrowserReplDriverError(
+                    code: "blocked",
+                    message: "\(url) is blocked: the session's directory \(root.path) was moved or replaced since the session began; start a new session there"
+                )
+            }
+            return try load(URL(fileURLWithPath: root.path, isDirectory: true))
         }
-        guard let file = URL(string: url) else {
-            throw BrowserReplDriverError(code: "invalid", message: "Invalid URL")
-        }
-        return try load(file.deletingLastPathComponent())
     }
 
     /// `root` and, for a root under `/private`, the same path through the
@@ -268,6 +303,16 @@ public struct BrowserReplFileRoot: Sendable, Equatable {
     public let path: String
     let device: Int64?
     let inode: UInt64?
+
+    /// Whether `path` still names, with no link on the way, the directory
+    /// that was there when this was made.
+    var isStillInPlace: Bool {
+        guard let device, let inode,
+              BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized(path)) == path else { return false }
+        var info = stat()
+        return lstat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
+            && Int64(info.st_dev) == device && UInt64(info.st_ino) == inode
+    }
 
     /// Reads the identity of the directory at `path` now.
     public init(path: String) {

@@ -351,9 +351,18 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the session's working or temporary directory, judged by the path as
   written (`..` resolved without the file system) and refused when a part
   of it below that directory is a symbolic link. The browser loads a file
-  with read access to its directory, so a page could otherwise read files
+  with read access to a directory, so a page could otherwise read files
   the session's `fs` cannot; cmux's internal schemes and `javascript:` are
-  refused too. A string without a scheme that looks like a path (`/`, `~`,
+  refused too. The driver checks the path again and starts the load while
+  no REPL `fs.rename` can run (in any session; `rename` is the only `fs`
+  call that can put a link at a path), and gives the page read access to
+  the session directory that holds the file, which must still be the
+  directory the session began with (same identity, no link on its path).
+  WebKit resolves that directory when it grants it and refuses a file
+  outside it, so a link another session or process swaps in below it
+  after the check leads nowhere outside (measured on macOS 27.0). A file
+  navigation in a workspace whose browser waits for a remote proxy is
+  refused rather than started later outside that check. A string without a scheme that looks like a path (`/`, `~`,
   `.`) is refused. The same rule refuses the session's reads and input
   (the calls a blocked page refuses, `blocked`) on any tab that shows a
   local file outside those directories, such as a user's tab opened on
