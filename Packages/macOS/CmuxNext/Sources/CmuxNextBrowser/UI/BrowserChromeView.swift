@@ -74,6 +74,8 @@ public final class BrowserChromeView: NSView {
     /// R101: the toolbar height on this window's pixel grid (else the main screen's).
     var currentToolbarHeight: CGFloat { OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2) }
 
+    /// Zoom per site (`SiteZoomLevels`).
+    let siteZoom = SiteZoomFollower()
     var toolbarLayout = BrowserToolbarLayout(visiblePinned: ExtensionActionToolbar.maxVisible, showsForward: true)
 
     /// Omnibar editing boundaries. When set, the App owns focus: the chrome
@@ -277,6 +279,7 @@ public final class BrowserChromeView: NSView {
 
     private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
+        siteZoom.follow(tab)
         if let old, old !== tab {
             old.contentView.removeFromSuperview()
         }
