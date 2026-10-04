@@ -1,13 +1,64 @@
 import AppKit
 
-/// Coordinator side of the continuous machine drag (`CloudTreeMachineReorderLift`).
+/// Coordinator side of the continuous machine and workspace drag
+/// (`CloudTreeMachineReorderLift`).
 extension CloudTreeOutlineView.Coordinator {
-    /// Starts the lift when the drag that just began carries a machine row.
+    /// Starts the lift when the drag that just began carries a machine row
+    /// or a row that reorders among its siblings (a workspace).
     func liftMachineDrag(_ session: NSDraggingSession, draggedItems: [Any], in outlineView: NSOutlineView) {
-        guard machineLiftEnabled, let node = draggedItems.first as? CloudTreeNode, node.canReorderMachine,
+        guard machineLiftEnabled, let node = draggedItems.first as? CloudTreeNode,
               let outline = outlineView as? CloudTreeNSOutlineView else { return }
+        if node.canReorderMachine {
+            hideDragImage(of: session, in: outline)
+            beginMachineLift(session, node: node, in: outline)
+        } else if node.canOrganize {
+            beginOrganizationLift(session, node: node, in: outline)
+        }
+    }
+
+    /// Lifts a workspace (or another organizable row) among the siblings in
+    /// its pin tier, the same way a machine lifts. These rows can also be
+    /// dropped on a pane, so leaving the tree puts the rows back and hands
+    /// the drag its native image again.
+    private func beginOrganizationLift(_ session: NSDraggingSession, node: CloudTreeNode, in outline: CloudTreeNSOutlineView) {
+        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: node.id) else {
+#if DEBUG
+            cmuxDebugLog("cloud.lift.organization skip=noParent node=\(node.id)")
+#endif
+            return
+        }
+        let state = organization.state
+        let group = parent.organizationGroupID
+        let pinned = state.isPinned(node.id, parent: group)
+        let isPeer = { (sibling: CloudTreeNode) in
+            sibling.canOrganize && state.isPinned(sibling.id, parent: group) == pinned
+        }
+        // Without a picture to hand back, a drag onto a pane would be invisible.
+        guard let image = dragImage(of: node, in: outline) else {
+#if DEBUG
+            cmuxDebugLog("cloud.lift.organization skip=noSnapshot node=\(node.id)")
+#endif
+            return
+        }
+        let lifted = outline.machineLift.begin(
+            sequence: session.draggingSequenceNumber, source: node, siblings: parent.children,
+            isPeer: isPeer, closes: isPeer,
+            onLeave: { [weak self, weak outline] in
+                guard let self, let outline else { return }
+                finishMachineLift()
+                restoreDragImage(image, of: session, in: outline)
+            }
+        ) { rows in
+            withProgrammaticUpdate {
+                for row in rows { outline.collapseItem(row) }
+            }
+        }
+#if DEBUG
+        cmuxDebugLog("cloud.lift.organization lifted=\(lifted) node=\(node.id) siblings=\(parent.children.count)")
+#endif
+        guard lifted else { return }
         hideDragImage(of: session, in: outline)
-        beginMachineLift(session, node: node, in: outline)
+        installMachineLiftMouseUpMonitor(for: session, in: outline)
     }
 
     /// Lifts a machine row for the drag that just began. Open machines close
@@ -19,7 +70,9 @@ extension CloudTreeOutlineView.Coordinator {
         guard node.canReorderMachine,
               let scope = CloudMachineReorderScope(machineNodeID: node.id, roots: nodes) else { return }
         outline.machineLift.begin(
-            sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings, pressY: pressY
+            sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings, pressY: pressY,
+            isPeer: { $0.canReorderMachine && $0.isPinned == node.isPinned },
+            closes: { if case .machine = $0.kind { return true }; return false }
         ) { machines in
             withProgrammaticUpdate {
                 for machine in machines { outline.collapseItem(machine) }
@@ -37,6 +90,29 @@ extension CloudTreeOutlineView.Coordinator {
         ) { item, _, _ in
             let size = item.draggingFrame.size
             item.setDraggingFrame(item.draggingFrame, contents: NSImage(size: size, flipped: false) { _ in true })
+        }
+    }
+
+    /// A picture of the dragged row, taken before the lift styles it.
+    private func dragImage(of node: CloudTreeNode, in outline: NSOutlineView) -> NSImage? {
+        let row = outline.row(forItem: node)
+        guard row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false),
+              let bitmap = rowView.bitmapImageRepForCachingDisplay(in: rowView.bounds) else { return nil }
+        rowView.cacheDisplay(in: rowView.bounds, to: bitmap)
+        let image = NSImage(size: rowView.bounds.size)
+        image.addRepresentation(bitmap)
+        return image
+    }
+
+    /// Gives a drag that left the tree its image back, so it reads as a
+    /// normal drag over the panes.
+    private func restoreDragImage(_ image: NSImage, of session: NSDraggingSession, in outline: NSOutlineView) {
+        session.animatesToStartingPositionsOnCancelOrFail = true
+        session.enumerateDraggingItems(
+            options: [], for: outline, classes: [NSPasteboardItem.self], searchOptions: [:]
+        ) { item, _, stop in
+            stop.pointee = true
+            item.setDraggingFrame(item.draggingFrame, contents: image)
         }
     }
 

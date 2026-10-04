@@ -1,5 +1,6 @@
 import CmuxSidebar
 import Foundation
+import CmuxSidebar
 import XCTest
 
 #if canImport(cmux_DEV)
