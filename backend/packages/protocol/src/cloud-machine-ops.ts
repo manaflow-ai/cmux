@@ -57,6 +57,8 @@ export const CloudSnapshot = Schema.Struct({
 
 export const CloudPlan = Schema.Struct({
   plan_id: PlanId,
+  /** The plan that lifts these limits, for the page's "See plans"; null when there is none. */
+  upgrade_plan: Schema.NullOr(PlanId),
   limits: Schema.Struct({
     max_active: Schema.Int,
     max_saved: Schema.Int,

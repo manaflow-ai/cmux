@@ -4,7 +4,7 @@ import { Exit, Schema } from "effect"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
 import { grantClasses } from "../home-admit.ts"
 import { personalTeamIdFor } from "./user.ts"
-import { createConfigProblem, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
+import { createConfigProblem, limitDetails, DEFAULT_IDLE_SECONDS, DEFAULT_SIZE, providerName, sizeLocked, teamPlan, type CloudConfig, type CloudMachineView } from "./cloud-plan.ts"
 
 /**
  * CloudDO's reducer (plans/cmux-next/state-placement.md 5.1-5.3). Pure: provider calls run in the
@@ -165,12 +165,12 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   if (!plan) return reject("cloud.plan.required", "Cloud machines need a paid plan")
   if (d.value.from_snapshot !== undefined) return reject("cloud.snapshot.not_found", "no such snapshot")
   const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? 4096
-  if (sizeLocked(plan, memory)) return reject("cloud.size.locked", "this size needs another plan", { memory_mb: memory })
+  if (sizeLocked(plan, memory)) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { memory_mb: memory }))
   const cpu = d.value.size.cpu ?? DEFAULT_SIZE.cpu
   const disk = d.value.size.disk_mb ?? DEFAULT_SIZE.disk_mb
-  if (cpu > plan.max_cpu) return reject("cloud.size.locked", "this size needs another plan", { cpu })
-  if (disk > plan.max_disk_mb) return reject("cloud.size.locked", "this size needs another plan", { disk_mb: disk })
-  if (state.active >= plan.max_active) return reject("cloud.quota.exceeded", `this plan allows ${plan.max_active} active machines`, { limit: plan.max_active, used: state.active, resource: "active" })
+  if (cpu > plan.max_cpu) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { cpu }))
+  if (disk > plan.max_disk_mb) return reject("cloud.size.locked", "this size needs another plan", limitDetails(plan, { disk_mb: disk }))
+  if (state.active >= plan.max_active) return reject("cloud.quota.exceeded", `this plan allows ${plan.max_active} active machines`, limitDetails(plan, { limit: plan.max_active, used: state.active, resource: "active" }))
   if (!ctx.idempotencyKey) return unavailable()
   const blocked = createConfigProblem(config)
   if (blocked || !config.prefix || !config.image) return { ...reject(blocked?.code ?? "cloud.provider.unavailable", blocked?.message ?? "Cloud machines are not configured"), retryable: blocked?.retryable ?? true }

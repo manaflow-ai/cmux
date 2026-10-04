@@ -19,6 +19,8 @@ export interface PlanLimits {
   readonly vm_hours_included: number | null
   readonly max_cpu: number
   readonly max_disk_mb: number
+  /** The plan that lifts these limits ("See plans"); null when there is none (the stub plan, no billing yet). */
+  readonly upgrade_plan: string | null
 }
 
 export const STUB_PLAN: PlanLimits = {
@@ -29,7 +31,8 @@ export const STUB_PLAN: PlanLimits = {
   locked_memory_options_mb: [],
   vm_hours_included: null,
   max_cpu: 4,
-  max_disk_mb: 65536
+  max_disk_mb: 65536,
+  upgrade_plan: null
 }
 
 /** What CloudDO's reducer needs from the deployment. Fixed per object instance, so the reducer stays pure. */
@@ -73,6 +76,7 @@ export const periodEnd = (now: number) => {
 
 export const planView = (plan: PlanLimits | null, usage: { active: number; saved: number }, now: number): typeof CloudPlan.Type => ({
   plan_id: plan?.plan_id ?? "none",
+  upgrade_plan: plan?.upgrade_plan ?? null,
   limits: {
     max_active: plan?.max_active ?? 0,
     max_saved: plan?.max_saved ?? 0,
@@ -99,3 +103,6 @@ export const createConfigProblem = (config: CloudConfig): { code: string; messag
   }
   return undefined
 }
+
+/** Refusal details for a plan limit: what was asked or used, plus the plan that would lift it (null when none). */
+export const limitDetails = (plan: PlanLimits, details: Record<string, unknown>): Record<string, unknown> => ({ ...details, plan: plan.upgrade_plan })
