@@ -10,8 +10,12 @@
  */
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import { cloudEntryPlan } from "../src/cloud-plans.ts"
 import { overlayAddress } from "../src/overlay.ts"
 import { backendOnlyCases } from "./cloud-vectors-backend-only.ts"
+
+/** The plan the refusals and the checkout name, from the plan catalog (never a literal). */
+const PLAN_ID = cloudEntryPlan()
 
 type Json = null | boolean | number | string | Array<Json> | { [k: string]: Json }
 type Obj = { [k: string]: Json }
@@ -167,7 +171,7 @@ kase(
   "machine.create.plan_required",
   "cloud.machine.create",
   { name: "big box", size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 } },
-  [opErr("cloud.machine.create", "key-create-plan", "cloud.plan.required", "Cloud machines need a paid plan", false, { plan: "pro" })],
+  [opErr("cloud.machine.create", "key-create-plan", "cloud.plan.required", "Cloud machines need a paid plan", false, { plan: PLAN_ID })],
   { key: "key-create-plan" }
 )
 kase(
@@ -221,7 +225,7 @@ kase(
   "machine.start.quota",
   "cloud.machine.start",
   { machine: vm(2) },
-  [opErr("cloud.machine.start", "key-start-quota", "cloud.quota.exceeded", "this plan allows 2 active machines", false, { limit: 2, used: 2, resource: "active", plan: "pro" })],
+  [opErr("cloud.machine.start", "key-start-quota", "cloud.quota.exceeded", "this plan allows 2 active machines", false, { limit: 2, used: 2, resource: "active", plan: PLAN_ID })],
   { key: "key-start-quota" }
 )
 kase("machine.pause", "cloud.machine.pause", { machine: vm(1) }, [opOk("cloud.machine.pause", "key-pause-1", { machine: { ...M1, status: "pausing", revision: "49" } }, "49")], {
@@ -360,19 +364,19 @@ kase("snapshot.delete", "cloud.snapshot.delete", { snapshot: snap(1) }, replayPa
 
 // ---- plan and billing
 const PLAN = {
-  plan_id: "pro",
+  plan_id: PLAN_ID,
   upgrade_plan: "max",
   limits: { max_active: 5, max_saved: 10, memory_options_mb: [4096, 8192, 16384, 32768, 65536], locked_memory_options_mb: [65536], vm_hours_included: 500 },
   usage: { active: 2, saved: 3, vm_hours_used: 41.5, period_end: 1792000000000 }
 }
 kase("plan.get", "cloud.plan.get", {}, [readOk("cloud.plan.get", PLAN, "12")])
-kase("billing.checkout", "cloud.billing.checkout", { plan: "pro" }, [opOk("cloud.billing.checkout", "key-checkout-1", { url: "https://checkout.example.com/session/cs_vector_0001" }, "13")], {
+kase("billing.checkout", "cloud.billing.checkout", { plan: PLAN_ID }, [opOk("cloud.billing.checkout", "key-checkout-1", { url: "https://checkout.example.com/session/cs_vector_0001" }, "13")], {
   key: "key-checkout-1"
 })
 kase(
   "billing.checkout.agent_forbidden",
   "cloud.billing.checkout",
-  { plan: "pro" },
+  { plan: PLAN_ID },
   [opErr("cloud.billing.checkout", "key-checkout-agent", "auth.forbidden", "an agent cannot start a checkout")],
   { key: "key-checkout-agent", principal: AGENT_P }
 )
