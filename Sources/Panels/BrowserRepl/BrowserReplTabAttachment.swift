@@ -1237,14 +1237,26 @@ final class BrowserReplTabAttachment {
 
     // MARK: - Downloads
 
-    /// Downloads reported to a session, by id, with that session.
-    private var sessionDownloads: [String: String] = [:]
+    /// Downloads reported to a session, by id, with that session and where
+    /// each came from, judged again at each later redirect and at the end.
+    private var sessionDownloads = BrowserReplSessionDownloads()
 
     /// Whether download `id` went to a session. Those stay in cmux's
     /// temporary download directory, so `download.path()` can read them;
     /// every other download takes the user's normal path.
     func keepsDownloadInTemporaryDirectory(id: String) -> Bool {
-        sessionDownloads[id] != nil
+        sessionDownloads.sessionID(of: id) != nil
+    }
+
+    /// How a finished download goes on (``downloadDidFinish(id:path:error:)``).
+    enum DownloadEnd {
+        /// The user's download location: no session gets it.
+        case user
+        /// The session got its path; it stays in the temporary directory.
+        case session
+        /// Its creating session's policy or directories refuse a place it
+        /// came from: the file is removed, and nobody gets it.
+        case refused
     }
 
     private static var navigationTokenKey: UInt8 = 0
@@ -1373,7 +1385,7 @@ final class BrowserReplTabAttachment {
         case .session(let delivery):
             guard sinks[delivery.sessionID] != nil else { return true }
             let owner = delivery.sessionID
-            sessionDownloads[id] = owner
+            sessionDownloads.add(id, sessionID: owner, source: source)
             let payload: [String: Any] = [
                 "downloadId": id,
                 "url": url?.absoluteString ?? "",
@@ -1385,13 +1397,55 @@ final class BrowserReplTabAttachment {
         }
     }
 
-    func downloadDidFinish(id: String, path: String?, error: String?) {
-        guard let owner = sessionDownloads.removeValue(forKey: id) else { return }
-        if let path { downloadPaths[id] = path }
-        var payload: [String: Any] = ["downloadId": id]
-        if let path { payload["path"] = path }
-        if let error { payload["error"] = error }
-        emit("download.finished", payload, to: owner)
+    /// Download `id`, which went to a session, went on to `url` after WebKit
+    /// picked its destination. Returns `false` when it must be cancelled: its
+    /// session, the tab's creator, may not read that place. A download a
+    /// session got in a user's tab goes to the user's location instead.
+    /// Either way the session gets `download.finished` with the reason.
+    func downloadRedirected(id: String, to url: URL?) -> Bool {
+        guard let url, let refusal = sessionDownloads.redirect(
+            id,
+            to: url.absoluteString,
+            policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
+            fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
+        ) else { return true }
+        emit("download.finished", ["downloadId": id, "error": "refused: \(refusal.reason)"], to: refusal.sessionID)
+        return !isLiveCreator(refusal.sessionID)
+    }
+
+    /// Reports download `id`'s end to the session it went to. A finished
+    /// file's every source is judged again first, under the session's policy
+    /// and directories now: one they refuse gives the session no path.
+    @discardableResult
+    func downloadDidFinish(id: String, path: String?, error: String?) -> DownloadEnd {
+        guard let path, error == nil else {
+            guard let owner = sessionDownloads.remove(id) else { return .user }
+            var payload: [String: Any] = ["downloadId": id]
+            if let error { payload["error"] = error }
+            emit("download.finished", payload, to: owner)
+            return .session
+        }
+        switch sessionDownloads.finish(
+            id,
+            policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
+            fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
+        ) {
+        case .notSessions:
+            return .user
+        case .session(let owner):
+            downloadPaths[id] = path
+            emit("download.finished", ["downloadId": id, "path": path], to: owner)
+            return .session
+        case .refused(let owner, let reason):
+            emit("download.finished", ["downloadId": id, "error": "refused: \(reason)"], to: owner)
+            return isLiveCreator(owner) ? .refused : .user
+        }
+    }
+
+    /// Whether `sessionID` is the tab's live creator, whose tab never keeps
+    /// what its policy refuses (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``).
+    private func isLiveCreator(_ sessionID: String) -> Bool {
+        ownership.isSessionOwned && ownership.creatorSessionID == sessionID
     }
 }
 

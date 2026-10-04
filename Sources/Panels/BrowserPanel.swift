@@ -8492,6 +8492,12 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         return filename
     }
 
+    private func storedState(for download: WKDownload) -> DownloadState? {
+        activeDownloadsLock.lock()
+        defer { activeDownloadsLock.unlock() }
+        return activeDownloads[ObjectIdentifier(download)]
+    }
+
     private func removeState(for download: WKDownload) -> DownloadState? {
         activeDownloadsLock.lock()
         let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
@@ -8627,7 +8633,16 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         // A REPL session gets a download only when it may read every place
         // the request went (BrowserReplDownloadSource).
         BrowserReplTabAttachment.downloadRedirected(download, to: request.url)
-        decisionHandler(.allow)
+        // After WebKit picked the destination the download may already be a
+        // session's: that decision is made again for this place.
+        guard let downloadID = storedState(for: download)?.downloadID else {
+            decisionHandler(.allow)
+            return
+        }
+        notifyOnMain { [weak self] in
+            let allowed = self?.replAttachment?()?.downloadRedirected(id: downloadID, to: request.url) ?? true
+            decisionHandler(allowed ? .allow : .cancel)
+        }
     }
 
     func downloadDidFinish(_ download: WKDownload) {
@@ -8649,10 +8664,19 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
 
             if let attachment = self.replAttachment?(), attachment.keepsDownloadInTemporaryDirectory(id: info.downloadID) {
                 // `download.path()` reads the file where WebKit wrote it; the
-                // session, not a save panel, decides where it goes next.
-                self.onDownloadSaved?(suggestedFilename, info.tempURL, true, info.downloadID)
-                attachment.downloadDidFinish(id: info.downloadID, path: info.tempURL.path, error: nil)
-                return
+                // session, not a save panel, decides where it goes next. Every
+                // place it came from is judged again before the session gets it.
+                switch attachment.downloadDidFinish(id: info.downloadID, path: info.tempURL.path, error: nil) {
+                case .session:
+                    self.onDownloadSaved?(suggestedFilename, info.tempURL, true, info.downloadID)
+                    return
+                case .refused:
+                    try? FileManager.default.removeItem(at: info.tempURL)
+                    self.onDownloadFailed?(CocoaError(.fileReadNoPermission), true, info.downloadID)
+                    return
+                case .user:
+                    break
+                }
             }
 
             if filenameResolver.shouldAskWhereToSaveDownloads() {
