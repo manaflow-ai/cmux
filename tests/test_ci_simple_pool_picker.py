@@ -126,6 +126,22 @@ def observed(runners, pools, *, jobs=4, env=None, runners_error=None):
         picker.LiveState = original
 
 
+class ConfiguredPoolTests(unittest.TestCase):
+    """Only the pools CI_OWNED_POOL_SLOTS lists are owned pools."""
+
+    def test_an_unlisted_owned_looking_label_is_never_picked(self):
+        # Ten idle aws runners carry glaeda-std-xcode-26.3, which sorts before
+        # the minis' 26.6; picking it sent compile admission to five runners
+        # per EC2 Mac while the minis sat idle (cmux#17207).
+        aws = [runner(f"aws-{index}", ["glaeda-std-xcode-26.3", "glaeda-root-std-xcode-26.3"], busy=False)
+               for index in range(10)]
+        minis = [std_runner(index, busy=False) for index in range(8)]
+        choice = picker.pick(observed(aws + minis, {}))
+        self.assertEqual(choice.label, STD)
+        busy_minis = [std_runner(index, busy=True) for index in range(8)]
+        self.assertNotEqual(picker.pick(observed(aws + busy_minis, {})).label, "glaeda-std-xcode-26.3")
+
+
 class OwnedQueueTests(unittest.TestCase):
     """An owned pool's free runners are its idle runners less the jobs queued on its family."""
 
