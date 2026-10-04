@@ -21,9 +21,9 @@ cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
 if [ "$MODE" = "--check" ]; then
-  bun scripts/settings/generate-strings.mjs --check
+  node scripts/pages/gen-strings.mjs --check settings
 else
-  bun scripts/settings/generate-strings.mjs
+  node scripts/pages/gen-strings.mjs settings
 fi
 
 # Same bundler as the agent pane: React Compiler on first-party sources, then esbuild.
