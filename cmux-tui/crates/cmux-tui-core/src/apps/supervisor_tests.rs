@@ -305,7 +305,6 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
             .map(String::from)
             .to_vec(),
             server_dir: Some(root.0.join("servers")),
-            hub_socket: Some(PathBuf::from("/run/cmux/hub.sock")),
             sources: Sources {
                 first_party: None,
                 bundled: vec![bundled],
@@ -1195,7 +1194,6 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
-            hub_socket: None,
             sources: Sources {
                 first_party: Some(first_party),
                 bundled: vec![],
@@ -1234,7 +1232,6 @@ fn a_fresh_daemon_with_the_bundle_path_lists_coderouter_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
-            hub_socket: None,
             sources: Sources {
                 first_party: Some(root.0.join("first-party")),
                 bundled: vec![],
@@ -1279,7 +1276,6 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
             host_binary: None,
             host_args: Vec::new(),
             server_dir: None,
-            hub_socket: None,
             sources: Sources {
                 first_party: Some(tree.clone()),
                 bundled: vec![],
@@ -1687,7 +1683,8 @@ fn host_link_get_answers_the_daemon_values_and_needs_its_scope() {
     assert_eq!((reply["t"].clone(), reply["id"].clone()), (json!("host.result"), json!(7)));
     let value = &reply["value"];
     assert_eq!(value["binary"], json!(std::env::current_exe().unwrap()));
-    assert_eq!(value["hub_socket"], json!("/run/cmux/hub.sock"));
+    // The link lane registers the hub socket; until then it is null.
+    assert_eq!(value["hub_socket"], Value::Null);
     assert_eq!(value["state_dir"], json!(state.join("apps-data/cmux.linked/link")));
     assert_eq!(value["socket_dir"], json!(state.join("apps-tmp/cmux.linked")));
     assert!(value["device_name"].as_str().is_some_and(|n| !n.is_empty()));

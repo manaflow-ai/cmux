@@ -33,7 +33,8 @@
 //!   The id is the server's own (any JSON value), echoed back.
 //!   - `cmux.host.link.get {}` -> `{binary, hub_socket, state_dir,
 //!     socket_dir, device_name}` from the daemon's own values (see
-//!     [`Supervisor::host_link`]); event `cmux.host.link.changed` with the
+//!     [`Supervisor::host_link`]; `hub_socket` is `null` until the link
+//!     lane's registration exists); event `cmux.host.link.changed` with the
 //!     same value. Needs server scope `op:cmux.host.link.get` and a
 //!     first-party app, else `host.error` `apps.scope_missing`.
 //!   - `cmux.credential.relay` answers `host.error` `unavailable` until the
@@ -819,16 +820,22 @@ impl Supervisor {
     }
 
     /// `cmux.host.link.get` for `app`: the daemon executable, the WireGuard
-    /// hub socket the daemon was given (`null` without one), a link state
-    /// directory in the app's data directory, the app's temporary directory
-    /// for link sockets, and this machine's name.
+    /// hub socket, a link state directory in the app's data directory, the
+    /// app's temporary directory for link sockets, and this machine's name.
+    ///
+    /// `hub_socket` is always `null` for now. The link lane (lane 12: the
+    /// WireGuard engine and the `cmux link` agent) owns that socket; the
+    /// daemon neither spawns it nor reads it from its launch environment. It
+    /// will come from the link agent's registration file at a well-known
+    /// path under the daemon state directory, which lane 12 defines. Until
+    /// then the Cloud server answers `link_unavailable`.
     pub(super) fn host_link(&self, app: &str) -> Value {
         let (data, tmp) = self.server_dirs(app);
         let state_dir = data.join("link");
         let _ = std::fs::create_dir_all(&state_dir);
         json!({
             "binary": std::env::current_exe().ok(),
-            "hub_socket": self.config.hub_socket,
+            "hub_socket": Value::Null,
             "state_dir": state_dir,
             "socket_dir": tmp,
             "device_name": device_name(),
@@ -873,8 +880,8 @@ impl Supervisor {
 
     /// Sends `cmux.host.link.changed` to every running server that may read
     /// the link. Nothing changes the daemon's link values during its life
-    /// yet (the hub socket comes from its launch environment); the daemon
-    /// calls this once it owns the hub socket.
+    /// yet; the daemon calls this when the link agent's registration (lane
+    /// 12) appears or changes.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) fn host_link_changed(&self) {
         let inner = self.inner.lock().unwrap();
