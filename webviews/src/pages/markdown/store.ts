@@ -13,7 +13,6 @@ import {
   MARKDOWN_LOOK,
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
-  MARKDOWN_LOAD_OP,
   MARKDOWN_SAVE_OP,
   isMarkdownConfig,
   type MarkdownChange,
@@ -352,7 +351,7 @@ export class MarkdownStore {
     if (this.state.conflict || (!this.state.readOnly && this.currentText() !== this.savedText)) return false;
     let file: MarkdownFile;
     try {
-      const value = await this.client.call<unknown>(MARKDOWN_LOAD_OP, { path });
+      const value = await this.client.call<unknown>(MARKDOWN_OPEN_OP, { path });
       if (!isMarkdownConfig(value)) throw new Error("markdown file is malformed");
       file = value;
     } catch (error) {

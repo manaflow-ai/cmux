@@ -15,7 +15,8 @@ public import AppKit
 ///   in a web page, when no cmux binding claims them.
 ///
 /// Unbinding `nextSurface` or `prevSurface` in cmux.json removes its entries.
-public nonisolated enum KeyBindingDefaults {
+public nonisolated struct KeyBindingDefaults {
+    public nonisolated init() {}
     static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey))!))
     static let left = String(Character(UnicodeScalar(UInt32(NSLeftArrowFunctionKey))!))
     public static let pageUp = String(Character(UnicodeScalar(UInt32(NSPageUpFunctionKey))!))

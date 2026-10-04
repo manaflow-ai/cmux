@@ -37,7 +37,7 @@ extension ControlRouter {
     static func validatedRequest(for action: ControlActionInfo, params: [String: JSONValue], knownKinds: [String],
                                  connection: ControlConnectionID) throws -> ControlActionRequest {
         var request = ControlActionRequest(actionID: action.id)
-        if let origin = try ControlOrigin.validated(params["origin"], connection: connection) {
+        if let origin = try ControlOrigin().validated(params["origin"], connection: connection) {
             request.origin = origin
         }
         if let focus = params["focus"], !focus.isNull {

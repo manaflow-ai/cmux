@@ -71,10 +71,6 @@ async function postMessage(message: Envelope): Promise<unknown> {
   }
   if (!ok)
     return { t: "err", id: message.id, code: body.code, message: body.message ?? body.code, details: body.details };
-  if (message.op === "cmux.markdown.load" && typeof body.path === "string") {
-    file = body.path;
-    history.replaceState(null, "", `?file=${encodeURIComponent(file)}`);
-  }
   if (message.op === "cmux.markdown.openLink" && typeof body.url === "string") {
     window.open(body.url, "_blank", "noopener");
   }

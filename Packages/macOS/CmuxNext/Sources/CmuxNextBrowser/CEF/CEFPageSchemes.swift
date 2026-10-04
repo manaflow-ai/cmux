@@ -6,7 +6,8 @@ public import Foundation
 /// when it initializes CEF. The shim refuses a reserved (`cmux.`) id on any
 /// other path.
 @MainActor
-public enum CEFPageSchemes {
+public struct CEFPageSchemes {
+    public init() {}
     /// A first-party page: its bundled resource root and its own
     /// Content-Security-Policy (the page's `PageCSP` header; the shim's
     /// default `default-src 'self'` would block its inline module scripts).

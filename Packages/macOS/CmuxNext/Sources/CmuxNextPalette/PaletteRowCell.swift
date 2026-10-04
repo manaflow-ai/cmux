@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import AppKit
 import CmuxNextDesign
 
@@ -99,9 +100,12 @@ final class PaletteRowCell: NSTableCellView {
 
     func configure(_ row: PaletteRow, isSelected: Bool) {
         let item = row.item
-        if symbolName != item.symbol {
-            symbolName = item.symbol
-            icon.image = PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
+        let iconKey = item.brand.map { "brand:\($0)" } ?? item.symbol
+        if symbolName != iconKey {
+            symbolName = iconKey
+            // An agent row draws its brand mark as a template, tinted like the symbols.
+            icon.image = item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
+                ?? PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
         self.isSelected = isSelected
         titleText = item.title

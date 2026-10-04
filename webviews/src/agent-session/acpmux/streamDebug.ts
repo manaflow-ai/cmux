@@ -64,6 +64,11 @@ export async function runStream(
   const timestamps: number[] = [];
   const growth: number[] = [];
   let detached = 0;
+  const gaps: number[] = [];
+  // The reply's visible characters per frame: text that lands in bursts shows on few frames in
+  // big steps; flowing text shows on most frames in small steps.
+  const steps: number[] = [];
+  let shown = 0;
   let lastHeight = scroller.scrollHeight;
   const end = performance.now() + seconds * 1000;
   let ended = false;
@@ -75,7 +80,12 @@ export async function runStream(
     const height = scroller.scrollHeight;
     growth.push(Math.max(0, height - lastHeight));
     lastHeight = height;
-    if (height - scroller.clientHeight - scroller.scrollTop > 2) detached += 1;
+    const gap = height - scroller.clientHeight - scroller.scrollTop;
+    gaps.push(gap);
+    if (gap > 2) detached += 1;
+    const visible = document.querySelector('[data-row-id="debug-stream"]')?.textContent?.length ?? shown;
+    steps.push(Math.max(0, visible - shown));
+    shown = Math.max(shown, visible);
     if (!ended && now >= end) {
       ended = true;
       clearInterval(feeder);
@@ -97,6 +107,12 @@ export async function runStream(
       max: round2(sorted.at(-1) ?? 0),
     },
     growing_frames: growth.filter((value) => value > 0).length,
+    gap_px: { p50: round2(median(gaps)), max: round2(Math.max(0, ...gaps)) },
+    text_frames: steps.filter((value) => value > 0).length,
+    text_step: (() => {
+      const moving = steps.filter((value) => value > 0).sort((a, b) => a - b);
+      return { p50: percentile(moving, 0.5), p95: percentile(moving, 0.95), max: moving.at(-1) ?? 0 };
+    })(),
     // Per frame: geometry and React time (acpmuxPerf), and time outside both.
     layout_ms: stats.layout,
     react_ms: stats.react,

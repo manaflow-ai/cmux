@@ -2,7 +2,8 @@ public import CoreGraphics
 
 /// Row divider drags (plans/cmux-next/rows.md Z1). Pure: the view passes the
 /// rows and their frames from when the drag began.
-public nonisolated enum RowResize {
+public nonisolated struct RowResize {
+    public nonisolated init() {}
     /// Every row height after dragging the edge below `upper` so that row's
     /// bottom sits at `pointerY` (content space). Filled rows (sum at most
     /// 1000, or rows off) trade height with the row below, keeping their

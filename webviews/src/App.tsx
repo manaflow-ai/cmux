@@ -3,7 +3,7 @@ import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme }
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, resolveDiffNavigationURL } from "./actions";
@@ -42,6 +42,7 @@ import {
 import { DiffHeaderMetadata } from "./diff-metadata";
 import { collapsedFileKey, withCollapsedFile } from "./collapsed-files";
 import { treeFileActivation, treeFileRowPath } from "./file-activation";
+import { computedTranslateX, createFilesPanelMotion, type FilesPanelMotion } from "./files-panel-motion";
 import { isHeaderToggleKey, shouldToggleFromHeaderClick, type HeaderPress } from "./file-header-toggle";
 import { FileIcon } from "./file-icons";
 import {
@@ -2935,8 +2936,21 @@ function usePendingReplacement(
 }
 
 function usePageDataAttributes(state: AppState) {
+  // The files panel shows and hides through its motion (files-panel-motion.ts),
+  // which flips `data-files-hidden` in this commit's frame and slides the
+  // panel on the compositor afterwards.
+  const filesPanelMotion = useRef<FilesPanelMotion | null>(null);
+  useLayoutEffect(() => {
+    filesPanelMotion.current ??= createFilesPanelMotion({
+      panel: () => document.getElementById("files-sidebar"),
+      body: document.body,
+      currentOffset: (panel) => computedTranslateX(panel as HTMLElement),
+      requestFrame: (callback) => requestAnimationFrame(() => callback()),
+      reducedMotion: () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
+    });
+    filesPanelMotion.current.set(state.filesVisible);
+  }, [state.filesVisible]);
   useEffect(() => {
-    document.body.dataset.filesHidden = state.filesVisible ? "false" : "true";
     document.body.dataset.loading = state.status.loading ? "true" : "false";
     document.documentElement.dataset.layout = state.options.layout;
     document.documentElement.dataset.wordWrap = String(state.options.wordWrap);
