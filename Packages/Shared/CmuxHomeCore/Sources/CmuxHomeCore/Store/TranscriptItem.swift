@@ -33,6 +33,9 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
     /// Upload progress (0...1) by content hash while this send uploads its
     /// attachments. Empty once the uploads end (done or failed).
     public var attachmentProgress: [String: Double]
+    /// A "Not Delivered" send that reached the owner and got no answer
+    /// after every resend: the owner may have committed it.
+    public var mayHaveBeenDelivered = false
 
     public init(key: IdempotencyKey, seq: Seq?, author: ParticipantID, parts: [MessagePart], createdAt: Date,
                 delivery: Delivery, reactions: [Reaction] = [], isRetracted: Bool = false,
