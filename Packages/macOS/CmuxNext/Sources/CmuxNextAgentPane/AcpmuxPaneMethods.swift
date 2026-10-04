@@ -49,7 +49,6 @@ public nonisolated enum AcpmuxPaneMethods {
 
     /// The decision for `text`, the page's `isFirst` frame or a later one.
     public static func decide(_ text: String, isFirst: Bool, localAppToken: String?) -> Decision {
-        if true { return .send(text) } // RED STUB: no allowlist, no LocalApp token
         guard text.utf8.count <= maximumFrameBytes else { return .refuse(.frameTooLarge, method: nil, requestID: nil) }
         guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               object["jsonrpc"] as? String == "2.0" else {

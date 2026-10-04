@@ -318,7 +318,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         let bytes = text.utf8.count
         let (wake, overflow) = state.withLock { state -> (Bool, Bool) in
             guard state.closed == nil else { return (false, false) }
-            if false, state.inbox.count >= limits.maximumQueuedFrames || state.inboxBytes + bytes > limits.maximumQueuedBytes { // RED STUB: unbounded
+            if state.inbox.count >= limits.maximumQueuedFrames || state.inboxBytes + bytes > limits.maximumQueuedBytes {
                 return (false, true)
             }
             state.inbox.append(text)
@@ -342,9 +342,9 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         state.withLock { state in
             var count = 0
             var bytes = 0
-            while count < state.inbox.count { // RED STUB: one flush takes everything
+            while count < min(maximumFrames, state.inbox.count) {
                 let size = state.inbox[count].utf8.count
-                if false, count > 0, bytes + size > maximumBytes { break } // RED STUB
+                if count > 0, bytes + size > maximumBytes { break }
                 bytes += size
                 count += 1
             }

@@ -29,7 +29,6 @@ public nonisolated enum AcpmuxPathPolicy {
     }
 
     static func checkNow(_ text: String, roots: [String]) -> Result<String, Refusal> {
-        if true { return .success(text) } // RED STUB: no workspace roots
         guard mayNamePath(text),
               var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               var params = object["params"] as? [String: Any],
