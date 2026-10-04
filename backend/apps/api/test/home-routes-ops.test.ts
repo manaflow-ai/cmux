@@ -3,7 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { conversation as homeConversation, invites } from "@cmux/home-core"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
-import { userIdFor } from "../src/domains/user.ts"
+import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 
 /**
  * The conversation ops of home-messaging.md section 4.1 through POST /v1/ops, with two signed-in
@@ -11,7 +11,7 @@ import { userIdFor } from "../src/domains/user.ts"
  * title. The second person joins through a group email invite (the only human add path that needs
  * no reach facts), so the test runs without team or contact records.
  */
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; HOME_ADDRESS_KEY: string; ADDRESS_DO: DurableObjectNamespace }
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; HOME_ADDRESS_KEY: string; ADDRESS_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
 const sessionToken = async (sub: string, email: string, name: string) =>
   new SignJWT({ email, email_verified: true, name })
@@ -141,6 +141,12 @@ describe("Home conversation ops over HTTP (two people)", { timeout: 60_000 }, ()
     expect((await op(bob.token, "participants.remove", { conversation: id, participant: bob.user })).json.ok).toBe(true)
     expect((await read(bob.token, "conversation.history", { conversation: id })).status).toBe(403)
     expect(refused(await op(bob.token, "message.send", { conversation: id, client_msg_id: "late", parts: [{ type: "text", text: "late" }] }, "late"))).toBe("not_participant")
+    // A departed human comes back only through someone with a current link (16.7): with none, Alice is refused.
+    expect(refused(await op(alice.token, "participants.add", { conversation: id, participant: { id: bob.user, kind: "human", display_name: "Bob" } }))).toBe("not_reachable")
+    // Bob joins Alice's team (a shared team is a current link; members are TeamDO rows).
+    await runInDurableObject(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(personalTeamIdFor(alice.user))), async (_i, state) => {
+      state.storage.sql.exec("INSERT OR REPLACE INTO own_rows (tbl, k, n, json) VALUES ('member', ?, NULL, ?)", bob.user, JSON.stringify({ user: bob.user, role: "member", display_name: "Bob Example" }))
+    })
     // Alice adds him back (a former participant of this conversation); he reads again.
     const back = await op(alice.token, "participants.add", { conversation: id, participant: { id: bob.user, kind: "human", display_name: "Bobby Tables" } })
     expect(back.json.ok).toBe(true)
