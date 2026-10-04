@@ -531,6 +531,19 @@ export const shortcutCategories: ShortcutCategory[] = [
         note: { en: "while the address bar has focus; elsewhere the chord toggles pane zoom", ja: "アドレスバーにフォーカスがあるとき。それ以外ではペインのズームを切り替えます" },
       },
       { id: "browserBack", combos: [["⌘", "["]], description: { en: "Back", ja: "戻る" } },
+      { id: "browserStop", combos: [["⌘", "."]], description: { en: "Stop loading", ja: "読み込みを中止" } },
+      {
+        id: "browser.findPrevious",
+        combos: [["⌘", "⇧", "G"]],
+        description: { en: "Find previous in page", ja: "ページ内で前を検索" },
+        note: { en: "focused browser or its find bar; elsewhere the chord groups the selected workspaces", ja: "フォーカス中のブラウザまたは検索バー。それ以外では選択したワークスペースをグループにします" },
+      },
+      {
+        id: "browser.copyURL",
+        combos: [["⌘", "⇧", "C"]],
+        description: { en: "Copy page URL", ja: "ページの URL をコピー" },
+        note: { en: "focused browser; the full URL, also from the address bar", ja: "フォーカス中のブラウザ。アドレスバーからも完全な URL をコピーします" },
+      },
       { id: "browserForward", combos: [["⌘", "]"]], description: { en: "Forward", ja: "進む" } },
       {
         id: "browserReload",
@@ -623,11 +636,11 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       {
         id: "toggleReactGrab",
-        combos: [["⌘", "⇧", "G"]],
+        combos: [],
         description: { en: "Toggle React Grab", ja: "React Grabを切り替え" },
         note: {
-          en: "focused browser, or the only browser pane when a terminal is focused",
-          ja: "フォーカス中のブラウザ、またはターミナルにフォーカスがあるときは唯一のブラウザペイン",
+          en: "unbound by default (Shift-Cmd-G is Find Previous in a browser)",
+          ja: "デフォルトでは未割り当て（ブラウザでは Shift-Cmd-G は前を検索）",
         },
       },
     ],

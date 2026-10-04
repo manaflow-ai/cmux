@@ -12,7 +12,7 @@ extension AppActions {
             return nil
         }
         let commands: [(String, BrowserChromeCommand)] = [
-            ("browserBack", .goBack), ("browserForward", .goForward), ("browserReload", .reload),
+            ("browserBack", .goBack), ("browserForward", .goForward), ("browserReload", .reload), ("browserStop", .stop),
             ("browserZoomIn", .zoomIn), ("browserZoomOut", .zoomOut), ("browserZoomReset", .resetZoom),
             ("focusBrowserAddressBar", .focusAddressBar),
         ]
@@ -28,6 +28,13 @@ extension AppActions {
         for (id, disposition) in omnibarOpens {
             registry.bind(id, isEnabled: { chrome()?.addressBar.isEditing == true }, invoke: { chrome($0)?.addressBar.commit(disposition) })
         }
+        // Shift-Cmd-G in a browser: the same Find Previous as Cmd-Opt-G.
+        registry.bind("browser.findPrevious", isEnabled: { chrome() != nil }, invoke: { invocation in
+            registry.perform("findPrevious", invocation: invocation)
+        })
+        // Cmd-Shift-C (Arc, Chrome extensions): the page's URL, as the
+        // omnibar's Copy writes it (the full URL, never the elided text).
+        registry.bind("browser.copyURL", isEnabled: { chrome()?.tab.state.url != nil }, invoke: { chrome($0)?.copyPageURL() })
         // Cmd-L goes through the window's focus coordinator, which also takes
         // key back from a focused Chromium page window.
         registry.bind("focusBrowserAddressBar", isEnabled: { chrome() != nil }, invoke: { invocation in
