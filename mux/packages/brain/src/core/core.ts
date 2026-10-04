@@ -196,6 +196,12 @@ export class Core {
   private readonly heldChanges = new Map<string, SessionSummary[]>();
   /** Rejections per outstanding prompt (the retry backoff), until acpmux accepts it. Memory only: a restart resets the budget. */
   private readonly promptRejections = new Map<string, number>();
+  /**
+   * Prompts acpmux accepted on this acpmux connection (user_message or queued):
+   * a refusal of one is a stale or duplicate answer. Cleared when the
+   * connection drops (acpmux drops queued prompts with it; the connect resends them).
+   */
+  private readonly acceptedPrompts = new Set<string>();
   /** Failed session lists in a row (the retry backoff). */
   private sessionsFailures = 0;
   /** Permission requests from sessions not known as children yet, waiting for `sessions`. */
@@ -286,7 +292,7 @@ export class Core {
       case "prompt_settled":
         this.accept(input.prompt_id);
         // A refusal of the prompt whose turn runs is stale (a duplicate's answer): ignored.
-        if (input.rejected === true && this.state.prompts[input.prompt_id] && this.folder.running?.promptId !== input.prompt_id) {
+        if (input.rejected === true && this.state.prompts[input.prompt_id] && !this.acceptedPrompts.has(input.prompt_id) && this.folder.running?.promptId !== input.prompt_id) {
           const rejections = (this.promptRejections.get(input.prompt_id) ?? 0) + 1;
           if (rejections > MAX_PROMPT_RETRIES) {
             this.stopRefusedPrompt(input.prompt_id, input.error || "refused");
@@ -306,7 +312,8 @@ export class Core {
           // Only a prompt still refused: one acpmux accepted (its rejections are cleared),
           // whose turn runs, or that was answered or dropped meanwhile sends nothing.
           const promptId = input.key.slice(PROMPT_TIMER_PREFIX.length);
-          if (this.promptRejections.has(promptId) && this.folder.running?.promptId !== promptId) this.sendPrompt(promptId);
+          if (this.promptRejections.has(promptId) && !this.acceptedPrompts.has(promptId) && this.folder.running?.promptId !== promptId)
+            this.sendPrompt(promptId);
         } else if (input.key === SESSIONS_TIMER) {
           if (this.pendingPermissions.length > 0 && this.acpmuxUp) this.emit({ kind: "fetch_sessions" });
         }
@@ -377,6 +384,7 @@ export class Core {
       return;
     }
     this.acpmuxUp = false;
+    this.acceptedPrompts.clear();
     this.inbox = this.inbox.filter((item) => item.type === "catch_up" || item.type === "ready");
     // Pending permissions stay: the session list of the next acpmux connect answers them.
     if (this.typingIn) this.setTyping(this.typingIn, false);
@@ -580,6 +588,7 @@ export class Core {
   private stopRefusedPrompt(promptId: string, error: string): void {
     const conversation = this.conversationFor(promptId);
     this.promptRejections.delete(promptId);
+    this.acceptedPrompts.delete(promptId);
     markAnswered(this.state, promptId);
     this.dirty = true;
     this.log(`prompt ${promptId} refused ${MAX_PROMPT_RETRIES + 1} times; giving up: ${error}`);
@@ -695,6 +704,7 @@ export class Core {
       }
       delete this.state.prompts[promptId];
       this.promptRejections.delete(promptId);
+      this.acceptedPrompts.delete(promptId);
       this.dirty = true;
       this.log(`dropping permission prompt ${promptId}: its session is not waiting`);
     }
@@ -722,6 +732,7 @@ export class Core {
     for (const output of this.folder.apply(event)) {
       if (output.type === "accepted") {
         this.promptRejections.delete(output.promptId);
+        this.acceptedPrompts.add(output.promptId);
         this.accept(output.promptId);
         continue;
       }
@@ -746,6 +757,7 @@ export class Core {
       if (output.turn.promptId) {
         markAnswered(this.state, output.turn.promptId);
         this.promptRejections.delete(output.turn.promptId);
+        this.acceptedPrompts.delete(output.turn.promptId);
       }
       this.state.acpmuxSeq = Math.max(this.state.acpmuxSeq, output.seq);
       this.dirty = true;
