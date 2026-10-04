@@ -1,6 +1,28 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
-@@ -537,7 +537,8 @@
+@@ -57,6 +57,9 @@
+     case evict(top: Int, bottom: Int)
+     /// Jump: replace the loaded window.
+     case replaceWindow([Message], start: Int)
++    /// cmux: an attachment part's bytes arrived or its upload moved
++    /// (HomeStore); replaces the part with the same attachment id, no motion.
++    case cmuxSetAttachment(ID, Attachment)
+ }
+ 
+ enum Reducer {
+@@ -139,6 +142,11 @@
+             s.conversation.messages = msgs
+             s.windowStart = start
+             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
++        case let .cmuxSetAttachment(id, a):  // cmux
++            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
++                  let pi = s.conversation.messages[i].parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
++            else { break }
++            s.conversation.messages[i].parts[pi] = .attachment(a)
+         }
+         return nil
+     }
+@@ -537,7 +545,8 @@
          // Two or more questions in one turn: one answer each (the earlier ones
          // end up threaded, because a newer question follows them).
          if questions.count >= 2 {

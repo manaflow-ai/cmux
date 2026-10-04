@@ -481,6 +481,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i) }
         case .typing: idx.append(max(0, msgs.count - 1))
         case let .status(id, _): if let i = index(id) { idx.append(i) }
+        case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)

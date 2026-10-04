@@ -5,11 +5,16 @@ import Observation
 /// Connects one `HomeController` to a `HomeStore`: store changes reach
 /// `update` (observed, no polling) and the controller's intents go to
 /// `HomeStore.perform` with their idempotency keys. Hosts that own their own
-/// plumbing can call `update` and handle `onIntent` themselves instead.
+/// transcript plumbing (the Mac MessagesLab host) use
+/// `init(store:conversation:)`: the binding then carries only the
+/// conversation's part of the store, its refusals, unanswered ops,
+/// attachment fetches and Cancel Upload.
 @MainActor
 public final class HomeStoreBinding {
     public let store: HomeStore
-    public let controller: HomeController
+    /// Nil for a host with its own transcript (`init(store:conversation:)`).
+    public let controller: HomeController?
+    public let conversation: ConversationID
     private var stopped = false
     /// A refused op other than a send (a tapback now), on the main actor, so
     /// the host can say why (iOS: an alert with `HomeText.explanation(for:)`).
@@ -21,7 +26,7 @@ public final class HomeStoreBinding {
     /// controller's `attachmentLoader` (thumbnails for bubbles, the
     /// original for video playback).
     public var fetchAttachment: @Sendable (AttachmentRef, AttachmentVariant) async throws -> URL {
-        didSet { controller.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment) }
+        didSet { controller?.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment) }
     }
     /// A send the client refused before logging it because of an
     /// attachment (type, size, empty file, too many parts); its draft and
@@ -31,15 +36,34 @@ public final class HomeStoreBinding {
     /// cursor) ran out of resends unanswered: it may not have gone through.
     public var onUnanswered: (HomeIntent) -> Void = { _ in }
 
-    public init(store: HomeStore, controller: HomeController) {
+    public convenience init(store: HomeStore, controller: HomeController) {
+        self.init(store: store, conversation: controller.conversation, controller: controller)
+        controller.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment)
+        controller.onIntent = { [weak self] intent in self?.perform(intent) }
+        let id = conversation
+        controller.onNeedsOlder = { [weak store] in
+            guard let store else { return }
+            Task { await store.loadOlder(id) }
+        }
+        refresh()
+        observe()
+    }
+
+    /// A binding for a host that shows and updates the transcript itself:
+    /// `onRefusal`, `onUnanswered`, `fetchAttachment` and `cancelSend` for
+    /// `conversation`, chained with every other binding of the store.
+    public convenience init(store: HomeStore, conversation: ConversationID) {
+        self.init(store: store, conversation: conversation, controller: nil)
+    }
+
+    private init(store: HomeStore, conversation id: ConversationID, controller: HomeController?) {
         self.store = store
         self.controller = controller
-        let id = controller.conversation
+        conversation = id
         self.fetchAttachment = { [weak store] ref, variant in
             guard let store else { throw CancellationError() }
             return try await store.fetchAttachment(ref, variant: variant, in: id)
         }
-        controller.attachmentLoader = HomeFetchLoader(fetch: fetchAttachment)
         // Refusals nobody awaits (a resumed upload, a resend after backoff)
         // reach the host like any other refusal. One store serves several
         // bindings: each takes its own conversation and passes the rest on.
@@ -55,13 +79,6 @@ public final class HomeStoreBinding {
             guard let self, !self.stopped else { return }
             self.onUnanswered(intent)
         }
-        controller.onIntent = { [weak self] intent in self?.perform(intent) }
-        controller.onNeedsOlder = { [weak store] in
-            guard let store else { return }
-            Task { await store.loadOlder(id) }
-        }
-        refresh()
-        observe()
     }
 
     /// Stops forwarding (the conversation closed).
@@ -75,12 +92,13 @@ public final class HomeStoreBinding {
 
     public func stop() {
         stopped = true
-        controller.onIntent = { _ in }
-        controller.onNeedsOlder = {}
+        controller?.onIntent = { _ in }
+        controller?.onNeedsOlder = {}
     }
 
     private func refresh() {
-        let id = controller.conversation
+        guard let controller else { return }
+        let id = conversation
         controller.update(items: store.transcript(for: id), summary: store.summary(id), typing: store.typing[id] ?? [],
                           hasOlder: store.hasOlderMessages(in: id))
     }
@@ -89,8 +107,8 @@ public final class HomeStoreBinding {
     /// change (read cursors, participants); the controller ignores updates
     /// that change nothing it shows.
     private func observe() {
-        guard !stopped else { return }
-        let id = controller.conversation
+        guard !stopped, controller != nil else { return }
+        let id = conversation
         withObservationTracking {
             _ = store.transcriptVersion[id]
             _ = store.typing[id]
@@ -105,8 +123,8 @@ public final class HomeStoreBinding {
     }
 
     private func perform(_ intent: HomeIntent) {
+        guard let controller else { return }
         let store = self.store
-        let controller = self.controller
         Task { [weak self] in
             do {
                 if let send = controller.attachmentSend(intent) {

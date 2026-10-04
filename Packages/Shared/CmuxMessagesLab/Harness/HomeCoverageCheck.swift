@@ -22,10 +22,11 @@ import Testing
         DisplayScale.colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
         RowCell.synchronousBitmaps = false
         RowBitmaps.shared.removeAll()
-        var items: [TranscriptItem] = (1...80).map { i in
-            H.item(Seq(i), i % 3 == 0 ? H.me : H.them,
-                   i % 4 == 0 ? "A longer message number \(i) that wraps onto a second line in the bubble." : "Message \(i)",
-                   at: -Double(81 - i) * 50)
+        var items: [TranscriptItem] = []
+        for i in 1...80 {
+            let author: ParticipantID = i % 3 == 0 ? H.me : H.them
+            let text = i % 4 == 0 ? "A longer message number \(i) that wraps onto a second line in the bubble." : "Message \(i)"
+            items.append(H.item(Seq(i), author, text, at: -Double(81 - i) * 50))
         }
         var sum = H.summary(lastSeq: 80)
         var core = ProjectionCore(me: H.me)
@@ -66,7 +67,8 @@ import Testing
             store.advance(to: vt)
             store.dispatch(.send)
             let k = IdempotencyKey(key)
-            #expect(core.recordSend(k, in: store.state))
+            let recorded = core.recordSend(k, in: store.state)
+            #expect(recorded)
             items.append(TranscriptItem(key: k, seq: nil, author: H.me, parts: [.text(text)], createdAt: H.date(vt), delivery: .sending))
             push()
         }
