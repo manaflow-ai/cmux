@@ -96,6 +96,10 @@ pub enum DomainKind {
     Theme,
     FontFamily,
     Sound,
+    /// `appearance.background`: a listed choice or `system:<absolute path>`
+    /// (Swift `BackdropSelectionSetting.accepts`; each Mac has its own
+    /// wallpaper set, so system paths are checked by shape).
+    BackdropSelection,
 }
 
 /// One descriptor row.
@@ -230,6 +234,7 @@ fn row(raw: Value) -> Result<Row, String> {
         "domain:theme" => Validation::Domain(DomainKind::Theme),
         "domain:font_family" => Validation::Domain(DomainKind::FontFamily),
         "domain:sound" => Validation::Domain(DomainKind::Sound),
+        "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {

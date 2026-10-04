@@ -51,13 +51,18 @@ impl Accepted {
 /// `Ok` when the app would apply `value` for `row` without a diagnostic.
 /// Numbers outside the range are refused although the parser clamps them.
 pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusal> {
-    if is_accepted(&row.kind, value, domains) {
+    if row_accepts(row, value, domains) {
         return Ok(());
     }
+    let accepted = if is_backdrop_selection(row) {
+        Accepted::Shape("none, a listed painting, or system:<absolute path>")
+    } else {
+        accepted(&row.kind, domains)
+    };
     Err(Refusal::InvalidValue {
         key: row.key.clone(),
         kind: row.kind.name(),
-        accepted: accepted(&row.kind, domains),
+        accepted,
         value: value.clone(),
     })
 }
@@ -65,9 +70,22 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
 /// The stored value when valid, else the default (what the app applies).
 pub fn effective_value(row: &Row, root: &Value, domains: &Domains) -> Option<Value> {
     match crate::value::value_at(root, &row.path) {
-        Some(stored) if is_accepted(&row.kind, stored, domains) => Some(stored.clone()),
+        Some(stored) if row_accepts(row, stored, domains) => Some(stored.clone()),
         _ => row.default.clone(),
     }
+}
+
+fn is_backdrop_selection(row: &Row) -> bool {
+    row.validation == super::Validation::Domain(DomainKind::BackdropSelection)
+}
+
+fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
+    if is_backdrop_selection(row) {
+        let Some(text) = value.as_str() else { return false };
+        let system_path = text.strip_prefix("system:").is_some_and(|path| path.starts_with('/'));
+        return system_path || is_accepted(&row.kind, value, domains);
+    }
+    is_accepted(&row.kind, value, domains)
 }
 
 fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
@@ -165,5 +183,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::Theme => "theme",
         DomainKind::FontFamily => "font_family",
         DomainKind::Sound => "sound",
+        DomainKind::BackdropSelection => "backdrop_selection",
     }
 }
