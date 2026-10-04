@@ -1064,6 +1064,7 @@ base_url = "http://router:31415/v1"
         "hooks",
         "multi_agent",
         "code_mode",
+        "code_mode_host",
     ] {
         assert_eq!(
             config["features"][feature].as_bool(),
@@ -1073,6 +1074,12 @@ base_url = "http://router:31415/v1"
     }
     assert_eq!(
         config["features"]["skip_host_skill_discovery"].as_bool(),
+        Some(true)
+    );
+    // codex reports an under-development feature as an error item each
+    // session; the slot asks it not to.
+    assert_eq!(
+        config["suppress_unstable_features_warning"].as_bool(),
         Some(true)
     );
     // Without a user config: the isolation alone.
@@ -1100,8 +1107,8 @@ base_url = "http://router:31415/v1"
         // refresh could invalidate the user's (codex writes it in place).
         assert_eq!(
             names,
-            vec!["auth.json", "config.toml"],
-            "slot {k}: its config and the user's sign-in"
+            vec!["auth.json", "config.toml", "installation_id"],
+            "slot {k}: its config, the user's sign-in and the Chief's installation id"
         );
         assert_eq!(
             std::fs::read_link(slot.join("auth.json")).unwrap(),
@@ -1115,6 +1122,37 @@ base_url = "http://router:31415/v1"
         let mode = std::fs::metadata(&slot).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700);
     }
+    // Live 2026-10-04: the subrouter keeps a codex installation id on one
+    // account, and the prompt cache is per account: two slots with their own
+    // ids read 0 of a 31.5k-token prefix the other wrote, with one shared id
+    // 30,464. Every slot carries the same id, a UUID codex accepts, and a
+    // host restart keeps it.
+    let ids: Vec<String> = (0..JOBS)
+        .map(|k| {
+            std::fs::read_to_string(
+                paths
+                    .compactor_codex
+                    .join(format!("slot-{k}"))
+                    .join("installation_id"),
+            )
+            .unwrap()
+        })
+        .collect();
+    assert!(ids.iter().all(|id| *id == ids[0]), "{ids:?}");
+    let id = &ids[0];
+    assert_eq!(id.len(), 36, "{id}");
+    assert_eq!(
+        id.chars().filter(|c| *c == '-').count(),
+        4,
+        "a hyphenated UUID: {id}"
+    );
+    assert_eq!(&id[14..15], "4", "version 4: {id}");
+    prepare_codex_homes(&paths, &user_home).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(paths.compactor_codex.join("slot-3/installation_id")).unwrap(),
+        *id,
+        "stable across host starts"
+    );
 }
 
 /// Everything codex writes into a slot's CODEX_HOME during a node (its
@@ -1172,7 +1210,15 @@ fn a_codex_node_leaves_nothing_but_its_config_in_its_codex_home() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();
-    assert_eq!(names, vec!["auth.json", "config.toml", "models_cache.json"]);
+    assert_eq!(
+        names,
+        vec![
+            "auth.json",
+            "config.toml",
+            "installation_id",
+            "models_cache.json"
+        ]
+    );
     assert_eq!(
         std::fs::read_to_string(slot.join("auth.json")).unwrap(),
         "{}",
