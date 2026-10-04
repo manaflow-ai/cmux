@@ -78,14 +78,24 @@ pub fn claude_md() -> String {
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
 
-/// The turn's user message (section 7): two text blocks, the view rendered
-/// before the new messages were logged, then the new messages joined by a
-/// blank line.
+/// The turn's user message (section 7): the view rendered before the new
+/// messages were logged, then the new messages joined by a blank line.
+///
+/// The view goes as up to four text blocks, cut at its cache marks (section 8:
+/// the last line end before 50k, 80k and 100k characters), so a harness that
+/// puts a breakpoint on each block lets the next turn read the unchanged
+/// start of the view. Deviation: acpmux's Claude Code path forwards text
+/// blocks without `cache_control`, and Claude Code places its own breakpoints
+/// (never inside the view), so with claude-sr no breakpoint lands on these
+/// cuts yet and a turn rewrites the view instead of reading it. Each turn's
+/// host.log line (`turn::usage_line`) shows what the first request read.
 pub fn turn_blocks(view: &str, texts: &[String]) -> Vec<Value> {
-    vec![
-        json!({"type": "text", "text": view}),
-        json!({"type": "text", "text": texts.join("\n\n")}),
-    ]
+    let mut blocks: Vec<Value> = optchat_core::cache_pieces(view)
+        .into_iter()
+        .map(|piece| json!({"type": "text", "text": piece}))
+        .collect();
+    blocks.push(json!({"type": "text", "text": texts.join("\n\n")}));
+    blocks
 }
 
 #[cfg(test)]

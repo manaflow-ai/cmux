@@ -14,6 +14,13 @@ use optchat_chief::brain::Input;
 use optchat_chief::state::ChildStatus;
 use serde_json::json;
 
+/// A reply key without its stamp: `turn:optchat:<first id>`.
+fn turn_of(key: &str) -> String {
+    key.rsplit_once(':')
+        .map_or(key, |(head, _)| head)
+        .to_owned()
+}
+
 fn pairs(log: &[(String, String)]) -> Vec<(&str, &str)> {
     log.iter().map(|(k, t)| (k.as_str(), t.as_str())).collect()
 }
@@ -56,9 +63,11 @@ fn a_human_message_runs_one_fresh_turn_and_posts_one_reply() {
         ]
     );
     let owner = h.owner.lock().unwrap();
+    let sends = owner.sends();
+    assert_eq!(sends.len(), 1);
     assert_eq!(
-        owner.sends(),
-        vec![("turn:optchat:0".to_string(), "answer 0".to_string())]
+        (turn_of(&sends[0].0).as_str(), sends[0].1.as_str()),
+        ("turn:optchat:0", "answer 0")
     );
     assert_eq!(owner.cursors(), vec![1]);
     assert_eq!(owner.typing, vec![true, false]);
@@ -97,7 +106,7 @@ fn the_view_is_rendered_before_the_new_messages_are_logged_and_later_messages_wa
         vec![("user", "second"), ("user", "third")]
     );
     let owner = h.owner.lock().unwrap();
-    let keys: Vec<String> = owner.sends().into_iter().map(|(k, _)| k).collect();
+    let keys: Vec<String> = owner.sends().iter().map(|(k, _)| turn_of(k)).collect();
     assert_eq!(keys, vec!["turn:optchat:0", "turn:optchat:5"]);
     assert_eq!(owner.cursors(), vec![1, 3]);
 }
@@ -172,8 +181,8 @@ fn a_restart_catches_up_from_the_cursor_and_logs_each_message_once() {
         .lock()
         .unwrap()
         .sends()
-        .into_iter()
-        .map(|(k, _)| k)
+        .iter()
+        .map(|(k, _)| turn_of(k))
         .collect();
     assert_eq!(keys, vec!["turn:optchat:0", "turn:optchat:5"]);
 }
@@ -206,7 +215,7 @@ fn a_host_stopped_mid_turn_leaves_the_message_unanswered_and_says_so_once() {
     );
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 1);
-    assert_eq!(sends[0].0, "turn:optchat:0");
+    assert_eq!(turn_of(&sends[0].0), "turn:optchat:0");
     assert!(sends[0].1.starts_with("(interrupted"));
     assert_eq!(pairs(&h.log()), vec![("user", "hello")]);
 }
@@ -276,7 +285,9 @@ fn actor_mismatch_keeps_the_reply_and_reconnects() {
     let sends = h.owner.lock().unwrap().sends();
     assert_eq!(sends.len(), 2);
     assert!(
-        sends.iter().all(|(k, _)| k == "turn:optchat:0"),
+        sends
+            .iter()
+            .all(|(k, _)| *k == sends[0].0 && turn_of(k) == "turn:optchat:0"),
         "the same key: the owner dedupes"
     );
 }
@@ -326,7 +337,10 @@ fn a_child_report_becomes_one_user_entry_and_a_new_turn() {
     );
     let record = &h.brain.state().children["c1"];
     assert_eq!((record.status, record.floor), (ChildStatus::Reported, 3));
-    assert_eq!(h.owner.lock().unwrap().sends()[0].0, "turn:optchat:0");
+    assert_eq!(
+        turn_of(&h.owner.lock().unwrap().sends()[0].0),
+        "turn:optchat:0"
+    );
 
     // Another parent's session is not a child.
     h.brain.step(Input::from(AgentEvent::SessionChanged(child(

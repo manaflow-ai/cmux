@@ -12,7 +12,7 @@ use cmux_chief::rules::PARENT_TAG;
 use serde_json::{Value, json};
 
 use crate::acpmux::{SessionSpec, new_session, sessions};
-use crate::brain::PARENT;
+use crate::brain::parent_tag;
 use crate::cli::{Flags, env};
 use crate::rpc::{Notification, RpcClient};
 
@@ -38,10 +38,37 @@ fn connect() -> Result<(Arc<RpcClient>, Notes), String> {
     Ok((client, (tx, rx)))
 }
 
+/// This Chief's `mux.parent` value (its `MUX_HOME`, which the `chief`
+/// launcher bakes in).
+fn parent() -> String {
+    parent_tag(&crate::paths::mux_home())
+}
+
+fn is_mine(s: &SessionSummary, parent: &str) -> bool {
+    s.tags.get(PARENT_TAG).map(String::as_str) == Some(parent)
+}
+
 fn mine(list: Vec<SessionSummary>) -> Vec<SessionSummary> {
-    list.into_iter()
-        .filter(|s| s.tags.get(PARENT_TAG).map(String::as_str) == Some(PARENT))
-        .collect()
+    let parent = parent();
+    list.into_iter().filter(|s| is_mine(s, &parent)).collect()
+}
+
+/// Which session `spawn --name` uses: a child of this Chief with that name
+/// (left by a failed earlier start) is reused; a session of that name that
+/// is not this Chief's (the user's, mux/host's, another home's) is refused,
+/// so the Chief never sends its task into it or claims its reports.
+pub fn spawn_target(
+    list: &[SessionSummary],
+    name: &str,
+    parent: &str,
+) -> Result<Option<String>, String> {
+    match list.iter().find(|s| s.name == name) {
+        None => Ok(None),
+        Some(s) if is_mine(s, parent) => Ok(Some(s.session_id.clone())),
+        Some(_) => Err(format!(
+            "an acpmux session named {name} exists and is not one of the Chief's agents; pick another --name"
+        )),
+    }
 }
 
 fn child(client: &RpcClient, name: &str) -> Result<SessionSummary, String> {
@@ -122,11 +149,8 @@ pub fn run(flags: &Flags) -> Result<String, String> {
                 return Err(format!("spawn needs a task\n{USAGE}"));
             }
             let (client, notes) = connect()?;
-            // A named session from a failed earlier start is reused.
-            let existing = sessions(&client)?
-                .into_iter()
-                .find(|s| s.name == name)
-                .map(|s| s.session_id);
+            let parent = parent();
+            let existing = spawn_target(&sessions(&client)?, name, &parent)?;
             let id = match existing {
                 Some(id) => id,
                 None => new_session(
@@ -146,12 +170,13 @@ pub fn run(flags: &Flags) -> Result<String, String> {
                             .unwrap_or_else(|| "approve-all".into()),
                         model: flags.value("model").map(str::to_owned),
                     },
+                    None,
                 )?,
             };
             client
                 .request(
                     "_acpmux/tag",
-                    json!({"sessionId": id, "set": {PARENT_TAG: PARENT}}),
+                    json!({"sessionId": id, "set": {PARENT_TAG: parent}}),
                 )
                 .map_err(|e| format!("tag: {e}"))?;
             prompt_accepted(&client, &notes, &id, &task)?;
@@ -249,5 +274,32 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             ))
         }
         _ => Err(USAGE.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(name: &str, parent: Option<&str>) -> SessionSummary {
+        let tags = parent.map_or(json!({}), |p| json!({PARENT_TAG: p}));
+        serde_json::from_value(json!({"sessionId": format!("id-{name}"), "name": name, "status": "idle", "tags": tags}))
+            .unwrap()
+    }
+
+    #[test]
+    fn spawn_reuses_only_its_own_children() {
+        let list = vec![
+            session("mine", Some("optchat-chief:aa")),
+            session("users", None),
+            session("other-home", Some("optchat-chief:bb")),
+        ];
+        assert_eq!(spawn_target(&list, "new", "optchat-chief:aa"), Ok(None));
+        assert_eq!(
+            spawn_target(&list, "mine", "optchat-chief:aa"),
+            Ok(Some("id-mine".into()))
+        );
+        assert!(spawn_target(&list, "users", "optchat-chief:aa").is_err());
+        assert!(spawn_target(&list, "other-home", "optchat-chief:aa").is_err());
     }
 }

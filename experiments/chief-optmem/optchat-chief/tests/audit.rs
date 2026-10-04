@@ -57,24 +57,31 @@ fn a_second_child_turn_ending_while_its_report_is_queued_is_not_lost() {
     h.agents.wait_prompts(1);
     // The child ends turn 1 while the Chief is busy: its report waits.
     h.agents.set_events("c1", child_turn("report one"));
-    h.brain
-        .step(Input::from(AgentEvent::SessionChanged(worker("c1", "running", 1))));
-    h.brain
-        .step(Input::from(AgentEvent::SessionChanged(worker("c1", "ready", 3))));
+    h.brain.step(Input::from(AgentEvent::SessionChanged(worker(
+        "c1", "running", 1,
+    ))));
+    h.brain.step(Input::from(AgentEvent::SessionChanged(worker(
+        "c1", "ready", 3,
+    ))));
     // The Chief prompts it again and it ends turn 2 before the Chief's turn ends.
     let mut both = child_turn("report one");
     both.extend(child_turn("report two"));
     h.agents.set_events("c1", both);
-    h.brain
-        .step(Input::from(AgentEvent::SessionChanged(worker("c1", "running", 4))));
-    h.brain
-        .step(Input::from(AgentEvent::SessionChanged(worker("c1", "ready", 6))));
+    h.brain.step(Input::from(AgentEvent::SessionChanged(worker(
+        "c1", "running", 4,
+    ))));
+    h.brain.step(Input::from(AgentEvent::SessionChanged(worker(
+        "c1", "ready", 6,
+    ))));
     h.agents.release();
     h.agents.release();
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), 2);
-    let text = prompts[1].last().unwrap()["text"].as_str().unwrap().to_owned();
+    let text = prompts[1].last().unwrap()["text"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     assert!(text.contains("[worker] report one"), "{text}");
     assert!(text.contains("[worker] report two"), "{text}");
     let record = &h.brain.state().children["c1"];
@@ -133,7 +140,11 @@ fn a_new_conversation_id_starts_from_its_own_cursor() {
     h.say("user_local", "hello again");
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
-    assert_eq!(prompts.len(), 1, "the first message of the new conversation wakes");
+    assert_eq!(
+        prompts.len(),
+        1,
+        "the first message of the new conversation wakes"
+    );
     assert_eq!(prompts[0].last().unwrap()["text"], "hello again");
     assert_eq!(h.brain.state().logged_seq, 1);
 }
@@ -209,15 +220,22 @@ fn a_lost_turn_says_so_and_folds_its_orphan_session_later() {
 fn a_running_child_whose_session_is_gone_is_reported() {
     let mut h = Harness::new(default_script());
     h.connect();
-    h.brain
-        .step(Input::from(AgentEvent::SessionChanged(worker("c1", "running", 1))));
+    h.brain.step(Input::from(AgentEvent::SessionChanged(worker(
+        "c1", "running", 1,
+    ))));
     h.brain.step(Input::from(AgentEvent::Down));
     h.brain.step(Input::from(AgentEvent::Up(Vec::new())));
     h.settle();
     let prompts = h.agents.inner.lock().unwrap().prompts.clone();
     assert_eq!(prompts.len(), 1);
-    let text = prompts[0].last().unwrap()["text"].as_str().unwrap().to_owned();
-    assert!(text.starts_with("[worker]") && text.contains("gone"), "{text}");
+    let text = prompts[0].last().unwrap()["text"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        text.starts_with("[worker]") && text.contains("gone"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -231,4 +249,60 @@ fn the_host_state_is_private_to_the_user() {
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o600);
+}
+
+/// A host that crashed after it saved the pending turn: `logged` says whether
+/// the turn's one message reached the log before the crash.
+fn crashed_while_logging(logged: bool) -> Harness {
+    let dir = tempfile::tempdir().unwrap();
+    if logged {
+        let chat = open_chat(&dir.path().join("chat"));
+        chat.append(Kind::User, "hello").unwrap();
+        chat.shutdown();
+    }
+    StateFile::new(&dir.path().join("host.json"))
+        .save(&HostState {
+            conversation: Some(CONV.into()),
+            turn: Some(optchat_chief::state::PendingTurn {
+                key: String::new(),
+                conversation: Some(CONV.into()),
+                session: "optchat-0".into(),
+                first_id: Some(0),
+                seqs: vec![Some(1)],
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    let owner = Arc::new(Mutex::new(Owner {
+        summary: Some(summary()),
+        messages: vec![message(1, "user_local", "hello")],
+        ..Owner::default()
+    }));
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.connect();
+    h.settle();
+    h
+}
+
+#[test]
+fn a_crash_before_the_append_answers_the_message_normally() {
+    let h = crashed_while_logging(false);
+    assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 1);
+    let log = h.log();
+    assert_eq!(log.iter().filter(|(_, t)| t == "hello").count(), 1);
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1);
+    assert!(!sends[0].1.starts_with("(interrupted"), "{sends:?}");
+}
+
+#[test]
+fn a_crash_after_the_append_never_logs_the_message_twice() {
+    let h = crashed_while_logging(true);
+    assert!(h.agents.inner.lock().unwrap().prompts.is_empty());
+    assert_eq!(h.log(), vec![("user".to_string(), "hello".to_string())]);
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1);
+    assert!(sends[0].1.starts_with("(interrupted"), "{sends:?}");
+    // Seq 1 is in the log; seq 2 is the interrupted notice itself (no log).
+    assert_eq!(h.brain.state().logged_seq, 2);
 }

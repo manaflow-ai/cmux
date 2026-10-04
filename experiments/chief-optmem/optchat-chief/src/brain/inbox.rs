@@ -24,6 +24,26 @@ impl Brain {
                 self.daemon = Some(port);
                 self.reconnect = Some(reconnect);
                 if self.state.conversation.as_deref() != Some(conversation.id.as_str()) {
+                    if let Some(old) = self.state.conversation.take() {
+                        // A new conversation (the owner's store was made
+                        // again): its seqs start over, so the old counters
+                        // would skip its first messages. Start from its own
+                        // agent_mux cursor; ops for the old one cannot land.
+                        let cursor = conversation
+                            .read_cursors
+                            .get(AGENT_MUX)
+                            .copied()
+                            .unwrap_or(0);
+                        (self.log)(&format!(
+                            "the Chief conversation changed from {old} to {}; reading it from seq {cursor}",
+                            conversation.id
+                        ));
+                        self.handled = cursor;
+                        self.state.logged_seq = cursor;
+                        self.state
+                            .outbox
+                            .retain(|e| e.conversation == conversation.id);
+                    }
                     self.state.conversation = Some(conversation.id.clone());
                     self.save();
                 }

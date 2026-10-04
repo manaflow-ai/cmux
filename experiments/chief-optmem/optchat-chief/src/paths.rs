@@ -16,6 +16,18 @@ pub fn mux_home() -> PathBuf {
     user.join(".cmux").join("mux")
 }
 
+/// A short id for a `MUX_HOME` (FNV-1a of its path, 8 hex digits). Two
+/// homes sharing one acpmux daemon tag their children and name their acpmux
+/// preset with it, so neither takes the other's.
+pub fn home_id(home: &Path) -> String {
+    let mut hash: u32 = 0x811c_9dc5;
+    for b in home.as_os_str().as_encoded_bytes() {
+        hash ^= u32::from(*b);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    format!("{hash:08x}")
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Paths {
     pub home: PathBuf,
@@ -34,6 +46,9 @@ pub struct Paths {
     pub tools_socket: PathBuf,
     /// Launchers on the turn session's PATH (`chief`).
     pub bin: PathBuf,
+    /// The turn sessions' own Claude Code configuration (`CLAUDE_CONFIG_DIR`):
+    /// no user CLAUDE.md, settings, hooks or auto-memory reach a turn.
+    pub claude_config: PathBuf,
 }
 
 impl Paths {
@@ -47,13 +62,22 @@ impl Paths {
             state: root.join("host.json"),
             tools_socket: root.join("tools.sock"),
             bin: root.join("bin"),
+            claude_config: root.join("claude"),
             root,
         }
     }
 
-    /// Creates every directory the host writes into.
+    /// Creates every directory the host writes into. `optchat/` is 0700: the
+    /// memory holds everything the user pasted, and a Mac mini often has
+    /// other accounts.
     pub fn create(&self) -> io::Result<()> {
-        for dir in [&self.root, &self.chat, &self.session, &self.bin] {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&self.root)?;
+        std::fs::set_permissions(&self.root, std::fs::Permissions::from_mode(0o700))?;
+        for dir in [&self.chat, &self.session, &self.bin, &self.claude_config] {
             std::fs::create_dir_all(dir)?;
         }
         if let Some(parent) = self.host_lock.parent() {

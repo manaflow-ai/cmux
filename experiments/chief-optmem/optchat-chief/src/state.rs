@@ -5,6 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
 use cmux_conversation::Op;
@@ -29,6 +30,10 @@ pub struct HostState {
     /// Child sessions (acpmux session id) the Chief started.
     #[serde(default)]
     pub children: BTreeMap<String, ChildRecord>,
+    /// Turn sessions whose connection was lost mid-turn: folded and removed
+    /// at the next acpmux connect.
+    #[serde(default)]
+    pub orphans: Vec<crate::turn::Orphan>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -46,11 +51,21 @@ pub struct OutboxEntry {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingTurn {
-    /// The reply's idempotency key and client_msg_id.
+    /// The reply's idempotency key and client_msg_id. Empty while the turn's
+    /// messages are being logged (the key needs the first one's stamp).
     pub key: String,
     pub conversation: Option<String>,
     /// The turn's acpmux session name.
     pub session: String,
+    /// The log length before the turn's messages were appended. Saved before
+    /// the first append, so a restart can tell which of them reached the log
+    /// and never logs one twice.
+    #[serde(default)]
+    pub first_id: Option<u64>,
+    /// The conversation seq of each queued item, in log order (None for a
+    /// child's report or a note).
+    #[serde(default)]
+    pub seqs: Vec<Option<u64>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,16 +122,27 @@ impl StateFile {
         }
     }
 
-    /// Writes through a temporary file and fsyncs it before the rename.
+    /// Writes through a temporary file (mode 0600: it holds the outbox,
+    /// replies included), fsyncs it, renames it into place, then fsyncs the
+    /// directory so the rename itself survives a power loss.
     pub fn save(&self, state: &HostState) -> io::Result<()> {
         let tmp = self
             .path
             .with_extension(format!("json.{}.tmp", std::process::id()));
-        let mut file = std::fs::File::create(&tmp)?;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)?;
         file.write_all(&serde_json::to_vec(state).map_err(io::Error::other)?)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
-        std::fs::rename(&tmp, &self.path)
+        std::fs::rename(&tmp, &self.path)?;
+        if let Some(dir) = self.path.parent() {
+            std::fs::File::open(dir)?.sync_all()?;
+        }
+        Ok(())
     }
 }
 

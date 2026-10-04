@@ -4,13 +4,14 @@
 //! view, rendered it and logged the new messages; this runs on its own thread
 //! so the brain keeps reading the conversation while the turn works.
 
-use std::sync::mpsc::{TryRecvError, channel};
+use std::sync::mpsc::{RecvTimeoutError, TryRecvError, channel};
+use std::time::{Duration, Instant};
 
 use optchat_host::OptChat;
 use serde_json::Value;
 
 use crate::acpmux::{AgentPort, SessionSpec, TurnSignal};
-use crate::fold::{Entry, TurnFold};
+use crate::fold::{Entry, TurnFold, Usage};
 
 /// Everything a turn needs, decided by the brain.
 #[derive(Clone, Debug, PartialEq)]
@@ -20,8 +21,22 @@ pub struct TurnStart {
     /// The acpmux promptId (acpmux runs one id once).
     pub prompt_id: String,
     pub session: SessionSpec,
-    /// `[view, new messages]` (prompt::turn_blocks).
+    /// The view pieces, then the new messages (prompt::turn_blocks).
     pub blocks: Vec<Value>,
+    /// Longest a turn may run; past it the session is removed and the turn
+    /// fails, so a turn that hangs in the harness cannot block every later
+    /// message. None: no limit.
+    pub limit: Option<Duration>,
+}
+
+/// A turn session that kept running after its acpmux connection was lost:
+/// its later events are folded into the log, and it is removed, once acpmux
+/// is back (section 7: everything the agent does is logged).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Orphan {
+    pub session: String,
+    /// The last event seq already folded.
+    pub after: u64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -29,6 +44,7 @@ pub struct TurnOutcome {
     /// The turn's final assistant text.
     pub reply: Option<String>,
     pub error: Option<String>,
+    pub orphan: Option<Orphan>,
 }
 
 /// Runs the turn to its end; never panics on a port failure (it becomes the
@@ -58,8 +74,8 @@ pub fn run(
         Ok(id) => id,
         Err(e) => {
             return TurnOutcome {
-                reply: None,
                 error: Some(e),
+                ..TurnOutcome::default()
             };
         }
     };
@@ -67,8 +83,8 @@ pub fn run(
     if let Err(e) = agents.start_prompt(&session, start.blocks.clone(), &start.prompt_id, tx) {
         let _ = agents.end_session(&session);
         return TurnOutcome {
-            reply: None,
             error: Some(e),
+            ..TurnOutcome::default()
         };
     }
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
@@ -77,8 +93,26 @@ pub fn run(
         }
         Ok(())
     };
+    let deadline = start.limit.map(|limit| Instant::now() + limit);
+    let mut orphan = None;
+    let mut totals = None;
     loop {
-        let signal = rx.recv().unwrap_or(TurnSignal::Lost);
+        let signal = match deadline {
+            None => rx.recv().unwrap_or(TurnSignal::Lost),
+            Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                Ok(signal) => signal,
+                Err(RecvTimeoutError::Timeout) => {
+                    let _ = fetch(&mut fold);
+                    let limit = start.limit.unwrap_or_default();
+                    append(fold.finish(Some(format!(
+                        "the turn ran past its limit of {} minutes and was stopped",
+                        limit.as_secs() / 60
+                    ))));
+                    break;
+                }
+                Err(RecvTimeoutError::Disconnected) => TurnSignal::Lost,
+            },
+        };
         // Coalesce a burst of change signals into one fetch.
         let signal = match signal {
             TurnSignal::Changed => {
@@ -107,12 +141,26 @@ pub fn run(
                 }
             }
             TurnSignal::Done(answer) => {
+                totals = answer
+                    .as_ref()
+                    .ok()
+                    .and_then(|v| v.pointer("/_meta/claude/usage"))
+                    .and_then(Usage::parse);
                 let fetched = fetch(&mut fold);
                 let error = answer.err().or_else(|| fetched.err());
                 append(fold.finish(error));
                 break;
             }
             TurnSignal::Lost => {
+                // The session may still run and act: it cannot be ended now
+                // (no connection), so the brain keeps it as an orphan. What
+                // can still be read is folded now (a fetch fails harmlessly
+                // when the connection is really gone).
+                let _ = fetch(&mut fold);
+                orphan = Some(Orphan {
+                    session: session.clone(),
+                    after: fold.seq(),
+                });
                 append(fold.finish(Some(
                     "the acpmux connection was lost during the turn".into(),
                 )));
@@ -120,12 +168,65 @@ pub fn run(
             }
         }
     }
-    if let Err(e) = agents.end_session(&session) {
+    log(&usage_line(&start.key, fold.first_usage(), totals));
+    if orphan.is_none()
+        && let Err(e) = agents.end_session(&session)
+    {
         log(&format!("ending turn session {}: {e}", start.session.name));
     }
     let ended = fold.ended().cloned();
     TurnOutcome {
         reply: fold.final_text().map(str::to_owned),
         error: ended.and_then(|e| e.error),
+        orphan,
     }
+}
+
+/// One host.log line per turn with its cache use (section 8: verify with the
+/// usage fields). The first request shows what this turn read of the view
+/// another turn cached; the totals cover the whole tool loop.
+pub fn usage_line(key: &str, first: Option<Usage>, totals: Option<Usage>) -> String {
+    let show = |u: Option<Usage>| match u {
+        Some(u) => format!(
+            "read {} written {} uncached {} output {}",
+            u.cache_read, u.cache_write, u.input, u.output
+        ),
+        None => "not reported".to_owned(),
+    };
+    format!(
+        "turn {key} cache: first request {}; turn total {}",
+        show(first),
+        show(totals)
+    )
+}
+
+/// Folds the rest of an orphaned turn into the log, then removes its
+/// session. Err leaves the orphan for the next connect.
+pub fn adopt_orphan(
+    agents: &dyn AgentPort,
+    chat: &OptChat,
+    orphan: &Orphan,
+    log: &dyn Fn(&str),
+) -> Result<(), String> {
+    let mut fold = TurnFold::after(orphan.after);
+    for event in agents.events(&orphan.session, orphan.after)? {
+        for entry in fold.apply(&event) {
+            if let Err(e) = chat.append(entry.kind, &entry.text) {
+                log(&format!(
+                    "logging an orphan's {} entry failed: {e}",
+                    entry.kind.as_str()
+                ));
+            }
+        }
+    }
+    // Whatever it was still saying when it was removed.
+    for entry in fold.finish(None) {
+        if let Err(e) = chat.append(entry.kind, &entry.text) {
+            log(&format!(
+                "logging an orphan's {} entry failed: {e}",
+                entry.kind.as_str()
+            ));
+        }
+    }
+    agents.end_session(&orphan.session)
 }

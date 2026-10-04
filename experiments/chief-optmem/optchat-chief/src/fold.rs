@@ -33,9 +33,38 @@ struct Tool {
     done: bool,
 }
 
+/// Token counts of one Messages API response (or a turn's sum), as Claude
+/// Code reports them. Section 8 says to verify caching with these: each
+/// request should read what the previous one wrote.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Usage {
+    /// Uncached input tokens (full price).
+    pub input: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+    pub output: u64,
+}
+
+impl Usage {
+    /// The Anthropic `usage` object; None when it has no token counts.
+    pub fn parse(usage: &Value) -> Option<Usage> {
+        let n = |k: &str| usage.get(k).and_then(Value::as_u64);
+        let input = n("input_tokens")?;
+        Some(Usage {
+            input,
+            cache_read: n("cache_read_input_tokens").unwrap_or(0),
+            cache_write: n("cache_creation_input_tokens").unwrap_or(0),
+            output: n("output_tokens").unwrap_or(0),
+        })
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct TurnFold {
     last_seq: u64,
+    /// Usage of the turn's first model request: the only one that can read a
+    /// cache entry another turn wrote, so it shows whether the view is cached.
+    first_usage: Option<Usage>,
     /// Reply text since the last tool call.
     talk: String,
     tools: HashMap<String, Tool>,
@@ -47,6 +76,19 @@ pub struct TurnFold {
 impl TurnFold {
     pub fn new() -> TurnFold {
         TurnFold::default()
+    }
+
+    /// A fold that resumes after event `seq` (an orphaned turn's rest: what
+    /// it did before is already in the log).
+    pub fn after(seq: u64) -> TurnFold {
+        TurnFold {
+            last_seq: seq,
+            ..TurnFold::default()
+        }
+    }
+
+    pub fn first_usage(&self) -> Option<Usage> {
+        self.first_usage
     }
 
     /// Highest seq folded; the next fetch asks for the events after it.
@@ -80,6 +122,14 @@ impl TurnFold {
         }
         let update = event.msg.get("params").and_then(|p| p.get("update"));
         match (event.dir.as_str(), event.kind.as_str()) {
+            // Claude Code's raw stream-json line of a model response.
+            (_, "claude.assistant") if self.first_usage.is_none() => {
+                self.first_usage = event
+                    .msg
+                    .get("message")
+                    .and_then(|m| m.get("usage"))
+                    .and_then(Usage::parse);
+            }
             (_, "agent_message_chunk") => {
                 if let Some(content) = update.and_then(|u| u.get("content"))
                     && content.get("type").and_then(Value::as_str) == Some("text")
@@ -373,6 +423,30 @@ mod tests {
             })
         );
         assert!(fold.finish(None).is_empty(), "already ended");
+    }
+
+    #[test]
+    fn the_first_requests_usage_is_kept() {
+        let mut fold = TurnFold::new();
+        let usage = |read: u64| {
+            ev(
+                0,
+                "in",
+                "claude.assistant",
+                json!({"type": "assistant", "message": {"id": "m", "usage": {"input_tokens": 3, "cache_read_input_tokens": read, "cache_creation_input_tokens": 9, "output_tokens": 4}}}),
+            )
+        };
+        fold.apply(&usage(100));
+        fold.apply(&usage(200));
+        assert_eq!(
+            fold.first_usage(),
+            Some(Usage {
+                input: 3,
+                cache_read: 100,
+                cache_write: 9,
+                output: 4
+            })
+        );
     }
 
     #[test]

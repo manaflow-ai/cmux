@@ -141,7 +141,7 @@ fn a_turn_over_the_acpmux_wire() {
     let requests = Arc::new(Mutex::new(Vec::new()));
     serve(UnixListener::bind(&socket).unwrap(), requests.clone());
 
-    let acpmux = Acpmux::new(socket);
+    let acpmux = Acpmux::new(socket, None);
     let (tx, rx) = channel();
     let sink_tx = Mutex::new(tx);
     acpmux.spawn_link(
@@ -173,6 +173,7 @@ fn a_turn_over_the_acpmux_wire() {
             model: None,
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
+        limit: None,
     };
     let outcome = turn::run(&*acpmux, &chat, &start, &|_| {});
     assert_eq!(outcome.reply.as_deref(), Some("x is 1."));

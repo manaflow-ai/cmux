@@ -11,7 +11,8 @@ use std::time::Duration;
 use optchat_host::{Config, OptChat, Report};
 
 use crate::acpmux::Acpmux;
-use crate::brain::{Brain, Input, PARENT, Settings};
+use crate::acpmux::Preset;
+use crate::brain::{Brain, Input, Settings, parent_tag};
 use crate::cli::{Flags, env};
 use crate::daemon::{self, LinkConfig};
 use crate::lock::{HostLock, LockError};
@@ -28,6 +29,11 @@ const PASSTHROUGH: [&str; 5] = [
     "ACPMUX_BIN",
     "CMUX_MCP_COMMAND",
 ];
+
+/// A turn longer than this is stopped (minutes; `OPTCHAT_CHIEF_TURN_LIMIT_MIN`,
+/// 0 for none). Long enough for a big refactor, short enough that a hung
+/// harness does not silence the Chief for a day.
+const DEFAULT_TURN_LIMIT_MIN: u64 = 180;
 
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
@@ -142,14 +148,27 @@ fn start(
     ));
 
     let (tx, rx) = channel();
-    let agents = Acpmux::new(acpmux_socket);
+    let harness = env("MUX_HARNESS").unwrap_or_else(|| "claude-sr".into());
+    // Turn sessions get their own Claude Code configuration (section 7: a
+    // fresh call with nothing carried over). OPTCHAT_CHIEF_ISOLATE=0 turns it
+    // off, for a harness that needs the user's configuration to sign in.
+    let preset = (env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0")).then(|| Preset {
+        name: format!("optchat-chief-{}", crate::paths::home_id(home)),
+        harness: harness.clone(),
+        env: session_dir::isolation_env(paths),
+    });
+    let agents = Acpmux::new(acpmux_socket, preset);
+    let turn_limit = env("OPTCHAT_CHIEF_TURN_LIMIT_MIN")
+        .and_then(|m| m.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_TURN_LIMIT_MIN);
     let settings = Settings {
         session_dir: paths.session.clone(),
-        harness: env("MUX_HARNESS").unwrap_or_else(|| "claude-sr".into()),
+        harness,
         policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
         model: env("OPTCHAT_CHIEF_MODEL"),
-        parent: PARENT.to_owned(),
+        parent: parent_tag(home),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
+        turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     let brain = Brain::new(

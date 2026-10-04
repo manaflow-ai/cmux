@@ -2,8 +2,9 @@
 //! implementation over the acpmux socket, which reconnects on its own and
 //! routes notifications to the turn that owns a session or to the brain.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -67,6 +68,10 @@ pub trait AgentPort: Send + Sync {
     fn end_session(&self, session: &str) -> Result<(), String>;
     /// A session's id by name.
     fn find(&self, name: &str) -> Result<Option<String>, String>;
+    /// A session's summary by id (None: no such session).
+    fn session(&self, _id: &str) -> Result<Option<SessionSummary>, String> {
+        Ok(None)
+    }
 }
 
 /// Event kinds that never change the log by themselves; a turn fetches
@@ -80,20 +85,56 @@ fn is_noise(kind: &str) -> bool {
 
 type Sink = Arc<dyn Fn(AgentEvent) + Send + Sync>;
 
+/// An acpmux preset every turn session starts with: its env reaches the
+/// harness process (acpmux puts a preset's env over the profile's).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Preset {
+    pub name: String,
+    /// The harness the preset names (acpmux requires one); turn sessions
+    /// still pass their own explicitly.
+    pub harness: String,
+    pub env: BTreeMap<String, String>,
+}
+
 /// The real port: one connection at a time to the acpmux daemon.
 pub struct Acpmux {
     socket: PathBuf,
     client: Mutex<Option<Arc<RpcClient>>>,
     turns: Arc<Mutex<HashMap<String, Sender<TurnSignal>>>>,
+    preset: Option<Preset>,
+    /// The preset is installed in the connected daemon.
+    preset_ready: AtomicBool,
 }
 
 impl Acpmux {
-    pub fn new(socket: PathBuf) -> Arc<Acpmux> {
+    pub fn new(socket: PathBuf, preset: Option<Preset>) -> Arc<Acpmux> {
         Arc::new(Acpmux {
             socket,
             client: Mutex::new(None),
             turns: Arc::new(Mutex::new(HashMap::new())),
+            preset,
+            preset_ready: AtomicBool::new(false),
         })
+    }
+
+    /// Installs (or refreshes) the preset; acpmux saves it in its config.
+    fn install_preset(&self, client: &RpcClient, log: &dyn Fn(&str)) {
+        let Some(preset) = &self.preset else { return };
+        let set = json!({
+            "harness": preset.harness,
+            "env": preset.env,
+            "description": "optchat-chief turn sessions: an isolated Claude Code configuration",
+        });
+        match client.request("_acpmux/presets", json!({"name": preset.name, "set": set})) {
+            Ok(_) => self.preset_ready.store(true, Ordering::SeqCst),
+            Err(e) => {
+                self.preset_ready.store(false, Ordering::SeqCst);
+                log(&format!(
+                    "acpmux preset {} not installed ({e}); turns run with the user's Claude configuration",
+                    preset.name
+                ));
+            }
+        }
     }
 
     fn client(&self) -> Result<Arc<RpcClient>, String> {
@@ -168,6 +209,7 @@ impl Acpmux {
         })();
         match result {
             Ok(list) => {
+                self.install_preset(&client, log);
                 *self.client.lock().expect("client") = Some(client);
                 log(&format!("acpmux connected at {}", self.socket.display()));
                 sink(AgentEvent::Up(list));
@@ -269,11 +311,18 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
     }
 }
 
-/// `session/new` with acpmux's name, harness, policy and model.
-pub fn new_session(client: &RpcClient, spec: &SessionSpec) -> Result<String, String> {
+/// `session/new` with acpmux's name, harness, policy, model and preset.
+pub fn new_session(
+    client: &RpcClient,
+    spec: &SessionSpec,
+    preset: Option<&str>,
+) -> Result<String, String> {
     let mut meta = json!({"name": spec.name, "harness": spec.harness, "policy": spec.policy});
     if let Some(model) = &spec.model {
         meta["model"] = json!(model);
+    }
+    if let Some(preset) = preset {
+        meta["preset"] = json!(preset);
     }
     let result = client
         .request(
@@ -290,7 +339,12 @@ pub fn new_session(client: &RpcClient, spec: &SessionSpec) -> Result<String, Str
 
 impl AgentPort for Acpmux {
     fn new_session(&self, spec: &SessionSpec) -> Result<String, String> {
-        new_session(&*self.client()?, spec)
+        let preset = self
+            .preset
+            .as_ref()
+            .filter(|_| self.preset_ready.load(Ordering::SeqCst))
+            .map(|p| p.name.as_str());
+        new_session(&*self.client()?, spec, preset)
     }
 
     fn start_prompt(
@@ -340,5 +394,11 @@ impl AgentPort for Acpmux {
             .into_iter()
             .find(|s| s.name == name)
             .map(|s| s.session_id))
+    }
+
+    fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
+        Ok(sessions(&*self.client()?)?
+            .into_iter()
+            .find(|s| s.session_id == id))
     }
 }

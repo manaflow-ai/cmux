@@ -2,6 +2,15 @@
 //! turn runs in it, so the harness sees the same CLAUDE.md, settings and MCP
 //! servers each time (section 7.2: byte-identical prompt and tools).
 //!
+//! A turn should see only what this directory holds (section 7: a fresh call,
+//! nothing carried over; section 7.2: MASTER, then VIEW_DOC, then the
+//! instructions at the end). The turn sessions' acpmux preset points
+//! `CLAUDE_CONFIG_DIR` at `optchat/claude`, whose settings turn auto-memory
+//! off and hold no hooks, so the user's own ~/.claude/CLAUDE.md, settings,
+//! hooks and project memory never reach a turn. What stays outside our
+//! control: Claude Code's own system prompt (with its date and environment
+//! lines) and any machine-wide managed settings.
+//!
 //! Deviation: acpmux drops `mcpServers` from `session/new` (it always starts
 //! the agent with `[]`), so mux/host's way of passing MCP servers reaches no
 //! harness. The servers go in the directory's `.mcp.json` instead, enabled
@@ -92,6 +101,23 @@ pub fn launcher(setup: &SessionSetup) -> String {
     text
 }
 
+/// The isolated Claude Code configuration's user settings: no auto-memory
+/// (continuity is the view alone), no hooks, no extra memory files.
+pub fn claude_settings() -> Value {
+    json!({"autoMemoryEnabled": false, "hooks": {}})
+}
+
+/// The env of the turn sessions' acpmux preset.
+pub fn isolation_env(paths: &Paths) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    env.insert(
+        "CLAUDE_CONFIG_DIR".to_owned(),
+        paths.claude_config.display().to_string(),
+    );
+    env.insert("CLAUDE_CODE_DISABLE_AUTO_MEMORY".to_owned(), "1".to_owned());
+    env
+}
+
 /// Writes the directory; a file is rewritten only when its bytes differ.
 pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::create_dir_all(paths.session.join(".claude"))?;
@@ -112,6 +138,11 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     write_if_changed(
         &paths.session.join(".claude").join("settings.local.json"),
         settings.as_bytes(),
+    )?;
+    std::fs::create_dir_all(&paths.claude_config)?;
+    write_if_changed(
+        &paths.claude_config.join("settings.json"),
+        pretty(&claude_settings()).as_bytes(),
     )?;
     let chief = paths.bin.join("chief");
     write_if_changed(&chief, launcher(setup).as_bytes())?;

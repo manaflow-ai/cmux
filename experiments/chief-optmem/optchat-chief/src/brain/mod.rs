@@ -12,6 +12,9 @@
 //! turn: acpmux can steer a running session only when its agent reports
 //! steering support, and the Claude Code harness (claude-sr) reports none,
 //! so "delivered between tool calls" (section 7) is not available here.
+//! MASTER still says so, verbatim; the README lists this deviation. There is
+//! no user cancel either (the brain-host contract has no cancel action); a
+//! turn that hangs is stopped by `Settings::turn_limit`.
 
 mod children;
 mod inbox;
@@ -42,6 +45,9 @@ pub enum Input {
     Settled(Sender<Option<TurnStart>>),
     /// A turn worker could not settle (shutdown or a failed write).
     SettleFailed,
+    /// A turn worker has waited for the compactor for a while and a node keeps
+    /// failing: what to tell the conversation (once per wait).
+    Stalled(String),
     TurnEnded {
         key: String,
         outcome: TurnOutcome,
@@ -74,11 +80,23 @@ pub struct Settings {
     pub parent: String,
     /// The owner's agent gap plus a margin (mux/host: 2.2 s).
     pub agent_gap: Duration,
+    /// Longest a turn may run (None: no limit).
+    pub turn_limit: Option<Duration>,
 }
 
-/// The value of `mux.parent` on sessions this Chief started; mux/host uses
-/// `mux`, so the two never claim each other's children.
+/// How long a turn waits for the compactor before it tells the conversation
+/// which node keeps failing (section 6 expects seconds).
+const STALL_NOTICE: Duration = Duration::from_secs(60);
+
+/// The start of the `mux.parent` value on sessions this Chief started;
+/// mux/host uses `mux`, so the two never claim each other's children.
 pub const PARENT: &str = "optchat-chief";
+
+/// The `mux.parent` value of the Chief of `home`: two homes sharing one
+/// acpmux daemon (tagged builds) never claim each other's children.
+pub fn parent_tag(home: &std::path::Path) -> String {
+    format!("{PARENT}:{}", crate::paths::home_id(home))
+}
 
 /// Longest reply text posted (the owner refuses more than 64 KiB per message).
 const REPLY_BYTES: usize = 60_000;
@@ -147,13 +165,38 @@ impl Brain {
         let mut state = file.load();
         let mut stale_sessions = Vec::new();
         if let Some(turn) = state.turn.take() {
-            // The host stopped during this turn. Its messages stay in the log,
-            // unanswered (section 7); the conversation hears why, once.
-            if let Some(conversation) = turn.conversation {
+            // The host stopped during this turn. How many of its messages
+            // reached the log: all of them once the key is set; while it was
+            // still logging, the log's length tells (a crash between the
+            // append and the save must not log a message twice).
+            let logged = match turn.first_id {
+                _ if !turn.key.is_empty() => turn.seqs.len().max(1),
+                Some(first) => {
+                    let n = chat.status().messages.saturating_sub(first) as usize;
+                    n.min(turn.seqs.len())
+                }
+                None => turn.seqs.len().max(1),
+            };
+            if let Some(seq) = turn.seqs[..logged.min(turn.seqs.len())]
+                .iter()
+                .flatten()
+                .max()
+            {
+                state.logged_seq = state.logged_seq.max(*seq);
+            }
+            let key = if !turn.key.is_empty() {
+                Some(turn.key.clone())
+            } else if logged > 0 {
+                turn.first_id.map(|first| reply_key(&chat, first))
+            } else {
+                None
+            };
+            // Messages in the log stay there, unanswered (section 7); the
+            // conversation hears why, once. Messages that never reached it
+            // are caught up again from the cursor and answered normally.
+            if let (Some(conversation), Some(key)) = (turn.conversation, key) {
                 let text = "(interrupted: the Chief stopped during this turn. Your message is in its memory; send it again for an answer.)";
-                state
-                    .outbox
-                    .push(reply_entry(conversation, &turn.key, text));
+                state.outbox.push(reply_entry(conversation, &key, text));
             }
             stale_sessions.push(turn.session);
         }
@@ -243,8 +286,31 @@ impl Brain {
                     self.fatal = Some(format!("the memory stopped writing: {fatal}"));
                 }
             }
+            Input::Stalled(text) => self.stalled(&text),
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
         }
+    }
+
+    /// Tells the conversation, once per wait, that its message waits on a
+    /// failing compactor node (section 6 expects the wait to take seconds).
+    fn stalled(&mut self, text: &str) {
+        if self.phase != Phase::Settling {
+            return;
+        }
+        let Some(conversation) = self.state.conversation.clone() else {
+            return;
+        };
+        (self.log)(text);
+        let key = format!(
+            "stall:optchat:{}:{}",
+            self.handled,
+            self.chat.status().messages
+        );
+        self.state
+            .outbox
+            .push(reply_entry(conversation, &key, text));
+        self.save();
+        self.flush_outbox();
     }
 
     pub fn on_timer(&mut self) {
@@ -283,8 +349,11 @@ impl Brain {
             .name("turn".into())
             .spawn(move || {
                 // Section 6: no turn starts before every view line is a summary.
-                // The wait has no deadline; a line each minute says what it waits on.
-                while !chat.settle(None, Some(Duration::from_secs(60))) {
+                // The wait has no deadline; a line each minute says what it
+                // waits on, and the first one with a failing node also goes to
+                // the conversation, so the user is not left without a word.
+                let mut told = false;
+                while !chat.settle(None, Some(STALL_NOTICE)) {
                     let status = chat.status();
                     if status.closed || status.fatal.is_some() {
                         let _ = tx.send(Input::SettleFailed);
@@ -304,6 +373,14 @@ impl Brain {
                             failing.join("; ")
                         }
                     ));
+                    if !told && let Some(first) = status.failures.first() {
+                        told = true;
+                        let _ = tx.send(Input::Stalled(format!(
+                            "(waiting: the Chief's memory cannot summarize line {} yet, so your message waits. First error: {}. It is retried every 10 s.)",
+                            first.node.name(),
+                            first.error
+                        )));
+                    }
                 }
                 let (reply, start) = channel();
                 if tx.send(Input::Settled(reply)).is_err() {
@@ -332,6 +409,23 @@ impl Brain {
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
         let view = self.chat.render_view();
+        // Saved before the first append: a crash between an append and the
+        // next save must not log a message twice at restart (Brain::new).
+        let first_id = self.chat.status().messages;
+        self.state.turn = Some(PendingTurn {
+            key: String::new(),
+            conversation: self.state.conversation.clone(),
+            session: format!("optchat-{first_id}"),
+            first_id: Some(first_id),
+            seqs: items
+                .iter()
+                .map(|i| match i.source {
+                    Source::Message { seq } => Some(seq),
+                    _ => None,
+                })
+                .collect(),
+        });
+        self.save();
         let mut first = None;
         for item in &items {
             match self.chat.append(Kind::User, &item.text) {
@@ -359,13 +453,12 @@ impl Brain {
         }
         // The queue is empty now, so every handled seq is logged or needed no log.
         self.state.logged_seq = self.handled;
-        let key = format!("turn:optchat:{first}");
+        let key = reply_key(&self.chat, first);
         let name = format!("optchat-{first}");
-        self.state.turn = Some(PendingTurn {
-            key: key.clone(),
-            conversation: self.state.conversation.clone(),
-            session: name.clone(),
-        });
+        if let Some(turn) = self.state.turn.as_mut() {
+            turn.key = key.clone();
+            turn.session = name.clone();
+        }
         self.save();
         self.set_cursor(self.handled);
         self.set_typing(true);
@@ -382,6 +475,7 @@ impl Brain {
             },
             blocks: turn_blocks(&view.text, &texts),
             key,
+            limit: self.settings.turn_limit,
         })
     }
 
@@ -392,11 +486,17 @@ impl Brain {
             .as_ref()
             .filter(|t| t.key == key)
             .and_then(|t| t.conversation.clone());
+        // A turn that failed after it said something posts both: its last
+        // words alone (often "Let me check.") would read as the answer.
         let text = match (outcome.reply, outcome.error) {
-            (Some(reply), _) => reply,
+            (Some(reply), Some(error)) => format!("{reply}\n\n(turn failed: {error})"),
+            (Some(reply), None) => reply,
             (None, Some(error)) => format!("(turn failed: {error})"),
             (None, None) => String::new(),
         };
+        if let Some(orphan) = outcome.orphan {
+            self.state.orphans.push(orphan);
+        }
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 self.state
@@ -415,6 +515,21 @@ impl Brain {
         self.phase = Phase::Idle;
         self.maybe_start_turn();
     }
+}
+
+/// A turn's reply key: `turn:optchat:<first new message id>:<its stamp>`.
+/// Ids start again at 0 after a memory reset or a restored backup, while the
+/// owner keeps every key it saw, so the id alone would collide (and the
+/// owner would refuse or silently replay the reply). The millisecond stamp
+/// of message `first` tells the two apart.
+fn reply_key(chat: &OptChat, first: u64) -> String {
+    let stamp: String = chat
+        .stamp(first)
+        .unwrap_or_default()
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect();
+    format!("turn:optchat:{first}:{stamp}")
 }
 
 /// A turn reply: `message.send` whose client_msg_id is the turn key, so a

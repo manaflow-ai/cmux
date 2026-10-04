@@ -372,6 +372,7 @@ pub fn settings(dir: &Path) -> Settings {
         model: None,
         parent: PARENT.into(),
         agent_gap: Duration::from_millis(30),
+        turn_limit: None,
     }
 }
 

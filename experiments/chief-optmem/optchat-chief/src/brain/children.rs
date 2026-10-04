@@ -7,10 +7,11 @@
 //! Deviation: section 9 delivers one message per spawn (all of a spawn's
 //! subagents together) and gives subagents the view. Here each child reports
 //! on its own, and a child is a plain acpmux agent started with its task.
+//! A report is logged whole, like any user message (section 4.2: never cut
+//! the compactor's input; CAP is for tool results only).
 
-use cmux_chief::acp::{SessionStatus, SessionSummary, last_reply};
+use cmux_chief::acp::{AcpmuxEvent, SessionStatus, SessionSummary, TurnFolder, TurnOutput};
 use cmux_chief::rules::{PARENT_TAG, turn_ended};
-use optchat_host::cap_tool_result;
 use serde_json::Value;
 
 use super::{Brain, Source};
@@ -35,6 +36,7 @@ impl Brain {
                         let _ = self.agents.end_session(&id);
                     }
                 }
+                self.adopt_orphans();
                 self.reconcile_children();
                 self.maybe_start_turn();
             }
@@ -45,8 +47,23 @@ impl Brain {
                 permission_id: _,
                 request,
             } => {
-                let Some(session) = self.sessions.get(&session_id).cloned() else {
-                    return;
+                // A child can ask before its session_changed reached us.
+                let known = self.sessions.get(&session_id).cloned();
+                let session = match known {
+                    Some(s) => s,
+                    None => match self.agents.session(&session_id) {
+                        Ok(Some(s)) => {
+                            self.sessions.insert(s.session_id.clone(), s.clone());
+                            s
+                        }
+                        Ok(None) => return,
+                        Err(e) => {
+                            (self.log)(&format!(
+                                "permission request from unknown session {session_id}: {e}"
+                            ));
+                            return;
+                        }
+                    },
                 };
                 if self.is_child(&session) {
                     let text = permission_text(&session.name, &request);
@@ -104,7 +121,28 @@ impl Brain {
         }
     }
 
-    /// After a reconnect: children whose turn ended while the host was away.
+    /// Turn sessions whose connection was lost: fold what they did since into
+    /// the log, then remove them. One that cannot be read stays for the next
+    /// connect.
+    fn adopt_orphans(&mut self) {
+        if self.state.orphans.is_empty() {
+            return;
+        }
+        let orphans = std::mem::take(&mut self.state.orphans);
+        for orphan in orphans {
+            match crate::turn::adopt_orphan(&*self.agents, &self.chat, &orphan, &*self.log) {
+                Ok(()) => (self.log)(&format!("folded orphan turn session {}", orphan.session)),
+                Err(e) => {
+                    (self.log)(&format!("orphan turn session {}: {e}", orphan.session));
+                    self.state.orphans.push(orphan);
+                }
+            }
+        }
+        self.save();
+    }
+
+    /// After a reconnect: children whose turn ended while the host was away,
+    /// children that vanished, and permission requests still pending.
     fn reconcile_children(&mut self) {
         let mut finished = Vec::new();
         let mut gone = Vec::new();
@@ -121,10 +159,31 @@ impl Brain {
             }
         }
         for id in gone {
-            self.state.children.remove(&id);
+            // The Chief may have told the user it is running: say it is gone.
+            if let Some(record) = self.state.children.remove(&id) {
+                let text = format!(
+                    "[{}] (gone: its session no longer exists, so no report will come)",
+                    record.name
+                );
+                self.queue(text, Source::Note);
+            }
         }
         for session in finished {
             self.child_finished(&session);
+        }
+        // Requests raised while the host was away arrive as no notification.
+        let asking: Vec<SessionSummary> = self
+            .sessions
+            .values()
+            .filter(|s| self.is_child(s) && s.pending_permissions > 0)
+            .cloned()
+            .collect();
+        for s in asking {
+            let text = format!(
+                "[{}] has {} pending permission request(s). See `chief agents list`; answer with `chief agents allow {} [OPTION_ID]` or `chief agents deny {}`.",
+                s.name, s.pending_permissions, s.name, s.name
+            );
+            self.queue(text, Source::Note);
         }
         // Tagged sessions first seen now: running ones report when they end.
         let unseen: Vec<SessionSummary> = self
@@ -151,48 +210,73 @@ impl Brain {
         self.save();
     }
 
-    /// Queues the child's report: the text of its last ended turn after its floor.
+    /// Queues the child's report: every turn it ended after its floor, one
+    /// `[name] reply` each. A report already queued for this child (it ended
+    /// again before the Chief's next turn) is made again from all of its
+    /// turns, so no turn's report is lost.
     fn child_finished(&mut self, session: &SessionSummary) {
         let id = &session.session_id;
-        if self
-            .queue
-            .iter()
-            .any(|q| matches!(&q.source, Source::Child { session_id, .. } if session_id == id))
-        {
-            return;
-        }
         let floor = self.state.children.get(id).map_or(0, |r| r.floor);
-        let (report, next_floor) = match self.agents.events(id, floor) {
+        let queued = self.queue.iter().position(
+            |q| matches!(&q.source, Source::Child { session_id, .. } if session_id == id),
+        );
+        let (text, next_floor) = match self.agents.events(id, floor) {
             Ok(events) => {
                 let top = events.iter().map(|e| e.seq).max().unwrap_or(floor);
-                (
-                    last_reply(&events),
-                    session.last_seq.unwrap_or(top).max(top),
-                )
+                let mut replies = ended_replies(&events);
+                if replies.is_empty() {
+                    replies.push("(no reply text)".to_owned());
+                }
+                let text = replies
+                    .iter()
+                    .map(|r| format!("[{}] {r}", session.name))
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                (text, session.last_seq.unwrap_or(top).max(top))
+            }
+            Err(e) if queued.is_some() => {
+                // Keep what is queued; the next turn end reads it again.
+                (self.log)(&format!(
+                    "child {}: its report could not be read: {e}",
+                    session.name
+                ));
+                return;
             }
             Err(e) => (
-                format!("(its report could not be read: {e})"),
+                format!("[{}] (its report could not be read: {e})", session.name),
                 session.last_seq.unwrap_or(floor),
             ),
         };
-        let report = if report.is_empty() {
-            "(no reply text)".to_owned()
-        } else {
-            report
-        };
-        let text = format!("[{}] {}", session.name, cap_tool_result(&report));
         (self.log)(&format!(
             "child {} finished; queued its report",
             session.name
         ));
-        self.queue(
-            text,
-            Source::Child {
-                session_id: id.clone(),
-                floor: next_floor,
-            },
-        );
+        let source = Source::Child {
+            session_id: id.clone(),
+            floor: next_floor,
+        };
+        match queued {
+            Some(k) => self.queue[k] = super::Queued { text, source },
+            None => self.queue(text, source),
+        }
     }
+}
+
+/// The final reply of every turn that ended in `events`, oldest first.
+fn ended_replies(events: &[AcpmuxEvent]) -> Vec<String> {
+    let mut folder = TurnFolder::default();
+    let mut replies = Vec::new();
+    for event in events {
+        for output in folder.apply(event) {
+            if let TurnOutput::Ended { turn, .. } = output {
+                let text = turn.text.trim();
+                if !text.is_empty() {
+                    replies.push(text.to_owned());
+                }
+            }
+        }
+    }
+    replies
 }
 
 /// A child's permission request as a message to the Chief.

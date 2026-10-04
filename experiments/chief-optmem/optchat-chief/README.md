@@ -64,6 +64,8 @@ turn when the Chief is idle.
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
 | `CMUX_MCP_COMMAND` | none | cmux binary whose `mcp serve` is added as MCP server `cmux` |
 | `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the compactor's Messages API (team subrouter) |
+| `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration |
+| `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
 
 ## Files
 
@@ -74,11 +76,52 @@ $MUX_HOME/optchat/host.json       outbox, logged seq, pending turn, children
 $MUX_HOME/optchat/tools.sock      the live memory for `optchat-chief mcp`
 $MUX_HOME/optchat/session/        every turn's cwd: CLAUDE.md, .mcp.json, .claude/settings*.json
 $MUX_HOME/optchat/bin/chief       launcher for `chief agents ...`
+$MUX_HOME/optchat/claude/         the turn sessions' CLAUDE_CONFIG_DIR (settings.json: no auto-memory, no hooks)
 ```
 
+`$MUX_HOME/optchat/` is mode 0700 and the log, tree and host.json are 0600:
+the memory keeps everything the user pasted.
+
 `CLAUDE.md` is the spec's MASTER and VIEW_DOC (agent renamed "Chief") and a
-short cmux section in the place of the user's instructions file. It and the
-MCP tool list are byte-identical across turns.
+short cmux section in the place of the user's instructions file. The files
+this host writes (CLAUDE.md, the MCP tool list, the settings) are
+byte-identical across turns. The request the model gets is not fully ours:
+
+- Turn sessions start through an acpmux preset (`optchat-chief-<home id>`,
+  saved in acpmux's config) whose env sets `CLAUDE_CONFIG_DIR` to
+  `optchat/claude` and turns auto-memory off, so the user's
+  `~/.claude/CLAUDE.md`, settings, hooks and project memory never reach a
+  turn and MASTER's "instructions at the end of this prompt" holds. Unverified
+  end to end: that `claude-sr` signs in with an empty config directory.
+- Claude Code's own system prompt still comes first, with its date and
+  environment lines, so the cached prefix changes at least once a day.
+  Machine-wide managed settings still apply.
+
+## Deviations from the spec
+
+- **Cache breakpoints in the view (section 8).** The view is sent as up to
+  four text blocks cut at the marks, but acpmux's Claude Code path forwards
+  text blocks without `cache_control` and Claude Code places its own
+  breakpoints, never inside the view. So a turn does not read the unchanged
+  start of the view that the previous turn sent; it writes it again. Each
+  turn logs `turn <key> cache: first request read .. written .. uncached ..`
+  to host.log; the first request's numbers show what crossed turns. A fix
+  needs block-level `cache_control` in acpmux or the host's own Messages API
+  agent loop (section 9 allows one).
+- **Messages during a turn (section 7).** claude-sr reports no steering, so a
+  message sent while a turn runs waits for the next turn, although MASTER
+  (verbatim) says it arrives between tool calls. The user cannot cancel a
+  turn or the wait for the compactor; a turn past its limit is stopped.
+- **Compactor refusals (section 4.1).** A node the compactor model declines
+  is built by `claude-sonnet-5` (fewer safeguard categories) instead of
+  being retried forever. Other failures retry every 10 s forever, as the spec
+  says; after a minute of waiting the conversation hears which line fails.
+- **Subagents (section 9).** Children get no view and no subagent system
+  prompt; each reports alone, one `[name] reply` per ended turn; `prompt` is a
+  queued new turn, not a delivery between tool calls; only the Chief
+  conversation is read.
+- **Reply keys.** `turn:optchat:<first id>:<its stamp>`: the stamp keeps keys
+  unique after a memory reset or a restored backup.
 
 ## Tests
 

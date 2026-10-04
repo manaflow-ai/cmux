@@ -55,6 +55,13 @@ impl Brain {
                     self.outbox_timer = Some(Instant::now() + gap + Duration::from_millis(50));
                     return;
                 }
+                Err(OpError::Rejected(reason)) if reason.contains("idempotency_conflict") => {
+                    // A key reused with other text: a bug, not an owner rule.
+                    // Dropped so it never loops, but loudly.
+                    (self.log)(&format!(
+                        "error: the owner refused op {key} as a reused key with different content ({reason}); the message was not posted"
+                    ))
+                }
                 Err(OpError::Rejected(reason)) => {
                     (self.log)(&format!("dropping rejected op {key}: {reason}"))
                 }
