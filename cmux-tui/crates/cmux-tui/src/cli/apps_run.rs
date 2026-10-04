@@ -116,9 +116,24 @@ where
         }
         () = interrupts.next() => {}
     }
-    // RED stub: Ctrl-C ends the run at once on both paths.
-    let _ = (cancel_frame, CANCEL_ID, cancel_wait, CANCELLED_CODE);
-    Outcome::Interrupted
+    if !cancel_frame {
+        // Dropping both halves closes the connection: the supervisor cancels.
+        return Outcome::Cancelled { confirmed: false };
+    }
+    let cancel = json!({"id": CANCEL_ID, "cmd": "cancel-request", "target": RUN_ID});
+    if send(&mut writer, &cancel).await.is_err() {
+        return Outcome::Cancelled { confirmed: false };
+    }
+    tokio::select! {
+        answer = tokio::time::timeout(cancel_wait, answer_to(&mut lines, RUN_ID)) => match answer {
+            Ok(Some(answer)) if answer["error_code"] == CANCELLED_CODE => {
+                Outcome::Cancelled { confirmed: true }
+            }
+            Ok(Some(answer)) => Outcome::Answer(answer),
+            Ok(None) | Err(_) => Outcome::Cancelled { confirmed: false },
+        },
+        () = interrupts.next() => Outcome::Interrupted,
+    }
 }
 
 /// The next line that answers request `id` (other lines, such as the
