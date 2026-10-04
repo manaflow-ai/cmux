@@ -158,12 +158,7 @@ describe("Home attachments: conversation storage deletion catches late presigned
 })
 
 describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120_000 }, () => {
-  /** Drives one alarm directly; the runtime's own alarm is removed first so it cannot interleave. */
-  const wake = (stub: unknown) =>
-    runInDurableObject(stub, async (i, state) => {
-      await state.storage.deleteAlarm()
-      await i.alarm()
-    })
+  const wake = (stub: unknown) => fireAlarm(stub)
   const storedBytes = (user: string) =>
     runInDurableObject(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)), async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
   const objects = async (id: string) => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${id}/` })).objects.length
@@ -207,8 +202,8 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
           return typeof v === "function" ? v.bind(t) : v
         }
       })
+      await quiesce(i, state)
       i.env = { ...i.env, HOME_ATTACHMENTS: flaky }
-      await state.storage.deleteAlarm()
       await i.alarm()
       i.env = { ...i.env, HOME_ATTACHMENTS: real }
     })
@@ -248,12 +243,12 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     })
     // The sweep runs after some I/O in the wake (the clock moves on), so markDirty's Date.now() is later than the wake's captured now.
     await runInDurableObject(stub, async (i, state) => {
+      await quiesce(i, state)
       const sweep = i.sweepWake.bind(i)
       i.sweepWake = async (now: number) => {
         await new Promise((r) => setTimeout(r, 5))
         return sweep(now)
       }
-      await state.storage.deleteAlarm()
       await i.alarm()
       i.sweepWake = sweep
     })
@@ -275,10 +270,13 @@ describe("Home attachments: the GC releases what it forgets (D)", { timeout: 120
     expect((await drops(stub)).length).toBe(1)
     // A commit afterwards (its outbox and the drop's retry both want the alarm).
     expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "after", parts: [{ type: "text", text: "hi" }] }, "after")).json.ok).toBe(true)
-    // The runtime may be running the alarm the commit set (getAlarm is null meanwhile): wait for it, bounded.
+    // The runtime may be firing the alarm the commit set (getAlarm is null from its start until the run sets the next one).
     let alarm: number | null = null
     for (let n = 0; n < 100 && alarm === null; n++) {
-      alarm = await runInDurableObject(stub, async (_i, state) => state.storage.getAlarm())
+      alarm = await runInDurableObject(stub, async (i, state) => {
+        await i.alarmIdle
+        return state.storage.getAlarm()
+      })
       if (alarm === null) await new Promise((r) => setTimeout(r, 20))
     }
     expect(alarm).not.toBeNull()
