@@ -64,7 +64,7 @@ export default defineConfig({
           TEAM_VM_DRIVER: "fake",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
-          CLOUD_NAME_PREFIX: "cmuxnp-test-",
+          CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",
