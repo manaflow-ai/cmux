@@ -125,6 +125,7 @@ def main() -> int:
         # Bad arguments are refused before any swift call.
         for args in (("suite", "Packages/macOS/Pkg"), ("suite", "../outside", "FooTests"),
                      ("suite", "Packages/macOS/Pkg", "ATests,,BTests"), ("suite", "Packages/macOS/Pkg", "ATests,"),
+                     ("suite", "Packages/macOS/Pkg", "ATests\nBTests"),
                      ("suite", "Packages/macOS/Pkg", "ATests", "--skip-build"),
                      ("suite", "Packages/macOS/Missing", "FooTests"), ("suite", "Packages/macOS/Pkg", "--skip-build")):
             log.write_text("")

@@ -25,7 +25,9 @@
 #             hang watchdog. Filters come as comma lists, separate arguments,
 #             or both. A failing suite does not stop the ones after it; the
 #             summary lists every suite and the step fails when any failed. A
-#             filter that runs no test fails.
+#             filter that runs no test fails. The watchdog limits apply to
+#             each suite (CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS, 900 s), so N
+#             suites can take N times that; cmux-ci's --timeout covers the step.
 #             Lanes: cmux-ci run --class light --script
 #             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
 #             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
@@ -52,6 +54,9 @@ case "${1:-}" in
     shift 2
     suite_filters=()
     for suite_arg in "$@"; do
+      if [[ "$suite_arg" == *$'\n'* ]]; then
+        echo "package-test-lane.sh: a suite filter has a newline (got '$suite_arg')" >&2; exit 2
+      fi
       # Split on commas, keeping empty fields so "A,,B" and "A," are refused.
       IFS=, read -r -a suite_parts <<< "$suite_arg,"
       for suite_filter in ${suite_parts[@]+"${suite_parts[@]}"}; do
@@ -447,7 +452,7 @@ run_suite() {
     else
       failed=$((failed + 1))
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
-      if [ "$status" -eq 124 ]; then result=stalled; else result="failed (exit $status)"; fi
+      if [ "$status" -eq 124 ]; then result="stalled/timeout"; else result="failed (exit $status)"; fi
       echo "::error title=Swift suite failed::$filter in $suite_package: $result after $((SECONDS - started))s"
     fi
     rows+=("$(printf '%-48s %-18s %6ss' "$filter" "$result" "$((SECONDS - started))")")
