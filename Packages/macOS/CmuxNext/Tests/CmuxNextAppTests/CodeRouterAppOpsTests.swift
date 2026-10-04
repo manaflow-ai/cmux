@@ -32,6 +32,40 @@ struct CodeRouterAppOpsTests {
         #expect(calls.methods == ["accounts.list"])
     }
 
+    /// Signed out is CodeRouter's local mode, not an error (Lawrence: CodeRouter
+    /// needs no sign-in): status says so without a sign-in health.
+    @Test func signedOutStatusIsLocalMode() async throws {
+        let handler = ops(Calls()) { _ in .object(["signed_in": .bool(false), "refreshing": .bool(false)]) }
+        let status = try await handler.handle(request("coderouter.status"))
+        #expect(status["signed_in"]?.boolValue == false)
+        #expect(status["mode"]?.stringValue == "local")
+        #expect(status["health"]?.stringValue == "ok")
+    }
+
+    /// `coderouter.detect` works signed out: the sign-ins found on this Mac,
+    /// from the local accounts rows, with handles and redacted labels only.
+    @Test func detectListsLocalSignInsWithoutAnAccount() async throws {
+        let calls = Calls()
+        let handler = ops(calls) { _ in
+            .object(["signed_in": .bool(false), "providers": .array([
+                .object(["provider": .string("codex"), "name": .string("ChatGPT / Codex"), "status": .string("signed_in"),
+                         "account": .string("acct_k3"), "label": .string("someone@example.com"), "plan": .string("Pro"),
+                         "linkable": .bool(true), "sources": .array([.string("~/.codex/auth.json")])]),
+                .object(["provider": .string("gemini"), "name": .string("Gemini"), "status": .null, "account": .null,
+                         "label": .null, "plan": .null, "linkable": .bool(false), "sources": .array([])]),
+            ])])
+        }
+        let value = try await handler.handle(request("coderouter.detect"))
+        let rows = try #require(value.arrayValue)
+        #expect(rows.count == 2)
+        #expect(rows[0]["provider"]?.stringValue == "codex" && rows[0]["status"]?.stringValue == "signed_in")
+        #expect(rows[0]["account"]?.stringValue == "acct_k3" && rows[0]["source"]?.stringValue == "~/.codex/auth.json")
+        #expect(rows[0]["linkable"]?.boolValue == true && rows[0]["plan"]?.stringValue == "Pro")
+        #expect(!String(describing: value).contains("someone@example.com"))
+        #expect(rows[1]["status"]?.stringValue == "missing")
+        #expect(calls.methods == ["accounts.list"])
+    }
+
     @Test func accountRowsNeverCarryAnEmail() async throws {
         let calls = Calls()
         let handler = ops(calls) { _ in
