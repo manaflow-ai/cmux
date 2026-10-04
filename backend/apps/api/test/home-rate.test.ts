@@ -4,6 +4,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
 import { conversationMutate } from "../src/home-routes.ts"
+import { recordingEnv } from "./reach-recorder.ts"
 
 /**
  * Home rate limits on ops that resolve human reach (home-messaging.md section 9): the caller's
@@ -52,36 +53,6 @@ const joinTeam = async (owner: Person, member: Person) => {
 }
 const human = (p: Person, name = "anything") => ({ id: p.user, kind: "human", display_name: name })
 
-/** Methods that resolve reach facts (home-reach.ts); none may run for a refused request. */
-const REACH_METHODS = new Set(["homeCoMembers", "readInbox", "homeAllowRequestsFrom", "homeChiefDms", "homeDmLink", "mayInvite"])
-/** The test env with every Durable Object stub wrapped so reach RPCs are recorded. */
-const recordingEnv = () => {
-  const calls: Array<string> = []
-  const wrap = (ns: DurableObjectNamespace, label: string) =>
-    new Proxy(ns, {
-      get(target, prop) {
-        if (prop !== "get") {
-          const value = Reflect.get(target, prop)
-          return typeof value === "function" ? value.bind(target) : value
-        }
-        return (id: DurableObjectId) => {
-          const stub = target.get(id) as unknown as Record<string, unknown>
-          return new Proxy(stub, {
-            get(s, method) {
-              if (typeof method !== "string") return Reflect.get(s, method)
-              // RPC stubs answer every property name; call through instead of binding.
-              return (...args: Array<unknown>) => {
-                if (REACH_METHODS.has(method)) calls.push(`${label}.${method}`)
-                return (s[method] as (...a: Array<unknown>) => unknown)(...args)
-              }
-            }
-          })
-        }
-      }
-    })
-  const recorded = { ...(env as object), TEAM_DO: wrap(testEnv.TEAM_DO, "team"), USER_DO: wrap(testEnv.USER_DO, "user"), CONVERSATION_DO: wrap(testEnv.CONVERSATION_DO, "conversation") }
-  return { env: recorded as never, calls }
-}
 const sessionPrincipal = (p: Person) => ({ identity: `${p.user}:s`, kind: "session" as const, user: p.user, team: p.team, display_name: p.name })
 const rejectOf = (res: { frames: ReadonlyArray<{ t: string }> }) => res.frames.find((f) => f.t === "reject") as { code: string; retryable: boolean; details?: { retry_after_ms?: number } } | undefined
 
