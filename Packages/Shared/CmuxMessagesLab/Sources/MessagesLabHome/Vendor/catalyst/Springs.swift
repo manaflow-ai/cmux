@@ -137,7 +137,8 @@ struct SpringElement {
 /// from here; nothing else defines a curve.
 enum Springs {
     static let all: [String: SpringElement] = {
-        guard let url = Bundle.main.url(forResource: "springs", withExtension: "json"),
+        // cmux: a package resource (the app's main bundle does not hold it).
+        guard let url = Bundle.module.url(forResource: "springs", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: [String: Any]] else { return [:] }
         var out: [String: SpringElement] = [:]

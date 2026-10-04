@@ -345,8 +345,9 @@ final class RowCell: UICollectionViewCell {
         connector.strokeColor = Fixture.connector.cgColor
         connector.lineWidth = 2.6
         connector.lineCap = .round
-        fillGradient.colors = Fixture.gradientStops.map { UIColor(red: $0.1 / 255, green: $0.2 / 255, blue: Fixture.gradientBlue / 255, alpha: 1).cgColor }
-        fillGradient.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
+        fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
+            ?? Fixture.gradientStops.map { UIColor(red: $0.1 / 255, green: $0.2 / 255, blue: Fixture.gradientBlue / 255, alpha: 1).cgColor }
+        fillGradient.locations = (Fixture.themedGradient?.map(\.0) ?? Fixture.gradientStops.map(\.0)).map { NSNumber(value: Double($0 / (Fixture.gradientHeight * 2))) }
         fillContainer.addSublayer(fillGradient)
         fillContainer.mask = fillMask
         connectorLine.backgroundColor = connector.strokeColor
@@ -423,7 +424,8 @@ final class RowCell: UICollectionViewCell {
             }
             connector.strokeColor = Fixture.connector.cgColor
             connectorLine.backgroundColor = Fixture.connector.cgColor
-            fillGradient.colors = Fixture.gradientStops.map { UIColor(red: $0.1 / 255, green: $0.2 / 255, blue: Fixture.gradientBlue / 255, alpha: 1).cgColor }
+            fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
+            ?? Fixture.gradientStops.map { UIColor(red: $0.1 / 255, green: $0.2 / 255, blue: Fixture.gradientBlue / 255, alpha: 1).cgColor }
             CATransaction.commit()
             self.spec = nil
         }

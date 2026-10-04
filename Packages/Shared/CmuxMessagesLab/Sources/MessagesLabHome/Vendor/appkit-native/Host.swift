@@ -31,9 +31,10 @@ final class LayerHostView: NSView {
 ///   textView     the compose NSTextView
 ///   above        pickers and editors over everything
 ///
-/// The header is the window's titlebar (HeaderBar: NSToolbar items in Liquid
-/// Glass and the name pill accessory); the transcript scroll view sits under
-/// it, so AppKit's scroll edge effect blurs the transcript there.
+/// cmux (blocker: a Home tab shares the cmux-next window, so it cannot own
+/// the titlebar): the header is in the pane, `paneHeader` (the HeaderBar
+/// avatar and glass name pill) over `headerBackdrop`, and the scroll view
+/// starts below it (`titlebarHeight` is the header's height).
 ///
 /// Captures and the differential harness render the unsplit shared tree
 /// (drawn glass and fitted header blur), so they compare 1:1 with catalyst.
@@ -51,13 +52,17 @@ final class HostView: NSView {
     let fieldChrome = FieldChrome()
     /// The blurred, darkened transcript under the header controls.
     let headerBackdrop = HeaderBackdropView(frame: .zero)
+    /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
+    let paneHeader = PaneHeaderView(frame: .zero)
     private(set) var demo: MessagesWindowView?
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.black.cgColor
+        // cmux: the pane's fill shows through (the window view paints the
+        // themed background); a pane has no black window behind it.
+        layer?.backgroundColor = nil
         registerForDraggedTypes([.fileURL, .png, .tiff])
         scrollView.document.registerForDraggedTypes([.fileURL, .png, .tiff])
     }
@@ -68,6 +73,8 @@ final class HostView: NSView {
     func install(_ demo: MessagesWindowView) {
         self.demo = demo
         demo.layer.isGeometryFlipped = false
+        // cmux: a pane, not a window: no window corner radius.
+        demo.layer.cornerRadius = 0
         below.root.addSublayer(demo.layer)
         // The rows render behind the scroll view across the whole window
         // (they show under the header controls); the scroll view itself
@@ -89,9 +96,10 @@ final class HostView: NSView {
         demo.compose.nativeChrome = true
         let tv = demo.compose.textView.view
         addSubview(tv)
+        addSubview(paneHeader)
         addSubview(above)
-        // The titlebar is the header: the shared drawn header (fitted blur,
-        // avatar, pill, video button) is for captures only.
+        // The in-pane header replaces the shared drawn header (fitted blur,
+        // avatar, pill, video button), which is for captures only.
         demo.header.isHidden = true
         above.root.addSublayer(demo.chrome.layer)
         // The overlay scroller replaces the drawn thumb (the only shared
@@ -99,7 +107,8 @@ final class HostView: NSView {
         demo.subviews.first { $0.layer.cornerRadius == 3.375 }?.isHidden = true
         scrollView.attach(demo)
         demo.moveToWindowRecursively()
-        ScaleKeeper.shared.roots = [below.root, morphHost.root, composeHost.root, above.root]
+        // cmux: one ScaleKeeper serves every Home tab (it was one window's).
+        ScaleKeeper.shared.add([below.root, morphHost.root, composeHost.root, above.root])
         ScaleKeeper.shared.start()
         needsLayout = true
     }
@@ -128,17 +137,23 @@ final class HostView: NSView {
         if fieldChrome.frame != bounds { fieldChrome.frame = bounds }
         let hb = CGRect(x: 0, y: 0, width: bounds.width, height: headerBackdrop.totalHeight)
         if headerBackdrop.frame != hb { headerBackdrop.frame = hb }
+        let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
+        if paneHeader.frame != ph { paneHeader.frame = ph }
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
     }
 
-    /// Height of the titlebar area over the content (toolbar plus accessory).
-    var titlebarHeight: CGFloat {
-        guard let w = window else { return 0 }
-        return max(0, bounds.height - (w.contentLayoutRect.maxY - w.contentLayoutRect.minY) - w.contentLayoutRect.minY)
-    }
+    /// Height of the header area over the content. cmux: the in-pane
+    /// header (the window's titlebar belongs to cmux-next).
+    var titlebarHeight: CGFloat { Fixture.headerHeight }
 
     // MARK: Display scale
+
+    /// cmux: the controller follows the window the pane is in.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        controller?.windowChanged()
+    }
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
@@ -167,80 +182,64 @@ extension TranscriptDocumentView {
 
 /// Live app glue (Catalyst's ChatViewController): the store, the engine clock,
 /// one one-shot wake timer for scheduled actions and cleanups (no display
-/// link), paging, the compose text view, clicks, menus, picker, editor, drops.
-final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
-    let window: NSWindow
+/// link), the compose text view, clicks, menus, picker, drops.
+///
+/// cmux blocker edits (vendor.tsv): the controller is hosted in a pane, not a
+/// window (`window` is the host's, no window delegate); the store is a
+/// projection of HomeStore (the single writer), so `install` takes the
+/// adapter's conversation, there is no pager, responder or write-through
+/// source, and the user's changes leave through `intents` instead of being
+/// dispatched (send, tapback); the wake timer is the host's scheduler; reply,
+/// edit and undo send are not offered (HomeOp has no reply, edit or unsend);
+/// attachments wait for lane 16 (`intents.attach`).
+final class ChatController: NSObject, NSTextViewDelegate {
+    var window: NSWindow? { host.window }
     let host: HostView
     private(set) var store: Store!
     private(set) var demo: MessagesWindowView!
-    private(set) var source: WriteThroughSource?
-    let loader = DispatchQueue(label: "messages.loader", qos: .userInitiated)
-    private var wake: Timer?
+    /// cmux: where the user's changes go (the HomeStore adapter).
+    weak var intents: ChatIntents?
+    /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
+    let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
     private var viewWakeAt = Double.infinity
     private(set) var start: CFTimeInterval = CACurrentMediaTime()
-    private(set) var pager: Pager?
     private(set) var picker: TapbackPickerView?
-    private(set) var editor: InlineEditor?
     private(set) lazy var selection = TranscriptSelection(controller: self)
-    let header = HeaderBar()
-    private var player: AVAudioPlayer?
     static let args = ProcessInfo.processInfo.arguments
     /// Test modes never take focus.
     static let noFocus = args.contains("--bench") || args.contains("--audit-resolution") || args.contains("--scroll-trace")
         || args.contains("--text-probe") || args.contains("--selftest") || args.contains("--material-probe")
     var onInstalled: [(ChatController) -> Void] = []
     var clock: Double { CACurrentMediaTime() - start }
+    private var observers: [NSObjectProtocol] = []
 
-    init(window: NSWindow) {
-        self.window = window
-        host = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize))
+    init(host: HostView = HostView(frame: NSRect(origin: .zero, size: Fixture.windowSize)), wake: ChatWakeScheduler) {
+        self.host = host
+        self.wake = wake
         super.init()
         host.controller = self
-        window.contentView = host
-        window.delegate = self
     }
 
-    static func openSource() -> ConversationSource? {
-        if let i = args.firstIndex(of: "--db"), i + 1 < args.count { return try? SQLiteSource(path: args[i + 1]) }
-        if args.contains("--large") {
-            return try? MessageSource(url: Fixtures.repoShared.appendingPathComponent("generated/conversation-large.json"), limit: nil)
-        }
-        return try? MessageSource(url: Fixtures.sharedDirectory.appendingPathComponent("conversation.json"), limit: nil)
+    deinit {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        wake.cancel()
     }
 
-    func load() {
-        let width = Metrics.current.width
-        loader.async {
-            guard let base = Self.openSource() else { return }
-            let src = WriteThroughSource(base, shiftToToday: Date())
-            let lo = max(0, src.count - Pager.pageSize)
-            let page = src.decode(lo..<src.count)
-            MeasureCache.shared.prefetch(page, width: width)
-            let rows = RowBitmaps.prerender(ArraySlice(Pager.prepareRows(.replaceWindow(page, start: lo),
-                AppState(conversation: Conversation(id: src.conversationID, title: src.title, participants: src.participants, messages: []),
-                         ui: .init(), windowStart: lo, total: src.count), Date(), width: width)?.rows.suffix(40) ?? []))
-            DispatchQueue.main.async {
-                RowBitmaps.shared.insert(rows)
-                self.install(src, page: page, start: lo)
-            }
-        }
-    }
-
-    private func install(_ src: WriteThroughSource, page: [Message], start lo: Int) {
-        source = src
-        let conv = Conversation(id: src.conversationID, title: src.title, participants: src.participants, messages: page)
-        store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: src.count)
-        store.responder = Self.args.contains("--no-responder") ? nil : Responders.make()
+    /// cmux: install the window view over the adapter's projection (the
+    /// loaded HomeStore window), in place of `load()` over a source.
+    func install(_ conv: Conversation, windowStart lo: Int, total: Int) {
+        store = Store(conversation: conv, baseDate: Date(), windowStart: lo, total: total)
+        store.responder = nil
         start = CACurrentMediaTime()
         demo = MessagesWindowView(store: store)
         demo.clock = { [unowned self] in self.clock }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
-        header.title = store.state.conversation.title
+        host.paneHeader.title = store.state.conversation.title
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
-        host.fieldChrome.onPlus = { [weak self] in self?.pickFile() }
+        host.fieldChrome.onPlus = { [weak self] in self?.intents?.attach() }
         host.fieldChrome.onEmoji = { [weak self] in self?.showEmojiPicker() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
@@ -248,35 +247,39 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
         tv.view.delegate = self
         tv.onSend = { [weak self] in self?.send() }
         tv.onEscape = { [weak self] in self?.escape() }
-        tv.view.onPasteImage = { [weak self] img in self?.attachImage(img) }
+        tv.view.onPasteImage = { [weak self] _ in self?.intents?.attach() }
         tv.view.onMarkedTextChange = { [weak self] in
             guard let self else { return }
             let s = self.demo.compose.textView.view.string
             if s != self.store.state.ui.draft.text { self.dispatch(.setDraft(s)) }
         }
-        pager = Pager(source: src, store: store, view: demo, loader: loader) { [weak self] in self?.dispatch($0) }
-        demo.onScrollPosition = { [weak self] in self?.pager?.check() }
-        (host.scrollView.verticalScroller as? SequenceScroller)?.onJump = { [weak self] v in
-            guard let self, let st = self.store?.state else { return }
-            self.pager?.jump(toSeq: min(st.total - 1, max(0, Int(v * Double(st.total)))))
-        }
+        demo.onScrollPosition = { [weak self] in self?.intents?.scrolled() }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
+        scheduleWake()
+        host.needsLayout = true
+        onInstalled.forEach { $0(self) }
+    }
+
+    /// cmux: the host moved to a window (or left one): key-state palette and
+    /// display scale follow it (the controller does not own the window).
+    func windowChanged() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers = []
+        guard let window, let demo else { return }
         let nc = NotificationCenter.default
         if !Self.noFocus {
-            nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(false) }
-            nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(true) }
+            observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(false) })
+            observers.append(nc.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(true) })
             demo.setInactive(!window.isKeyWindow)
-            focusCompose()
         } else {
             demo.setInactive(!Self.args.contains("--active"))
         }
-        scheduleWake()
-        // Warm the first send's one-time costs once, at idle after launch: the
-        // text system's first layout (TextKit 2) and the morph's blur.
-        let warm = Timer(timeInterval: 0.3, repeats: false) { _ in ChatController.warmUp() }
-        RunLoop.main.add(warm, forMode: .common)
-        host.needsLayout = true
-        onInstalled.forEach { $0(self) }
+        observers.append(nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.windowDidChangeScreen() })
+        if DisplayScale.current != window.backingScaleFactor {
+            DisplayScale.current = window.backingScaleFactor
+            displayScaleChanged()
+        }
+        windowDidChangeScreen()
     }
 
     static func warmUp() {
@@ -291,7 +294,7 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
         }).cgImage { _ = MorphBubble.boxBlur(cg, radiusPx: 9) }
     }
 
-    func focusCompose() { if !Self.noFocus { window.makeFirstResponder(demo?.compose.textView.view) } }
+    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(demo?.compose.textView.view) } }
 
     func dispatch(_ a: Action) {
         guard let store else { return }
@@ -301,7 +304,7 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
     }
 
     /// After any engine change: the native views follow the shared geometry.
-    private func afterEngine() {
+    func afterEngine() {
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         host.fieldChrome.follow(field: demo.compose.fieldRect)
@@ -332,18 +335,13 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
     func scheduleWake() {
         guard let store else { return }
         let due = min(store.nextDue ?? .infinity, viewWakeAt)
-        guard due.isFinite else { wake?.invalidate(); wake = nil; wakeAt = .infinity; return }
-        if wake != nil, wakeAt <= due { return }
-        wake?.invalidate()
+        guard due.isFinite else { wake.cancel(); wakeAt = .infinity; return }
+        if wakeAt <= due { return }
         wakeAt = due
-        let t = Timer(timeInterval: max(0, due - clock), repeats: false) { [weak self] _ in self?.wakeFired() }
-        t.tolerance = 0
-        RunLoop.main.add(t, forMode: .common)
-        wake = t
+        wake.schedule(after: max(0, due - clock)) { [weak self] in self?.wakeFired() }
     }
 
     private func wakeFired() {
-        wake = nil
         wakeAt = .infinity
         let now = clock
         store.advance(to: now)
@@ -354,15 +352,16 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
         afterEngine()
     }
 
-    var isIdle: Bool { wake == nil && !(demo?.isAnimating ?? false) }
+    var isIdle: Bool { wakeAt == .infinity && !(demo?.isAnimating ?? false) }
 
     // MARK: Compose
 
-    func jump(toTop: Bool, done: @escaping () -> Void = {}) { pager?.jump(toSeq: toTop ? 0 : Int.max, done: done) }
-
+    /// cmux: the send goes to the owner as an intent; the adapter dispatches
+    /// `.send` on the projection when the owner's log takes it (the morph
+    /// starts then, as before), or keeps the draft when it refuses.
     func send() {
-        guard let store else { return }
-        if !store.state.atNewest { jump(toTop: false) { self.dispatch(.send) } } else { dispatch(.send) }
+        guard store != nil else { return }
+        intents?.send()
     }
 
     func textDidChange(_ notification: Notification) {
@@ -371,35 +370,12 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
-        if editor != nil { closeEditor(); return }
-        if store.state.ui.openThread != nil { dispatch(.closeThread) }
     }
 
-    // MARK: Attachments and drops
+    // MARK: Drops
 
-    func pickFile() {
-        let p = AttachmentPicker.makePanel()
-        p.beginSheetModal(for: window) { [weak self] r in
-            guard r == .OK else { return }
-            p.urls.forEach { self?.attachFile($0) }
-        }
-    }
-    func attachFile(_ url: URL) { dispatch(.attach(AttachmentFactory.make(url: url, id: store.makeID("att")))) }
-    func attachImage(_ img: NSImage) {
-        guard let url = AttachmentPicker.writePNG(img, name: "Pasted Image \(store.makeID("img")).png") else { return }
-        attachFile(url)
-    }
-
-    func dragEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        let r = AttachmentPicker.read(sender.draggingPasteboard)
-        return !r.urls.isEmpty || r.image != nil ? .copy : []
-    }
-    func performDrop(_ sender: NSDraggingInfo) -> Bool {
-        let (urls, image) = AttachmentPicker.read(sender.draggingPasteboard)
-        urls.forEach { attachFile($0) }
-        if let image { attachImage(image) }
-        return !urls.isEmpty || image != nil
-    }
+    func dragEntered(_ sender: NSDraggingInfo) -> NSDragOperation { [] }
+    func performDrop(_ sender: NSDraggingInfo) -> Bool { false }
 
     private func showEmojiPicker() {
         focusCompose()
@@ -409,13 +385,13 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
     // MARK: Clicks
 
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
-        if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window.makeFirstResponder(tv); return }
+        if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
         if e.clickCount == 1 { selection.mouseDown(p) }
     }
     func mouseDragged(at p: CGPoint, _ e: NSEvent) {
         let doc = host.scrollView.document
         if selection.mouseDragged(p) {
-            if window.firstResponder !== doc { window.makeFirstResponder(doc) }
+            if window?.firstResponder !== doc { window?.makeFirstResponder(doc) }
             // AppKit's drag autoscroll near the edges.
             doc.autoscroll(with: e)
         }
@@ -428,28 +404,22 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
     func clicked(_ p: CGPoint) {
         guard let demo else { return }
         if picker != nil { closePicker(); return }
-        if editor != nil { closeEditor(); return }
-        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
         guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
-        if let root = demo.repliesHit(p) { dispatch(.reply(root)); return }
         if let hit = demo.hit(p) {
             let local = CGPoint(x: p.x - hit.body.minX - Fixture.bubblePadX, y: p.y - hit.body.minY - Fixture.bubblePadY)
             if let tl = hit.row.text, let url = tl.link(at: local).flatMap(URL.init(string:)) { NSWorkspace.shared.open(url); return }
             switch hit.row.part {
             case let .link(url, _, _, _, _): if let u = URL(string: url) { NSWorkspace.shared.open(u) }
-            case let .attachment(a) where a.kind == "voiceMemo" || a.kind == "audio":
-                if let ref = a.asset { player = try? AVAudioPlayer(contentsOf: Fixtures.assetURL(ref)); player?.play() }
-            case let .attachment(a):
-                if let ref = a.asset { NSWorkspace.shared.open(Fixtures.assetURL(ref)) }
             default: break
             }
             return
         }
-        if store.state.ui.openThread != nil, !demo.threadContentContains(p) { dispatch(.closeThread) }
+        // cmux: a click on empty transcript space gives the field the keyboard.
+        focusCompose()
     }
 
     func doubleClicked(_ p: CGPoint) {
-        guard let hit = demo?.hit(p) else { return }
+        guard intents?.canReact == true, let hit = demo?.hit(p) else { return }
         showPicker(for: hit)
     }
 
@@ -460,7 +430,7 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
         let mine = hit.row.reactions.first { $0.senderId == store.state.me }?.kind
         let p = TapbackPickerView(ref: hit.row.ref, selected: mine) { [weak self] kind in
             guard let self, let picker = self.picker else { return }
-            self.dispatch(.react(picker.ref, kind))
+            self.intents?.react(picker.ref, kind)
             self.closePicker()
         }
         let size = p.fittingSize
@@ -471,26 +441,6 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
     }
     func closePicker() { picker?.removeFromSuperview(); picker = nil }
 
-    // MARK: Edit
-
-    func beginEdit(_ hit: MessagesWindowView.Hit) {
-        closeEditor()
-        guard case let .text(text, _) = hit.row.part else { return }
-        let id = hit.row.ref.messageId
-        let e = InlineEditor(text: text, frame: hit.body, maxX: host.bounds.width - 20) { [weak self] newText in
-            self?.dispatch(.edit(id, newText))
-            self?.closeEditor()
-        } cancel: { [weak self] in self?.closeEditor() }
-        host.addSubview(e, positioned: .below, relativeTo: host.above)
-        editor = e
-        if !Self.noFocus { window.makeFirstResponder(e.textView) }
-    }
-    func closeEditor() {
-        editor?.removeFromSuperview()
-        editor = nil
-        focusCompose()
-    }
-
     // MARK: Context menu
 
     func menu(at p: CGPoint) -> NSMenu? {
@@ -498,34 +448,31 @@ final class ChatController: NSObject, NSTextViewDelegate, NSWindowDelegate {
         let ref = hit.row.ref
         let current = hit.row.reactions.first { $0.senderId == store.state.me }?.kind
         let menu = NSMenu()
-        let tapbacks = NSMenu()
-        for t in TapbackGlyph.all {
-            let item = MenuAction(title: Strings.tapbackName(t)) { [weak self] in self?.dispatch(.react(ref, .tapback(t))) }
-            item.state = current == .tapback(t) ? .on : .off
-            tapbacks.addItem(item)
+        if intents?.canReact == true {
+            let tapbacks = NSMenu()
+            for t in TapbackGlyph.all {
+                let item = MenuAction(title: Strings.tapbackName(t)) { [weak self] in self?.intents?.react(ref, .tapback(t)) }
+                item.state = current == .tapback(t) ? .on : .off
+                tapbacks.addItem(item)
+            }
+            let tb = NSMenuItem(title: Strings.menuTapback, action: nil, keyEquivalent: "")
+            tb.image = NSImage(systemSymbolName: "heart", accessibilityDescription: nil)
+            tb.submenu = tapbacks
+            menu.addItem(tb)
         }
-        let tb = NSMenuItem(title: Strings.menuTapback, action: nil, keyEquivalent: "")
-        tb.image = NSImage(systemSymbolName: "heart", accessibilityDescription: nil)
-        tb.submenu = tapbacks
-        menu.addItem(tb)
-        menu.addItem(MenuAction(title: Strings.menuReply, symbol: "arrowshape.turn.up.left") { [weak self] in self?.dispatch(.reply(ref)); self?.focusCompose() })
         if case let .text(text, _) = hit.row.part {
             menu.addItem(MenuAction(title: Strings.menuCopy, symbol: "doc.on.doc") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
-            if hit.row.outgoing { menu.addItem(MenuAction(title: Strings.menuEdit, symbol: "pencil") { [weak self] in self?.beginEdit(hit) }) }
         }
-        if hit.row.outgoing {
-            menu.addItem(MenuAction(title: Strings.menuUndoSend, symbol: "arrow.uturn.backward") { [weak self] in self?.dispatch(.unsend(ref.messageId)) })
-        }
-        return menu
+        return menu.items.isEmpty ? nil : menu
     }
 
     // MARK: Window
 
-    func windowDidResize(_ notification: Notification) { host.needsLayout = true }
+    func windowDidResize() { host.needsLayout = true }
 
     /// Another display: draw bitmaps in its color space (no conversion at commit).
-    func windowDidChangeScreen(_ notification: Notification) {
-        guard let cs = window.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace, let demo else { return }
+    func windowDidChangeScreen() {
+        guard let cs = window?.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace, let demo else { return }
         DisplayScale.colorSpace = cs
         RowBitmaps.shared.removeAll()
         let inactive = Fixture.inactive
@@ -604,12 +551,6 @@ enum AttachmentFactory {
     }
 }
 
-extension ChatController: ProbeHost {
-    var probeView: MessagesWindowView { demo }
-    var probeStore: Store { store }
-    func probeDispatch(_ a: Action) { dispatch(a) }
-    var probeWindow: NSObject? { window }
-}
 
 /// Keeps every content-less layer of the hosted trees at the window's scale.
 /// Layers the shared code creates without a contentsScale (typing dots, masks)
@@ -619,7 +560,10 @@ extension ChatController: ProbeHost {
 /// main run loop goes idle; a walk is a few dozen pointer reads.
 final class ScaleKeeper {
     static let shared = ScaleKeeper()
-    var roots: [CALayer] = []
+    /// cmux: the roots of every hosted Home tab (weak: a closed tab's layers go).
+    private let rootTable = NSHashTable<CALayer>.weakObjects()
+    var roots: [CALayer] { rootTable.allObjects }
+    func add(_ layers: [CALayer]) { layers.forEach { rootTable.add($0) } }
     private var observer: CFRunLoopObserver?
 
     func start() {
