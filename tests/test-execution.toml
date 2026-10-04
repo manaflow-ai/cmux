@@ -235,6 +235,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_tmux_compat_session_lookup.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cli_tmux_compat_targeted_read_budget.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
