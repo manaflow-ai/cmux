@@ -207,6 +207,27 @@ import Testing
         #expect(model.pageTitle == "~")
     }
 
+    /// As the webviews picker: Escape clears the query first, and only a
+    /// second Escape pops the pushed picker back to the commands.
+    @Test func escapeClearsTheQueryThenPopsThePage() async {
+        let answer = Answer()
+        let model = PaletteModel(persistence: InMemoryFrecencyPersistence())
+        model.reset(to: PalettePageSpec(id: "commands", title: "Commands", placeholder: "Search",
+                                        providers: [StaticPaletteProvider(id: "static", items: [])]))
+        let session = PickerSession(environment: PickerEnvironment(home: root)) { answer.urls = .some($0) }
+        model.push(session.page(for: FolderPickerState(mode: .folder, start: root)))
+        await Self.settle(model)
+        #expect(model.depth == 2)
+        model.query = "we"
+        await model.settle()
+        model.handle(.escape)
+        #expect(model.query.isEmpty)
+        #expect(model.depth == 2, "the first Escape only clears the query")
+        model.handle(.escape)
+        #expect(model.depth == 1, "the second Escape pops the picker")
+        #expect(answer.urls == .some(nil))
+    }
+
     @Test func leavingThePaletteAnswersNil() async {
         let (model, answer, _) = await open(.folder)
         model.handle(.escape)
