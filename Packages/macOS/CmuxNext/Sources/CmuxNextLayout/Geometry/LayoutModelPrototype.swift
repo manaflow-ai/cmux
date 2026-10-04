@@ -19,33 +19,33 @@ public nonisolated enum LayoutModelPrototype {
     }
 
     /// Design A through the real four-edge geometry: the screen's right dock
-    /// (or, without sticky columns, its last strip column) becomes the top or
-    /// bottom dock, and without a left sticky column the first strip column
+    /// (or, without docked columns, its last strip column) becomes the top or
+    /// bottom dock, and without a left docked column the first strip column
     /// becomes the left dock when three or more remain. View-only.
     static func frameDocks(_ columns: [LayoutColumn], settings: LayoutPrototypeSettings) -> [LayoutColumn] {
         var result = synthesizedDocks(columns, mode: settings.dockMode)
-        let band: StickyEdge = settings.dockEdge == .top ? .top : .bottom
-        if let index = result.firstIndex(where: { $0.sticky?.edge == .right }), let sticky = result[index].sticky {
-            result[index].sticky = StickyColumn(edge: band, mode: sticky.mode)
+        let band: DockEdge = settings.dockEdge == .top ? .top : .bottom
+        if let index = result.firstIndex(where: { $0.dock?.edge == .right }), let dock = result[index].dock {
+            result[index].dock = DockColumn(edge: band, mode: dock.mode)
         }
         return result
     }
 
-    /// Screens without sticky columns (the pinned daemon may not serve them)
+    /// Screens without docked columns (the pinned daemon may not serve them)
     /// get prototype docks from plain columns: the last strip column becomes
     /// the right dock and, with three or more strip columns, the first
-    /// becomes the left dock. Real sticky columns are kept as they are.
-    static func synthesizedDocks(_ columns: [LayoutColumn], mode: StickyMode) -> [LayoutColumn] {
+    /// becomes the left dock. Real docked columns are kept as they are.
+    static func synthesizedDocks(_ columns: [LayoutColumn], mode: DockMode) -> [LayoutColumn] {
         var result = columns
-        let parts = StickyStripGeometry.partition(columns)
+        let parts = DockStripGeometry.partition(columns)
         var scrolling = parts.scrolling.map(\.id)
         if parts.right == nil, scrolling.count >= 2, let last = scrolling.popLast(),
            let index = result.firstIndex(where: { $0.id == last }) {
-            result[index].sticky = StickyColumn(edge: .right, mode: mode)
+            result[index].dock = DockColumn(edge: .right, mode: mode)
         }
         if parts.left == nil, scrolling.count >= 2, let first = scrolling.first,
            let index = result.firstIndex(where: { $0.id == first }) {
-            result[index].sticky = StickyColumn(edge: .left, mode: mode)
+            result[index].dock = DockColumn(edge: .left, mode: mode)
         }
         return result
     }

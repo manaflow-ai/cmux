@@ -1,8 +1,8 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
-import enum CmuxNextLayout.StickyEdge
-import enum CmuxNextLayout.StickyMode
+import enum CmuxNextLayout.DockEdge
+import enum CmuxNextLayout.DockMode
 import Foundation
 
 /// Daemon commands for tab moves. With `tab-drag-v1` every outcome is one
@@ -122,21 +122,21 @@ enum TabMoves {
     }
 
     /// Moves the tab into a new column pinned to `edge` on `anchor`'s screen,
-    /// in one daemon commit (move-tab-to-column with `sticky`,
+    /// in one daemon commit (move-tab-to-column with `dock`,
     /// edge-docks-v1). The column that held the edge scrolls again. Top and
-    /// bottom are edge docks; `mode` nil uses `layout.stickyColumnMode`, and
+    /// bottom are edge docks; `mode` nil uses `layout.dockColumnMode`, and
     /// `width` nil a third of the height for a band or the width of a new
     /// column beside the anchor for a side.
-    static func toNewStickyColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.StickyEdge,
-                                  mode: CmuxNextLayout.StickyMode? = nil, width: Double? = nil, respawn: SplitRespawn? = nil,
+    static func toNewDockColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.DockEdge,
+                                  mode: CmuxNextLayout.DockMode? = nil, width: Double? = nil, respawn: SplitRespawn? = nil,
                                   services: AppServices,
                                   transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
         guard services.daemon(for: pane) === daemon, daemon.supports(DaemonCapabilities.shared.edgeDocks),
               !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
-        let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.stickyColumnMode == .overlay)
-        let pin = StickySnapshot(edge: StickySnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked)
+        let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)
+        let pin = DockSnapshot(edge: DockSnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked)
         // A band's size is a share of the screen height; a side column takes
         // the width a new column next to the anchor would take.
         let spawn = edge.isBand || width != nil ? nil
@@ -145,11 +145,11 @@ enum TabMoves {
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 if let respawn {
-                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, sticky: pin,
+                    let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin,
                                                       transaction: transaction)
                     try await MoveTabToColumnRespawnRequest(move, respawn: respawn).send(on: connection)
                 } else {
-                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, sticky: pin,
+                    _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), width: width, dock: pin,
                                                              transaction: transaction)
                 }
             } != nil

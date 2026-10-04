@@ -29,6 +29,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public private(set) var browserID: Int32?
     /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
     @ObservationIgnored public internal(set) var isAgentDriven = false
+    @ObservationIgnored var passwordFill = PasswordFillState()
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {

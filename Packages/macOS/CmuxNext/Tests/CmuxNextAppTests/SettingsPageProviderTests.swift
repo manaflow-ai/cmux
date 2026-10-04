@@ -1,0 +1,107 @@
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextDesign
+import CmuxNextPages
+@testable import CmuxNextSettings
+import Foundation
+import Testing
+
+/// R82: the React Settings page is the only Settings UI, and `SettingsPageProvider` serves its
+/// `cmux.settings/1` ops (webviews/src/pages/settings/ops.ts) from the app's settings owner with
+/// the daemon's shapes and codes: rows, snapshot, validated writes with the v2 mutation result,
+/// managed and invalid refusals, idempotent replays, and one changed event per load.
+@MainActor @Suite(.serialized) struct SettingsPageProviderTests {
+    private let context = PageCallContext(page: "cmux.settings")
+
+    private func make(managed: ManagedPreferences = ManagedPreferences()) async throws -> (SettingsPageProvider, SettingsController, URL) {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "settings-page-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(managed), managedWatchFiles: [])
+        await settings.reload()
+        let provider = SettingsPageProvider(settings: settings, domains: { ["sounds": ["Glass"]] })
+        return (provider, settings, directory)
+    }
+
+    @Test func listAnswersOneRowPerSchemaSettingOfTheSection() async throws {
+        let (provider, _, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let all = try await provider.call("cmux.settings.list", params: [:], context: context)
+        #expect(all.arrayValue?.count == SettingsSchema.all.count)
+        let appearance = try await provider.call("cmux.settings.list", params: ["section": "appearance"], context: context)
+        let rows = try #require(appearance.arrayValue)
+        #expect(rows.count == SettingsSchema.all.filter { $0.section == .appearance }.count)
+        let row = try #require(rows.first)
+        #expect(row["key"]?.stringValue != nil)
+        #expect(row["customized"] == .bool(false))
+        #expect(row["managed"] == .null)
+    }
+
+    @Test func setWritesThroughTheOwnerAndAnswersTheMutationResult() async throws {
+        let (provider, settings, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let descriptor = try #require(SettingsSchema.all.first { $0.id == "appearance.density" })
+        let result = try await provider.call("cmux.settings.set", params: ["key": "appearance.density", "value": "compact",
+                                                                           "idempotency_key": "k1"], context: context)
+        #expect(result["value"]?["keys"] == ["appearance.density"])
+        #expect(result["revision"]?.stringValue == String(settings.loadCount), "the v2 revision is a decimal string")
+        #expect(result["replayed"] == .bool(false))
+        #expect(settings.validatedWrites["appearance.density"] == 1, "the write went through the validated writer")
+        #expect(try await settings.file.value(at: descriptor.path) == "compact")
+
+        let replay = try await provider.call("cmux.settings.set", params: ["key": "appearance.density", "value": "compact",
+                                                                           "idempotency_key": "k1"], context: context)
+        #expect(replay["replayed"] == .bool(true))
+        #expect(settings.validatedWrites["appearance.density"] == 1, "a retried key does not write again")
+
+        _ = try await provider.call("cmux.settings.reset", params: ["key": "appearance.density", "idempotency_key": "k2"], context: context)
+        #expect(try await settings.file.value(at: descriptor.path) == nil)
+    }
+
+    @Test func refusalsUseThePageCodes() async throws {
+        let (provider, settings, directory) = try await make(managed: ManagedPreferences(forced: ["appearance.density": "compact"]))
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await settings.reload()
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.settings.set", params: ["key": "nope.nothing", "value": true], context: context)
+        }
+        do {
+            _ = try await provider.call("cmux.settings.set", params: ["key": "appearance.density", "value": "comfortable"], context: context)
+            Issue.record("a managed key was written")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.settings.managed")
+            #expect(error.details?["source"] == "device")
+        }
+        do {
+            _ = try await provider.call("cmux.settings.set", params: ["key": "nope.nothing", "value": true], context: context)
+        } catch let error as PageError {
+            #expect(error.code == "cmux.settings.invalid")
+        }
+        let wrongType = try #require(SettingsSchema.all.first { $0.id != "appearance.density" && !$0.accepts(.object(["x": 1])) })
+        do {
+            _ = try await provider.call("cmux.settings.set", params: ["key": .string(wrongType.id), "value": .object(["x": 1])], context: context)
+            Issue.record("a value the schema refuses was written")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.settings.invalid")
+        }
+        let snapshot = try await provider.call("cmux.settings.snapshot", params: [:], context: context)
+        #expect(snapshot["managed"]?["appearance.density"]?["source"] == "device")
+        #expect(snapshot["domains"]?["sounds"] == ["Glass"])
+    }
+
+    @Test func aWriteFromAnyWriterSendsOneChangedEvent() async throws {
+        let (provider, settings, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var events: [JSONValue] = []
+        let subscription = try await provider.subscribe("cmux.settings.changed", filter: [:], context: context) { events.append($0) }
+        defer { subscription.cancel() }
+        await Task.yield()
+        let descriptor = try #require(SettingsSchema.all.first { $0.id == "appearance.density" })
+        try await settings.setSetting(descriptor, to: "compact")
+        await settings.reload()
+        for _ in 0..<200 where events.isEmpty { await Task.yield() }
+        #expect(events.first?["keys"] == ["appearance.density"])
+    }
+}

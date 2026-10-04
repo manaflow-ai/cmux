@@ -99,8 +99,8 @@ nonisolated enum RefusalStrings {
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
     /// cmux.json `layout.rows` is false (plans/cmux-next/rows.md O2).
     static var rowsTurnedOff: String { text("handlers.refusal.rowsTurnedOff", "Rows are turned off (layout.rows)") }
-    static var columnAlreadySticky: String { text("handlers.refusal.columnAlreadySticky", "the column is already sticky there") }
-    static var columnNotSticky: String { text("handlers.refusal.columnNotSticky", "the column is not sticky") }
+    static var columnAlreadyDocked: String { text("handlers.refusal.columnAlreadyDocked", "the column is already docked there") }
+    static var columnNotDocked: String { text("handlers.refusal.columnNotDocked", "the column is not docked") }
     /// Docking a tab whose kind cannot leave a fresh tab behind (an agent
     /// chat, an incognito page) when it is the screen's only tab.
     static var openSecondTabToDock: String { text("handlers.refusal.openSecondTabToDock", "Open a second tab to dock this one") }

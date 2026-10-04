@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1. */
+/* cmux-tui mux protocol 12, IR 3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4. */
 
 
 import type * as T from "./types.js";
@@ -312,7 +312,10 @@ export interface ConversationAgentTokenRequest extends CmuxRequestBase {
   cmd: "conversation-agent-token";
   "participant": string;
 }
-export type ConversationAgentTokenResult = T.JsonValue;
+export type ConversationAgentTokenResult = {
+  "participant": string;
+  "token": string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationBindRequest extends CmuxRequestBase {
@@ -320,7 +323,9 @@ export interface ConversationBindRequest extends CmuxRequestBase {
   "participant": string;
   "token": string;
 }
-export type ConversationBindResult = T.JsonValue;
+export type ConversationBindResult = {
+  "participant": string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationCreateRequest extends CmuxRequestBase {
@@ -330,7 +335,10 @@ export interface ConversationCreateRequest extends CmuxRequestBase {
   "participants": (T.JsonValue) | null;
   "title": string;
 }
-export type ConversationCreateResult = T.JsonValue;
+export type ConversationCreateResult = {
+  "conversation": T.ConversationSummary;
+  "replayed": boolean;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationHistoryRequest extends CmuxRequestBase {
@@ -339,13 +347,17 @@ export interface ConversationHistoryRequest extends CmuxRequestBase {
   "conversation": string;
   "limit": number;
 }
-export type ConversationHistoryResult = T.JsonValue;
+export type ConversationHistoryResult = {
+  "messages": Array<T.ConversationMessage>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationListRequest extends CmuxRequestBase {
   cmd: "conversation-list";
 }
-export type ConversationListResult = T.JsonValue;
+export type ConversationListResult = {
+  "conversations": Array<T.ConversationSummary>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationOpRequest extends CmuxRequestBase {
@@ -356,7 +368,13 @@ export interface ConversationOpRequest extends CmuxRequestBase {
   "op": (T.JsonValue) | null;
   "transaction"?: (string) | null;
 }
-export type ConversationOpResult = T.JsonValue;
+export type ConversationOpResult = {
+  "change": T.ConversationChange;
+  "replayed": boolean;
+  "rev": bigint;
+  "seq"?: bigint;
+  "transaction"?: string;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationSearchRequest extends CmuxRequestBase {
@@ -364,7 +382,9 @@ export interface ConversationSearchRequest extends CmuxRequestBase {
   "limit": number;
   "query": string;
 }
-export type ConversationSearchResult = T.JsonValue;
+export type ConversationSearchResult = {
+  "hits": Array<T.ConversationSearchHit>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationSnapshotRequest extends CmuxRequestBase {
@@ -372,7 +392,10 @@ export interface ConversationSnapshotRequest extends CmuxRequestBase {
   "conversation": string;
   "tail": number;
 }
-export type ConversationSnapshotResult = T.JsonValue;
+export type ConversationSnapshotResult = {
+  "conversation": T.ConversationSummary;
+  "messages": Array<T.ConversationMessage>;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationTypingRequest extends CmuxRequestBase {
@@ -381,7 +404,7 @@ export interface ConversationTypingRequest extends CmuxRequestBase {
   "conversation": string;
   "on": boolean;
 }
-export type ConversationTypingResult = T.JsonValue;
+export type ConversationTypingResult = T.EmptyResult;
 
 /** Protocol v6; authority: control. */
 export interface CopyRequest extends CmuxRequestBase {
@@ -1030,7 +1053,13 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "rows"?: (number) | null;
   "workspace"?: (T.Id) | null;
 }
-export type NewConversationTabResult = T.JsonValue;
+export type NewConversationTabResult = {
+  "content_resource_id": (string) | null;
+  "conversation": T.ConversationTabRecord;
+  "replayed": boolean;
+  "surface": T.Id;
+  "tab_resource_id": (string) | null;
+};
 
 /** Protocol v12; authority: control. */
 export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {

@@ -1,6 +1,6 @@
 # Sidebar
 
-Window-height list of workspaces with sticky sections (Home at the top; Settings and Account at the bottom). A flat tonal step over the window backdrop: `sidebarStep` (the foreground at 4%) painted by `ChromeStepView` (`SidebarContainerView.swift (SidebarContainerView.backdropStep)`), no panel, no border, no seam, no borders on rows. Apple System dark: `#272727` over `#1E1E1E`. The images predate this step and show the bare window background. Width 208 compact / 240 comfortable. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/` at `d445a445556` unless noted; images from `1824883286a`. Tokens: [design-tokens.md](../design-tokens.md); JSON keys `components["sidebar.*"]`.
+Window-height list of workspaces with pinned sections (Home at the top; Settings and Account at the bottom). A flat tonal step over the window backdrop: `sidebarStep` (the foreground at 4%) painted by `ChromeStepView` (`SidebarContainerView.swift (SidebarContainerView.backdropStep)`), no panel, no border, no seam, no borders on rows. Apple System dark: `#272727` over `#1E1E1E`. The images predate this step and show the bare window background. Width 208 compact / 240 comfortable. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/` at `d445a445556` unless noted; images from `1824883286a`. Tokens: [design-tokens.md](../design-tokens.md); JSON keys `components["sidebar.*"]`.
 
 ![Sidebar, dark, default: selected row on the shared pill, unread badge on api-server](../images/sidebar/dark-default.png) ![Sidebar, light, default](../images/sidebar/light-default.png)
 
@@ -56,7 +56,7 @@ Styles: arc (default), native (NSProgressIndicator, 8 steps), dot, braille (10 f
  textSecondary attention  danger      success     textSecondary
 ```
 
-## Section headers and sticky sections
+## Section headers and pinned sections
 
 Header height sidebarHeaderHeight (22/26), text header style (11/12 semibold) in textTertiary, chevron textTertiary (smallIconSize-space2, bold) (`Sections/SidebarSectionHeaderView.swift:49-50 (updateLayer)`). Items: row height sidebarRowHeight, title textPrimary, icon textSecondary (textPrimary when active; textOnPrimary on a colored list chip).
 
@@ -90,7 +90,7 @@ Each section also has an arrangement (`CmuxNextSidebar/Sections/SectionArrangeme
 
 Gap between items: the section's `gap`, else space2. Chip geometry: `Sections/SidebarItemRowView.swift:70-77,133-162 (SidebarItemRowView.chipWidth, layout)`.
 
-Band caps: `sidebar.topBandMaxShare` (1/3) and `sidebar.bottomBandMaxShare` (0.25) limit the sticky bands before they scroll inside; `sidebar.stickyBandsScroll = false` keeps them fixed and shrinks the list to at least three rows.
+Band caps: `sidebar.topBandMaxShare` (1/3) and `sidebar.bottomBandMaxShare` (0.25) limit the pinned bands before they scroll inside; `sidebar.pinnedBandsScroll = false` keeps them fixed and shrinks the list to at least three rows.
 
 ![Section looks, dark: quiet](../images/sidebar/dark-look-quiet.png) ![card](../images/sidebar/dark-look-card.png) ![tray](../images/sidebar/dark-look-tray.png) ![lines](../images/sidebar/dark-look-lines.png) ![lines, icons only](../images/sidebar/dark-look-linesIcons.png)
 

@@ -15,7 +15,7 @@ public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiab
     public var arrangement: SectionArrangement
     /// The room this section shows in; nil = every room.
     public var room: String?
-    /// Rows a sticky section shows before it scrolls inside; nil = the
+    /// Rows a pinned section shows before it scrolls inside; nil = the
     /// region's share of the sidebar height.
     public var maxRows: Int?
     public var content: SectionContent
@@ -99,7 +99,7 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// apps like any other, from their manifests) on top, the workspaces, then one bottom
     /// row with Settings (icon and label) over 7/8 of the width and the
     /// account avatar (icon only) over the last 1/8 (a grid of 8 columns,
-    /// R53). Sticky sections use
+    /// R53). Pinned sections use
     /// the built-in look and draw no header. The window rail's default
     /// (Leo, 2026-10-03) was removed by R52; stored layouts still equal to
     /// it move back (`sectionsMigrationOps`).

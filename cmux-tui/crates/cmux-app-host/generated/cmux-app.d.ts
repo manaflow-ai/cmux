@@ -155,7 +155,7 @@ declare namespace Cmux {
   type JournalUnsupportedReplayRecord = { sequence: string; event_id: string; kind: string }
   type JsonValue = string
   type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; sticky?: Cmux.LayoutColumnSticky | null }
-  type LayoutColumnSticky = { edge: "left" | "right"; mode: "docked" | "overlay" }
+  type LayoutColumnSticky = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay" }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }
   type LayoutLeaf = { kind: "leaf"; pane_id: string /* pane_… */; tab_ids: Array<string /* tab_… */>; active_tab_id?: string /* tab_… */ }
   type LayoutNode = unknown
@@ -596,7 +596,7 @@ interface CmuxGlobal {
   }
   column: {
     /** `column.update` (mutation, scope `column:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; column: string /* split_… */; sticky?: boolean; edge?: "left" | "right"; mode?: "docked" | "overlay"; width?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
+    update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; column: string /* split_… */; sticky?: boolean; edge?: "left" | "right" | "top" | "bottom"; mode?: "docked" | "overlay"; width?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
   }
   conversation: {
     /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */

@@ -43,4 +43,43 @@ import Testing
         #expect(order() == ["a", "c", "b"])
         #expect(try #require(list.displayed.row(for: .workspace(id("c")))).y == slot, "settles in the slot, no second jump")
     }
+
+    /// nxdog30: the row is held with its card mostly over the row above
+    /// (the pointer a little below that row's middle). The slot goes under
+    /// the card, never below it: the row above moves down out of the way.
+    @Test func theSlotFollowsTheCardWhenItCoversMostOfTheRowAbove() throws {
+        let model = SidebarModel(sections: fixture(), activeWorkspaceID: id("a"))
+        let sidebar = SidebarView(model: model)
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 700, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
+        window.contentView?.addSubview(sidebar)
+        sidebar.layoutSubtreeIfNeeded()
+        let list = sidebar.list
+        list.reload(animated: false)
+        let cloud = model.sections[2].id
+        func order() -> [String] {
+            list.displayed.rows.compactMap { row in
+                if case let .workspace(ws) = row.key, row.section == cloud { return ws.rawValue }
+                return nil
+            }
+        }
+        let x = try #require(list.displayed.row(for: .workspace(id("x"))))
+        let y = try #require(list.displayed.row(for: .workspace(id("y"))))
+        let press = NSPoint(x: list.frame(for: y).minX + 40, y: list.frame(for: y).midY)
+        list.beginDrag(SidebarListView.Press(key: .workspace(id("y")), point: press))
+        for step in 1...12 {
+            let target = list.frame(for: x).midY + 2.5
+            let py = press.y + (target - press.y) * CGFloat(step) / 12
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: press.x, y: py), to: nil))
+        }
+        #expect(order() == ["y", "x"], "the card covers most of x, so x moves down")
+        let card = try #require(list.drag?.lift.frame)
+        let slot = list.frame(for: try #require(list.displayed.row(for: .workspace(id("y")))))
+        #expect(card.intersection(slot).height > card.height / 2, "the slot is under the card")
+        list.cancelDrag()
+    }
 }
+

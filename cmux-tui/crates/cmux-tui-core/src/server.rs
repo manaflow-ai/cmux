@@ -87,6 +87,8 @@ use crate::{
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[cfg(unix)]
 mod apps;
+#[cfg(unix)]
+pub use apps::start_apps_when_ready;
 #[path = "server/image_paste.rs"]
 mod image_paste;
 #[path = "server/window_title.rs"]
@@ -6475,6 +6477,8 @@ impl PendingServer {
     /// Publish lifecycle readiness and transfer socket cleanup to the caller.
     pub fn mark_ready(mut self) -> anyhow::Result<PathBuf> {
         self.mux.mark_server_lifecycle_ready();
+        #[cfg(unix)]
+        start_apps_when_ready(&self.mux);
         Ok(self.path.take().expect("pending server path is available"))
     }
 
@@ -10524,7 +10528,7 @@ fn send_resource_stream_item(
                 "stream_id":stream_id,
                 "sequence":sequence.to_string(),
                 "cursor":cursor,
-                "item":item,
+                "item":writer.project_conversation_tab_item(item),
             }),
             outbound,
         )
