@@ -261,7 +261,8 @@ describe("fan-out", () => {
       const request = host.request(author, id, op)
       const result = host.run(author, id, op)
       if (!result.ok) throw new Error(result.code)
-      const message = { ...result.commit.message!, parts: [...result.commit.message!.parts, { type: "approval" } as unknown as (typeof result.commit.message.parts)[number]] }
+      const sent = result.commit.message!
+      const message = { ...sent, parts: [...sent.parts, { type: "approval" }] as unknown as typeof sent.parts }
       return fanOut({ before, request, commit: { ...result.commit, message } }).bumps
     }
     const fromChief = withApproval(CHIEF, "a1")

@@ -33,7 +33,10 @@ export interface InboxBump {
    */
   readonly last_author?: string
   readonly last_author_kind?: "human" | "agent"
-  /** The last message has an approval part: it notifies even when the conversation is muted. */
+  /**
+   * The last message is an agent's approval request addressed to this user (the agent's
+   * `owner_user`): it notifies even when the conversation is muted. Other members never get it.
+   */
   readonly last_approval?: true
   /** The last message mentions this user. */
   readonly last_mention?: true
@@ -254,7 +257,8 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
       ...(peer ? { dm_peer: peer } : {}),
       ...(isRemoved ? { removed: true } : {}),
       ...(author && lastMessage ? { last_author: author.id, last_author_kind: author.kind === "agent" ? ("agent" as const) : ("human" as const) } : {}),
-      ...(author && lastMessage && hasApprovalPart(lastMessage) ? { last_approval: true as const } : {}),
+      // Only an agent asks for approval, and only its owner can decide it (home.md section 5).
+      ...(author?.kind === "agent" && author.owner_user === user && lastMessage && hasApprovalPart(lastMessage) ? { last_approval: true as const } : {}),
       ...(author && lastMessage && mentionsOf(lastMessage).has(user) ? { last_mention: true as const } : {}),
       ...(joined === undefined ? {} : { joined_seq: joined })
     }
