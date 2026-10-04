@@ -29,6 +29,15 @@ import Testing
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs"])
     }
 
+    /// R87: nightly-next builds wrote `sidebar.stickyBandsScroll`; it is
+    /// read for one release, and the new key wins when both are set.
+    @Test func theOldStickyBandsKeyIsReadForOneRelease() throws {
+        #expect(try parse(#"{"sidebar": {"stickyBandsScroll": false}}"#).sidebarSections.pinnedBandsScroll == false)
+        #expect(try parse(#"{"sidebar": {"stickyBandsScroll": false, "pinnedBandsScroll": true}}"#).sidebarSections.pinnedBandsScroll)
+        let bad = try parse(#"{"sidebar": {"stickyBandsScroll": "no"}}"#)
+        #expect(bad.diagnostics.map(\.path) == ["sidebar.stickyBandsScroll"])
+    }
+
     @MainActor @Test func appliesToDesignSettings() throws {
         let design = DesignSettings()
         let applier = SettingsApplier(design: design, registry: ActionRegistry.standard())

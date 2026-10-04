@@ -58,6 +58,25 @@ import Testing
         #expect(snapshot.dockColumnMode == .overlay && snapshot.diagnostics.isEmpty)
     }
 
+    /// R87: nightly-next builds wrote `layout.stickyColumnEdge` and
+    /// `layout.stickyColumnMode`; they are read for one release.
+    @Test func theOldStickyKeysAreReadForOneRelease() throws {
+        let snapshot = try parse(#"{"layout": {"stickyColumnEdge": "left", "stickyColumnMode": "floating"}}"#)
+        #expect(snapshot.dockColumnEdge == .left)
+        #expect(snapshot.dockColumnMode == .overlay)
+        #expect(snapshot.diagnostics.isEmpty)
+        let bad = try parse(#"{"layout": {"stickyColumnMode": "sideways"}}"#)
+        #expect(bad.dockColumnMode == .docked)
+        #expect(bad.diagnostics.map(\.path) == ["layout.stickyColumnMode"])
+    }
+
+    @Test func theNewDockKeysWinOverTheOldOnes() throws {
+        let snapshot = try parse(#"{"layout": {"stickyColumnEdge": "left", "dockColumnEdge": "top","#
+                                 + #""stickyColumnMode": "overlay", "dockColumnMode": "docked"}}"#)
+        #expect(snapshot.dockColumnEdge == .top)
+        #expect(snapshot.dockColumnMode == .docked)
+    }
+
     @Test func aNumberIsAFixedShare() throws {
         let snapshot = try parse(#"{"layout": {"newColumnWidth": 0.4, "defaultColumnWidth": 0.7}}"#)
         #expect(snapshot.newColumnWidth == .fixed)
