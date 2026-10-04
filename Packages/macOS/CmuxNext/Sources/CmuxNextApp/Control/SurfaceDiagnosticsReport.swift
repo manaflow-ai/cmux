@@ -1,3 +1,4 @@
+import CmuxNextPages
 import AppKit
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -31,6 +32,11 @@ enum SurfaceDiagnosticsReport {
                 object["workspace"] = .string(row.window.content?.workspace.id ?? "")
                 object["focused"] = .bool(row.pane.isFocusedInWorkspace)
                 if let tab = row.status.selectedTab { object["phase"] = .string(services.cache.phase(of: tab).rawValue) }
+                // A web page tab has no terminal lifecycle: report its paint state, not `restoring`.
+                if case .page(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)),
+                   let page = view.content as? PageWebView {
+                    object["phase"] = .string(page.hasPainted ? "painted" : "loading")
+                }
                 if case .terminal(let entry)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {
                     object["attach"] = .string(entry.io.attachPhase.journalName)
                     object["link"] = .string(Self.linkName(entry.session.model.connection))

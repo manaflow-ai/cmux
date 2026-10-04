@@ -22,8 +22,8 @@ public nonisolated enum DockMode: String, Hashable, Sendable, CaseIterable {
     public var toggled: DockMode { self == .docked ? .overlay : .docked }
 }
 
-/// A column pinned to one edge of the viewport. Daemon `columns[].sticky`
-/// (`sticky-columns-v1`); at most one per edge per screen.
+/// A column pinned to one edge of the viewport. Daemon `columns[].dock`
+/// (`dock-columns-v1`); at most one per edge per screen.
 public nonisolated struct DockColumn: Hashable, Sendable {
     public var edge: DockEdge
     public var mode: DockMode

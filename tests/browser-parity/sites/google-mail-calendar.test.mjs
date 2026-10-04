@@ -27,6 +27,14 @@ test("gmail.thread expands collapsed messages and returns Markdown bodies and at
   assert.equal((await s.value(`sites.gmail.thread("https://mail.google.com/mail/u/0/#inbox/${hex}")`)).subject, "Quarterly report");
 });
 
+test("gmail: links in a message body are not attachments, and nothing off mail.google.com is fetched", async () => {
+  const th = await s.value('sites.gmail.thread("thread-f:1790000000000000003")');
+  assert.deepEqual(th.messages.flatMap((m) => m.attachments.map((a) => a.name)), ["q3.csv"]);
+  const before = env.state.requests.length;
+  assert.match(await s.error('sites.gmail.attachment("thread-f:1790000000000000003", "invoice.pdf")'), /no attachment "invoice\.pdf"/);
+  assert.ok(!env.state.requests.slice(before).some((r) => r.url.startsWith("https://github.com/")), "no request left Gmail");
+});
+
 test("gmail.attachment downloads through the session", async () => {
   const a = await s.value('sites.gmail.attachment("thread-f:1790000000000000001", "q3.csv")');
   assert.equal(fs.readFileSync(a.path, "utf8"), "quarter,total\nQ3,9000\n");

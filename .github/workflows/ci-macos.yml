@@ -1994,6 +1994,10 @@ jobs:
           if [ -n "$receipt" ]; then
             echo "interface_fingerprint=$receipt" >> "$GITHUB_OUTPUT"
           fi
+          package_input_keys="$(sed -n 's/^CMUX_PACKAGE_INPUT_KEYS=//p' "$lane_log" | tail -n 1)"
+          if [ -n "$package_input_keys" ]; then
+            echo "package_input_keys=$package_input_keys" >> "$GITHUB_OUTPUT"
+          fi
           case "$status" in
             69) echo "::error title=Build fleet unavailable::No build-fleet worker takes ci-steps right now. There is no automatic fallback in phase 1: rerun the job, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again." ;;
             75) echo "::error title=Build fleet queue timeout::The step waited in the build-fleet queue past the client's queue timeout and was cancelled. There is no automatic fallback in phase 1: rerun the job, or clear CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY to run on a runner again." ;;

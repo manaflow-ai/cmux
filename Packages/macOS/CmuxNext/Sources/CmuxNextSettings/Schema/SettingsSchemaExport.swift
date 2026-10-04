@@ -92,6 +92,7 @@ public struct SettingsSchemaExport {
         case .sound: row["kind"] = "sound"
         case .url: row["kind"] = "url"
         case .hostList: row["kind"] = "host_list"
+        case .folderList: row["kind"] = "folder_list"
         case .timeRange: row["kind"] = "time_range"
         case .theme: row["kind"] = "theme"
         case .fontFamily: row["kind"] = "font_family"

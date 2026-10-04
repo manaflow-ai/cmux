@@ -84,6 +84,12 @@ public struct Metrics {
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
 
     public nonisolated static var dividerThickness: CGFloat { ChromeTunables.dividerThickness.value }
+    /// Width of the sidebar's resting edge line (`sidebar.border`,
+    /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
+    public static var sidebarBorderWidth: CGFloat {
+        let border = DesignSettings.shared.sidebarBorder
+        return border.shows ? lineWidth(border.width ?? dividerThickness) : 0
+    }
     public nonisolated static var dividerHitWidth: CGFloat { ChromeTunables.dividerHitWidth.value }
 
     /// Inset around every pane's tab strip and content (`layout.panePadding`;
@@ -91,7 +97,8 @@ public struct Metrics {
     public static var panePadding: CGFloat { ChromeTunables.panePadding.resolve(codePanePadding) }
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
-        DesignSettings.shared.paneChrome.padding ?? (density == .compact ? 2 : 4)
+        let chrome = DesignSettings.shared.paneChrome
+        return chrome.padding ?? PaneSeparation.resolve(chrome).impliedPadding ?? (density == .compact ? 2 : 4)
     }
 
     // MARK: Pane alignment
@@ -125,9 +132,13 @@ public struct Metrics {
     /// The density's rounded pane corner radius, used when padding or a
     /// border shows and `layout.paneCornerRadius` is unset.
     public static var densityPaneCornerRadius: CGFloat { MetricTunables.densityPaneCornerRadius.value }
-    /// Pane border (`layout.paneBorder`). The line is one device pixel wide.
+    /// How panes are told apart (`layout.paneSeparation`, else the legacy
+    /// `layout.paneBorder` and padding).
+    public static var paneSeparation: PaneSeparation { PaneSeparation.resolve(DesignSettings.shared.paneChrome) }
+    /// Pane border: subtle only for the `borders` separation, and none
+    /// under `appearance.borders` none. The line is one device pixel wide.
     public static var paneBorder: PaneBorderStyle {
-        Borders.drawsLines ? DesignSettings.shared.paneChrome.border ?? .subtle : .none
+        Borders.drawsLines && paneSeparation.drawsPaneBorder ? .subtle : .none
     }
 
     /// A border, hairline or stroke of `width` points: 0 under

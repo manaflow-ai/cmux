@@ -11,8 +11,9 @@
 //!    anything else and only here, never on the local socket;
 //! 3. every later line passes the [`RemoteGate`] before anything parses or
 //!    dispatches it. The default gate, [`DenyAllGate`], refuses everything
-//!    with `error_code: remote_denied`; lane 10's conversation gate replaces
-//!    it with an explicit allowlist.
+//!    with `error_code: remote_denied`; [`super::FsGate`] admits only the
+//!    seven `fs-v1` ops, and lane 10's conversation gate will add its own
+//!    explicit allowlist.
 //!
 //! A remote client is registered as [`ClientTransport::Remote`], so checks
 //! for a trusted local connection (`is_unix`) refuse it, and its
@@ -61,6 +62,7 @@ pub struct RemoteEntryServer {
     identity: (u64, u64),
     shutdown: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    mux: Arc<Mux>,
 }
 
 impl RemoteEntryServer {
@@ -84,18 +86,14 @@ impl Drop for RemoteEntryServer {
         if file_identity(&self.path).is_some_and(|identity| identity == self.identity) {
             let _ = std::fs::remove_file(&self.path);
         }
+        // Daemon shutdown: running link dials (byte streams included) end
+        // now, not at their idle timeout.
+        fs_wire::close_remote_clients(&self.mux);
     }
 }
 
 fn file_identity(path: &Path) -> Option<(u64, u64)> {
     std::fs::symlink_metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
-}
-
-/// The conversation principal of a remote peer: one participant per paired
-/// install, never `user_local` (server-remote-conversations.md 5, decision
-/// D-B; the relay gate counts it as the same person as the owner).
-pub fn remote_principal(peer: &RemotePeer) -> String {
-    format!("remote_{}", peer.install)
 }
 
 /// Listen on `path` (mode 0600, in a 0700 directory it creates) and serve
@@ -105,6 +103,18 @@ pub fn serve_remote_entry(
     path: &Path,
     verifier: LinkVerifier,
     gate: Arc<dyn RemoteGate>,
+) -> anyhow::Result<RemoteEntryServer> {
+    serve_remote_entry_with(mux, path, verifier, gate, fs_wire::EntryFs::installed())
+}
+
+/// [`serve_remote_entry`] with an explicit `fs-v1` owner and first-line
+/// deadline.
+pub(super) fn serve_remote_entry_with(
+    mux: Arc<Mux>,
+    path: &Path,
+    verifier: LinkVerifier,
+    gate: Arc<dyn RemoteGate>,
+    entry_fs: fs_wire::EntryFs,
 ) -> anyhow::Result<RemoteEntryServer> {
     if let Some(directory) = path.parent() {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -126,10 +136,17 @@ pub fn serve_remote_entry(
         .ok_or_else(|| anyhow::anyhow!("remote entry {} vanished after bind", path.display()))?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
-    let thread = std::thread::Builder::new()
-        .name("mux-remote-entry".into())
-        .spawn(move || accept_loop(&mux, &listener, &thread_shutdown, &verifier, &gate))?;
-    Ok(RemoteEntryServer { path: path.to_path_buf(), identity, shutdown, thread: Some(thread) })
+    let thread_mux = mux.clone();
+    let thread = std::thread::Builder::new().name("mux-remote-entry".into()).spawn(move || {
+        accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, entry_fs);
+    })?;
+    Ok(RemoteEntryServer {
+        path: path.to_path_buf(),
+        identity,
+        shutdown,
+        thread: Some(thread),
+        mux,
+    })
 }
 
 fn accept_loop(
@@ -138,6 +155,7 @@ fn accept_loop(
     shutdown: &AtomicBool,
     verifier: &LinkVerifier,
     gate: &Arc<dyn RemoteGate>,
+    entry_fs: fs_wire::EntryFs,
 ) {
     let connections = mux.connection_stats().clone();
     let render_service = Arc::new(RenderService::new());
@@ -165,7 +183,7 @@ fn accept_loop(
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
         let _ = std::thread::Builder::new().name("mux-remote-conn".into()).spawn(move || {
-            serve_remote_connection(mux, stream, &verifier, gate, render_service, permit);
+            serve_remote_connection(mux, stream, &verifier, gate, render_service, permit, entry_fs);
         });
     }
 }
@@ -177,6 +195,7 @@ fn serve_remote_connection(
     gate: Arc<dyn RemoteGate>,
     render_service: Arc<RenderService>,
     permit: ConnectionPermit,
+    entry_fs: fs_wire::EntryFs,
 ) {
     if verifier(&stream).is_err() {
         let _ = stream.shutdown(Shutdown::Both);
@@ -190,10 +209,15 @@ fn serve_remote_connection(
         let _ = stream.shutdown(Shutdown::Both);
         return;
     };
+    // A dial whose first line asks for an `fs.*` byte stream is served raw
+    // (fs_wire.rs); any other dial reaches the line connection unchanged.
+    let Some(stream) = fs_wire::route_first_line(&mux, stream, &*gate, &peer, entry_fs) else {
+        return;
+    };
     let admission = RemoteAdmission { peer, gate };
     serve_line_connection(
         mux,
-        Box::new(stream),
+        stream,
         render_service,
         Some(permit),
         ClientTransport::Remote,
@@ -235,8 +259,8 @@ struct RemoteAdmission {
 }
 
 impl LineAdmission for RemoteAdmission {
-    fn registered(&self, mux: &Arc<Mux>, client: u64) {
-        mux.bind_conversation_principal(client, remote_principal(&self.peer));
+    fn registered(&self, mux: &Arc<Mux>, client: u64) -> bool {
+        mux.bind_remote_peer(client, &self.peer)
     }
 
     fn refusal(&self, line: &str) -> Option<Value> {

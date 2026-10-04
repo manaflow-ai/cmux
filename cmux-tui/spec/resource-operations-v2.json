@@ -3275,13 +3275,13 @@
             "name": "LayoutNode"
           }
         },
-        "sticky": {
+        "dock": {
           "required": false,
           "type": {
             "kind": "nullable",
             "value": {
               "kind": "ref",
-              "name": "LayoutColumnSticky"
+              "name": "LayoutColumnDock"
             }
           }
         }
@@ -3290,11 +3290,11 @@
       "constraints": [
         "column_id is stable for the lifetime of the viewport column.",
         "width is finite and greater than or equal to 0.1 and less than or equal to 1.",
-        "sticky is omitted from a document the daemon returns while the column scrolls. In workspace.layout.apply, null clears the flag, an object sets it, and an omitted sticky keeps the flag of the column with the same column_id.",
-        "When workspace.layout.apply sets a flag that differs from the stored flag of that column_id, the document must have at most one sticky column per edge and at least one scrolling column. Flags that are kept or echoed unchanged are normalized: a second flag on one edge is cleared, and all flags are cleared when no column scrolls."
+        "dock is omitted from a document the daemon returns while the column scrolls. In workspace.layout.apply, null clears the flag, an object sets it, and an omitted dock keeps the flag of the column with the same column_id.",
+        "When workspace.layout.apply sets a flag that differs from the stored flag of that column_id, the document must have at most one docked column per edge and at least one scrolling column. Flags that are kept or echoed unchanged are normalized: a second flag on one edge is cleared, and all flags are cleared when no column scrolls."
       ]
     },
-    "LayoutColumnSticky": {
+    "LayoutColumnDock": {
       "kind": "object",
       "fields": {
         "edge": {
@@ -6068,6 +6068,100 @@
             }
           },
           "description": "What reopen recreates; a closed tab has one screen with one tab."
+        },
+        "window": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Window record id (`install_id/window_id`) that listed the closed objects; null when no window listed them."
+        },
+        "member_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members of the group (one close gesture)."
+        },
+        "members": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ClosedMemberRecord"
+            }
+          },
+          "description": "Every closed object of the group in restore order. The top-level fields mirror the first member."
+        }
+      },
+      "extra": false
+    },
+    "ClosedMemberRecord": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "tab",
+              "screen",
+              "workspace"
+            ]
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "pane"
+            }
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "screens": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ClosedScreenRecord"
+            }
+          }
         }
       },
       "extra": false
@@ -6099,6 +6193,25 @@
             "kind": "resource_id",
             "resource": "workspace"
           }
+        },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "Every workspace the reopened members went to; `workspace_id` is the first."
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the group after a partial reopen."
         },
         "screen_ids": {
           "required": true,
@@ -9539,7 +9652,29 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "window": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 257
+            },
+            "description": "The caller's window record id (`install_id/window_id`). Scopes the groups to that window and to groups no live window owns."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "default": 100,
+            "description": "Newest groups to return."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -9573,11 +9708,35 @@
         },
         "fields": {
           "closed": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "ref",
               "name": "StateId"
-            }
+            },
+            "description": "The group to reopen. Omit to reopen the newest group of `window`, else the newest group no live window owns."
+          },
+          "window": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 257
+            },
+            "description": "The caller's window record id (`install_id/window_id`). Scopes the groups to that window and to groups no live window owns."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "uint32"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Indexes into the group's `members` to reopen. Omit to reopen every member; the rest stay in the group."
           },
           "expected_revision": {
             "required": false,
@@ -9590,7 +9749,8 @@
         },
         "extra": false,
         "constraints": [
-          "A tab reopens in its pane when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
+          "One close gesture is one group; reopen restores its members in order.",
+          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
         ]
       },
       "result": {
@@ -9639,7 +9799,7 @@
             },
             "description": "The column's stable id, its column_id in the screen's layout document."
           },
-          "sticky": {
+          "dock": {
             "required": false,
             "type": {
               "kind": "primitive",
@@ -9658,7 +9818,7 @@
                 "bottom"
               ]
             },
-            "description": "Viewport edge for sticky:true. Default right. top and bottom are the edge docks of edge-docks-v1."
+            "description": "Viewport edge for dock:true. Default right. top and bottom are the edge docks of edge-docks-v1."
           },
           "mode": {
             "required": false,
@@ -9669,7 +9829,7 @@
                 "overlay"
               ]
             },
-            "description": "Presentation for sticky:true. Default docked."
+            "description": "Presentation for dock:true. Default docked."
           },
           "width": {
             "required": false,
@@ -9711,10 +9871,10 @@
         "validation.invalid"
       ],
       "constraints": [
-        "At least one of sticky or width is required. edge and mode require the sticky field and apply only when sticky is true.",
+        "At least one of dock or width is required. edge and mode require the dock field and apply only when dock is true.",
         "width is finite, at least 0.1, and at most 1.",
-        "A screen keeps at most one sticky column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
-        "The layout document of the resulting ScreenSnapshot does not carry sticky flags; the JSON-lines Screen.columns[].sticky does."
+        "A screen keeps at most one docked column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
+        "The layout document of the resulting ScreenSnapshot does not carry dock flags; the JSON-lines Screen.columns[].dock does."
       ]
     },
     "frontend_projection.get": {

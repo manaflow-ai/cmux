@@ -16,6 +16,85 @@
     ],
     "trusted-paste": [
       "input #clip"
-    ]
+    ],
+    "custom-copy": [
+      "copy: MAKE IT LOUD",
+      true,
+      "make it loud"
+    ],
+    "custom-cut": [
+      "cut: MAKE IT LOUD",
+      true,
+      "make it loud"
+    ],
+    "plain-cut": [
+      "make it loud",
+      ""
+    ],
+    "clipboard-events": [
+      "copy",
+      "cut",
+      "cut"
+    ],
+    "alert-copy": {
+      "pending": null,
+      "clipboard": "after copy: alerted",
+      "header": [
+        "dialog dismissed: alert \"copy alert\" (it opened during a copy)"
+      ]
+    },
+    "alert-copy-reported-once": [],
+    "confirm-cut-listener": {
+      "seen": [
+        [
+          "confirm",
+          "cut confirm"
+        ]
+      ],
+      "clipboard": "after cut: false",
+      "value": "ask first"
+    },
+    "late-copy": {
+      "late": {
+        "code": "timeout",
+        "endedWebContent": true
+      },
+      "crashed": true,
+      "clipboard": "before the late copy",
+      "reloaded": ""
+    },
+    "page-write-text": [
+      "ok",
+      "from writeText"
+    ],
+    "page-write-item": [
+      "ok",
+      "from a late item"
+    ],
+    "page-exec-copy": [
+      "true",
+      "from execCommand"
+    ],
+    "page-read-text": [
+      "NotAllowedError",
+      "from execCommand"
+    ],
+    "user-tab-clipboard": {
+      "shortcuts": [
+        [
+          "unsupported",
+          true
+        ],
+        [
+          "unsupported",
+          true
+        ],
+        [
+          "unsupported",
+          true
+        ]
+      ],
+      "value": "the user's text"
+    }
   }
 }

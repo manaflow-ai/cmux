@@ -4,7 +4,7 @@ import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ChatCards } from "./ChatCards";
 import { recentChatCards, screenRows, terminalConversion, type ScreenRow } from "./screenModel";
-import { nt } from "./strings";
+import { type NewTabTranslate, useNt } from "./strings";
 
 /// What the screen asks the host to do. Agent rows stay in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -36,6 +36,7 @@ type Props = NewTabScreenActions & {
 /// typed (`!` a terminal, an address, or a prompt with the installed agents and a web search
 /// row under it; no Search/Ask mode, R86), and the recent chats as cards.
 export function NewTabScreen(props: Props) {
+  const nt = useNt();
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now } = props;
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
@@ -181,10 +182,10 @@ export function NewTabScreen(props: Props) {
               }}
             >
               {row.type === "agent" ? <AgentMark harness={row.harness} /> : <span className="nt-row-glyph" />}
-              <span className="nt-row-title">{rowTitle(row)}</span>
+              <span className="nt-row-title">{rowTitle(nt, row)}</span>
               {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
               <span className="nt-row-action">
-                {rowAction(row)}
+                {rowAction(nt, row)}
                 {index === selected && <kbd>↵</kbd>}
               </span>
             </div>
@@ -210,7 +211,7 @@ function rowKey(row: ScreenRow): string {
   }
 }
 
-function rowTitle(row: ScreenRow): string {
+function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
   switch (row.type) {
     case "agent":
       return nt("row.ask", { agent: row.name });
@@ -240,7 +241,7 @@ function rowDetail(row: ScreenRow): string | undefined {
   }
 }
 
-function rowAction(row: ScreenRow): string {
+function rowAction(nt: NewTabTranslate, row: ScreenRow): string {
   switch (row.type) {
     case "agent":
       return "";

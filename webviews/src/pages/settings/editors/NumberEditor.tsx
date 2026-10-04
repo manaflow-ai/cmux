@@ -6,7 +6,7 @@ import type { EditorProps } from "./types";
 
 /**
  * Slider + field. While the slider moves the page sends `preview` (never written); releasing
- * it sends `preview.end` and one `settings.set`. The field commits on Return or blur.
+ * it sends one `settings.set`, then `preview.end`. The field commits on Return or blur.
  */
 export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
@@ -20,8 +20,9 @@ export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
     if (next === null) return;
     pending.current = null;
     setDrag(null);
-    store.previewEnd(row.key);
-    if (next !== stored) void store.set(row.key, next);
+    // Write first, then end the preview: the window keeps the new value and never flashes the old.
+    if (next === stored) store.previewEnd(row.key);
+    else void store.set(row.key, next).then(() => store.previewEnd(row.key));
   };
   return (
     <span className="number-editor">

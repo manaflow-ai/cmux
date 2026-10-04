@@ -13,6 +13,9 @@ import {
   settingsPageActions,
   type BrowserProfile,
   type HostLists,
+  type AccountsRow,
+  type AccountsRun,
+  type AccountsState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -87,6 +90,16 @@ export class MockSettingsProvider {
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
+      "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.theme.set": (params) => {
+        const { level, spec } = params as { level: string; spec: string | null };
+        const theme = this.host.theme!;
+        this.setHost({ ...this.host, theme: { ...theme, current: { ...theme.current, [level]: spec } } });
+        return {};
+      },
+      "cmux.settings.theme.accepts": (params) => ({ accepts: String((params as { text: string }).text).includes(":") }),
+      "cmux.settings.file.reveal": () => ({}),
+      "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.app.action.run": (params) => {
         // The page bridge allows this page only its declared actions.
         if (!(settingsPageActions as readonly string[]).includes(params.action as string)) {
@@ -105,6 +118,11 @@ export class MockSettingsProvider {
       "cmux.settings.preview.end",
       "cmux.settings.sound.play",
       "cmux.settings.host.lists",
+      "cmux.settings.accounts.state",
+      "cmux.settings.accounts.run",
+      "cmux.settings.theme.set",
+      "cmux.settings.theme.accepts",
+      "cmux.settings.file.reveal",
       "cmux.app.action.run",
     ]);
     for (const [op, handler] of Object.entries(ops)) {
@@ -122,6 +140,7 @@ export class MockSettingsProvider {
     session.provide("cmux.page.connection", (ctx) => this.track(this.connection, ctx));
     session.provide("cmux.page.command", (ctx) => this.track(this.commands, ctx));
     session.provide("cmux.settings.host.changed", (ctx) => this.track(this.hostChanged, ctx));
+    session.provide("cmux.settings.accounts.changed", (ctx) => this.track(this.accountsChanged, ctx));
   }
 
   /** The app's live lists (spaces, machines, browser profiles) as the host serves them. */
@@ -140,8 +159,106 @@ export class MockSettingsProvider {
       { name: "green", swatch: "#5E9A6A", fill: "#B5D6BB" },
       { name: "orange", swatch: "#B07A45", fill: "#E0C3A3" },
     ],
+    theme: { levels: ["room", "workspace", "terminal"], current: { room: null, workspace: "Dracula", terminal: null } },
+    terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
+    settings_file: "/Users/me/.config/cmux/cmux-next.json",
+    backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" }],
   };
   private readonly hostChanged = new Set<EventSourceContext>();
+  private readonly accountsChanged = new Set<EventSourceContext>();
+
+  /** The Accounts part as the app serves it (texts already localized). */
+  accounts: AccountsState = {
+    intro: "cmux checks this Mac for sign-ins and keys.",
+    refresh: "Refresh",
+    refreshing: false,
+    signIn: null,
+    problem: null,
+    removeTitle: "Remove from CodeRouter",
+    groups: [
+      {
+        id: "chatGPT",
+        title: "ChatGPT and Codex",
+        rows: [
+          {
+            provider: "codex",
+            name: "Codex",
+            detail: "pro · From ~/.codex/auth.json",
+            status: "Signed in",
+            statusKind: "success",
+            busy: false,
+            buttons: [
+              { id: "reauth", title: "Re-authenticate", disabled: false, help: null, destructive: false },
+              { id: "connect", title: "Connect to CodeRouter", disabled: false, help: null, destructive: false },
+            ],
+            unsupported: null,
+            linked: [{ id: "acct-1", label: "s…@e…", state: "healthy", healthy: true, busy: false }],
+            note: null,
+            outcome: null,
+            confirm: null,
+            paste: null,
+          },
+        ],
+      },
+      {
+        id: "other",
+        title: "Other Providers",
+        rows: [
+          {
+            provider: "openrouter",
+            name: "OpenRouter",
+            detail: null,
+            status: "Not found",
+            statusKind: "quiet",
+            busy: false,
+            buttons: [{ id: "addKey", title: "Add Key…", disabled: false, help: null, destructive: false }],
+            unsupported: null,
+            linked: [],
+            note: null,
+            outcome: null,
+            confirm: null,
+            paste: null,
+          },
+        ],
+      },
+    ],
+  };
+  /** Accounts gestures the page sent (secrets included, so tests can check they were sent once). */
+  readonly accountRuns: AccountsRun[] = [];
+
+  /** What the app's AccountsModel does to the state (enough for the page's tests). */
+  private runAccounts(run: AccountsRun): { error?: string } {
+    this.accountRuns.push(run);
+    const rows = (edit: (row: AccountsRow) => AccountsRow) => ({
+      ...this.accounts,
+      groups: this.accounts.groups.map((group) => ({ ...group, rows: group.rows.map(edit) })),
+    });
+    const paste = {
+      title: "Add a key",
+      body: "Paste the key.",
+      placeholder: "Paste here",
+      buttons: [
+        { id: "saveKeychain", title: "Save to Keychain", disabled: false, help: null, destructive: false },
+        { id: "cancelPaste", title: "Cancel", disabled: false, help: null, destructive: false },
+      ],
+    };
+    let error: string | undefined;
+    if (run.action === "addKey") {
+      this.accounts = rows((row) => (row.provider === run.provider ? { ...row, paste } : row));
+    } else if (run.action === "cancelPaste") {
+      this.accounts = rows((row) => ({ ...row, paste: null }));
+    } else if (run.action === "saveKeychain") {
+      if (run.secret === "bad") error = "That is not a valid key or token for this provider.";
+      else
+        this.accounts = rows((row) =>
+          row.provider === run.provider ? { ...row, paste: null, status: "Key found", statusKind: "success" } : row,
+        );
+    } else if (run.action === "remove") {
+      this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
+    }
+    for (const ctx of this.accountsChanged) ctx.emit(this.accounts);
+    return error ? { error } : {};
+  }
 
   /** Replaces the host lists and sends `cmux.settings.host.changed`. */
   setHost(host: HostLists): void {

@@ -25,10 +25,14 @@ public final class SidebarView: NSView {
     /// Where the titlebar row's accessory may start: after the window's
     /// toolbar band (R68).
     public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { needsLayout = true } } }
-    private var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
+    /// False when the traffic lights are not over this header (a right
+    /// sidebar, R109): the accessory then starts at the reserve alone.
+    public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { needsLayout = true } } }
+    var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
 
     let list: SidebarListView
-    private let scrollView = SidebarScrollView()
+    let scrollView = SidebarScrollView()
+    private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
     private var edgeFade: ScrollEdgeFadeView!
@@ -49,12 +53,17 @@ public final class SidebarView: NSView {
     let aboveLine = CALayer()
     let belowLine = CALayer()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
+    let cardStack = SidebarCardStackView()
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
     /// Bands minimal mode hides right now (the fade's target, R54).
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
+    /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
+    public var spacesPosition: SpacesPosition = .bottom {
+        didSet { if spacesPosition != oldValue { needsLayout = true } }
+    }
     private var observation: Task<Void, Never>?
     private var lastState: RenderState?
 
@@ -193,8 +202,9 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.scrollerStyle = .overlay
+        // The system's "Show scroll bars" setting (R111); the list follows
+        // the clip's width when a legacy scroller narrows it.
+        SystemScrollers.follow(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
@@ -202,10 +212,8 @@ public final class SidebarView: NSView {
         NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
         scrollView.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(clipFrameChanged), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
-        // Sidebars keep overlay scrollers even when the system shows legacy
-        // ones, so rows never reflow when the scroller appears.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollerStyleChanged), name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        scrollView.onHorizontalSwipe = { [weak self] delta in self?.model.stepProfile(by: delta) }
+        scrollView.onHorizontalScroll = { [weak self] phase, dx, time in self?.spacePaging.scroll(phase, deltaX: dx, time: time) }
         edgeFade = ScrollEdgeFadeView(scrollView: scrollView)
         addSubview(edgeFade)
         scrollFit = ScrollFitElasticity(scrollView: scrollView)
@@ -224,7 +232,7 @@ public final class SidebarView: NSView {
     }
 
     @objc private func scrollerStyleChanged(_ note: Notification) {
-        scrollView.scrollerStyle = .overlay
+        scrollView.scrollerStyle = SystemScrollers.preferredStyle
         syncListWidth()
     }
 
@@ -247,7 +255,7 @@ public final class SidebarView: NSView {
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
-            let x = max(Metrics.trafficLightInset, titlebarLeadingReserve)
+            let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
             let width = max(0, min(size.width, newButton.frame.minX - Metrics.space2 - x))
             accessory.frame = NSRect(x: x, y: (titlebarHeight - size.height) / 2, width: width, height: size.height)
             accessory.isHidden = width < size.height
@@ -259,15 +267,17 @@ public final class SidebarView: NSView {
         }
         let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
         profileBar.isHidden = !showsProfiles
-        let footerHeight: CGFloat = visibleSlots.isEmpty && !showsProfiles ? 0 : SidebarStyle.footerHeight
+        // R109: the dots under the titlebar row, or in the footer.
+        let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
+        let dotsInFooter = spacesPosition == .bottom && showsProfiles
+        let footerHeight: CGFloat = visibleSlots.isEmpty && !dotsInFooter ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards()
         // From the bottom up (R112/R114): the Settings band, the dots, the cards.
-        let listFrame = layoutBands(top: y, footerHeight: footerHeight + cardsHeight)
+        let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + cardsHeight)
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
-        profileBar.frame = footer.bounds
-        profileBar.refresh()
+        placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListWidth()
@@ -367,12 +377,11 @@ public final class SidebarView: NSView {
         // Minimal mode changed: show or hide the chosen bands now.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode { setChromeRevealed(isChromeRevealed) }
         if listChanged {
-            if profileChanged, let previousProfile = lastState?.activeProfile, let nextProfile = state.activeProfile,
-               let oldIndex = state.profiles.firstIndex(where: { $0.id == previousProfile }), let newIndex = state.profiles.firstIndex(where: { $0.id == nextProfile }),
-               oldIndex != newIndex {
-                animateProfileSwitch(on: list, towardNext: newIndex > oldIndex)
+            if profileChanged {
+                switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
+            } else {
+                list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
             }
-            list.reload(animated: Self.animatesReload(from: previous, to: state.sections))
         }
         if chromeChanged || profilesChanged { needsLayout = true }
         lastState = state

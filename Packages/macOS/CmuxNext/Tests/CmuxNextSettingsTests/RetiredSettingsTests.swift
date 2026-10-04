@@ -63,10 +63,10 @@ import Testing
         try Data(#"{"appearance": {"tabBarBackground": "darker"}}"#.utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url)
         await #expect(throws: SettingRetired.self) {
-            try await settings.setSetting(at: ["appearance", "tabBarBackground"], to: .string("darker"))
+            try await settings.setSetting(at: ["appearance", "tabBarBackground"], to: .string("darker"), by: .user)
         }
         #expect(String(describing: SettingRetired(key: "appearance.tabBarBackground")).contains("was removed"))
-        try await settings.setSetting(at: ["appearance", "tabBarBackground"], to: nil)
+        try await settings.setSetting(at: ["appearance", "tabBarBackground"], to: nil, by: .user)
         let document = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
         #expect(document.value(at: ["appearance", "tabBarBackground"]) == nil)
     }

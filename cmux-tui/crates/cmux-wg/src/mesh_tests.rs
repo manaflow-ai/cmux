@@ -34,7 +34,7 @@ async fn a_flood_of_unknown_initiators_leaves_no_state() {
         public_key: known,
         preshared_key: None,
         allowed_ips: vec![allowed],
-        endpoint: None,
+        route: None,
         persistent_keepalive: None,
     };
     driver.add_peer(peer).unwrap();
@@ -44,13 +44,13 @@ async fn a_flood_of_unknown_initiators_leaves_no_state() {
     let source = Some(attacker.local_addr().unwrap());
     for _ in 0..3 * HANDSHAKES_PER_SECOND {
         let (stranger, _) = random_keypair();
-        driver.handle_datagram(&initiation(stranger, &responder), source);
+        driver.handle_datagram(&initiation(stranger, &responder), source.map(PeerRoute::Udp));
     }
 
     assert_eq!(driver.table.len(), 1, "no peer was created");
     assert_eq!(driver.table.index_count(), 1, "no session index was created");
     let peer = driver.table.get_mut(&known).unwrap();
-    assert_eq!(peer.endpoint, None, "a stranger's datagram moved a peer");
+    assert_eq!(peer.route, None, "a stranger's datagram moved a peer");
     assert_eq!(peer.tunn.time_since_last_handshake(), None);
     assert_eq!(driver.stack.sockets.iter().count(), 0);
     assert!(driver.stack.syn_origins.as_ref().unwrap().is_empty());

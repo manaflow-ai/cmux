@@ -15,7 +15,7 @@ use serve_common::Host;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha", "scp-endpoint"];
+const FIXTURES: &[&str] = &["vm-get", "connect-info-fs"];
 
 fn host(transfer: &FakeTransfer) -> Host {
     let spawner = FakeSpawner::default();

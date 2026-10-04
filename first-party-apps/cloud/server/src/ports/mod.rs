@@ -19,8 +19,8 @@ pub mod tunnel;
 pub use loopback::LoopbackTunnel;
 pub use tunnel::{PortTunnel, TunnelAbort, TunnelConn, TunnelError, TunnelWrite};
 
-use crate::connector::iface::Carrier;
-use crate::fs::transfer::{OpenSshTransfer, Transfer};
+use crate::fs::transfer::{DaemonTransfer, Transfer};
+use crate::link::Carrier;
 use crate::link::LinkSupervisor;
 use listener::{Handler, Listener, Session};
 use std::collections::BTreeMap;
@@ -67,15 +67,16 @@ pub struct EdgeDown {
 pub struct Edge {
     pub(crate) tunnel: Arc<dyn PortTunnel>,
     pub(crate) transfer: Arc<dyn Transfer>,
+    /// File ops on the machines' daemons (crate::fs::link_files).
+    pub(crate) files: Arc<dyn crate::fs::DaemonFiles>,
+    /// File ops running on workers (crate::fs::jobs); the loop is the only writer.
+    pub(crate) file_jobs: crate::fs::jobs::FileJobs,
     /// Running file transfers (crate::fs::running); the loop is the only writer.
     pub(crate) transfers: crate::fs::running::Transfers,
     pub(crate) forwards: BTreeMap<(String, u16), Forward>,
     pub(crate) proxies: BTreeMap<String, Forward>,
     /// Closes by link state since the last [`Edge::take_events`], in order.
     events: Vec<EdgeDown>,
-    /// The host keys pinned for each machine (`<data>/ssh/known_hosts`),
-    /// read at start (crate::fs::known_hosts).
-    known_hosts: Option<crate::fs::KnownHosts>,
 }
 
 /// A tunnel for platforms without Unix sockets: every open fails.
@@ -94,12 +95,19 @@ impl Edge {
         Self {
             tunnel,
             transfer: Arc::from(transfer),
+            files: Arc::new(crate::fs::LinkDaemonFiles),
+            file_jobs: crate::fs::jobs::FileJobs::default(),
             transfers: crate::fs::running::Transfers::new(),
             forwards: BTreeMap::new(),
             proxies: BTreeMap::new(),
             events: Vec::new(),
-            known_hosts: None,
         }
+    }
+
+    /// The same edge with `files` for daemon file ops (tests use a fake).
+    pub fn with_files(mut self, files: Arc<dyn crate::fs::DaemonFiles>) -> Self {
+        self.files = files;
+        self
     }
 
     /// The same edge with `clock` as the time source of the transfer
@@ -110,39 +118,14 @@ impl Edge {
     }
 
     /// The real tunnel (`loopback-forward-v1` on the link socket) and the
-    /// real transfer (OpenSSH with an in-memory key).
+    /// real transfer and file ops (the machine's daemon on the link).
     pub fn real() -> Self {
         #[cfg(unix)]
         let tunnel: Arc<dyn PortTunnel> = Arc::new(LoopbackTunnel);
         #[cfg(not(unix))]
         let tunnel: Arc<dyn PortTunnel> = Arc::new(NoTunnel);
-        Self::new(tunnel, Box::new(OpenSshTransfer::system()))
-    }
-
-    /// Reads the pinned host keys at server start (a missing file is no
-    /// pins; a bad line is skipped with a warning).
-    pub(crate) fn load_known_hosts(&mut self, path: std::path::PathBuf) {
-        self.known_hosts = Some(crate::fs::KnownHosts::load(path).0);
-    }
-
-    /// Pins `host_key` (from the Cloud API's scp-endpoint answer) for
-    /// `machine` in the app's known_hosts: the Cloud API is the authority,
-    /// so its new key replaces an old pin. The file is rewritten
-    /// atomically. Only the loop thread calls this. A key the Cloud API did
-    /// not give is never pinned here: new keys of other hosts go through
-    /// the user's host key sheet (crate::fs::transfer::HOST_KEY_UNPINNED).
-    pub(crate) fn pin_host_key(
-        &mut self,
-        ssh: &crate::app_env::SshFiles,
-        machine: &str,
-        host_key: &str,
-    ) -> std::io::Result<()> {
-        if self.known_hosts.as_ref().is_some_and(|k| k.path() != ssh.known_hosts) {
-            self.known_hosts = None;
-        }
-        self.known_hosts
-            .get_or_insert_with(|| crate::fs::KnownHosts::load(ssh.known_hosts.clone()).0)
-            .pin(machine, host_key)
+        let files: Arc<dyn crate::fs::DaemonFiles> = Arc::new(crate::fs::LinkDaemonFiles);
+        Self::new(tunnel, Box::new(DaemonTransfer::new(Arc::clone(&files)))).with_files(files)
     }
 
     fn listeners(&self) -> usize {

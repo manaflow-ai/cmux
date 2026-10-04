@@ -9,7 +9,7 @@
 use crate::cdp::CdpDriver;
 use crate::driver::{Driver, EventSink};
 use crate::protocol::{DriverError, ErrorCode};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,13 +38,54 @@ pub fn chromium_candidates() -> Vec<PathBuf> {
     out
 }
 
+/// The app's provider connection, set by the provider listener.
+#[cfg(unix)]
+pub type ProviderSlot = Arc<std::sync::Mutex<Option<Arc<crate::provider_link::ProviderDriver>>>>;
+
 pub struct HostEngines {
     agent_source: Arc<str>,
+    #[cfg(unix)]
+    provider: ProviderSlot,
 }
 
 impl HostEngines {
     pub fn new(agent_source: impl Into<Arc<str>>) -> HostEngines {
-        HostEngines { agent_source: agent_source.into() }
+        HostEngines {
+            agent_source: agent_source.into(),
+            #[cfg(unix)]
+            provider: Arc::default(),
+        }
+    }
+
+    /// Where the provider listener puts the app's connection.
+    #[cfg(unix)]
+    pub fn provider_slot(&self) -> ProviderSlot {
+        self.provider.clone()
+    }
+
+    #[cfg(unix)]
+    fn provider(&self, engine: &str, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+        let provider = self
+            .provider
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .filter(|provider| provider.closed_reason().is_none())
+            .ok_or_else(|| {
+                unavailable(engine, "the cmux app is not connected to the browser host")
+            })?;
+        let engine = crate::provider_engine::ProviderEngine::new(
+            provider,
+            engine,
+            self.agent_source.clone(),
+            events,
+        )?;
+        Ok(Arc::new(engine))
+    }
+
+    #[cfg(not(unix))]
+    fn provider(&self, engine: &str, _events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+        Err(unavailable(engine, "the cmux app is not connected to the browser host"))
     }
 }
 
@@ -73,9 +114,7 @@ impl crate::host::Engines for HostEngines {
     fn driver(&self, engine: &str, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
         match engine {
             "auto" | "headless" => self.headless(events),
-            "cef" | "webkit" => {
-                Err(unavailable(engine, "the cmux app is not connected to the browser host"))
-            }
+            "cef" | "webkit" => self.provider(engine, events),
             other => Err(DriverError::invalid(format!(
                 "engine: expected auto, headless, cef or webkit, got {other:?}"
             ))),
@@ -86,24 +125,29 @@ impl crate::host::Engines for HostEngines {
 impl HostEngines {
     #[cfg(unix)]
     fn headless(&self, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
-        use crate::cdp::pipe::{HeadlessChromium, HeadlessOptions};
+        use crate::cdp::pipe::HeadlessChromium;
         let Some(binary) = chromium_candidates().into_iter().find(|p| p.is_file()) else {
             return Err(unavailable(
                 "headless",
                 "no Chromium found (set CMUX_BROWSER_HOST_CHROMIUM)",
             ));
         };
-        let browser = HeadlessChromium::launch(&HeadlessOptions {
-            binary,
-            user_data_dir: None,
-            extra_args: Vec::new(),
-        })
-        .map_err(|e| unavailable("headless", &e.to_string()))?;
+        let browser = HeadlessChromium::launch(&headless_options(binary))
+            .map_err(|e| unavailable("headless", &e.to_string()))?;
         let driver = CdpDriver::attach_browser(
             browser.connection().clone(),
             self.agent_source.clone(),
             events,
         )?;
+        // Chromium opens a start tab; it is no session's tab, so the session
+        // starts with none (headless Chromium keeps running without tabs).
+        if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {
+            for tab in tabs {
+                if let Some(target) = tab["targetId"].as_str() {
+                    let _ = driver.call("tabs.close", &json!({"targetId": target}));
+                }
+            }
+        }
         Ok(Arc::new(HeadlessDriver { driver, _browser: browser }))
     }
 
@@ -111,4 +155,16 @@ impl HostEngines {
     fn headless(&self, _events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
         Err(unavailable("headless", "headless Chromium over a pipe needs a Unix host"))
     }
+}
+
+/// Launch options from the environment: `CMUX_BROWSER_HOST_HEADLESS=0` runs
+/// headful (Cloud user tabs), `CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE=0`
+/// lets Chromium throttle background tabs.
+#[cfg(unix)]
+fn headless_options(binary: PathBuf) -> crate::cdp::pipe::HeadlessOptions {
+    let off = |name: &str| std::env::var(name).is_ok_and(|value| value == "0");
+    let mut options = crate::cdp::pipe::HeadlessOptions::new(binary);
+    options.headless = !off("CMUX_BROWSER_HOST_HEADLESS");
+    options.full_rate_background = !off("CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE");
+    options
 }

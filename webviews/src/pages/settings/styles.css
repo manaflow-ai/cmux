@@ -713,3 +713,164 @@ mark {
   border: 1px solid var(--border-strong);
   background: transparent;
 }
+
+/* Accounts (R82 commit 3). */
+.accounts-header,
+.accounts-buttons,
+.accounts-linked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.accounts-header {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.accounts-intro {
+  flex: 1;
+  white-space: normal;
+}
+
+.accounts-banner,
+.accounts-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.accounts-banner {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.accounts-mark {
+  display: inline-flex;
+  flex: none;
+  width: 20px;
+}
+
+.accounts-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted-text);
+}
+
+.accounts-dot {
+  width: 0;
+  height: 0;
+  border: 3px solid var(--muted-text);
+  border-radius: 50%;
+}
+
+.accounts-status[data-status="success"] .accounts-dot {
+  border-color: var(--success, var(--text));
+}
+
+.accounts-status[data-status="attention"] .accounts-dot {
+  border-color: var(--danger);
+}
+
+.accounts-status[data-status="quiet"] .accounts-dot {
+  opacity: 0.4;
+}
+
+.accounts-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0 0 36px;
+}
+
+.accounts-body:empty {
+  display: none;
+}
+
+.accounts-form > .field {
+  max-width: 320px;
+}
+
+/* Theme picker by level and wallpaper grid (R82 commit 4). */
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-picker > .field {
+  max-width: 320px;
+}
+
+.theme-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.theme-choice {
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.theme-choice[aria-pressed="true"] {
+  background: var(--accent-soft);
+}
+
+.backdrop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.backdrop-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.backdrop-thumb {
+  width: 100%;
+  height: 68px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.backdrop-tile[aria-pressed="true"] .backdrop-thumb {
+  border-color: var(--text);
+}
+
+.backdrop-none {
+  display: block;
+  border-color: var(--border);
+}
+
+.backdrop-title {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

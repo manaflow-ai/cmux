@@ -1,7 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-/// The space switcher at the bottom center of the sidebar. Each profile keeps
+/// The space switcher, centered at the bottom of the sidebar or under its
+/// titlebar row (`sidebar.spacesPosition`, R109). Each profile keeps
 /// its name, optional icon and tonal color in the shared daemon model. The
 /// full-height slots remain easy to click, while the visible mark carries the
 /// profile's identity without adding another layout document.

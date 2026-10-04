@@ -158,8 +158,19 @@ pub(crate) async fn preset(
                 "env" if v.is_empty() => {
                     set.insert("env".into(), Value::Null);
                 }
+                // One JSON list of argv words: `args='["--tools", ""]'`; `args=` clears.
+                "args" => {
+                    let args = if v.is_empty() {
+                        Value::Null
+                    } else {
+                        serde_json::from_str::<Vec<String>>(v).map(|a| json!(a)).map_err(|e| {
+                            AppError::usage(format!("args must be a JSON list of strings: {e}"))
+                        })?
+                    };
+                    set.insert("args".into(), args);
+                }
                 _ => return Err(AppError::usage(format!(
-                    "unknown key {k:?}; use harness, model, effort, policy, description, env.KEY"
+                    "unknown key {k:?}; use harness, model, effort, policy, description, env.KEY, args"
                 ))
                 .into()),
             }

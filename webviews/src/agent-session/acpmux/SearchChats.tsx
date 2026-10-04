@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "./shortcuts";
 
 /** How many chats the palette lists (⌃1 to ⌃9 open them). */
@@ -16,6 +16,36 @@ export function searchChats(sessions: readonly AcpmuxSessionEntry[], query: stri
     .slice(0, SEARCH_CHAT_LIMIT);
 }
 
+/** Where the sheet is: hidden, shown, or playing its exit animation (still mounted). */
+export type SearchState = "closed" | "open" | "closing";
+
+/** Whether the sheet animates: the open and exit animations run only without Reduce Motion
+ * (searchChats.css), so with it no animationend arrives and a close must finish at once. */
+export function searchAnimates(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-reduced-motion: no-preference)").matches
+    : false;
+}
+
+/** The next sheet state. `toggle` is Cmd-K, `close` is Escape, the scrim or a picked row,
+ * `exited` is the end of the exit animation. A toggle during the exit reopens at once; the
+ * open animation then starts from the frame on screen. */
+export function nextSearchState(
+  state: SearchState,
+  event: "toggle" | "close" | "exited",
+  animates: boolean,
+): SearchState {
+  const closed: SearchState = animates ? "closing" : "closed";
+  switch (event) {
+    case "toggle":
+      return state === "open" ? closed : "open";
+    case "close":
+      return state === "open" ? closed : state;
+    case "exited":
+      return state === "closing" ? "closed" : state;
+  }
+}
+
 const chatTitle = (session: AcpmuxSessionEntry) => session.displayTitle ?? sessionTitle(session);
 
 type Row = { key: string; label: string; meta?: string; shortcut?: string; run(): void };
@@ -29,12 +59,18 @@ export function SearchChats({
   onSelect,
   onNewChat,
   onClose,
+  closing = false,
+  onExited,
 }: {
   sessions: readonly AcpmuxSessionEntry[];
   onSelect(sessionId: string): void;
   onNewChat(): void;
   onClose(): void;
+  /** The exit animation plays: the sheet ignores input and reports its end with `onExited`. */
+  closing?: boolean;
+  onExited?(): void;
 }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const chats: Row[] = searchChats(sessions, query).map((session, index) => ({
@@ -88,7 +124,7 @@ export function SearchChats({
     </li>
   );
   return (
-    <div className="acpmux-search-layer">
+    <div className={`acpmux-search-layer${closing ? " is-closing" : ""}`} aria-hidden={closing || undefined}>
       <button
         type="button"
         className="acpmux-search-scrim"
@@ -97,8 +133,17 @@ export function SearchChats({
         onClick={onClose}
       />
       {/* A positioned sheet inside the pane, not the browser's top-layer dialog. */}
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <div className="acpmux-search" role="dialog" aria-modal="true" aria-label={t("search.title")}>
+      <div
+        className="acpmux-search"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("search.title")}
+        onAnimationEnd={(event) => {
+          // Only the sheet's own exit ends the close (not its open animation or a child's).
+          if (closing && event.target === event.currentTarget) onExited?.();
+        }}
+      >
         <input
           className="acpmux-search-input"
           // The palette exists to type into: it opens from Cmd-K or the sidebar's search.
@@ -106,6 +151,7 @@ export function SearchChats({
           autoFocus
           type="search"
           spellCheck={false}
+          readOnly={closing}
           aria-label={t("search.title")}
           title={withShortcut(t("search.title"), toggle)}
           placeholder={t("search.placeholder")}

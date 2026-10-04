@@ -6,17 +6,14 @@
 // Pass `-` as the shiki alias for a page that does not use shiki (the Settings page).
 //
 // Each first-party .ts/.tsx file under src/ goes through the React Compiler that
-// CMUX_REACT_COMPILER selects (reactCompiler.mjs), then esbuild bundles and minifies as before.
-// babel (default): babel-plugin-react-compiler; TypeScript and JSX are only parsed there, so
-// esbuild still strips the types. oxc: oxc-transform-react, which strips the types and keeps
-// JSX; a fatal result fails the build. Components the compiler skips or bails out on are
+// CMUX_REACT_COMPILER selects (reactCompiler.mjs; the pass is reactCompilerPlugin.mjs), then
+// esbuild bundles and minifies as before. Components the compiler skips or bails out on are
 // listed on stderr, and as JSON with --report, so a bailout is visible in review.
-import { transformAsync } from "@babel/core";
 import { build } from "esbuild";
-import { transformSync } from "oxc-transform-react";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { REACT_COMPILER_TARGET, reactCompilerMode } from "../../reactCompiler.mjs";
+import { reactCompilerMode } from "../../reactCompiler.mjs";
+import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -30,85 +27,12 @@ const srcRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), ".
 const mode = reactCompilerMode();
 const bailouts = [];
 const compiled = new Set();
-
-function lineOf(source, offset) {
-  let line = 1;
-  for (let index = 0; index < offset && index < source.length; index++) if (source.charCodeAt(index) === 10) line++;
-  return line;
-}
-
-// Oxc reports diagnostics per finding, not per function, and has no success event, so
-// `compiled` counts files here.
-function compileWithOxc(file, relative, source) {
-  const result = transformSync(file, source, {
-    lang: file.endsWith(".tsx") ? "tsx" : "ts",
-    sourceType: "module",
-    jsx: "preserve",
-    reactCompiler: { target: REACT_COMPILER_TARGET },
-  });
-  for (const error of result.errors) {
-    bailouts.push({
-      file: relative,
-      kind: error.severity,
-      function: null,
-      line: error.labels[0] ? lineOf(source, error.labels[0].start) : null,
-      reason: error.message,
-    });
-  }
-  if (result.fatal) {
-    const detail = result.errors.map((error) => error.codeframe ?? error.message).join("\n\n");
-    throw new Error(`React Compiler (oxc) failed on ${relative}:\n${detail || "unknown error"}`);
-  }
-  compiled.add(relative);
-  return { contents: result.code, loader: "jsx" };
-}
-
-const reactCompiler = {
-  name: "react-compiler",
-  setup(context) {
-    context.onLoad({ filter: /\.(tsx|ts)$/ }, async (args) => {
-      if (!args.path.startsWith(srcRoot + path.sep) || args.path.endsWith(".d.ts")) return undefined;
-      const source = await readFile(args.path, "utf8");
-      const relative = path.relative(srcRoot, args.path);
-      if (mode === "oxc") return compileWithOxc(args.path, relative, source);
-      const result = await transformAsync(source, {
-        filename: args.path,
-        babelrc: false,
-        configFile: false,
-        sourceMaps: false,
-        compact: false,
-        retainLines: false,
-        parserOpts: { plugins: ["jsx", "typescript"] },
-        plugins: [
-          [
-            "babel-plugin-react-compiler",
-            {
-              target: REACT_COMPILER_TARGET,
-              logger: {
-                logEvent(_filename, event) {
-                  if (event.kind === "CompileSuccess") compiled.add(`${relative}:${event.fnName ?? "anonymous"}`);
-                  if (event.kind === "CompileError" || event.kind === "CompileSkip" || event.kind === "PipelineError") {
-                    const detail = event.detail ?? {};
-                    bailouts.push({
-                      file: relative,
-                      kind: event.kind,
-                      function: event.fnName ?? null,
-                      line: event.fnLoc?.start?.line ?? detail.loc?.start?.line ?? null,
-                      reason: String(
-                        detail.reason ?? detail.options?.reason ?? event.reason ?? event.data ?? "unknown",
-                      ),
-                    });
-                  }
-                },
-              },
-            },
-          ],
-        ],
-      });
-      return { contents: result?.code ?? source, loader: args.path.endsWith(".tsx") ? "tsx" : "ts" };
-    });
-  },
-};
+const reactCompiler = reactCompilerPlugin({
+  mode,
+  srcRoot,
+  onCompiled: (id) => compiled.add(id),
+  onDiagnostic: (diagnostic) => bailouts.push(diagnostic),
+});
 
 await build({
   entryPoints: [entry],

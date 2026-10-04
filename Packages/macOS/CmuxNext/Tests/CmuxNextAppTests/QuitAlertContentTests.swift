@@ -1,9 +1,9 @@
 @testable import CmuxNextApp
 import Testing
 
-/// User feedback 2026-09-30: the quit question is a plain NSAlert. "Quit
-/// cmux?" with one sentence per fact and no program list; Quit keeps the
-/// terminals, Cancel, and "End Sessions…" asks once more.
+/// The quit question (R96, R138): a cmux dialog, "Quit cmux?" with one
+/// sentence per fact and no program list; Keep Sessions Running (default),
+/// Cancel, and "Quit Everything…" asks once more.
 struct QuitAlertContentTests {
     static func prompt(terminals: Int = 12, running: Int = 0, incognito: [String] = [], remote: Bool = false,
                        choice: Bool = true, defaultChoice: QuitSessionsChoice = .keep) -> QuitPrompt {
@@ -15,7 +15,7 @@ struct QuitAlertContentTests {
         let content = QuitAlertContent.main(Self.prompt())
         #expect(content.title == "Quit cmux?")
         #expect(content.lines == ["Your 12 terminals keep running in the background."])
-        #expect(content.buttons == [.quit, .cancel, .endSessions])
+        #expect(content.buttons == [.keep, .cancel, .quitEverything])
         #expect(content.showsSuppression)
     }
 
@@ -48,8 +48,9 @@ struct QuitAlertContentTests {
     @Test func endSessionsAsksOnceWithBothEndChoices() {
         let content = QuitAlertContent.endConfirmation
         #expect(content.title == "End all terminals?")
-        #expect(content.buttons == [.endKeepLayout, .cancel, .endEverything])
+        #expect(content.buttons == [.confirmQuitEverything, .cancel, .endEverything])
         #expect(content.lines == ["End Everything also deletes your workspaces."])
-        #expect(QuitAlertContent.title(of: .endSessions) == "End Sessions…")
+        #expect(QuitAlertContent.title(of: .quitEverything) == "Quit Everything…")
+        #expect(QuitAlertContent.title(of: .keep) == "Keep Sessions Running")
     }
 }

@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod calls;
 #[cfg(unix)]
+mod cancel;
+#[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
 mod egress;
@@ -52,6 +54,12 @@ mod supervisor;
 #[cfg(all(test, unix))]
 mod supervisor_tests;
 #[cfg(unix)]
+mod terminal_backends;
+#[cfg(unix)]
+mod terminal_links;
+#[cfg(unix)]
+mod terminal_ops;
+#[cfg(unix)]
 mod timer;
 
 use std::sync::{Arc, OnceLock};
@@ -61,7 +69,7 @@ pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
 pub(crate) use provider::{ProviderClaim, admit_origin};
 #[cfg(unix)]
-pub(crate) use runs::RunRequest;
+pub(crate) use runs::{Caller, RunRequest};
 #[cfg(unix)]
 pub(crate) use supervisor::{ApiError, Supervisor};
 

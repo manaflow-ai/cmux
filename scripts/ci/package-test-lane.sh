@@ -17,14 +17,20 @@
 #             several of these at once before its serial test pass.
 #   ghostty-sha  print the GhosttyKit revision a download would use (empty
 #             when a ghostty submodule checkout provides it).
-#   suite PACKAGE_DIR FILTER
-#             one focused gate: select Xcode (CMUX_CI_XCODE_APP), fetch
+#   suite PACKAGE_DIR FILTER[,FILTER...] [FILTER[,FILTER...]...]
+#             a lane's focused gate: select Xcode (CMUX_CI_XCODE_APP), fetch
 #             GhosttyKit when the package names it, build PACKAGE_DIR (a
-#             Packages/ path) with its tests, and run `swift test --filter
-#             FILTER` under the hang watchdog. A filter that runs no test fails.
+#             Packages/ path) with its tests ONCE, then run `swift test
+#             --skip-build --filter FILTER` for each filter in turn under the
+#             hang watchdog. Filters come as comma lists, separate arguments,
+#             or both. A failing suite does not stop the ones after it; the
+#             summary lists every suite and the step fails when any failed. A
+#             filter that runs no test fails. The watchdog limits apply to
+#             each suite (CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS, 900 s), so N
+#             suites can take N times that; cmux-ci's --timeout covers the step.
 #             Lanes: cmux-ci run --class light --script
 #             scripts/ci/package-test-lane.sh --ref SHA --arg=suite
-#             --arg=Packages/macOS/CmuxNext --arg=SuiteName
+#             --arg=Packages/macOS/CmuxNext --arg=SuiteA,SuiteB,SuiteC
 #             --env CMUX_CI_XCODE_APP=/Applications/Xcode_26.6.app
 #
 # --event and --full-suite default to EVENT_NAME and FULL_SUITE. Run from the
@@ -36,19 +42,31 @@ case "${1:-}" in
   run|select|packages|ghostty-sha) phase="$1"; shift ;;
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
   suite)
-    phase="$1"; suite_package="${2:-}"; suite_filter="${3:-}"
-    if [ "$#" -ne 3 ]; then
-      echo "usage: package-test-lane.sh suite PACKAGE_DIR FILTER" >&2; exit 2
+    phase="$1"; suite_package="${2:-}"
+    if [ "$#" -lt 3 ]; then
+      echo "usage: package-test-lane.sh suite PACKAGE_DIR FILTER[,FILTER...] [FILTER...]" >&2; exit 2
     fi
-    shift 3
-    # A Packages/ path inside the checkout, and a filter that is not an option.
+    # A Packages/ path inside the checkout, and filters that are not options.
     if ! [[ "$suite_package" =~ ^Packages/[A-Za-z0-9_][A-Za-z0-9_./-]*$ ]] || [[ "$suite_package" == *..* ]] \
       || [ ! -f "$suite_package/Package.swift" ]; then
       echo "package-test-lane.sh: suite needs a package directory under Packages/ (got '$suite_package')" >&2; exit 2
     fi
-    if ! [[ "$suite_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:-]*$ ]]; then
-      echo "package-test-lane.sh: suite needs a test filter such as SuiteName (got '$suite_filter')" >&2; exit 2
-    fi
+    shift 2
+    suite_filters=()
+    for suite_arg in "$@"; do
+      if [[ "$suite_arg" == *$'\n'* ]]; then
+        echo "package-test-lane.sh: a suite filter has a newline (got '$suite_arg')" >&2; exit 2
+      fi
+      # Split on commas, keeping empty fields so "A,,B" and "A," are refused.
+      IFS=, read -r -a suite_parts <<< "$suite_arg,"
+      for suite_filter in ${suite_parts[@]+"${suite_parts[@]}"}; do
+        if ! [[ "$suite_filter" =~ ^[A-Za-z0-9_][A-Za-z0-9_./:-]*$ ]]; then
+          echo "package-test-lane.sh: suite needs test filters such as SuiteA,SuiteB (got '$suite_arg')" >&2; exit 2
+        fi
+        suite_filters+=("$suite_filter")
+      done
+    done
+    set --
     ;;
 esac
 event="${EVENT_NAME:-}"
@@ -136,7 +154,20 @@ select_packages() {
     fi
   done < "$selected"
   output "needs_ghosttykit=$needs_ghosttykit"
+  write_package_input_keys
   echo "Selected $count of ${#PACKAGES[@]} Swift packages."
+}
+
+write_package_input_keys() {
+  [ -f "${selected:-}" ] || return 0
+  local receipt_file="$work/package-input-keys.json" receipt
+  python3 scripts/ci/package_input_key.py --root . --packages-file "$selected" --output "$receipt_file"
+  receipt="$(tr -d "\n" < "$receipt_file")"
+  output "package_input_keys=$receipt"
+  # Fleet steps do not receive GITHUB_OUTPUT; this marker is copied back by the
+  # workflow wrapper alongside the interface-fingerprint receipt.
+  printf 'CMUX_PACKAGE_INPUT_KEYS=%s\n' "$receipt"
+  PACKAGE_INPUT_KEYS_FILE="$receipt_file"
 }
 
 # The workflow's "Select Xcode" step already exported DEVELOPER_DIR through
@@ -197,30 +228,54 @@ interface_fingerprint() {
 # pass share them, so the test pass finds the prebuilt products up to date.
 package_args() {
   local pkg="$1"
-  # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
-  # resolve the actual directory so this list stays group-agnostic.
-  pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+  pkgdir=""
+  if [[ "$pkg" == */* ]]; then
+    # A path is accepted only when it is exactly Packages/<group>/<name> with a
+    # Package.swift (2026-10-04: a path looked up as a name compiled nothing).
+    if [[ "$pkg" =~ ^Packages/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?$ && "$pkg" != *..* && -f "${pkg%/}/Package.swift" ]]; then
+      pkgdir="${pkg%/}"
+    fi
+  elif [[ "$pkg" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
+    # resolve the actual directory so this list stays group-agnostic.
+    pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+    [ -z "$pkgdir" ] || [ -f "$pkgdir/Package.swift" ] || pkgdir=""
+  fi
   if [ -z "$pkgdir" ]; then
-    echo "package '$pkg' not found under Packages/*/ (renamed or moved?)"
+    echo "package '$pkg' not found: give a name under Packages/*/ or a Packages/<group>/<name> path with a Package.swift"
     return 1
   fi
   swift_test_args=(--package-path "$pkgdir")
 }
 
-# One package's build, for prebuild_packages. It never fails the lane: a
+# One package's build. It exits non-zero when the package is not found or its
+# build fails, so a compile step run on its own is never green without a
+# compile (2026-10-04 false green). prebuild_packages ignores its status: a
 # package whose prebuild fails is built again by its `swift test`, which
 # reports the error in that package's group as before.
 prebuild_one() {
   local pkg="$1" log="$2" started=$SECONDS status=0
-  package_args "$pkg" > "$log" 2>&1 || { echo "Prebuild skipped $pkg (not found)."; return 0; }
+  if ! package_args "$pkg" > "$log" 2>&1; then
+    cat "$log" >&2
+    echo "error: prebuild of $pkg compiled nothing: package not found." >&2
+    return 2
+  fi
   python3 scripts/ci/run_with_timeout.py \
     --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
     -- swift build --build-tests "${swift_test_args[@]}" > "$log" 2>&1 < /dev/null || status=$?
   if [ "$status" -eq 0 ]; then
     echo "Prebuilt $pkg in $((SECONDS - started))s."
-  else
-    echo "Prebuild of $pkg exited $status after $((SECONDS - started))s; its swift test builds whatever is still missing (the GhosttyKit packages exit 1 here on the known binaryTarget diagnostic)."
+    return 0
   fi
+  # The GhosttyKit packages exit 1 on the known cosmetic binaryTarget
+  # diagnostic after a complete build; anything else is a failed build.
+  if [ "$status" -eq 1 ] && grep -q 'GhosttyKit\.xcframework' "$pkgdir/Package.swift" 2>/dev/null \
+    && grep -Fq 'Build complete!' "$log" && grep -Eq 'unexpected binary' "$log"; then
+    echo "Prebuilt $pkg in $((SECONDS - started))s (tolerated the GhosttyKit binaryTarget diagnostic)."
+    return 0
+  fi
+  echo "Prebuild of $pkg exited $status after $((SECONDS - started))s (log: $log)." >&2
+  return "$status"
 }
 
 # Every package is its own SwiftPM root with its own .build, so each selected
@@ -407,14 +462,49 @@ run_suite() {
   echo "::group::swift build --build-tests $suite_package"
   swift build --build-tests --package-path "$suite_package" < /dev/null
   echo "::endgroup::"
-  local log
-  log="$(mktemp -t swift-suite-test.XXXXXX)"
-  python3 scripts/ci/hung_test_watchdog.py \
-    --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
-    --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
-    --sample-seconds 5 --label "$suite_filter" --log "$log" \
-    -- swift test --package-path "$suite_package" --skip-build --filter "$suite_filter" < /dev/null
-  python3 scripts/ci/require_swift_test_execution.py --log "$log"
+  # swift build copies String Catalogs into the resource bundles uncompiled; without the
+  # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
+  if [ -x scripts/cmux-next/compile-string-catalogs.sh ]; then
+    (cd "$suite_package" && "$OLDPWD/scripts/cmux-next/compile-string-catalogs.sh")
+  fi
+  # One build serves every suite. Each suite runs in its own `swift test` so the
+  # summary has a result per suite and one failure does not hide the others.
+  local log filter status started result failed=0 first_failure_status=0 rows=()
+  for filter in "${suite_filters[@]}"; do
+    echo "::group::swift test --filter $filter"
+    log="$(mktemp -t swift-suite-test.XXXXXX)"
+    started=$SECONDS
+    status=0
+    python3 scripts/ci/hung_test_watchdog.py \
+      --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
+      --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
+      --sample-seconds 5 --label "$filter" --log "$log" \
+      -- swift test --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
+    if [ "$status" -eq 0 ]; then
+      python3 scripts/ci/require_swift_test_execution.py --log "$log" || status=$?
+    fi
+    echo "::endgroup::"
+    if [ "$status" -eq 0 ]; then
+      result=passed
+    else
+      failed=$((failed + 1))
+      [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
+      if [ "$status" -eq 124 ]; then result="stalled/timeout"; else result="failed (exit $status)"; fi
+      echo "::error title=Swift suite failed::$filter in $suite_package: $result after $((SECONDS - started))s"
+    fi
+    rows+=("$(printf '%-48s %-18s %6ss' "$filter" "$result" "$((SECONDS - started))")")
+  done
+  local table
+  table="$(printf '%-48s %-18s %7s\n' suite result time; printf '%s\n' "${rows[@]}")"
+  printf 'Swift suite results (%s):\n%s\n' "$suite_package" "$table"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    printf '### Swift suites (%s)\n\n```\n%s\n```\n' "$suite_package" "$table" >> "$GITHUB_STEP_SUMMARY"
+  fi
+  if [ "$failed" -ne 0 ]; then
+    echo "$failed of ${#suite_filters[@]} suites failed."
+    exit "$first_failure_status"
+  fi
+  echo "All ${#suite_filters[@]} suites passed."
 }
 
 case "$phase" in

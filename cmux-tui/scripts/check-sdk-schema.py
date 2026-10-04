@@ -28,7 +28,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "TerminalSizingPolicy": "SizePolicy",
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
-    "crate::model::ColumnSticky": "ColumnPin",
+    "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
@@ -150,7 +150,8 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         if attribute:
             attributes.append(attribute.group(1))
             continue
-        field = re.fullmatch(r"([a-z][A-Za-z0-9_]*): (.+),", line)
+        # Field visibility (pub, pub(crate), pub(super), pub(in path)) does not change the wire shape.
+        field = re.fullmatch(r"(?:pub(?:\((?:crate|super|self|in [a-z_:]+)\))? )?([a-z][A-Za-z0-9_]*): (.+),", line)
         if not field:
             fail(f"cannot parse {label} line {line!r}")
         name, rust_type = field.groups()
@@ -387,10 +388,27 @@ def _schema_type_shape(
     return ""
 
 
+# Fields the server reads only to refuse them with invalid-argument: a
+# pre-rename name an older client may still send. They are not part of the
+# SDK contract, so the SDKs never send them.
+REFUSED_LEGACY_REQUEST_FIELDS = {
+    # R87 DOCK-WIRE: `sticky` was renamed to `dock`; ignoring it would turn an
+    # older client's pin into a plain column.
+    "move-tab-to-column": {"sticky"},
+}
+
+
 def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
+    for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
+        fields = runtime_commands.get(command_name, {})
+        missing = refused - set(fields)
+        if missing:
+            fail(f"refused legacy request field missing from {command_name}: {sorted(missing)}")
+        for name in refused:
+            del fields[name]
     compare_names(set(ir.commands), set(runtime_commands), "runtime SDK command")
     for command_name, command in ir.commands.items():
         request = command["request"]

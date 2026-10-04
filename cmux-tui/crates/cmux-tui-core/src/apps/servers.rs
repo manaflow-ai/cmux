@@ -374,6 +374,7 @@ impl Supervisor {
         mut args: Value,
         origin: Origin,
         idempotency_key: Option<String>,
+        op_call: Option<u64>,
         respond: Responder,
     ) -> Vec<Out> {
         let outs = match self.start_server_locked(inner, app) {
@@ -412,9 +413,12 @@ impl Supervisor {
         let message = line(&message);
         server.pending.insert(id.clone(), respond);
         if server.stopping {
-            server.queued.push((id, message));
+            server.queued.push((id.clone(), message));
         } else {
             server.process.send(message);
+        }
+        if let Some(call) = op_call {
+            Self::op_sent_locked(inner, call, app, id);
         }
         outs
     }
@@ -571,6 +575,12 @@ impl Supervisor {
             if inner.servers.get(app).is_none_or(|s| s.generation != generation) {
                 return;
             }
+            if Self::is_terminal_line(&value) {
+                let process = inner.servers[app].process.clone();
+                drop(inner);
+                self.terminal_line(app, &value).iter().for_each(|r| process.send(line(r)));
+                return;
+            }
             if value["t"] == "host.request" {
                 let reply = self.host_request_locked(&inner, app, &value);
                 inner.servers[app].process.send(line(&reply));
@@ -618,7 +628,7 @@ impl Supervisor {
     }
 
     /// Schedules the idle stop of an on-demand server with nothing in flight.
-    fn server_idle_check_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
+    pub(super) fn server_idle_check_locked(&self, inner: &mut Inner, app: &str) -> Vec<Out> {
         let Some(server) = inner.servers.get_mut(app) else { return vec![] };
         let Some(after) = server.spec.idle.filter(|_| !server.spec.always) else { return vec![] };
         if server.stopping || !server.pending.is_empty() || server.idle.is_some() {
@@ -664,6 +674,7 @@ impl Supervisor {
                     Out::Respond(respond, Err(ApiError::new("apps.server_exited", exit.describe())))
                 })
                 .collect();
+            outs.extend(self.terminal_server_gone_locked(&mut inner, app));
             let level = if server.stopping { "info" } else { "error" };
             outs.extend(self.log_locked(
                 &mut inner,
@@ -677,7 +688,14 @@ impl Supervisor {
             let active = inner.mirror.apps.get(app).is_some_and(|r| r.installed && r.enabled);
             if !queued.is_empty() {
                 // Calls that arrived while it stopped: start the next process.
-                outs.extend(self.restart_with_queued_locked(&mut inner, app, keep, queued, active));
+                outs.extend(self.restart_with_queued_locked(
+                    &mut inner,
+                    app,
+                    keep,
+                    queued,
+                    server.next_id,
+                    active,
+                ));
             } else if !server.stopping && server.spec.always && active {
                 outs.extend(self.schedule_server_restart_locked(&mut inner, app));
             }
@@ -692,6 +710,7 @@ impl Supervisor {
         app: &str,
         mut pending: HashMap<String, Responder>,
         queued: Vec<(String, Vec<u8>)>,
+        next_id: u64,
         active: bool,
     ) -> Vec<Out> {
         let started = if active {
@@ -702,6 +721,8 @@ impl Supervisor {
         match started {
             Ok(mut outs) => {
                 let server = inner.servers.get_mut(app).expect("started");
+                // Queued calls keep their wire ids; new ones never reuse them.
+                server.next_id = next_id;
                 for (id, message) in queued {
                     if let Some(respond) = pending.remove(&id) {
                         server.pending.insert(id, respond);

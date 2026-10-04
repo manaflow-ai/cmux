@@ -22,7 +22,7 @@ extension HomeController {
             case .part(let p):
                 let body = RowArt.bodyRect(spec, metrics: scene.metrics)
                 frame = CGRect(x: body.minX, y: top, width: body.width, height: body.height)
-                label = p.text.text
+                label = Self.accessibilityLabel(p)
                 let author = Self.itemKey(of: spec.key).flatMap { authors[$0] }
                 if author == me {
                     value = HomeStrings.fromMe
@@ -40,6 +40,16 @@ extension HomeController {
         }
         out.append(HomeAXItem(id: "compose", role: .textArea, label: HomeStrings.composeLabel, value: draft, frame: fieldRect))
         return out
+    }
+
+    /// What VoiceOver reads for a bubble: its text, "Photo, <name>",
+    /// "Video, <name>" or "<name>, <kind>, <size>".
+    static func accessibilityLabel(_ p: PartRow) -> String {
+        switch p.content {
+        case .text(let text): text.text
+        case .media(let media): media.isVideo ? AttachmentStrings.video(media.ref.name) : AttachmentStrings.photo(media.ref.name)
+        case .file(let file): AttachmentStrings.file(name: file.fullName, kind: file.kind, size: file.size)
+        }
     }
 
     /// The item key inside a row key ("kind:<item key>[:part]").

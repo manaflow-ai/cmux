@@ -638,6 +638,18 @@
       "title" : "Padding",
       "type" : "number"
     },
+    "layout.paneSeparation" : {
+      "default" : "borders",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "enum" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "title" : "Separation",
+      "type" : "string"
+    },
     "layout.rows" : {
       "default" : true,
       "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
@@ -994,10 +1006,34 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "picker.pinned" : {
+      "default" : [
+
+      ],
+      "description" : "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Folders",
+      "type" : "array"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
+    },
+    "sidebar.border" : {
+      "default" : false,
+      "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
+      "title" : "Border",
+      "type" : "boolean"
+    },
+    "sidebar.borderWidth" : {
+      "description" : "sidebar.borderWidth",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Border Width",
+      "type" : "number"
     },
     "sidebar.bottomBandMaxShare" : {
       "default" : 0.25,
@@ -1044,6 +1080,26 @@
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
     },
+    "sidebar.side" : {
+      "default" : "left",
+      "description" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Sidebar Side",
+      "type" : "string"
+    },
+    "sidebar.spacesPosition" : {
+      "default" : "bottom",
+      "description" : "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Spaces Position",
+      "type" : "string"
+    },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
       "description" : "The share of the sidebar the top sections fill before they scroll.",
@@ -1080,6 +1136,16 @@
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
+    "tabs.barPosition" : {
+      "default" : "top",
+      "description" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Tab Bar Position",
+      "type" : "string"
+    },
     "tabs.newTabKind" : {
       "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
@@ -1092,6 +1158,16 @@
         "auto"
       ],
       "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tabs.plusButton" : {
+      "default" : "hover",
+      "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "New Tab Button",
       "type" : "string"
     },
     "tasks.layout" : {
@@ -1137,6 +1213,77 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.checkAutomatically" : {
+      "default" : true,
+      "description" : "updates.checkAutomatically",
+      "title" : "Check for Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.checkIntervalSeconds" : {
+      "default" : 3600,
+      "description" : "updates.checkIntervalSeconds",
+      "maximum" : 604800,
+      "minimum" : 900,
+      "title" : "Check Every",
+      "type" : "number"
+    },
+    "updates.downloadAutomatically" : {
+      "default" : true,
+      "description" : "Off: a found update waits, and one click downloads and installs it.",
+      "title" : "Download Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.installOnQuit" : {
+      "default" : true,
+      "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
+      "title" : "Install Updates When Quitting",
+      "type" : "boolean"
+    },
+    "updates.keepPreviousVersions" : {
+      "default" : 1,
+      "description" : "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
+      "maximum" : 5,
+      "minimum" : 0,
+      "title" : "Keep Previous Versions",
+      "type" : "number"
+    },
+    "updates.meteredNetwork" : {
+      "default" : "defer-low-data",
+      "description" : "While downloads wait, a found update shows as a card and one click downloads it.",
+      "enum" : [
+        "defer-low-data",
+        "defer-expensive",
+        "download"
+      ],
+      "title" : "On Metered Networks",
+      "type" : "string"
+    },
+    "updates.notify" : {
+      "default" : "card",
+      "description" : "updates.notify",
+      "enum" : [
+        "card",
+        "badge",
+        "silent"
+      ],
+      "title" : "When an Update Is Ready",
+      "type" : "string"
+    },
+    "updates.quietHours" : {
+      "description" : "No update card between these times.",
+      "properties" : {
+        "end" : {
+          "title" : "end",
+          "type" : "string"
+        },
+        "start" : {
+          "title" : "start",
+          "type" : "string"
+        }
+      },
+      "title" : "Quiet Hours",
+      "type" : "object"
+    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
@@ -1145,6 +1292,16 @@
         "standard"
       ],
       "title" : "Titlebar",
+      "type" : "string"
+    },
+    "window.titlebarButtons" : {
+      "default" : "hover",
+      "description" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Titlebar Buttons",
       "type" : "string"
     }
   },

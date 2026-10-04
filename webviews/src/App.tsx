@@ -3,7 +3,16 @@ import { parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme }
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
 import { preparePresortedFileTreeInput } from "@pierre/trees";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, copyText, resolveDiffNavigationURL } from "./actions";
@@ -102,6 +111,7 @@ import {
   saveViewerPrefs,
   type ViewerPrefs,
 } from "./viewer-prefs";
+import { useDiffWrites } from "./diff-writes";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
@@ -559,6 +569,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   }
   const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
+  // This mount's host writes (viewed marks, prefs): disposed with the viewer (diff-writes.ts).
+  const writes = useDiffWrites();
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const codeViewScrollTopRef = useRef(0);
@@ -648,17 +660,28 @@ export function App({ config, initialStatus }: ConfigProps) {
   // as well as tree rows so `visibleItems` is the single visible list.
   const viewedScope = viewedScopeFor(resolvedSessionSource ?? activeSessionSource, payload);
   const viewedStateOf = (item: DiffItem): ViewedFileState => viewedStateOfItem(item, state.viewedByPath);
+  // Zero-latency rule (g): a filter keystroke repaints the field and the files tree in its own
+  // frame; the diff column (and what follows it: find, jump, navigation) catches up in a deferred,
+  // interruptible render, so laying out the new set of files never sits on the input path.
+  const deferredFileFilter = useDeferredValue(state.fileFilter);
   const visibleItems = useMemo(
-    () => filterDiffItems(state.items, state.fileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
-    [state.fileFilter, state.items, state.viewedByPath],
+    () => filterDiffItems(state.items, deferredFileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
+    [deferredFileFilter, state.items, state.viewedByPath],
+  );
+  const treeItems = useMemo(
+    () =>
+      deferredFileFilter === state.fileFilter
+        ? visibleItems
+        : filterDiffItems(state.items, state.fileFilter, (item) => viewedStateOfItem(item, state.viewedByPath)),
+    [deferredFileFilter, state.fileFilter, state.items, state.viewedByPath, visibleItems],
   );
   const visibleItemsRef = useSyncedRef(visibleItems);
   // What CodeView renders: a collapsed file as plain text, so no highlight
   // work is spent on it (see presentedItem).
   const presentedItems = useMemo(() => visibleItems.map(presentedItem), [visibleItems]);
   const filteredTreeSource = useMemo(
-    () => filteredFileTreeSource(state.treeSource, state.fileFilter, visibleItems),
-    [state.fileFilter, state.treeSource, visibleItems],
+    () => filteredFileTreeSource(state.treeSource, state.fileFilter, treeItems),
+    [state.fileFilter, state.treeSource, treeItems],
   );
   const viewedScopeRef = useSyncedRef(viewedScope);
   const toggleViewed = useCallback(
@@ -675,9 +698,9 @@ export function App({ config, initialStatus }: ConfigProps) {
       keepStuckHeaderInView(codeViewRef, collapses ? itemId : null, () =>
         dispatch({ type: "apply-viewed", items: result.items, change }),
       );
-      persistViewedChange(viewedScopeRef.current, change);
+      persistViewedChange(viewedScopeRef.current, change, writes);
     },
-    [latestState, viewedScopeRef],
+    [latestState, viewedScopeRef, writes],
   );
   const toggleViewedPath = useCallback(
     (path: string) => {
@@ -706,9 +729,9 @@ export function App({ config, initialStatus }: ConfigProps) {
       keepStuckHeaderInView(codeViewRef, collapsed ? itemId : null, () =>
         dispatch({ type: "set-item-collapsed", itemId, collapsed, collapsedFiles }),
       );
-      saveViewerPrefs({ collapsedFiles });
+      saveViewerPrefs({ collapsedFiles }, writes);
     },
-    [latestState],
+    [latestState, writes],
   );
   const toggleItemCollapsed = useCallback(
     (itemId: string) => {
@@ -958,7 +981,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({ type: "set-status", status });
   };
   const setLayout = (layout: DiffViewerLayout) => {
-    saveViewerPrefs({ layout });
+    saveViewerPrefs({ layout }, writes);
     dispatch({ type: "set-option", key: "layout", value: layout });
   };
   // Dispatches an options change and persists it globally when the key is a
@@ -966,7 +989,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const setOption = (key: keyof DiffViewerOptions, value: any) => {
     dispatch({ type: "set-option", key, value });
     if (key !== "collapsed") {
-      saveViewerPrefs({ [key]: value });
+      saveViewerPrefs({ [key]: value }, writes);
     }
   };
   const refresh = () => {
@@ -1063,6 +1086,8 @@ export function App({ config, initialStatus }: ConfigProps) {
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
         <FilesSidebarBackdrop label={label} onClose={() => closeFileSearch(dispatch)} open={state.fileSearchOpen} />
+        {/* Covers the strip a closing panel uncovers until the diff widens (files-panel-motion.ts). */}
+        <div id="files-motion-curtain" aria-hidden="true" />
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
@@ -1384,7 +1409,7 @@ export function FileHeader({
       }}
     >
       <FileIcon path={path} />
-      <span className="file-header-path" title={previousPath == null ? path : `${previousPath} → ${path}`}>
+      <span className="file-header-path selectable" title={previousPath == null ? path : `${previousPath} → ${path}`}>
         {previousPath != null ? (
           <span className="file-header-previous">
             <bdi>{previousPath}</bdi>
@@ -2947,6 +2972,10 @@ function useDeferredHydration(items: DiffItem[], dispatch: React.Dispatch<AppAct
   }, [dispatch, items]);
 }
 
+function setDataset(dataset: DOMStringMap, key: string, value: string): void {
+  if (dataset[key] !== value) dataset[key] = value;
+}
+
 function usePageDataAttributes(state: AppState) {
   // The files panel shows and hides through its motion (files-panel-motion.ts),
   // which flips `data-files-hidden` in this commit's frame and slides the
@@ -2955,6 +2984,11 @@ function usePageDataAttributes(state: AppState) {
   useLayoutEffect(() => {
     filesPanelMotion.current ??= createFilesPanelMotion({
       panel: () => document.getElementById("files-sidebar"),
+      curtain: () => document.getElementById("files-motion-curtain"),
+      timelineTime: () => {
+        const time = document.timeline?.currentTime;
+        return typeof time === "number" ? time : null;
+      },
       body: document.body,
       currentOffset: (panel) => computedTranslateX(panel as HTMLElement),
       requestFrame: (callback) => requestAnimationFrame(() => callback()),
@@ -2963,19 +2997,23 @@ function usePageDataAttributes(state: AppState) {
     filesPanelMotion.current.set(state.filesVisible);
   }, [state.filesVisible]);
   useEffect(() => {
-    document.body.dataset.loading = state.status.loading ? "true" : "false";
-    document.documentElement.dataset.layout = state.options.layout;
-    document.documentElement.dataset.wordWrap = String(state.options.wordWrap);
-    document.documentElement.dataset.diffIndicators = state.options.diffIndicators;
-    document.body.dataset.generatedPathCount = String(state.generatedPaths.length);
+    // Written only when a value changes: an attribute write on <html> or <body> invalidates style
+    // for the whole document, and this runs after every state change (an input's frame included).
+    const body = document.body.dataset;
+    const root = document.documentElement.dataset;
+    setDataset(body, "loading", state.status.loading ? "true" : "false");
+    setDataset(root, "layout", state.options.layout);
+    setDataset(root, "wordWrap", String(state.options.wordWrap));
+    setDataset(root, "diffIndicators", state.options.diffIndicators);
+    setDataset(body, "generatedPathCount", String(state.generatedPaths.length));
     if (state.metrics) {
-      document.body.dataset.streamFileCount = String(state.metrics.fileCount ?? state.items.length);
-      document.body.dataset.streamRenderableFileCount = String(state.metrics.renderableFileCount ?? state.items.length);
-      document.body.dataset.streamFlushCount = String(state.metrics.flushCount ?? 0);
-      document.body.dataset.streamMaxBatchSize = String(state.metrics.maxBatchSize ?? 0);
-      document.body.dataset.streamTreeRefreshCount = String(state.metrics.treeRefreshCount ?? 0);
+      setDataset(body, "streamFileCount", String(state.metrics.fileCount ?? state.items.length));
+      setDataset(body, "streamRenderableFileCount", String(state.metrics.renderableFileCount ?? state.items.length));
+      setDataset(body, "streamFlushCount", String(state.metrics.flushCount ?? 0));
+      setDataset(body, "streamMaxBatchSize", String(state.metrics.maxBatchSize ?? 0));
+      setDataset(body, "streamTreeRefreshCount", String(state.metrics.treeRefreshCount ?? 0));
       if (Number.isFinite(state.metrics.completedAt) && state.metrics.completedAt > 0) {
-        document.body.dataset.streamElapsedMs = String(Math.round(state.metrics.completedAt - state.metrics.startedAt));
+        setDataset(body, "streamElapsedMs", String(Math.round(state.metrics.completedAt - state.metrics.startedAt)));
       }
     }
     applyDiffViewerStatusToDocument(state.status);

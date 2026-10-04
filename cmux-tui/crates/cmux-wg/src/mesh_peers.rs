@@ -3,7 +3,7 @@
 //! an incoming datagram.
 
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 
 use boringtun::noise::Tunn;
 use ip_network::IpNetwork;
@@ -12,6 +12,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::error::WgError;
 use crate::mesh::WgPeer;
+use crate::mesh_route::PeerRoute;
 use crate::tcp_stack::PeerKey;
 use crate::timers::TimerSchedule;
 
@@ -26,8 +27,8 @@ pub(crate) struct Peer {
     pub(crate) index: u32,
     pub(crate) allowed_ips: Vec<IpNetwork>,
     /// Where datagrams to the peer go: configured, or the source of its
-    /// latest authenticated datagram.
-    pub(crate) endpoint: Option<SocketAddr>,
+    /// latest authenticated datagram (a UDP address or a gateway).
+    pub(crate) route: Option<PeerRoute>,
     pub(crate) schedule: TimerSchedule,
 }
 
@@ -38,10 +39,10 @@ impl Peer {
     }
 
     /// The peer proved its key in a datagram from `source`: it is reachable
-    /// there now (first contact, or roaming).
-    pub(crate) fn authenticated(&mut self, source: Option<SocketAddr>, now: Instant) {
+    /// there now (first contact, or roaming, across UDP and gateways).
+    pub(crate) fn authenticated(&mut self, source: Option<PeerRoute>, now: Instant) {
         if let Some(source) = source {
-            self.endpoint = Some(source);
+            self.route = Some(source);
         }
         self.schedule.on_activity(now);
     }
@@ -145,7 +146,7 @@ impl PeerTable {
     }
 
     /// Add `peer` with a new session, replacing one with the same key. A
-    /// replaced peer keeps the endpoint it was last seen at unless `peer`
+    /// replaced peer keeps the route it was last seen on unless `peer`
     /// names one. Call [`PeerTable::check`] first.
     pub(crate) fn insert(&mut self, peer: WgPeer, now: Instant) -> &mut Peer {
         let previous = self.remove(&peer.public_key);
@@ -163,7 +164,7 @@ impl PeerTable {
             tunn,
             index,
             allowed_ips: peer.allowed_ips,
-            endpoint: peer.endpoint.or(previous.and_then(|old| old.endpoint)),
+            route: peer.route.or(previous.and_then(|old| old.route)),
             schedule: TimerSchedule::new(now, keepalive),
         };
         self.by_index.insert(index, peer.public_key);
@@ -213,7 +214,7 @@ mod tests {
             public_key: crate::testing::random_keypair().1,
             preshared_key: None,
             allowed_ips: allowed,
-            endpoint: None,
+            route: None,
             persistent_keepalive: None,
         }
     }

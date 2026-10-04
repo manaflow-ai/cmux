@@ -6,16 +6,16 @@ import CmuxNextSettings
 import Foundation
 
 /// The app's native UI ops for React pages (plans/cmux-next/react-pages.md 1.3):
-/// `cmux.app.action.run` runs one of the page's allowed registry actions with origin `user` (the
-/// page is a user surface; the action's own rules, such as destructive confirmation, still
-/// apply), and `cmux.app.clipboard.write` writes the pasteboard.
+/// `cmux.app.action.run` runs one of the page's allowed registry actions with origin `page` (never
+/// `user` unless a native sheet confirmed it, so rules such as destructive confirmation still
+/// ask), and `cmux.app.clipboard.write` writes the pasteboard.
 @MainActor
 final class AppPageNativeProvider: PageProvider {
     private unowned let services: AppServices
     private let page: PageDescriptor
     /// Runs a confirmed namespace op on the provider that owns its namespace.
     var forward: (@MainActor (_ op: String, _ params: CmuxNextSettings.JSONValue, _ context: PageCallContext) async throws -> CmuxNextSettings.JSONValue)?
-    var presenter: any PageConfirmationPresenter = AlertPageConfirmationPresenter()
+    var presenter: any PageConfirmationPresenter = DialogPageConfirmationPresenter()
     /// The page view the sheet attaches to.
     var anchor: () -> NSView? = { nil }
 
@@ -40,8 +40,10 @@ final class AppPageNativeProvider: PageProvider {
                 guard let parsed = ActionTargetRef(parsing: text) else { throw PageError.invalidParams("target must be kind:id") }
                 target = parsed
             }
+            // A page control is not the user's own gesture (origin `page`): rules that need the user
+            // (destructive confirmation) still ask. The click may change the view it was made in.
             let invocation = ActionInvocation(target: target, arguments: Self.arguments(params["args"], for: services.registry.descriptor(for: id)),
-                                              origin: .user)
+                                              origin: context.isConfirmedUser ? .user : .page, focusRequested: true)
             return ["ran": .bool(services.registry.perform(id, invocation: invocation))]
         case PageNativeOp.clipboardWrite:
             guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
@@ -61,7 +63,7 @@ final class AppPageNativeProvider: PageProvider {
         guard let forward else { throw PageError.unknownOp(op) }
         let labels = (args.objectValue ?? [:]).compactMapValues(\.stringValue)
         guard await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor()) else { return ["confirmed": false] }
-        let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true))
+        let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true, opid: context.opid))
         return ["confirmed": true, "value": value]
     }
 
@@ -98,18 +100,26 @@ final class DaemonPageRelay: PageProvider {
 
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op.hasPrefix("cmux.") else { throw PageError.unknownOp(op) }
-        guard let connection = services.machines.local.connection else {
+        guard services.machines.local.connection != nil else {
             throw PageError.closed
         }
         var members = params.objectValue ?? [:]
-        let key = members.removeValue(forKey: "idempotency_key")?.stringValue
+        let key = Self.idempotencyKey(members.removeValue(forKey: "idempotency_key")?.stringValue, context: context)
         do {
-            let result = try await ResourceRelayClient(connection: connection).send(
-                operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key)
+            // The page relay connection: origin `page`, or the user with a native-sheet token.
+            let result = try await PageRelayChannel.shared(for: services.machines.local).send(
+                operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key,
+                context: context)
             return try Self.pageValue(result)
         } catch let error as DaemonError {
             throw Self.pageError(error)
         }
+    }
+
+    /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend
+    /// after a reconnect replays the daemon's first answer instead of applying twice.
+    static func idempotencyKey(_ explicit: String?, context: PageCallContext) -> String? {
+        explicit ?? context.opid
     }
 
     static func daemonParams(_ members: [String: CmuxNextSettings.JSONValue]) throws -> [String: CmuxNextDaemon.JSONValue] {

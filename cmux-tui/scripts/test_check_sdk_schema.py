@@ -85,6 +85,26 @@ class LiveSchemaTests(unittest.TestCase):
             "ref<ResourceSelectors>",
         )
 
+    def test_struct_fields_accept_restricted_visibility(self) -> None:
+        fields = CHECKER._parse_rust_fields(
+            "    pub(super) conversation: String,\n"
+            "    pub(crate) limit: Option<u32>,\n"
+            "    pub(in crate::server) cursor: Option<String>,\n"
+            "    pub id: u64,\n"
+            "    plain: bool,\n",
+            "Rust struct Fixture",
+        )
+        self.assertEqual(
+            {name: field.rust_type for name, field in fields.items()},
+            {
+                "conversation": "String",
+                "limit": "Option<u32>",
+                "cursor": "Option<String>",
+                "id": "u64",
+                "plain": "bool",
+            },
+        )
+
     def test_handler_module_request_uses_its_struct_and_flattened_key(self) -> None:
         fields = CHECKER.runtime_command_fields()["move-bookmark"]
         self.assertEqual(

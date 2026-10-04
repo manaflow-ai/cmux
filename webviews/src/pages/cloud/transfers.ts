@@ -1,6 +1,7 @@
 // File transfers (`cloud.file.push`, `cloud.file.pull`, R71 C10). The host's native action answers
 // at once with `{transfer, state: running}`; the copy runs on in the server, and its end is the event
-// `cmux.cloud.file.transfer.changed` (`done` with `bytes`, or `failed` with a typed error). The page
+// `cmux.cloud.file.transfer.changed` (`done` with `bytes`, `failed` with a typed error, or `cancelled`
+// when `cloud.file.transfer.cancel` stopped it, from the CLI for example). The page
 // subscribes before it starts its first transfer, so an end cannot be missed, and keeps the
 // subscription for the session. No polling and no timers: a running row changes only on its event.
 import type { PageClient } from "../shared/pageClient";
@@ -12,7 +13,7 @@ export interface FileTransfer {
   direction: "push" | "pull";
   /** The machine's path: the file a push wrote, or the file a pull reads. */
   path: string;
-  state: "running" | "done" | "failed";
+  state: "running" | "done" | "failed" | "cancelled";
   bytes?: number;
   /** The typed error's message of a failed transfer. */
   error?: string;
@@ -26,13 +27,15 @@ export interface TransferHost {
   unsupported(op: string): void;
 }
 
+const ENDED = new Set<string>(["done", "failed", "cancelled"]);
+
 /** Ended rows kept for the session; running rows are always kept. */
 const KEEP_ENDED = 20;
 
 function settle(row: FileTransfer, event: TransferChanged): FileTransfer {
-  return event.state === "done"
-    ? { ...row, state: "done", bytes: event.bytes, error: undefined }
-    : { ...row, state: "failed", error: event.error?.message ?? event.error?.code };
+  if (event.state === "done") return { ...row, state: "done", bytes: event.bytes, error: undefined };
+  if (event.state === "cancelled") return { ...row, state: "cancelled", error: undefined };
+  return { ...row, state: "failed", error: event.error?.message ?? event.error?.code };
 }
 
 function trim(rows: FileTransfer[]): FileTransfer[] {
@@ -125,7 +128,7 @@ export class TransferWatch {
   }
 
   private onEvent(event: TransferChanged): void {
-    if (!event?.transfer || (event.state !== "done" && event.state !== "failed")) return;
+    if (!event?.transfer || !ENDED.has(event.state)) return;
     const rows = this.host.get();
     const row = rows.find((t) => t.transfer === event.transfer);
     if (!row) {

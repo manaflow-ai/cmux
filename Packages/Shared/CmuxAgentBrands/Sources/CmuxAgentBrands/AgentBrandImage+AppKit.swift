@@ -6,7 +6,7 @@ public extension AgentBrandCatalog {
     /// templates (`NSImageView.contentTintColor`, menus). It draws at the screen's scale
     /// whenever AppKit renders it. Nil when the brand has no mark.
     static func templateImage(brand: String, size: CGFloat, fill: CGFloat = 0.86) -> NSImage? {
-        guard let spec = spec(for: AgentBrandID(rawValue: brand)), size > 0 else { return nil }
+        guard let spec = spec(for: AgentBrandID(rawValue: brand))?.variant(forPointSize: Double(size)), size > 0 else { return nil }
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             let side = rect.width * fill

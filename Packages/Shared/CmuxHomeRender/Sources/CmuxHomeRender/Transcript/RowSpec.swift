@@ -44,22 +44,34 @@ struct RowSpec: Hashable, Sendable {
     }
 }
 
-/// A text bubble. Every CmuxHomeCore message part renders as one: text with
-/// its mentions in bold; work and approval parts as their plain text.
+/// One bubble per CmuxHomeCore message part: text with its mentions in
+/// bold; work and approval parts as their plain text; attachments as an
+/// image or video bubble or a file chip (`PartContent`).
 struct PartRow: Hashable, Sendable {
     var outgoing: Bool
     var tail: Bool
     var failed: Bool
     var reactions: [ReactionBadge]
-    /// Bubble size (text plus padding).
+    /// Bubble size (text plus padding, the media size, or the chip).
     var size: CGSize
-    var text: TextLayout
+    var content: PartContent
+
+    /// The wrapped text of a text bubble.
+    var text: TextLayout? {
+        if case .text(let layout) = content { return layout }
+        return nil
+    }
+
+    var media: MediaPart? {
+        if case .media(let media) = content { return media }
+        return nil
+    }
 
     /// The drawn body: lines after a hard newline are 15.5 pt apart in a sent
     /// bubble, so its body is shorter than its 16 pt-per-line slot and sits
     /// at the slot top.
     var bodySize: CGSize {
-        guard outgoing else { return size }
+        guard outgoing, let text else { return size }
         return CGSize(width: size.width,
                       height: min(size.height, text.textHeight(hard: Style.hardBreakAdvance) + 2 * Style.bubblePadY))
     }

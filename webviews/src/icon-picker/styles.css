@@ -177,6 +177,10 @@
   align-items: center;
   justify-content: center;
   border-radius: 6px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
   cursor: default;
 }
 

@@ -234,7 +234,7 @@ fn terminal_backends_are_a_known_interface_and_a_restricted_scope() {
     assert_eq!(scope_info("terminal:backend").map(|i| i.class), Some(ScopeClass::Elevated));
     let third = manifest(json!({ "id": "octo/x", "repository": "https://github.com/octo/x",
         "server": { "kind": "js", "instances": "user", "hosts": ["local"] },
-        "implements": { "cmux.terminal.backend/1": { "server": true, "options": { "kinds": ["octo-vm"] } } },
+        "implements": { "cmux.terminal.backend/1": { "server": true, "options": { "kinds": ["octo-vm"], "openOps": ["octo.vm.open"] } } },
         "optionalScopes": { "terminal:backend": "Run your Octo Cloud terminals." } }));
     assert!(validate_manifest(&third).is_empty(), "{:?}", validate_manifest(&third));
     let mut required = third.clone();

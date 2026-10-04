@@ -26,14 +26,16 @@ struct KeymapFileActions: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "cmux-next-keymap.json"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task {
-            do {
-                let value = try await model.settings.shortcutKeymap()
-                try Data(value.prettyText().utf8).write(to: url, options: .atomic)
-                model.writeError = nil
-            } catch {
-                model.writeError = SettingsWindowStrings.writeFailed(String(describing: error))
+        panel.beginForCmux { url in
+            guard let url else { return }
+            Task {
+                do {
+                    let value = try await model.settings.shortcutKeymap()
+                    try Data(value.prettyText().utf8).write(to: url, options: .atomic)
+                    model.writeError = nil
+                } catch {
+                    model.writeError = SettingsWindowStrings.writeFailed(String(describing: error))
+                }
             }
         }
     }
@@ -42,16 +44,18 @@ struct KeymapFileActions: View {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task {
-            do {
-                let source = try String(contentsOf: url, encoding: .utf8)
-                let value = try JSONC.parse(source)
-                try await model.settings.importShortcutKeymap(value)
-                await model.settings.reload()
-                model.writeError = nil
-            } catch {
-                model.writeError = SettingsWindowStrings.writeFailed(String(describing: error))
+        panel.beginForCmux { url in
+            guard let url else { return }
+            Task {
+                do {
+                    let source = try String(contentsOf: url, encoding: .utf8)
+                    let value = try JSONC.parse(source)
+                    try await model.settings.importShortcutKeymap(value)
+                    await model.settings.reload()
+                    model.writeError = nil
+                } catch {
+                    model.writeError = SettingsWindowStrings.writeFailed(String(describing: error))
+                }
             }
         }
     }

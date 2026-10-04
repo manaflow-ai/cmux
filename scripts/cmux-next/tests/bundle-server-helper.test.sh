@@ -3,11 +3,17 @@
 # processed Info.plist: Xcode may write it after the script phases, so a
 # rebuild of an existing tag failed with "Print: Entry, ':CFBundleIdentifier',
 # Does Not Exist". The phase names the build's own PRODUCT_BUNDLE_IDENTIFIER.
+# The same phase writes the server LaunchAgent plist that ServerLaunchAgent
+# registers with SMAppService.agent (server.md 4.3), and `--stamp` (run by
+# scripts/sign-cmux-bundle.sh) rewrites both plists from the final bundle id.
 # swiftc is a stub here: no compiler, no network, no signing.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/bin" "$TMP/build/app.app/Contents/MacOS" "$TMP/temp"
+mkdir -p "$TMP/bin" "$TMP/build/app.app/Contents/MacOS" "$TMP/build/app.app/Contents/Resources/bin" "$TMP/temp"
+# The bundled cmux CLI ("Bundle cmux-tui" runs before this phase).
+printf '#!/bin/sh\nexit 0\n' > "$TMP/build/app.app/Contents/Resources/bin/cmux"
+chmod +x "$TMP/build/app.app/Contents/Resources/bin/cmux"
 cat > "$TMP/bin/xcrun" <<'STUB'
 #!/usr/bin/env bash
 # xcrun swiftc ... -o <out> ...: create every -o / -emit-module-path output.
@@ -35,4 +41,64 @@ label=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist")
 run >/dev/null
 label=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist")
 [[ "$label" == "com.cmuxterm.app.debug.testtag.server-helper" ]] || { echo "stale label: $label" >&2; exit 1; }
+
+agent="$TMP/build/app.app/Contents/Library/LaunchAgents/com.cmux.server.plist"
+pb() { /usr/libexec/PlistBuddy -c "Print :$1" "$2" 2>/dev/null; }
+expect() { # <plist> <key> <value>
+  local got
+  got=$(pb "$2" "$1") || { echo "$1: missing $2" >&2; exit 1; }
+  [[ "$got" == "$3" ]] || { printf '%s: %s is %q, want %q\n' "$1" "$2" "$got" "$3" >&2; exit 1; }
+}
+check_agent() { # <bundle id>
+  [[ -f "$agent" ]] || { echo "no server LaunchAgent plist for $1" >&2; exit 1; }
+  plutil -lint "$agent" >/dev/null
+  expect "$agent" Label "$1.server"
+  expect "$agent" BundleProgram "Contents/Resources/bin/cmux"
+  expect "$agent" ProgramArguments:0 "Contents/Resources/bin/cmux"
+  expect "$agent" ProgramArguments:1 host
+  expect "$agent" ProgramArguments:2 run
+  if pb ProgramArguments:3 "$agent" >/dev/null; then echo "extra ProgramArguments" >&2; exit 1; fi
+  # Restart only after a failure: a clean `cmux host run` exit (the host was
+  # disabled) stays down. At most one restart per 10 s.
+  keepalive=$(plutil -extract KeepAlive json -o - "$agent") || { echo "no KeepAlive" >&2; exit 1; }
+  [[ "$keepalive" == '{"SuccessfulExit":false}' ]] || { echo "KeepAlive is $keepalive" >&2; exit 1; }
+  throttle=$(pb ThrottleInterval "$agent") || { echo "no ThrottleInterval" >&2; exit 1; }
+  [[ "$(plutil -type ThrottleInterval "$agent")" == integer && "$throttle" -ge 10 ]] \
+    || { echo "ThrottleInterval $throttle is not an integer >= 10" >&2; exit 1; }
+  expect "$agent" RunAtLoad true
+  expect "$agent" ProcessType Standard
+  expect "$agent" AssociatedBundleIdentifiers:0 "$1"
+  # No environment, no secrets, no per-user paths: the plist is sealed in a
+  # signed bundle that every user of the Mac shares.
+  for key in EnvironmentVariables StandardOutPath StandardErrorPath UserName MachServices; do
+    if pb "$key" "$agent" >/dev/null; then echo "agent plist carries $key" >&2; exit 1; fi
+  done
+}
+check_agent com.cmuxterm.app.debug.testtag
+
+# --stamp follows the FINAL bundle id (nightly renames the bundle after the build).
+stamp() { env -i PATH="/usr/bin:/bin" /bin/bash "$ROOT/scripts/cmux-next/bundle-server-helper.sh" --stamp "$TMP/build/app.app" >/dev/null; }
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.cmuxterm.app.nightly' "$TMP/build/app.app/Contents/Info.plist" >/dev/null
+stamp
+check_agent com.cmuxterm.app.nightly
+label=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$plist")
+[[ "$label" == "com.cmuxterm.app.nightly.server-helper" ]] || { echo "stamp helper label: $label" >&2; exit 1; }
+
+# No bundled CLI: no agent plist (ServerLaunchAgent then reports "not in this
+# build"); the helper is independent of the CLI.
+mv "$TMP/build/app.app/Contents/Resources/bin/cmux" "$TMP/cmux.saved"
+stamp
+[[ ! -e "$agent" ]] || { echo "agent plist kept without a bundled cmux" >&2; exit 1; }
+[[ -f "$plist" ]] || { echo "helper plist dropped without a bundled cmux" >&2; exit 1; }
+mv "$TMP/cmux.saved" "$TMP/build/app.app/Contents/Resources/bin/cmux"
+
+# Stable carries neither the helper nor the agent: the server is DEV and NIGHTLY only.
+stamp
+[[ -f "$agent" ]] || { echo "agent plist not restored" >&2; exit 1; }
+/usr/libexec/PlistBuddy -c 'Set :CFBundleIdentifier com.cmuxterm.app' "$TMP/build/app.app/Contents/Info.plist" >/dev/null
+stamp
+for f in "$agent" "$plist" "$TMP/build/app.app/Contents/Resources/libexec/cmux-server-helper"; do
+  [[ ! -e "$f" ]] || { echo "stable bundle keeps $f" >&2; exit 1; }
+done
+[[ ! -d "$TMP/build/app.app/Contents/Library/LaunchAgents" ]] || { echo "stable bundle keeps an empty LaunchAgents" >&2; exit 1; }
 printf 'bundle-server-helper tests: ok\n'

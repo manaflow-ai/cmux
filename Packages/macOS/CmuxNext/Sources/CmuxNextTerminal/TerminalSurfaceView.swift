@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxNextTerminalGeometry
 import GhosttyNextKit
 import os
@@ -55,6 +56,7 @@ public final class TerminalSurfaceView: NSView {
     }
 
     private(set) var lastOcclusionVisible: Bool?
+    private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     var trackingArea: NSTrackingArea?
@@ -302,15 +304,14 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Occlusion
 
-    /// `ghostty_surface_set_occlusion(surface, visible)` (ghostty.h:1442).
-    /// Hidden surfaces stop drawing but keep parsing output.
+    /// `ghostty_surface_set_occlusion` (ghostty.h:1442) per ``WindowDrawPolicy``. Paused surfaces
+    /// keep parsing output; Ghostty draws the current content on its `.visible` message.
     func updateOcclusion() {
         guard let surface else { return }
-        let onScreen = window.map { $0.occlusionState.contains(.visible) } ?? false
-        let visible = mirrorDemand > 0 || (onScreen && !isHiddenOrHasHiddenAncestor && !isRenderingSuspended)
-        guard visible != lastOcclusionVisible else { return }
-        lastOcclusionVisible = visible
-        ghostty_surface_set_occlusion(surface, visible)
+        pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
+        guard (pause == nil) != lastOcclusionVisible else { return }
+        lastOcclusionVisible = pause == nil
+        ghostty_surface_set_occlusion(surface, pause == nil)
     }
 
     // MARK: Focus

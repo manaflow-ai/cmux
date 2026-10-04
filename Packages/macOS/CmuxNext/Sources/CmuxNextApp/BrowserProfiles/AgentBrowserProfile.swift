@@ -1,5 +1,7 @@
 import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
+import Synchronization
 
 /// openBrowser's optional `profile` argument (plans/cmux-next/passwords.md,
 /// section 3.4). "agent" asks for the clean agent profile: one profile with a
@@ -30,9 +32,46 @@ enum AgentBrowserProfile {
         return BrowserProfileRecord.isValidID(raw) ? .explicit(raw) : nil
     }
 
-    /// The agent profile's id, created when missing (an existing record is kept).
-    static func ensure(_ profiles: BrowserProfileService) async throws -> String {
+    /// The agent profile's id, created when missing (an existing record is
+    /// kept). With daemon-owned records the create reply can arrive before
+    /// the record reaches this app's mirror, and a tab opened then would fall
+    /// back to the workspace's profile (the cascade only takes known ids), so
+    /// this waits for the record to be reported, at most `deadline`.
+    static func ensure(_ profiles: BrowserProfileService, deadline: Duration = .seconds(5)) async throws -> String {
         if profiles.isKnown(id) { return id }
-        return try await profiles.createProfile(id: id, name: name, color: nil, icon: nil)
+        _ = try await profiles.createProfile(id: id, name: name, color: nil, icon: nil)
+        if profiles.isKnown(id) { return id }
+        let timer = DemandTimer(owner: "AgentBrowserProfile.ensure")
+        let once = ResumeOnce()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            once.begin(continuation)
+            // Event-driven: the profile list is observable state of the home store.
+            let watch = Task { @MainActor in
+                for await known in Observations({ profiles.isKnown(id) }) where known {
+                    if once.resume(.success(())) { timer.cancel() }
+                    return
+                }
+            }
+            timer.schedule(after: deadline) {
+                if once.resume(.failure(NotReported())) { watch.cancel() }
+            }
+        }
+        return id
+    }
+
+    nonisolated struct NotReported: Error, CustomStringConvertible {
+        var description: String { "the agent browser profile was created but not reported back by the home daemon" }
+    }
+
+    /// Resumes a continuation once: the record or the deadline, whichever comes first.
+    nonisolated final class ResumeOnce: Sendable {
+        private let state = Mutex<CheckedContinuation<Void, any Error>?>(nil)
+        func begin(_ continuation: CheckedContinuation<Void, any Error>) { state.withLock { $0 = continuation } }
+        @discardableResult
+        func resume(_ result: Result<Void, any Error>) -> Bool {
+            guard let continuation = state.withLock({ value -> CheckedContinuation<Void, any Error>? in defer { value = nil }; return value }) else { return false }
+            continuation.resume(with: result)
+            return true
+        }
     }
 }

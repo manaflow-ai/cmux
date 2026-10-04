@@ -4,7 +4,7 @@ import CmuxNextServer
 /// The Mac server's menu bar item (plans/cmux-next/server.md 3 and 14).
 ///
 /// DEV and NIGHTLY prototype: the item shows a projection of `server.status`
-/// from `MockServerSource` until the Rust `server` role serves it; the panel,
+/// (`LocalServerSource` in the App, `MockServerSource` in previews); the panel,
 /// pairing and health variants follow the Debug Settings switches
 /// (`server.panel.style`, `server.pairing.style`, `server.health.style`).
 /// The item owns no server state: every change is an intent to the source.

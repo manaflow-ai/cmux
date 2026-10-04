@@ -3,10 +3,11 @@
 //!
 //!   cmux-browser-host serve [--socket PATH]
 //!   cmux-browser-host eval [--session NAME] [--engine E] [--max-output N] [--timeout-ms N] (-|CODE)
-//!   cmux-browser-host mcp [--session NAME] [--engine E] [--timeout-ms N]
-//!   cmux-browser-host list | close --session NAME | guide
+//!   cmux-browser-host list | close --session NAME | guide | version
 //!
 //! `eval` starts the host on demand when no host answers on the socket.
+//! MCP clients use `cmux mcp serve` (one MCP entry point, cmux.json
+//! mcp.enabled); this binary has no MCP server.
 
 #[cfg(unix)]
 fn main() {
@@ -23,9 +24,6 @@ fn main() {
 mod unix {
     use cmux_browser_host::engines::HostEngines;
     use cmux_browser_host::host::{Host, agent_bundle, bundle};
-    use cmux_browser_host::mcp::{
-        McpServer, code_for_tool, result_of_eval, screenshot_code, screenshot_result,
-    };
     use cmux_browser_host::server::{bind, default_socket_path, serve};
     use serde_json::{Value, json};
     use std::io::{BufRead, BufReader, Read, Write};
@@ -35,6 +33,7 @@ mod unix {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
+    #[derive(Clone)]
     struct Options {
         socket: PathBuf,
         session: String,
@@ -42,6 +41,9 @@ mod unix {
         max_output: Option<u64>,
         timeout_ms: Option<u64>,
         code: Option<String>,
+        /// An inherited fd that carries the per-launch provider secret
+        /// (the daemon writes it and closes its end). Never argv or env.
+        provider_secret_fd: Option<i32>,
     }
 
     fn parse(args: &[String]) -> Result<Options, String> {
@@ -52,6 +54,7 @@ mod unix {
             max_output: None,
             timeout_ms: None,
             code: None,
+            provider_secret_fd: None,
         };
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
@@ -73,6 +76,13 @@ mod unix {
                         value("--timeout-ms")?
                             .parse()
                             .map_err(|_| "--timeout-ms: expected a number")?,
+                    );
+                }
+                "--provider-secret-fd" => {
+                    options.provider_secret_fd = Some(
+                        value("--provider-secret-fd")?
+                            .parse()
+                            .map_err(|_| "--provider-secret-fd: expected a file descriptor")?,
                     );
                 }
                 "-" => {
@@ -102,13 +112,27 @@ mod unix {
             }
         };
         match command.as_str() {
+            // `cmux-browser-host <version> (<build sha>)`, one line (release smoke check).
+            "version" | "--version" => {
+                println!(
+                    "cmux-browser-host {} ({})",
+                    env!("CARGO_PKG_VERSION"),
+                    option_env!("CMUX_BUILD_SHA").unwrap_or("unknown")
+                );
+                0
+            }
             "serve" => serve_command(&options),
             "guide" => {
                 print!("{}", bundle::GUIDE);
                 0
             }
-            "eval" => eval_command(&options),
-            "mcp" => mcp_command(&options, rest.iter().any(|a| a == "--session")),
+            "eval" => eval_command(&options, rest.iter().any(|a| a == "--session")),
+            "mcp" => {
+                eprintln!(
+                    "cmux-browser-host: no MCP server here; use `cmux mcp serve` (turn it on with \"mcp\": {{\"enabled\": true}} in cmux.json)"
+                );
+                2
+            }
             "list" => simple(&options, "browser.repl.list", json!({})),
             "close" => simple(&options, "browser.repl.close", json!({"session": options.session})),
             other => {
@@ -118,7 +142,62 @@ mod unix {
         }
     }
 
+    /// Reads the per-launch secret from an inherited pipe (at most 4 KiB, to
+    /// its end) and closes it.
+    fn read_secret_fd(fd: i32) -> Result<String, String> {
+        use std::os::fd::FromRawFd;
+        if fd < 3 {
+            return Err(format!("--provider-secret-fd {fd}: not an inherited descriptor"));
+        }
+        // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(fd, &mut stat) } != 0
+            || (stat.st_mode & libc::S_IFMT) != libc::S_IFIFO
+        {
+            return Err(format!("--provider-secret-fd {fd}: not a pipe"));
+        }
+        // SAFETY: the daemon passes this pipe open for this process; it is read once and closed here.
+        let file = unsafe { std::fs::File::from_raw_fd(fd) };
+        let mut secret = String::new();
+        file.take(4096).read_to_string(&mut secret).map_err(|e| format!("reading: {e}"))?;
+        let secret = secret.trim().to_owned();
+        if secret.len() < 32 {
+            return Err("the provider secret is too short".into());
+        }
+        Ok(secret)
+    }
+
+    /// Serves the app's provider socket on its own thread.
+    fn start_provider_listener(
+        socket: &std::path::Path,
+        owns_dir: bool,
+        secret: String,
+        engines: &HostEngines,
+    ) -> Result<(), String> {
+        let path = cmux_browser_host::server::provider_socket_path(socket);
+        let listener = bind(&path, owns_dir).map_err(|e| e.to_string())?;
+        let slot = engines.provider_slot();
+        let bundle: Arc<str> = agent_bundle().into();
+        std::thread::Builder::new()
+            .name("cmux-browser-host-providers".into())
+            .spawn(move || {
+                let secret = cmux_browser_host::provider::ProviderSecret::new(secret);
+                let _ = cmux_browser_host::server::serve_providers(listener, secret, slot, bundle);
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     fn serve_command(options: &Options) -> i32 {
+        // The secret fd is read before anything else is opened, so a wrong
+        // fd number cannot take the socket or its lock file.
+        let secret = match options.provider_secret_fd.map(read_secret_fd).transpose() {
+            Ok(secret) => secret,
+            Err(error) => {
+                eprintln!("cmux-browser-host: provider secret: {error}");
+                return 1;
+            }
+        };
         let owns_dir = std::env::var_os("CMUX_BROWSER_HOST_SOCKET").is_none_or(|p| p.is_empty());
         let listener = match bind(&options.socket, owns_dir) {
             Ok(listener) => listener,
@@ -129,7 +208,14 @@ mod unix {
         };
         let cwd =
             std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| "/".into());
-        let host = Arc::new(Host::new(Arc::new(HostEngines::new(agent_bundle())), cwd));
+        let engines = Arc::new(HostEngines::new(agent_bundle()));
+        if let Some(secret) = secret
+            && let Err(error) = start_provider_listener(&options.socket, owns_dir, secret, &engines)
+        {
+            eprintln!("cmux-browser-host: provider listener: {error}");
+            return 1;
+        }
+        let host = Arc::new(Host::new(engines, cwd));
         match serve(listener, host) {
             Ok(()) => 0,
             Err(error) => {
@@ -216,11 +302,36 @@ mod unix {
         }
     }
 
-    fn eval_command(options: &Options) -> i32 {
+    /// A request whose answer is not printed (cleanup).
+    fn simple_quiet(options: &Options, method: &str, params: Value) {
+        if let Ok(mut stream) = connect(options) {
+            let _ = request(&mut stream, 1, method, params);
+        }
+    }
+
+    /// Without `--session` the call is a one-shot session, as `cmux browser
+    /// repl --eval` is: its own name, closed after the call, so nothing
+    /// (variables, tabs, ref numbers) carries over to the next call.
+    fn eval_command(options: &Options, named: bool) -> i32 {
         let Some(code) = &options.code else {
             eprintln!("cmux-browser-host eval: pass code or - for stdin");
             return 2;
         };
+        if !named {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let mut one_shot = options.clone();
+            one_shot.session = format!("oneshot-{}-{nanos:x}", std::process::id());
+            let code = eval_in(&one_shot, code);
+            simple_quiet(&one_shot, "browser.repl.close", json!({"session": one_shot.session}));
+            return code;
+        }
+        eval_in(options, code)
+    }
+
+    fn eval_in(options: &Options, code: &str) -> i32 {
         let mut stream = match connect(options) {
             Ok(stream) => stream,
             Err(error) => {
@@ -260,98 +371,6 @@ mod unix {
                 1
             }
         }
-    }
-
-    /// MCP server on stdio. Without `--session` each server gets its own
-    /// session, closed when stdin ends, so two clients never share state by
-    /// accident; a named session is how clients share one on purpose.
-    fn mcp_command(options: &Options, named: bool) -> i32 {
-        let mut stream = match connect(options) {
-            Ok(stream) => stream,
-            Err(error) => {
-                eprintln!("cmux-browser-host: {error}");
-                return 1;
-            }
-        };
-        let session = if named {
-            options.session.clone()
-        } else {
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.subsec_nanos())
-                .unwrap_or(0);
-            format!("mcp-{}-{nanos:x}", std::process::id())
-        };
-        let open = json!({"session": session, "engine": options.engine, "cwd": caller_cwd()});
-        if let Err(error) = request(&mut stream, 1, "browser.repl.open", open.clone()) {
-            eprintln!("{}", error["message"].as_str().unwrap_or("error"));
-            return 1;
-        }
-        let mut next_id = 2u64;
-        let timeout = options.timeout_ms;
-        let mut server = McpServer {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-            call_tool: |name: &str, arguments: &Value| -> Result<_, String> {
-                next_id += 1;
-                let mut eval = |code: String, max_output: Option<u64>| -> Result<Value, String> {
-                    let mut params = json!({"session": session, "code": code});
-                    if let Some(max) = max_output {
-                        params["maxOutput"] = json!(max);
-                    }
-                    if let Some(ms) = timeout {
-                        params["timeoutMs"] = json!(ms);
-                    }
-                    request(&mut stream, next_id, "browser.repl.eval", params)
-                        .map_err(|e| e["message"].as_str().unwrap_or("error").to_owned())
-                };
-                match name {
-                    "reset" => {
-                        let closed = request(
-                            &mut stream,
-                            next_id,
-                            "browser.repl.close",
-                            json!({"session": session}),
-                        )
-                        .map_err(|e| e["message"].as_str().unwrap_or("error").to_owned())?;
-                        request(&mut stream, next_id + 1, "browser.repl.open", open.clone())
-                            .map_err(|e| e["message"].as_str().unwrap_or("error").to_owned())?;
-                        next_id += 1;
-                        let text = if closed["closed"].as_bool() == Some(true) {
-                            format!("Session {session} reset")
-                        } else {
-                            format!("Session {session} had no state")
-                        };
-                        Ok(cmux_browser_host::mcp::ToolResult::text(text, false))
-                    }
-                    "screenshot" => {
-                        let marker = "cmux-mcp-image:";
-                        Ok(screenshot_result(
-                            &eval(screenshot_code(arguments, marker), Some(0))?,
-                            marker,
-                        ))
-                    }
-                    other => {
-                        let code = code_for_tool(other, arguments)
-                            .ok_or_else(|| format!("Unknown tool: {other}"))?;
-                        Ok(result_of_eval(&eval(code, None)?))
-                    }
-                }
-            },
-        };
-        let stdin = std::io::stdin();
-        let mut stdout = std::io::stdout();
-        for line in stdin.lock().lines() {
-            let Ok(line) = line else { break };
-            if let Some(reply) = server.handle_line(&line) {
-                let _ = writeln!(stdout, "{reply}");
-                let _ = stdout.flush();
-            }
-        }
-        drop(server);
-        if !named && let Ok(mut stream) = connect(options) {
-            let _ = request(&mut stream, 1, "browser.repl.close", json!({"session": session}));
-        }
-        0
     }
 
     /// The caller's directory, the session's fs root when it is narrow enough.

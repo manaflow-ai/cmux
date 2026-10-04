@@ -622,7 +622,7 @@ class LayoutStack:
 
 
 @dataclass(frozen=True)
-class LayoutColumnSticky:
+class LayoutColumnDock:
     """A pinned column's ``edge`` ("left", "right", "top" or "bottom") and
     ``mode`` ("docked" or "overlay")."""
 
@@ -635,7 +635,7 @@ class LayoutColumn:
     column_id: "SplitId"
     width: float
     root: "LayoutNode"
-    sticky: Optional[LayoutColumnSticky] = None
+    dock: Optional[LayoutColumnDock] = None
 
 
 @dataclass(frozen=True)
@@ -1071,7 +1071,7 @@ __all__ = [
     "JsonObject",
     "KeyInput",
     "LayoutColumn",
-    "LayoutColumnSticky",
+    "LayoutColumnDock",
     "LayoutDocument",
     "LayoutLeaf",
     "LayoutNode",

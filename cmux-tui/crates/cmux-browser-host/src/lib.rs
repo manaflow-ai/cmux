@@ -16,10 +16,12 @@ pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
 pub mod host;
-pub mod mcp;
+pub mod lease;
 pub mod policy;
 pub mod protocol;
 pub mod provider;
+#[cfg(unix)]
+pub mod provider_engine;
 #[cfg(unix)]
 pub mod provider_link;
 pub mod secrets;

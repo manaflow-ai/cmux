@@ -50,10 +50,15 @@ public final class SettingsApplier {
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
+        if design.sidebarBorder != snapshot.sidebarBorder { design.sidebarBorder = snapshot.sidebarBorder }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
         if design.statusIndicator != snapshot.statusIndicator { design.statusIndicator = snapshot.statusIndicator }
         if design.statusBehavior != snapshot.statusBehavior { design.statusBehavior = snapshot.statusBehavior }
-        if design.titlebar != snapshot.titlebar { design.titlebar = snapshot.titlebar }
+        let titlebar = ChromePlacementSetting.effectiveTitlebar(snapshot)
+        if design.titlebar != titlebar { design.titlebar = titlebar }
+        if design.titlebarButtons != snapshot.titlebarButtons { design.titlebarButtons = snapshot.titlebarButtons }
+        if design.plusButton != snapshot.plusButton { design.plusButton = snapshot.plusButton }
+        Self.applyPlacement(snapshot, to: design)
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }

@@ -120,7 +120,9 @@ case "$cmd" in
 import json, os, sys
 path, port, token, origin = sys.argv[1:]
 config = json.load(open(path)) if os.path.exists(path) else {}
-config["websocket"] = {"listen": f"127.0.0.1:{port}", "token": token, "allowed_origins": [origin]}
+# tokenRotated: this token is fresh (the daemon's one-time rotation of an old saved token
+# must not replace the token the fragment carries).
+config["websocket"] = {"listen": f"127.0.0.1:{port}", "token": token, "allowed_origins": [origin], "tokenRotated": 1}
 with open(path, "w") as f:
     json.dump(config, f, indent=2)
 os.chmod(path, 0o600)

@@ -124,9 +124,31 @@
         Object.defineProperty(scope, key, Object.getOwnPropertyDescriptor(g, key));
       }
     }
-    let queue = Promise.resolve();
+    // The console a cell's code sees. Once the cell is cancelled, output its
+    // own leftover work prints later (a timer, a listener, an await that
+    // resumes) is dropped, so it never lands in another cell. A function
+    // the cancelled cell defined still prints when the running cell calls
+    // it: the running cell's body is then on the stack. Each cell body runs
+    // as a function named __cmuxCell<seq>, which the stack names in every
+    // engine, also after an await resumes it.
+    let cellSeq = 0;
+    function cellConsole(cell) {
+      const base = scope.console;
+      if (!base || typeof base !== "object") return base;
+      const prints = () => {
+        if (!cell.cancelled) return true;
+        if (!running || running === cell || running.seq === undefined) return false;
+        return String(new Error().stack || "").includes(`__cmuxCell${running.seq}`);
+      };
+      return new Proxy(base, {
+        get(target, key) {
+          const value = target[key];
+          return typeof value === "function" ? (...args) => (prints() ? value.apply(target, args) : undefined) : value;
+        },
+      });
+    }
 
-    async function run(code) {
+    async function run(code, cell) {
       const started = host.now ? host.now() : Date.now();
       let rewritten;
       try {
@@ -144,7 +166,12 @@
       let fn;
       try {
         // Function() keeps the body sloppy, which `with` requires.
-        fn = new Function("__cmuxScope", `return async function () { let __cmuxLast; with (__cmuxScope) {\n${rewritten.source}\n} return __cmuxLast; };`)(scope);
+        // The cell body runs in a named function inside `with`, so its
+        // `console` parameter shadows the scope's console and everything
+        // else resolves through the scope.
+        const owner = cell || {};
+        owner.seq = ++cellSeq;
+        fn = new Function("__cmuxScope", "__cmuxConsole", `return async function () { let __cmuxLast; with (__cmuxScope) { await (async function __cmuxCell${owner.seq}(console) {\n${rewritten.source}\n})(__cmuxConsole); } return __cmuxLast; };`)(scope, cellConsole(owner));
       } catch (e) {
         return { ok: false, error: `SyntaxError: ${e.message}`, ms: 0 };
       }
@@ -156,12 +183,57 @@
       }
     }
 
+    // Cells run one at a time in submission order. The queue is plain state,
+    // not a promise chain: when the app terminates a runaway script,
+    // JavaScriptCore drops the promise jobs that were pending, so a chain
+    // could never advance again. Each cell settles its caller's promise
+    // directly, and cancel() settles the running one and starts the next.
+    const waiting = [];
+    let running = null;
+    function pump() {
+      if (running || !waiting.length) return;
+      const cell = waiting.shift();
+      running = cell;
+      let started;
+      try {
+        started = run(cell.code, cell);
+      } catch (e) {
+        started = Promise.resolve({ ok: false, error: formatError(e), exception: e, ms: 0 });
+      }
+      started.then(cell.finish, (e) => cell.finish({ ok: false, error: formatError(e), exception: e, ms: 0 }));
+    }
     return {
       scope,
-      evaluate(code) {
-        const next = queue.then(() => run(code));
-        queue = next.catch(() => {});
-        return next;
+      // `id` names the cell for cancel().
+      evaluate(code, { id } = {}) {
+        return new Promise((resolve) => {
+          const cell = {
+            code,
+            id,
+            done: false,
+            cancelled: false,
+            finish(r) {
+              if (cell.done) return;
+              cell.done = true;
+              if (running === cell) running = null;
+              resolve(r);
+              pump();
+            },
+          };
+          waiting.push(cell);
+          pump();
+        });
+      },
+      // Ends the running cell now (the app calls this when a cell times
+      // out): its evaluate() result is { ok: false, error: message } and the
+      // next cell starts. Work the cell already scheduled is not undone.
+      // With an `id`, only that cell is cancelled: a late cancel for a cell
+      // that already ended never ends the next one.
+      cancel(message, id) {
+        if (!running || (id !== undefined && running.id !== id)) return false;
+        running.cancelled = true;
+        running.finish({ ok: false, error: String(message), cancelled: true, ms: 0 });
+        return true;
       },
     };
   }
@@ -195,7 +267,7 @@
   }
 
   // Output of one call. Past `maxOutput` characters (0 or Infinity: no
-  // limit) the rest of the call's output goes to a file instead of the
+  // limit below HARD_MAX_OUTPUT) the rest of the call's output goes to a file instead of the
   // agent's context: the head prints, then a line naming the file, and at
   // the end of the call the last lines and a summary. The file holds all of
   // the call's output, the printed part too. Agent harnesses cut tool output
@@ -203,12 +275,15 @@
   // preview and a file; Codex keeps 10,000 tokens, head and tail), so the
   // default stays under both and the REPL decides what is kept.
   const DEFAULT_MAX_OUTPUT = 25000;
+  // The most one call prints even when asked for no limit, so a call never
+  // holds unbounded output in memory on its way to the caller.
+  const HARD_MAX_OUTPUT = 4000000;
   const commas = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   const spillCounters = new WeakMap();
 
   function createOutputGate(host, { maxOutput } = {}) {
-    const cap = maxOutput === undefined || maxOutput === null ? DEFAULT_MAX_OUTPUT : maxOutput;
-    if (!(cap > 0) || cap === Infinity) return { print: (level, text) => host.print(level, text), finish() {}, spilled: () => null };
+    const asked = maxOutput === undefined || maxOutput === null ? DEFAULT_MAX_OUTPUT : maxOutput;
+    const cap = asked > 0 && asked < HARD_MAX_OUTPUT ? asked : HARD_MAX_OUTPUT;
     const headCap = Math.floor(cap * 0.8);
     // Room for the last lines; a cap too small for them shows none.
     const tailCap = Math.max(0, cap - headCap - 400);
@@ -225,7 +300,8 @@
       }
     };
     const spill = () => {
-      const dir = `${host.tmpdir}/cmux-browser-repl/${String(host.sessionId || "session").replace(/[^\w.-]/g, "_")}`;
+      // The session's own temporary directory (private, mode 0700).
+      const dir = host.tmpdir;
       try {
         host.fsOp("mkdir", { path: dir, recursive: true });
       } catch {}
@@ -304,11 +380,11 @@
       session,
       api,
       scope: repl.scope,
-      async evaluate(code, { maxOutput } = {}) {
+      async evaluate(code, { maxOutput, id } = {}) {
         const own = createOutputGate(host, { maxOutput });
         gate = own;
         try {
-          const r = await repl.evaluate(code);
+          const r = await repl.evaluate(code, { id });
           if (r.ok) {
             try {
               api.show(r.value);
@@ -322,8 +398,23 @@
           if (gate === own) gate = null;
         }
       },
+      cancel(message, id) {
+        if (!repl.cancel(message, id)) return false;
+        session._resetPendingState();
+        return true;
+      },
       dispose: () => session.dispose(),
     };
+  }
+
+  // A timer delay in milliseconds: NaN, negative and non-numeric delays are
+  // 0 and longer ones are capped at 2^31-1 ms (about 24.8 days), as browsers
+  // and Node cap setTimeout.
+  const MAX_TIMER_DELAY = 2147483647;
+  function timerDelay(ms) {
+    const n = Number(ms);
+    if (!(n > 0)) return 0;
+    return n >= MAX_TIMER_DELAY ? MAX_TIMER_DELAY : Math.floor(n);
   }
 
   // Adapts the app's `__cmuxNative` object (driver-protocol.md, "Native host
@@ -332,6 +423,19 @@
   function installNativeHost() {
     const native = root.__cmuxNative;
     if (!native || root.__cmuxReplEval) return;
+    // Agent code runs in this context. The native host stays in these
+    // closures only: the global goes before any agent code runs, so a cell
+    // cannot call it directly (the guards behind it are native anyway).
+    delete root.__cmuxNative;
+    const hostCall = (fn, op, args) => {
+      const r = JSON.parse(fn(op, JSON.stringify(args || {})));
+      if (r.error) {
+        const e = new Error(r.error.message);
+        e.code = r.error.code;
+        throw e;
+      }
+      return r.ok;
+    };
     const pending = new Map();
     const timers = new Map();
     const listeners = new Map();
@@ -376,8 +480,12 @@
       homedir: native.homedir,
       setTimeout(fn, ms) {
         const id = nextTimer++;
+        // The app refuses a timer past its per-session bound
+        // (scheduled timers plus fired ones whose callback has not run).
+        if (native.setTimer(id, timerDelay(ms), false) === false) {
+          throw new RangeError("setTimeout: this session has too many pending timers; clear some or let them run before adding more");
+        }
         timers.set(id, fn);
-        native.setTimer(id, Math.max(0, ms || 0), false);
         return id;
       },
       clearTimeout(id) {
@@ -396,16 +504,9 @@
         }
         return r.ok;
       },
-      // The host's secret vault and domain policy (browser-host.md section
-      // 4). Values set here are agent-known; user secrets never come here.
-      secretSet: (name, value, options) => JSON.parse(native.secretSet(name, value, JSON.stringify(options))),
-      secretList: () => JSON.parse(native.secretList()),
-      secretDelete: (name) => !!native.secretDelete(name),
-      policyNarrow: (change) => JSON.parse(native.policyNarrow(JSON.stringify(change))),
-      policyGet: () => JSON.parse(native.policyGet()),
-      policyLog: () => JSON.parse(native.policyLog()),
-      policyCheck: (targetId) => native.policyCheck(targetId) || null,
       fetchHandlesCookies: true,
+      secrets: (op, args) => hostCall(native.secrets, op, args),
+      policy: (op, args) => hostCall(native.policy, op, args),
       async fetch(url, init) {
         const r = await callAsync((id) => native.fetch(id, JSON.stringify({
           url,
@@ -413,11 +514,14 @@
           headers: Object.entries(init.headers || {}),
           bodyBase64: init.body,
           targetId: init.targetId,
+          credentials: init.credentials,
+          origin: init.origin,
         })));
         return { url: r.url, status: r.status, statusText: r.statusText, headers: Object.fromEntries(r.headers || []), base64: r.bodyBase64 || "", redirected: r.redirected };
       },
     };
-    host.console = { error: (text) => native.print("error", text) };
+    host.console = Object.freeze({ error: (text) => native.print("error", text) });
+    Object.freeze(host);
     const driver = {
       call: (method, params) => callAsync((id) => native.driverCall(id, method, JSON.stringify(params || {}))),
       on(event, handler) {
@@ -427,18 +531,27 @@
       },
       capabilities: () => native.capabilities || [],
     };
+    Object.freeze(driver);
     let repl = null;
     // `optionsJSON` (optional): { "maxOutput": characters, 0 for no limit }.
     root.__cmuxReplEval = async (code, optionsJSON) => {
       if (!repl) repl = createBrowserRepl({ host, driver });
       const options = typeof optionsJSON === "string" && optionsJSON ? JSON.parse(optionsJSON) : {};
-      const r = await repl.evaluate(code, { maxOutput: options.maxOutput });
+      const r = await repl.evaluate(code, { maxOutput: options.maxOutput, id: options.evalId });
       if (!r.ok) throw r.exception || new Error(r.error);
       return undefined;
     };
+    root.__cmuxReplCancel = (message, evalId) => (repl ? repl.cancel(message, evalId === null ? undefined : evalId) : false);
     root.__cmuxFormatError = (e) => formatError(e);
+    // The app takes these entry points and deletes the globals before any
+    // cell runs, so a cell cannot call them (work they start would belong
+    // to no cell). The runtime's namespace goes too: a cell must not build
+    // a second REPL over this host and driver.
+    // cmux-next: vm.rs still reads the entry points from the globals on every
+    // call and does not delete them yet (browser-host port plan, section 3).
+    delete root.CmuxBrowserRepl;
   }
 
-  ns.replHost = { rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, formatError, installNativeHost };
+  ns.replHost = { timerDelay, rewriteTopLevel, createReplSession, createBrowserRepl, createOutputGate, DEFAULT_MAX_OUTPUT, HARD_MAX_OUTPUT, formatError, installNativeHost };
   installNativeHost();
 })(typeof globalThis !== "undefined" ? globalThis : this);

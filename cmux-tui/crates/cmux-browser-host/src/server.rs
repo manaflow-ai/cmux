@@ -85,6 +85,73 @@ pub fn serve(listener: UnixListener, host: Arc<Host>) -> io::Result<()> {
     Ok(())
 }
 
+/// The app's provider socket, next to the agent socket.
+pub fn provider_socket_path(agent_socket: &Path) -> PathBuf {
+    agent_socket.with_file_name("browser-host-provider.sock")
+}
+
+/// Serves the app's provider connections (plans/cmux-next/browser-host.md
+/// "Provider connection"): same uid, then `hello` with the per-launch
+/// secret. One provider at a time: a second one is refused while the first
+/// is connected, and replaces it after it disconnects.
+pub fn serve_providers(
+    listener: UnixListener,
+    secret: crate::provider::ProviderSecret,
+    slot: crate::engines::ProviderSlot,
+    agent_bundle: Arc<str>,
+) -> io::Result<()> {
+    // SAFETY: getuid(2) has no failure modes.
+    let uid = unsafe { libc::getuid() };
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        if peer_uid(&stream) != Some(uid) {
+            continue;
+        }
+        let (secret, slot, agent_bundle) = (secret.clone(), slot.clone(), agent_bundle.clone());
+        let _ = std::thread::Builder::new().name("cmux-browser-host-provider-accept".into()).spawn(
+            move || {
+                let _ = accept_provider(stream, &secret, &slot, &agent_bundle);
+            },
+        );
+    }
+    Ok(())
+}
+
+fn accept_provider(
+    stream: UnixStream,
+    secret: &crate::provider::ProviderSecret,
+    slot: &crate::engines::ProviderSlot,
+    agent_bundle: &str,
+) -> io::Result<()> {
+    use crate::provider_link::{ProviderDriver, accept};
+    let busy = || {
+        slot.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|provider| provider.closed_reason().is_none())
+    };
+    if busy() {
+        return Ok(());
+    }
+    let mut reader = stream.try_clone()?;
+    let mut writer = stream.try_clone()?;
+    // A client that connects and never says hello does not keep a thread.
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+    let Ok(info) = accept(&mut reader, &mut writer, secret, agent_bundle) else {
+        return Ok(());
+    };
+    stream.set_read_timeout(None)?;
+    let driver = ProviderDriver::start(reader, writer, crate::driver::discard_events(), info.tabs)?;
+    let mut current = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if current.as_ref().is_some_and(|provider| provider.closed_reason().is_none()) {
+        // Another provider won the race: this one goes.
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        return Ok(());
+    }
+    *current = Some(driver);
+    Ok(())
+}
+
 fn handle(stream: UnixStream, host: &Host) -> io::Result<()> {
     let actor = peer_actor(&stream);
     let mut writer = stream.try_clone()?;
@@ -156,4 +223,69 @@ fn peer_uid(stream: &UnixStream) -> Option<libc::uid_t> {
     // SAFETY: the fd is an open Unix socket; uid and gid are valid out pointers.
     let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
     (rc == 0).then_some(uid)
+}
+
+#[cfg(test)]
+mod provider_listener_tests {
+    use super::*;
+    use crate::provider::{Frame, PROVIDER_VERSION, ProviderSecret, read_frame, write_frame};
+
+    fn hello(secret: &str) -> Frame {
+        Frame::Hello {
+            version: PROVIDER_VERSION,
+            provider_id: "app".into(),
+            install_id: "install".into(),
+            secret: ProviderSecret::new(secret),
+            engines: vec!["cef".into()],
+            tabs: Vec::new(),
+        }
+    }
+
+    /// Sends hello and returns the stream when the host answered hello.ack.
+    fn dial(path: &Path, secret: &str) -> Option<UnixStream> {
+        let mut stream = UnixStream::connect(path).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        write_frame(&mut stream, &hello(secret)).unwrap();
+        match read_frame(&mut stream) {
+            Ok(Some(Frame::HelloAck { .. })) => Some(stream),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_provider_listener_needs_the_secret_and_takes_one_provider_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("cmux-bh-provider-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("browser-host-provider.sock");
+        let listener = bind(&path, true).unwrap();
+        let slot: crate::engines::ProviderSlot = Arc::default();
+        let secret = "s".repeat(40);
+        let (thread_slot, thread_secret) = (slot.clone(), ProviderSecret::new(secret.clone()));
+        std::thread::spawn(move || {
+            serve_providers(listener, thread_secret, thread_slot, Arc::from("agent"))
+        });
+        assert!(dial(&path, "wrong-secret-wrong-secret-wrong-secret").is_none());
+        assert!(slot.lock().unwrap().is_none());
+        let first = dial(&path, &secret).expect("the right secret is accepted");
+        // The slot is set right after hello.ack; wait for it without sleeping.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while slot.lock().unwrap().is_none() && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(slot.lock().unwrap().is_some());
+        assert!(
+            dial(&path, &secret).is_none(),
+            "a second provider is refused while the first is live"
+        );
+        drop(first);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while slot.lock().unwrap().as_ref().is_some_and(|p| p.closed_reason().is_none())
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::yield_now();
+        }
+        assert!(dial(&path, &secret).is_some(), "a new provider replaces a closed one");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

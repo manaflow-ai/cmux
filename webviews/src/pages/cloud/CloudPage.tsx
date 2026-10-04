@@ -7,7 +7,8 @@ import { AccountPanel } from "./AccountPanel";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
-import { CloudOps } from "./ops";
+import { MigrationBanner, PlanNotice } from "./Notices";
+import { AccountOps } from "./ops";
 import type { CloudStore } from "./store";
 import { L } from "./strings";
 
@@ -33,7 +34,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         <div className="cloud-message cloud-signed-out">
           <h2 className="cloud-message-title">{t(L.signedOutTitle)}</h2>
           <p>{t(L.signedOutBody)}</p>
-          {snap.unavailable.includes(CloudOps.authSignIn) ? (
+          {snap.unavailable.includes(AccountOps.signIn) ? (
             <p className="cloud-muted cloud-unavailable">{t(L.unavailable)}</p>
           ) : (
             <button
@@ -48,49 +49,55 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
       );
     const selected = snap.rows.find((row) => row.id === snap.selection);
     return (
-      <div className={`cloud-body layout-${snap.layout}`}>
-        <section className="cloud-machines" aria-label={t(L.machines)}>
-          <div className="cloud-section-header">
-            <h2 className="cloud-section-title">{t(L.machines)}</h2>
-            <button type="button" className="cloud-button cloud-create-button" onClick={() => store.openCreate()}>
-              {t(L.create)}
-            </button>
-          </div>
-          {snap.rows.length === 0 ? (
-            <div className="cloud-message cloud-empty">
-              <h3 className="cloud-message-title">{t(L.empty)}</h3>
-              <p>{t(L.emptyBody)}</p>
-            </div>
-          ) : (
-            <MachineList
-              rows={snap.rows}
-              layout={snap.layout}
-              selection={snap.selection}
-              strings={strings}
-              onSelect={(id) => void store.select(id)}
-              onOpen={(id) => void store.connect(id)}
-              onPause={(id) => void store.pause(id)}
-              onResume={(id) => void store.resume(id)}
-            />
-          )}
-        </section>
-        {selected?.machine && snap.detail?.machine === selected.id ? (
-          <MachineDetailView
-            key={selected.id}
-            store={store}
-            row={selected}
-            detail={snap.detail}
-            plan={snap.plan}
-            team={snap.auth?.team}
-            unavailable={snap.unavailable}
-            transfers={snap.transfers}
-            strings={strings}
-          />
-        ) : (
-          <div className="cloud-message cloud-detail-placeholder">{t(L.selectMachine)}</div>
+      <>
+        <MigrationBanner store={store} state={snap} strings={strings} />
+        {snap.refusal && (
+          <PlanNotice store={store} refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
         )}
-        <AccountPanel store={store} state={snap} strings={strings} />
-      </div>
+        <div className={`cloud-body layout-${snap.layout}`}>
+          <section className="cloud-machines" aria-label={t(L.machines)}>
+            <div className="cloud-section-header">
+              <h2 className="cloud-section-title">{t(L.machines)}</h2>
+              <button type="button" className="cloud-button cloud-create-button" onClick={() => store.openCreate()}>
+                {t(L.create)}
+              </button>
+            </div>
+            {snap.rows.length === 0 ? (
+              <div className="cloud-message cloud-empty">
+                <h3 className="cloud-message-title">{t(L.empty)}</h3>
+                <p>{t(L.emptyBody)}</p>
+              </div>
+            ) : (
+              <MachineList
+                rows={snap.rows}
+                layout={snap.layout}
+                selection={snap.selection}
+                strings={strings}
+                onSelect={(id) => void store.select(id)}
+                onOpen={(id) => void store.connect(id)}
+                onPause={(id) => void store.pause(id)}
+                onResume={(id) => void store.resume(id)}
+              />
+            )}
+          </section>
+          {selected?.machine && snap.detail?.machine === selected.id ? (
+            <MachineDetailView
+              key={selected.id}
+              store={store}
+              row={selected}
+              detail={snap.detail}
+              plan={snap.plan}
+              migration={snap.migration}
+              unavailable={snap.unavailable}
+              transfers={snap.transfers}
+              strings={strings}
+            />
+          ) : (
+            <div className="cloud-message cloud-detail-placeholder">{t(L.selectMachine)}</div>
+          )}
+          <AccountPanel store={store} state={snap} strings={strings} />
+        </div>
+      </>
     );
   };
   return (

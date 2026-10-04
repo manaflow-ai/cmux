@@ -77,6 +77,10 @@ export const PAGES = {
         file: `${sources}/CmuxNextActions/BrowserProfileActions.xcstrings`,
         keys: () => ["action.browserProfile.manageExtensions"],
       },
+      {
+        file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,
+        keys: () => ["action.reloadConfiguration"],
+      },
     ],
   },
   history: {
@@ -104,6 +108,11 @@ export const PAGES = {
     out: "webviews/src/pages/cloud/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/cloud/Localizable.xcstrings" }],
   },
+  // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
+  coderouter: {
+    out: "webviews/src/pages/coderouter/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
+  },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
@@ -113,6 +122,11 @@ export const PAGES = {
   markdown: {
     out: "webviews/src/pages/markdown/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/markdown/Localizable.xcstrings" }],
+  },
+  // The code editor (cmux-page://cmux.editor/) has no Swift page; its table lives next to it.
+  editor: {
+    out: "webviews/src/pages/editor/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/editor/Localizable.xcstrings" }],
   },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {

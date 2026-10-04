@@ -8,9 +8,11 @@ mod attach_common;
 mod common;
 
 use attach_common::{FakeSpawner, FakeTransport, attach};
-use cmux_cloud::connector::iface::{BackendError, ConnectRequest, TerminalConnector};
-use cmux_cloud::rescue::iface::{Grid, OpenRequest, OpenToken, ResumeRequest, ResumeToken};
 use cmux_cloud::{Origin, Request, Server};
+use cmux_terminal_iface::{
+    BackendError, ConnectRequest, Grid, OpenRequest, OpenToken, ResumeRequest, ResumeToken,
+    TerminalConnector,
+};
 use common::FakeControlPlane;
 use serde_json::json;
 use std::io::Write as _;
@@ -24,10 +26,7 @@ fn token(tag: &str) -> String {
 }
 
 fn server(spawner: &FakeSpawner, transport: &FakeTransport) -> Server<FakeControlPlane> {
-    Server::with_attach(
-        FakeControlPlane::with(&["vm-get", "attach_endpoint_alpha"]),
-        attach(spawner, transport),
-    )
+    Server::with_attach(FakeControlPlane::with(&["vm-get"]), attach(spawner, transport))
 }
 
 fn connect(kind_token: &str) -> ConnectRequest {
@@ -55,7 +54,7 @@ fn sent(
     format!(
         "{:?}\n{:?}\n{frames:?}\n{:?}",
         spawner.log().commands,
-        s.control_plane().calls,
+        s.control_plane().wire.calls,
         transport.log().opened
     )
 }
@@ -133,8 +132,11 @@ fn debug_output_of_every_request_type_hides_the_token() {
         grid: Grid::new(80, 24),
         actor: None,
     };
-    let resume =
-        ResumeRequest { resume_token: ResumeToken(t.clone()), open_token: OpenToken(t.clone()) };
+    let resume = ResumeRequest {
+        terminal: "t-1".into(),
+        resume_token: ResumeToken(t.clone()),
+        open_token: OpenToken(t.clone()),
+    };
     for text in [
         format!("{request:?}"),
         format!("{:?}", connect(&t)),

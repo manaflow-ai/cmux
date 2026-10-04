@@ -244,7 +244,42 @@
       authenticator: platform,
       frame: { allow: "publickey-credentials-create *; publickey-credentials-get *", mode: "create", click: "#go" },
     },
+    // Opaque-origin callers (R122): a sandboxed srcdoc frame without
+    // allow-same-origin. The browser must reject, never abort (cmux's CEF
+    // aborted on a DCHECK here until cmux.17). Pass = the frame answered.
+    "opaque-origin-iframe-uvpa": {
+      authenticator: platform,
+      opaque: "uvpa",
+    },
+    "sandboxed-iframe-create": {
+      authenticator: platform,
+      opaque: "create",
+    },
   };
+
+  function opaqueFrameScenario(name, mode) {
+    return new Promise((resolve) => {
+      const id = Math.random().toString(36).slice(2);
+      const call = mode === "uvpa"
+        ? "PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then((v) => ({ ok: true, detail: 'resolved ' + v }))"
+        : "navigator.credentials.create({ publicKey: { challenge: new Uint8Array(32), rp: { name: 'x' }, user: { id: new Uint8Array(8), name: 'u', displayName: 'u' }, pubKeyCredParams: [{ type: 'public-key', alg: -7 }], timeout: 5000 } }).then(() => ({ ok: false, detail: 'resolved; expected a rejection' }))";
+      const f = document.createElement("iframe");
+      f.sandbox = "allow-scripts";
+      f.allow = "publickey-credentials-create *; publickey-credentials-get *";
+      f.srcdoc = `<script>Promise.resolve().then(() => ${call}).catch((e) => ({ ok: true, detail: (e && e.name) + ': ' + (e && e.message) }))` +
+        `.then((r) => parent.postMessage({ cmuxPasskeyOpaque: ${JSON.stringify(id)}, r }, '*'));<\/script>`;
+      f.dataset.scenario = name;
+      const onMessage = (event) => {
+        if (event.data && event.data.cmuxPasskeyOpaque === id) {
+          removeEventListener("message", onMessage);
+          f.remove();
+          resolve(result(event.data.r.ok, event.data.r.detail));
+        }
+      };
+      addEventListener("message", onMessage);
+      document.getElementById("frames").appendChild(f);
+    });
+  }
 
   // Cross-origin frames live on frame.localhost (another origin, same server).
   function frameScenario(name, spec) {
@@ -275,7 +310,8 @@
     const spec = S[name];
     if (!spec) return { name, pass: false, detail: "unknown scenario" };
     try {
-      const r = spec.frame ? await frameScenario(name, spec.frame) : await spec.run();
+      const r = spec.opaque ? await opaqueFrameScenario(name, spec.opaque)
+        : spec.frame ? await frameScenario(name, spec.frame) : await spec.run();
       return { name, ...r };
     } catch (e) {
       return { name, pass: false, detail: `${errName(e)}: ${e && e.message}` };

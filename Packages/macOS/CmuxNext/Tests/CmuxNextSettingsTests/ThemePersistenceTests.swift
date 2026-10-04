@@ -57,10 +57,10 @@ import Testing
 
         try await settings.setDensity(.compact)
         try expectUserLookKept(url, "density write")
-        try await settings.setSetting(density, to: nil)
+        try await settings.setSetting(density, to: nil, by: .user)
         try expectUserLookKept(url, "density reset (removes its key)")
-        try await settings.setSetting(padding, to: 8)
-        try await settings.setSetting(padding, to: nil)
+        try await settings.setSetting(padding, to: 8, by: .user)
+        try await settings.setSetting(padding, to: nil, by: .user)
         try expectUserLookKept(url, "pane padding set and reset")
         try await settings.setAnimationSpeed(.off)
         try await settings.setShortcut(Shortcut("g", modifiers: [.command, .shift]), for: "tabGroup.create")
@@ -69,7 +69,7 @@ import Testing
         try expectUserLookKept(url, "several edits in one publish")
         // Reset All removes what the schema owns, except the look picked at
         // onboarding (`SettingsSchema.keptOnResetAll`): the theme and font stay.
-        try await settings.resetAllSettings()
+        try await settings.resetAllSettings(by: .user)
         try expectUserLookKept(url, "Reset All Settings")
         #expect(try document(url).value(at: ["appearance", "density"]) == nil)
     }

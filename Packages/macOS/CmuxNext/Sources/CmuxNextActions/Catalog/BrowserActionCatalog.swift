@@ -137,8 +137,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
-                keywords: ["browser", "react", "inspect"],
-                defaultShortcut: Shortcut("g", modifiers: [.command, .shift]), category: .browser,
+                // No default chord: Shift-Cmd-G is Find Previous in a browser
+                // (R88); this action is not built yet.
+                keywords: ["browser", "react", "inspect"], category: .browser,
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
             ),
@@ -287,21 +288,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.filePreviewRevealInFinder", defaultValue: "Reveal File in Finder", bundle: .module),
                 keywords: ["file", "finder"], category: .browser, symbol: "folder", surfaces: [.contextMenu],
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
-            ),
-            ActionDescriptor(
-                id: "openDiffViewer",
-                title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"],
-                // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-D); G for git.
-                defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
-                symbol: "plusminus", surfaces: [.palette, .keyboard], targets: [.pane],
-                cliName: "browser open-diff-viewer"
-            ),
-            ActionDescriptor(
-                id: "palette.openDirectoryDiffViewer",
-                title: String(localized: "action.palette.openDirectoryDiffViewer", defaultValue: "Open Directory Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"], category: .browser, symbol: "plus.forwardslash.minus",
-                surfaces: [.palette], targets: [.pane], cliName: "browser open-directory-diff-viewer"
             ),
             ActionDescriptor(
                 id: "diffViewerNextLine",

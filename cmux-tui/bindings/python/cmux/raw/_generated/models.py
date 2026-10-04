@@ -98,6 +98,10 @@ class PaneDirection(str, Enum):
     UP = 'up'
     DOWN = 'down'
 
+class PaneKind(str, Enum):
+    PTY = 'pty'
+    BROWSER = 'browser'
+
 class RenderGraphicFormat(str, Enum):
     RGB = 'rgb'
     RGBA = 'rgba'
@@ -2543,8 +2547,8 @@ class MoveTabToColumnRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     screen: Union[Id, None, MissingType] = field(default=MISSING)
     after_column: Union[Id, None, MissingType] = field(default=MISSING)
+    dock: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
-    sticky: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -2691,8 +2695,10 @@ class NewPaneRightRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
 
@@ -3121,10 +3127,10 @@ class SetClientSizingRequest:
 
 
 @dataclass(frozen=True)
-class SetColumnStickyRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/set-column-sticky/request'
+class SetColumnDockRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-column-dock/request'
     pane: Id
-    sticky: bool
+    dock: bool
     edge: Union[str, None, MissingType] = field(default=MISSING)
     mode: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[int, None, MissingType] = field(default=MISSING)
@@ -3332,8 +3338,10 @@ class SplitRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    kind: Union[PaneKind, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4239,6 +4247,7 @@ __all__ = [
     'NotificationLevel',
     'NotificationSource',
     'PaneDirection',
+    'PaneKind',
     'RenderGraphicFormat',
     'RenderUnderline',
     'ServerStatsWriterPhase',
@@ -4566,7 +4575,7 @@ __all__ = [
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',
-    'SetColumnStickyRequest',
+    'SetColumnDockRequest',
     'SetDefaultColorsRequest',
     'SetFrontendBrowserHistoryRequest',
     'SetPersonalTerminalRequest',

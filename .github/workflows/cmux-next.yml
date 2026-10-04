@@ -13,6 +13,7 @@ on:
       - App/**
       - cmux.xcodeproj/**
       - scripts/cmux-next/bundle-*.sh
+      - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -49,6 +50,7 @@ on:
       - Packages/Shared/**
       - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
+      - scripts/sign-cmux-bundle-helpers.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
@@ -308,7 +310,9 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
+          bash scripts/cmux-next/tests/cef-credits.test.sh
           bash scripts/cmux-next/tests/ensure-cef-store.test.sh
+          bash scripts/cmux-next/tests/cef-build-flags.test.sh
 
       - name: Checks job structure
         id: checks-structure
@@ -377,6 +381,7 @@ jobs:
           # The package graph reads no submodule; GhosttyNextKit comes from
           # SwiftPM (Packages/Shared/CmuxGhosttyKit).
           submodules: false
+          fetch-depth: 2
 
       # A mini reuses its workspace: drop the submodule checkouts a previous
       # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
@@ -386,10 +391,14 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      # macOS-only script behavior test (PlistBuddy, plutil): the "Bundle
-      # server helper" phase must not need the app's processed Info.plist.
+      # macOS-only script behavior tests (PlistBuddy, plutil): the "Bundle
+      # server helper" phase writes the server helper and agent plists without
+      # the app's processed Info.plist, and release signing signs every
+      # libexec helper and restamps the plists from the final bundle id.
       - name: Script tests (bundle-server-helper)
-        run: bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+        run: |
+          bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+          bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
 
       - name: Build package and tests
         id: build-tests
@@ -427,10 +436,11 @@ jobs:
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
         env:
-          # A pull request checks its merge commit, whose cmux-tui tree only
-          # exists once the base and branch match: fail at once with the
-          # steps instead of holding the runner for an unpublished tree.
-          CMUX_TUI_TREE_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '2700' }}
+          # A pull request whose merge tree has the same cmux-tui inputs as its
+          # base waits for the base branch publication. A changed cmux-tui tree
+          # waits for its own source-addressed publication. pin-cmux-tui.sh
+          # reports which key it is waiting for.
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Check the same-tree cmux-tui serves the app's daemon capabilities
@@ -446,13 +456,13 @@ jobs:
 
       # Like the steps below, runs whenever the build succeeded, even after a
       # failed test step, so one red step does not hide the others.
-      - name: Run control package tests
+      - name: Run control package tests and callback regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests --skip CLISurfaceParityTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter 'CmuxNextControlTests|MobileReadinessRelayTests' --skip CLISurfaceParityTests
 
       # These socket/readiness and CLI parity tests assert routing, not scheduler
       # throughput. Concurrent app/catalog setup can occupy the main actor longer
@@ -517,6 +527,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+          fetch-depth: 2
 
       # A mini reuses its workspace: drop the submodule checkouts a previous
       # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
@@ -628,10 +639,9 @@ jobs:
       - name: Fetch the same-tree cmux-tui
         timeout-minutes: 50
         env:
-          # A pull request checks its merge commit, whose cmux-tui tree only
-          # exists once the base and branch match: fail at once with the
-          # steps instead of holding the runner for an unpublished tree.
-          CMUX_TUI_TREE_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '2700' }}
+          # See the package test job above. The helper compares the merge tree
+          # with its first parent and waits for the base artifact when equal.
+          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Install Rust (diff sidecar)

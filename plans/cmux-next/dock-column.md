@@ -9,7 +9,7 @@ Code: `CmuxNextLayout` (`Model/DockColumn.swift`, `Geometry/DockStripGeometry.sw
 `Views/ScreenContentView+Scrollbar.swift`, `Views/StripScrollbarView.swift`,
 `Views/DockBackdropView.swift`, `Model/LayoutModel+Dock.swift`), App
 `Handlers/ColumnDocking.swift`, `Control/DebugDockColumns.swift`, cmux-tui
-`set-column-sticky`. Tests: `Tests/CmuxNextLayoutTests/Dock*Tests.swift`,
+`set-column-dock`. Tests: `Tests/CmuxNextLayoutTests/Dock*Tests.swift`,
 `StripScrollbar*Tests.swift`, `Tests/CmuxNextBridgeTests/DockColumnMappingTests.swift`,
 `Tests/CmuxNextSettingsTests/StripScrollbarSettingsTests.swift`.
 
@@ -19,10 +19,10 @@ A docked column is an ordinary column (`columns[]` in the daemon) with `dock: {e
 It holds panes, splits and tabs like any column. The daemon owns the flag with the rest of the
 layout: it is journaled, undoable (`undo-layout`) and survives restart. The app is a projection
 (OWNERSHIP-PRINCIPLES.md): it validates a change like the daemon, sends the typed op, and changes
-nothing until the daemon's snapshot carries it; no optimistic copy. Capability `sticky-columns-v1`; until the pinned cmux-tui serves it the
+nothing until the daemon's snapshot carries it; no optimistic copy. Capability `dock-columns-v1`; until the pinned cmux-tui serves it the
 actions are disabled with the daemon's reason and the app never sends the command.
 
-Daemon rules (cmux-tui `set-column-sticky {pane, dock, edge, mode, transaction}`): at most one
+Daemon rules (cmux-tui `set-column-dock {pane, dock, edge, mode, transaction}`): at most one
 docked column per edge per screen (making another column docked on that edge undocks the old one
 in the same commit); at least one column scrolls (`dock-column-last-scrolling`); new columns are
 never docked; column order is unchanged, so older clients render the column in place.

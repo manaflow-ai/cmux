@@ -535,6 +535,6 @@ mod tests {
             outbound: Arc::new(BoundedOutbound::default()),
             control: None,
         });
-        handle_command(mux, 0, command, &writer).unwrap()
+        handle_command(mux, mux.local_test_client(0), command, &writer).unwrap()
     }
 }

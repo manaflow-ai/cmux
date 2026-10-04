@@ -115,10 +115,25 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
             },
-            // `text: true` adds each terminal mirror's viewport text.
-            .mainActor("debug.surfaces") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(SurfaceDiagnosticsReport.make(services, includeText: call.params["text"]?.boolValue == true))
+            // `text: true` adds each terminal mirror's viewport text. DEBUG builds add each
+            // terminal pane's `terminal_id` and `host_pid` (SurfaceHostReport).
+            .async("debug.surfaces") { [weak services] call in
+                let includeText = call.params["text"]?.boolValue == true
+                let built: (JSONValue, [SurfaceHostReport.Target])? = await MainActor.run {
+                    guard let services else { return nil }
+                    #if DEBUG
+                    let targets = SurfaceHostReport.targets(services)
+                    #else
+                    let targets: [SurfaceHostReport.Target] = []
+                    #endif
+                    return (SurfaceDiagnosticsReport.make(services, includeText: includeText), targets)
+                }
+                guard let (report, targets) = built else { return .null }
+                #if DEBUG
+                return SurfaceHostReport.annotate(report, identities: await SurfaceHostReport.identities(targets))
+                #else
+                return report
+                #endif
             },
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
@@ -182,9 +197,17 @@ final class AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
             },
-            .mainActor("debug.home_native_fixture.open") { [weak services] _ in
+            .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugHomeNativeFixture.open(services: services))
+                let attachments = call.params["attachments"]?.boolValue ?? false
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments))
+            },
+            // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
+            // files enter the shown Home composer through the same intake as
+            // a real drop, paste or pick (HomeNativeTranscriptView.attachFiles).
+            .mainActor("debug.home.attach") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugHomeNativeFixture.attach(call.params, services: services))
             },
             .mainActor("debug.window_list") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -222,6 +245,11 @@ final class AppControl {
             .async("debug.new_tab") { [weak services] call in
                 await DebugNewTab.handle(call.params, services)
             }.withDeadline(.fixed(.seconds(15))),
+            // R131: hover card retarget timing across the focused strip's tabs.
+            .async("debug.hover_sweep") { [weak services] call in
+                guard let services else { return .null }
+                return await DebugHoverSweep.run(call.params, services: services)
+            }.withDeadline(.fixed(.seconds(15))),
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
@@ -246,6 +274,10 @@ final class AppControl {
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+            },
+            // Every open cmux dialog (R96): list, fixtures, keys, presses.
+            .mainActor("debug.dialog") { [weak services] call in
+                .value(services.map { DebugDialog.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.extensions.prompt") { [weak services] call in
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)

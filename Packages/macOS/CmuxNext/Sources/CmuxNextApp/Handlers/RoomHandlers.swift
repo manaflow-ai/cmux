@@ -61,9 +61,13 @@ enum RoomHandlers {
             let room = try context.room(invocation)
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
-            } else if let window = context.activeWindow?.window {
-                RenamePrompt.run(title: RoomStrings.iconTitle, initial: room.icon ?? "", in: window) { icon in
-                    update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
+            } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
+                context.services.iconPicker.pick(current: room.icon, target: "space:\(room.id.rawValue)", at: anchor) { result in
+                    switch result {
+                    case .set(let icon): update(room.id, context) { try await $0.updateProfile($1, icon: .set(icon)) }
+                    case .clear: update(room.id, context) { try await $0.updateProfile($1, icon: .clear) }
+                    case .cancel: break
+                    }
                 }
             } else {
                 throw ActionFailure.invalidTarget(RoomStrings.iconArgumentRequired)

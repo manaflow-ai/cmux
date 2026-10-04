@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import "./testCatalog";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { generate, LOCALES, PAGES } from "../../../scripts/pages/gen-strings.mjs";

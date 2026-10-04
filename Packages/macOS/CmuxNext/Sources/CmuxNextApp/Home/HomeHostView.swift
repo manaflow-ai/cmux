@@ -18,6 +18,9 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         super.init(frame: .zero)
+        // Paste, drop and the picker attach files through the store; refusals
+        // and Cancel Upload go through the binding.
+        transcript.connect(binding)
         wantsLayer = true
         message.alignment = .center
         message.stringValue = HomeStrings.unavailable

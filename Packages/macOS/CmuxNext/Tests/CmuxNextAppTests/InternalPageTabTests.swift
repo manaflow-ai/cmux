@@ -147,16 +147,18 @@ struct InternalPageTabTests {
         #expect(page.route == "#/settings/appearance?focus=appearance.density")
     }
 
-    /// Keyboard opens the React Keyboard Shortcuts page; Accounts, the one section the React page
-    /// does not draw yet, still opens the Swift Settings window (interim, R82 B).
-    @Test func sectionsTheSettingsPageDoesNotDrawGoToTheirOwners() async throws {
+    /// Keyboard opens the React Keyboard Shortcuts page; Accounts opens in the React page (R82
+    /// commit 3), so no section opens the Swift window any more.
+    @Test func keyboardGoesToItsPageAndAccountsToTheReactPage() async throws {
         let (services, _, _) = try await world()
         services.registry.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("keyboard")]))
         #expect(services.pages.keys(of: .keybindings).count == 1, "Keyboard opens the Keyboard Shortcuts page")
         #expect(services.pages.keys(of: .settings).isEmpty)
         services.registry.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("accounts")]))
-        #expect(services.settingsWindow.model?.selection == .accounts, "Accounts still opens the Swift section")
-        #expect(services.pages.keys(of: .settings).isEmpty, "no React tab for a section it does not draw")
+        #expect(services.settingsWindow.model == nil, "no Swift Settings window")
+        #expect(services.pages.keys(of: .settings).count == 1, "Accounts opens the React Settings tab")
+        services.registry.perform("accounts.show", invocation: ActionInvocation())
+        #expect(services.settingsWindow.model == nil)
     }
 
     /// R82 commit 2: Spaces & Profiles and Machines open in the React page, and its host lists

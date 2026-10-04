@@ -33,6 +33,7 @@ pub mod codes {
     /// `mutation.indeterminate`: the backend cannot tell whether the call
     /// acted. Retry with the SAME key; never make a new one.
     pub const INDETERMINATE: &str = "cmux.cloud.indeterminate";
+    /// `cloud.rate_limited`: the team's create or delete budget is spent.
     pub const RATE_LIMITED: &str = "cmux.cloud.rate_limited";
     pub const UNSUPPORTED: &str = "cmux.cloud.unsupported";
     pub const UPSTREAM: &str = "cmux.cloud.upstream_error";
@@ -47,6 +48,9 @@ pub mod codes {
     /// An op line arrived while a relay call waited and the queue of
     /// waiting lines was full (`api::RELAY_QUEUE_LINES`): retry it.
     pub const RELAY_BUSY: &str = "cmux.cloud.relay_busy";
+    /// The backend answered an error code its op does not declare
+    /// (`upstream_code` keeps it): a protocol break, never guessed at.
+    pub const PROTOCOL_ERROR: &str = "cmux.cloud.protocol_error";
 }
 
 /// `cmux.wire/1` codes and the server code each maps to. Any other code is
@@ -74,6 +78,7 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.migration.unavailable", codes::MIGRATION_UNAVAILABLE),
     ("cloud.machine.not_classic", codes::NOT_CLASSIC),
     ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
+    ("cloud.rate_limited", codes::RATE_LIMITED),
 ];
 
 /// A typed op failure.
@@ -81,10 +86,7 @@ const WIRE_CODES: &[(&str, &str)] = &[
 pub struct CloudError {
     pub code: &'static str,
     pub message: String,
-    /// HTTP status of a classic route answer, when there was one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<u16>,
-    /// The backend's own code (`cmux.wire/1` code, or a classic route's).
+    /// The upstream's own code (a `cmux.wire/1` code, or a daemon `fs.*` code).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub upstream_code: Option<String>,
     /// The backend's `details` (for example `{limit, used}` of a quota).
@@ -95,18 +97,32 @@ pub struct CloudError {
 
 impl CloudError {
     pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-            status: None,
-            upstream_code: None,
-            details: None,
-            retryable: false,
-        }
+        Self { code, message: message.into(), upstream_code: None, details: None, retryable: false }
     }
 
     pub fn invalid(message: impl Into<String>) -> Self {
         Self::new(codes::INVALID_ARGS, message)
+    }
+
+    /// Maps a typed `cmux.wire/1` error of backend op `op`. A code `op`
+    /// does not declare (`crate::ops::declared_errors`) is
+    /// [`codes::PROTOCOL_ERROR`]; an op the table does not know maps as is.
+    pub fn from_wire_for(op: &str, error: &WireError) -> Self {
+        let declared = crate::ops::declared_errors(op);
+        if declared.is_some_and(|d| !d.contains(&error.code.as_str())) {
+            return Self {
+                upstream_code: Some(error.code.clone()),
+                details: error.details.clone(),
+                ..Self::new(
+                    codes::PROTOCOL_ERROR,
+                    format!(
+                        "{op} answered {}, which it does not declare: {}",
+                        error.code, error.message
+                    ),
+                )
+            };
+        }
+        Self::from_wire(error)
     }
 
     /// Maps a typed `cmux.wire/1` error. `mutation.indeterminate` is
@@ -123,46 +139,8 @@ impl CloudError {
         Self {
             code,
             message: error.message.clone(),
-            status: None,
             upstream_code: Some(error.code.clone()),
             details: error.details.clone(),
-            retryable,
-        }
-    }
-
-    /// TRANSITIONAL: maps a non-2xx classic route answer
-    /// (`{error, message, ui: {message}}`) of the link and file routes.
-    pub fn from_http(status: u16, body: &Value, header_code: Option<&str>) -> Self {
-        let upstream = header_code
-            .map(str::to_owned)
-            .or_else(|| body.get("error").and_then(Value::as_str).map(str::to_owned));
-        let message = body
-            .pointer("/ui/message")
-            .and_then(Value::as_str)
-            .or_else(|| body.get("message").and_then(Value::as_str))
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("cmux Cloud answered HTTP {status}"));
-        let code = match status {
-            401 => codes::AUTH_REQUIRED,
-            402 => codes::PLAN_REQUIRED,
-            403 => codes::FORBIDDEN,
-            404 => codes::NOT_FOUND,
-            409 => codes::CONFLICT,
-            429 => codes::RATE_LIMITED,
-            501 => codes::UNSUPPORTED,
-            400..=499 => codes::INVALID_ARGS,
-            _ => codes::UPSTREAM,
-        };
-        let retryable = body
-            .get("retryable")
-            .and_then(Value::as_bool)
-            .unwrap_or(matches!(status, 429 | 502..=504));
-        Self {
-            code,
-            message,
-            status: Some(status),
-            upstream_code: upstream,
-            details: None,
             retryable,
         }
     }
