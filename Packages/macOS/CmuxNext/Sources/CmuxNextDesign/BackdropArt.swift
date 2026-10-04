@@ -31,7 +31,7 @@ public struct BackdropQuietZone: Equatable, Sendable {
 }
 
 /// The broad tonal value used when selecting readable chrome treatments.
-public enum BackdropArtTone: String, CaseIterable, Sendable {
+public enum BackdropArtTone: String, CaseIterable, Equatable, Sendable {
     case light
     case dark
 }
