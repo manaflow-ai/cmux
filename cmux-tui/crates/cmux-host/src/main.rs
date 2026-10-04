@@ -5,5 +5,5 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    cmux_host::cli::run(&args, Vec::new())
+    ExitCode::from(cmux_host::cli::run(&args, Vec::new()))
 }

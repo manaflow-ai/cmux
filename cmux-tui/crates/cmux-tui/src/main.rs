@@ -1699,6 +1699,13 @@ fn run_main() {
         discard_provider_secret_environment();
         client_log::exit(link::run(&raw_args[1..]));
     }
+    // `cmux host …` (the machine supervisor) runs before the mux's signal
+    // handlers: it owns SIGTERM, SIGINT and SIGHUP (server.md 5.1).
+    #[cfg(unix)]
+    if cli::host_requested(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(cli::run_host(&raw_args[1..]));
+    }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
             crate::client_log::stderr_log!(
