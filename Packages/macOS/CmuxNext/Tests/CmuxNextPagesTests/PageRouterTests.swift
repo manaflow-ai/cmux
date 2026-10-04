@@ -199,7 +199,8 @@ import Testing
     @Test func theHistoryPageShipsSelfContainedWithNoNetwork() throws {
         let root = try #require(PageSchemeHandler.bundledRoot(for: .history))
         let html = try String(contentsOf: root.appending(path: "index.html"), encoding: .utf8)
-        #expect(html.contains("default-src 'none'"))
+        #expect(!html.contains("Content-Security-Policy"), "the header is the page's only CSP")
+        #expect(PageDescriptor.history.csp == .strict)
         #expect(html.contains("data-cmux-page=\"history\""))
         #expect(!html.contains("src=\"http"))
     }

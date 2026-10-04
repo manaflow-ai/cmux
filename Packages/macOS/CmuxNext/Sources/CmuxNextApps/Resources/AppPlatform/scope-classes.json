@@ -3,19 +3,21 @@
   "classes": {
     "standard": "Granted with the app; listed in Settings and revocable.",
     "sensitive": "Shown highlighted on the consent sheet; revocable.",
-    "restricted": "First-party apps, or Verified apps whose review covers this scope. Unverified apps never hold it."
+    "restricted": "First-party apps, or Verified apps whose review covers this scope. Unverified apps never hold it.",
+    "elevated": "Never granted at install. Any tier gets it only by an explicit user grant in the native confirmation sheet, with a warning (origin user)."
   },
   "rules": [
     { "pattern": "^process:spawn:[a-z0-9][a-z0-9-]{0,63}$", "class": "restricted", "serverOnly": true },
     { "pattern": "^op:[a-z][a-zA-Z0-9_.-]{0,95}$", "class": "sensitive", "serverOnly": true },
-    { "pattern": "^(feed:answer|terminal:input|terminal:backend|fs:write|clipboard:write|mcp:expose|usage:read)$", "class": "restricted" },
-    { "pattern": "^[a-z][a-z0-9_-]{0,31}:answer$", "class": "restricted" },
-    { "pattern": "^[a-z][a-z0-9_-]{0,31}:input$", "class": "restricted" },
-    { "pattern": "^[a-z][a-z0-9_-]{0,31}:keys$", "class": "restricted", "$comment": "create and revoke credentials of the family, for example coderouter:keys" },
-    { "pattern": "^[a-z][a-z0-9_-]{0,31}:read$", "class": "standard" },
+    { "pattern": "^terminal:backend$", "class": "elevated" },
+    { "pattern": "^(feed:answer|terminal:input|fs:write|clipboard:write|mcp:expose|usage:read)$", "class": "restricted" },
+    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:answer$", "class": "restricted" },
+    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:input$", "class": "restricted" },
+    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:keys$", "class": "restricted", "$comment": "create and revoke credentials of the family, for example coderouter:keys" },
+    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:read$", "class": "standard" },
     { "pattern": "^integration:[a-z0-9-]{1,32}:read$", "class": "standard" },
     { "pattern": "^(storage:(local|synced)|embed:run)$", "class": "standard" },
-    { "pattern": "^[a-z][a-z0-9_-]{0,31}:(write|execute|external|control)$", "class": "sensitive" },
+    { "pattern": "^[a-z][a-z0-9_.-]{0,160}:(write|execute|external|control)$", "class": "sensitive" },
     { "pattern": "^(actions:run|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32})$", "class": "sensitive" }
   ]
 }

@@ -109,3 +109,10 @@ public nonisolated enum ActionCatalog {
         return ActionSurfaceCatalog.apply(to: all).withLeaderChords()
     }
 }
+
+extension ActionRegistry {
+    /// A registry seeded with the full cmux catalog and legacy aliases.
+    public static func standard() -> ActionRegistry {
+        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+    }
+}

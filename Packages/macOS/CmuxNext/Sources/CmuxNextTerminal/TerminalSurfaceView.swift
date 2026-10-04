@@ -228,21 +228,12 @@ public final class TerminalSurfaceView: NSView {
         updateSurfaceSize()
     }
 
-    /// The generation of the last grid lock sent to this surface; Ghostty
-    /// refuses an older one. A fresh surface starts again at 1.
-    private var gridGeneration: UInt64 = 0
-    private var lockedGrid: TerminalGridSize?
+    /// Sends the announced grid to Ghostty in stream order (``TerminalGridLock``).
+    private var gridLock = TerminalGridLock()
 
     private func lockAnnouncedGrid() {
-        guard let grid = geometry.gridToRender, grid != lockedGrid,
-              let columns = UInt16(exactly: grid.columns), let rows = UInt16(exactly: grid.rows),
-              let lane else { return }
-        gridGeneration += 1
-        lockedGrid = grid
-        let generation = gridGeneration
-        lane.perform { surface in
-            _ = ghostty_surface_set_grid(surface, columns, rows, generation)
-        }
+        guard let grid = geometry.gridToRender, let lane else { return }
+        gridLock.lock(grid, on: lane)
     }
 
     /// Sizes the surface to the view and reports the view's grid when it

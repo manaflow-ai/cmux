@@ -13,6 +13,11 @@ import Foundation
 final class AppPageNativeProvider: PageProvider {
     private unowned let services: AppServices
     private let page: PageDescriptor
+    /// Runs a confirmed namespace op on the provider that owns its namespace.
+    var forward: (@MainActor (_ op: String, _ params: CmuxNextSettings.JSONValue, _ context: PageCallContext) async throws -> CmuxNextSettings.JSONValue)?
+    var presenter: any PageConfirmationPresenter = AlertPageConfirmationPresenter()
+    /// The page view the sheet attaches to.
+    var anchor: () -> NSView? = { nil }
 
     init(services: AppServices, page: PageDescriptor) {
         self.services = services
@@ -22,6 +27,9 @@ final class AppPageNativeProvider: PageProvider {
     func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         switch op {
         case PageNativeOp.actionRun:
+            if let name = params["action"]?.stringValue, let kind = page.confirmedOps[name] {
+                return try await runConfirmed(name, kind: kind, args: params["args"] ?? .object([:]), context: context)
+            }
             guard let name = params["action"]?.stringValue, page.actions.contains(name) else {
                 throw PageError(code: "cmux.app.action_refused", message: "\(params["action"]?.stringValue ?? "") is not an action of this page")
             }
@@ -37,6 +45,18 @@ final class AppPageNativeProvider: PageProvider {
         default:
             throw PageError.unknownOp(op)
         }
+    }
+
+    /// A confirmed op (``PageDescriptor/confirmedOps``): the native sheet, then the op as the user's
+    /// own on the namespace's provider. A declined sheet answers `{confirmed: false}` (the Cloud
+    /// page's contract), an approved one `{confirmed: true, value}`.
+    private func runConfirmed(_ op: String, kind: PageConfirmation.Kind, args: CmuxNextSettings.JSONValue,
+                              context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+        guard let forward else { throw PageError.unknownOp(op) }
+        let labels = (args.objectValue ?? [:]).compactMapValues(\.stringValue)
+        guard await presenter.confirm(.forOp(op, kind: kind, args: labels), anchor: anchor()) else { return ["confirmed": false] }
+        let value = try await forward(op, args, PageCallContext(page: context.page, origin: "user", confirmed: true))
+        return ["confirmed": true, "value": value]
     }
 
     /// The page's `args` object as typed action arguments, by the descriptor's schema.
@@ -111,20 +131,17 @@ final class DaemonPageRelay: PageProvider {
     }
 }
 
-extension AppServices {
-    /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
-    /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
-    func historyWebPage() -> PageWebView? {
-        guard PageTunables.history.value == .web,
-              let page = PageWebView(descriptor: .history, routes: pageRoutes(for: .history)) else { return nil }
-        PageConnectionWatch(page: page, store: machines.local.store).start()
-        return page
+/// A namespace whose owner is not running yet: every call answers `code` (the page shows "Not
+/// available yet" for it, never an error banner).
+@MainActor
+final class UnavailablePageProvider: PageProvider {
+    private let code: String
+
+    init(code: String) {
+        self.code = code
     }
 
-    /// The routes of `page`: its namespaces to the daemon relay, `cmux.app.` to the native ops.
-    func pageRoutes(for page: PageDescriptor) -> [PageRoute] {
-        let relay = DaemonPageRelay(services: self)
-        return page.namespaces.map { PageRoute(prefix: $0, provider: relay) }
-            + [PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: self, page: page))]
+    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
+        throw PageError(code: code, message: "\(op) is not available yet")
     }
 }

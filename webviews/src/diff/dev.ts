@@ -24,7 +24,7 @@ document.head.append(element);
 const { mountDiffSurface } = await import("../surfaces/diffSurface");
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing cmux webview root");
-mountDiffSurface(root);
+await mountDiffSurface(root);
 // The dev server pushes the languages folder again whenever a file in it changes.
 import.meta.hot?.on("cmux-diff-languages", (pack) => {
   const report = window.cmuxDiffViewerLanguages?.apply(pack);

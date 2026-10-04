@@ -28,6 +28,10 @@ public nonisolated struct AppScopeKind: Sendable, Hashable {
         return AppScopeClassTable.bundled.isRestricted(base)
     }
 
+    /// Granted only by an explicit user grant in the native confirmation
+    /// sheet, never at install (`elevated` in the shared scope table).
+    public var isElevated: Bool { AppScopeClassTable.bundled.isElevated(scope) }
+
     /// A network host scope (`net:api.example.com`, `net:*.example.com`).
     public var isNetwork: Bool { family == "net" }
     /// A file scope (`fs:read`, `fs:write`, `fs:read:<root>`).

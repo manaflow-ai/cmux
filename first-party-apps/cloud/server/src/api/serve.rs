@@ -44,6 +44,8 @@ pub fn serve<R: BufRead, W: Write>(relay: HostRelay<R, W>) -> io::Result<()> {
         for line in crate::link::ops::take_event_lines(&mut server) {
             server.control_plane_mut().send(&line)?;
         }
+        // A link that went down (or was replaced) closes its forwards.
+        server.reconcile_edge();
     }
     Ok(())
 }

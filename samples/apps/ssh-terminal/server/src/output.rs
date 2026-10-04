@@ -1,24 +1,22 @@
-//! The output of one terminal: bytes with offsets, then at most one end
-//! event (exit or lost).
+//! The output of one terminal: bytes with running offsets, then at most one
+//! end event (exit or lost).
 //!
 //! Bounds (README, "Resume"):
-//! - at most [`MAX_UNREAD`] bytes wait for the session host (one SSH packet,
-//!   at most 32 KiB, is never split). When the host does not take them, the
-//!   reader stops. The SSH client then fills its small channel queue and
-//!   stops reading the TCP socket; TCP flow control stops the far end.
-//!   Bytes are never dropped while the terminal is open.
+//! - at most [`MAX_UNREAD`] bytes wait for the session host. The session
+//!   asks the host channel for no more than the free room, so the rest of a
+//!   flood stays in the host (the host's own bounded buffer and SSH flow
+//!   control stop the far end). Bytes are never dropped while the terminal
+//!   is open.
 //! - at most [`RETAINED`] already delivered bytes stay for `resume`. Older
 //!   bytes are gone; a resume from before them gives `lost`.
 
 use crate::iface::ByteEvent;
 use std::collections::VecDeque;
-use std::sync::{Mutex, MutexGuard};
-use tokio::sync::Notify;
 
 pub const MAX_UNREAD: usize = 64 * 1024;
 pub const RETAINED: usize = 64 * 1024;
 
-struct Log {
+pub struct Output {
     bytes: VecDeque<u8>,
     /// Offset of `bytes[0]`.
     start: u64,
@@ -31,7 +29,21 @@ struct Log {
     closed: bool,
 }
 
-impl Log {
+impl Default for Output {
+    fn default() -> Self {
+        Self {
+            bytes: VecDeque::new(),
+            start: 0,
+            delivered: 0,
+            end: None,
+            end_delivered: false,
+            attached: true,
+            closed: false,
+        }
+    }
+}
+
+impl Output {
     fn end_offset(&self) -> u64 {
         self.start + self.bytes.len() as u64
     }
@@ -48,128 +60,92 @@ impl Log {
             self.start += drop as u64;
         }
     }
-}
 
-pub struct Output {
-    log: Mutex<Log>,
-    room: Notify,
-}
-
-impl Default for Output {
-    fn default() -> Self {
-        Self {
-            log: Mutex::new(Log {
-                bytes: VecDeque::new(),
-                start: 0,
-                delivered: 0,
-                end: None,
-                end_delivered: false,
-                attached: true,
-                closed: false,
-            }),
-            room: Notify::new(),
+    /// How many more far-end bytes may wait now. Zero after the end or a close.
+    pub fn room(&self) -> usize {
+        if self.closed || self.end.is_some() {
+            0
+        } else {
+            MAX_UNREAD - self.unread().min(MAX_UNREAD)
         }
     }
-}
 
-impl Output {
-    fn lock(&self) -> MutexGuard<'_, Log> {
-        // A panic while the lock was held leaves only plain data behind.
-        self.log.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// Appends far-end bytes. Waits while too much is unread (backpressure).
-    pub async fn push(&self, data: &[u8]) {
-        loop {
-            {
-                let mut log = self.lock();
-                if log.closed {
-                    return;
-                }
-                if log.unread() == 0 || log.unread() + data.len() <= MAX_UNREAD {
-                    log.bytes.extend(data);
-                    return;
-                }
-            }
-            // `notify_one` keeps a permit, so a take between the check and
-            // this await is not lost.
-            self.room.notified().await;
+    /// Appends far-end bytes. The caller asked for at most [`Self::room`].
+    pub fn push(&mut self, data: &[u8]) {
+        if !self.closed {
+            self.bytes.extend(data);
         }
     }
 
     /// Records the end event once. Later calls do nothing.
-    pub fn finish(&self, event: ByteEvent) {
-        let mut log = self.lock();
-        if log.end.is_none() {
-            log.end = Some(event);
+    pub fn finish(&mut self, event: ByteEvent) {
+        if self.end.is_none() {
+            self.end = Some(event);
         }
     }
 
     pub fn has_ended(&self) -> bool {
-        self.lock().end.is_some()
+        self.end.is_some()
     }
 
-    /// Everything new for the attached terminal, in order.
-    pub fn take(&self) -> Vec<ByteEvent> {
+    /// Ended, and no attached terminal still waits for the end event.
+    pub fn is_finished(&self) -> bool {
+        self.end.is_some() && (self.end_delivered || !self.attached)
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    /// Everything new for the attached terminal, in order. One output event
+    /// carries the offset after its bytes.
+    pub fn take(&mut self) -> Vec<ByteEvent> {
         let mut events = Vec::new();
-        let mut log = self.lock();
-        if !log.attached {
+        if !self.attached {
             return events;
         }
-        if log.unread() > 0 {
-            let from = (log.delivered - log.start) as usize;
-            events.push(ByteEvent::Output(log.bytes.range(from..).copied().collect()));
-            log.delivered = log.end_offset();
-            log.trim();
+        if self.unread() > 0 {
+            let from = (self.delivered - self.start) as usize;
+            let bytes = self.bytes.range(from..).copied().collect();
+            self.delivered = self.end_offset();
+            events.push(ByteEvent::Output { offset: self.delivered, bytes });
+            self.trim();
         }
-        if !log.end_delivered
-            && let Some(end) = log.end.clone()
+        if !self.end_delivered
+            && let Some(end) = self.end.clone()
         {
             events.push(end);
-            log.end_delivered = true;
+            self.end_delivered = true;
         }
-        drop(log);
-        self.room.notify_one();
         events
     }
 
     /// The next offset the attached terminal gets (for the resume token).
     pub fn delivered(&self) -> u64 {
-        self.lock().delivered
+        self.delivered
     }
 
-    pub fn detach(&self) {
-        self.lock().attached = false;
+    pub fn detach(&mut self) {
+        self.attached = false;
     }
 
-    /// The terminal is closed: drop kept bytes and wake a waiting reader so
-    /// it can drain the channel and end.
-    pub fn close(&self) {
-        {
-            let mut log = self.lock();
-            log.closed = true;
-            log.attached = false;
-            log.bytes.clear();
-        }
-        self.room.notify_one();
-    }
-
-    /// Bytes that arrived before the shell request was answered (bounded by
-    /// the caller).
-    pub fn push_early(&self, data: &[u8]) {
-        self.lock().bytes.extend(data);
+    /// The terminal is closed: drop kept bytes; nobody reads again.
+    pub fn close(&mut self) {
+        self.closed = true;
+        self.attached = false;
+        self.bytes.clear();
+        self.start = self.delivered;
     }
 
     /// Attaches again from `offset`. False when `offset` is outside the kept
     /// bytes or a terminal is still attached.
-    pub fn attach_at(&self, offset: u64) -> bool {
-        let mut log = self.lock();
-        if log.attached || log.closed || offset < log.start || offset > log.end_offset() {
+    pub fn attach_at(&mut self, offset: u64) -> bool {
+        if self.attached || self.closed || offset < self.start || offset > self.end_offset() {
             return false;
         }
-        log.delivered = offset;
-        log.end_delivered = false;
-        log.attached = true;
+        self.delivered = offset;
+        self.end_delivered = false;
+        self.attached = true;
         true
     }
 }
@@ -177,36 +153,34 @@ impl Output {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
-    use std::time::Duration;
+    use crate::iface::ExitStatus;
 
-    fn runtime() -> tokio::runtime::Runtime {
-        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap()
+    #[test]
+    fn room_shrinks_with_unread_bytes_and_comes_back_after_take() {
+        let mut out = Output::default();
+        assert_eq!(out.room(), MAX_UNREAD);
+        out.push(&vec![b'a'; MAX_UNREAD]);
+        assert_eq!(out.room(), 0, "the session asks the host for nothing more");
+        let events = out.take();
+        assert!(matches!(events.as_slice(), [ByteEvent::Output { offset, bytes }]
+            if *offset == MAX_UNREAD as u64 && bytes.len() == MAX_UNREAD));
+        assert_eq!(out.room(), MAX_UNREAD);
     }
 
     #[test]
-    fn a_full_log_stops_the_reader_until_the_host_takes_bytes() {
-        let rt = runtime();
-        let out = Arc::new(Output::default());
-        rt.block_on(out.push(&vec![b'a'; MAX_UNREAD]));
-        let pusher = rt.spawn({
-            let out = out.clone();
-            async move { out.push(b"b").await }
-        });
-        rt.block_on(async { tokio::time::sleep(Duration::from_millis(50)).await });
-        assert!(!pusher.is_finished(), "the reader waits while 64 KiB are unread");
-        let first = out.take();
-        assert!(matches!(first.as_slice(), [ByteEvent::Output(b)] if b.len() == MAX_UNREAD));
-        rt.block_on(pusher).unwrap();
-        assert_eq!(out.take(), vec![ByteEvent::Output(b"b".to_vec())], "no byte is dropped");
+    fn offsets_run_on_over_chunks() {
+        let mut out = Output::default();
+        out.push(b"abc");
+        out.take();
+        out.push(b"de");
+        assert_eq!(out.take(), vec![ByteEvent::Output { offset: 5, bytes: b"de".to_vec() }]);
     }
 
     #[test]
     fn resume_replays_only_the_retained_window() {
-        let rt = runtime();
-        let out = Output::default();
+        let mut out = Output::default();
         for _ in 0..3 {
-            rt.block_on(out.push(&vec![b'x'; MAX_UNREAD]));
+            out.push(&vec![b'x'; MAX_UNREAD]);
             out.take();
         }
         let end = out.delivered();
@@ -218,29 +192,24 @@ mod tests {
 
     #[test]
     fn the_end_event_comes_once_after_all_bytes() {
-        let rt = runtime();
-        let out = Output::default();
-        rt.block_on(out.push(b"bye"));
-        out.finish(ByteEvent::Exit(crate::iface::ExitStatus { code: Some(0) }));
-        out.finish(ByteEvent::Lost("late".into()));
+        let mut out = Output::default();
+        out.push(b"bye");
+        out.finish(ByteEvent::Exit(ExitStatus { code: Some(0), ..Default::default() }));
+        out.finish(ByteEvent::Lost { reason: "late".into(), retryable: true });
+        assert_eq!(out.room(), 0, "nothing is read after the end");
         let events = out.take();
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0], ByteEvent::Output(b"bye".to_vec()));
+        assert_eq!(events[0], ByteEvent::Output { offset: 3, bytes: b"bye".to_vec() });
         assert!(matches!(events[1], ByteEvent::Exit(_)));
         assert!(out.take().is_empty());
     }
 
     #[test]
-    fn close_releases_a_waiting_reader_and_discards_bytes() {
-        let rt = runtime();
-        let out = Arc::new(Output::default());
-        rt.block_on(out.push(&vec![b'a'; MAX_UNREAD]));
-        let pusher = rt.spawn({
-            let out = out.clone();
-            async move { out.push(b"b").await }
-        });
+    fn close_discards_bytes_and_refuses_resume() {
+        let mut out = Output::default();
+        out.push(b"abc");
         out.close();
-        rt.block_on(pusher).unwrap();
+        out.push(b"d");
         assert!(out.take().is_empty());
         assert!(!out.attach_at(0), "a closed terminal cannot be resumed");
     }

@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Observation
@@ -26,6 +27,27 @@ final class LocationTrailService {
     var now: () -> Date = Date.init
     /// Called after every trail change (the history page, the palette).
     var onChange: (() -> Void)?
+    /// More listeners (each window's titlebar Back / Forward buttons): token to handler.
+    private var observers: [Int: () -> Void] = [:]
+    private var nextObserver = 0
+
+    /// Adds a listener for every trail change (also scope changes: re-read `canNavigate`); returns
+    /// the token for ``removeObserver(_:)``.
+    @discardableResult
+    func addObserver(_ handler: @escaping () -> Void) -> Int {
+        nextObserver += 1
+        observers[nextObserver] = handler
+        return nextObserver
+    }
+
+    func removeObserver(_ token: Int) {
+        observers[token] = nil
+    }
+
+    private func notify() {
+        onChange?()
+        for handler in observers.values { handler() }
+    }
 
     init(services: AppServices) {
         self.services = services
@@ -37,7 +59,26 @@ final class LocationTrailService {
         }
     }
 
-    deinit { observation?.cancel() }
+    deinit {
+        observation?.cancel()
+        scopeObservation?.cancel()
+    }
+
+    private var scopeObservation: Task<Void, Never>?
+
+    /// Tells the observers when `navigation.historyScope` changes, so the titlebar buttons re-read
+    /// ``canNavigate(_:)`` with no trail change. Event driven (observation of the settings snapshot).
+    func watchScope(settings: SettingsController) {
+        scopeObservation?.cancel()
+        scopeObservation = Task { [weak self] in
+            var last: String?
+            for await scope in Observations({ settings.snapshot.navigationHistoryScope }) {
+                defer { last = scope }
+                guard let last, last != scope else { continue }
+                self?.notify()
+            }
+        }
+    }
 
     // MARK: Recording
 
@@ -166,7 +207,7 @@ final class LocationTrailService {
     // MARK: Persistence
 
     private func changed() {
-        onChange?()
+        notify()
         guard loaded else { return }
         saveTimer.schedule(after: .seconds(1)) { @MainActor [weak self] in self?.save() }
     }
@@ -189,7 +230,7 @@ final class LocationTrailService {
             for entry in trail.entries { merged.record(entry.location, at: entry.enteredAt) }
             trail = merged
         }
-        onChange?()
+        notify()
     }
 
     private func save() {
