@@ -4,6 +4,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError } from "./team-vm-driver.ts"
 import { cloudConfig, cloudDriver } from "./cloud-driver.ts"
+import { OrphanSweep } from "./cloud-sweep.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import {
@@ -218,23 +219,34 @@ export class CloudDO extends OwnerDO<CloudState> {
     for (let step = 0; step < 4; step++) {
       const engine = this.boundEngine
       if (!engine) return
-      const due = Object.entries(engine.currentState.pending)
-        .filter(([, p]) => p.machine === machine && (dueBy === null || p.due_at <= dueBy))
-        .map(([key]) => engine.rows.get<LedgerRow>(TABLE_LEDGER, key))
-        .filter((r) => r !== undefined)
-        .sort((a, b) => (a.n ?? 0) - (b.n ?? 0))[0]
-      if (!due) return
+      // Strict intent order: the oldest pending call of the machine runs first, so a delete never
+      // overtakes a create that is still settling (P1-2).
+      const oldest = Object.entries(engine.currentState.pending)
+        .filter(([, p]) => p.machine === machine)
+        .map(([key, p]) => ({ p, r: engine.rows.get<LedgerRow>(TABLE_LEDGER, key) }))
+        .filter((x) => x.r !== undefined)
+        .sort((a, b) => (a.r!.n ?? 0) - (b.r!.n ?? 0))[0]
+      if (!oldest) return
+      const due = oldest.r!
       const row = due.row
-      const commitKey = `driver:${due.n}:a${row.attempts}`
+      // A request runs calls at once, except the backed-off finds of a cancelled create (a client
+      // retrying fast must not spend them); the alarm runs what is due.
+      const dueLimit = dueBy ?? (row.cancel ? Date.now() + this.skewMs : Infinity)
+      if (oldest.p.due_at > dueLimit) return
+      // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
+      const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
       const tag = { team: engine.currentState.team ?? "", machine: row.machine }
       const driver = cloudDriver(this.env, this.sqlStore)
       let result: { key: string; ok: boolean; provider_id?: string; error?: { code: string; message: string }; final?: boolean }
       if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
-      else if (row.op === "create" && !teamPlan(this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
+      else if (row.op === "create" && !row.cancel && !teamPlan(this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       else {
         try {
-          if (row.op === "create") {
+          if (row.op === "create" && row.cancel) {
+            const found = await driver.findOwned(row.provider_name, tag)
+            result = found ? { key: row.key, ok: true, provider_id: found.id } : { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "the cancelled create has not appeared (yet)" }, final: false }
+          } else if (row.op === "create") {
             const idle = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row.idle_policy.idle_seconds ?? 0
             result = { key: row.key, ok: true, provider_id: (await driver.ensure(row.provider_name, tag, { idleSeconds: idle })).id }
           }
@@ -262,6 +274,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     if (tomb) times.push(tomb.row.deleted_at + TOMBSTONE_MS)
     const finished = rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 50 }).find((l) => l.row.state !== "pending")
     if (finished) times.push(finished.row.updated_at + LEDGER_KEEP_MS)
+    if (this.hasHadMachines(state)) times.push(this.sweep.dueAt() ?? Date.now())
     return times.length ? Math.min(...times) : null
   }
 
@@ -271,7 +284,36 @@ export class CloudDO extends OwnerDO<CloudState> {
     const now = realNow + this.skewMs
     const machines = new Set(Object.values(engine.currentState.pending).filter((p) => p.due_at <= now).map((p) => p.machine))
     for (const m of machines) await this.runMachine(m, now)
-    if ((this.nextWakeAt(engine.currentState, now) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
+    if (this.pruneDue(engine.currentState, now)) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
+    const state = engine.currentState
+    const driver = cloudDriver(this.env, this.sqlStore)
+    if (this.hasHadMachines(state) && driver && state.team) await this.sweep.maybeRun(now, state.team, driver, this.knownNames(), engine.stream)
+  }
+
+  private get sweep(): OrphanSweep {
+    return (this.sweepStore ??= new OrphanSweep(this.sqlStore))
+  }
+  private sweepStore: OrphanSweep | null = null
+
+  private hasHadMachines(state: CloudState): boolean {
+    return state.team !== null && state.rev > 0
+  }
+
+  private pruneDue(state: CloudState, now: number): boolean {
+    const rows = this.boundEngine?.rows
+    const tomb = rows?.range<TombstoneRow>(TABLE_TOMBSTONE, { limit: 1 })[0]
+    const finished = rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 50 }).find((l) => l.row.state !== "pending")
+    void state
+    return (tomb !== undefined && tomb.row.deleted_at + TOMBSTONE_MS <= now) || (finished !== undefined && finished.row.updated_at + LEDGER_KEEP_MS <= now)
+  }
+
+  /** Every provider name CloudDO itself recorded: live machines and ledger rows (the only deletion source). */
+  private knownNames(): ReadonlySet<string> {
+    const rows = this.boundEngine?.rows
+    const names = new Set<string>()
+    for (const m of rows?.range<MachineRow>(TABLE_MACHINE, { limit: 1000 }) ?? []) names.add(m.row.provider_name)
+    for (const l of rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }) ?? []) names.add(l.row.provider_name)
+    return names
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
@@ -288,6 +330,6 @@ export class CloudDO extends OwnerDO<CloudState> {
     }
     const ctl = this.sqlStore.exec<{ creates: number; deletes: number }>(`SELECT creates, deletes FROM cloud_fake_ctl WHERE id = 1`)[0]!
     const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null }>(`SELECT name, id, idle FROM cloud_fake_vm ORDER BY name`)
-    return { creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length }
+    return { creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects() }
   }
 }

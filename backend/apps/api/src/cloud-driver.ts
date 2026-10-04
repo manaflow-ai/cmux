@@ -80,6 +80,30 @@ export class GuardedCloudDriver {
     return { id: created.id }
   }
 
+  /** P1-2: the VM a cancelled create may have made, found by its recorded name; never creates. */
+  async findOwned(name: string, tag: VmTag): Promise<{ id: string } | null> {
+    this.guard(name)
+    const found = await this.raw.find(name)
+    if (!found) return null
+    if (!ours(found.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+    return { id: found.id }
+  }
+
+  /**
+   * Report only (the orphan report): this team's tagged VMs under this environment's cld prefix and
+   * exact name shape. There is deliberately no delete that takes a listed VM.
+   */
+  async listOurs(team: string, maxPages = 10): Promise<Array<{ name: string; id: string }>> {
+    const out: Array<{ name: string; id: string }> = []
+    for (let page = 0, offset = 0; page < maxPages; page++) {
+      const { vms, total } = await this.raw.list(`cmux_next_team:${team}`, offset)
+      for (const v of vms) if (v.name && v.name.startsWith(this.prefix) && NAME_TAIL.test(v.name.slice(this.prefix.length)) && v.tag.cmux_next_team === team) out.push({ name: v.name, id: v.id })
+      offset += vms.length
+      if (vms.length === 0 || offset >= total) break
+    }
+    return out
+  }
+
   /** Deletes the VM under `name`; no VM there is success. */
   async remove(name: string, tag: VmTag): Promise<void> {
     this.guard(name)
