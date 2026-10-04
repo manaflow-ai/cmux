@@ -1238,6 +1238,33 @@ function childCases(): CorpusCase[] {
       c.check(Object.keys(kept).length === 100, `100 children, got ${Object.keys(kept).length}`);
       c.check(kept.s_00 !== undefined && kept.s_01 === undefined, "s_00 runs and stays; s_01 is the oldest finished");
       c.check(kept.s_new?.order === 101, `the new child is the newest, got ${kept.s_new?.order}`);
+      c.check((c.persisted(e) as HostStateData & { prunedChildren?: string[] }).prunedChildren?.join() === "s_01", "s_01 is remembered as pruned");
+    });
+    // A pruned child that comes back (opened again) gets no second work card.
+    c.step({ kind: "session_changed", session: session("s_01", "s_01", "running") }, ["persist"], (e) => {
+      const back = (c.persisted(e).children as Record<string, ChildRecord>).s_01;
+      c.check(back?.conversation === "", `registered again with no card, got ${JSON.stringify(back)}`);
+    });
+    cases.push(c.end());
+  }
+
+  {
+    // The child just added is never the one pruned (its work card is queued).
+    const children: Record<string, ChildRecord> = {};
+    const sessions: SessionSummary[] = [];
+    for (let i = 0; i < 100; i++) {
+      const id = `s_${String(i).padStart(2, "0")}`;
+      children[id] = { conversation: "conv_a", name: id, status: "running", messageId: `m_${id}`, edits: 1, order: i + 1 };
+      sessions.push(session(id, id, "running"));
+    }
+    const c = new CaseBuilder("children: a new child first seen done is kept past the cap when every other child runs", {
+      defaultConversation: "conv_a",
+      children,
+    } as Partial<HostStateData>);
+    boot(c, [summary("conv_a")], sessions);
+    c.step({ kind: "session_changed", session: session("s_new", "new", "idle") }, ["persist", "conversation_op"], (e) => {
+      const kept = c.persisted(e).children as Record<string, ChildRecord>;
+      c.check(Object.keys(kept).length === 101 && kept.s_new?.status === "done", "101 children: nothing finished to prune but the new one");
     });
     cases.push(c.end());
   }
