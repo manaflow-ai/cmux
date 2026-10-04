@@ -118,7 +118,8 @@ fn add_ledger_sequences(transaction: &Transaction<'_>) -> anyhow::Result<()> {
         .iter()
         .any(|column| column == "v1_sequence");
     if !has_sequence {
-        transaction.execute_batch("ALTER TABLE closed_v1_copied ADD COLUMN v1_sequence INTEGER;")?;
+        transaction
+            .execute_batch("ALTER TABLE closed_v1_copied ADD COLUMN v1_sequence INTEGER;")?;
     }
     transaction.execute_batch(
         "UPDATE closed_v1_copied SET v1_sequence =
