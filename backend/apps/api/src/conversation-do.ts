@@ -300,6 +300,11 @@ export class ConversationDO extends OwnerDO<Head> {
     }
   }
 
+  /** Worker only (home-routes.ts rate gate): whether `principal` already decided `key` here (a retry replays, so it is not charged). */
+  async homeDecided(entity: string, principal: Principal, key: string): Promise<boolean> {
+    return this.existingState(entity) !== undefined && this.boundEngine!.gate(principal, { t: "op", op: "", params: {}, idempotency_key: key }) === "replay"
+  }
+
   /**
    * Worker only (home-reach.ts): the reach facts this DM gives `adder` about `target`. `peer` is
    * the target's name while both are current human participants; `consented` holds when the
