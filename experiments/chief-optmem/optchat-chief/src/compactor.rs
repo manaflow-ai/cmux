@@ -939,7 +939,7 @@ pub const CODEX_KEPT_KEYS: [&str; 8] = [
 /// A compactor slot's codex config.toml: the routing and model keys of the
 /// user's (`user`, its text), then the isolation: no project AGENTS.md, no
 /// skills (none loaded, none listed in the prompt), no apps, plugins,
-/// memories, hooks or subagents, no history file.
+/// memories, hooks, subagents or code mode, no history file.
 pub fn codex_compactor_config(user: Option<&str>) -> Result<String, String> {
     let mut out = toml::Table::new();
     if let Some(text) = user {
@@ -964,6 +964,7 @@ plugins = false
 memories = false
 hooks = false
 multi_agent = false
+code_mode = false
 skip_host_skill_discovery = true
 
 [skills]
@@ -980,7 +981,12 @@ enabled = false
 
 /// Creates every compactor slot's `CODEX_HOME` (0700) under
 /// `paths.compactor_codex` with `codex_compactor_config` of the user's
-/// config.toml in `user_home`, and empties it (`wipe_codex_home`).
+/// config.toml in `user_home`, and empties it (`wipe_codex_home`). When the
+/// user has an auth.json, the slot's is a symlink to it: codex-acp refuses
+/// a session without a sign-in (checked live 2026-10-04), and a copy whose
+/// token refresh rotated the refresh token would sign the user out; codex
+/// writes auth.json in place, so a refresh through the link updates the
+/// user's own file.
 pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String> {
     let user = match std::fs::read_to_string(user_home.join("config.toml")) {
         Ok(text) => Some(text),
@@ -998,13 +1004,39 @@ pub fn prepare_codex_homes(paths: &Paths, user_home: &Path) -> Result<(), String
                 crate::session_dir::write_if_changed(&dir.join("config.toml"), config.as_bytes())
             });
         made.map_err(|e| format!("preparing {}: {e}", dir.display()))?;
+        link_auth(&dir, user_home).map_err(|e| format!("preparing {}: {e}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// Points `<dir>/auth.json` at the user's auth.json, or removes it when the
+/// user has none.
+fn link_auth(dir: &Path, user_home: &Path) -> io::Result<()> {
+    let link = dir.join("auth.json");
+    let target = user_home.join("auth.json");
+    if std::fs::read_link(&link).is_ok_and(|t| t == target) && target.exists() {
+        return Ok(());
+    }
+    match std::fs::remove_file(&link) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    if target.exists() {
+        std::os::unix::fs::symlink(&target, &link)?;
     }
     Ok(())
 }
 
 /// Files of a compactor `CODEX_HOME` that hold no chat text and survive
-/// `wipe_codex_home`: its configuration and codex's model catalog cache.
-pub const CODEX_KEPT_FILES: [&str; 3] = ["config.toml", "models_cache.json", "version.json"];
+/// `wipe_codex_home`: its configuration, the link to the user's sign-in
+/// and codex's model catalog cache.
+pub const CODEX_KEPT_FILES: [&str; 4] = [
+    "config.toml",
+    "auth.json",
+    "models_cache.json",
+    "version.json",
+];
 
 /// Removes everything in a compactor `CODEX_HOME` but `CODEX_KEPT_FILES`:
 /// the node's rollout (`sessions/`), thread and log databases, history,
