@@ -4,7 +4,7 @@ import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead } from "./team-reads.ts"
-import { memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
@@ -487,16 +487,9 @@ export class TeamDO extends OwnerDO<TeamState> {
     return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
   }
 
-  /**
-   * Home reach (home-messaging.md section 16.7, home-reach.ts): which of `targets` share this
-   * team with `adder`, with their directory names. Only owner, admin and member roles may add
-   * people. Never binds or creates storage for a team this object does not serve.
-   */
+  /** Home reach (home-reach.ts): which of `targets` share this team with `adder`. Never binds a team it does not serve. */
   async homeCoMembers(entity: string, adder: string, targets: ReadonlyArray<string>): Promise<Array<{ user: string; display_name: string }>> {
-    if (this.boundEntity() !== entity) return []
-    const members = this.bind(entity).currentState.members
-    if (!["owner", "admin", "member"].includes(members[adder]?.role ?? "")) return []
-    return targets.flatMap((user) => (user !== adder && members[user] ? [{ user, display_name: members[user].display_name }] : []))
+    return this.boundEntity() === entity ? homeCoMembersOf(this.bind(entity).currentState, this.rows, adder, targets) : []
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
