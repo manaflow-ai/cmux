@@ -254,7 +254,7 @@ export type QuotaResult =
   | { readonly ok: false; readonly code: "attachment.quota" | "attachment.storage_quota"; readonly window: "day_bytes" | "day_intents" | "stored"; readonly retry_after_ms: number }
 
 export interface QuotaUsage {
-  /** Byte takes `{bytes, at}` (one per conversation and hash per day). */
+  /** Byte takes `{bytes, at}`, one per upload slot (refunded ones removed). */
   readonly bytes: ReadonlyArray<{ readonly bytes: number; readonly at: number }>
   /** Intent times. */
   readonly intents: ReadonlyArray<number>
@@ -262,23 +262,26 @@ export interface QuotaUsage {
   readonly stored: number
 }
 
-/** Per user: 300 intents and 2 GB declared bytes per rolling 24 h, 10 GB stored. `repeat`: same conversation and hash today (no new bytes). */
-export const attachmentQuota = (usage: QuotaUsage, request: { readonly bytes: number; readonly repeat: boolean }, now: number): QuotaResult => {
+/**
+ * Per user: 300 intents and 2 GB declared bytes per rolling 24 h, 10 GB stored. Every upload
+ * slot is charged its declared bytes (the owner refunds a slot whose commit finds the bytes
+ * already stored, or that expires unused), so bytes in flight are always counted.
+ */
+export const attachmentQuota = (usage: QuotaUsage, bytes: number, now: number): QuotaResult => {
   const q = ATTACHMENT_LIMITS.quota
   const since = now - q.dayMs
   const intents = usage.intents.filter((t) => t > since).sort((a, b) => a - b)
   if (intents.length >= q.dayIntents) return { ok: false, code: "attachment.quota", window: "day_intents", retry_after_ms: Math.max(1, intents[intents.length - q.dayIntents]! + q.dayMs - now) }
-  if (request.repeat) return { ok: true }
-  if (usage.stored + request.bytes > q.storedBytes) return { ok: false, code: "attachment.storage_quota", window: "stored", retry_after_ms: 0 }
+  if (usage.stored + bytes > q.storedBytes) return { ok: false, code: "attachment.storage_quota", window: "stored", retry_after_ms: 0 }
   const inside = usage.bytes.filter((u) => u.at > since).sort((a, b) => a.at - b.at)
   let total = inside.reduce((sum, u) => sum + u.bytes, 0)
-  if (total + request.bytes <= q.dayBytes) return { ok: true }
+  if (total + bytes <= q.dayBytes) return { ok: true }
   // Retry when enough of the oldest takes have left the window.
   let at = now
   for (const u of inside) {
     total -= u.bytes
     at = u.at + q.dayMs
-    if (total + request.bytes <= q.dayBytes) break
+    if (total + bytes <= q.dayBytes) break
   }
   return { ok: false, code: "attachment.quota", window: "day_bytes", retry_after_ms: Math.max(1, at - now) }
 }

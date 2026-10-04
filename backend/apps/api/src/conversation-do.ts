@@ -44,7 +44,7 @@ export type AttachmentAccess =
 /** A download the owner allows: the record, and the file name from the message part (or a generic one). */
 export type DownloadAccess = { readonly record: conversation.AttachmentRecord; readonly name: string | null } | null
 
-type Users = { releaseAttachmentStorage(e: string, key: string): Promise<void> }
+type Users = { releaseAttachmentStorage(e: string, key: string): Promise<void>; refundAttachmentQuota(e: string, slot: string): Promise<void> }
 
 export type InvitePreviewResult =
   | { readonly state: "ok"; readonly inviter: string; readonly kind: "dm" | "group"; readonly title?: string }
@@ -136,14 +136,38 @@ export class ConversationDO extends OwnerDO<Head> {
     if ((op === "message.retract" || op === "message.edit") && frames.some((f) => f.t === "result")) store.markDirty(this.sqlStore, Date.now())
   }
 
-  /** The alarm also runs the attachment sweep (shared with the outbox drain and ledger prune). */
+  /** The alarm also expires upload slots and runs the attachment sweep (shared with the outbox drain and the prunes). */
   protected override nextWakeAt(_state: Head, _now: number): number | null {
-    return store.nextSweepAt(this.sqlStore)
+    const times = [store.nextSweepAt(this.sqlStore), store.nextSlotDue(this.sqlStore)].filter((t): t is number => t !== null)
+    return times.length ? Math.min(...times) : null
   }
 
   protected override async onWake(now: number): Promise<void> {
+    await this.expireSlots(now)
     const due = store.nextSweepAt(this.sqlStore)
     if (due !== null && due <= now) await this.sweepAttachments(now)
+  }
+
+  private users(user: string): Users {
+    return this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as Users
+  }
+
+  /**
+   * Slots whose time is up: their object key is deleted (a PUT that never committed, or a re-PUT
+   * to a presigned URL after the slot ended), a slot that never committed is refunded, then the
+   * row goes. Each step is idempotent, so a failed wake retries safely.
+   */
+  private async expireSlots(now: number): Promise<void> {
+    for (;;) {
+      const due = store.dueSlots(this.sqlStore, now, 100)
+      if (due.length === 0) return
+      if (this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(due.map((s) => s.object_key))
+      for (const slot of due) {
+        if (slot.state !== "tombstone") await this.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
+        store.removeSlot(this.sqlStore, slot.id)
+      }
+      if (due.length < 100) return
+    }
   }
 
   /** conversation.history {before_seq?, limit?}: older messages, honoring history_visible. */
@@ -259,13 +283,16 @@ export class ConversationDO extends OwnerDO<Head> {
     actor: string,
     quotaUser: string,
     meta: { hash: string; byte_count: number; mime_type: string },
-    mode: store.UploadSlot["mode"]
+    mode: store.UploadSlot["mode"],
+    id: string
   ): Promise<store.UploadSlot | null> {
     const a = this.acting(entity, actor)
-    if (!a || !a.open) return null
+    if (!a || !a.open || !/^[0-9a-f]{32}$/.test(id)) return null
     const objectId = store.randomId()
-    const slot: store.UploadSlot = { id: store.randomId(), ...meta, actor, quota_user: quotaUser, object_id: objectId, object_key: conversation.attachmentObjectKey(entity, objectId), mode, expires_at: Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs }
+    const slot: store.UploadSlot = { id, ...meta, actor, quota_user: quotaUser, object_id: objectId, object_key: conversation.attachmentObjectKey(entity, objectId), mode, expires_at: Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs }
     store.createSlot(this.sqlStore, slot)
+    // The slot's expiry is an alarm time: its object (if any) goes then unless a commit kept it.
+    this.scheduleAlarm()
     return slot
   }
 
@@ -275,16 +302,33 @@ export class ConversationDO extends OwnerDO<Head> {
     return store.takeSlot(this.sqlStore, id, mode, consume, actor)
   }
 
-  /** After the Worker verified the bytes: records the upload for a still-current participant of an open conversation. */
+  /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
+  async settleSlot(entity: string, id: string): Promise<void> {
+    if (!this.existingState(entity)) return
+    const slot = store.slotIn(this.sqlStore, id, "uploading")
+    if (slot) store.settleSlot(this.sqlStore, slot, false)
+  }
+
+  /**
+   * After the Worker verified the bytes of `uploading` slot `slotId`: records the upload for a
+   * still-current participant of an open conversation and settles the slot in the same step.
+   * `exists`: the bytes were already here, the caller deletes the slot's object and refunds.
+   */
   async commitAttachment(
     entity: string,
-    slot: store.UploadSlot,
-    etag: string | undefined
-  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string } | { ok: false; code: "auth.forbidden" | "archived" }> {
+    slotId: string,
+    etag?: string
+  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
+    if (!this.existingState(entity)) return { ok: false, code: "slot_gone" }
+    const slot = store.slotIn(this.sqlStore, slotId, "uploading")
+    if (!slot) return { ok: false, code: "slot_gone" }
     const a = this.acting(entity, slot.actor)
-    if (!a) return { ok: false, code: "auth.forbidden" }
-    if (!a.open) return { ok: false, code: "archived" }
+    if (!a || !a.open) {
+      store.settleSlot(this.sqlStore, slot, false)
+      return { ok: false, code: a ? "archived" : "auth.forbidden" }
+    }
     const r = store.commitRecord(this.sqlStore, { hash: slot.hash, object_id: slot.object_id, object_key: slot.object_key, mime_type: slot.mime_type, byte_count: slot.byte_count, ...(etag ? { etag } : {}), uploader: slot.actor, quota_user: slot.quota_user, created_at: Date.now() })
+    store.settleSlot(this.sqlStore, slot, r.record.object_key === slot.object_key)
     this.scheduleAlarm()
     return { ok: true, state: r.state, object_key: r.record.object_key }
   }
@@ -311,9 +355,9 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** Unreferenced uploads past the grace period: forget, delete their objects, release the uploaders' storage. */
   private async sweepAttachments(now: number): Promise<number> {
-    const { records, more } = store.forgetUnreferenced(this.sqlStore, now - conversation.ATTACHMENT_LIMITS.unreferencedGraceMs, 100)
+    const { records, done } = store.sweepBatch(this.sqlStore, now - conversation.ATTACHMENT_LIMITS.unreferencedGraceMs)
     await this.dropObjects(records)
-    store.markSwept(this.sqlStore, now, more)
+    store.markSwept(this.sqlStore, now, done)
     return records.length
   }
 
@@ -321,7 +365,7 @@ export class ConversationDO extends OwnerDO<Head> {
     if (records.length && this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(records.map((r) => r.object_key))
     for (const r of records) {
       try {
-        await (this.env.USER_DO.get(this.env.USER_DO.idFromName(r.quota_user)) as unknown as Users).releaseAttachmentStorage(r.quota_user, r.object_key)
+        await this.users(r.quota_user).releaseAttachmentStorage(r.quota_user, r.object_key)
       } catch (e) {
         // Fails safe: the uploader's stored-bytes count stays high until a later release.
         console.error(JSON.stringify({ msg: "attachment storage release failed", error: String(e) }))
@@ -341,8 +385,9 @@ export class ConversationDO extends OwnerDO<Head> {
    */
   async deleteAttachmentStorage(entity: string): Promise<number> {
     if (!this.existingState(entity) || !this.env.HOME_ATTACHMENTS) return 0
-    const records = store.forgetAll(this.sqlStore)
+    const { records, slots } = store.forgetAll(this.sqlStore)
     await this.dropObjects(records)
+    for (const slot of slots) if (slot.state !== "tombstone") await this.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
     let deleted = records.length
     let cursor: string | undefined
     do {

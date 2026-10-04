@@ -4,7 +4,7 @@ import type { Principal } from "@cmux/ownership"
 import { authenticate, withGrantClasses } from "./auth.ts"
 import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
-import type { UploadSlot } from "./home-attachment-store.ts"
+import { randomId, type UploadSlot } from "./home-attachment-store.ts"
 import { ssoGate } from "./policy-gate.ts"
 import { presignUrl, type Presigner } from "./r2-presign.ts"
 
@@ -43,14 +43,16 @@ const isFail = (v: unknown): v is Fail => typeof v === "object" && v !== null &&
 
 interface ConversationAttachments {
   attachmentAccess(entity: string, actor: string, hash: string): Promise<AttachmentAccess>
-  createUploadSlot(entity: string, actor: string, quotaUser: string, meta: { hash: string; byte_count: number; mime_type: string }, mode: UploadSlot["mode"]): Promise<UploadSlot | null>
+  createUploadSlot(entity: string, actor: string, quotaUser: string, meta: { hash: string; byte_count: number; mime_type: string }, mode: UploadSlot["mode"], id: string): Promise<UploadSlot | null>
   uploadSlot(entity: string, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): Promise<UploadSlot | null>
-  commitAttachment(entity: string, slot: UploadSlot, etag: string | undefined): Promise<{ ok: true; state: "stored" | "exists"; object_key: string } | { ok: false; code: "auth.forbidden" | "archived" }>
+  settleSlot(entity: string, id: string): Promise<void>
+  commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
   downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
 }
 interface UserAttachments {
   takeAttachmentQuota(e: string, key: string, bytes: number): Promise<{ ok: true } | { ok: false; code: string; window: string; retry_after_ms: number }>
   recordAttachmentStorage(e: string, key: string, bytes: number): Promise<void>
+  refundAttachmentQuota(e: string, key: string): Promise<void>
 }
 const conversationOf = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationAttachments
 const userOf = (env: Env, user: string) => env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as UserAttachments
@@ -139,16 +141,24 @@ const s3Config = (env: Env) =>
 
 const readJson = async <T>(request: Request): Promise<T | null> => (await request.json().catch(() => null)) as T | null
 
-/** After a verified upload: record the object (first upload wins) and count it toward the uploader's stored bytes. */
+/**
+ * After a verified upload: the owner records the object (first upload wins) and settles the slot.
+ * `stored` counts toward the uploader's stored bytes; `exists` deletes this slot's object now and
+ * refunds its bytes; a refusal deletes the object too.
+ */
 const finish = async (env: Env, conversation: string, slot: UploadSlot, etag: string | undefined): Promise<Response> => {
   const bucket = env.HOME_ATTACHMENTS!
-  const committed = await conversationOf(env, conversation).commitAttachment(conversation, slot, etag)
+  const committed = await conversationOf(env, conversation).commitAttachment(conversation, slot.id, etag)
   if (!committed.ok) {
     await bucket.delete(slot.object_key)
-    return failure(committed.code === "archived" ? { status: 409, code: "archived", message: "this conversation takes no new messages" } : { status: 403, code: "auth.forbidden", message: "not a participant of this conversation" })
+    if (committed.code === "archived") return failure({ status: 409, code: "archived", message: "this conversation takes no new messages" })
+    if (committed.code === "slot_gone") return failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
+    return failure({ status: 403, code: "auth.forbidden", message: "not a participant of this conversation" })
   }
-  if (committed.object_key !== slot.object_key) await bucket.delete(slot.object_key)
-  else await userOf(env, slot.quota_user).recordAttachmentStorage(slot.quota_user, slot.object_key, slot.byte_count)
+  if (committed.object_key !== slot.object_key) {
+    await bucket.delete(slot.object_key)
+    await userOf(env, slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
+  } else await userOf(env, slot.quota_user).recordAttachmentStorage(slot.quota_user, slot.object_key, slot.byte_count)
   return success({ state: committed.state, attachment: { hash: slot.hash, mime_type: slot.mime_type, byte_count: slot.byte_count } })
 }
 
@@ -177,10 +187,16 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   if (!seen.open) return failure({ status: 409, code: "archived", message: "this conversation takes no new messages" })
   // Dedupe only for a hash this caller can already use here: never an answer about other conversations, members or hidden history.
   if (seen.record) return success({ state: "exists", attachment: { hash: seen.record.hash, mime_type: seen.record.mime_type, byte_count: seen.record.byte_count } })
-  const quota = await userOf(env, caller.user).takeAttachmentQuota(caller.user, `${conversation}:${meta.sha256}`, meta.byte_count)
+  // Every slot is charged its declared bytes (refunded on an "exists" commit or an unused expiry).
+  const slotId = randomId()
+  const users = userOf(env, caller.user)
+  const quota = await users.takeAttachmentQuota(caller.user, slotId, meta.byte_count)
   if (!quota.ok) return failure({ status: 429, code: quota.code, message: `attachment quota reached (${quota.window})`, extra: { retry_after_ms: quota.retry_after_ms } })
-  const slot = await conversationOf(env, conversation).createUploadSlot(conversation, caller.actor, caller.user, { hash: meta.sha256, byte_count: meta.byte_count, mime_type: meta.mime_type }, mode)
-  if (!slot) return failure({ status: 403, code: "auth.forbidden", message: "not a participant of this conversation" })
+  const slot = await conversationOf(env, conversation).createUploadSlot(conversation, caller.actor, caller.user, { hash: meta.sha256, byte_count: meta.byte_count, mime_type: meta.mime_type }, mode, slotId)
+  if (!slot) {
+    await users.refundAttachmentQuota(caller.user, slotId)
+    return failure({ status: 403, code: "auth.forbidden", message: "not a participant of this conversation" })
+  }
   if (mode === "stream") {
     return success({
       state: "upload",
@@ -213,10 +229,14 @@ export const handleAttachmentUpload = async (request: Request, env: Env, convers
   const [id, kid, sig, extra] = token.split(".")
   if (!id || !kid || !sig || extra !== undefined || !verify(env, kid, UPLOAD, [conversation, id], sig)) return invalid
   // Consumed before any byte is read: a second PUT with this slot is refused whatever happens next.
-  const slot = await conversationOf(env, conversation).uploadSlot(conversation, id, "stream", true)
+  const conv = conversationOf(env, conversation)
+  const slot = await conv.uploadSlot(conversation, id, "stream", true)
   if (!slot) return invalid
   const declared = request.headers.get("content-length")
-  if (!request.body || (declared !== null && Number(declared) !== slot.byte_count)) return failure({ status: 400, code: "attachment.size_mismatch", message: `expected exactly ${slot.byte_count} bytes` })
+  if (!request.body || (declared !== null && Number(declared) !== slot.byte_count)) {
+    await conv.settleSlot(conversation, slot.id)
+    return failure({ status: 400, code: "attachment.size_mismatch", message: `expected exactly ${slot.byte_count} bytes` })
+  }
   const bucket = env.HOME_ATTACHMENTS!
   const hasher = createHash("sha256")
   let count = 0
@@ -237,10 +257,12 @@ export const handleAttachmentUpload = async (request: Request, env: Env, convers
     await piped
   } catch {
     await bucket.delete(slot.object_key)
+    await conv.settleSlot(conversation, slot.id)
     return failure({ status: 400, code: "attachment.size_mismatch", message: `expected exactly ${slot.byte_count} bytes` })
   }
   if (count !== slot.byte_count || hasher.digest("hex") !== slot.hash) {
     await bucket.delete(slot.object_key)
+    await conv.settleSlot(conversation, slot.id)
     return failure({ status: 400, code: "attachment.hash_mismatch", message: "the bytes do not match the declared sha256" })
   }
   return finish(env, conversation, slot, etag)
@@ -267,6 +289,8 @@ export const handleAttachmentCommit = async (request: Request, env: Env): Promis
   const sum = head.checksums.sha256
   if (head.size !== slot.byte_count || !sum || Buffer.from(sum).toString("hex") !== slot.hash) {
     await bucket.delete(slot.object_key)
+    // A tombstone until the URL expires: a later PUT to this key is deleted by the alarm.
+    await conv.settleSlot(body.conversation, slot.id)
     return failure({ status: 400, code: head.size !== slot.byte_count ? "attachment.size_mismatch" : "attachment.hash_mismatch", message: "the uploaded object does not match the declared size and sha256" })
   }
   return finish(env, body.conversation, slot, head.etag)

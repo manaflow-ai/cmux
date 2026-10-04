@@ -343,8 +343,13 @@ new body. No raw address, token or token hash is ever projected.
 - No URL carries user content: object and slot ids are random; names stay in message parts.
 - Inbox: bumps carry `preview_attachments {kind: photo|video|audio|file, count}` (preview text
   empty for attachment-only messages); clients localize.
+- Slots: every slot is charged its declared bytes at intent; its row lives until the alarm deletes
+  its object key at expiry (refunding a slot that never committed). An `exists` commit deletes the
+  slot's object at once and refunds; a presigned slot that did not keep its object stays a
+  tombstone until its URL expires, so a later PUT to the key is deleted too.
 - Retention: `attref` rows are written in each message's commit; the ConversationDO alarm sweeps
-  uploads unreferenced for 24 h and releases the uploader's stored bytes. Hooks for paths that do
+  uploads unreferenced for 24 h in batches with a persistent (created_at, hash) cursor (a long run
+  of referenced records costs one pass, never a hot loop) and releases the uploader's stored bytes. Hooks for paths that do
   not exist yet: `messageDeleteWrites` (message retention) and `ConversationDO.deleteAttachmentStorage`
   (conversation storage deletion). Attachments in `conversation.import` remain C-13.
 

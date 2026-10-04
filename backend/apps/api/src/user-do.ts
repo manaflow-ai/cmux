@@ -313,8 +313,9 @@ export class UserDO extends OwnerDO<UserState> {
 
   /**
    * Home attachment quota (home-scale.md B9 owner counters): per rolling 24 h, 300 intents and
-   * 2 GB of declared bytes (`key` = conversation and hash, so a repeat adds no bytes), and 10 GB
-   * stored (objects this user uploaded first that still exist).
+   * 2 GB of declared bytes, and 10 GB stored (objects this user uploaded first that still exist).
+   * `key` is the upload slot: every slot is charged; the ConversationDO refunds a slot whose
+   * commit finds the bytes already stored or that expires without a commit.
    */
   async takeAttachmentQuota(entity: string, key: string, bytes: number): Promise<homeConversation.QuotaResult | { ok: false; code: "auth.forbidden"; window: "none"; retry_after_ms: 0 }> {
     if (!this.attachmentTables(entity)) return { ok: false, code: "auth.forbidden", window: "none", retry_after_ms: 0 }
@@ -323,18 +324,25 @@ export class UserDO extends OwnerDO<UserState> {
     const since = now - homeConversation.ATTACHMENT_LIMITS.quota.dayMs
     sql.exec(`DELETE FROM home_attachment_usage WHERE at <= ?`, since)
     sql.exec(`DELETE FROM home_attachment_intents WHERE at <= ?`, since)
-    const repeat = sql.exec(`SELECT 1 FROM home_attachment_usage WHERE key = ?`, key).toArray().length > 0
+    // The same slot key again (a retried RPC) is already charged.
+    if (sql.exec(`SELECT 1 FROM home_attachment_usage WHERE key = ?`, key).toArray().length > 0) return { ok: true }
     const usage = {
       bytes: sql.exec<{ bytes: number; at: number }>(`SELECT bytes, at FROM home_attachment_usage`).toArray().map((r) => ({ bytes: Number(r.bytes), at: Number(r.at) })),
       intents: sql.exec<{ at: number }>(`SELECT at FROM home_attachment_intents`).toArray().map((r) => Number(r.at)),
       stored: this.storedBytes()
     }
-    const decision = homeConversation.attachmentQuota(usage, { bytes, repeat }, now)
+    const decision = homeConversation.attachmentQuota(usage, bytes, now)
     if (decision.ok) {
       sql.exec(`INSERT INTO home_attachment_intents (at) VALUES (?)`, now)
-      if (!repeat) sql.exec(`INSERT INTO home_attachment_usage (key, bytes, at) VALUES (?, ?, ?)`, key, bytes, now)
+      sql.exec(`INSERT INTO home_attachment_usage (key, bytes, at) VALUES (?, ?, ?)`, key, bytes, now)
     }
     return decision
+  }
+
+  /** Gives back a slot's declared bytes (its commit found the bytes already stored, or it expired unused). The intent still counts. */
+  async refundAttachmentQuota(entity: string, key: string): Promise<void> {
+    if (!this.attachmentTables(entity)) return
+    this.ctx.storage.sql.exec(`DELETE FROM home_attachment_usage WHERE key = ?`, key)
   }
 
   /** An object this user uploaded first now exists (counts toward the 10 GB stored cap). Idempotent by key. */

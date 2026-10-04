@@ -7,9 +7,12 @@ import type { SqlStore } from "@cmux/ownership"
  *
  * - `home_attachment_objects`: one row per verified upload (hash, random object id, R2 key, type,
  *   size, etag, uploaders, quota user). No file names: names live only in message parts.
- * - `home_attachment_slots`: upload slots made at intent time and consumed once (stream PUT or
- *   presigned commit), so a slot URL carries only random ids.
- * - `home_attachment_sweep`: when the unreferenced sweep next has work (alarm schedule).
+ * - `home_attachment_slots`: upload slots made at intent time. States: `open` (issued),
+ *   `uploading` (its one PUT or commit started), `tombstone` (a presigned slot that ended without
+ *   keeping its object: its URL may still be used until it expires). A slot row lives until the
+ *   alarm deletes its object key at expiry (refunding the bytes of a slot that never committed),
+ *   so no upload outside a record survives.
+ * - `home_attachment_sweep`: the unreferenced sweep's schedule and its (created_at, hash) cursor.
  *
  * Reference rows (`attref`) live in the engine's row table and are written in each message's own
  * commit (home-core attachments.ts), so "referenced" is exact when the sweep runs.
@@ -29,7 +32,14 @@ export interface UploadSlot {
   readonly object_key: string
   readonly mode: "stream" | "presigned"
   readonly expires_at: number
+  readonly state?: "open" | "uploading" | "tombstone"
 }
+
+/** An `uploading` slot whose PUT never finished is reclaimed this long after its expiry (a slow upload may still be running). */
+export const UPLOADING_GRACE_MS = 3_600_000
+/** One sweep batch examines at most this many records and forgets at most SWEEP_DELETE of them. */
+export const SWEEP_SCAN = 400
+export const SWEEP_DELETE = 100
 
 const OBJECTS = "home_attachment_objects"
 const SLOTS = "home_attachment_slots"
@@ -46,9 +56,9 @@ const ensure = (sql: Sql) => {
   )
   sql.exec(`CREATE INDEX IF NOT EXISTS ${OBJECTS}_created ON ${OBJECTS} (created_at)`)
   sql.exec(
-    `CREATE TABLE IF NOT EXISTS ${SLOTS} (id TEXT PRIMARY KEY, hash TEXT NOT NULL, byte_count INTEGER NOT NULL, mime_type TEXT NOT NULL, actor TEXT NOT NULL, quota_user TEXT NOT NULL, object_id TEXT NOT NULL, object_key TEXT NOT NULL, mode TEXT NOT NULL, expires_at INTEGER NOT NULL)`
+    `CREATE TABLE IF NOT EXISTS ${SLOTS} (id TEXT PRIMARY KEY, hash TEXT NOT NULL, byte_count INTEGER NOT NULL, mime_type TEXT NOT NULL, actor TEXT NOT NULL, quota_user TEXT NOT NULL, object_id TEXT NOT NULL, object_key TEXT NOT NULL, mode TEXT NOT NULL, expires_at INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'open')`
   )
-  sql.exec(`CREATE TABLE IF NOT EXISTS ${SWEEP} (id INTEGER PRIMARY KEY CHECK (id = 1), cutoff INTEGER NOT NULL, dirty_at INTEGER)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS ${SWEEP} (id INTEGER PRIMARY KEY CHECK (id = 1), cutoff INTEGER NOT NULL, dirty_at INTEGER, cursor_at INTEGER, cursor_hash TEXT, redo INTEGER NOT NULL DEFAULT 0)`)
 }
 const toRecord = (r: Row): Record => ({
   hash: r.hash,
@@ -92,12 +102,11 @@ export const usableRecord = (sql: Sql, hash: string, actor: string, floor: numbe
   return rec.uploaders.includes(actor) || referencedAbove(sql, hash, floor) ? rec : null
 }
 
-/** A new upload slot (made after the participant and quota checks); expired slots are pruned. */
+/** A new upload slot (made after the participant and quota checks). Rows leave only through the alarm or a settle. */
 export const createSlot = (sql: Sql, slot: UploadSlot): void => {
   ensure(sql)
-  sql.exec(`DELETE FROM ${SLOTS} WHERE expires_at <= ?`, Date.now())
   sql.exec(
-    `INSERT INTO ${SLOTS} (id, hash, byte_count, mime_type, actor, quota_user, object_id, object_key, mode, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO ${SLOTS} (id, hash, byte_count, mime_type, actor, quota_user, object_id, object_key, mode, expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`,
     slot.id,
     slot.hash,
     slot.byte_count,
@@ -111,13 +120,45 @@ export const createSlot = (sql: Sql, slot: UploadSlot): void => {
   )
 }
 
-/** The live slot `id` of `mode` (and of `actor` when given); `consume` deletes it, so a slot works once. */
-export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): UploadSlot | null => {
+const slotRow = (s: UploadSlot): UploadSlot => ({ ...s, byte_count: Number(s.byte_count), expires_at: Number(s.expires_at) })
+
+/** The slot `id` in `state`, or null. */
+export const slotIn = (sql: Sql, id: string, state: NonNullable<UploadSlot["state"]>): UploadSlot | null => {
   if (!has(sql, SLOTS)) return null
-  const s = sql.exec<UploadSlot>(`SELECT * FROM ${SLOTS} WHERE id = ?`, id)[0]
-  if (!s || s.mode !== mode || Number(s.expires_at) <= Date.now() || (actor !== undefined && s.actor !== actor)) return null
-  if (consume) sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, id)
-  return { ...s, byte_count: Number(s.byte_count), expires_at: Number(s.expires_at) }
+  const s = sql.exec<UploadSlot>(`SELECT * FROM ${SLOTS} WHERE id = ? AND state = ?`, id, state)[0]
+  return s ? slotRow(s) : null
+}
+
+/** The live open slot `id` of `mode` (and of `actor` when given); `consume` moves it to `uploading`, so it works once. */
+export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): UploadSlot | null => {
+  const s = slotIn(sql, id, "open")
+  if (!s || s.mode !== mode || s.expires_at <= Date.now() || (actor !== undefined && s.actor !== actor)) return null
+  if (consume) sql.exec(`UPDATE ${SLOTS} SET state = 'uploading' WHERE id = ?`, id)
+  return { ...s, state: consume ? "uploading" : "open" }
+}
+
+/**
+ * Ends a slot. `kept`: its object became the record's. A stream slot (only this Worker writes its
+ * key) is removed; a presigned slot that did not keep its object stays as a tombstone until its
+ * URL expires, so the alarm deletes anything PUT to the key later.
+ */
+export const settleSlot = (sql: Sql, slot: UploadSlot, kept: boolean): void => {
+  if (kept || slot.mode === "stream") sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, slot.id)
+  else sql.exec(`UPDATE ${SLOTS} SET state = 'tombstone' WHERE id = ?`, slot.id)
+}
+
+const DUE = `CASE WHEN state = 'uploading' THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
+
+/** Slots whose time is up: open (never used), uploading (a PUT that never finished) and tombstones. */
+export const dueSlots = (sql: Sql, now: number, limit: number): Array<UploadSlot> =>
+  has(sql, SLOTS) ? sql.exec<UploadSlot>(`SELECT * FROM ${SLOTS} WHERE ${DUE} <= ? ORDER BY ${DUE} LIMIT ?`, now, limit).map(slotRow) : []
+
+export const removeSlot = (sql: Sql, id: string): void => void sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, id)
+
+export const nextSlotDue = (sql: Sql): number | null => {
+  if (!has(sql, SLOTS)) return null
+  const at = sql.exec<{ at: number | null }>(`SELECT MIN(${DUE}) AS at FROM ${SLOTS}`)[0]?.at
+  return at === null || at === undefined ? null : Number(at)
 }
 
 /**
@@ -149,31 +190,51 @@ export const commitRecord = (sql: Sql, rec: Omit<Record, "uploaders" | "quota_us
 }
 
 /**
- * Forgets records older than `before` that no message references, and answers them.
+ * One sweep batch: from the persistent (created_at, hash) cursor, examines up to SWEEP_SCAN
+ * records older than `before` and forgets up to SWEEP_DELETE that no message references. Each
+ * batch moves the cursor past what it examined, so a long run of referenced records costs one
+ * pass, not a hot loop; `done` when the pass reached the end (the cursor resets).
  * Synchronous: the reference check and the delete happen with no await between, so a
  * message.send cannot reference a record that is being collected; once the record is gone, a
  * send refuses its hash, and only then does the caller delete the R2 objects.
  */
-export const forgetUnreferenced = (sql: Sql, before: number, limit: number): { records: Array<Record>; more: boolean } => {
-  if (!has(sql, OBJECTS)) return { records: [], more: false }
+export const sweepBatch = (sql: Sql, before: number): { records: Array<Record>; done: boolean } => {
+  if (!has(sql, OBJECTS)) return { records: [], done: true }
+  const c = sql.exec<{ cursor_at: number | null; cursor_hash: string | null }>(`SELECT cursor_at, cursor_hash FROM ${SWEEP} WHERE id = 1`)[0]
+  const at = c?.cursor_at === null || c?.cursor_at === undefined ? null : Number(c.cursor_at)
+  const rows =
+    at === null
+      ? sql.exec<Row>(`SELECT * FROM ${OBJECTS} WHERE created_at < ? ORDER BY created_at, hash LIMIT ?`, before, SWEEP_SCAN)
+      : sql.exec<Row>(`SELECT * FROM ${OBJECTS} WHERE created_at < ? AND (created_at > ? OR (created_at = ? AND hash > ?)) ORDER BY created_at, hash LIMIT ?`, before, at, at, c!.cursor_hash ?? "", SWEEP_SCAN)
   const records: Array<Record> = []
-  const candidates = sql.exec<Row>(`SELECT * FROM ${OBJECTS} WHERE created_at < ? ORDER BY created_at LIMIT ?`, before, limit * 4 + 1)
-  for (const r of candidates.slice(0, limit * 4)) {
-    if (records.length >= limit) return { records, more: true }
-    if (referencedAbove(sql, r.hash, -1)) continue
-    sql.exec(`DELETE FROM ${OBJECTS} WHERE hash = ?`, r.hash)
-    records.push(toRecord(r))
+  let last: Row | undefined
+  let stopped = false
+  for (const r of rows) {
+    last = r
+    if (!referencedAbove(sql, r.hash, -1)) {
+      sql.exec(`DELETE FROM ${OBJECTS} WHERE hash = ?`, r.hash)
+      records.push(toRecord(r))
+      if (records.length >= SWEEP_DELETE) {
+        stopped = true
+        break
+      }
+    }
   }
-  return { records, more: candidates.length > limit * 4 }
+  const done = !stopped && rows.length < SWEEP_SCAN
+  ensure(sql)
+  sql.exec(`INSERT INTO ${SWEEP} (id, cutoff) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, Number.MIN_SAFE_INTEGER)
+  sql.exec(`UPDATE ${SWEEP} SET cursor_at = ?, cursor_hash = ? WHERE id = 1`, done || !last ? null : Number(last.created_at), done || !last ? null : last.hash)
+  return { records, done }
 }
 
-/** Forgets every record and slot (conversation storage deletion); answers the records. */
-export const forgetAll = (sql: Sql): Array<Record> => {
-  if (!has(sql, OBJECTS)) return []
+/** Forgets every record and slot (conversation storage deletion); answers both (the caller deletes the prefix and refunds). */
+export const forgetAll = (sql: Sql): { records: Array<Record>; slots: Array<UploadSlot> } => {
+  if (!has(sql, OBJECTS)) return { records: [], slots: [] }
   const records = sql.exec<Row>(`SELECT * FROM ${OBJECTS}`).map(toRecord)
+  const slots = sql.exec<UploadSlot>(`SELECT * FROM ${SLOTS}`).map(slotRow)
   sql.exec(`DELETE FROM ${OBJECTS}`)
   sql.exec(`DELETE FROM ${SLOTS}`)
-  return records
+  return { records, slots }
 }
 
 /**
@@ -190,14 +251,23 @@ export const nextSweepAt = (sql: Sql): number | null => {
   return byAge === null ? dirty : dirty === null ? byAge : Math.min(byAge, dirty)
 }
 
-/** After a sweep at `now`: records created before now - grace are covered; `more` keeps it due. */
-export const markSwept = (sql: Sql, now: number, more: boolean): void => {
+/**
+ * After a batch at `now`. Not done: due again now (the cursor guarantees progress). Done: records
+ * created before now - grace are covered; another pass is due only if a reference was released
+ * during this one (`redo`).
+ */
+export const markSwept = (sql: Sql, now: number, done: boolean): void => {
   ensure(sql)
-  sql.exec(`INSERT INTO ${SWEEP} (id, cutoff, dirty_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET cutoff = excluded.cutoff, dirty_at = excluded.dirty_at`, now - GRACE, more ? now : null)
+  if (!done) {
+    sql.exec(`UPDATE ${SWEEP} SET dirty_at = ? WHERE id = 1`, now)
+    return
+  }
+  sql.exec(`UPDATE ${SWEEP} SET cutoff = ?, dirty_at = CASE WHEN redo = 1 THEN ? ELSE NULL END, redo = 0 WHERE id = 1`, now - GRACE, now)
 }
 
-/** A reference was released (retract, edit): older records may now be collectable. */
+/** A reference was released (retract, edit): older records may now be collectable. During a pass, the next pass is queued. */
 export const markDirty = (sql: Sql, at: number): void => {
   if (!has(sql, OBJECTS)) return
-  sql.exec(`INSERT INTO ${SWEEP} (id, cutoff, dirty_at) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET dirty_at = MIN(COALESCE(dirty_at, excluded.dirty_at), excluded.dirty_at)`, Number.MIN_SAFE_INTEGER, at)
+  sql.exec(`INSERT INTO ${SWEEP} (id, cutoff) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, Number.MIN_SAFE_INTEGER)
+  sql.exec(`UPDATE ${SWEEP} SET dirty_at = MIN(COALESCE(dirty_at, ?), ?), redo = CASE WHEN cursor_at IS NULL THEN redo ELSE 1 END WHERE id = 1`, at, at)
 }
