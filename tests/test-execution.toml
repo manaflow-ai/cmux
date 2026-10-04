@@ -114,6 +114,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_browser_repl_cli_io.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
 lane = "macos-cli-no-socket"
 
@@ -1599,4 +1604,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_presign.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"

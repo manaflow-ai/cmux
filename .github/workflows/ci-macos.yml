@@ -910,6 +910,18 @@ jobs:
           else
             status=$?
           fi
+          if [ "$status" -ne 0 ] && [ ! -s "$compile_log" ]; then
+            echo "::error::compile admission exited $status without a compiler diagnostic"
+            echo "Compile log: $compile_log"
+            # xcodebuild can terminate before its tee receives output (for
+            # example after a runner or signing-service interruption). Emit
+            # the per-scheme logs so the required check identifies the actual
+            # failure instead of reporting only an unsigned exit status.
+            while IFS= read -r scheme_log; do
+              echo "--- $scheme_log ---"
+              tail -n 80 "$scheme_log" || true
+            done < <(find "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" -type f -name '*-build.log' -print 2>/dev/null | sort)
+          fi
           if [ "$status" -ne 0 ] && grep -Eq "unable to open dependencies file|CAS error: No such file or directory|cannot open file .*No such file or directory|unable to write file .*No such file or directory" "$compile_log"; then
             # An adopted DerivedData tree can retain an incomplete Swift
             # dependency graph or compile CAS entry after a cancelled or
@@ -919,7 +931,7 @@ jobs:
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
             compile_workers_running() {
               local compiler pid args pgrep_status
-              # Compiler names are global on an owned Mac. Inspect their
+              # Compiler names are global on a persistent Mac. Inspect their
               # command lines and only wait for workers carrying this job's
               # DerivedData path; another runner's compile must not block the
               # retry or make it discard a different job's state.

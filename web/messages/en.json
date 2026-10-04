@@ -229,6 +229,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go supports 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Not enough Cloud VM resources",
+      "memoryMessage": "Your VMs already use {used} of {pool} GB RAM. This VM needs {requested} GB.",
+      "vcpuMessage": "Your VMs already use {used} of {pool} vCPUs. This VM needs {requested} vCPUs.",
+      "upgradeAction": "Pause or delete a VM, or upgrade to Max.",
+      "action": "Pause or delete a VM."
     }
   },
   "ios": {
@@ -721,7 +728,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 5 Cloud VMs, with up to 16 vCPUs and 32 GB RAM per VM, for $200 per month, billed monthly."
+        "upsell": "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, for $200 per month, billed monthly."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -786,16 +793,17 @@
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
-            "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
+            "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
             "The cmux iOS app"
           ],
           "max": [
-            "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM",
+            "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM",
             "Larger machine sizes",
             "Everything in Pro"
           ],
           "team": [
             "Everything in Pro for every member",
+            "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
             "One invoice for the whole team",
             "Priority support"
           ]
@@ -1741,7 +1749,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
+        "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -1758,7 +1766,7 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM",
+        "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM",
         "Unlimited workspaces and the iOS app"
       ]
     },
@@ -1767,6 +1775,7 @@
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
+        "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team",
         "Centralized billing for your whole team",
         "Priority support"
       ]
@@ -1859,25 +1868,25 @@
           "free": "false",
           "pro": "5",
           "max": "5",
-          "team": "5 per user",
+          "team": "5 per paid seat",
           "enterprise": "Custom",
           "go": "1"
         },
         {
-          "label": "Resources per Cloud VM",
+          "label": "Cloud VM resources",
           "free": "false",
-          "pro": "4 vCPUs and 8 GB RAM",
-          "max": "16 vCPUs and 32 GB RAM",
-          "team": "4 vCPUs and 8 GB RAM",
+          "pro": "20 vCPUs and 40 GB RAM, shared",
+          "max": "80 vCPUs and 160 GB RAM, shared",
+          "team": "20 vCPUs and 40 GB RAM per paid seat, shared across the team",
           "enterprise": "Custom",
           "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
         },
         {
           "label": "Largest Cloud VM",
           "free": "false",
-          "pro": "8 GB RAM",
-          "max": "32 GB RAM",
-          "team": "8 GB RAM",
+          "pro": "32 GB RAM",
+          "max": "64 GB RAM",
+          "team": "32 GB RAM",
           "enterprise": "Custom",
           "go": "4 GiB RAM"
         },
@@ -1975,11 +1984,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs, with up to 4 vCPUs and 8 GB RAM per VM. Team includes the same allowance per user."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team includes the same allowance for each paid seat, in one pool shared across the team."
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs, with up to 16 vCPUs and 32 GB RAM per VM. Pro and Team machines top out at 4 vCPUs and 8 GB RAM. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM. Pro and Team include up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",
@@ -4439,11 +4448,12 @@
       "planMax": "Max",
       "sizesDefault": "New machines use 8 GB of memory when you do not choose a size. Run cmux vm ls --json to see the sizes that your plan allows.",
       "limitsTitle": "Plan limits",
-      "limitsDesc": "Plan limits count machines, not a shared pool of CPU or memory. Each machine gets the resources of its size.",
+      "limitsDesc": "Your active machines share one pool of vCPUs and memory. Run one large machine or several small ones. Paused machines do not use the pool. Disk is set for each machine and is not pooled.",
       "limitsFree": "Free accounts cannot create machines.",
-      "limitsPaid": "Pro and Max accounts can have up to 5 active machines. A machine is active while it is running or starting.",
-      "limitsTeam": "Team accounts can have up to 5 active machines for each paid seat.",
-      "limitsMax": "Machines larger than 8 GB need cmux Max. Max machines go up to 32 GB and 16 vCPUs.",
+      "limitsPaid": "Pro and Founder's Edition accounts can have up to 5 active machines that share 20 vCPUs and 40 GB of memory. A machine is active while it is running or starting.",
+      "limitsTeam": "Team accounts can have up to 5 active machines for each paid seat. Each paid seat adds 20 vCPUs and 40 GB of memory to the team's pool.",
+      "limitsMax": "Max accounts can have up to 5 active machines that share 80 vCPUs and 160 GB of memory. One machine can have up to 32 GB and 16 vCPUs on Pro and Team, or up to 64 GB and 32 vCPUs on Max.",
+      "limitsPoolFull": "If a new, resumed, resized, or forked machine would go over the pool, cmux refuses the request and shows how much of the pool is in use. Pause or delete a machine to free resources, or upgrade to Max.",
       "limitsOversize": "A machine larger than your plan allows is locked. You can list and delete it, but you cannot open it, run commands on it, resume it, or resize it until you upgrade.",
       "limitsPricing": "See the pricing page for current prices. There is no metering and no overage billing.",
       "agentUpdatesTitle": "Keep coding agents up to date",
@@ -4453,7 +4463,7 @@
       "agentUpdatesToggle": "The New Machine sheet turns this on by default. To change it for an existing machine, right-click the machine and choose Keep Agents Up to Date, or run cmux vm agent-updates. cmux vm new keeps the image's versions unless you pass --agent-updates latest. Turning updates off keeps the versions already installed.",
       "agentUpdatesNetwork": "Updates use only github.com, api.github.com, objects.githubusercontent.com, and release-assets.githubusercontent.com. cmux allows these hosts in every network mode, including Allowlist and No internet, so a network policy never blocks updates.",
       "resizeTitle": "Resize",
-      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 256 GB, memory up to 32 GB, and CPU up to 16 vCPU. Your plan sets the real maximum.",
+      "resizeDesc": "You can make a machine larger without data loss. Right-click the machine and choose Resize machine, or use cmux vm resize. Resize can only grow a machine. Disk grows in 4 GB steps up to 256 GB. Memory grows up to 32 GB and CPU up to 16 vCPU on Pro and Team, or up to 64 GB and 32 vCPU on Max. A larger machine uses more of your pool. Your plan sets the real maximum.",
       "pauseTitle": "Pause and resume",
       "pauseDesc": "cmux vm pause stops the machine's compute. The disk, workspaces, and terminal history stay. Running processes stop. cmux vm resume starts the machine again. Opening a paused machine or running a command on it also starts it.",
       "pauseIdle": "Machines do not pause by themselves when they are idle. A machine keeps running until you pause it or delete it.",
@@ -4604,9 +4614,11 @@
       "errPlan": "Cloud VMs require a paid plan",
       "fixPlan": "Free accounts cannot create machines. Upgrade on the pricing page.",
       "errSize": "A size needs a larger plan",
-      "fixSize": "Machines larger than 8 GB need cmux Max. Choose a smaller size or upgrade.",
+      "fixSize": "Machines larger than 32 GB need cmux Max. Choose a smaller size or upgrade.",
       "errLimit": "Active machine limit reached",
       "fixLimit": "Pause or delete a machine, then try again.",
+      "errPool": "Not enough Cloud VM resources",
+      "fixPool": "Your active machines already use the shared vCPUs or memory. Pause or delete a machine, choose a smaller size, or upgrade to Max.",
       "errLocked": "Machine is locked",
       "fixLocked": "Your paid plan ended and the machine is older than 7 days. Upgrade to reconnect. Your files are kept.",
       "errAgentMissing": "claude or codex: command not found",
