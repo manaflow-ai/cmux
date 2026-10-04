@@ -90,6 +90,7 @@ pub(crate) fn launch_terminal_host_from(
     standby: Option<StandbyTerminalHost>,
 ) -> anyhow::Result<HostAttachment> {
     let launch_publication_lock = reserve_terminal_host_publication(root)?;
+    crate::debug_spans::mark("host.publication_reserved");
     let owner_token = CapabilityToken::random()?;
     let terminal_hex = encode_hex(terminal_id.as_bytes());
     // macOS limits sockaddr_un paths to roughly one hundred bytes and
@@ -134,6 +135,7 @@ pub(crate) fn launch_terminal_host_from(
         Some(standby) => standby,
         None => StandbyTerminalHost::spawn()?,
     };
+    crate::debug_spans::mark("host.process_ready");
 
     let bootstrap = HostBootstrap {
         min_version: PROTOCOL_VERSION,
@@ -147,6 +149,7 @@ pub(crate) fn launch_terminal_host_from(
         anyhow::bail!("terminal host returned {:?} instead of Ready", ready_frame.kind);
     }
     let ready = HostReady::decode(&ready_frame.payload)?;
+    crate::debug_spans::mark("host.bootstrap_ready");
     if ready.terminal_id != terminal_id {
         anyhow::bail!("terminal host changed terminal identity during bootstrap");
     }
@@ -171,6 +174,7 @@ pub(crate) fn launch_terminal_host_from(
     }
     drop(stdin);
     drop(stdout);
+    crate::debug_spans::mark("host.launch_ready");
 
     let record: TerminalHostRecord = serde_json::from_slice(
         &fs::read(&record_path).context("read terminal-host discovery record")?,
@@ -184,11 +188,13 @@ pub(crate) fn launch_terminal_host_from(
         anyhow::bail!("terminal-host discovery record changed during launch");
     }
     drop(launch_publication_lock);
+    crate::debug_spans::mark("host.record_validated");
     // Keep the exact-kill guard armed through record validation and a
     // successful authenticated Snapshot. Returning Err after disarming it
     // would leave a live published host while the mux marks its registry
     // row Exited.
     let mut attachment = connect_record(record, record_path)?;
+    crate::debug_spans::mark("host.connected");
     attachment.launch_process = Some(process);
     debug_assert_eq!(
         attachment.launch_activation_pending,
