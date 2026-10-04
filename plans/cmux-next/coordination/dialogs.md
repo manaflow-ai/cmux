@@ -1,0 +1,7 @@
+# Lane: dialogs
+
+## Active streams
+- R96 custom dialogs lead: every dialog is a cmux dialog, no system alerts or panels (Lawrence 2026-10-04; supersedes "quit = plain NSAlert"). ONE mechanism: `CmuxDialogCenter.shared.present(spec, in: .tab(view) | .window(window) | .app)` in CmuxNextDesign/Dialog, drawn on the R84 `WindowOverlayHost` (above every Chromium page). Clicks, keys (`CmuxDialogKeys`: Return default, Escape cancel, Command+key, Tab trapped) and automation (`debug.dialog`) take the same path; one answer per dialog; `answer.isDismissal` when nobody pressed a button. Open: CEF JS dialog/file/auth/permission/download handlers (browser lead, after R84, call this API); open/save panels move to the R89 picker (hq-48, with a save mode); cmux explainers before macOS-drawn prompts (D4) and before protected folders with a Full Disk Access offer (D2).
+
+## Landed
+- (this push) CmuxDialog API + `debug.dialog` + every NSAlert call site converted (DestructiveConfirmation, RenamePrompt, CloudPresenter, CLI install, keymap preview, page confirmations, terminal clipboard prompts (tab scope), extension prompts (tab scope), password CSV, Quit (app scope with no window)); WebKit JS dialogs as tab-scope dialogs; WebKit HTTP basic/digest/NTLM sign-in dialog; no runModal left (panels are sheets until R89). New shared surface: any lane that needs a confirmation, prompt or error uses `CmuxDialogCenter`, never NSAlert, `.alert`, `.confirmationDialog` or `runModal`. (dialogs lead)

@@ -16,6 +16,7 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [build-ci](build-ci.md)
 - [cloud](cloud.md)
 - [daemon-protocol](daemon-protocol.md)
+- [dialogs](dialogs.md)
 - [durable-sessions](durable-sessions.md)
 - [feed](feed.md)
 - [home-ios](home-ios.md)
