@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Check that every Mach-O file in an app bundle has its license notices.
 
-  check_bundle_notices.py <app> [--map bundle-map.json]
+  check_bundle_notices.py <app> [--map bundle-map.json] [--notices FILE]
 
 Each Mach-O file under <app>/Contents (symlinks are not followed) must match
 an entry of the map, and every requirement of each matching entry must hold:
@@ -55,8 +55,8 @@ def macho_files(app: Path) -> list[str]:
     return found
 
 
-def check(app: Path, bundle_map: dict) -> list[str]:
-    notices = app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
+def check(app: Path, bundle_map: dict, notices: Path | None = None) -> list[str]:
+    notices = notices or app / "Contents/Resources/THIRD_PARTY_LICENSES.md"
     sections = set(MARKER.findall(notices.read_text(encoding="utf-8"))) if notices.is_file() else set()
     errors = []
     for rel in macho_files(app):
@@ -88,8 +88,9 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("app", type=Path)
     parser.add_argument("--map", type=Path, default=HERE / "bundle-map.json")
+    parser.add_argument("--notices", type=Path, help="check this THIRD_PARTY_LICENSES.md instead of the bundled one (a candidate before a build)")
     args = parser.parse_args(argv)
-    errors = check(args.app, json.loads(args.map.read_text(encoding="utf-8")))
+    errors = check(args.app, json.loads(args.map.read_text(encoding="utf-8")), args.notices)
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     if errors:

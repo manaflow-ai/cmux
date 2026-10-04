@@ -229,6 +229,11 @@ def collect(args: argparse.Namespace) -> list[Crate]:
             elif source and source.startswith("git+"):
                 url, _, rev = source[4:].partition("#")
                 download = f"git+{url.split('?')[0]}@{rev}"
+            elif source is None and args.repo_root and rel is not None and args.source_tag:
+                # A vendored third-party path crate inside manaflow-ai/cmux.
+                download = f"https://github.com/manaflow-ai/cmux/tree/{args.source_tag}/{rel}"
+            elif source is None and args.path_download:
+                download = args.path_download
             else:
                 download = "NOASSERTION"
         if not files:
@@ -266,6 +271,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     p.add_argument("--first-party-license-name", default="LICENSE")
     p.add_argument("--source-tag", help="permanent source tag for first-party downloadLocation, e.g. cmux-tui-src-b8feb806d6e")
     p.add_argument("--source-tag-path-prefix", default="cmux-tui", help="path of the workspace inside manaflow-ai/cmux (ignored with --repo-root)")
+    p.add_argument("--path-download", help="downloadLocation for third-party path packages (e.g. git+URL@REV of the checkout given with --workspace)")
     p.add_argument("--reviewed", type=Path)
     p.add_argument("--cargo-tree", type=Path, action="append")
     p.add_argument("--format", choices=("spdx-json", "markdown"), default="spdx-json")

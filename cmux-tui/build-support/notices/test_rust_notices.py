@@ -389,6 +389,15 @@ class RustNoticesTest(unittest.TestCase):
         app = next(p for p in json.loads((self.tmp / "rr.json").read_text())["packages"] if p["name"] == "cmux-tui-rust-app")
         self.assertEqual(app["downloadLocation"], "https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-b8feb806d6e/ws/crates/app")
 
+    def test_path_download_names_third_party_path_packages(self) -> None:
+        (self.fx.ws / "crates/app/LICENSE").write_text("third-party app license\n")
+        argv = self.fx.args("--out", str(self.tmp / "pd.json"), "--path-download", "git+https://example.invalid/ws@abc")
+        argv[argv.index("--first-party") + 1] = "nothing/*"
+        code, err = run(argv)
+        self.assertEqual(code, 0, err)
+        app = next(p for p in json.loads((self.tmp / "pd.json").read_text())["packages"] if p["name"] == "cmux-tui-rust-app")
+        self.assertEqual(app["downloadLocation"], "git+https://example.invalid/ws@abc")
+
     def test_extracted_texts_only_for_licenseref(self) -> None:
         doc = self.spdx()
         nolicense = next(p for p in doc["packages"] if p["name"] == "cmux-tui-rust-nolicense")
