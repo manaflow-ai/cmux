@@ -1,6 +1,7 @@
 # New tab reply on accept (R81, zero-wait IX2/IX3 for `new-tab`)
 
 Owner: new tab lead. Design reviewer before code: protocol/daemon owner (coordinator, 2026-10-04).
+Review 2 (2026-10-04, 92557d82cb2): approved; A1 and A2 added below without further review.
 Review 1 (2026-10-04): stage A approved in direction with required changes R1-R6, which this
 revision adds (marked R1-R6 below). Coordinator: do stage A now; stage B waits for the write path
 (PR2-PR6 not started, no owner); the stage A accept commit must be able to become a writer intent
@@ -73,7 +74,10 @@ proves it (and covers the record and endpoint) before stage A changes the order.
 On the terminal work pool, after the accept commit:
 
 1. Wait for the prelaunched host (or launch one if the prelaunch failed).
-2. Adopt it into the launching surface; commit lifecycle `running` (one F_FULLFSYNC).
+2. Adopt it into the launching surface; commit lifecycle `running` (one F_FULLFSYNC). A1: the
+   `running` commit checks, under the registry lock, that the row is still `launching` with the
+   same incarnation. If the tab was closed meanwhile, the job exact-kills the host and commits
+   nothing.
 3. Send Activate. The child starts. R2: a crash between this commit and Activate leaves a
    `running` row with a published host whose child never started (3.6).
 4. Flush the typed-input queue (3.4) to the PTY, then live input continues.
@@ -117,7 +121,8 @@ terminal. Before stage A, check every client (Swift app, TUI, SDK bindings) for 
 One queue per launching terminal, 64 KiB. Bytes go to the PTY after Activate and before later
 live input. A write that does not fit is refused whole with an error that names the budget, so a
 paste is never cut in half; nothing is dropped silently. R4: with `supports_input_ack`, a queued
-write is acked as `queued`; the `delivered` ack follows when the bytes reach the PTY. Rule (from the zero-wait plan): queue when the peer is known not to have
+write is acked as `queued`; the `delivered` ack follows when the bytes reach the PTY. A `queued`
+ack is not durable: a daemon crash loses queued bytes even after their `queued` ack (3.6). Rule (from the zero-wait plan): queue when the peer is known not to have
 started, drop when its state is unknown.
 
 ### 3.5 Launch failure after accept
@@ -175,7 +180,9 @@ Events: the tree delta is published at accept with lifecycle `launching`. Then e
 
 - `spec/commands.md`: the `new-tab` reply comes before host Ready and carries `lifecycle`; the
   R3 table; `respawn` refuses `terminal-launching`.
-- `spec/events.md`: the `terminal-lifecycle` event with `from`, `to`, `elapsed_ms`, `cause`.
+- `spec/events.md`: the `terminal-lifecycle` event with `from`, `to`, `elapsed_ms`, `cause`, and
+  `terminal_incarnation` (A2: after a crash relaunch the event carries the new incarnation, so a
+  client rebinds without a refetch).
 - `spec/session-journal.md`: `terminal.input.retained`; the rule that every accepted create is
   reconciled (relaunched or adopted, never cancelled); the restart rules of 3.6 (R1, R2, R6).
 - Input-ack spec (where `supports_input_ack` is defined): the `queued` ack and whole-write refusal
@@ -221,6 +228,8 @@ Results go into this section before stage A code starts.
    and activated, and the shell runs.
 10. R4: with input acks on, a write to a launching terminal is acked `queued`, then `delivered`;
     a write over the budget is refused whole.
+11. A1: a close during adoption (a test hook holds the launch job between adopt and the `running`
+    commit) leaves no host process and no `running` row.
 
 ## 9. Order
 
