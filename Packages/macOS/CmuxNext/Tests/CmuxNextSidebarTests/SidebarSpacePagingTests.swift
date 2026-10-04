@@ -80,4 +80,21 @@ import Testing
         let hit = try #require(view.hitTest(inList))
         #expect(hit.isDescendant(of: view.scrollView), "hit \(type(of: hit))")
     }
+
+    /// Live run (sbr99-v1): the list's scroll view sits inside the edge
+    /// fade view, so a page added to the sidebar itself had the wrong
+    /// coordinates and stayed under the fade: the next space never showed.
+    /// Pages are siblings of the list, on its frame, above it.
+    @Test func theNeighborPageIsASiblingOfTheListOnItsFrame() throws {
+        let (view, window) = Self.sidebar()
+        defer { window.close() }
+        let paging = view.spacePaging
+        paging.scroll(.began, deltaX: -20, time: 1.0)
+        let page = try #require(paging.neighbor?.view)
+        let list = view.scrollView
+        #expect(page.superview === list.superview)
+        #expect(page.frame == list.frame)
+        let siblings = list.superview?.subviews ?? []
+        #expect((siblings.firstIndex(of: page) ?? -1) > (siblings.firstIndex(of: list) ?? Int.max))
+    }
 }
