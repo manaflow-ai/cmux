@@ -70,7 +70,7 @@ class WorkspaceMutationArgumentTests(unittest.TestCase):
         self.server.calls.clear()  # type: ignore[attr-defined]
         return subprocess.run(
             [self.cli, "--socket", self.socket_path, *args],
-            env=cli_environment(), stdin=subprocess.DEVNULL,
+            env=cli_environment(AppleLanguages="(en)"), stdin=subprocess.DEVNULL,
             capture_output=True, text=True, timeout=30, check=False,
         )
 
@@ -135,6 +135,18 @@ class WorkspaceMutationArgumentTests(unittest.TestCase):
         ):
             self.assert_rejected(args, f"unexpected argument {stray}")
 
+    def test_dash_leading_target_after_terminator_is_used_not_dropped(self) -> None:
+        # After `--` the target is taken literally, so an invalid one fails
+        # instead of falling back to the current or selected workspace.
+        for args in (
+            ["workspace", "close", "--", "--odd"],
+            ["workspace", "select", "--", "--odd"],
+            ["workspace", "rename", "--title", "New", "--", "--odd"],
+            ["workspace", "reconnect", "--", "--odd"],
+            ["workspace", "disconnect", "--", "--odd"],
+        ):
+            self.assert_rejected(args, "Invalid workspace handle: --odd")
+
     def test_documented_forms_still_send_the_mutation(self) -> None:
         self.assert_sends(["workspace", "close", WS, "--force"], "workspace.close",
                           {"workspace_id": WS, "force": True})
@@ -154,7 +166,9 @@ class WorkspaceMutationArgumentTests(unittest.TestCase):
         self.assert_sends(["reorder-workspace", WS, "--index", "0", "--dry-run"], "workspace.reorder",
                           {"workspace_id": WS, "index": 0, "dry_run": True})
         self.assert_sends(["workspace", "create", "--name", "Demo", "--focus", "false"], "workspace.create",
-                          {"title": "Demo"})
+                          {"title": "Demo", "focus": False})
+        self.assert_sends(["workspace", "create", "--name", "Demo", "--focus", "true"], "workspace.create",
+                          {"title": "Demo", "focus": True})
 
 
 if __name__ == "__main__":
