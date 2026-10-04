@@ -29,11 +29,15 @@ enum BrowserReplCredentialRequest {
     static let defaultTimeoutMilliseconds = 110_000
     static let maxTimeoutMilliseconds = 600_000
 
+    /// - Parameter requester: The tab and workspace whose agent asks, shown
+    ///   on the sheet: the sheet appears on whichever cmux window the user
+    ///   works in, which may show another workspace.
     static func run(
         webView: WKWebView,
         frameInfo: WKFrameInfo?,
         params: [String: Any],
-        fillSource: String?
+        fillSource: String?,
+        requester: (tab: String, workspace: String)
     ) async -> [String: Any] {
         guard let fillSource else { return ["status": "unavailable"] }
         guard let origin = params["origin"] as? String,
@@ -47,7 +51,7 @@ enum BrowserReplCredentialRequest {
         let requested = (params["timeoutMs"] as? NSNumber)?.intValue ?? defaultTimeoutMilliseconds
         let timeout = Duration.milliseconds(min(max(requested, 1_000), maxTimeoutMilliseconds))
 
-        let sheet = BrowserReplCredentialSheet(origin: fieldsOrigin, pageOrigin: origin, fields: fields)
+        let sheet = BrowserReplCredentialSheet(origin: fieldsOrigin, pageOrigin: origin, fields: fields, requester: requester)
         let answer = await sheet.present(on: window, timeout: timeout)
         guard case .filled(let values) = answer else {
             return ["status": answer == .expired ? "expired" : "cancelled"]
@@ -152,11 +156,11 @@ final class BrowserReplCredentialSheet: NSObject {
     private var timer: Task<Void, Never>?
     private weak var parent: NSWindow?
 
-    init(origin: String, pageOrigin: String, fields: [BrowserReplCredentialRequest.Field]) {
+    init(origin: String, pageOrigin: String, fields: [BrowserReplCredentialRequest.Field], requester: (tab: String, workspace: String)) {
         self.fields = fields
         panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
         super.init()
-        build(origin: origin, pageOrigin: pageOrigin)
+        build(origin: origin, pageOrigin: pageOrigin, requester: requester)
     }
 
     func present(on window: NSWindow, timeout: Duration) async -> Answer {
@@ -174,7 +178,7 @@ final class BrowserReplCredentialSheet: NSObject {
         }
     }
 
-    private func build(origin: String, pageOrigin: String) {
+    private func build(origin: String, pageOrigin: String, requester: (tab: String, workspace: String)) {
         let title = NSTextField(labelWithString: String(
             format: String(localized: "browser.repl.auth.title", defaultValue: "Sign in to %@"),
             origin
@@ -182,6 +186,17 @@ final class BrowserReplCredentialSheet: NSObject {
         title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
         title.lineBreakMode = .byTruncatingMiddle
         var notes: [NSTextField] = []
+        // The sheet comes up on the window the user works in, which may show
+        // another workspace than the agent's tab; name the tab that asks.
+        let asker = NSTextField(wrappingLabelWithString: String(
+            format: String(
+                localized: "browser.repl.auth.requester",
+                defaultValue: "Asked by an agent working in the tab “%1$@” of the workspace “%2$@”."
+            ),
+            requester.tab, requester.workspace
+        ))
+        asker.preferredMaxLayoutWidth = 380
+        notes.append(asker)
         if pageOrigin != origin {
             let framed = NSTextField(wrappingLabelWithString: String(
                 format: String(

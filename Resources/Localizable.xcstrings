@@ -618656,6 +618656,65 @@
         }
       }
     },
+    "browser.repl.auth.requester": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asked by an agent working in the tab “%1$@” of the workspace “%2$@”."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبه وكيل يعمل في علامة التبويب ”%1$@“ في مساحة العمل ”%2$@“."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angefragt von einem Agenten im Tab „%1$@“ des Arbeitsbereichs „%2$@“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo pide un agente que trabaja en la pestaña «%1$@» del espacio de trabajo «%2$@»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandé par un agent qui travaille dans l’onglet « %1$@ » de l’espace de travail « %2$@ »."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース「%2$@」のタブ「%1$@」で作業中のエージェントからの要求です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 “%2$@”의 탭 “%1$@”에서 작업 중인 에이전트가 요청했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由在工作区“%2$@”的标签页“%1$@”中工作的代理请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由在工作區「%2$@」的分頁「%1$@」中工作的代理請求。"
+          }
+        }
+      }
+    },
     "browser.repl.auth.title": {
       "extractionState": "manual",
       "localizations": {

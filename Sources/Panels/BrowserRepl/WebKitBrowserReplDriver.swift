@@ -310,9 +310,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), which the domain policy blocks: \(reason)")
             }
             try await frameGate.authorize(frame, in: panel.webView)
+            let workspaceTitle = allBrowserPanels().first { $0.panel.id == panel.id }?.workspace.title ?? ""
             return await BrowserReplCredentialRequest.run(
                 webView: panel.webView, frameInfo: frame.info, params: params,
-                fillSource: bundle.readResource("sites/auth-fill.js")
+                fillSource: bundle.readResource("sites/auth-fill.js"),
+                requester: (tab: Self.title(panel), workspace: workspaceTitle)
             )
         default:
             throw Self.error("unsupported", "Unsupported driver method \(method)")
