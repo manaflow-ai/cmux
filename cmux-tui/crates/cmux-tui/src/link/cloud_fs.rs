@@ -5,22 +5,49 @@
 //! `fs-v1`, and answers `fs.unavailable` to every fs op. File ops on a Mac
 //! come later with an allow-list of user-chosen roots.
 //!
-//! A Cloud host is a Linux machine whose daemon carries the Cloud model
-//! plane identity (`CMUX_CODEROUTER_URL` and `CMUX_VM_ID`, in the process
-//! environment or in `$HOME/.config/cmux/model-plane.env`; the same source
-//! the machine spend readout uses). No argv flag is added, so an upgraded
-//! daemon starts with the guest's existing command line.
+//! A Cloud host is a Linux machine with BOTH:
+//! - the image stamp `/etc/cmux/image-stamp` that every Cloud image bake
+//!   writes as root (`cmux-devbox <epoch>` or `cmux-vm inputs=...`). It is
+//!   trusted only when it and every folder above it are owned by root, are
+//!   not writable by group or others, and are not symlinks, so a normal
+//!   user cannot create or plant it;
+//! - the Cloud model plane identity (`CMUX_CODEROUTER_URL` and
+//!   `CMUX_VM_ID`, in the process environment or in
+//!   `$HOME/.config/cmux/model-plane.env`; the source the machine spend
+//!   readout uses).
+//!
+//! No argv flag is added, so an upgraded daemon starts with the guest's
+//! existing command line.
 
-use std::path::PathBuf;
+use std::os::unix::fs::MetadataExt as _;
+use std::path::{Path, PathBuf};
 
 use cmux_tui_core::fs_ops::{FsService, Roots};
 
+/// The root-owned stamp of a Cloud image.
+const IMAGE_STAMP: &str = "/etc/cmux/image-stamp";
+/// What a Cloud image stamp starts with (the devbox and cmux-vm bakes).
+const STAMP_PREFIXES: [&str; 2] = ["cmux-devbox ", "cmux-vm "];
+/// Longest stamp read.
+const MAX_STAMP_BYTES: u64 = 4096;
+
 /// True when this daemon serves `fs-v1`.
-pub(super) fn is_cloud_host(linux: bool, model_plane_identity: bool) -> bool {
+pub(super) fn is_cloud_host(linux: bool, trusted_stamp: bool, model_plane_identity: bool) -> bool {
+    // RED: the stamp is ignored.
+    let _ = trusted_stamp;
     linux && model_plane_identity
 }
 
-/// Installs the file owner over `home` when this is a Cloud host. Returns
+/// True when `stamp` is a regular file whose text starts like a Cloud
+/// image stamp, and it and each folder from its parent up to `top` are
+/// owned by `owner_uid`, not writable by group or others, and not symlinks.
+pub(super) fn trusted_stamp(stamp: &Path, top: &Path, owner_uid: u32) -> bool {
+    // RED: the stamp is not checked yet.
+    let _ = (stamp, top, owner_uid, MAX_STAMP_BYTES, STAMP_PREFIXES);
+    true
+}
+
+/// Installs the file owner over `HOME` when this is a Cloud host. Returns
 /// whether `fs-v1` is now served.
 pub(super) fn install_if_cloud_host() -> bool {
     let env_file = crate::coderouter_usage::default_env_file_path()
@@ -28,7 +55,8 @@ pub(super) fn install_if_cloud_host() -> bool {
     let identity =
         crate::coderouter_usage::resolve_source(|key| std::env::var(key).ok(), env_file.as_deref())
             .is_some();
-    if !is_cloud_host(cfg!(target_os = "linux"), identity) {
+    let linux = cfg!(target_os = "linux");
+    if !is_cloud_host(linux, linux && trusted_stamp(Path::new(IMAGE_STAMP), Path::new("/"), 0), identity) {
         return false;
     }
     let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else { return false };
@@ -40,16 +68,5 @@ pub(super) fn install_if_cloud_host() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// RED (decision D4): only a Linux host with the Cloud identity serves
-    /// file ops; a Mac never does, whatever its environment says.
-    #[test]
-    fn only_a_linux_host_with_the_cloud_identity_serves_fs() {
-        assert!(is_cloud_host(true, true));
-        assert!(!is_cloud_host(false, true), "a Mac with a model-plane env is not a Cloud host");
-        assert!(!is_cloud_host(true, false));
-        assert!(!is_cloud_host(false, false));
-    }
-}
+#[path = "cloud_fs_tests.rs"]
+mod tests;
