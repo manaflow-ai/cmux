@@ -208,6 +208,15 @@ def scenarios(root):
         ("sb-write-map", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"], "show_output": True,
                                           "args": ["--setting-sources", ""],
                                           "input": {"command": "echo TMPDIR=$TMPDIR; for d in \"$TMPDIR\" '{project}' '{scratch}' /tmp '{home}'; do touch \"$d/w\" 2>/dev/null && echo \"W $d\" || echo \"- $d\"; done"}}),
+        ("sb-write-map-allow-write", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
+                                                      "show_output": True, "allow_write_scratch": True,
+                                                      "args": ["--setting-sources", ""], "input": {"command": "echo TMPDIR=$TMPDIR; for d in \"$TMPDIR\" '{project}' '{scratch}' /tmp/claude-$(id -u) /tmp '{home}'; do touch \"$d/w\" 2>/dev/null && echo \"W $d\" || echo \"- $d\"; done"}}),
+        ("sb-write-map-code-tmpdir", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
+                                                      "show_output": True, "code_tmpdir": True,
+                                                      "args": ["--setting-sources", ""], "input": {"command": "echo TMPDIR=$TMPDIR; for d in \"$TMPDIR\" '{project}' '{scratch}' /tmp/claude-$(id -u) /tmp '{home}'; do touch \"$d/w\" 2>/dev/null && echo \"W $d\" || echo \"- $d\"; done"}}),
+        ("sb-write-map-both", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
+                                               "show_output": True, "code_tmpdir": True, "allow_write_scratch": True,
+                                               "args": ["--setting-sources", ""], "input": {"command": "echo TMPDIR=$TMPDIR; for d in \"$TMPDIR\" '{project}' '{scratch}' /tmp/claude-$(id -u) /tmp '{home}'; do touch \"$d/w\" 2>/dev/null && echo \"W $d\" || echo \"- $d\"; done"}}),
         ("ctl-sb-read-plain", "INFO", "Bash", {"sandbox": True, "macos": True, "allow_tools": ["Bash"],
                                                "secret": "notes/plain.txt", "args": ["--setting-sources", ""],
                                                "input": {"command": "cat '{project}/notes/plain.txt'"}}),
@@ -460,7 +469,9 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
         inject["sandbox"] = sandbox_settings(project, acpmux_home, scratch)
         if opts.get("sandbox_off"):
             inject["sandbox"] = {"enabled": False}
-        elif opts.get("no_deny_write"):
+        if opts.get("allow_write_scratch"):
+            inject["sandbox"]["filesystem"]["allowWrite"] = [scratch]
+        if opts.get("no_deny_write"):
             inject["sandbox"]["filesystem"]["denyWrite"] = []
         inject["permissions"]["deny"] = inject["permissions"].get("deny", []) + opts.get("extra_deny", [])
         opts["inject"] = json.loads(json.dumps(inject).replace("{home}", home).replace("{project}", project))
@@ -521,6 +532,9 @@ def run(claude, root, name, kind, tool, opts, deadline_s=90, real_url=None):
                CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1", DISABLE_AUTOUPDATER="1")
     result_texts = []
     env["TMPDIR"] = scratch
+    if opts.get("code_tmpdir"):
+        os.chmod(scratch, 0o700)
+        env["CLAUDE_CODE_TMPDIR"] = scratch
     plugin_log = plant_plugin(claude, home, project, marker, env) if opts.get("plugin") else []
     result = {"name": name, "kind": kind, "tool": tool, "asked": 0, "ran": False, "exit": None,
               "set_mode_reply": None, "stderr": "", "result": None}
