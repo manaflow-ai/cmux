@@ -20,11 +20,12 @@ extension WindowOverlayHost {
             }
             focusMoved = false
             keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
-                                                                 queue: nil) { [weak self] note in
+                                                                 queue: .main) { [weak self] note in
+                let window = (note.object as AnyObject?).map(ObjectIdentifier.init)
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     // The overlay taking the keyboard back cancels a move; any other window is a move.
-                    self.focusMoved = (note.object as? NSWindow) !== self.panel
+                    self.focusMoved = window != ObjectIdentifier(self.panel)
                 }
             }
         }
