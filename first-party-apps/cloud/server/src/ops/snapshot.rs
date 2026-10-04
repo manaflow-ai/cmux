@@ -48,7 +48,10 @@ pub(super) fn run<C: ControlPlane>(
             let id = args::id(map, "machine")?;
             let body = named_body(map)?;
             let answer = ctx.call("POST", format!("/api/vm/{id}/fork"), Some(body))?;
-            merged(ctx, &answer)
+            let mut machine = merged(ctx, &answer)?;
+            // The snapshot the copy was made from (null when the provider forks directly).
+            machine["snapshotId"] = answer.get("snapshotId").cloned().unwrap_or(Value::Null);
+            Ok(machine)
         }
         "cloud.snapshot.delete" => {
             let map = args::object(raw, &["machine", "snapshot"])?;

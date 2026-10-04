@@ -15,7 +15,9 @@
 //!   `{"type":"relay.session","id","signed_in","team"}`
 //!
 //! The host adds the bearer when it sends the HTTP call; no line in either
-//! direction carries a credential. Op lines that arrive while a relay call
+//! direction carries a credential. The host answers every relay request,
+//! with `relay.error` when its own HTTP deadline passes; the server has no
+//! timer of its own. Op lines that arrive while a relay call
 //! waits are queued and served in order after it.
 
 use super::control_plane::{ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus};
@@ -52,16 +54,18 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     }
 
     fn read_line(&mut self) -> std::io::Result<Option<Value>> {
-        let mut line = String::new();
+        let mut line = Vec::new();
         loop {
             line.clear();
-            if self.reader.read_line(&mut line)? == 0 {
+            if self.reader.read_until(b'\n', &mut line)? == 0 {
                 return Ok(None);
             }
-            if line.trim().is_empty() {
+            if line.iter().all(u8::is_ascii_whitespace) {
                 continue;
             }
-            return match serde_json::from_str(&line) {
+            // A line that is not JSON (or not UTF-8) is answered as invalid;
+            // it never stops the server.
+            return match serde_json::from_slice(&line) {
                 Ok(v) => Ok(Some(v)),
                 Err(e) => Ok(Some(json!({ "type": "invalid", "error": e.to_string() }))),
             };

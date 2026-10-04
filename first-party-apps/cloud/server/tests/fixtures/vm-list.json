@@ -1,5 +1,5 @@
 {
-  "$comment": "Shape recorded from web/app/api/vm/route.ts GET (no customer data).",
+  "$comment": "Shape recorded from web/app/api/vm/route.ts GET (no customer data). createdAt is an ISO string: a drizzle timestamp serialized by JSON.stringify.",
   "request": {
     "method": "GET",
     "path": "/api/vm"
@@ -28,7 +28,7 @@
             "cmux-remote"
           ]
         },
-        "createdAt": 1790000000000,
+        "createdAt": "2026-09-21T14:13:20.000Z",
         "displayName": "build box",
         "slug": "build-box",
         "createdBy": {
@@ -62,7 +62,7 @@
             "cmux-remote"
           ]
         },
-        "createdAt": 1790000100000,
+        "createdAt": "2026-09-21T14:15:00.000Z",
         "displayName": null,
         "slug": "quiet-otter",
         "createdBy": null,
@@ -93,7 +93,7 @@
             "cmux-remote"
           ]
         },
-        "createdAt": 1790000000000,
+        "createdAt": "2026-09-21T14:13:20.000Z",
         "displayName": null,
         "slug": "gone",
         "createdBy": {

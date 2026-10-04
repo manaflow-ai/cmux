@@ -350,8 +350,8 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128,
-            "description": "Display name."
+            "maxLength": 64,
+            "description": "Display name: 1 to 64 characters, no control characters."
           },
           "memoryMb": {
             "type": "integer",
@@ -512,7 +512,7 @@
               "string",
               "null"
             ],
-            "maxLength": 128
+            "maxLength": 64
           }
         },
         "required": [
@@ -921,7 +921,7 @@
         "visible": true
       },
       "mcp": {
-        "expose": "default",
+        "expose": "opt_in",
         "group": "cloud"
       },
       "palette": {
@@ -1096,7 +1096,7 @@
       },
       "cli": {
         "path": "cloud machine delete",
-        "visible": true
+        "visible": false
       },
       "mcp": {
         "expose": "never",
@@ -1109,7 +1109,7 @@
         }
       },
       "gesture": "required",
-      "docs": "Delete a machine and its disk. Only a person (origin user, after the native confirmation) may delete; agents and scripts get cmux.cloud.origin_refused. Alias: vm.delete.",
+      "docs": "Delete a machine and its disk. Only a person may delete: the host stamps origin user only after its native confirmation sheet; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. Alias: vm.delete.",
       "since": "cloud/1"
     },
     {
@@ -1264,13 +1264,13 @@
       },
       "cli": {
         "path": "cloud machine idle-policy set",
-        "visible": true
+        "visible": false
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "Set when an idle machine pauses (seconds of idle time, 0 = never). Not served yet: the cmux Cloud API has no idle policy route, so the server answers cmux.cloud.unsupported.",
+      "docs": "Set when an idle machine pauses (seconds of idle time, 0 = never). Not served yet: the cmux Cloud API has no idle policy route, so the server answers cmux.cloud.unsupported. Hidden on the CLI and MCP until the route exists.",
       "since": "cloud/1"
     },
     {
@@ -1368,8 +1368,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128,
-            "description": "Display name."
+            "maxLength": 64,
+            "description": "Display name: 1 to 64 characters, no control characters."
           }
         },
         "required": [
@@ -1582,8 +1582,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128,
-            "description": "Display name."
+            "maxLength": 64,
+            "description": "Display name: 1 to 64 characters, no control characters."
           }
         },
         "required": [
@@ -1693,6 +1693,13 @@
               "number",
               "null"
             ]
+          },
+          "snapshotId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The snapshot the copy was made from."
           }
         }
       },
@@ -1760,14 +1767,14 @@
       },
       "cli": {
         "path": "cloud snapshot delete",
-        "visible": true
+        "visible": false
       },
       "mcp": {
         "expose": "never",
         "group": "cloud"
       },
       "gesture": "required",
-      "docs": "Delete a snapshot of a machine. Only a person (origin user) may delete. Alias: vm.snapshot.delete.",
+      "docs": "Delete a snapshot of a machine. Only a person may delete (origin user, stamped by the host after its native confirmation). Hidden on the CLI and never on MCP. Alias: vm.snapshot.delete.",
       "since": "cloud/1"
     },
     {

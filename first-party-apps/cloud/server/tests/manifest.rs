@@ -36,12 +36,18 @@ fn the_server_serves_every_catalog_op_and_no_other() {
     for op in catalog["operations"].as_array().expect("operations") {
         let name = op["name"].as_str().expect("name");
         assert_eq!(cmux_cloud::ops::canonical_name(&format!("cmux.{name}")), Some(name));
-        let destructive = op["risk"] == "destructive";
-        assert_eq!(
-            destructive,
-            op["mcp"]["expose"] == "never",
-            "{name}: destructive ops are never on MCP"
-        );
+        if op["risk"] == "destructive" {
+            assert_eq!(op["mcp"]["expose"], "never", "{name}: destructive ops are never on MCP");
+        }
         assert_eq!(op["idempotency"] == "required", op["class"] == "mutation", "{name}");
+        let (mutation, user_only) = cmux_cloud::ops::op_policy(name).expect("served");
+        assert_eq!(mutation, op["class"] == "mutation", "{name}: class and server guard agree");
+        assert_eq!(user_only, op["gesture"] == "required", "{name}: gesture and origin rule agree");
+        if user_only {
+            assert_eq!(
+                op["cli"]["visible"], false,
+                "{name}: a user-only op is not a visible CLI verb"
+            );
+        }
     }
 }

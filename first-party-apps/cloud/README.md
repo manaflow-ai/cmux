@@ -34,33 +34,35 @@ Fragment names are `cloud.<noun>.<verb>`; the full name is `cmux.cloud.<noun>.<v
 | `cloud.auth.status` | read | default | `cloud auth status` | none (host) | the host answers from its sign-in |
 | `cloud.machine.list` | read | default | `cloud machine list` | `GET /api/vm` | replaces the projection |
 | `cloud.machine.get` | read | default | `cloud machine get` | `GET /api/vm/:id` | |
-| `cloud.machine.create` | mutation, mutate-own | opt_in | `cloud machine create` | `POST /api/vm` | idempotency key required; a retry with the same key returns the same machine and makes no second call; the key also goes to the API as `Idempotency-Key` |
+| `cloud.machine.create` | mutation, mutate-own | opt_in | `cloud machine create` | `POST /api/vm` | idempotency key required; a retry with the same key returns the same machine and makes no second call; the API gets a derived key (below) |
 | `cloud.machine.rename` | mutation, mutate-shared | default | `cloud machine rename` | `PATCH /api/vm/:id` | |
 | `cloud.machine.start` | mutation, mutate-shared | default | `cloud machine start` | `POST /api/vm/:id/resume` | aliases `cloud.machine.resume`, `vm.start`, `vm.resume` |
-| `cloud.machine.pause` | mutation, mutate-shared | default | `cloud machine pause` | `POST /api/vm/:id/pause` | |
+| `cloud.machine.pause` | mutation, mutate-shared | opt_in | `cloud machine pause` | `POST /api/vm/:id/pause` | |
 | `cloud.machine.resize` | mutation, mutate-shared | opt_in | `cloud machine resize` | `POST /api/vm/:id/resize` | answers stats with the plan maximums |
-| `cloud.machine.delete` | mutation, destructive | never | `cloud machine delete` | `DELETE /api/vm/:id` | origin `user` only, gesture required |
+| `cloud.machine.delete` | mutation, destructive | never | `cloud machine delete` (hidden) | `DELETE /api/vm/:id` | origin `user` only, gesture required |
 | `cloud.machine.stats` | read | default | `cloud machine stats` | `GET /api/vm/:id/stats` | |
-| `cloud.machine.idle_policy.set` | mutation, mutate-shared | opt_in | `cloud machine idle-policy set` | none | answers `cmux.cloud.unsupported` (gap) |
+| `cloud.machine.idle_policy.set` | mutation, mutate-shared | never | `cloud machine idle-policy set` (hidden) | none | answers `cmux.cloud.unsupported` (gap) |
 | `cloud.snapshot.list` | read | default | `cloud snapshot list` | `GET /api/vm/:id/snapshots` | |
 | `cloud.snapshot.create` | mutation, mutate-own | default | `cloud snapshot create` | `POST /api/vm/:id/snapshot` | |
 | `cloud.snapshot.restore` | mutation, mutate-own | opt_in | `cloud snapshot restore` | `POST /api/vm/restore` | a new machine; same-key retry returns it |
-| `cloud.snapshot.fork` | mutation, mutate-own | opt_in | `cloud snapshot fork` | `POST /api/vm/:id/fork` | a new machine; same-key retry returns it |
-| `cloud.snapshot.delete` | mutation, destructive | never | `cloud snapshot delete` | `DELETE /api/vm/:id/snapshots/:sid` | origin `user` only, gesture required |
+| `cloud.snapshot.fork` | mutation, mutate-own | opt_in | `cloud snapshot fork` | `POST /api/vm/:id/fork` | a new machine with its `snapshotId`; same-key retry returns it |
+| `cloud.snapshot.delete` | mutation, destructive | never | `cloud snapshot delete` (hidden) | `DELETE /api/vm/:id/snapshots/:sid` | origin `user` only, gesture required |
 | `cloud.plan.get` | read | default | `cloud plan get` | `GET /api/vm` (`limits`) | no plan logic in cmux |
 | `cloud.usage.get` | read | default | `cloud usage get` | `GET /api/vm` (`limits`) | |
 
-Every op has `remote_relay: deny` and `queue_offline: false`. Every mutation needs an idempotency key (it rides the `apps-run` envelope); a read with a key is refused. The server keeps a replay record of each successful mutation for the life of the process: the same key with the same op and args returns the recorded result, the same key with other args is `cmux.cloud.idempotency_conflict`. Ids are checked against `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` before they enter a path.
+Every op has `remote_relay: deny` and `queue_offline: false`. Every mutation needs an idempotency key (it rides the `apps-run` envelope); a read with a key is refused. The server records each attempt before the Cloud API call and the result after a success, for the life of the process: the same key with the same op and args returns the recorded result with no call, the same key with another op or other args is `cmux.cloud.idempotency_conflict` (also after a failure), and refused args free the key. The Cloud API gets `Idempotency-Key = sha256(op, canonical args, key)`, because it matches keys per team without comparing the op or the body; a retry after a lost answer sends the same derived key, so the Cloud API returns the first machine. Ids are checked against `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` before they enter a path; display names follow the Cloud API (1 to 64 characters, no control characters).
+
+Delete ops need origin `user`. Origin is not the caller's claim: the app supervisor stamps `user` only after its native confirmation sheet (app-platform.md 13.1 and 15), so the delete ops are hidden on the CLI and never on MCP. This server trusts the stamped origin; it cannot check it.
 
 Errors are `cmux.cloud.*`: `auth_required` (401, or no sign-in at the host; the projection is cleared), `plan_limit` (402, or a plan error code), `forbidden`, `not_found`, `conflict`, `rate_limited`, `unsupported` (501), `upstream_error`, `bad_response`, `invalid_args`, `unknown_op`, `origin_refused`, `idempotency_key_required`, `idempotency_key_forbidden`, `idempotency_conflict`, `relay_unavailable`.
 
 ## Projection and refresh
 
-The server is the only writer of the machine projection. A list replaces it; a get, create, rename, start, pause, restore or fork answer is merged into the record (fields the answer does not carry are kept); a delete removes the record. Every change raises the revision and sends one `cloud.machine.changed {revision, change, machine}` event to the host after the op result. There is no timer and no polling: the page and the sidebar read on open, on app activation and after a change (cloud-app.md DECISION 5).
+The server is the only writer of the machine projection. A list replaces it; a get, create, rename, start, pause, restore or fork answer is merged into the record (fields the answer does not carry are kept; for a machine the projection does not know, a rename, start or pause first reads the full record); a delete, or a delete answered `not_found`, removes the record. `createdAt` is epoch milliseconds whether the API sends a number or an ISO string. Every change raises the revision and sends one `cloud.machine.changed {revision, change, machine}` event to the host after the op result. There is no timer and no polling: the page and the sidebar read on open, on app activation and after a change (cloud-app.md DECISION 5).
 
 ## Gaps
 
-- The catalog fragment schema has no `aliases` field. Aliases (`cmux.cloud.*`, `cloud.machine.resume`, the `vm.*` relay names) live only in the server's table, so the CLI and MCP do not offer them. The relay names take other args (`vm_id`) than the fragment ops (`machine`).
+- The catalog fragment schema has no `aliases` field. Aliases (`cmux.cloud.*`, `cloud.machine.resume`, the `vm.*` relay names) live only in the server's table, so the CLI and MCP do not offer them. For a `vm.*` name the server maps the relay args (`vm_id` to `machine`, `snapshot_id` to `snapshot`).
 - The fragment validator needs op names in the fragment's family, so the fragment says `cloud.machine.list`, not `cmux.cloud.machine.list`.
 - No idle policy route in the Cloud API: `cloud.machine.idle_policy.set` answers `unsupported`.
 - `POST /api/vm/:id/snapshot` takes no idempotency key: a snapshot whose answer was lost may be taken twice on retry.
@@ -69,6 +71,8 @@ The server is the only writer of the machine projection. A list replaces it; a g
 - Not declared yet (other packages): `auth.sign_in`, `auth.sign_out`, `team.list`, `team.select` (host credential owner), attach (C2), files and ports (C5), domains and network (C6), `machine.watch` (needs a machine change feed, DECISION 5).
 - Events do not carry the request's transaction id and there is no `request-settled`; the app host protocol for native servers does not define them yet.
 - The icon is a symbol (`icon.noImage` warning), like `app-store`.
+- Scope reasons in the manifest are English only: the schema takes one string per scope.
+- The relay has no timer: the host must answer every relay request, with `relay.error` when its own HTTP deadline passes.
 
 ## Proposals for the app platform lead (not used in this manifest)
 
