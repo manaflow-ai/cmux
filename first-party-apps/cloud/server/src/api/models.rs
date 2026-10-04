@@ -163,9 +163,21 @@ pub struct ConnectInfo {
     /// is read here only so it can be dropped (contract 1.7: `cmux-cloud`
     /// never sees link tokens beyond this answer).
     #[serde(default, skip_serializing)]
-    pub link_token: Option<serde_json::Value>,
+    pub link_token: Option<Secret>,
     pub daemon: DaemonInfo,
     pub revision: Revision,
+}
+
+/// A credential read from an answer only to be dropped: never serialized
+/// (`skip_serializing` at each use) and never printed by `Debug`.
+#[derive(Clone, PartialEq, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(serde_json::Value);
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(<redacted>)")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

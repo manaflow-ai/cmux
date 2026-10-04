@@ -14425,7 +14425,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "idempotency.conflict",
         "owner.unreachable",
         "revision.conflict",
@@ -14518,10 +14520,13 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_bound",
         "cloud.machine.not_found",
         "owner.unreachable",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
@@ -14541,13 +14546,13 @@
       },
       "cli": {
         "path": "cloud machine connect-info",
-        "visible": true
+        "visible": false
       },
       "mcp": {
-        "expose": "default",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions.",
+      "docs": "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. The result carries a dial credential (link_token), so the op is off MCP and hidden on the CLI.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -14840,7 +14845,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
@@ -15197,7 +15204,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "cloud.provider.unavailable",
         "idempotency.conflict",
@@ -15293,9 +15302,12 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "owner.unreachable",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
@@ -15604,7 +15616,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "idempotency.conflict",
         "owner.unreachable",
@@ -15940,8 +15954,11 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "owner.unreachable",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
@@ -16268,7 +16285,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "cloud.provider.unavailable",
         "idempotency.conflict",
@@ -16594,7 +16613,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "idempotency.conflict",
         "owner.unreachable",
@@ -16922,7 +16943,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
@@ -17267,7 +17290,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
@@ -17585,7 +17610,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_classic",
         "cloud.machine.not_found",
         "cloud.provider.unavailable",
@@ -17900,7 +17927,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.migration.unavailable",
         "idempotency.conflict",
         "owner.unreachable",
@@ -18004,8 +18033,11 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "owner.unreachable",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
@@ -18094,8 +18126,11 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "owner.unreachable",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
@@ -18301,7 +18336,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "cloud.machine.paused",
         "cloud.provider.unavailable",
@@ -18438,7 +18475,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
@@ -18628,7 +18667,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.provider.unavailable",
         "cloud.snapshot.not_found",
         "idempotency.conflict",
@@ -18735,9 +18776,12 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.machine.not_found",
         "owner.unreachable",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
@@ -18922,7 +18966,9 @@
       },
       "errors": [
         "auth.forbidden",
+        "auth.sso_required",
         "auth.unauthenticated",
+        "client.too_old",
         "cloud.plan.required",
         "cloud.provider.unavailable",
         "cloud.quota.exceeded",
@@ -18935,7 +18981,7 @@
         "validation.invalid"
       ],
       "owner": "cloud:CloudDO",
-      "risk": "mutate-own",
+      "risk": "money",
       "principals": [
         "session",
         "install"
@@ -18951,13 +18997,13 @@
       },
       "cli": {
         "path": "cloud snapshot restore",
-        "visible": true
+        "visible": false
       },
       "mcp": {
-        "expose": "opt_in",
+        "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key.",
+      "docs": "Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

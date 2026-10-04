@@ -1774,6 +1774,42 @@
       ]
     },
     {
+      "name": "snapshot.restore.agent_forbidden",
+      "op": "cloud.snapshot.restore",
+      "class": "mutation",
+      "principal": {
+        "kind": "install",
+        "agent": "agent_chief01"
+      },
+      "params": {
+        "snapshot": "snap_s0000000000000000001",
+        "name": "agent box"
+      },
+      "idempotency_key": "key-restore-agent",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": false,
+            "op": "cloud.snapshot.restore",
+            "error": {
+              "code": "auth.forbidden",
+              "message": "an agent cannot create machines",
+              "retryable": false
+            },
+            "transaction": "",
+            "idempotency_key": "key-restore-agent",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 0
+          }
+        }
+      ]
+    },
+    {
       "name": "snapshot.delete",
       "op": "cloud.snapshot.delete",
       "class": "mutation",

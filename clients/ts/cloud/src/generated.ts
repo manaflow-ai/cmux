@@ -1287,7 +1287,7 @@ export interface CloudOps {
       readonly url: string
     }
   }
-  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. */
+  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. The result carries a dial credential (link_token), so the op is off MCP and hidden on the CLI. */
   readonly "cloud.machine.connect_info": {
     readonly params: {
       readonly machine?: MachineId
@@ -1452,7 +1452,7 @@ export interface CloudOps {
       readonly snapshots: ReadonlyArray<CloudSnapshot>
     }
   }
-  /** Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. */
+  /** Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
   readonly "cloud.snapshot.restore": {
     readonly params: {
       readonly snapshot: SnapshotId
@@ -2938,7 +2938,7 @@ export const cloudOpMeta = {
   "cloud.snapshot.create": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
   "cloud.snapshot.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
   "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
-  "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
+  "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },

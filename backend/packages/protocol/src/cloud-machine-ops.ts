@@ -94,15 +94,17 @@ const MachineResult = Schema.Struct({ machine: CloudMachine })
 const Deleted = Schema.Struct({ deleted: Schema.Literal(true) })
 const MachineParams = Schema.Struct({ machine: MachineId })
 
-const READ = ["auth.forbidden", "auth.unauthenticated", "owner.unreachable", "validation.invalid"]
-const MUTATION = [...mutationErrors, "owner.unreachable"]
+/** The Worker's own gates answer these for every op, before the owner sees it. */
+const GATES = ["auth.sso_required", "client.too_old", "owner.unreachable"]
+const READ = ["auth.forbidden", "auth.unauthenticated", "selector.not_found", "validation.invalid", ...GATES]
+const MUTATION = [...mutationErrors, ...GATES]
 /** A provider call can fail for now or be cut off; the caller retries the same key after mutation.indeterminate. */
 const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
 const KEY = " After mutation.indeterminate, retry with the same idempotency key."
 const PERSON = " Agent principals are refused; the client asks a person first."
 
-const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string) =>
-  def({ name, owner: "cloud:CloudDO", class: "read", risk: "read", target: "team", principals: ["session", "install"], params, result, errors: [...READ, ...errors], docs, cli: { path: cli, visible: true }, mcp: { expose: "default", group: "cloud" } })
+const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string, hidden = false) =>
+  def({ name, owner: "cloud:CloudDO", class: "read", risk: "read", target: "team", principals: ["session", "install"], params, result, errors: [...READ, ...errors], docs, cli: { path: cli, visible: !hidden }, mcp: { expose: hidden ? "never" : "default", group: "cloud" } })
 
 const cloudMutation = <P extends Schema.Top, R extends Schema.Top>(
   name: string,
@@ -185,8 +187,9 @@ export const CloudMachineConnectInfo = cloudRead(
   Schema.Struct({ machine: Schema.optionalKey(MachineId), host: Schema.optionalKey(HostId) }),
   CloudConnectInfo,
   ["cloud.machine.not_bound", "cloud.machine.not_found"],
-  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions.",
-  "cloud machine connect-info"
+  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. The result carries a dial credential (link_token), so the op is off MCP and hidden on the CLI.",
+  "cloud machine connect-info",
+  true
 )
 export const CloudMachineUpgrade = cloudMutation(
   "cloud.machine.upgrade",
@@ -218,12 +221,13 @@ export const CloudSnapshotCreate = cloudMutation(
 )
 export const CloudSnapshotRestore = cloudMutation(
   "cloud.snapshot.restore",
-  "mutate-own",
+  "money",
   Schema.Struct({ snapshot: SnapshotId, name: Schema.optionalKey(MachineName) }),
   MachineResult,
   ["cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER],
   "Create a new machine from a snapshot (plan checks as create)." + KEY,
-  "cloud snapshot restore"
+  "cloud snapshot restore",
+  true
 )
 export const CloudSnapshotDelete = cloudMutation(
   "cloud.snapshot.delete",

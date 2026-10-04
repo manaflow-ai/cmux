@@ -48,7 +48,8 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.connect_info", Kind::Read),
     ("cloud.snapshot.list", Kind::Read),
     ("cloud.snapshot.create", Kind::Mutation),
-    ("cloud.snapshot.restore", Kind::Mutation),
+    // A restore makes a new machine: it costs money like create.
+    ("cloud.snapshot.restore", Kind::UserOnly),
     ("cloud.snapshot.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),
