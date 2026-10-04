@@ -5,6 +5,7 @@
 //! bundle. After that, [`ProviderDriver`] forwards driver protocol calls on
 //! the provider's WebKit tabs and receives their results and events.
 
+use crate::cdp::{CdpConnection, CdpWire};
 use crate::driver::{Driver, EventSink};
 use crate::protocol::{DriverError, DriverEvent, timeout_of};
 use crate::provider::{
@@ -94,18 +95,25 @@ struct TabTable {
     urls: HashMap<String, String>,
     /// targetId -> (extension_host_access, user_override, extension names).
     access: HashMap<String, (bool, bool, Vec<String>)>,
+    /// Every announced tab, in announce order (`tabs.list`).
+    info: Vec<TabAnnounce>,
 }
 
 impl TabTable {
     fn announce(&mut self, tab: &TabAnnounce) {
         self.engines.insert(tab.target_id.clone(), tab.engine.clone());
         self.urls.insert(tab.target_id.clone(), tab.url.clone());
+        match self.info.iter_mut().find(|known| known.target_id == tab.target_id) {
+            Some(known) => *known = tab.clone(),
+            None => self.info.push(tab.clone()),
+        }
     }
 
     fn forget(&mut self, target_id: &str) {
         self.engines.remove(target_id);
         self.urls.remove(target_id);
         self.access.remove(target_id);
+        self.info.retain(|tab| tab.target_id != target_id);
     }
 
     /// Updates the table from a provider event (`tab.announced`, `tab.gone`).
@@ -128,6 +136,9 @@ impl TabTable {
                     )
                 {
                     self.urls.insert(target_id.to_owned(), url.to_owned());
+                    if let Some(tab) = self.info.iter_mut().find(|t| t.target_id == target_id) {
+                        tab.url = url.to_owned();
+                    }
                 }
             }
             "tab.gone" => {
@@ -178,11 +189,40 @@ impl TabTable {
 /// Driver protocol calls forwarded to the app's driver for provider tabs.
 /// Calls on a CEF tab follow the interim extension rule (`tab.access`).
 pub struct ProviderDriver {
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: SharedWriter,
     waiters: Waiters,
     next_id: AtomicU64,
     closed: Arc<Mutex<Option<String>>>,
     tabs: Arc<Mutex<TabTable>>,
+    /// Open CDP relays of CEF tabs, by targetId (`cdp.attach`).
+    relays: Relays,
+    /// Sessions that receive the provider's events (`subscribe`).
+    subscribers: Subscribers,
+    next_subscriber: AtomicU64,
+    /// Per-tab CDP drivers of CEF tabs (`crate::provider_engine`).
+    pub(crate) cef_tabs: CefTabs,
+    /// Serializes relay attaches (the reader thread never takes it, so an
+    /// attach waiting for its first reply cannot block the reader).
+    pub(crate) attach_lock: Mutex<()>,
+}
+
+pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_engine::CefTab>>>>;
+
+type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
+type Relays = Arc<Mutex<HashMap<String, Arc<CdpConnection>>>>;
+type Subscribers = Arc<Mutex<Vec<(u64, EventSink)>>>;
+
+/// Sends a relayed CEF tab's CDP messages as `cdp` frames.
+struct RelayWire {
+    writer: SharedWriter,
+    target_id: String,
+}
+
+impl CdpWire for RelayWire {
+    fn send(&self, message: &str) -> std::io::Result<()> {
+        let frame = Frame::Cdp { target_id: self.target_id.clone(), message: message.to_owned() };
+        write_frame(&mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner), &frame)
+    }
 }
 
 impl ProviderDriver {
@@ -201,8 +241,13 @@ impl ProviderDriver {
             table.announce(tab);
         }
         let tabs = Arc::new(Mutex::new(table));
+        let relays: Relays = Arc::new(Mutex::new(HashMap::new()));
+        let subscribers: Subscribers = Arc::new(Mutex::new(Vec::new()));
         let (thread_waiters, thread_closed, thread_tabs) =
             (waiters.clone(), closed.clone(), tabs.clone());
+        let cef_tabs: CefTabs = Arc::new(Mutex::new(HashMap::new()));
+        let (thread_relays, thread_subscribers, thread_cef_tabs) =
+            (relays.clone(), subscribers.clone(), cef_tabs.clone());
         std::thread::Builder::new().name("cmux-browser-host-provider".into()).spawn(move || {
             let reason = loop {
                 match read_frame(&mut reader) {
@@ -211,7 +256,45 @@ impl ProviderDriver {
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
                             .apply_event(&name, &payload);
-                        events(DriverEvent { name, payload });
+                        // The tab went away, or the app replaced its Chromium
+                        // browser (`tab.relay.closed`): its relay and driver go;
+                        // the next call attaches again.
+                        if matches!(name.as_str(), "tab.gone" | "tab.relay.closed")
+                            && let Some(target_id) = payload.get("targetId").and_then(Value::as_str)
+                        {
+                            let relay = thread_relays
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .remove(target_id);
+                            if let Some(relay) = relay {
+                                relay.close("the tab closed");
+                            }
+                            thread_cef_tabs
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .remove(target_id);
+                        }
+                        let event = DriverEvent { name, payload };
+                        let sinks: Vec<EventSink> = thread_subscribers
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .iter()
+                            .map(|(_, sink)| sink.clone())
+                            .collect();
+                        for sink in sinks {
+                            sink(event.clone());
+                        }
+                        events(event);
+                    }
+                    Ok(Some(Frame::Cdp { target_id, message })) => {
+                        let relay = thread_relays
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .get(&target_id)
+                            .cloned();
+                        if let Some(relay) = relay {
+                            relay.receive(&message);
+                        }
                     }
                     Ok(Some(Frame::TabAccess {
                         target_id,
@@ -241,22 +324,124 @@ impl ProviderDriver {
                 }
             };
             *thread_closed.lock().unwrap_or_else(PoisonError::into_inner) = Some(reason.clone());
+            let relays: Vec<_> =
+                thread_relays.lock().unwrap_or_else(PoisonError::into_inner).drain().collect();
+            for (_, relay) in relays {
+                relay.close(&reason);
+            }
+            thread_cef_tabs.lock().unwrap_or_else(PoisonError::into_inner).clear();
             for (_, waiter) in thread_waiters.lock().unwrap_or_else(PoisonError::into_inner).drain()
             {
                 let _ = waiter.try_send(Err(DriverError::closed(reason.clone())));
             }
         })?;
         Ok(Arc::new(ProviderDriver {
-            writer: Mutex::new(Box::new(writer)),
+            writer: Arc::new(Mutex::new(Box::new(writer))),
             waiters,
             next_id: AtomicU64::new(1),
             closed,
             tabs,
+            relays,
+            subscribers,
+            next_subscriber: AtomicU64::new(1),
+            cef_tabs,
+            attach_lock: Mutex::new(()),
         }))
     }
 
-    fn closed_reason(&self) -> Option<String> {
+    pub fn closed_reason(&self) -> Option<String> {
         self.closed.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    fn table(&self) -> std::sync::MutexGuard<'_, TabTable> {
+        self.tabs.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The announced tabs, in announce order; only `engine`'s when given.
+    pub fn tab_list(&self, engine: Option<&str>) -> Vec<TabAnnounce> {
+        self.table()
+            .info
+            .iter()
+            .filter(|tab| engine.is_none_or(|e| tab.engine == e))
+            .cloned()
+            .collect()
+    }
+
+    /// The engine the app announced for a tab.
+    pub fn tab_engine(&self, target_id: &str) -> Option<String> {
+        self.table().engines.get(target_id).cloned()
+    }
+
+    /// Why an agent call on `target_id` is refused (browser page, the
+    /// interim extension rule), or `None`.
+    pub fn refusal(&self, method: &str, target_id: &str) -> Option<DriverError> {
+        self.table().refusal(method, target_id)
+    }
+
+    /// Opens the CDP relay of a CEF tab: a page-rooted connection whose
+    /// messages travel as `cdp` frames, after `cdp.attach`.
+    pub fn open_relay(
+        &self,
+        target_id: &str,
+        alias: &str,
+    ) -> Result<Arc<CdpConnection>, DriverError> {
+        if let Some(reason) = self.closed_reason() {
+            return Err(DriverError::closed(reason));
+        }
+        let conn = CdpConnection::page_rooted(
+            Box::new(RelayWire { writer: self.writer.clone(), target_id: target_id.to_owned() }),
+            alias,
+        );
+        let previous = self
+            .relays
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(target_id.to_owned(), conn.clone());
+        if let Some(previous) = previous {
+            previous.close("the relay was reopened");
+        }
+        let frame = Frame::CdpAttach { target_id: target_id.to_owned() };
+        write_frame(&mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner), &frame)
+            .map_err(|e| DriverError::closed(format!("provider write failed: {e}")))?;
+        Ok(conn)
+    }
+
+    /// Closes a CEF tab's relay and tells the app (`cdp.detach`).
+    pub fn close_relay(&self, target_id: &str) {
+        let relay = self.relays.lock().unwrap_or_else(PoisonError::into_inner).remove(target_id);
+        if let Some(relay) = relay {
+            relay.close("the relay was closed");
+            let frame = Frame::CdpDetach { target_id: target_id.to_owned() };
+            let _ = write_frame(
+                &mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner),
+                &frame,
+            );
+        }
+    }
+
+    /// Adds an event receiver (one per session); returns its id.
+    pub fn subscribe(&self, sink: EventSink) -> u64 {
+        let id = self.next_subscriber.fetch_add(1, Ordering::Relaxed);
+        self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).push((id, sink));
+        id
+    }
+
+    pub fn unsubscribe(&self, id: u64) {
+        self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).retain(|(s, _)| *s != id);
+    }
+
+    /// Delivers an event to every subscriber (per-tab CDP driver events).
+    pub fn publish(&self, event: DriverEvent) {
+        let sinks: Vec<EventSink> = self
+            .subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(_, sink)| sink.clone())
+            .collect();
+        for sink in sinks {
+            sink(event.clone());
+        }
     }
 }
 
