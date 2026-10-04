@@ -412,7 +412,9 @@ rest. Measurements: [performance.md](performance.md).
   values in their URLs and URL-valued headers (`location`, `referer`): a
   userinfo, and each query or fragment parameter named by that rule or by
   a short name URLs use for one (`code`, `sig`, `key`, `otp` and the like)
-  reads `redacted`.
+  reads `redacted`. The same values read `redacted` in the URLs
+  `tabs.list()` gives for tabs the session did not create, and in every
+  `tabs.history()` entry (history does not say who visited it).
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
   session lasts. In them dialogs and file choosers wait for the agent,
