@@ -60,6 +60,7 @@ async fn an_address_no_peer_routes_is_no_route() {
     let a = node(&[overlay(1)]).await;
     let b = node(&[overlay(2)]).await;
     within(a.mesh.add_peer(peer_of(&b, &[overlay(2)], true))).await.unwrap();
+    within(b.mesh.add_peer(peer_of(&a, &[overlay(1)], false))).await.unwrap();
 
     let error = within(a.mesh.connect(SocketAddr::new(overlay(9), LINK_PORT))).await.unwrap_err();
     assert!(matches!(error, WgError::NoRoute(address) if address == overlay(9)), "{error:?}");

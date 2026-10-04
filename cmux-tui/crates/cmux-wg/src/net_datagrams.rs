@@ -6,6 +6,7 @@
 //! are dropped.
 
 use super::*;
+use tokio::sync::mpsc::error::TrySendError;
 use crate::pacing::{DropCounters, Priority};
 use crate::udp;
 

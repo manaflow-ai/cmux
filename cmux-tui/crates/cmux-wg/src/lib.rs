@@ -24,12 +24,17 @@
 //!
 //! Crypto-key routing is enforced on receive: a decrypted packet whose source
 //! address lies outside the peer's `AllowedIPs` is dropped.
+//!
+//! [`WgNet`] is one client reaching one network through one peer. [`WgMesh`]
+//! is the same engine for a `cmux link` agent: one key, one UDP socket, and
+//! a session with each of several paired peers, routed by their allowed IPs.
 
 mod config;
 mod device;
 mod error;
 mod mesh;
 mod mesh_driver;
+mod mesh_peers;
 mod multipath;
 mod net;
 mod pacing;
@@ -37,6 +42,7 @@ mod probe_schedule;
 mod probing;
 mod single_path;
 mod stream;
+mod tcp_stack;
 /// Two-peer loopback harness. Test support for this crate and its dependents;
 /// it links no code into a binary that does not call it.
 pub mod testing;
