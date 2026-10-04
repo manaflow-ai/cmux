@@ -1,21 +1,37 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
-import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
+import {
+  dragHasFiles,
+  filesFrom,
+  readAttachments,
+  type AttachmentError,
+  type ComposerAttachment,
+} from "./attachments";
 import { ComposerContext } from "./ComposerContext";
 import {
   ArrowUpIcon,
   AtIcon,
+  BuildIcon,
   PaperclipIcon,
   Picker,
   PlusIcon,
   SearchIcon,
+  PlanIcon,
+  ShieldIcon,
   SlashIcon,
   StopIcon,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
-import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
+import {
+  applyCommand,
+  matchCommands,
+  slashQuery,
+  type SlashCommand,
+  type SlashMatch,
+} from "./slashCommands";
 import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { t } from "./i18n";
@@ -70,7 +86,9 @@ type Props = {
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
-  onProject?(cwd: string): void;
+  onProject?(cwd: string, peer?: string): void;
+  /// Changes the approval mode from the + menu while keeping the keyboard shortcut path intact.
+  onMode?(modeId: string): void;
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
@@ -95,6 +113,7 @@ export function Composer({
   onAttach,
   searchFiles,
   onProject,
+  onMode,
   onOpenInWindow,
 }: Props) {
   const [findingFiles, setFindingFiles] = useState(false);
@@ -190,9 +209,42 @@ export function Composer({
     pendingCaret.current = draft.length;
   }, [draft]);
   const commands = snapshot.commands;
+  const modeChoices: Choice[] = (snapshot.summary?.modes?.availableModes ?? [])
+    .filter((mode) => !/(^|[-_])plan$/i.test(mode.id))
+    .map((mode) => ({
+      id: `mode:${mode.id}`,
+      name: mode.name || mode.id,
+      description: mode.description,
+      icon: <ShieldIcon />,
+    }));
+  const plan = snapshot.summary?.modes?.availableModes?.find((mode) =>
+    /(^|[-_])plan$/i.test(mode.id),
+  );
+  const currentModeId = snapshot.summary?.modes?.currentModeId;
+  const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
+  if (lastMode.current.sessionId !== snapshot.summary?.sessionId) {
+    lastMode.current = { sessionId: snapshot.summary?.sessionId };
+  }
+  if (currentModeId && !/(^|[-_])plan$/i.test(currentModeId)) lastMode.current.mode = currentModeId;
+  const planning = plan?.id === currentModeId;
+  const modePlanChoices: Choice[] = [
+    ...modeChoices,
+    ...(plan
+      ? [
+          {
+            id: `plan:${plan.id}`,
+            name: planning ? "Build" : "Plan",
+            icon: planning ? <BuildIcon /> : <PlanIcon />,
+          },
+        ]
+      : []),
+  ];
   const query = slashQuery(text, caret);
   const open = query !== undefined && dismissed !== text;
-  const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
+  const matches = useMemo(
+    () => (open ? matchCommands(commands ?? [], query ?? "") : []),
+    [commands, open, query],
+  );
 
   useEffect(() => setActive(0), [query]);
   // A live command update can shrink the list under the selection.
@@ -264,7 +316,8 @@ export function Composer({
   const openCommands = () => {
     if (composing.current) return;
     const first = /^\/(\S*)/.exec(text)?.[1];
-    const named = first !== undefined && (commands ?? []).some((command) => command.name.startsWith(first));
+    const named =
+      first !== undefined && (commands ?? []).some((command) => command.name.startsWith(first));
     const next = named ? text : text ? `/ ${text}` : "/";
     plusDraft.current = { written: next, original: text };
     pendingCaret.current = 1;
@@ -297,7 +350,8 @@ export function Composer({
     // Enter sends unless it picks a command: with the menu closed, with nothing
     // to pick (an unknown command or a pasted path), or on a command already
     // typed in full that takes no arguments.
-    const typedInFull = matches[selected]?.command.name === query && !matches[selected]?.command.hint;
+    const typedInFull =
+      matches[selected]?.command.name === query && !matches[selected]?.command.hint;
     if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
       submit(event);
       return;
@@ -353,10 +407,12 @@ export function Composer({
       <ComposerContext
         summary={snapshot.summary}
         sessions={snapshot.sessions}
+        peers={snapshot.peers}
+        started={(snapshot.summary?.turnCount ?? 0) > 0 || snapshot.rows.length > 0}
         onProject={
           onProject &&
-          ((cwd) => {
-            onProject(cwd);
+          ((cwd, peer) => {
+            onProject(cwd, peer);
             field.current?.focus();
           })
         }
@@ -384,7 +440,9 @@ export function Composer({
           <SlashMenu
             matches={matches}
             active={selected}
-            empty={!commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands}
+            empty={
+              !commands?.length ? COMPOSER_LABELS.noCommands : COMPOSER_LABELS.noMatchingCommands
+            }
             onHover={setActive}
             onPick={pick}
           />
@@ -421,7 +479,8 @@ export function Composer({
             "aria-expanded": String(open),
             "aria-controls": open ? "acpmux-slash-menu" : undefined,
             "aria-autocomplete": "list",
-            "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
+            "aria-activedescendant":
+              open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
           }}
           onChange={(markdown, at) => edit(markdown, at)}
           onCaret={setCaret}
@@ -441,13 +500,43 @@ export function Composer({
               align="start"
               returnFocus={false}
               sections={[
+                ...(modePlanChoices.length > 0 && onMode
+                  ? [
+                      {
+                        title: "Mode",
+                        choices: modePlanChoices,
+                        onPick: (id: string) => {
+                          if (id.startsWith("mode:")) onMode(id.slice("mode:".length));
+                          else if (id.startsWith("plan:"))
+                            onMode(
+                              planning
+                                ? (lastMode.current.mode ??
+                                    modeChoices[0]?.id?.slice(5) ??
+                                    id.slice(5))
+                                : id.slice(5),
+                            );
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   choices: [
-                    ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
+                    ...(onAttach
+                      ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }]
+                      : []),
                     { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
-                    ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
+                    ...(searchFiles
+                      ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }]
+                      : []),
                     ...(commands?.length
-                      ? [{ id: "commands", name: COMPOSER_LABELS.commands, icon: <SlashIcon />, hint: "/" }]
+                      ? [
+                          {
+                            id: "commands",
+                            name: COMPOSER_LABELS.commands,
+                            icon: <SlashIcon />,
+                            hint: "/",
+                          },
+                        ]
                       : []),
                   ],
                   onPick: (id) =>
@@ -497,7 +586,13 @@ export function Composer({
   );
 }
 
-function AttachmentChip({ attachment, onRemove }: { attachment: ComposerAttachment; onRemove(id: string): void }) {
+function AttachmentChip({
+  attachment,
+  onRemove,
+}: {
+  attachment: ComposerAttachment;
+  onRemove(id: string): void;
+}) {
   const remove = (
     <button
       type="button"
@@ -538,7 +633,9 @@ function SlashMenu({
 }) {
   const list = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
+    list.current
+      ?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)
+      ?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
   if (matches.length === 0)
@@ -608,7 +705,9 @@ function Highlighted({ name, ranges }: { name: string; ranges: [number, number][
 function markdownOffset(markdown: string, shown: number): number {
   let index = 0;
   for (let count = 0; count < shown && index < markdown.length; count++) {
-    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);)/i.exec(markdown.slice(index));
+    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);)/i.exec(
+      markdown.slice(index),
+    );
     index += escape ? escape[0].length : 1;
   }
   return index;

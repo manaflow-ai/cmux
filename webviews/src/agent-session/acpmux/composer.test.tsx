@@ -8,7 +8,10 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
+    key,
+    globals[key],
+  ]),
 );
 Object.assign(globals, {
   window: dom.window,
@@ -60,11 +63,14 @@ describe("acpmux composer slash menu", () => {
     [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
       (row) => row.querySelector(".acpmux-slash-name")!.textContent,
     );
-  const active = () => dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
+  const active = () =>
+    dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
   const menu = () => dom.window.document.querySelector(".acpmux-slash-menu");
   const type = async (value: string) => act(async () => typeInto(textarea(), value));
   const plusButton = () =>
-    dom.window.document.querySelector(".acpmux-composer-plus .acpmux-picker-button") as HTMLButtonElement;
+    dom.window.document.querySelector(
+      ".acpmux-composer-plus .acpmux-picker-button",
+    ) as HTMLButtonElement;
   /// Opens + and picks one of its rows, as a click does.
   const pickPlus = async (id: string) => {
     await act(async () => plusButton().click());
@@ -79,7 +85,12 @@ describe("acpmux composer slash menu", () => {
   const key = async (name: string, isComposing = false) =>
     act(async () => {
       textarea().dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true }),
+        new dom.window.KeyboardEvent("keydown", {
+          key: name,
+          isComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
       );
     });
   const render = async (value: AcpmuxSnapshot) => {
@@ -90,7 +101,9 @@ describe("acpmux composer slash menu", () => {
           chips: () => null,
           onSend: (text: string, attachments = []) => {
             sent.push(text);
-            sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
+            sentAttachments.push(
+              attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })),
+            );
           },
           onStop: () => {},
         }),
@@ -115,9 +128,11 @@ describe("acpmux composer slash menu", () => {
     expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
     await type("/com");
     expect(rows()).toEqual(["/compact", "/pr-comments"]);
-    expect([...dom.window.document.querySelectorAll(".acpmux-slash-row mark")].map((mark) => mark.textContent)).toEqual(
-      ["com", "com"],
-    );
+    expect(
+      [...dom.window.document.querySelectorAll(".acpmux-slash-row mark")].map(
+        (mark) => mark.textContent,
+      ),
+    ).toEqual(["com", "com"]);
     await type("/review ");
     expect(menu()).toBeNull();
     await type("say /com");
@@ -214,9 +229,9 @@ describe("acpmux composer slash menu", () => {
   test("+ opens an add menu: Mention puts an @ at the caret, and Commands opens the command menu ahead of a draft", async () => {
     const items = async () => {
       await act(async () => plusButton().click());
-      const names = [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) =>
-        item.getAttribute("data-value"),
-      );
+      const names = [
+        ...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]"),
+      ].map((item) => item.getAttribute("data-value"));
       await act(async () => plusButton().click());
       return names;
     };
@@ -237,6 +252,44 @@ describe("acpmux composer slash menu", () => {
     await key("Enter");
     expect(textarea().value).toBe("/review look at main");
     expect(sent).toEqual([]);
+  });
+
+  test("keeps Mode and Plan out of the default bar while the + menu changes them", async () => {
+    const modes = {
+      currentModeId: "ask",
+      availableModes: [
+        { id: "ask", name: "Ask for approval" },
+        { id: "bypassPermissions", name: "Full access" },
+        { id: "plan", name: "Plan" },
+      ],
+    };
+    const modeCalls: string[] = [];
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: { ...snapshot(), summary: { sessionId: "s", modes } },
+          chips: () => null,
+          onSend: () => {},
+          onStop: () => {},
+          onMode: (mode: string) => modeCalls.push(mode),
+        }),
+      ),
+    );
+    await ready();
+    expect(dom.window.document.querySelector(".acpmux-mode")).toBeNull();
+    expect(dom.window.document.querySelector(".acpmux-plan")).toBeNull();
+    await act(async () => plusButton().click());
+    expect(
+      [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map(
+        (item) => item.textContent,
+      ),
+    ).toEqual(["Ask for approval", "Full access", "Plan", "Mention a file or folder@"]);
+    await act(async () =>
+      dom.window.document
+        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="mode:bypassPermissions"]')!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+    );
+    expect(modeCalls).toEqual(["bypassPermissions"]);
   });
 
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
@@ -279,9 +332,14 @@ describe("acpmux composer slash menu", () => {
     // Called directly for the same reason as typeInto: react-dom may load before the DOM exists.
     const form = dom.window.document.querySelector("form")!;
     const props = (
-      form as unknown as Record<string, { onBlur(event: { currentTarget: Element; relatedTarget: Element }): void }>
+      form as unknown as Record<
+        string,
+        { onBlur(event: { currentTarget: Element; relatedTarget: Element }): void }
+      >
     )[Object.keys(form).find((key) => key.startsWith("__reactProps$"))!]!;
-    await act(async () => props.onBlur({ currentTarget: form, relatedTarget: dom.window.document.body }));
+    await act(async () =>
+      props.onBlur({ currentTarget: form, relatedTarget: dom.window.document.body }),
+    );
     expect(textarea().value).toBe("look again");
     expect(menu()).toBeNull();
     await type("/comp");
@@ -332,8 +390,13 @@ describe("acpmux composer slash menu", () => {
   describe("attachments", () => {
     const settleFiles = () => act(() => new Promise((resolve) => setTimeout(resolve, 5)));
     const png = () =>
-      new dom.window.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "shot.png", { type: "image/png" });
-    const transfer = (files: File[]) => ({ files, types: files.length ? ["Files"] : ["text/plain"] });
+      new dom.window.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "shot.png", {
+        type: "image/png",
+      });
+    const transfer = (files: File[]) => ({
+      files,
+      types: files.length ? ["Files"] : ["text/plain"],
+    });
     const paste = async (files: File[]) => {
       const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
       Object.defineProperty(event, "clipboardData", { value: transfer(files) });
@@ -353,24 +416,36 @@ describe("acpmux composer slash menu", () => {
       await act(async () =>
         root.render(
           createElement(Composer, {
-            snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: { image: true } } },
+            snapshot: {
+              ...snapshot(),
+              summary: { sessionId: "s", promptCapabilities: { image: true } },
+            },
             chips: () => null,
             onSend: (text: string, attachments = []) => {
               sent.push(text);
-              sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
+              sentAttachments.push(
+                attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })),
+              );
             },
             onStop: () => {},
           }),
         ),
       );
       await ready();
-      const event = await paste([png(), new dom.window.File(["hello\n"], "notes.md", { type: "text/markdown" })]);
+      const event = await paste([
+        png(),
+        new dom.window.File(["hello\n"], "notes.md", { type: "text/markdown" }),
+      ]);
       expect(event.defaultPrevented).toBe(true);
       expect(
-        [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) => chip.getAttribute("title")),
+        [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) =>
+          chip.getAttribute("title"),
+        ),
       ).toEqual(["shot.png", "notes.md"]);
       await act(async () =>
-        dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove notes.md"]')!.click(),
+        dom.window.document
+          .querySelector<HTMLButtonElement>('[aria-label="Remove notes.md"]')!
+          .click(),
       );
       await act(async () =>
         dom.window.document
@@ -386,11 +461,16 @@ describe("acpmux composer slash menu", () => {
       await act(async () =>
         root.render(
           createElement(Composer, {
-            snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: { image: false } } },
+            snapshot: {
+              ...snapshot(),
+              summary: { sessionId: "s", promptCapabilities: { image: false } },
+            },
             chips: () => null,
             onSend: (text: string, attachments = []) => {
               sent.push(text);
-              sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
+              sentAttachments.push(
+                attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })),
+              );
             },
             onStop: () => {},
           }),

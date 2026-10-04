@@ -82,6 +82,8 @@ type Props = {
   onHarness?(harness: string): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
+  /// Mode and Plan live in the composer's + menu in the default pane.
+  showModePlan?: boolean;
 };
 
 /// The composer bar's controls: the
@@ -98,6 +100,7 @@ export function ComposerPickers({
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
+  showModePlan = true,
 }: Props) {
   const summary = snapshot.summary;
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
@@ -184,7 +187,7 @@ export function ComposerPickers({
 
   return (
     <div className="acpmux-chips">
-      {modes.length > 0 && (
+      {showModePlan && modes.length > 0 && (
         <Picker
           label={PICKER_LABELS.mode}
           warnUnrestricted
@@ -201,7 +204,7 @@ export function ComposerPickers({
           align="start"
         />
       )}
-      {plan && (
+      {showModePlan && plan && (
         <button
           type="button"
           className="acpmux-plan"

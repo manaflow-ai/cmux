@@ -80,6 +80,8 @@ export type AcpmuxSnapshot = {
   protocolVersion: number;
   rows: AcpmuxRow[];
   sessions: AcpmuxSessionEntry[];
+  /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
+  peers?: string[];
   summary?: {
     sessionId: string;
     cwd?: string;
@@ -87,6 +89,7 @@ export type AcpmuxSnapshot = {
     /// Context-window tokens used of the session's window, from the agent's last usage update.
     usage?: { used: number; size: number };
     host?: string;
+    peer?: string;
     hostKind?: "local" | "cloud";
     branch?: string;
     worktree?: string;
@@ -98,7 +101,10 @@ export type AcpmuxSnapshot = {
     promptCapabilities?: { image?: boolean };
     status?: string;
     enforcement?: Enforcement;
-    modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string };
+    modes?: {
+      availableModes: { id: string; name?: string; description?: string }[];
+      currentModeId?: string;
+    };
     configOptions?: {
       id: string;
       name?: string;
@@ -118,7 +124,11 @@ export type AcpmuxSnapshot = {
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
   /** `unavailable`: why acpmux will not run that model (its backend refused it). */
-  catalog: { id: string; name: string; models: { id: string; name?: string; unavailable?: string }[] }[];
+  catalog: {
+    id: string;
+    name: string;
+    models: { id: string; name?: string; unavailable?: string }[];
+  }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
@@ -218,21 +228,32 @@ export function editedCardHeight(files: number, plain = 0): number {
 /// What an edit without a diff lists as in the edited-files card, deduped.
 export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
   return [
-    ...new Set(items.filter((item) => !item.tool?.diffs?.length).map((item) => item.tool?.inputSummary || item.text)),
+    ...new Set(
+      items
+        .filter((item) => !item.tool?.diffs?.length)
+        .map((item) => item.tool?.inputSummary || item.text),
+    ),
   ];
 }
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
 /// includes the row's bottom padding (`.acpmux-row` in styles.css: 16px for messages, 8px else).
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
-  const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
+  const textLines = Math.max(
+    1,
+    Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))),
+  );
   if (row.kind === "activity") {
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
-    const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
+    const edits =
+      row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ??
+      [];
     if (edits.length && !isFoldedCopy(row)) {
-      const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
+      const files = new Set(
+        edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? []),
+      ).size;
       return 14 + editedCardHeight(files, plainEditLabels(edits).length);
     }
     // In an open "Worked for", a run of two or more calls draws one summary line until opened.
@@ -247,7 +268,13 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === PREVIEW) return 58 + PREVIEW_FRAME_HEIGHT + 6 + 8;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
-  if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
+  if (
+    row.kind === "turnSummary" ||
+    row.kind === "notice" ||
+    row.kind === "plan" ||
+    row.kind === "typing"
+  )
+    return 37;
   return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
 }
 
@@ -268,15 +295,22 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
   if (!tokens?.length) return fallback;
   return tokens
     .map((token) => {
-      if (token.type === "codespan") return (token as Tokens.Codespan).text.replace(/\S/g, "0").replace(/ /g, "0 ");
-      if (token.type === "link" && !safeHref((token as Tokens.Link).href)) return (token as Tokens.Link).text;
-      if ("tokens" in token) return measuredText(token.tokens, "text" in token ? token.text : (token.raw ?? ""));
+      if (token.type === "codespan")
+        return (token as Tokens.Codespan).text.replace(/\S/g, "0").replace(/ /g, "0 ");
+      if (token.type === "link" && !safeHref((token as Tokens.Link).href))
+        return (token as Tokens.Link).text;
+      if ("tokens" in token)
+        return measuredText(token.tokens, "text" in token ? token.text : (token.raw ?? ""));
       return token.raw ?? ("text" in token ? token.text : "");
     })
     .join("");
 }
 
-function textHeight(text: string, width: number, prepared: Map<string, PreparedText | null>): number {
+function textHeight(
+  text: string,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+): number {
   let measured = prepared.get(text);
   if (measured === undefined) {
     try {
@@ -289,13 +323,19 @@ function textHeight(text: string, width: number, prepared: Map<string, PreparedT
   if (measured) return layout(measured, width, MESSAGE_LINE_HEIGHT).height;
   const perLine = Math.max(24, Math.floor(width / FALLBACK_CHAR_WIDTH));
   return (
-    text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / perLine)), 0) *
+    text
+      .split("\n")
+      .reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / perLine)), 0) *
     MESSAGE_LINE_HEIGHT
   );
 }
 
 /// Each item's text at the list's indent, then any list nested in it a further indent in.
-function listHeight(list: Tokens.List, width: number, prepared: Map<string, PreparedText | null>): number {
+function listHeight(
+  list: Tokens.List,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+): number {
   const inner = width - LIST_INDENT;
   return list.items.reduce((sum, item) => {
     const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
@@ -315,7 +355,11 @@ function listHeight(list: Tokens.List, width: number, prepared: Map<string, Prep
   }, 0);
 }
 
-function blockHeight(block: Token, width: number, prepared: Map<string, PreparedText | null>): number {
+function blockHeight(
+  block: Token,
+  width: number,
+  prepared: Map<string, PreparedText | null>,
+): number {
   switch (block.type) {
     case "list":
       return listHeight(block as Tokens.List, width, prepared);
@@ -361,9 +405,13 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
   if (entry.blocks.length === 0) return fallbackRowHeight(row, width);
-  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
+  const contentWidth = Math.max(
+    80,
+    row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width,
+  );
   let contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-  for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  for (const block of entry.blocks)
+    contentHeight += blockHeight(block, contentWidth, entry.prepared);
   return Math.max(34, 16 + chromeHeight(row) + contentHeight);
 }
 
@@ -428,7 +476,10 @@ export function visibleLayoutRange(
 ) {
   if (layoutModel.tops.length === 0) return { first: 0, last: 0 };
   const first = Math.max(0, upperBound(layoutModel.tops, Math.max(0, scrollTop)) - 1 - overscan);
-  const last = Math.min(layoutModel.tops.length, upperBound(layoutModel.tops, scrollTop + viewportHeight) + overscan);
+  const last = Math.min(
+    layoutModel.tops.length,
+    upperBound(layoutModel.tops, scrollTop + viewportHeight) + overscan,
+  );
   return { first, last };
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";

@@ -764,6 +764,7 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
       onHarness={(harness) => void callNative("chat.new", { harness })}
+      showModePlan={false}
     />
   );
 }
@@ -1386,8 +1387,14 @@ function AcpmuxPane() {
           "chat.mode": ({ modeId }) => client.setMode(String(modeId)),
           "chat.effort": ({ configId, value }) => client.setConfig(String(configId), String(value)),
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
-          "chat.new": async ({ harness, cwd }) =>
-            persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
+          "chat.new": async ({ harness, cwd, peer }) =>
+            persistSession(
+              await client.create(
+                harness ? String(harness) : undefined,
+                cwd ? String(cwd) : undefined,
+                peer ? String(peer) : undefined,
+              ),
+            ),
           "chat.history": () => client.loadOlder(),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
@@ -1588,7 +1595,10 @@ function AcpmuxPane() {
           callNative("chat.send", { text, attachments }).then(() => promptLanded.current(), cancelOpenInWindow);
         }}
         onStop={() => void callNative("chat.cancel")}
-        onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
+        onProject={(cwd, peer) =>
+          void callNative("chat.new", { cwd, ...(peer ? { peer } : {}) }).catch(() => undefined)
+        }
+        onMode={(modeId) => void callNative("chat.mode", { modeId })}
         // Without a folder there is nothing to search; the + menu leaves the item out.
         searchFiles={fileRoot ? searchFiles : undefined}
         onOpenInWindow={quick ? openInWindow : undefined}
