@@ -296,6 +296,70 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path).isEmpty)
     }
 
+    /// Sample bytes prepare can take for `type`: a real image for a type
+    /// that is converted (when ImageIO can write one), else any bytes.
+    func sampleInput(for type: UTType) throws -> Data? {
+        let mime = HomeAttachmentPolicy.canonicalMimeType(type.preferredMIMEType ?? "")
+        guard type.conforms(to: .image), HomeAttachmentPolicy.allowedTypes[mime] == nil else {
+            return Data("sample \(type.identifier)".utf8)
+        }
+        let writable = (CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? []
+        guard writable.contains(type.identifier),
+              let context = CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let image = context.makeImage() else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, type.identifier as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        // Some writers need sizes or depths this sample lacks: no sample then.
+        guard CGImageDestinationFinalize(destination), data.length > 0 else { return nil }
+        return data as Data
+    }
+
+    /// The composer's pre-check (`accepts`) says yes exactly when prepare
+    /// takes the input.
+    @MainActor @Test func acceptedInputTypesMatchPrepare() async throws {
+        let root = try temporaryDirectory()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
+        let accepted = HomeAttachmentPolicy.acceptedInputTypes
+        #expect(accepted.isSuperset(of: [UTType.jpeg.identifier, UTType.png.identifier, UTType.pdf.identifier,
+                                         UTType.plainText.identifier, UTType.mpeg4Movie.identifier, UTType.tiff.identifier]))
+        var prepared = 0
+        for identifier in accepted.sorted() {
+            let type = try #require(UTType(identifier))
+            #expect(HomeAttachmentPolicy.accepts(typeIdentifier: identifier), "\(identifier)")
+            guard let sample = try sampleInput(for: type) else { continue }
+            do {
+                _ = try await store.prepareAttachment(data: sample, typeIdentifier: identifier)
+                prepared += 1
+            } catch {
+                Issue.record("accepted \(identifier) but prepare refused it: \(error)")
+            }
+        }
+        #expect(prepared >= HomeAttachmentPolicy.allowedTypes.count)
+
+        // Other types: both answers agree, whatever they are.
+        for identifier in ["public.utf8-plain-text", "public.swift-source", "public.html", "public.xml", "com.microsoft.bmp",
+                           "public.svg-image", "com.apple.application-bundle", "public.data", "public.image"] {
+            guard let type = UTType(identifier), let sample = try sampleInput(for: type) else { continue }
+            let prepares = (try? await store.prepareAttachment(data: sample, typeIdentifier: identifier)) != nil
+            #expect(HomeAttachmentPolicy.accepts(typeIdentifier: identifier) == prepares, "\(identifier)")
+        }
+        // A refused type, refused by both.
+        #expect(!HomeAttachmentPolicy.accepts(typeIdentifier: UTType.svg.identifier))
+        await #expect(throws: HomeAttachmentError.self) {
+            try await store.prepareAttachment(data: Data("<svg/>".utf8), typeIdentifier: UTType.svg.identifier)
+        }
+        // Files: the extension decides, as in prepare(fileURL:).
+        let script = root.appendingPathComponent("run.sh")
+        try Data("echo".utf8).write(to: script)
+        #expect(!HomeAttachmentPolicy.accepts(fileURL: script))
+        await #expect(throws: HomeAttachmentError.self) { try await store.prepareAttachment(fileURL: script) }
+        #expect(HomeAttachmentPolicy.accepts(fileURL: root.appendingPathComponent("Screen Shot.tiff")))
+        #expect(HomeAttachmentPolicy.accepts(fileURL: root.appendingPathComponent("notes.md")))
+    }
+
     @Test func attachmentRefWithoutNewFieldsDecodes() throws {
         let expected = AttachmentRef(hash: "abc", name: "a.png", mimeType: "image/png", byteCount: 3, width: 4, height: 5)
         let wire = Data(#"{"hash":"abc","name":"a.png","mime_type":"image/png","byte_count":3,"width":4,"height":5}"#.utf8)
