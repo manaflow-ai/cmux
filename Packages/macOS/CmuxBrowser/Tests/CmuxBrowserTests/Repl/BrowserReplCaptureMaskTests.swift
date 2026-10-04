@@ -95,6 +95,44 @@ struct BrowserReplCaptureMaskTests {
         #expect(try await security("window.__closed.getElementById('inner')", in: webView) == "none")
     }
 
+    /// A text node that is a shadow root's own child (a Lit-style component
+    /// renders its text that way) has no parent element; its host is what
+    /// renders it, so the host is masked and checked.
+    @Test func textDirectlyInAShadowRootIsMasked() async throws {
+        let webView = await load("""
+            <div id=host></div>
+            <script>
+            const root = document.getElementById('host').attachShadow({ mode: 'closed' });
+            root.append(document.createTextNode('\(Self.value)'));
+            </script>
+            \(Self.post)
+            """, posting: ["main"])
+        let main = try #require(frames.infos["main"])
+        let during = try await mask.run(in: webView, frames: { [main] }) {
+            try await security("document.getElementById('host')", in: webView)
+        }
+        #expect(during == "disc", "a shadow root's own text rendered unmasked")
+        #expect(try await security("document.getElementById('host')", in: webView) == "none")
+    }
+
+    /// The page drops the mask from a shadow root's text while the capture
+    /// runs: the check after the capture finds it and refuses the capture.
+    @Test func aShadowRootTextThePageUnmasksRefusesTheCapture() async throws {
+        let webView = await load("""
+            <div id=host></div>
+            <script>
+            document.getElementById('host').attachShadow({ mode: 'open' }).append(document.createTextNode('\(Self.value)'));
+            </script>
+            \(Self.post)
+            """, posting: ["main"])
+        let main = try #require(frames.infos["main"])
+        await #expect(throws: BrowserReplDriverError.self) {
+            try await mask.run(in: webView, frames: { [main] }) {
+                try await page("document.getElementById('host').style.setProperty('\(Self.prop)', 'none', 'important')", in: webView)
+            }
+        }
+    }
+
     /// The page drops the mask while the capture runs (a framework that
     /// re-renders the field's style, or page script): the capture may have
     /// drawn the value, so it is refused.
