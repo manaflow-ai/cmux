@@ -116,9 +116,13 @@ extension WorkspaceContentController {
             mapped.append(RowHeightValue(row: row, height: height.height))
         }
         let values = mapped
+        // The daemon echoes the uint64 transaction as a decimal string in
+        // the commit's screen-changed delta, which settles the intent.
+        let wire = RowCommands.makeTransaction()
         Task {
-            _ = await daemon.intend("set-row-heights", .setRowHeights(column: handle, heights: values)) { connection in
-                try await RowCommands(connection).setRowHeights(column: handle, heights: values, fit: fit)
+            _ = await daemon.intend("set-row-heights", .setRowHeights(column: handle, heights: values),
+                                    transaction: ClientTransactionID(rawValue: String(wire))) { connection in
+                try await RowCommands(connection).setRowHeights(column: handle, heights: values, fit: fit, transaction: wire)
             }
         }
     }
