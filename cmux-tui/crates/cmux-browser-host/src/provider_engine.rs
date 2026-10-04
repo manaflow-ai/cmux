@@ -12,6 +12,7 @@
 
 use crate::cdp::CdpDriver;
 use crate::driver::{Driver, EventSink};
+use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider_link::ProviderDriver;
 use serde_json::{Value, json};
@@ -33,6 +34,35 @@ pub struct ProviderEngine {
     engine: String,
     agent_source: Arc<str>,
     subscription: u64,
+    /// The session's lease identity (stamped from its connection).
+    lease: LeaseCaller,
+}
+
+/// Driver methods that only read a tab: they never take or block a lease
+/// (automation lease contract, `observe`). Every other call on a tab is an
+/// `act`.
+const OBSERVE_METHODS: &[&str] = &[
+    "tab.info",
+    "tab.screenshot",
+    "frames.list",
+    "frame.contentFrame",
+    "frame.contentFrames",
+    "frame.ownerBox",
+];
+
+fn lease_refusal(method: &str, error: LeaseError) -> DriverError {
+    let reason = match error {
+        LeaseError::LeaseHeld => "another agent session holds this tab",
+        LeaseError::PausedByUser => "the person used this tab; wait for them to hand it back",
+        LeaseError::UserDriving => "the person is driving this tab; wait for them to hand it back",
+        LeaseError::StaleAfterHandBack => "the person handed the tab back; observe it again first",
+        LeaseError::StoppedByUser => "the person stopped this agent session",
+        _ => "the tab's automation lease refused the call",
+    };
+    let mut refusal =
+        DriverError::new(crate::protocol::ErrorCode::Forbidden, format!("{method}: {reason}"));
+    refusal.error_name = Some(error.code().to_owned());
+    refusal
 }
 
 impl ProviderEngine {
@@ -41,12 +71,19 @@ impl ProviderEngine {
         engine: &str,
         agent_source: Arc<str>,
         events: EventSink,
+        lease: LeaseCaller,
     ) -> Result<ProviderEngine, DriverError> {
         if let Some(reason) = provider.closed_reason() {
             return Err(DriverError::closed(reason));
         }
         let subscription = provider.subscribe(events);
-        Ok(ProviderEngine { provider, engine: engine.to_owned(), agent_source, subscription })
+        Ok(ProviderEngine {
+            provider,
+            engine: engine.to_owned(),
+            agent_source,
+            subscription,
+            lease,
+        })
     }
 
     fn tabs_list(&self) -> Value {
@@ -206,6 +243,15 @@ impl Driver for ProviderEngine {
         if let Some(error) = self.provider.refusal(method, target_id) {
             return Err(error);
         }
+        // The automation lease: reads pass, any other call acts (and takes
+        // the lease when the tab has none).
+        let target = target_id.to_owned();
+        let op = if OBSERVE_METHODS.contains(&method) {
+            LeaseOp::Observe { target }
+        } else {
+            LeaseOp::Act { target }
+        };
+        self.provider.lease(&op, &self.lease).map_err(|error| lease_refusal(method, error))?;
         if engine == "cef" && !matches!(method, "tabs.close" | "tabs.activate") {
             self.call_cef(method, target_id, params)
         } else {
@@ -221,6 +267,8 @@ impl Driver for ProviderEngine {
 impl Drop for ProviderEngine {
     fn drop(&mut self) {
         self.provider.unsubscribe(self.subscription);
+        // The session ends: its leases go (the app clears the badges).
+        let _ = self.provider.lease(&LeaseOp::SessionEnd, &self.lease);
     }
 }
 
@@ -343,13 +391,72 @@ mod tests {
     }
 
     fn engine(provider: &Arc<ProviderDriver>, kind: &str) -> ProviderEngine {
+        session(provider, kind, "s1")
+    }
+
+    fn session(provider: &Arc<ProviderDriver>, kind: &str, name: &str) -> ProviderEngine {
+        let lease = LeaseCaller {
+            session: name.into(),
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: "mcp".into(),
+            label: "task".into(),
+        };
         ProviderEngine::new(
             provider.clone(),
             kind,
             Arc::from("/* agent */"),
             crate::driver::discard_events(),
+            lease,
         )
         .unwrap()
+    }
+
+    fn leases(app: &FakeApp, target: &str) -> Vec<Option<crate::provider::Lease>> {
+        app.frames
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|f| match f {
+                Frame::Lease { target_id, lease } if target_id == target => Some(lease.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The host's lease state machine drives the badge: an act takes the
+    /// lease, a person's input pauses it, another session is refused, the
+    /// person's hand back needs a fresh observe, and session end clears it.
+    #[test]
+    fn provider_calls_follow_the_automation_lease() {
+        use crate::provider::LeaseState;
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+        let first = session(&provider, "webkit", "s1");
+        first.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        assert!(leases(&app, "W").is_empty(), "a read takes no lease");
+        first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
+        assert_eq!(leases(&app, "W").last().unwrap().as_ref().unwrap().state, LeaseState::Driving);
+        let second = session(&provider, "webkit", "s2");
+        let held = second.call("input.key", &json!({"targetId": "W"})).unwrap_err();
+        assert_eq!(held.error_name.as_deref(), Some("lease_held"), "{held}");
+        app.send(Frame::UserInput { target_id: "W".into() });
+        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        assert_eq!(leases(&app, "W").last().unwrap().as_ref().unwrap().state, LeaseState::Paused);
+        let paused = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();
+        assert_eq!(paused.error_name.as_deref(), Some("paused_by_user"), "{paused}");
+        app.send(Frame::LeaseUser {
+            op: "hand_back".into(),
+            target_id: Some("W".into()),
+            session: None,
+        });
+        provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        let stale = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();
+        assert_eq!(stale.error_name.as_deref(), Some("stale_after_hand_back"), "{stale}");
+        first.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        first.call("input.key", &json!({"targetId": "W"})).unwrap();
+        drop(first);
+        second.call("tab.info", &json!({"targetId": "W"})).unwrap();
+        assert_eq!(leases(&app, "W").last().unwrap(), &None, "session end clears the badge");
     }
 
     #[test]
