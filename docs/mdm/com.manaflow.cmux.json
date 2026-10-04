@@ -1069,6 +1069,26 @@
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
     },
+    "sidebar.side" : {
+      "default" : "left",
+      "description" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Sidebar Side",
+      "type" : "string"
+    },
+    "sidebar.spacesPosition" : {
+      "default" : "bottom",
+      "description" : "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Spaces Position",
+      "type" : "string"
+    },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
       "description" : "The share of the sidebar the top sections fill before they scroll.",

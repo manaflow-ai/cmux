@@ -6,7 +6,9 @@ import CmuxNextTerminal
 import Observation
 
 /// Window content: the sidebar flush on the leading edge (traffic lights sit
-/// on its top) and the workspace layout beside it. `window.titlebar`
+/// on its top), or on the trailing edge (`sidebar.side`, R109; the traffic
+/// lights then sit over the top-left tab strip), and the workspace layout
+/// beside it. `window.titlebar`
 /// "minimal" (the default) has no titlebar strip: the layout reaches the
 /// window's top edge, the traffic lights sit in the top row (the sidebar
 /// header, or with the sidebar hidden the top-left tab strip, which starts
@@ -29,7 +31,12 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     let contentHost = NSView()
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
-    var sidebarSide: SidebarSide = .left
+    var sidebarSide: SidebarSide = .left {
+        didSet { if sidebarSide != oldValue { applySidebarSide() } }
+    }
+    /// The sidebar, content and title pins of each side (`applySidebarSide`).
+    var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
+    private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private(set) weak var content: NSView?
@@ -77,24 +84,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(titlebarRevealRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            sidebar.leadingAnchor.constraint(equalTo: leadingAnchor),
             sidebar.topAnchor.constraint(equalTo: topAnchor),
             sidebar.bottomAnchor.constraint(equalTo: bottomAnchor),
             titlebar.topAnchor.constraint(equalTo: topAnchor),
-            titlebar.trailingAnchor.constraint(equalTo: trailingAnchor),
             titleHeight,
             // When the sidebar hides, the title stops clear of the traffic
             // lights while the content below reaches the window edge.
             titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
             contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
-            contentHost.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-            contentHost.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        // Below required, so it yields to the traffic-light inset.
-        let titleFollowsSidebar = titlebar.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)
-        titleFollowsSidebar.priority = .required - 1
-        titleFollowsSidebar.isActive = true
+        sidePins = Self.sidePins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
+        NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight
         applyTokens()
         setUpTitlebarReveal()
@@ -105,6 +106,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                 self?.applyTitlebarButtonsMode()
             }
         }
+        placementObservation = observePlacement()
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
                                                           name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         themeDidChange()
@@ -119,6 +121,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     isolated deinit {
         tokenObservation?.cancel()
+        placementObservation?.cancel()
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }
@@ -204,7 +207,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         let bandHeight = TitlebarBandButton.side
         toolbarBand.frame = CGRect(x: x, y: (midY - bandHeight / 2).rounded(), width: TitlebarToolbarBand.width, height: bandHeight)
-        sidebar.sidebarView.titlebarLeadingReserve = toolbarBand.frame.maxX + Metrics.space2
+        // A right sidebar's header is clear of the traffic lights and the band.
+        sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : 0
         layoutTitlebarReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge

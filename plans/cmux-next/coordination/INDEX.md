@@ -15,6 +15,7 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [browser](browser.md)
 - [build-ci](build-ci.md)
 - [cloud](cloud.md)
+- [customization](customization.md)
 - [daemon-protocol](daemon-protocol.md)
 - [dialogs](dialogs.md)
 - [durable-sessions](durable-sessions.md)

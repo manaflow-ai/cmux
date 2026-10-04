@@ -57,7 +57,9 @@ public final class SidebarView: NSView {
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
-    public var spacesPosition: SpacesPosition = .bottom
+    public var spacesPosition: SpacesPosition = .bottom {
+        didSet { if spacesPosition != oldValue { needsLayout = true } }
+    }
     private var observation: Task<Void, Never>?
     private var lastState: RenderState?
 
@@ -261,15 +263,17 @@ public final class SidebarView: NSView {
         }
         let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
         profileBar.isHidden = !showsProfiles
-        let footerHeight: CGFloat = visibleSlots.isEmpty && !showsProfiles ? 0 : SidebarStyle.footerHeight
+        // R109: the dots under the titlebar row, or in the footer.
+        let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
+        let dotsInFooter = spacesPosition == .bottom && showsProfiles
+        let footerHeight: CGFloat = visibleSlots.isEmpty && !dotsInFooter ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards()
         // From the bottom up (R112/R114): the Settings band, the dots, the cards.
-        let listFrame = layoutBands(top: y, footerHeight: footerHeight + cardsHeight)
+        let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + cardsHeight)
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - cardsHeight, width: b.width, height: cardsHeight)
         layoutFooter(visibleSlots)
-        profileBar.frame = footer.bounds
-        profileBar.refresh()
+        placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListWidth()

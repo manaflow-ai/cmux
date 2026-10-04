@@ -26,7 +26,7 @@ import Testing
     func theResizeEdgeFacesTheContent(_ side: SidebarSide) {
         let (view, _) = container(side)
         let edge = side == .left ? view.bounds.maxX : view.bounds.minX
-        #expect(abs(view.handle.frame.midX - edge) < 0.5)
+        #expect(abs(view.handle.frame.midX - edge) <= 1, "on the edge, within layout rounding")
         let list = view.sidebarView.convert(view.sidebarView.bounds, to: view)
         #expect(abs(list.minX) < 0.5 && abs(list.width - 260) < 0.5)
     }

@@ -6,14 +6,15 @@ import Observation
 /// token, or the root material and its tint), with no fill, panel, border
 /// or seam (plans/cmux-next/windows.md). It owns its width.
 ///
-/// Pin leading, top, and bottom; the view animates its own width constraint
-/// between the user's width (`SidebarModel.presentation == .shown`) and 0
-/// (`.hidden`), and follows live resizing through the trailing handle.
-/// Neighbors should attach to its trailing anchor so they follow and reach
-/// the window edge when the sidebar hides.
+/// Pin the edge of `side` (leading by default), top, and bottom; the view
+/// animates its own width constraint between the user's width
+/// (`SidebarModel.presentation == .shown`) and 0 (`.hidden`), and follows
+/// live resizing through the handle on the edge facing the content.
+/// Neighbors should attach to that edge so they follow and reach the window
+/// edge when the sidebar hides.
 ///
 /// While the width animates, the sidebar content keeps its full width and
-/// slides out past the leading edge (a clip view hides the overflow), so
+/// slides out past the window edge (a clip view hides the overflow), so
 /// rows never reflow mid-animation. Once hidden, the content is
 /// `isHidden`: it cannot hold focus, take drops or appear to VoiceOver.
 public final class SidebarContainerView: NSView {
@@ -37,7 +38,11 @@ public final class SidebarContainerView: NSView {
 
     /// The window edge this sidebar sits on (`sidebar.side`, R109): the
     /// resize handle and the slide-out follow it.
-    public var side: SidebarSide = .left
+    public var side: SidebarSide = .left {
+        didSet { if side != oldValue { applySide() } }
+    }
+    /// The panel and handle pins of each side (`applySide`).
+    var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
 
     /// Dragging the resize edge narrower than this hides the sidebar
     /// (there is no intermediate width below `Metrics.sidebarMinWidth`).
@@ -71,14 +76,14 @@ public final class SidebarContainerView: NSView {
             clip.trailingAnchor.constraint(equalTo: trailingAnchor),
             clip.topAnchor.constraint(equalTo: topAnchor),
             clip.bottomAnchor.constraint(equalTo: bottomAnchor),
-            panel.trailingAnchor.constraint(equalTo: clip.trailingAnchor),
             panel.topAnchor.constraint(equalTo: clip.topAnchor),
             panel.bottomAnchor.constraint(equalTo: clip.bottomAnchor),
-            handle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: Metrics.dividerHitWidth / 2),
             handle.topAnchor.constraint(equalTo: topAnchor),
             handle.bottomAnchor.constraint(equalTo: bottomAnchor),
             handle.widthAnchor.constraint(equalToConstant: Metrics.dividerHitWidth),
         ])
+        sidePins = Self.pins(panel: panel, clip: clip, handle: handle, in: self)
+        NSLayoutConstraint.activate(sidePins[side] ?? [])
         panel.isHidden = model.isHidden
         handle.isHidden = model.isHidden
         handle.restingLineWidth = Metrics.sidebarBorderWidth
@@ -152,7 +157,8 @@ public final class SidebarContainerView: NSView {
             liveStartWidth = model.width
         case let .changed(dx):
             guard !model.isHidden else { return }
-            let proposed = liveStartWidth + dx
+            // A right sidebar widens as its leading edge moves left.
+            let proposed = liveStartWidth + (side == .left ? dx : -dx)
             if proposed < Self.hideThreshold {
                 // Hide outright and come back at the width the drag began at.
                 handle.endDrag()

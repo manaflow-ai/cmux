@@ -5862,6 +5862,130 @@
     },
     {
       "accepts" : [
+        "left",
+        "right"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.left",
+            "text" : "Left"
+          },
+          "value" : "left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.right",
+            "text" : "Right"
+          },
+          "value" : "right"
+        }
+      ],
+      "default" : "left",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.side.help",
+        "text" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.side",
+      "keywords" : [
+        "sidebar",
+        "side",
+        "left",
+        "right",
+        "position",
+        "edge",
+        "layout"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "side"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.side",
+        "text" : "Sidebar Side"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "default" : "bottom",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.spacesPosition.help",
+        "text" : "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.spacesPosition",
+      "keywords" : [
+        "sidebar",
+        "spaces",
+        "rooms",
+        "profiles",
+        "dots",
+        "top",
+        "bottom",
+        "position",
+        "layout"
+      ],
+      "kind" : "choice",
+      "path" : [
+        "sidebar",
+        "spacesPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.spacesPosition",
+        "text" : "Spaces Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "chromium",
         "webkit"
       ],
@@ -7527,7 +7651,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "6a588ff8e3ef75921d2aa7fc616d0cc257e34fd6bc7184d2ab49b7bc08e7f2d0",
+  "schema_hash" : "2188476399e6f590500f3b4f29048278e7f3e67dfb553cf12a9c359419e2f485",
   "sections" : [
     {
       "id" : "general",
