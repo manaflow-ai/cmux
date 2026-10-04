@@ -74,6 +74,11 @@ export const PAGES = {
       },
     ],
   },
+  // Cloud has no Swift page, so its table lives next to the page.
+  cloud: {
+    out: "webviews/src/pages/cloud/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/cloud/Localizable.xcstrings" }],
+  },
 };
 
 export function generate(page) {
