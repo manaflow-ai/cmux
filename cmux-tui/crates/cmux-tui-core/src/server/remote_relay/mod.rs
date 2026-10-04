@@ -26,6 +26,7 @@ pub(super) mod project;
 mod revocation;
 
 use std::sync::Arc;
+use std::sync::PoisonError;
 
 use serde_json::{Value, json};
 
@@ -88,7 +89,12 @@ impl super::ClientRegistry {
     /// The transport of a registered client, or `None` for an id the
     /// registry does not list (never registered, or already disconnected).
     pub(super) fn transport_of(&self, client: u64) -> Option<ClientTransport> {
-        self.state.lock().unwrap().clients.get(&client).map(|record| record.transport)
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clients
+            .get(&client)
+            .map(|record| record.transport)
     }
 
     /// True for a connection that came through the remote entry (tests;
@@ -122,11 +128,16 @@ impl Mux {
     /// the peer is added, so a concurrent revoke either sees the new stream
     /// (and closes it) or runs first (and this refuses it).
     pub(crate) fn bind_remote_peer(&self, client: u64, peer: &LinkPeer) -> bool {
-        let revocation = self.remote_relay().revocation.lock().unwrap();
+        let revocation =
+            self.remote_relay().revocation.lock().unwrap_or_else(PoisonError::into_inner);
         if revocation.policy(&peer.install) != StreamPolicy::Serve {
             return false;
         }
-        self.remote_relay().peers.lock().unwrap().insert(client, peer.clone());
+        self.remote_relay()
+            .peers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(client, peer.clone());
         self.bind_conversation_principal(client, remote_participant(&peer.install));
         drop(revocation);
         true
@@ -165,7 +176,7 @@ impl Mux {
     /// Install the pairing records (`cmux server pair`) the owner scope
     /// reads.
     pub fn set_pairing_records(&self, records: Arc<dyn crate::PairingRecords>) {
-        *self.remote_relay().pairing.lock().unwrap() = Some(records);
+        *self.remote_relay().pairing.lock().unwrap_or_else(PoisonError::into_inner) = Some(records);
     }
 }
 
@@ -248,7 +259,8 @@ impl Mux {
                 control: None,
             };
             let id = self.control_clients.register(ClientTransport::Unix, MessageWriter::new(sink));
-            let mut state = self.control_clients.state.lock().unwrap();
+            let mut state =
+                self.control_clients.state.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(record) = state.clients.remove(&id) {
                 state.clients.entry(client).or_insert(record);
             }

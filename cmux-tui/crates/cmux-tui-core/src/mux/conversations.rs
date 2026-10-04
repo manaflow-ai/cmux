@@ -60,7 +60,12 @@ impl Mux {
     /// policy (server/remote_relay), which fails closed for remote
     /// connections.
     pub(crate) fn bound_conversation_participant(&self, client: u64) -> Option<String> {
-        self.conversations.bindings.lock().unwrap().get(&client).cloned()
+        self.conversations
+            .bindings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&client)
+            .cloned()
     }
 
     /// Binds `client` to agent `participant` for the rest of the connection.
@@ -71,7 +76,12 @@ impl Mux {
     /// Ends `client`'s binding when its connection ends.
     pub(crate) fn unbind_conversation_principal(&self, client: u64) {
         self.conversations.bindings.lock().unwrap().remove(&client);
-        self.conversations.remote.peers.lock().unwrap().remove(&client);
+        self.conversations
+            .remote
+            .peers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&client);
     }
 
     /// Ends every binding of `participant` (its token was replaced).

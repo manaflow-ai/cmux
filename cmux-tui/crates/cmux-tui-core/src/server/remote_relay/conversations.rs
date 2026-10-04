@@ -6,6 +6,7 @@
 //! always `remote_<install>`; replies and events are remote projections.
 
 use std::sync::Arc;
+use std::sync::PoisonError;
 
 use cmux_conversation::{Op, Reject};
 use serde_json::{Value, json};
@@ -34,7 +35,14 @@ fn caller(mux: &Mux, client: u64) -> anyhow::Result<RemoteCaller> {
     let Some(Principal::Remote(peer)) = mux.principal(client) else { return Err(denied()) };
     // Every frame rechecks the revocation policy: a revoked install, or one
     // past the 72 h offline limit, is refused even before its streams close.
-    if mux.remote_relay().revocation.lock().unwrap().policy(&peer.install) == StreamPolicy::Close {
+    if mux
+        .remote_relay()
+        .revocation
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .policy(&peer.install)
+        == StreamPolicy::Close
+    {
         return Err(denied());
     }
     let owner = mux.remote_relay().owner_user();
