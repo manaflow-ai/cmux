@@ -1,6 +1,6 @@
 import Foundation
 
-/// Quit alert text (Resources/Quit.xcstrings).
+/// Quit dialog text (Resources/Quit.xcstrings).
 enum QuitStrings {
     static var title: String {
         String(localized: "quit.title", defaultValue: "Quit cmux?", table: "Quit", bundle: .module)
@@ -33,8 +33,16 @@ enum QuitStrings {
         String(localized: "quit.dontAskAgain", defaultValue: "Don’t ask again", table: "Quit", bundle: .module)
     }
 
-    static var endSessions: String {
-        String(localized: "quit.button.endSessions", defaultValue: "End Sessions…", table: "Quit", bundle: .module)
+    static var keepSessionsRunning: String {
+        String(localized: "quit.button.keep", defaultValue: "Keep Sessions Running", table: "Quit", bundle: .module)
+    }
+
+    static var quitEverythingEllipsis: String {
+        String(localized: "quit.button.quitEverythingEllipsis", defaultValue: "Quit Everything…", table: "Quit", bundle: .module)
+    }
+
+    static var quitEverything: String {
+        String(localized: "quit.button.quitEverything", defaultValue: "Quit Everything", table: "Quit", bundle: .module)
     }
 
     static var endTitle: String {
@@ -43,10 +51,6 @@ enum QuitStrings {
 
     static var endEverythingDeletes: String {
         String(localized: "quit.end.body", defaultValue: "End Everything also deletes your workspaces.", table: "Quit", bundle: .module)
-    }
-
-    static var endKeepLayout: String {
-        String(localized: "quit.button.endKeepLayout", defaultValue: "End Sessions, Keep Layout", table: "Quit", bundle: .module)
     }
 
     static var endEverything: String {

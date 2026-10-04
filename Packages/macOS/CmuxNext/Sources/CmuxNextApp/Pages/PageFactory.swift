@@ -26,7 +26,7 @@ struct PageFactory {
     func appsWebPage(route: String?) -> PageWebView? {
         guard PageTunables.appStore.value == .web else { return nil }
         let relay = DaemonPageRelay(services: services)
-        let confirming = ConfirmingPageProvider(inner: relay, presenter: AlertPageConfirmationPresenter()) { op, params in
+        let confirming = ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
             guard AppsPageConfirmations.needsDetail(op), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],
                                                context: PageCallContext(page: PageDescriptor.apps.id))
@@ -55,7 +55,7 @@ struct PageFactory {
         let provider = CodeRouterPageProvider(ops: ops, connect: { id in
             registry.perform(ActionID(rawValue: "accounts.connect"), invocation: ActionInvocation(arguments: ["provider": .string(id)], origin: .user))
         })
-        let confirming = ConfirmingPageProvider(inner: provider, presenter: AlertPageConfirmationPresenter()) { op, params in
+        let confirming = ConfirmingPageProvider(inner: provider, presenter: DialogPageConfirmationPresenter()) { op, params in
             CodeRouterPageConfirmations.confirmation(op: op, params: params)
         }
         let native = AppPageNativeProvider(services: services, page: .coderouter)

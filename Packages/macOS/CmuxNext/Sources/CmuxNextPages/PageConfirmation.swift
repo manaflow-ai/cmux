@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import Foundation
 
 /// What a native confirmation sheet asks before a page call that grants or removes something
@@ -96,27 +97,27 @@ public protocol PageConfirmationPresenter: AnyObject {
     func confirm(_ confirmation: PageConfirmation, anchor: NSView?) async -> Bool
 }
 
-/// The AppKit sheet: an alert attached to the page's window (a free-standing alert when the page
-/// has no window), confirm button destructive for removals, Cancel the default for them.
+/// The cmux dialog for a page op (`CmuxDialogCenter`, drawn natively above every page, so page
+/// script cannot answer it): on the page's window, app-wide when the page has none. A removal's
+/// confirm button is destructive and Return presses nothing; otherwise Return confirms.
 @MainActor
-public final class AlertPageConfirmationPresenter: PageConfirmationPresenter {
-    public init() {}
+public final class DialogPageConfirmationPresenter: PageConfirmationPresenter {
+    private let center: CmuxDialogCenter
+
+    public init(center: CmuxDialogCenter = .shared) {
+        self.center = center
+    }
+
+    public static func spec(_ confirmation: PageConfirmation) -> CmuxDialogSpec {
+        let confirm = CmuxDialogButton(id: "confirm", title: confirmation.confirmTitle,
+                                       role: confirmation.isDestructive ? .destructive : .default)
+        return CmuxDialogSpec(title: confirmation.title, lines: confirmation.lines,
+                              buttons: [.cancel(PageStrings.cancel), confirm], identifier: "cmux.dialog.pageConfirmation")
+    }
 
     public func confirm(_ confirmation: PageConfirmation, anchor: NSView?) async -> Bool {
-        let alert = NSAlert()
-        alert.messageText = confirmation.title
-        alert.informativeText = confirmation.lines.joined(separator: "\n")
-        alert.alertStyle = confirmation.isDestructive ? .warning : .informational
-        let confirm = alert.addButton(withTitle: confirmation.confirmTitle)
-        confirm.hasDestructiveAction = confirmation.isDestructive
-        let cancel = alert.addButton(withTitle: PageStrings.cancel)
-        if confirmation.isDestructive {
-            confirm.keyEquivalent = ""
-            cancel.keyEquivalent = "\r"
-        }
-        guard let window = anchor?.window else { return alert.runModal() == .alertFirstButtonReturn }
-        let response = await alert.beginSheetModal(for: window)
-        return response == .alertFirstButtonReturn
+        let scope: CmuxDialogScope = anchor?.window.map { .window($0) } ?? .app
+        return await center.present(Self.spec(confirmation), in: scope).button == "confirm"
     }
 }
 

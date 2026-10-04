@@ -34,7 +34,6 @@
   "agent-session/acpmux/SessionSidebar.tsx": 1,
   "agent-session/acpmux/summary/SummaryButton.tsx": 1,
   "agent-session/acpmux/summary/usePopover.ts": 1,
-  "agent-session/solid/main.ts": 1,
   "App.tsx": 10,
   "BranchBasePicker.tsx": 6,
   "comments/CommentComposer.tsx": 1,

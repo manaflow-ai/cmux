@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextBrowserImport
 import Foundation
@@ -9,7 +10,7 @@ import UniformTypeIdentifiers
 /// argument, and the action is person-only, so the control socket cannot
 /// open the panel for a file an agent staged. The passwords go into
 /// the browser profile's Chromium password store, counts only come back, and
-/// the alert offers to move the plaintext file to the Trash
+/// the dialog offers to move the plaintext file to the Trash
 /// (plans/cmux-next/browser.md, "Browser import: passwords and security").
 @MainActor
 struct PasswordCSVFiles {
@@ -21,30 +22,34 @@ struct PasswordCSVFiles {
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.allowsMultipleSelection = false
         panel.message = PasswordCSVStrings.prompt
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        services.registry.track(Task { @MainActor in
-            guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
-            let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
-            do {
-                let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
-                Self.offerTrash(url, report: report)
-                return nil
-            } catch {
-                return ActionWorkFailure(PasswordCSVStrings.failure(error))
-            }
-        })
+        panel.beginForCmux { url in
+            guard let url else { return }
+            services.registry.track(Task { @MainActor in
+                guard await cef.canImportPasswords() else { return ActionWorkFailure(PasswordCSVStrings.unavailable) }
+                let destination = AppPasswordDestination(available: true) { rows, profile in try await cef.importPasswords(rows, into: profile) }
+                do {
+                    let report = try await PasswordCSVImporter(destination: destination).run(file: url, intoProfile: profile)
+                    Self.offerTrash(url, report: report)
+                    return nil
+                } catch {
+                    return ActionWorkFailure(PasswordCSVStrings.failure(error))
+                }
+            })
+        }
     }
 
     /// The counts, and the file's fate: it still holds every password in plain text.
     static func offerTrash(_ url: URL, report: PasswordImportReport) {
-        let alert = NSAlert()
-        alert.messageText = PasswordCSVStrings.doneTitle
-        alert.informativeText = PasswordCSVStrings.counts(imported: report.imported, notImported: report.notImported)
-            + "\n\n" + PasswordCSVStrings.plaintextWarning
-        alert.addButton(withTitle: PasswordCSVStrings.moveToTrash)
-        alert.addButton(withTitle: PasswordCSVStrings.keepFile)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        NSWorkspace.shared.recycle([url])
+        let spec = CmuxDialogSpec(
+            title: PasswordCSVStrings.doneTitle,
+            lines: [PasswordCSVStrings.counts(imported: report.imported, notImported: report.notImported), PasswordCSVStrings.plaintextWarning],
+            buttons: [CmuxDialogButton(id: "keep", title: PasswordCSVStrings.keepFile, role: .cancel),
+                      CmuxDialogButton(id: "trash", title: PasswordCSVStrings.moveToTrash, role: .default)],
+            identifier: "cmux.dialog.passwordCSV.trash")
+        let scope: CmuxDialogScope = (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app
+        CmuxDialogCenter.shared.present(spec, in: scope) { answer in
+            if answer.button == "trash" { NSWorkspace.shared.recycle([url]) }
+        }
     }
 }
 

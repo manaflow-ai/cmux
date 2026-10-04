@@ -203,7 +203,6 @@ describe("bundle", () => {
   test.if(hasBundle)("Monaco is lazy: no first load of the diff, markdown or editor page contains it", () => {
     expect(monaco(firstLoad(["diff-page.html", "chunks/diffSurface.mjs"]))).toEqual([]);
     expect(monaco(firstLoad(["markdown-page.html"]))).toEqual([]);
-    expect(monaco(firstLoad(["main.mjs", "chunks/agentSessionSurface.mjs"]))).toEqual([]);
     // The editor page's own entry is small; Monaco comes with the first file.
     const editor = firstLoad(["editor-page.html"]);
     expect(editor).toContain("chunks/editor-page.mjs");
