@@ -12,8 +12,11 @@
 //!
 //! `feed_local_folded` records each notification the local owner took, in
 //! the transaction that took it, whatever happened to its item later
-//! (coalesced into another item, moved, pruned). It keeps the newest
-//! [`FOLDED_KEEP`] rows, more than the 256-entry ledger can name.
+//! (coalesced into another item, moved, pruned). A row lives as long as the
+//! notification can appear in the ledger window: the pass drops rows whose
+//! notification was cleared or whose receipt is gone. Neither a row count nor
+//! wall-clock time bounds it, because a clear moves the window back past any
+//! fixed depth and clocks can jump.
 //!
 //! On every open the notification ledger is folded into items (B4): an entry
 //! that is not in the folded set becomes an item, READ when any client's
@@ -33,10 +36,6 @@ use crate::resource::NotificationPublicId;
 
 /// Meta key set once the notification ledger migrated into local items.
 pub(crate) const FEED_LOCAL_MIGRATION_META_KEY: &str = "feed_local_ledger_migrated_v1";
-
-/// Folded rows kept: twice the notification ledger's 256 entries, so every
-/// retained entry that was folded still has its row.
-const FOLDED_KEEP: i64 = 512;
 
 pub(super) fn create_feed_local_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -89,7 +88,7 @@ pub(crate) fn write_feed_local_changes(
 }
 
 /// Record in the caller's transaction that the local owner took
-/// `notification` into `item`, and keep only the newest [`FOLDED_KEEP`] rows.
+/// `notification` into `item`.
 pub(crate) fn record_feed_local_folded(
     transaction: &Transaction<'_>,
     notification: &str,
@@ -101,11 +100,21 @@ pub(crate) fn record_feed_local_folded(
          VALUES(?1, ?2, ?3)",
         params![notification, item, i64::try_from(created_at_ms)?],
     )?;
+    Ok(())
+}
+
+/// Drop folded rows that no ledger window can name again: the notification
+/// was cleared, or its `notification.create` receipt is gone.
+fn trim_feed_local_folded(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute(
-        "DELETE FROM feed_local_folded WHERE notification_id NOT IN (
-           SELECT notification_id FROM feed_local_folded
-           ORDER BY created_at_ms DESC, notification_id DESC LIMIT ?1)",
-        [FOLDED_KEEP],
+        "DELETE FROM feed_local_folded
+         WHERE notification_id IN (SELECT notification_id FROM resource_notification_clears)
+            OR notification_id NOT IN (
+              SELECT json_extract(outcome_json, '$.value.id')
+              FROM resource_effect_receipts
+              WHERE operation = 'notification.create'
+                AND json_extract(outcome_json, '$.value.id') IS NOT NULL)",
+        [],
     )?;
     Ok(())
 }
@@ -219,10 +228,12 @@ impl WorkspaceRegistry {
             }
         }
         let marked = meta_value(&self.connection, FEED_LOCAL_MIGRATION_META_KEY)?.is_some();
+        let tx = self.connection.transaction()?;
+        trim_feed_local_folded(&tx)?;
         if changes.is_empty() && newly_folded.is_empty() && marked {
+            tx.commit()?;
             return Ok(0);
         }
-        let tx = self.connection.transaction()?;
         write_feed_local_changes(&tx, &changes)?;
         for (notification, item, created_at_ms) in &newly_folded {
             record_feed_local_folded(&tx, notification, item, *created_at_ms)?;
@@ -238,7 +249,7 @@ impl WorkspaceRegistry {
     }
 
     /// Notification id -> item id of every folded notification.
-    fn feed_local_folded(&self) -> anyhow::Result<HashMap<String, String>> {
+    pub(crate) fn feed_local_folded(&self) -> anyhow::Result<HashMap<String, String>> {
         let mut statement =
             self.connection.prepare("SELECT notification_id, item_id FROM feed_local_folded")?;
         let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;

@@ -207,7 +207,9 @@ impl Mux {
             Some(&write),
         )?;
         *feed = next;
-        drop(feed);
+        // Clear the markers before the feed lock is released: a notification
+        // that commits after this read takes the feed lock first and sets its
+        // marker only after its commit, so this cannot clear a newer ring.
         let mut cleared = Vec::new();
         let mut markers = self.terminal_notifications.lock().unwrap();
         for (terminal, placements) in terminals.iter().zip(terminal_placements) {
@@ -221,6 +223,7 @@ impl Mux {
             tab_surfaces.into_iter().filter(|surface| placement_markers.remove(surface).is_some()),
         );
         drop(placement_markers);
+        drop(feed);
         if !cleared.is_empty() {
             for placement in cleared {
                 self.emit_tab_changed(placement);

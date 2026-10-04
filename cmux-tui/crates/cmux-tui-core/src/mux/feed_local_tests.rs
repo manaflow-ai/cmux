@@ -361,3 +361,33 @@ fn feedfix_reading_a_terminal_less_tab_item_clears_its_ring_durably() {
     let acked = mux.workspace_registry.lock().unwrap().acked_notification_ids().unwrap();
     assert!(acked.contains(notification.as_str()), "the tab's ledger entry is acknowledged");
 }
+
+/// Review P2 (second pass): the folded set is bounded by clears and
+/// receipts, never by a row count or the clock. A cleared notification
+/// loses its row on the next open; the others keep theirs, so a clear that
+/// moves the ledger window back brings no coalesced notice back.
+#[test]
+fn feedfix_folded_rows_follow_clears_not_a_count() {
+    let root = root("clears");
+    let session = "feed-clears";
+    let mux = open(&root, session);
+    let a = mux.new_workspace(None, None).unwrap();
+    let b = mux.new_workspace(None, None).unwrap();
+    let kept: Vec<_> = (0..3).map(|i| post(&mux, &format!("a {i}"), Some(a.id))).collect();
+    let cleared = post(&mux, "b", Some(b.id));
+    let terminal_b = mux.with_state(|state| {
+        state.surfaces.get(&b.id).and_then(|surface| surface.terminal_public_id().cloned())
+    });
+    let mutation = WorkspaceMutation::new("clear-b", "test").unwrap();
+    mux.clear_notifications(&mutation, None, terminal_b.as_ref()).unwrap();
+    let items = all(&mux);
+    drop(mux);
+
+    let mux = open(&root, session);
+    assert_eq!(all(&mux), items, "a restart after a clear adds and changes nothing");
+    let folded = mux.workspace_registry.lock().unwrap().feed_local_folded().unwrap();
+    for id in &kept {
+        assert!(folded.contains_key(id.as_str()), "{id} lost its folded row");
+    }
+    assert!(!folded.contains_key(cleared.as_str()), "a cleared notification keeps no row");
+}
