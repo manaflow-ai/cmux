@@ -156,8 +156,8 @@ class GeneratedClientMixin:
     def create_terminal(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, argv: Union[List[str], None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, keep: Union[bool, MissingType] = MISSING, shell_args: Union[List[str], None, MissingType] = MISSING) -> TerminalPlacement:
         return self._invoke_command('create-terminal', CreateTerminalRequest(workspace=workspace, key=key, argv=argv, command=command, cwd=cwd, name=name, cols=cols, rows=rows, terminal_id=terminal_id, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, env=env, keep=keep, shell_args=shell_args))
 
-    def create_workspace(self, *, name: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
-        return self._invoke_command('create-workspace', CreateWorkspaceRequest(name=name, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
+    def create_workspace(self, *, name: Union[str, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, initial: Union[InitialApp, None, MissingType] = MISSING) -> WorkspaceMutationResult:
+        return self._invoke_command('create-workspace', CreateWorkspaceRequest(name=name, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, initial=initial))
 
     def create_workspace_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-workspace-group', CreateWorkspaceGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index))
@@ -335,6 +335,9 @@ class GeneratedClientMixin:
 
     def move_workspace_to_group(self, workspace: Union[Id, None, MissingType] = MISSING, *, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('move-workspace-to-group', MoveWorkspaceToGroupRequest(workspace=workspace, expected_generation=expected_generation, expected_revision=expected_revision, group=group, index=index, key=key, mutation_id=mutation_id, origin=origin))
+
+    def new_app_tab(self, app: str, *, pane: Union[Id, None, MissingType] = MISSING, workspace: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, route: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('new-app-tab', NewAppTabRequest(app=app, pane=pane, workspace=workspace, cols=cols, idempotency_key=idempotency_key, route=route, rows=rows))
 
     def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows))
@@ -760,6 +763,7 @@ GeneratedClientMixin.move_terminal.__cmux_command__ = COMMANDS['move-terminal']
 GeneratedClientMixin.move_workspace.__cmux_command__ = COMMANDS['move-workspace']
 GeneratedClientMixin.move_workspace_group.__cmux_command__ = COMMANDS['move-workspace-group']
 GeneratedClientMixin.move_workspace_to_group.__cmux_command__ = COMMANDS['move-workspace-to-group']
+GeneratedClientMixin.new_app_tab.__cmux_command__ = COMMANDS['new-app-tab']
 GeneratedClientMixin.new_browser_tab.__cmux_command__ = COMMANDS['new-browser-tab']
 GeneratedClientMixin.new_conversation_tab.__cmux_command__ = COMMANDS['new-conversation-tab']
 GeneratedClientMixin.new_frontend_browser_tab.__cmux_command__ = COMMANDS['new-frontend-browser-tab']

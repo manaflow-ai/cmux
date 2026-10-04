@@ -17,6 +17,8 @@ pub(super) fn rename_workspace(
             &mutation,
         )
         .map_err(resource_operation_error)?;
+    // A companion rename turns its raw `extra.default_title` false for good.
+    let _ = mux.reload_presentation(&mux.workspace_registry.lock().unwrap());
     snapshot_mutation_result(mux, commit, "workspace.rename", "workspace")
 }
 

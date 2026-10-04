@@ -13,7 +13,9 @@ import java.util.Objects;
 public final class Screen implements WireValue {
     private final boolean active;
     private final UInt64 activePane;
+    private final Field<String> app;
     private final UInt64 id;
+    private final Field<ScreenKind> kind;
     private final Layout layout;
     private final String name;
     private final List<Pane> panes;
@@ -25,8 +27,10 @@ public final class Screen implements WireValue {
         this.active = builder.active;
         if (!builder.activePaneSet) throw new IllegalArgumentException("active_pane is required");
         this.activePane = Wire.nonNull(builder.activePane, "active_pane");
+        this.app = builder.app;
         if (!builder.idSet) throw new IllegalArgumentException("id is required");
         this.id = Wire.nonNull(builder.id, "id");
+        this.kind = builder.kind;
         if (!builder.layoutSet) throw new IllegalArgumentException("layout is required");
         this.layout = Wire.nonNull(builder.layout, "layout");
         if (!builder.nameSet) throw new IllegalArgumentException("name is required");
@@ -42,7 +46,9 @@ public final class Screen implements WireValue {
 
     public boolean active() { return active; }
     public UInt64 activePane() { return activePane; }
+    public Field<String> app() { return app; }
     public UInt64 id() { return id; }
+    public Field<ScreenKind> kind() { return kind; }
     public Layout layout() { return layout; }
     public String name() { return name; }
     public List<Pane> panes() { return panes; }
@@ -56,8 +62,16 @@ public final class Screen implements WireValue {
         builder.active(Wire.bool(rawActive, "Screen.active"));
         Object rawActivePane = Wire.required(object, "active_pane");
         builder.activePane(Wire.uint64(rawActivePane, "Screen.active_pane"));
+        Object rawApp = Wire.optional(object, "app");
+        if (!Wire.isMissing(rawApp)) {
+            builder.app(Wire.string(rawApp, "Screen.app"));
+        }
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.uint64(rawId, "Screen.id"));
+        Object rawKind = Wire.optional(object, "kind");
+        if (!Wire.isMissing(rawKind)) {
+            builder.kind(ScreenKind.fromWire(rawKind));
+        }
         Object rawLayout = Wire.required(object, "layout");
         builder.layout(Layout.fromWire(rawLayout));
         Object rawName = Wire.required(object, "name");
@@ -78,7 +92,9 @@ public final class Screen implements WireValue {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "active", active);
         Wire.put(object, "active_pane", activePane);
+        Wire.put(object, "app", app);
         Wire.put(object, "id", id);
+        Wire.put(object, "kind", kind);
         Wire.put(object, "layout", layout);
         Wire.put(object, "name", name);
         Wire.put(object, "panes", panes);
@@ -90,11 +106,11 @@ public final class Screen implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Screen that)) return false;
-        return Objects.equals(active, that.active) && Objects.equals(activePane, that.activePane) && Objects.equals(id, that.id) && Objects.equals(layout, that.layout) && Objects.equals(name, that.name) && Objects.equals(panes, that.panes) && Objects.equals(shortId, that.shortId) && Objects.equals(zoomedPane, that.zoomedPane);
+        return Objects.equals(active, that.active) && Objects.equals(activePane, that.activePane) && Objects.equals(app, that.app) && Objects.equals(id, that.id) && Objects.equals(kind, that.kind) && Objects.equals(layout, that.layout) && Objects.equals(name, that.name) && Objects.equals(panes, that.panes) && Objects.equals(shortId, that.shortId) && Objects.equals(zoomedPane, that.zoomedPane);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(active, activePane, id, layout, name, panes, shortId, zoomedPane); }
+    public int hashCode() { return Objects.hash(active, activePane, app, id, kind, layout, name, panes, shortId, zoomedPane); }
 
     @Override
     public String toString() { return "Screen" + toWire(); }
@@ -104,8 +120,10 @@ public final class Screen implements WireValue {
         private boolean activeSet;
         private UInt64 activePane;
         private boolean activePaneSet;
+        private Field<String> app = Field.omitted();
         private UInt64 id;
         private boolean idSet;
+        private Field<ScreenKind> kind = Field.omitted();
         private Layout layout;
         private boolean layoutSet;
         private String name;
@@ -126,9 +144,17 @@ public final class Screen implements WireValue {
             this.activePaneSet = true;
             return this;
         }
+        public Builder app(String value) {
+            this.app = Field.of(value);
+            return this;
+        }
         public Builder id(UInt64 value) {
             this.id = value;
             this.idSet = true;
+            return this;
+        }
+        public Builder kind(ScreenKind value) {
+            this.kind = Field.of(value);
             return this;
         }
         public Builder layout(Layout value) {

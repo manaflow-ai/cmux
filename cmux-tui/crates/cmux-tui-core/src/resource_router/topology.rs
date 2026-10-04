@@ -265,16 +265,16 @@ fn pane_neighbor(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, Res
     Ok(json!({"pane":pane}))
 }
 
-/// `workspace.create`. An `ephemeral` workspace is marked in the
-/// transaction that creates it: the empty path writes the flag with the
-/// creation patch, the terminal path with the staged workspace row (the
-/// field stays in the stored intent and its fingerprint). No observer sees
-/// the workspace without the flag.
+/// `workspace.create`. `ephemeral` is written in the creating transaction (with the empty patch or
+/// the staged terminal row); `initial_content: app` is in state/app_screens_router.rs.
 fn create_workspace(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let initial_content = required_string(&request.fields, "initial_content")?;
+    if initial_content == "app" || request.fields.contains_key("initial") {
+        return crate::state::app_screens_router::create_app_workspace(mux, request);
+    }
     if initial_content != "empty" {
         return dispatch_exact_topology_mutation(mux, ResourceOperation::WorkspaceCreate, request);
     }

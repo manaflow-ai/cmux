@@ -12,16 +12,23 @@ import java.util.Objects;
 
 public final class WorkspaceMutationResult implements WireValue {
     private final Field<Boolean> changed;
+    /** create-workspace with initial: the public browser id of the app tab. */
+    private final Field<String> contentResourceId;
     private final String generation;
     private final UInt64 index;
     private final String key;
     private final String registryId;
     private final boolean replayed;
+    /** create-workspace with initial: the surface of the app tab. */
+    private final Field<UInt64> surface;
+    /** create-workspace with initial: the public id of the app tab. */
+    private final Field<String> tabResourceId;
     private final UInt64 workspace;
     private final UInt64 workspaceRevision;
 
     private WorkspaceMutationResult(Builder builder) {
         this.changed = builder.changed;
+        this.contentResourceId = builder.contentResourceId;
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         if (!builder.indexSet) throw new IllegalArgumentException("index is required");
@@ -32,6 +39,8 @@ public final class WorkspaceMutationResult implements WireValue {
         this.registryId = Wire.nonNull(builder.registryId, "registry_id");
         if (!builder.replayedSet) throw new IllegalArgumentException("replayed is required");
         this.replayed = builder.replayed;
+        this.surface = builder.surface;
+        this.tabResourceId = builder.tabResourceId;
         if (!builder.workspaceSet) throw new IllegalArgumentException("workspace is required");
         this.workspace = Wire.nonNull(builder.workspace, "workspace");
         if (!builder.workspaceRevisionSet) throw new IllegalArgumentException("workspace_revision is required");
@@ -41,11 +50,14 @@ public final class WorkspaceMutationResult implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<Boolean> changed() { return changed; }
+    public Field<String> contentResourceId() { return contentResourceId; }
     public String generation() { return generation; }
     public UInt64 index() { return index; }
     public String key() { return key; }
     public String registryId() { return registryId; }
     public boolean replayed() { return replayed; }
+    public Field<UInt64> surface() { return surface; }
+    public Field<String> tabResourceId() { return tabResourceId; }
     public UInt64 workspace() { return workspace; }
     public UInt64 workspaceRevision() { return workspaceRevision; }
 
@@ -55,6 +67,10 @@ public final class WorkspaceMutationResult implements WireValue {
         Object rawChanged = Wire.optional(object, "changed");
         if (!Wire.isMissing(rawChanged)) {
             builder.changed(Wire.bool(rawChanged, "WorkspaceMutationResult.changed"));
+        }
+        Object rawContentResourceId = Wire.optional(object, "content_resource_id");
+        if (!Wire.isMissing(rawContentResourceId)) {
+            builder.contentResourceId(Wire.string(rawContentResourceId, "WorkspaceMutationResult.content_resource_id"));
         }
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "WorkspaceMutationResult.generation"));
@@ -66,6 +82,14 @@ public final class WorkspaceMutationResult implements WireValue {
         builder.registryId(Wire.string(rawRegistryId, "WorkspaceMutationResult.registry_id"));
         Object rawReplayed = Wire.required(object, "replayed");
         builder.replayed(Wire.bool(rawReplayed, "WorkspaceMutationResult.replayed"));
+        Object rawSurface = Wire.optional(object, "surface");
+        if (!Wire.isMissing(rawSurface)) {
+            builder.surface(Wire.uint64(rawSurface, "WorkspaceMutationResult.surface"));
+        }
+        Object rawTabResourceId = Wire.optional(object, "tab_resource_id");
+        if (!Wire.isMissing(rawTabResourceId)) {
+            builder.tabResourceId(Wire.string(rawTabResourceId, "WorkspaceMutationResult.tab_resource_id"));
+        }
         Object rawWorkspace = Wire.required(object, "workspace");
         builder.workspace(Wire.uint64(rawWorkspace, "WorkspaceMutationResult.workspace"));
         Object rawWorkspaceRevision = Wire.required(object, "workspace_revision");
@@ -77,11 +101,14 @@ public final class WorkspaceMutationResult implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "changed", changed);
+        Wire.put(object, "content_resource_id", contentResourceId);
         Wire.put(object, "generation", generation);
         Wire.put(object, "index", index);
         Wire.put(object, "key", key);
         Wire.put(object, "registry_id", registryId);
         Wire.put(object, "replayed", replayed);
+        Wire.put(object, "surface", surface);
+        Wire.put(object, "tab_resource_id", tabResourceId);
         Wire.put(object, "workspace", workspace);
         Wire.put(object, "workspace_revision", workspaceRevision);
         return Collections.unmodifiableMap(object);
@@ -90,17 +117,18 @@ public final class WorkspaceMutationResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof WorkspaceMutationResult that)) return false;
-        return Objects.equals(changed, that.changed) && Objects.equals(generation, that.generation) && Objects.equals(index, that.index) && Objects.equals(key, that.key) && Objects.equals(registryId, that.registryId) && Objects.equals(replayed, that.replayed) && Objects.equals(workspace, that.workspace) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(changed, that.changed) && Objects.equals(contentResourceId, that.contentResourceId) && Objects.equals(generation, that.generation) && Objects.equals(index, that.index) && Objects.equals(key, that.key) && Objects.equals(registryId, that.registryId) && Objects.equals(replayed, that.replayed) && Objects.equals(surface, that.surface) && Objects.equals(tabResourceId, that.tabResourceId) && Objects.equals(workspace, that.workspace) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(changed, generation, index, key, registryId, replayed, workspace, workspaceRevision); }
+    public int hashCode() { return Objects.hash(changed, contentResourceId, generation, index, key, registryId, replayed, surface, tabResourceId, workspace, workspaceRevision); }
 
     @Override
     public String toString() { return "WorkspaceMutationResult" + toWire(); }
 
     public static final class Builder {
         private Field<Boolean> changed = Field.omitted();
+        private Field<String> contentResourceId = Field.omitted();
         private String generation;
         private boolean generationSet;
         private UInt64 index;
@@ -111,6 +139,8 @@ public final class WorkspaceMutationResult implements WireValue {
         private boolean registryIdSet;
         private Boolean replayed;
         private boolean replayedSet;
+        private Field<UInt64> surface = Field.omitted();
+        private Field<String> tabResourceId = Field.omitted();
         private UInt64 workspace;
         private boolean workspaceSet;
         private UInt64 workspaceRevision;
@@ -118,6 +148,10 @@ public final class WorkspaceMutationResult implements WireValue {
 
         public Builder changed(Boolean value) {
             this.changed = Field.of(value);
+            return this;
+        }
+        public Builder contentResourceId(String value) {
+            this.contentResourceId = Field.of(value);
             return this;
         }
         public Builder generation(String value) {
@@ -143,6 +177,14 @@ public final class WorkspaceMutationResult implements WireValue {
         public Builder replayed(boolean value) {
             this.replayed = value;
             this.replayedSet = true;
+            return this;
+        }
+        public Builder surface(UInt64 value) {
+            this.surface = Field.of(value);
+            return this;
+        }
+        public Builder tabResourceId(String value) {
+            this.tabResourceId = Field.of(value);
             return this;
         }
         public Builder workspace(UInt64 value) {

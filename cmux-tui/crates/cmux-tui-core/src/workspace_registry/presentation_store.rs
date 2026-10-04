@@ -32,7 +32,9 @@ use super::{
     JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
     WorkspaceRegistry, new_uuid_v4, unix_epoch_ms,
 };
+mod emoji;
 mod saved_tab_groups;
+use emoji::is_single_emoji;
 pub(crate) use saved_tab_groups::{
     delete_saved_tab_group_in, put_saved_tab_group_in, read_saved_tab_groups,
 };
@@ -262,6 +264,8 @@ pub struct PresentationSnapshot {
     pub conversation_tabs: HashMap<String, ConversationTabRecord>,
     /// Key of the store's home workspace (`workspace-kind-v1`), if any.
     pub home_workspace: Option<String>,
+    /// `app-screens-v1`: app workspaces and app tab records.
+    pub apps: crate::state::app_screens_store::AppPresentation,
     /// Tab groups of every pane, rendered with Chrome-style colors.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
@@ -659,65 +663,6 @@ pub fn validate_presentation_icon(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Longest accepted emoji icon, in bytes.
-const MAX_EMOJI_ICON_BYTES: usize = 32;
-
-fn is_emoji_base(ch: char) -> bool {
-    matches!(u32::from(ch),
-        0x00A9 | 0x00AE | 0x203C | 0x2049 | 0x2122 | 0x2139
-        | 0x2194..=0x21FF | 0x231A..=0x23FF | 0x24C2 | 0x25AA..=0x25FE
-        | 0x2600..=0x27BF | 0x2934 | 0x2935 | 0x2B05..=0x2BFF | 0x3030 | 0x303D
-        | 0x3297 | 0x3299 | 0x1F000..=0x1FAFF)
-}
-
-fn is_regional_indicator(ch: char) -> bool {
-    matches!(u32::from(ch), 0x1F1E6..=0x1F1FF)
-}
-
-/// One emoji grapheme without a Unicode segmentation table: an emoji base
-/// optionally followed by variation selectors, skin tone modifiers, a keycap
-/// mark, tag characters, or ZWJ-joined further bases; a flag (two regional
-/// indicators); or a keycap sequence (`#`, `*`, or a digit, U+FE0F, U+20E3).
-fn is_single_emoji(value: &str) -> bool {
-    if value.is_empty() || value.len() > MAX_EMOJI_ICON_BYTES {
-        return false;
-    }
-    let chars = value.chars().collect::<Vec<_>>();
-    if chars.iter().any(|ch| ch.is_control() || ch.is_whitespace()) {
-        return false;
-    }
-    if chars.len() == 2 && chars.iter().all(|ch| is_regional_indicator(*ch)) {
-        return true;
-    }
-    if chars.len() >= 2
-        && (chars[0].is_ascii_digit() || matches!(chars[0], '#' | '*'))
-        && chars[1..].iter().all(|ch| matches!(u32::from(*ch), 0xFE0F | 0x20E3))
-        && chars.last() == Some(&'\u{20E3}')
-    {
-        return true;
-    }
-    if !is_emoji_base(chars[0]) || is_regional_indicator(chars[0]) {
-        return false;
-    }
-    let mut expect_base = false;
-    for ch in &chars[1..] {
-        let code = u32::from(*ch);
-        if expect_base {
-            if !is_emoji_base(*ch) || is_regional_indicator(*ch) {
-                return false;
-            }
-            expect_base = false;
-            continue;
-        }
-        match code {
-            0x200D => expect_base = true,
-            0xFE0E | 0xFE0F | 0x20E3 | 0x1F3FB..=0x1F3FF | 0xE0020..=0xE007F => {}
-            _ => return false,
-        }
-    }
-    !expect_base
-}
-
 fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<String> {
     transaction
         .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| row.get(0))
@@ -973,6 +918,7 @@ impl WorkspaceRegistry {
         let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection)?;
         let conversation_tabs = read_conversation_tabs(&self.connection)?;
         let home_workspace = crate::state::home_store::live_home(&self.connection)?.map(|h| h.1);
+        let apps = crate::state::app_screens_store::AppPresentation::read(&self.connection)?;
         Ok(PresentationSnapshot {
             groups,
             workspaces,
@@ -980,6 +926,7 @@ impl WorkspaceRegistry {
             frontend_browsers,
             conversation_tabs,
             home_workspace,
+            apps,
             tab_groups,
             saved_tab_groups,
             screens,

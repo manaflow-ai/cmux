@@ -11,7 +11,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
 
     assert_eq!(cases.len(), 181);
     let catalog = operation_catalog();
-    assert_eq!(catalog["operations"].as_object().unwrap().len(), 192);
+    assert_eq!(catalog["operations"].as_object().unwrap().len(), 194);
     let mut seen = std::collections::BTreeSet::new();
     let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
     for (args, expected) in &cases {
@@ -97,15 +97,21 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // The hosting app creates its home workspace; the
                         // CLI never offers it (workspace-kind-v1).
                         | "workspace.ensure_home"
+                        // The hosting app opens app screens and app tabs
+                        // (app-screens-v1); the CLI never offers them.
+                        | "workspace.ensure_app"
+                        | "tab.create_app"
             )
         })
         .map(String::as_str)
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
     // Fields only the app that hosts a browser page writes (its record's
-    // owner and history list), and a connection's own capability set; the
-    // CLI never sets them.
+    // owner and history list), a connection's own capability set, and the
+    // app tab a new workspace starts with (app-screens-v1); the CLI never
+    // sets them.
     let app_owned = [
+        ("workspace.create", "initial"),
         ("tab.update", "owner"),
         ("tab.update", "back"),
         ("tab.update", "forward"),

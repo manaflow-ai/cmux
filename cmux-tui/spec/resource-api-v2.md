@@ -81,6 +81,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | --- | --- | --- |
 | Workspace identity (title, color, icon), `ephemeral` | shared | `workspace.update`, `workspace.create` |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
+| App workspaces and screen kinds (`app-screens-v1`, one workspace per app), app tabs | shared | `workspace.ensure_app`, `workspace.ensure_home {app}`, `tab.create_app`, `workspace.create {initial}` |
 | Tab pin, zoom, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
@@ -130,6 +131,35 @@ refuses with `home.not_closable` before it ends a terminal (raw `error_code`
 position or into a group, or puts another workspace before it, refuses with
 `home.pinned_first` (raw `home_pinned_first`). `workspace.create` never
 accepts `kind`, so TUI and CLI sessions never have a home workspace.
+
+`app-screens-v1` (plans/cmux-next/app-screens.md, app-only model). A screen
+has a kind: `workspace` (an ordinary screen) or `app`. An app workspace holds
+exactly one app screen with one app tab; there is one per app per store.
+`workspace.ensure_app {app, kind: "app"}` makes it once and replays it after
+that; its result value is `{workspace_id, screen_id}`. `workspace.ensure_home
+{app}` makes the home workspace the app workspace of the Home app; screens it
+held before move, with no tab lost, into its companion workspace, created
+holding them in one commit and placed directly after it. The companion is an
+ordinary workspace of kind `app_tabs` (one per app, `extra.app` its app).
+The daemon names it "<display_name> Tabs", from the optional `display_name`
+(the manifest's English app name) on `workspace.ensure_app` or
+`workspace.ensure_home`, else "<app id> Tabs", and reports
+`extra.default_title: true` while that name stands: clients show their own
+localized title then. Any rename turns it false for good.
+Snapshots and upserts carry `extra.kind` (`app`, or `home` for the home
+workspace) and `extra.app` on an app workspace and an app screen, `extra.kind:
+"app_tabs"` and `extra.app` on a companion, and `content_kind:
+"app"` with `extra.app` and `extra.route` on an app tab. `tab.create_app {app,
+route?, expected_revision?}` places an app tab like `tab.create_browser`; in an
+ordinary screen it is an ordinary tab. An app screen refuses every operation
+that adds, splits, moves, pins, replaces or closes inside it, and an app
+workspace refuses a second screen, with `app.screen_fixed` (raw `error_code`
+`app-screen-fixed`, details `screen_id`); `workspace.close` and `screen.close`
+close the app with its workspace. A new tab sent to an app workspace (not to a
+pane) goes to its companion workspace, created with the tab in one commit when missing. The
+store checks the rules again on the rows of every commit, in its transaction.
+A refused operation changes nothing. A connection without `app-screens-v1` reads an app tab's
+`content_kind` as `browser`.
 `closed.reopen` and `saved_tab_group.reopen` compose several creations; the request's key records the whole result, so a retry replays it.
 
 A window record holds one app window's state (shown workspace, listed
@@ -535,7 +565,7 @@ operations after the server socket is bound.
 | Class | Operations |
 | --- | --- |
 | read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `closed.list`, `frontend_projection.get`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.search`, `git.status`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
-| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `closed.reopen`, `column.update`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
+| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `closed.reopen`, `column.update`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_app`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.close`, `workspace.create`, `workspace.ensure_app`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | stream_open | `browser.attach`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
@@ -620,7 +650,10 @@ through 1.0 to create the terminal as a separate scrolling viewport column;
 ordinary splits omit it. `screen.create` returns the complete created terminal
 path.
 
-`workspace.create` requires `initial_content: terminal|empty`.
+`workspace.create` requires `initial_content: terminal|empty|app`. With
+`app` (`app-screens-v1`) it also requires `initial: {app, route?}`, refused
+with any other initial content: one commit creates the workspace with exactly
+one app tab and returns `CreatedAppPath`.
 `workspace.run` and `pane.run` accept exactly one of a nonempty `argv`
 array or a `shell` script. Only `argv[0]` must be nonempty; later values,
 including empty strings, preserve exact bytes. The server runs `shell` with

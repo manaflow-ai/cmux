@@ -75,6 +75,8 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordPut
             | Op::WindowRecordDelete
             | Op::WorkspaceEnsureHome
+            | Op::WorkspaceEnsureApp
+            | Op::TabCreateApp
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
             | Op::WorkspaceStatusClear
@@ -88,7 +90,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
 
 /// Map a state failure to its typed protocol error. Registry validation
 /// failures are `bad request: ...`.
-fn state_error(error: anyhow::Error) -> ResourceError {
+pub(crate) fn state_error(error: anyhow::Error) -> ResourceError {
     if error.downcast_ref::<ResourceError>().is_none()
         && let Some(reason) = error.to_string().strip_prefix("bad request: ")
     {
@@ -504,16 +506,12 @@ pub(crate) fn dispatch(
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
-        // workspace-kind-v1: the one home workspace, created by the store.
-        Op::WorkspaceEnsureHome => {
-            ensure_session(mux, selectors)?;
-            let home = mux.state_ensure_home().map_err(state_error)?;
-            mutation_result(
-                mux,
-                json!({"kind": "workspace", "workspace_id": home.workspace_id}),
-                home.revision,
-                home.replayed,
-            )
+        // workspace-kind-v1 and app-screens-v1 (state/app_screens_router.rs).
+        Op::WorkspaceEnsureHome | Op::WorkspaceEnsureApp | Op::TabCreateApp => {
+            if operation != Op::TabCreateApp {
+                ensure_session(mux, selectors)?;
+            }
+            super::app_screens_router::dispatch(mux, &request).map_err(state_error)
         }
         // B4: workspace status
         Op::WorkspaceStatusList => mux.workspace_status_snapshots(selectors).map(Value::Array),

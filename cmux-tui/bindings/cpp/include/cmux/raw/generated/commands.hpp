@@ -149,6 +149,7 @@ public:
     [[nodiscard]] Result<WorkspaceMutationResult> move_workspace(const MoveWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_workspace_group(const MoveWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> move_workspace_to_group(const MoveWorkspaceToGroupRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> new_app_tab(const NewAppTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> new_browser_tab(const NewBrowserTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<NewConversationTabResult> new_conversation_tab(const NewConversationTabRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> new_frontend_browser_tab(const NewFrontendBrowserTabRequest& request, RequestOptions options = {});

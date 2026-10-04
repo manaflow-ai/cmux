@@ -168,6 +168,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WindowRecordList
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WorkspaceEnsureHome
+        | ResourceOperation::WorkspaceEnsureApp
+        | ResourceOperation::TabCreateApp
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet

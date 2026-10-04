@@ -39,7 +39,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+mod app_screens;
+mod ledger;
 mod rows;
+pub use app_screens::{
+    AppAction, AppRefusal, ScreenKind, check_app_op, check_app_target, pane_target,
+};
+pub use ledger::{Ledger, apply_once};
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
 use std::fmt;
 
@@ -90,6 +96,8 @@ pub struct Screen {
     /// Whether the columns are strip columns. When false the screen has one
     /// column, its split tree, whose id is not a column id.
     pub columns_active: bool,
+    /// `app-screens-v1` ([`app_screens`]).
+    pub kind: ScreenKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,6 +305,8 @@ pub enum Reject {
     ContentPlaced(TabId),
     /// The key was already used for a different op.
     IdempotencyConflict(IdempotencyKey),
+    /// A1: an app screen holds only its app ([`app_screens`]).
+    AppScreenFixed(ScreenId),
     /// The result would break an invariant.
     Invariant(Vec<Violation>),
 }
@@ -327,6 +337,9 @@ impl fmt::Display for Reject {
             Self::FitSum(sum) => write!(f, "fitted row heights sum to {sum}\u{2030}, not 1000"),
             Self::IdempotencyConflict(key) => {
                 write!(f, "idempotency key {key} was used for another op")
+            }
+            Self::AppScreenFixed(screen) => {
+                write!(f, "app-screen-fixed: screen {screen} is an app")
             }
             Self::Invariant(violations) => {
                 write!(f, "invariant violated:")?;
@@ -372,6 +385,8 @@ pub enum Violation {
     EmptyPane { pane: PaneId },
     /// R1/R2/R4: a column's rows do not partition its panes.
     RowLayout { column: ColumnId },
+    /// A1: an app screen holds other than one pane with one tab.
+    AppScreenShape { screen: ScreenId },
 }
 
 impl fmt::Display for Violation {
@@ -397,6 +412,7 @@ impl fmt::Display for Violation {
             Self::RowLayout { column } => {
                 write!(f, "column {column}'s rows do not partition its panes")
             }
+            Self::AppScreenShape { screen } => write!(f, "app screen {screen} lost its shape"),
         }
     }
 }
@@ -456,6 +472,7 @@ pub fn check_state(state: &LayoutState) -> BTreeSet<Violation> {
             violations.insert(Violation::PaneOutsideLayout { pane: *pane });
         }
     }
+    violations.extend(app_screens::shape_violations(state));
     violations
 }
 
@@ -616,6 +633,7 @@ pub fn apply(
     state: &LayoutState,
     op: &LayoutOp,
 ) -> Result<(LayoutState, Vec<LayoutEvent>), Reject> {
+    check_app_op(state, &op.kind)?;
     let mut next = state.clone();
     let mut events = Vec::new();
     apply_kind(&mut next, &op.kind, &mut events)?;
@@ -629,50 +647,6 @@ pub fn apply(
         return Err(Reject::Invariant(violations.into_iter().collect()));
     }
     Ok((next, events))
-}
-
-/// The keys of recently applied ops, oldest first, at most
-/// [`Ledger::CAPACITY`]. The store keeps its own durable ledger; this one
-/// serves the model and its tests.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Ledger {
-    applied: std::collections::VecDeque<(IdempotencyKey, LayoutOpKind)>,
-}
-
-impl Ledger {
-    pub const CAPACITY: usize = 1024;
-
-    pub fn get(&self, key: &str) -> Option<&LayoutOpKind> {
-        self.applied.iter().find(|(candidate, _)| candidate == key).map(|(_, kind)| kind)
-    }
-
-    fn record(&mut self, op: &LayoutOp) {
-        if self.applied.len() == Self::CAPACITY {
-            self.applied.pop_front();
-        }
-        self.applied.push_back((op.key.clone(), op.kind.clone()));
-    }
-}
-
-/// [`apply`] with idempotency: an op whose key `ledger` already holds for an
-/// equal kind returns the state unchanged with no events, and a key held for
-/// another kind is [`Reject::IdempotencyConflict`].
-pub fn apply_once(
-    state: &LayoutState,
-    ledger: &Ledger,
-    op: &LayoutOp,
-) -> Result<(LayoutState, Ledger, Vec<LayoutEvent>), Reject> {
-    if let Some(previous) = ledger.get(&op.key) {
-        return if *previous == op.kind {
-            Ok((state.clone(), ledger.clone(), Vec::new()))
-        } else {
-            Err(Reject::IdempotencyConflict(op.key.clone()))
-        };
-    }
-    let (next, events) = apply(state, op)?;
-    let mut ledger = ledger.clone();
-    ledger.record(op);
-    Ok((next, ledger, events))
 }
 
 /// Position of a pane in the layout: workspace, screen, column, slot.
@@ -982,7 +956,8 @@ fn apply_kind(
 }
 
 fn single_pane_screen(screen: ScreenId, pane: PaneId) -> Screen {
-    Screen { id: screen, columns: vec![Column::single(0, vec![pane])], columns_active: false }
+    let columns = vec![Column::single(0, vec![pane])];
+    Screen { id: screen, columns, columns_active: false, kind: ScreenKind::Workspace }
 }
 
 #[cfg(test)]

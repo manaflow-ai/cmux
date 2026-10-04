@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 mod error;
+mod idempotency_key;
 pub use error::*;
+pub use idempotency_key::validate_idempotency_key;
 
 pub const PROTOCOL: &str = "cmux.protocol/2";
 pub const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -19,28 +21,6 @@ pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
-
-pub fn validate_idempotency_key(value: &str) -> Result<(), ResourceError> {
-    if value.trim().is_empty() {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain at least one non-whitespace Unicode scalar",
-        ));
-    }
-    if value.len() > MAX_IDEMPOTENCY_KEY_BYTES {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain 1 to 128 UTF-8 bytes",
-        ));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must not contain Unicode control characters",
-        ));
-    }
-    Ok(())
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
@@ -188,6 +168,8 @@ pub enum ResourceOperation {
     WorkspaceCreate,
     #[serde(rename = "workspace.ensure_home")]
     WorkspaceEnsureHome,
+    #[serde(rename = "workspace.ensure_app")]
+    WorkspaceEnsureApp,
     #[serde(rename = "workspace.rename")]
     WorkspaceRename,
     #[serde(rename = "workspace.move")]
@@ -254,6 +236,8 @@ pub enum ResourceOperation {
     TabCreateTerminal,
     #[serde(rename = "tab.create_browser")]
     TabCreateBrowser,
+    #[serde(rename = "tab.create_app")]
+    TabCreateApp,
     #[serde(rename = "tab.rename")]
     TabRename,
     #[serde(rename = "tab.move")]
@@ -1212,6 +1196,7 @@ pub struct PublicSlotIndexes {
     pub split_ids: HashMap<SplitId, SplitPublicId>,
     pub screen_workspace: HashMap<ScreenId, WorkspaceId>,
     pub pane_screen: HashMap<PaneId, ScreenId>,
+    pub(crate) screen_apps: crate::state::app_screens_store::ScreenApps,
     pub tab_pane: HashMap<SurfaceId, PaneId>,
 }
 

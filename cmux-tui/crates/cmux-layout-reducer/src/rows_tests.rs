@@ -21,7 +21,12 @@ fn columns(layout: &[usize]) -> LayoutState {
         }
         built.push(Column::single(if layout.len() > 1 { 10 + index as u64 } else { 0 }, panes));
     }
-    let screen = Screen { id: 2, columns: built, columns_active: layout.len() > 1 };
+    let screen = Screen {
+        id: 2,
+        columns: built,
+        columns_active: layout.len() > 1,
+        kind: ScreenKind::Workspace,
+    };
     state.workspaces.push(Workspace { id: 1, screens: vec![screen] });
     state
 }

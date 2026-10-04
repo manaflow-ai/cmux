@@ -785,8 +785,8 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
-    if let Some(home) = crate::state::home_store::resource_error(&error) {
-        return home;
+    if let Some(rule) = crate::state::rule_resource_error(&error) {
+        return rule;
     }
     if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
     {

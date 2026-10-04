@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4'
+IR_SHA256 = 'ba35a5ee811aa5fb93acfd01bfb575f877c37903964478e5d88b27d1391575a4'
 
 
 @dataclass(frozen=True)
@@ -727,6 +727,7 @@ COMMANDS = {
         {
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
+            'initial': CommandFieldMetadata(12, 'app-screens-v1'),
             'key': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
@@ -1462,6 +1463,23 @@ COMMANDS = {
             'key': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'new-app-tab': CommandMetadata(
+        'new-app-tab',
+        'control',
+        12,
+        'app-screens-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'app': CommandFieldMetadata(None, None),
+            'cols': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'route': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),

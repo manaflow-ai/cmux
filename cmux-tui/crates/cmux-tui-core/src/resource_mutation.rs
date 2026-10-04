@@ -136,6 +136,9 @@ impl ResourceMutationPlan {
             return Ok(None);
         }
         let before_model = layout::project(state);
+        if let Some(kind) = &self.layout_op {
+            crate::state::app_rules::refuse_op(state, &before_model, kind)?;
+        }
         let model = self
             .layout_op
             .as_ref()

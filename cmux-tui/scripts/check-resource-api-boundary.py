@@ -1896,7 +1896,7 @@ def _operation_catalog(
         create_fields = workspace_create.get("params", {}).get("fields")
         expected_initial_content = {
             "kind": "enum",
-            "values": ["terminal", "empty"],
+            "values": ["terminal", "empty", "app"],
         }
         expected_correlation_key = {
             "kind": "primitive",
@@ -1911,7 +1911,17 @@ def _operation_catalog(
         if (
             not isinstance(create_fields, dict)
             or set(create_fields)
-            != {"name", "initial_content", "correlation_key", "expected_revision", "ephemeral"}
+            != {
+                "name",
+                "initial_content",
+                "initial",
+                "correlation_key",
+                "expected_revision",
+                "ephemeral",
+            }
+            or create_fields.get("initial", {}).get("required") is not False
+            or create_fields.get("initial", {}).get("type")
+            != {"kind": "ref", "name": "InitialApp"}
             or create_fields.get("ephemeral", {}).get("required") is not False
             or create_fields.get("ephemeral", {}).get("type")
             != {"kind": "primitive", "name": "boolean"}
@@ -1930,7 +1940,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, initial, ephemeral, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 

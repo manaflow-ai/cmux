@@ -32,6 +32,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
+    "app_screens_wire::InitialApp": "InitialApp",
 }
 
 sys.path.insert(0, str(BINDINGS))

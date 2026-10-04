@@ -103,7 +103,10 @@ pub use loopback_forward::{
 mod admission;
 mod line_connection;
 use line_connection::{handle_connection_with_permit, serve_line_connection};
+mod app_screens_wire;
 mod bookmarks;
+mod capabilities;
+use capabilities::advertised_capabilities;
 mod browser_profiles;
 mod conversation_tabs_wire;
 mod conversations;
@@ -417,96 +420,6 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         };
         anyhow::bail!("machine listening TCP inventory failed: {detail}");
     }
-}
-
-fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
-    let mut capabilities = vec![
-        ATTACH_INITIAL_SIZE_CAPABILITY,
-        "attach-identity-v1",
-        WORKSPACE_REGISTRY_CAPABILITY,
-        DAEMON_HANDOFF_FORCE_CAPABILITY,
-        GUARDED_BROWSER_POINTER_CAPABILITY,
-        VIEWPORT_SPLITS_CAPABILITY,
-        VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-        DOCK_COLUMNS_CAPABILITY,
-        EDGE_DOCKS_CAPABILITY,
-        ROWS_CAPABILITY,
-        LAYOUT_UNDO_CAPABILITY,
-        TAB_WORKSPACE_MOVE_CAPABILITY,
-        CLEAR_HISTORY_CAPABILITY,
-        TERMINAL_COMMAND_JOURNAL_CAPABILITY,
-        SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
-        SESSION_JOURNAL_CAPABILITY,
-        FRONTEND_JOURNAL_CAPABILITY,
-        VIEW_ATTACHMENT_LEASE_CAPABILITY,
-        VIEW_ATTACHMENT_DETACH_CAPABILITY,
-        SHARED_SIZING_CAPABILITY,
-        SIZING_VIEW_DETACH_CAPABILITY,
-        TERMINAL_COLOR_OVERRIDES_CAPABILITY,
-        TERMINAL_PENDING_SEQUENCE_CAPABILITY,
-        terminal_snapshot::TERMINAL_SNAPSHOT_CAPABILITY,
-        terminal_snapshot::TERMINAL_SNAPSHOT_HISTORY_CAPABILITY,
-        CREATION_RECEIPTS_CAPABILITY,
-        CREATION_ATTEMPT_KEYS_CAPABILITY,
-        CREATION_SELECTOR_FALLBACKS_CAPABILITY,
-        PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
-        BROWSER_PROVIDER_CAPABILITY,
-        CLIENT_FOCUS_CAPABILITY,
-        MACHINE_USAGE_CAPABILITY,
-        MACHINE_LISTENING_TCP_CAPABILITY,
-        SERVER_STATS_CAPABILITY,
-        TERMINAL_IDLE_CLOSE_CAPABILITY,
-        TERMINAL_REAP_CAPABILITY,
-        END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
-        BATCH_CLOSE_CAPABILITY,
-        TERMINAL_RESOURCES_CAPABILITY,
-        TERMINAL_PLACEMENT_ENV_CAPABILITY,
-        WORKSPACE_GROUPS_CAPABILITY,
-        WORKSPACE_METADATA_CAPABILITY,
-        WORKSPACE_PIN_CAPABILITY,
-        NOTIFICATION_MARK_UNREAD_CAPABILITY,
-        TAB_METADATA_CAPABILITY,
-        FRONTEND_BROWSER_TABS_CAPABILITY,
-        FRONTEND_BROWSER_HISTORY_CAPABILITY,
-        TAB_DRAG_CAPABILITY,
-        TAB_WORKSPACE_NAME_CAPABILITY,
-        TAB_SPLIT_RESPAWN_CAPABILITY,
-        TAB_COLUMN_RESPAWN_CAPABILITY,
-        NOTIFICATION_ACK_CAPABILITY,
-        TAB_GROUPS_CAPABILITY,
-        SAVED_TAB_GROUPS_CAPABILITY,
-        TERMINAL_ENV_CAPABILITY,
-        LOOPBACK_FORWARD_CAPABILITY,
-        SESSION_IDENTITY_CAPABILITY,
-        PROFILES_CAPABILITY,
-        PERSONAL_TERMINALS_CAPABILITY,
-        BROWSER_PROFILES_CAPABILITY,
-        BOOKMARKS_CAPABILITY,
-        conversations::LOCAL_CONVERSATIONS_CAPABILITY,
-        conversations::CONVERSATION_SEARCH_CAPABILITY,
-        SCREEN_METADATA_CAPABILITY,
-        SCREEN_GROUPS_CAPABILITY,
-        NOTIFICATION_SOURCE_CAPABILITY,
-        TERMINAL_SHELL_ARGS_CAPABILITY,
-        TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
-        LAUNCH_SNAPSHOT_CAPABILITY,
-        STATE_RESOURCES_CAPABILITY,
-        WINDOW_RECORDS_CAPABILITY,
-        TERMINAL_STATE_CAPABILITY,
-        FRONTEND_BROWSER_OWNER_CAPABILITY,
-        crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
-        crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
-        crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
-        crate::git_ops::CHECKPOINTS_CAPABILITY,
-        crate::git_ops::FILES_SEARCH_CAPABILITY,
-    ];
-    if bounded_clear_history_fallback_writes {
-        capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
-    }
-    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-    capabilities.push(crate::image_paste::CAPABILITY);
-    capabilities.extend(crate::apps::advertised());
-    capabilities
 }
 
 macro_rules! protocol_keys {
@@ -1472,6 +1385,8 @@ enum Command {
     },
     /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
+    /// `app-screens-v1`: a tab showing one app (server/app_screens_wire.rs).
+    NewAppTab(app_screens_wire::NewAppTabParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
@@ -1602,6 +1517,9 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// `app-screens-v1`: start with one app tab (server/app_screens_wire.rs).
+        #[serde(default)]
+        initial: Option<app_screens_wire::InitialApp>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3754,6 +3672,8 @@ struct MessageWriter {
     closed: InterruptSet,
     /// Negotiated `conversation-tabs-v1` (server/conversation_tabs_wire.rs).
     conversation_tabs: Arc<AtomicBool>,
+    /// Negotiated `app-screens-v1` (server/app_screens_wire.rs).
+    app_screens: Arc<AtomicBool>,
 }
 
 impl MessageWriter {
@@ -3780,6 +3700,7 @@ impl MessageWriter {
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
             closed: InterruptSet::default(),
             conversation_tabs: Arc::new(AtomicBool::new(false)),
+            app_screens: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -5581,6 +5502,7 @@ impl ClientRegistry {
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || capability
                         == crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY
+                    || capability == crate::state::app_screens_store::APP_SCREENS_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
@@ -11343,7 +11265,8 @@ fn pane_json(
                 // Why a dead terminal ended (R41, terminal-state-v1).
                 "end": end,
             });
-            raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
+            let app = content_resource_id.and_then(|id| notifications.presentation.apps.tabs.get(id));
+            raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation, app);
             tab
         }).collect::<Vec<_>>(),
     })
@@ -11406,6 +11329,8 @@ fn workspace_json(
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
         "kind": home::raw_workspace_kind(&notifications.presentation, &workspace.key),
+        "app": home::raw_workspace_app(&notifications.presentation, &workspace.key),
+        "extra": home::raw_workspace_extra(&notifications.presentation, workspace),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
@@ -13698,6 +13623,7 @@ fn handle_command_with_cancellation(
         Command::NewConversationTab(params) => {
             conversation_tabs_wire::new_conversation_tab(mux, params)
         }
+        Command::NewAppTab(params) => app_screens_wire::new_app_tab(mux, params),
         Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
@@ -13893,13 +13819,23 @@ fn handle_command_with_cancellation(
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
         }
-        Command::CreateWorkspace { name, key, mutation } => {
+        Command::CreateWorkspace { name, key, initial, mutation } => {
             if let Some(key) = key.as_deref()
                 && !crate::workspace_registry::is_canonical_workspace_key(key)
             {
                 anyhow::bail!("workspace key must be a lowercase UUID");
             }
             let workspace_mutation = workspace_mutation(&mutation)?;
+            if let Some(initial) = initial {
+                return app_screens_wire::create_workspace(
+                    mux,
+                    name,
+                    key,
+                    initial,
+                    &mutation,
+                    &workspace_mutation,
+                );
+            }
             let placement = mux.create_empty_workspace_with_mutation(
                 name,
                 key,
@@ -14299,6 +14235,7 @@ fn handle_command_with_cancellation(
                 (None, Some(target)) => target,
                 (None, None) => anyhow::bail!("one of dir or target is required"),
             };
+            mux.with_state(|state| crate::state::app_rules::refuse_swap(state, pane, target))?;
             if !mux.swap_panes(pane, target) {
                 anyhow::bail!("unknown pane/target");
             }
@@ -14405,6 +14342,7 @@ fn handle_command_with_cancellation(
             if !valid {
                 anyhow::bail!("unknown surface/pane");
             }
+            mux.with_state(|state| crate::state::app_rules::refuse_move_tab(state, surface, pane))?;
             let index = mux.pinned_tab_move_index(surface, pane, index);
             let (moved, undoable) = mux.move_tab_with_undo(surface, pane, index, transaction);
             Ok(json!({"moved": moved, "undoable": undoable}))
@@ -26823,6 +26761,7 @@ mod tests {
             Command::CreateWorkspace {
                 name: Some("alt-n".into()),
                 key: Some("018f6e21-7b70-7e70-8000-0000000000aa".into()),
+                initial: None,
                 mutation: MutationRequest {
                     origin: Some("chrome-gui".into()),
                     mutation_id: Some("alt-n-create".into()),

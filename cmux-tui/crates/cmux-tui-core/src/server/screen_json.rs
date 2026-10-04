@@ -76,5 +76,6 @@ pub(super) fn screen_json(
                 .collect::<Vec<_>>()
         );
     }
+    app_screens_wire::merge_screen_fields(state, screen, &mut value);
     value
 }

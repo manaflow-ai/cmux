@@ -31,6 +31,104 @@
     "git_checkpoint"
   ],
   "types": {
+    "CreatedAppPath": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "app"
+            ]
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          }
+        },
+        "screen_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "screen"
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          }
+        },
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "browser_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "browser"
+          }
+        }
+      },
+      "extra": false
+    },
+    "InitialApp": {
+      "kind": "object",
+      "fields": {
+        "app": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          },
+          "description": "The app id from its manifest (publisher/name): ASCII letters, digits, ., _, - or /."
+        },
+        "route": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 4096
+          },
+          "description": "A route inside the app, or a first-party page's small client state, without control characters."
+        }
+      },
+      "extra": false
+    },
+    "EnsuredAppScreen": {
+      "kind": "object",
+      "fields": {
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          },
+          "description": "The app workspace (extra.kind app, one per app)."
+        },
+        "screen_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "screen"
+          },
+          "description": "Its screen (extra.kind app)."
+        }
+      },
+      "extra": false
+    },
     "JsonValue": {
       "kind": "primitive",
       "name": "json"
@@ -1881,7 +1979,8 @@
             "values": [
               "terminal",
               "browser",
-              "conversation"
+              "conversation",
+              "app"
             ]
           }
         },
@@ -3030,6 +3129,10 @@
         {
           "kind": "ref",
           "name": "CreatedBrowserPath"
+        },
+        {
+          "kind": "ref",
+          "name": "CreatedAppPath"
         }
       ],
       "discriminator": "kind"
@@ -7615,6 +7718,23 @@
     }
   },
   "errors": {
+    "app.screen_fixed": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {
+          "screen_id": {
+            "required": true,
+            "type": {
+              "kind": "resource_id",
+              "resource": "screen"
+            },
+            "description": "The app screen (app-screens-v1). It shows one app and nothing else; only closing it is allowed."
+          }
+        },
+        "extra": false
+      }
+    },
     "confirmation.required": {
       "retryable": false,
       "details": {
@@ -9764,6 +9884,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "operation.failed",
         "resource.not_found",
@@ -9861,6 +9982,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "operation.failed",
         "revision.conflict",
@@ -11211,6 +11333,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -11299,6 +11422,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -11742,6 +11866,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -11863,6 +11988,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -12005,6 +12131,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "operation.failed",
         "revision.conflict",
@@ -13015,6 +13142,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -13197,6 +13325,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "confirmation.required",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -13298,6 +13427,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "operation.failed",
         "resource.not_found",
@@ -15101,9 +15231,86 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "home.not_closable",
         "idempotency.conflict",
         "mutation.indeterminate",
+        "operation.failed",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "tab.create_app": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional"
+        },
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The app id from its manifest (publisher/name): ASCII letters, digits, ., _, - or /."
+          },
+          "route": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "A route inside the app, or a first-party page's small client state, without control characters."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "app-screens-v1. Places an app tab (content_kind app) where tab.create_browser places a browser tab: the selected pane, the active pane of the selected screen or workspace, or the first pane of an empty workspace. A retry with the same idempotency key returns the same tab. In an ordinary screen the tab is an ordinary tab: it moves, splits and closes like any tab."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "CreatedAppPath"
+          }
+        ]
+      },
+      "errors": [
+        "app.screen_fixed",
+        "idempotency.conflict",
         "operation.failed",
         "revision.conflict",
         "selector.ambiguous",
@@ -15200,6 +15407,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -15298,6 +15506,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "creation.conflict",
         "idempotency.conflict",
         "mutation.indeterminate",
@@ -15508,6 +15717,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "operation.failed",
         "revision.conflict",
@@ -16166,6 +16376,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "operation.failed",
         "resource.not_found",
@@ -17172,6 +17383,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "operation.failed",
         "revision.conflict",
@@ -18048,9 +18260,18 @@
               "kind": "enum",
               "values": [
                 "terminal",
-                "empty"
+                "empty",
+                "app"
               ]
             }
+          },
+          "initial": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InitialApp"
+            },
+            "description": "app-screens-v1: the app tab the workspace starts with. Required with initial_content app, refused otherwise."
           },
           "ephemeral": {
             "required": false,
@@ -18081,7 +18302,7 @@
         },
         "extra": false,
         "constraints": [
-          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly."
+          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly; app (app-screens-v1, with initial) returns CreatedAppPath. With app, one commit creates the workspace, its screen, its pane and its one app tab, so no client sees the workspace empty; a retry with the same idempotency key returns the same tab."
         ]
       },
       "result": {
@@ -18106,6 +18327,75 @@
         "validation.invalid"
       ]
     },
+    "workspace.ensure_app": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "workspace",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "app": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The app id from its manifest (publisher/name): ASCII letters, digits, ., _, - or /."
+          },
+          "kind": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "app"
+              ]
+            },
+            "description": "The screen kind from the manifest presentation.screen; v1 has app only."
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The app's English name from its manifest (for example Home or App Store). The daemon names the app's companion workspace \"<display_name> Tabs\" (else \"<app id> Tabs\"); clients localize it while extra.default_title is true."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "app-screens-v1. The store makes one workspace of kind app per app, holding one screen of the given kind with one app tab, and replays it after that: the idempotency key does not select the screen, and every call for one app names the same workspace and screen. The same app with the other kind is refused (validation.invalid). The client selects the workspace to show it."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EnsuredAppScreen"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "workspace.ensure_home": {
       "class": "mutation",
       "idempotency": "required",
@@ -18119,10 +18409,32 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "app": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "app-screens-v1: the Home app id. The home workspace becomes its app workspace."
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The app's English name from its manifest (for example Home or App Store). The daemon names the app's companion workspace \"<display_name> Tabs\" (else \"<app id> Tabs\"); clients localize it while extra.default_title is true."
+          }
+        },
         "extra": false,
         "constraints": [
-          "The hosting app sends it on every connect when the server advertises workspace-kind-v1. The store creates the one home workspace (extra.kind home) on the first call, places it first and ungrouped in the personal order, and replays it after that. The idempotency key does not select the home: every call names the same workspace. workspace.create never accepts kind."
+          "The hosting app sends it on every connect when the server advertises workspace-kind-v1. The store creates the one home workspace (extra.kind home) on the first call, places it first and ungrouped in the personal order, and replays it after that. The idempotency key does not select the home: every call names the same workspace. workspace.create never accepts kind.",
+          "With app (app-screens-v1) the home workspace becomes the app workspace of app: one app screen holding its app tab. Every screen it held before moves, with no tab lost, into its companion workspace (an ordinary workspace of kind app_tabs, extra.app the app id, extra.default_title true until any rename), created holding them in one commit and placed directly after it. A migrated home is left as it is."
         ]
       },
       "result": {
@@ -18136,6 +18448,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "operation.failed",
         "selector.ambiguous",
@@ -18263,6 +18576,7 @@
         ]
       },
       "errors": [
+        "app.screen_fixed",
         "idempotency.conflict",
         "mutation.indeterminate",
         "operation.failed",

@@ -930,7 +930,7 @@ impl State {
                 indexes.split_ids.insert(split, public_id);
             }
         }
-        self.resource_indexes = indexes;
+        self.resource_indexes = indexes.keep_screen_apps(&mut self.resource_indexes);
     }
 
     pub fn workspace_by_public_id(&self, id: &WorkspacePublicId) -> Option<&Workspace> {

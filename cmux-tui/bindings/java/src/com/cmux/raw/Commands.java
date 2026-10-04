@@ -58,7 +58,7 @@ public final class Commands {
     public static final CommandMetadata CREATE_SURFACE_WITH_RECEIPT = new CommandMetadata("create-surface-with-receipt", Authority.CONTROL, 10, "creation-receipts-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("idempotency_key", "creation-attempt-keys-v1")));
     public static final CommandMetadata CREATE_TAB_GROUP = new CommandMetadata("create-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CREATE_TERMINAL = new CommandMetadata("create-terminal", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.ofEntries(Map.entry("env", 12L), Map.entry("keep", 12L), Map.entry("shell_args", 12L), Map.entry("terminal_id", 9L)), Map.ofEntries(Map.entry("env", "terminal-env-v1"), Map.entry("keep", "terminal-reap-v1"), Map.entry("shell_args", "terminal-shell-args-v1")));
-    public static final CommandMetadata CREATE_WORKSPACE = new CommandMetadata("create-workspace", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CREATE_WORKSPACE = new CommandMetadata("create-workspace", Authority.CONTROL, 7, "workspace-registry-v1", StreamKind.NONE, Map.ofEntries(Map.entry("initial", 12L)), Map.ofEntries(Map.entry("initial", "app-screens-v1")));
     public static final CommandMetadata CREATE_WORKSPACE_GROUP = new CommandMetadata("create-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_BOOKMARK = new CommandMetadata("delete-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata DELETE_BROWSER_PROFILE = new CommandMetadata("delete-browser-profile", Authority.CONTROL, 12, "browser-profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -118,6 +118,7 @@ public final class Commands {
     public static final CommandMetadata MOVE_WORKSPACE = new CommandMetadata("move-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
     public static final CommandMetadata MOVE_WORKSPACE_GROUP = new CommandMetadata("move-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_WORKSPACE_TO_GROUP = new CommandMetadata("move-workspace-to-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata NEW_APP_TAB = new CommandMetadata("new-app-tab", Authority.CONTROL, 12, "app-screens-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_BROWSER_TAB = new CommandMetadata("new-browser-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_CONVERSATION_TAB = new CommandMetadata("new-conversation-tab", Authority.CONTROL, 12, "conversation-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NEW_FRONTEND_BROWSER_TAB = new CommandMetadata("new-frontend-browser-tab", Authority.CONTROL, 12, "frontend-browser-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -335,6 +336,7 @@ public final class Commands {
         values.put("move-workspace", MOVE_WORKSPACE);
         values.put("move-workspace-group", MOVE_WORKSPACE_GROUP);
         values.put("move-workspace-to-group", MOVE_WORKSPACE_TO_GROUP);
+        values.put("new-app-tab", NEW_APP_TAB);
         values.put("new-browser-tab", NEW_BROWSER_TAB);
         values.put("new-conversation-tab", NEW_CONVERSATION_TAB);
         values.put("new-frontend-browser-tab", NEW_FRONTEND_BROWSER_TAB);

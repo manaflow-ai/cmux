@@ -113,6 +113,10 @@ impl Mux {
                         current.layout_columns.iter().position(|candidate| candidate.id == *column)
                     })
                     .ok_or_else(|| invalid("column", "not a viewport column of this screen"))?;
+                if update.dock.is_some() {
+                    let dock = cmux_layout_reducer::AppAction::Dock;
+                    app_rules::refuse_at(state, current.id, dock)?;
+                }
                 let snapshot = current.layout_snapshot();
                 let changed = reduce_column_update(&snapshot, index, &update)?;
                 let layout = changed.clone().unwrap_or(snapshot);

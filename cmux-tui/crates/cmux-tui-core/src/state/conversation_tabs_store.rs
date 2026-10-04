@@ -112,6 +112,7 @@ impl crate::workspace_registry::WorkspaceRegistry {
         let tx = self.connection.transaction()?;
         tx.execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM conversation_tabs WHERE browser_id = ?1", [browser_id])?;
+        tx.execute("DELETE FROM app_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(tx.commit()?)
     }
 }

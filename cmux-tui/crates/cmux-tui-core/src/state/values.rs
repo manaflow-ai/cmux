@@ -74,6 +74,7 @@ fn workspace_extra(
     if let Some(kind) = super::home_store::workspace_kind(connection, workspace_id)? {
         fields.insert("kind".into(), json!(kind));
     }
+    super::app_screens_store::workspace_extra(connection, workspace_id, &mut fields)?;
     Ok(fields)
 }
 
@@ -154,6 +155,7 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     }
     // A keep-layout record (`end-terminals-keep-layout-v1`): restart a shell
     // in `cwd`. Absent (null) for every other tab, like the other extras.
+    super::app_screens_store::tab_extra(connection, tab_id, &mut fields)?;
     let relaunch = super::kept_tab_store::relaunch_value(connection, tab_id)?;
     if !relaunch.is_null() {
         fields.insert("relaunch".into(), relaunch);
@@ -200,6 +202,7 @@ fn screen_extra(connection: &Connection, screen_id: &str) -> anyhow::Result<Map<
     if let Some(group) = group {
         fields.insert("screen_group_id".into(), json!(group));
     }
+    super::app_screens_store::screen_extra(connection, screen_id, &mut fields)?;
     Ok(fields)
 }
 
@@ -220,6 +223,10 @@ pub(crate) fn decorate_value(
     // `conversation-tabs-v1` see `browser` (server/conversation_tabs_wire.rs).
     if resource == "tab" && fields.contains_key("conversation") {
         value["content_kind"] = json!(super::conversation_tabs_store::CONVERSATION_KIND);
+    }
+    // `app-screens-v1`: the canonical kind of an app tab.
+    if resource == "tab" && fields.contains_key("app") {
+        value["content_kind"] = json!(super::app_screens_store::APP_KIND);
     }
     merge_extra(value, fields);
     Ok(())

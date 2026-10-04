@@ -69,8 +69,9 @@ pub use terminal_reap::{
     validate_terminal_reap_grace,
 };
 
+use crate::state::app_rules;
 use public_projections::{RestoredPublicProjections, restore_public_projections};
-use registry_viewport::restore_registry_viewport;
+use registry_viewport::{restore_layout_node, restore_registry_viewport};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::ops::{Deref, DerefMut};
@@ -330,7 +331,7 @@ type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
-const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
+pub(crate) const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
@@ -2746,7 +2747,7 @@ struct RestoredTerminalBinding {
 }
 
 impl Mux {
-    fn default_workspace_name(state: &State) -> String {
+    pub(crate) fn default_workspace_name(state: &State) -> String {
         // Provider-created workspaces use a stable, human-readable sequence.
         // Existing names (including user-renamed workspaces) are left untouched;
         // only the next automatically generated name is derived here. The
@@ -2961,6 +2962,7 @@ impl Mux {
         );
         let RestoredResourceState { mut state, next_id, contents } =
             restore_resource_state(snapshot, topology)?;
+        app_rules::load_screen_apps(&mut state, &registry.connection)?;
         let RestoredPublicProjections {
             default_colors,
             has_terminal_defaults,
@@ -4399,7 +4401,7 @@ impl Mux {
         mux
     }
 
-    fn next_id(&self) -> u64 {
+    pub(crate) fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
@@ -4423,7 +4425,7 @@ impl Mux {
             .expect("in-process resize owner allocation cannot fail")
     }
 
-    fn new_workspace_key() -> anyhow::Result<String> {
+    pub(crate) fn new_workspace_key() -> anyhow::Result<String> {
         let mut bytes = [0u8; 16];
         getrandom::fill(&mut bytes).map_err(|_| {
             anyhow::anyhow!(
@@ -4466,7 +4468,7 @@ impl Mux {
         Ok(())
     }
 
-    fn validate_workspace_name(name: &str) -> anyhow::Result<()> {
+    pub(crate) fn validate_workspace_name(name: &str) -> anyhow::Result<()> {
         if name.len() > WORKSPACE_NAME_MAX_BYTES {
             anyhow::bail!("workspace name exceeds {WORKSPACE_NAME_MAX_BYTES} bytes");
         }
@@ -13932,19 +13934,20 @@ impl Mux {
             expected_revision,
             mutation,
             true,
-            false,
+            Default::default(),
         )
     }
 
-    /// Stage an empty workspace for a resource effect. `ephemeral` marks it
-    /// in the same transaction, so no reader sees it without the flag.
-    fn create_empty_workspace_for_resource_effect(
+    /// Stage an empty workspace for a resource effect. `mark` (ephemeral, or
+    /// an app workspace's companion) is written in the same transaction, so
+    /// no reader sees the workspace without it.
+    pub(crate) fn create_empty_workspace_for_resource_effect(
         &self,
         name: Option<String>,
         requested_key: Option<String>,
         public_id: WorkspacePublicId,
         mutation: &WorkspaceMutation,
-        ephemeral: bool,
+        mark: crate::state::home_store::EmptyWorkspaceMark,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -13954,7 +13957,7 @@ impl Mux {
             None,
             mutation,
             false,
-            ephemeral,
+            mark,
         )
     }
 
@@ -13968,7 +13971,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         project_resource: bool,
-        ephemeral: bool,
+        mark: crate::state::home_store::EmptyWorkspaceMark,
     ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -13991,8 +13994,8 @@ impl Mux {
             "name": requested_name,
             "requested_key": requested_key,
         });
-        if ephemeral {
-            fingerprint["ephemeral"] = Value::Bool(true);
+        if let Some((field, value)) = mark.fingerprint_field() {
+            fingerprint[field] = value;
         }
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             let workspace = commit.result["workspace"]
@@ -14054,10 +14057,10 @@ impl Mux {
                     &result,
                 )?
             } else {
-                let marked = workspace_public_id.as_str().to_string();
-                let mark = move |tx: &rusqlite::Transaction<'_>| {
-                    crate::state::store::mark_workspace_ephemeral(tx, &marked)
-                };
+                let (marked, marked_key, writes) =
+                    (workspace_public_id.as_str().to_string(), key.clone(), mark.writes());
+                let mark =
+                    move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
                 registry.commit_for_resource_effect_with(
                     mutation,
                     &fingerprint,
@@ -14068,7 +14071,7 @@ impl Mux {
                     &desired,
                     Some(&workspace_public_id),
                     &result,
-                    ephemeral.then_some(
+                    writes.then_some(
                         &mark as crate::workspace_registry::RegistryTransactionWrite<'_>,
                     ),
                 )?
@@ -14406,7 +14409,7 @@ impl Mux {
                     }
                     Some(id)
                 }
-                None => state.active_pane(),
+                None => app_rules::focused_ordinary_pane(&state),
             };
             if let Some(target) = target {
                 drop(state);
@@ -14956,7 +14959,7 @@ impl Mux {
                     }
                     Some(id)
                 }
-                None => state.active_pane(),
+                None => app_rules::focused_ordinary_pane(&state),
             };
             if let Some(target) = target {
                 drop(state);
@@ -15595,7 +15598,10 @@ impl Mux {
                 // Caller input errors stay visible; spawn failures keep the
                 // generic message.
                 let message = error.to_string();
-                if message.starts_with("bad request") || message.starts_with("terminal_id_exists") {
+                if message.starts_with("bad request")
+                    || message.starts_with("terminal_id_exists")
+                    || crate::state::app_screens_store::raw_error_code(&error).is_some()
+                {
                     return error;
                 }
                 eprintln!("cmux-tui: viewport pane PTY creation failed: {error:#}");
@@ -16356,6 +16362,8 @@ impl Mux {
             state.workspaces[index].name = name;
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
+            // A companion rename turns its `default_title` false for good.
+            self.reload_presentation(&registry)?;
             let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -17495,7 +17503,10 @@ impl Mux {
             {
                 anyhow::bail!("unknown workspace {id}");
             }
-            workspace.or_else(|| state.workspaces.get(state.active_workspace).map(|ws| ws.id))
+            let target =
+                workspace.or_else(|| state.workspaces.get(state.active_workspace).map(|ws| ws.id));
+            app_rules::refuse_apply_layout(&state, target)?;
+            target
         };
         let (target_workspace, created_workspace) = match target_workspace {
             Some(workspace) => (workspace, false),
@@ -17505,7 +17516,7 @@ impl Mux {
                     None,
                     WorkspacePublicId::random()?,
                     &WorkspaceMutation::local("cmux-tui-layout-workspace"),
-                    false,
+                    Default::default(),
                 )?
                 .workspace,
                 true,
@@ -19455,97 +19466,6 @@ fn restore_resource_state(
         },
         next_id,
         contents,
-    })
-}
-
-fn restore_layout_node(
-    node: &RegistryLayoutNode,
-    panes: &HashMap<PanePublicId, PaneId>,
-    splits: &mut HashMap<SplitPublicId, SplitId>,
-    allocate: &mut impl FnMut() -> anyhow::Result<u64>,
-) -> anyhow::Result<Node> {
-    Ok(match node {
-        RegistryLayoutNode::Leaf { pane } => Node::Leaf(
-            *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
-        ),
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
-            anyhow::ensure!(!splits.contains_key(split), "split {split} appears more than once");
-            let id = allocate()?;
-            splits.insert(split.clone(), id);
-            let dir = match direction.as_str() {
-                "right" => SplitDir::Right,
-                "down" => SplitDir::Down,
-                _ => anyhow::bail!("split {split} has invalid direction {direction:?}"),
-            };
-            Node::Split {
-                id,
-                dir,
-                ratio: *ratio,
-                a: Box::new(restore_layout_node(first, panes, splits, allocate)?),
-                b: Box::new(restore_layout_node(second, panes, splits, allocate)?),
-            }
-        }
-        RegistryLayoutNode::Stack { panes: members, expanded } => {
-            let members = members
-                .iter()
-                .map(|pane| {
-                    panes
-                        .get(pane)
-                        .copied()
-                        .ok_or_else(|| anyhow::anyhow!("stack has unknown pane {pane}"))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            let expanded = *panes
-                .get(expanded)
-                .ok_or_else(|| anyhow::anyhow!("stack has unknown expanded pane {expanded}"))?;
-            Node::stack_with_expanded(members, expanded)
-                .ok_or_else(|| anyhow::anyhow!("stored stack is empty or has invalid selection"))?
-        }
-    })
-}
-
-fn restore_layout_node_from_known_splits(
-    node: &RegistryLayoutNode,
-    panes: &HashMap<PanePublicId, PaneId>,
-    splits: &HashMap<SplitPublicId, SplitId>,
-) -> anyhow::Result<Node> {
-    Ok(match node {
-        RegistryLayoutNode::Leaf { pane } => Node::Leaf(
-            *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
-        ),
-        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
-            let id = *splits
-                .get(split)
-                .ok_or_else(|| anyhow::anyhow!("layout has unknown split {split}"))?;
-            let dir = match direction.as_str() {
-                "right" => SplitDir::Right,
-                "down" => SplitDir::Down,
-                _ => anyhow::bail!("split {split} has invalid direction {direction:?}"),
-            };
-            Node::Split {
-                id,
-                dir,
-                ratio: *ratio,
-                a: Box::new(restore_layout_node_from_known_splits(first, panes, splits)?),
-                b: Box::new(restore_layout_node_from_known_splits(second, panes, splits)?),
-            }
-        }
-        RegistryLayoutNode::Stack { panes: members, expanded } => {
-            let members = members
-                .iter()
-                .map(|pane| {
-                    panes
-                        .get(pane)
-                        .copied()
-                        .ok_or_else(|| anyhow::anyhow!("stack has unknown pane {pane}"))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            let expanded = *panes
-                .get(expanded)
-                .ok_or_else(|| anyhow::anyhow!("stack has unknown expanded pane {expanded}"))?;
-            Node::stack_with_expanded(members, expanded)
-                .ok_or_else(|| anyhow::anyhow!("stored stack is empty or has invalid selection"))?
-        }
     })
 }
 

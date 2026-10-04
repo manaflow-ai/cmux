@@ -1408,11 +1408,32 @@
       "values": [
        "pty",
        "browser",
-       "conversation"
+       "conversation",
+       "app"
       ]
      },
      "presence": "required",
      "nullable": false
+    },
+    "app": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "app-screens-v1"
+    },
+    "route": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "app-screens-v1"
     },
     "browser_source": {
      "type": {
@@ -1641,6 +1662,28 @@
      },
      "presence": "required",
      "nullable": true
+    },
+    "kind": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "app"
+      ]
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "app-screens-v1"
+    },
+    "app": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "app-screens-v1"
     },
     "active": {
      "type": {
@@ -3408,6 +3451,62 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "surface": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "app-screens-v1",
+     "description": "create-workspace with initial: the surface of the app tab."
+    },
+    "tab_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "app-screens-v1",
+     "description": "create-workspace with initial: the public id of the app tab."
+    },
+    "content_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "app-screens-v1",
+     "description": "create-workspace with initial: the public browser id of the app tab."
+    }
+   },
+   "additional_properties": false
+  },
+  "InitialApp": {
+   "kind": "object",
+   "fields": {
+    "app": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "route": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
     }
    },
    "additional_properties": false
@@ -9070,6 +9169,17 @@
        }
       ]
      },
+     "initial": {
+      "type": {
+       "kind": "ref",
+       "name": "InitialApp"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "app-screens-v1"
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -9113,7 +9223,8 @@
     "additional_properties": false,
     "constraints": [
      "origin and mutation_id are either both present or both absent.",
-     "At most 4096 live workspaces may exist; tombstoned keys cannot be reused."
+     "At most 4096 live workspaces may exist; tombstoned keys cannot be reused.",
+    "initial (app-screens-v1): the workspace starts with one app tab (app is a manifest app id, route has no control characters, at most 4096 bytes), created in the same commit, and the result adds surface, tab_resource_id and content_resource_id. expected_generation is refused with initial."
     ]
    },
    "result": {
@@ -14230,6 +14341,87 @@
    "stream": null,
    "constraints": [
     "owner is local or cloud; pane and workspace are exclusive (workspace: its active pane, or its first pane when empty); conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md."
+   ]
+  },
+  "new-app-tab": {
+   "authority": "control",
+   "since": 12,
+   "capability": "app-screens-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "app": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "route": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "cols": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "app is a manifest app id (publisher/name: ASCII letters, digits, ., _, - or /); route has no control characters. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). A retry with the same idempotency_key returns the first tab with replayed:true. In an app screen it is refused (error_code app-screen-fixed). See spec/commands.md for the result object."
    ]
   },
   "new-frontend-browser-tab": {

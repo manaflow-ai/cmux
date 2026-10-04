@@ -513,7 +513,10 @@ fn tool_schemas_follow_the_catalog() {
         assert_eq!(annotations["readOnlyHint"], !tool.mutation);
     }
     let create = v2_tools::find("workspace_create").expect("workspace_create").input_schema();
-    assert_eq!(create["properties"]["initial_content"]["enum"], json!(["terminal", "empty"]));
+    assert_eq!(
+        create["properties"]["initial_content"]["enum"],
+        json!(["terminal", "empty", "app"])
+    );
     assert!(create["required"].as_array().unwrap().contains(&json!("initial_content")));
     assert_eq!(create["properties"]["ephemeral"]["type"], "boolean");
     assert!(v2_tools::find("workspace_list").unwrap().paginated);

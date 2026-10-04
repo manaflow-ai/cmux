@@ -33,6 +33,9 @@ pub enum ColumnDockError {
     NoSuchColumn { index: usize },
     /// The durable commit failed; details are reported as a status event.
     CommitFailed,
+    /// `app-screens-v1`: the change would touch an app screen
+    /// (`app-screen-fixed`).
+    AppRule { code: &'static str, message: String },
 }
 
 impl ColumnDockError {
@@ -48,6 +51,7 @@ impl ColumnDockError {
             Self::LastScrollingColumn => Some(Self::LAST_SCROLLING_CODE),
             Self::InvalidArgument { .. } => Some(Self::INVALID_ARGUMENT_CODE),
             Self::CommitFailed => None,
+            Self::AppRule { code, .. } => Some(code),
         }
     }
 }
@@ -70,6 +74,7 @@ impl fmt::Display for ColumnDockError {
             }
             Self::NoSuchColumn { index } => write!(formatter, "no viewport column {index}"),
             Self::CommitFailed => formatter.write_str("could not persist the dock column"),
+            Self::AppRule { message, .. } => formatter.write_str(message),
         }
     }
 }
@@ -185,6 +190,17 @@ fn dock_column_location(
     Ok((workspace, screen, column))
 }
 
+/// The app rules of a dock change of `pane`'s column (`app-screens-v1`).
+fn refuse_app_column(state: &State, pane: PaneId) -> Result<(), ColumnDockError> {
+    let place = app_rules::AppPlace::Pane(pane);
+    app_rules::refuse(state, place, cmux_layout_reducer::AppAction::Dock).map_err(|error| {
+        ColumnDockError::AppRule {
+            code: crate::state::app_screens_store::raw_error_code(&error).unwrap_or_default(),
+            message: error.to_string(),
+        }
+    })
+}
+
 impl Mux {
     /// `set-column-dock`: pin the viewport column containing `pane` to an
     /// edge, or clear its flag with `None`. `transaction` is the requesting
@@ -201,6 +217,7 @@ impl Mux {
             transaction,
         });
         let unchanged = self.with_state(|state| {
+            refuse_app_column(state, pane)?;
             // A screen stored as one split tree is one implicit column: the
             // only column cannot be pinned, and unpinning it changes nothing.
             if let Some((workspace, screen)) = state.screen_of(pane) {

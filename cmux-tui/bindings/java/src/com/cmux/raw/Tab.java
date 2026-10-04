@@ -11,6 +11,7 @@ import java.util.Objects;
 
 
 public final class Tab implements WireValue {
+    private final Field<String> app;
     private final Field<String> browserError;
     private final Field<Boolean> browserFramesStalled;
     private final TabBrowserSource browserSource;
@@ -19,6 +20,7 @@ public final class Tab implements WireValue {
     private final TabKind kind;
     private final String name;
     private final Field<NotificationMarker> notification;
+    private final Field<String> route;
     private final Field<String> shortId;
     private final Size size;
     private final Field<Boolean> supportsClearHistoryKeyFallback;
@@ -29,6 +31,7 @@ public final class Tab implements WireValue {
     private final String title;
 
     private Tab(Builder builder) {
+        this.app = builder.app;
         this.browserError = builder.browserError;
         this.browserFramesStalled = builder.browserFramesStalled;
         if (!builder.browserSourceSet) throw new IllegalArgumentException("browser_source is required");
@@ -41,6 +44,7 @@ public final class Tab implements WireValue {
         if (!builder.nameSet) throw new IllegalArgumentException("name is required");
         this.name = builder.name;
         this.notification = builder.notification;
+        this.route = builder.route;
         this.shortId = builder.shortId;
         if (!builder.sizeSet) throw new IllegalArgumentException("size is required");
         this.size = builder.size;
@@ -56,6 +60,7 @@ public final class Tab implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<String> app() { return app; }
     public Field<String> browserError() { return browserError; }
     public Field<Boolean> browserFramesStalled() { return browserFramesStalled; }
     public TabBrowserSource browserSource() { return browserSource; }
@@ -64,6 +69,7 @@ public final class Tab implements WireValue {
     public TabKind kind() { return kind; }
     public String name() { return name; }
     public Field<NotificationMarker> notification() { return notification; }
+    public Field<String> route() { return route; }
     public Field<String> shortId() { return shortId; }
     public Size size() { return size; }
     public Field<Boolean> supportsClearHistoryKeyFallback() { return supportsClearHistoryKeyFallback; }
@@ -76,6 +82,10 @@ public final class Tab implements WireValue {
     public static Tab fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "Tab");
         Builder builder = builder();
+        Object rawApp = Wire.optional(object, "app");
+        if (!Wire.isMissing(rawApp)) {
+            builder.app(Wire.string(rawApp, "Tab.app"));
+        }
         Object rawBrowserError = Wire.optional(object, "browser_error");
         if (!Wire.isMissing(rawBrowserError)) {
             builder.browserError(rawBrowserError == null ? null : Wire.string(rawBrowserError, "Tab.browser_error"));
@@ -99,6 +109,10 @@ public final class Tab implements WireValue {
         Object rawNotification = Wire.optional(object, "notification");
         if (!Wire.isMissing(rawNotification)) {
             builder.notification(rawNotification == null ? null : NotificationMarker.fromWire(rawNotification));
+        }
+        Object rawRoute = Wire.optional(object, "route");
+        if (!Wire.isMissing(rawRoute)) {
+            builder.route(Wire.string(rawRoute, "Tab.route"));
         }
         Object rawShortId = Wire.optional(object, "short_id");
         if (!Wire.isMissing(rawShortId)) {
@@ -132,6 +146,7 @@ public final class Tab implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "app", app);
         Wire.put(object, "browser_error", browserError);
         Wire.put(object, "browser_frames_stalled", browserFramesStalled);
         Wire.put(object, "browser_source", browserSource);
@@ -140,6 +155,7 @@ public final class Tab implements WireValue {
         Wire.put(object, "kind", kind);
         Wire.put(object, "name", name);
         Wire.put(object, "notification", notification);
+        Wire.put(object, "route", route);
         Wire.put(object, "short_id", shortId);
         Wire.put(object, "size", size);
         Wire.put(object, "supports_clear_history_key_fallback", supportsClearHistoryKeyFallback);
@@ -154,16 +170,17 @@ public final class Tab implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Tab that)) return false;
-        return Objects.equals(browserError, that.browserError) && Objects.equals(browserFramesStalled, that.browserFramesStalled) && Objects.equals(browserSource, that.browserSource) && Objects.equals(browserStatus, that.browserStatus) && Objects.equals(dead, that.dead) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(notification, that.notification) && Objects.equals(shortId, that.shortId) && Objects.equals(size, that.size) && Objects.equals(supportsClearHistoryKeyFallback, that.supportsClearHistoryKeyFallback) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(title, that.title);
+        return Objects.equals(app, that.app) && Objects.equals(browserError, that.browserError) && Objects.equals(browserFramesStalled, that.browserFramesStalled) && Objects.equals(browserSource, that.browserSource) && Objects.equals(browserStatus, that.browserStatus) && Objects.equals(dead, that.dead) && Objects.equals(kind, that.kind) && Objects.equals(name, that.name) && Objects.equals(notification, that.notification) && Objects.equals(route, that.route) && Objects.equals(shortId, that.shortId) && Objects.equals(size, that.size) && Objects.equals(supportsClearHistoryKeyFallback, that.supportsClearHistoryKeyFallback) && Objects.equals(surface, that.surface) && Objects.equals(terminalId, that.terminalId) && Objects.equals(terminalIncarnation, that.terminalIncarnation) && Objects.equals(terminalResourceId, that.terminalResourceId) && Objects.equals(title, that.title);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(browserError, browserFramesStalled, browserSource, browserStatus, dead, kind, name, notification, shortId, size, supportsClearHistoryKeyFallback, surface, terminalId, terminalIncarnation, terminalResourceId, title); }
+    public int hashCode() { return Objects.hash(app, browserError, browserFramesStalled, browserSource, browserStatus, dead, kind, name, notification, route, shortId, size, supportsClearHistoryKeyFallback, surface, terminalId, terminalIncarnation, terminalResourceId, title); }
 
     @Override
     public String toString() { return "Tab" + toWire(); }
 
     public static final class Builder {
+        private Field<String> app = Field.omitted();
         private Field<String> browserError = Field.omitted();
         private Field<Boolean> browserFramesStalled = Field.omitted();
         private TabBrowserSource browserSource;
@@ -176,6 +193,7 @@ public final class Tab implements WireValue {
         private String name;
         private boolean nameSet;
         private Field<NotificationMarker> notification = Field.omitted();
+        private Field<String> route = Field.omitted();
         private Field<String> shortId = Field.omitted();
         private Size size;
         private boolean sizeSet;
@@ -188,6 +206,10 @@ public final class Tab implements WireValue {
         private String title;
         private boolean titleSet;
 
+        public Builder app(String value) {
+            this.app = Field.of(value);
+            return this;
+        }
         public Builder browserError(String value) {
             this.browserError = Field.ofNullable(value);
             return this;
@@ -222,6 +244,10 @@ public final class Tab implements WireValue {
         }
         public Builder notification(NotificationMarker value) {
             this.notification = Field.ofNullable(value);
+            return this;
+        }
+        public Builder route(String value) {
+            this.route = Field.of(value);
             return this;
         }
         public Builder shortId(String value) {

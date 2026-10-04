@@ -1,8 +1,10 @@
 //! `workspace-kind-v1`: the home workspace record (plans/cmux-next/home.md
-//! section 7). A workspace is `normal` unless a row here marks it `home`.
+//! section 7). A workspace is `normal` unless a row here marks it `home`,
+//! or `app_tabs`, the companion of an app workspace (`app-screens-v1`,
+//! state/app_screens_store.rs).
 //!
 //! Owner rules, all enforced in the store:
-//! - At most one home per store: a unique index on `kind`, and
+//! - At most one home per store: a partial unique index on `kind`, and
 //!   `workspace.ensure_home` replays the existing home.
 //! - `kind` is written only in the commit that creates the workspace, and
 //!   never changes after.
@@ -30,24 +32,67 @@ pub(crate) const HOME_KIND: &str = "home";
 /// The fixed idempotency key and correlation key of the home creation.
 pub(crate) const HOME_CREATION_KEY: &str = "home";
 
-pub(crate) fn create_home_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS workspace_kind (
+/// The one kind table: `home` (at most one) and `app_tabs`, the companion
+/// workspace of an app workspace (`app-screens-v1`: one per app, with its
+/// default name and whether a rename replaced it).
+const WORKSPACE_KIND_TABLE: &str = "(
            workspace_id TEXT PRIMARY KEY NOT NULL,
-           kind TEXT NOT NULL CHECK(kind = 'home')
-         );
-         CREATE UNIQUE INDEX IF NOT EXISTS workspace_kind_one_home ON workspace_kind(kind);",
+           kind TEXT NOT NULL CHECK(kind IN ('home', 'app_tabs')),
+           app_id TEXT,
+           default_name TEXT,
+           renamed INTEGER NOT NULL DEFAULT 0 CHECK(renamed IN (0, 1)),
+           CHECK((kind = 'home' AND app_id IS NULL AND default_name IS NULL)
+              OR (kind = 'app_tabs' AND app_id IS NOT NULL AND default_name IS NOT NULL))
+         )";
+
+pub(crate) fn create_home_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let columns = transaction
+        .prepare("SELECT name FROM pragma_table_info('workspace_kind')")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if columns.is_empty() {
+        transaction
+            .execute_batch(&format!("CREATE TABLE workspace_kind {WORKSPACE_KIND_TABLE};"))?;
+    } else if !columns.iter().any(|column| column == "app_id") {
+        // The table of builds before `app_tabs` (kind CHECK = 'home', a
+        // unique index on `kind`): rebuilt in this transaction, rows kept.
+        transaction.execute_batch(&format!(
+            "CREATE TABLE workspace_kind_next {WORKSPACE_KIND_TABLE};
+             INSERT INTO workspace_kind_next(workspace_id, kind)
+               SELECT workspace_id, kind FROM workspace_kind;
+             DROP TABLE workspace_kind;
+             ALTER TABLE workspace_kind_next RENAME TO workspace_kind;"
+        ))?;
+    }
+    transaction.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS workspace_kind_one_home
+           ON workspace_kind(kind) WHERE kind = 'home';
+         CREATE UNIQUE INDEX IF NOT EXISTS workspace_kind_one_app_tabs
+           ON workspace_kind(app_id) WHERE kind = 'app_tabs';",
     )?;
     Ok(())
 }
 
 /// The state row an empty workspace creation writes in its own commit.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) enum EmptyWorkspaceMark {
     #[default]
     None,
     Ephemeral,
     Home,
+    /// `app-screens-v1`: an empty workspace of kind `app` for this app, as
+    /// builds before the one-commit app workspace creation left it (tests
+    /// of the resume path).
+    #[cfg(test)]
+    App(String),
+    /// `app-screens-v1`: the companion of the app workspace `app_workspace`
+    /// (public id) for `app`, named `default_name` by the daemon and placed
+    /// directly after it (state/app_home.rs).
+    Companion {
+        app: String,
+        app_workspace: String,
+        default_name: String,
+    },
 }
 
 impl EmptyWorkspaceMark {
@@ -55,23 +100,28 @@ impl EmptyWorkspaceMark {
         if ephemeral { Self::Ephemeral } else { Self::None }
     }
 
-    pub(crate) fn writes(self) -> bool {
-        self != Self::None
+    pub(crate) fn writes(&self) -> bool {
+        *self != Self::None
     }
 
     /// The field the creation fingerprint carries for this mark.
-    pub(crate) fn fingerprint_field(self) -> Option<(&'static str, serde_json::Value)> {
+    pub(crate) fn fingerprint_field(&self) -> Option<(&'static str, serde_json::Value)> {
         match self {
             Self::None => None,
             Self::Ephemeral => Some(("ephemeral", serde_json::Value::Bool(true))),
             Self::Home => Some(("kind", serde_json::Value::String(HOME_KIND.to_string()))),
+            #[cfg(test)]
+            Self::App(app) => Some(("app", serde_json::Value::String(app.clone()))),
+            Self::Companion { app, .. } => {
+                Some(("companion_of", serde_json::Value::String(app.clone())))
+            }
         }
     }
 
     /// The rows this mark writes in the transaction that creates the
     /// workspace.
     pub(crate) fn write(
-        self,
+        &self,
         transaction: &Transaction<'_>,
         workspace_id: &str,
         workspace_key: &str,
@@ -84,6 +134,24 @@ impl EmptyWorkspaceMark {
             Self::Home => {
                 mark_workspace_home(transaction, workspace_id)?;
                 place_home_first(transaction, workspace_key)
+            }
+            #[cfg(test)]
+            Self::App(app) => {
+                crate::state::app_screens_store::write_app_workspace(transaction, workspace_id, app)
+            }
+            Self::Companion { app, app_workspace, default_name } => {
+                let changes = crate::state::app_screens::home::write_companion_mark(
+                    transaction,
+                    app,
+                    app_workspace,
+                    workspace_id,
+                    workspace_key,
+                    default_name,
+                )?;
+                for change in &changes {
+                    crate::state::closed_history_store::queue_change(transaction, change)?;
+                }
+                Ok(())
             }
         }
     }

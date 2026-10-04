@@ -6,16 +6,20 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 
 use super::conversation_tabs_wire::raw_tab_kind;
+use crate::state::app_screens_store::{APP_KIND, AppTabRecord};
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use crate::workspace_registry::FrontendBrowserRecord;
 use crate::{Surface, SurfaceKind};
 
-/// Add `kind`, `conversation`, the `browser_*` fields and `url` to `tab`.
+/// Add `kind`, `conversation`, the `browser_*` fields and `url` to `tab`;
+/// an app tab (`app-screens-v1`) gets `kind: "app"` and its flat `app` and
+/// `route` fields.
 pub(super) fn merge_browser_fields(
     tab: &mut Value,
     surface: Option<&Arc<Surface>>,
     frontend_browser: Option<&FrontendBrowserRecord>,
     conversation: Option<&ConversationTabRecord>,
+    app: Option<&AppTabRecord>,
 ) {
     let daemon_rendered = frontend_browser.is_none();
     let fields = json!({
@@ -43,5 +47,9 @@ pub(super) fn merge_browser_fields(
     });
     if let (Some(tab), Value::Object(fields)) = (tab.as_object_mut(), fields) {
         tab.extend(fields);
+        if let Some(app) = app {
+            tab.insert("kind".into(), json!(APP_KIND));
+            app.insert_wire(tab);
+        }
     }
 }

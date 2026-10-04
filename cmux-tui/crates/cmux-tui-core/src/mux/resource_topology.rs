@@ -21,8 +21,12 @@ use crate::workspace_registry::{
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 use cmux_layout_reducer::LayoutOpKind;
 
+mod app_screen_support;
+use app_screen_support::{effect_workspace_mark, new_workspace_slots};
 mod batch_close;
 mod column_update;
+mod effect_fields;
+use effect_fields::validate_effect_fields;
 mod layout_projection;
 mod published_screen;
 mod structural_move;
@@ -462,6 +466,7 @@ impl Mux {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
         let marked = public_id.as_str().to_string();
+        let writes_mark = mark.writes();
         let write_mark = move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
         let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
@@ -473,7 +478,7 @@ impl Mux {
             &created_path,
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
-            mark.writes()
+            writes_mark
                 .then_some(&write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
@@ -633,6 +638,9 @@ impl Mux {
             "selectors": selectors,
             "fields": fingerprint_fields,
         });
+        // After the fingerprint: a retry names the caller's own target.
+        let (selectors, fields, _companions) =
+            self.route_new_tab_to_companion(operation, selectors, fields)?;
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?
@@ -1308,6 +1316,7 @@ impl Mux {
                 let first_pane = first.pane.context("pane selector has no live pane")?;
                 let second_pane = second.pane.context("other pane selector has no live pane")?;
                 anyhow::ensure!(first_pane != second_pane, "cannot swap a pane with itself");
+                app_rules::refuse_swap(state, first_pane, second_pane)?;
                 let first_id = first.path.pane.context("pane selector has no public id")?;
                 let second_id = second.path.pane.context("other pane selector has no public id")?;
                 let first_screen =
@@ -1515,6 +1524,7 @@ impl Mux {
                     .map(|pane| (pane.id, pane.tabs.len())))
             })?;
             if let Some((pane, index)) = target {
+                self.with_state(|state| app_rules::refuse_move_tab(state, surface, pane))?;
                 anyhow::ensure!(self.move_tab(surface, pane, index), "tab could not be moved");
                 return Ok(());
             }
@@ -4062,7 +4072,7 @@ impl Mux {
         {
             Self::validate_workspace_name(name)?;
         }
-        if operation == ResourceOperation::WorkspaceCreate
+        if topology_effect_may_create_workspace(operation)
             && let Some(key) = fields.get("workspace_key").and_then(Value::as_str)
         {
             anyhow::ensure!(
@@ -4077,6 +4087,7 @@ impl Mux {
         let resolved = self
             .resolve_resource_path_in_state(state, registry, target, selectors)
             .map_err(anyhow::Error::new)?;
+        app_rules::refuse_effect(state, operation, &resolved, fields)?;
         let mut intent = json!({
             "path":resolved.path,
             "fields":fields,
@@ -4405,7 +4416,7 @@ impl Mux {
                 .map(|created| created.path)
             }
             ResourceOperation::TabCreateTerminal => {
-                let slots = self.effect_slots(&path)?;
+                let slots = new_workspace_slots(self.effect_slots(&path)?, fields);
                 match slots.pane {
                     Some(pane) => self.effect_add_terminal_tab(
                         intent,
@@ -4430,7 +4441,7 @@ impl Mux {
                     ),
                     None => self.effect_create_workspace_terminal(
                         intent,
-                        None,
+                        optional_owned_string(fields, "workspace_name")?,
                         TerminalEffectOptions {
                             argv: optional_effect_command(fields)?,
                             cwd: optional_owned_string(fields, "cwd")?,
@@ -4444,7 +4455,7 @@ impl Mux {
                 .map(|created| created.path)
             }
             ResourceOperation::TabCreateBrowser => {
-                let slots = self.effect_slots(&path)?;
+                let slots = new_workspace_slots(self.effect_slots(&path)?, fields);
                 let size = effect_browser_cell_size(self, fields)?;
                 let identity = self.effect_browser_reservation(intent)?;
                 let surface = match slots.pane {
@@ -4465,11 +4476,11 @@ impl Mux {
                         let (workspace_key, workspace_public_id, workspace_mutation) =
                             self.effect_workspace_reservation(intent)?;
                         let placement = self.create_empty_workspace_for_resource_effect(
-                            None,
+                            optional_owned_string(fields, "workspace_name")?,
                             Some(workspace_key),
                             workspace_public_id,
                             &workspace_mutation,
-                            false,
+                            effect_workspace_mark(fields),
                         )?;
                         self.create_browser_surface_in_workspace(
                             placement.workspace,
@@ -4709,15 +4720,15 @@ impl Mux {
     ) -> anyhow::Result<CreatedTerminalEffect> {
         let (workspace_key, workspace_public_id, workspace_mutation) =
             self.effect_workspace_reservation(intent)?;
-        // `workspace.create {ephemeral: true}` stages the flag with the
-        // workspace row; the request's fields are part of its fingerprint.
-        let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        // `workspace.create {ephemeral: true}` (or a companion mark) is
+        // staged with the workspace row; the fields are in its fingerprint.
+        let mark = intent["fields"].as_object().map(effect_workspace_mark).unwrap_or_default();
         let placement = self.create_empty_workspace_for_resource_effect(
             workspace_name,
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
-            ephemeral,
+            mark,
         )?;
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
@@ -5300,78 +5311,6 @@ fn validate_requested_terminal_id(value: &str) -> anyhow::Result<()> {
             && matches!(bytes[16], b'8'..=b'b'),
         "bad request: terminal_id must be a 32-character lowercase UUIDv4 hex value"
     );
-    Ok(())
-}
-
-fn validate_effect_fields(
-    operation: ResourceOperation,
-    fields: &Map<String, Value>,
-) -> anyhow::Result<()> {
-    match operation {
-        ResourceOperation::WorkspaceCreate => {
-            anyhow::ensure!(
-                required_str(fields, "initial_content")? == "terminal",
-                "effectful workspace creation requires terminal initial content"
-            );
-            if fields.contains_key("argv") || fields.contains_key("shell") {
-                let _ = effect_command(fields)?;
-            }
-        }
-        ResourceOperation::WorkspaceRun | ResourceOperation::PaneRun => {
-            let _ = effect_command(fields)?;
-            let _ = effect_cell_size(fields)?;
-        }
-        ResourceOperation::WorkspaceLayoutApply => {
-            anyhow::ensure!(fields["layout"].is_object(), "layout must be an object");
-        }
-        ResourceOperation::PaneCreate | ResourceOperation::TabCreateTerminal => {
-            let _ = effect_cell_size(fields)?;
-            let _ = optional_effect_command(fields)?;
-        }
-        ResourceOperation::PaneSplit => {
-            let direction = required_str(fields, "direction")?;
-            anyhow::ensure!(
-                matches!(direction, "left" | "right" | "up" | "down"),
-                "invalid pane split direction"
-            );
-            if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64) {
-                anyhow::ensure!(
-                    ratio.is_finite() && 0.0 < ratio && ratio < 1.0,
-                    "invalid pane split ratio"
-                );
-                let ratio = ratio as f32;
-                anyhow::ensure!(
-                    ratio.is_finite() && 0.0 < ratio && ratio < 1.0,
-                    "pane split ratio cannot be represented"
-                );
-            }
-            if let Some(width) = fields.get("viewport_width").and_then(Value::as_f64) {
-                anyhow::ensure!(
-                    direction == "right"
-                        && width.is_finite()
-                        && (f64::from(MIN_VIEWPORT_PANE_WIDTH)
-                            ..=f64::from(MAX_VIEWPORT_PANE_WIDTH))
-                            .contains(&width),
-                    "invalid viewport pane width"
-                );
-            }
-            rows::validate_row_height_field(fields, direction)?;
-            let _ = effect_cell_size(fields)?;
-            let _ = optional_effect_command(fields)?;
-        }
-        ResourceOperation::TabCreateBrowser => {
-            anyhow::ensure!(!required_str(fields, "url")?.is_empty(), "browser URL is empty");
-            let dimensions = (
-                fields.get("width_px").and_then(Value::as_u64),
-                fields.get("height_px").and_then(Value::as_u64),
-            );
-            anyhow::ensure!(
-                matches!(dimensions, (None, None) | (Some(_), Some(_))),
-                "browser pixel dimensions must be paired"
-            );
-        }
-        _ => {}
-    }
     Ok(())
 }
 

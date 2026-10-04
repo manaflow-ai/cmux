@@ -100,3 +100,95 @@ pub(super) fn registry_rows(
         })
         .collect()
 }
+
+/// A stored split tree with new split slots from `allocate`.
+pub(super) fn restore_layout_node(
+    node: &RegistryLayoutNode,
+    panes: &HashMap<PanePublicId, PaneId>,
+    splits: &mut HashMap<SplitPublicId, SplitId>,
+    allocate: &mut impl FnMut() -> anyhow::Result<u64>,
+) -> anyhow::Result<Node> {
+    Ok(match node {
+        RegistryLayoutNode::Leaf { pane } => Node::Leaf(
+            *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
+        ),
+        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+            anyhow::ensure!(!splits.contains_key(split), "split {split} appears more than once");
+            let id = allocate()?;
+            splits.insert(split.clone(), id);
+            let dir = match direction.as_str() {
+                "right" => SplitDir::Right,
+                "down" => SplitDir::Down,
+                _ => anyhow::bail!("split {split} has invalid direction {direction:?}"),
+            };
+            Node::Split {
+                id,
+                dir,
+                ratio: *ratio,
+                a: Box::new(restore_layout_node(first, panes, splits, allocate)?),
+                b: Box::new(restore_layout_node(second, panes, splits, allocate)?),
+            }
+        }
+        RegistryLayoutNode::Stack { panes: members, expanded } => {
+            let members = members
+                .iter()
+                .map(|pane| {
+                    panes
+                        .get(pane)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("stack has unknown pane {pane}"))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let expanded = *panes
+                .get(expanded)
+                .ok_or_else(|| anyhow::anyhow!("stack has unknown expanded pane {expanded}"))?;
+            Node::stack_with_expanded(members, expanded)
+                .ok_or_else(|| anyhow::anyhow!("stored stack is empty or has invalid selection"))?
+        }
+    })
+}
+
+fn restore_layout_node_from_known_splits(
+    node: &RegistryLayoutNode,
+    panes: &HashMap<PanePublicId, PaneId>,
+    splits: &HashMap<SplitPublicId, SplitId>,
+) -> anyhow::Result<Node> {
+    Ok(match node {
+        RegistryLayoutNode::Leaf { pane } => Node::Leaf(
+            *panes.get(pane).ok_or_else(|| anyhow::anyhow!("layout has unknown pane {pane}"))?,
+        ),
+        RegistryLayoutNode::Split { split, direction, ratio, first, second } => {
+            let id = *splits
+                .get(split)
+                .ok_or_else(|| anyhow::anyhow!("layout has unknown split {split}"))?;
+            let dir = match direction.as_str() {
+                "right" => SplitDir::Right,
+                "down" => SplitDir::Down,
+                _ => anyhow::bail!("split {split} has invalid direction {direction:?}"),
+            };
+            Node::Split {
+                id,
+                dir,
+                ratio: *ratio,
+                a: Box::new(restore_layout_node_from_known_splits(first, panes, splits)?),
+                b: Box::new(restore_layout_node_from_known_splits(second, panes, splits)?),
+            }
+        }
+        RegistryLayoutNode::Stack { panes: members, expanded } => {
+            let members = members
+                .iter()
+                .map(|pane| {
+                    panes
+                        .get(pane)
+                        .copied()
+                        .ok_or_else(|| anyhow::anyhow!("stack has unknown pane {pane}"))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let expanded = *panes
+                .get(expanded)
+                .ok_or_else(|| anyhow::anyhow!("stack has unknown expanded pane {expanded}"))?;
+            Node::stack_with_expanded(members, expanded)
+                .ok_or_else(|| anyhow::anyhow!("stored stack is empty or has invalid selection"))?
+        }
+    })
+}

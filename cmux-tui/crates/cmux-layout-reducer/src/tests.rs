@@ -40,7 +40,12 @@ fn build(layout: &[Vec<Vec<Vec<usize>>>]) -> (LayoutState, u64) {
                 }
                 built_columns.push(Column::single(column, built_panes));
             }
-            built.push(Screen { id: screen, columns: built_columns, columns_active });
+            built.push(Screen {
+                id: screen,
+                columns: built_columns,
+                columns_active,
+                kind: ScreenKind::Workspace,
+            });
         }
         state.workspaces.push(Workspace { id: workspace, screens: built });
     }

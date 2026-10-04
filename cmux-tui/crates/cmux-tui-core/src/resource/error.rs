@@ -173,6 +173,7 @@ impl ResourceError {
 }
 
 pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
+    "app.screen_fixed",
     "confirmation.required",
     "creation.conflict",
     "cursor.gap",

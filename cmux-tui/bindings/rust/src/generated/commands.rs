@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4.
+// cmux-tui mux protocol 12, IR ba35a5ee811aa5fb93acfd01bfb575f877c37903964478e5d88b27d1391575a4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -790,6 +790,8 @@ pub struct CreateWorkspaceRequest {
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub initial: Optional<T::InitialApp>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mutation_id: Optional<String>,
@@ -1479,6 +1481,27 @@ pub struct MoveWorkspaceToGroupRequest {
 
 #[rustfmt::skip]
 pub type MoveWorkspaceToGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewAppTabRequest {
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cols: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub idempotency_key: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub route: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub rows: Optional<u16>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+pub type NewAppTabResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3162,6 +3185,10 @@ impl CmuxClient {
     }
 
     pub fn create_workspace(&mut self, request: CreateWorkspaceRequest) -> Result<CreateWorkspaceResult> {
+        if !request.initial.is_missing() {
+            self.require_protocol_field("create-workspace", 12)?;
+            self.require_capability_field("create-workspace", "app-screens-v1")?;
+        }
         self.execute(&CREATE_WORKSPACE_METADATA, &request)
     }
 
@@ -3450,6 +3477,10 @@ impl CmuxClient {
 
     pub fn move_workspace_to_group(&mut self, request: MoveWorkspaceToGroupRequest) -> Result<MoveWorkspaceToGroupResult> {
         self.execute(&MOVE_WORKSPACE_TO_GROUP_METADATA, &request)
+    }
+
+    pub fn new_app_tab(&mut self, request: NewAppTabRequest) -> Result<NewAppTabResult> {
+        self.execute(&NEW_APP_TAB_METADATA, &request)
     }
 
     pub fn new_browser_tab(&mut self, request: NewBrowserTabRequest) -> Result<NewBrowserTabResult> {

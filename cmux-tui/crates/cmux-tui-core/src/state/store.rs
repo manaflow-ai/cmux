@@ -82,6 +82,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::window_record_store::create_window_record_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::home_store::create_home_schema(transaction)?;
+    super::app_screens_store::create_app_state_schema(transaction)?;
     super::conversation_tabs_store::create_conversation_tabs_schema(transaction)?;
     super::frontend_browser_keys::create_frontend_browser_keys_schema(transaction)?;
     Ok(())

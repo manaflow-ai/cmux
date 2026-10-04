@@ -56,7 +56,7 @@ pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow
            screen_id TEXT NOT NULL
          );",
     )?;
-    Ok(())
+    crate::state::app_screens_store::create_screen_kind_schema(transaction)
 }
 
 fn write_column_docks(
@@ -91,6 +91,7 @@ pub(super) fn delete_side_tables(
     revision: i64,
 ) -> anyhow::Result<()> {
     identities::retire_side_splits(transaction, screen_id, revision)?;
+    crate::state::app_screens_store::delete_screen_app(transaction, screen_id)?;
     for table in ["resource_column_docks", "resource_screen_rows"] {
         transaction
             .execute(&format!("DELETE FROM {table} WHERE screen_id = ?1"), params![screen_id])?;

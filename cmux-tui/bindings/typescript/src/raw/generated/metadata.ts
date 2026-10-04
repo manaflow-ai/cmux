@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4. */
+/* cmux-tui mux protocol 12, IR ba35a5ee811aa5fb93acfd01bfb575f877c37903964478e5d88b27d1391575a4. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4" as const;
+export const SDK_IR_SHA256 = "ba35a5ee811aa5fb93acfd01bfb575f877c37903964478e5d88b27d1391575a4" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -665,7 +665,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 7,
     "capability": "workspace-registry-v1",
-    "fields": {},
+    "fields": {
+      "initial": {
+        "since": 12,
+        "capability": "app-screens-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -1299,6 +1304,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "new-app-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "app-screens-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "app is a manifest app id (publisher/name: ASCII letters, digits, ., _, - or /); route has no control characters. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). A retry with the same idempotency_key returns the first tab with replayed:true. In an app screen it is refused (error_code app-screen-fixed). See spec/commands.md for the result object."
     ]
   },
   "new-browser-tab": {
@@ -5237,6 +5252,29 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "InitialApp": {
+    "additional_properties": false,
+    "fields": {
+      "app": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "route": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "JsonValue": {
     "kind": "opaque_json",
     "reason": "The wire field intentionally carries a frontend-authored or runtime-authored arbitrary JSON document."
@@ -7270,12 +7308,34 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "Id"
         }
       },
+      "app": {
+        "capability": "app-screens-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "id": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "kind": {
+        "capability": "app-screens-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "enum",
+          "values": [
+            "app"
+          ]
         }
       },
       "layout": {
@@ -8546,6 +8606,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "Tab": {
     "additional_properties": false,
     "fields": {
+      "app": {
+        "capability": "app-screens-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "browser_error": {
         "nullable": true,
         "presence": "optional",
@@ -8604,7 +8674,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "values": [
             "pty",
             "browser",
-            "conversation"
+            "conversation",
+            "app"
           ]
         }
       },
@@ -8623,6 +8694,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "NotificationMarker"
+        }
+      },
+      "route": {
+        "capability": "app-screens-v1",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "short_id": {
@@ -10078,6 +10159,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "content_resource_id": {
+        "capability": "app-screens-v1",
+        "description": "create-workspace with initial: the public browser id of the app tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "generation": {
         "nullable": false,
         "presence": "required",
@@ -10116,6 +10208,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "boolean"
+        }
+      },
+      "surface": {
+        "capability": "app-screens-v1",
+        "description": "create-workspace with initial: the surface of the app tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "tab_resource_id": {
+        "capability": "app-screens-v1",
+        "description": "create-workspace with initial: the public id of the app tab.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "workspace": {
@@ -12759,7 +12873,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "origin and mutation_id are either both present or both absent.",
-        "At most 4096 live workspaces may exist; tombstoned keys cannot be reused."
+        "At most 4096 live workspaces may exist; tombstoned keys cannot be reused.",
+        "initial (app-screens-v1): the workspace starts with one app tab (app is a manifest app id, route has no control characters, at most 4096 bytes), created in the same commit, and the result adds surface, tab_resource_id and content_resource_id. expected_generation is refused with initial."
       ],
       "fields": {
         "expected_generation": {
@@ -12781,6 +12896,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        },
+        "initial": {
+          "capability": "app-screens-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "InitialApp"
           }
         },
         "key": {
@@ -14828,6 +14954,80 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "new-app-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "app": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "cols": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "idempotency_key": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "route": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "rows": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
           }
         },
         "workspace": {

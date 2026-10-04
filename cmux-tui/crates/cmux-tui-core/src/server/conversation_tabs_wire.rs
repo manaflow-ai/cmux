@@ -89,30 +89,44 @@ pub(super) fn raw_tab_kind(surface_kind: &'static str, conversation: bool) -> &'
 
 impl MessageWriter {
     /// Record the connection's capabilities: whether it reads conversation
-    /// tabs in their canonical form.
+    /// tabs and app tabs (`app-screens-v1`) in their canonical form.
     pub(super) fn negotiate_conversation_tabs<'a>(
         &self,
-        mut capabilities: impl Iterator<Item = &'a String>,
+        capabilities: impl Iterator<Item = &'a String>,
     ) {
-        if capabilities.any(|capability| capability == CONVERSATION_TABS_CAPABILITY) {
-            self.conversation_tabs.store(true, Ordering::Release);
+        for capability in capabilities {
+            if capability == CONVERSATION_TABS_CAPABILITY {
+                self.conversation_tabs.store(true, Ordering::Release);
+            }
+            if capability == crate::state::app_screens_store::APP_SCREENS_CAPABILITY {
+                self.app_screens.store(true, Ordering::Release);
+            }
         }
     }
 
     /// The one outbound projection: a connection without
-    /// `conversation-tabs-v1` reads every conversation tab as `browser`.
+    /// `conversation-tabs-v1` reads every conversation tab as `browser`, and
+    /// one without `app-screens-v1` every app tab.
     pub(super) fn project_conversation_tabs(
         &self,
         text: Arc<BudgetedText>,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        if self.conversation_tabs.load(Ordering::Acquire)
-            || !conversation_tabs_present()
-            || !text.contains("\"conversation\"")
-        {
+        let conversations = !self.conversation_tabs.load(Ordering::Acquire)
+            && conversation_tabs_present()
+            && text.contains("\"conversation\"");
+        let apps = !self.app_screens.load(Ordering::Acquire) && text.contains("\"app\"");
+        if !conversations && !apps {
             return Ok(text);
         }
         let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
-        if !downgrade_conversation_tabs(&mut value) {
+        let mut changed = false;
+        if conversations {
+            changed |= downgrade_conversation_tabs(&mut value);
+        }
+        if apps {
+            changed |= crate::state::app_screens_store::downgrade_app_tabs(&mut value);
+        }
+        if !changed {
             return Ok(text);
         }
         self.render_service.serialize_control(&value)
@@ -155,9 +169,3 @@ pub(super) fn set_resource_capabilities(
 #[cfg(test)]
 #[path = "conversation_tabs_tests.rs"]
 mod tests;
-
-// `app-screens-v1` wire tests, declared here until server/app_screens_wire.rs
-// exists (they need only the wire).
-#[cfg(test)]
-#[path = "app_screens_tests.rs"]
-mod app_screens_tests;

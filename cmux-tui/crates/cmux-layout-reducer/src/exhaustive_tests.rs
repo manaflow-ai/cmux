@@ -143,7 +143,12 @@ fn build(shape: &Shape, content: &dyn Fn(usize) -> (u64, bool)) -> (LayoutState,
                 }
                 columns.push(Column::single(column, built_panes));
             }
-            built.push(Screen { id: screen, columns, columns_active: screen_shape.columns_mode });
+            built.push(Screen {
+                id: screen,
+                columns,
+                columns_active: screen_shape.columns_mode,
+                kind: ScreenKind::Workspace,
+            });
         }
         state.workspaces.push(Workspace { id: workspace, screens: built });
     }

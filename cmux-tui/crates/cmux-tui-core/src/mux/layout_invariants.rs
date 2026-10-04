@@ -25,8 +25,8 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use cmux_layout_reducer::{
-    Column, LayoutOp, LayoutOpKind, LayoutState, Row, Screen, TabContent, Workspace, apply,
-    introduced_violations, placement_mismatches,
+    Column, LayoutOp, LayoutOpKind, LayoutState, Row, Screen, TabContent, Violation, Workspace,
+    apply, introduced_violations, placement_mismatches,
 };
 use serde_json::json;
 
@@ -77,6 +77,7 @@ pub(crate) fn project(state: &State) -> LayoutState {
                     .iter()
                     .map(|screen| Screen {
                         id: screen.id,
+                        kind: crate::state::app_rules::reducer_kind(state, screen.id),
                         columns_active: !screen.layout_columns.is_empty(),
                         // While columns are active, `root` is a derived
                         // projection of them.
@@ -132,7 +133,10 @@ pub(crate) fn model_result(
     // The daemon keeps its own durable replay ledger, so the key is unused.
     let op = LayoutOp { key: String::new(), kind: kind.clone() };
     apply(before, &op).map(|(model, _)| model).map_err(|reject| {
-        rejection(operation, vec![format!("the layout reducer rejects it: {reject}")])
+        // `app-screens-v1` refusals keep their own code.
+        crate::state::app_rules::reject_rule(&reject).unwrap_or_else(|| {
+            rejection(operation, vec![format!("the layout reducer rejects it: {reject}")])
+        })
     })
 }
 
@@ -167,6 +171,13 @@ pub(crate) fn validate_layout_transition(
     model: Option<&LayoutState>,
     after: &State,
 ) -> anyhow::Result<()> {
+    let introduced = introduced_violations(before, &project(after), &BTreeSet::new());
+    if let Some(screen) = introduced.iter().find_map(|violation| match violation {
+        Violation::AppScreenShape { screen } => Some(*screen),
+        _ => None,
+    }) {
+        return Err(crate::state::app_rules::shape_rule(after, screen));
+    }
     let problems = transition_problems(before, model, after);
     if problems.is_empty() { Ok(()) } else { Err(rejection(operation, problems)) }
 }

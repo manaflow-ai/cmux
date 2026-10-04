@@ -10,6 +10,11 @@
 //! [`commit`], which writes the rows, the replay record and the
 //! `session.events` batch in one transaction.
 
+pub(crate) mod app_commit_rules;
+pub(crate) mod app_rules;
+pub(crate) mod app_screens;
+pub(crate) mod app_screens_router;
+pub(crate) mod app_screens_store;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
@@ -42,6 +47,12 @@ pub(crate) mod window_records;
 pub(crate) mod workspace;
 pub(crate) mod workspace_status_store;
 
+pub(crate) use app_screens_store::error_code as app_screen_error_code;
+
+/// The typed resource failure of a refused home or app screen change.
+pub(crate) fn rule_resource_error(error: &anyhow::Error) -> Option<crate::resource::ResourceError> {
+    home_store::resource_error(error).or_else(|| app_screens_store::resource_error(error))
+}
 pub(crate) use home_store::error_code as home_error_code;
 pub(crate) use personal::PersonalChange;
 pub(crate) use screens::ScreenChange;

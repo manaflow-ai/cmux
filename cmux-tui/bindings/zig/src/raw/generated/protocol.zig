@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4";
+pub const ir_sha256 = "ba35a5ee811aa5fb93acfd01bfb575f877c37903964478e5d88b27d1391575a4";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -722,6 +722,11 @@ pub const IdsResult = struct {
     ids: []const IdMapping,
 };
 
+pub const InitialApp = struct {
+    app: []const u8,
+    route: wire.Field([]const u8) = .absent,
+};
+
 /// The wire field intentionally carries a frontend-authored or runtime-authored arbitrary JSON document.
 pub const JsonValue = wire.Value;
 
@@ -1272,10 +1277,27 @@ pub const RunResult = struct {
     workspace: wire.Nullable(Id),
 };
 
+pub const ScreenKind = enum {
+    app,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "app")) return .app;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .app => "app",
+        };
+    }
+};
+
 pub const Screen = struct {
     active: bool,
     active_pane: Id,
+    app: ?[]const u8 = null,
     id: Id,
+    kind: ?ScreenKind = null,
     layout: Layout,
     name: wire.Nullable([]const u8),
     panes: []const Pane,
@@ -1283,6 +1305,8 @@ pub const Screen = struct {
     zoomed_pane: wire.Nullable(Id),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "app",
+        "kind",
         "short_id",
     };
 };
@@ -1681,11 +1705,13 @@ pub const TabKind = enum {
     pty,
     browser,
     conversation,
+    app,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "pty")) return .pty;
         if (std.mem.eql(u8, value, "browser")) return .browser;
         if (std.mem.eql(u8, value, "conversation")) return .conversation;
+        if (std.mem.eql(u8, value, "app")) return .app;
         return error.UnknownEnumValue;
     }
 
@@ -1694,11 +1720,13 @@ pub const TabKind = enum {
             .pty => "pty",
             .browser => "browser",
             .conversation => "conversation",
+            .app => "app",
         };
     }
 };
 
 pub const Tab = struct {
+    app: ?[]const u8 = null,
     browser_error: wire.Field([]const u8) = .absent,
     browser_frames_stalled: wire.Field(bool) = .absent,
     browser_source: wire.Nullable(TabBrowserSource),
@@ -1707,6 +1735,7 @@ pub const Tab = struct {
     kind: TabKind,
     name: wire.Nullable([]const u8),
     notification: wire.Field(NotificationMarker) = .absent,
+    route: ?[]const u8 = null,
     short_id: ?[]const u8 = null,
     size: wire.Nullable(Size),
     supports_clear_history_key_fallback: ?bool = null,
@@ -1717,6 +1746,8 @@ pub const Tab = struct {
     title: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "app",
+        "route",
         "short_id",
         "supports_clear_history_key_fallback",
     };
@@ -2391,16 +2422,25 @@ pub const Workspace = struct {
 
 pub const WorkspaceMutationResult = struct {
     changed: ?bool = null,
+    /// create-workspace with initial: the public browser id of the app tab.
+    content_resource_id: ?[]const u8 = null,
     generation: []const u8,
     index: u64,
     key: []const u8,
     registry_id: []const u8,
     replayed: bool,
+    /// create-workspace with initial: the surface of the app tab.
+    surface: ?Id = null,
+    /// create-workspace with initial: the public id of the app tab.
+    tab_resource_id: ?[]const u8 = null,
     workspace: Id,
     workspace_revision: u64,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "changed",
+        "content_resource_id",
+        "surface",
+        "tab_resource_id",
     };
 };
 
@@ -3673,6 +3713,7 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
 pub const CreateWorkspaceRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
+    initial: wire.Field(InitialApp) = .absent,
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
@@ -3689,6 +3730,9 @@ pub fn createWorkspace(client: anytype, request: CreateWorkspaceRequest) !wire.D
             .authority = "control",
             .since = 7,
             .capability = "workspace-registry-v1",
+            .fields = &.{
+                .{ .name = "initial", .since = 12, .capability = "app-screens-v1" },
+            },
         },
         request,
     );
@@ -4945,6 +4989,31 @@ pub fn moveWorkspaceToGroup(client: anytype, request: MoveWorkspaceToGroupReques
             .authority = "control",
             .since = 12,
             .capability = "workspace-groups-v1",
+        },
+        request,
+    );
+}
+
+pub const NewAppTabRequest = struct {
+    app: []const u8,
+    cols: wire.Field(u16) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
+    pane: wire.Field(Id) = .absent,
+    route: wire.Field([]const u8) = .absent,
+    rows: wire.Field(u16) = .absent,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const NewAppTabResult = JsonValue;
+
+pub fn newAppTab(client: anytype, request: NewAppTabRequest) !wire.Decoded(NewAppTabResult) {
+    return client.callTyped(
+        NewAppTabResult,
+        .{
+            .name = "new-app-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "app-screens-v1",
         },
         request,
     );
@@ -8392,7 +8461,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 213;
+pub const command_count: usize = 214;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -8502,6 +8571,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "move-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "move-workspace-to-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
+    .{ .name = "new-app-tab", .authority = "control", .since = 12, .capability = "app-screens-v1", .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-conversation-tab", .authority = "control", .since = 12, .capability = "conversation-tabs-v1", .stream = null },
     .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },

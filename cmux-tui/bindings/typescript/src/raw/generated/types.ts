@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4. */
+/* cmux-tui mux protocol 12, IR ba35a5ee811aa5fb93acfd01bfb575f877c37903964478e5d88b27d1391575a4. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -389,6 +389,11 @@ export type IdsResult = {
   "ids": Array<IdMapping>;
 };
 
+export type InitialApp = {
+  "app": string;
+  "route"?: (string) | null;
+};
+
 export type KittyGraphicsState = {
   "alternate_next_image_id": number;
   "alternate_replay_next_image_id": number;
@@ -725,7 +730,9 @@ export type RunResult = {
 export type Screen = {
   "active": boolean;
   "active_pane": Id;
+  "app"?: string;
   "id": Id;
+  "kind"?: "app";
   "layout": Layout;
   "name": (string) | null;
   "panes": Array<Pane>;
@@ -931,14 +938,16 @@ export type SurfaceResult = {
 };
 
 export type Tab = {
+  "app"?: string;
   "browser_error"?: (string) | null;
   "browser_frames_stalled"?: (boolean) | null;
   "browser_source": ("external" | "launched") | null;
   "browser_status"?: ("starting" | "live" | "failed") | null;
   "dead": boolean;
-  "kind": "pty" | "browser" | "conversation";
+  "kind": "pty" | "browser" | "conversation" | "app";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
+  "route"?: string;
   "short_id"?: string;
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
@@ -1148,11 +1157,17 @@ export type Workspace = {
 
 export type WorkspaceMutationResult = {
   "changed"?: boolean;
+  /** create-workspace with initial: the public browser id of the app tab. */
+  "content_resource_id"?: string;
   "generation": string;
   "index": bigint;
   "key": string;
   "registry_id": string;
   "replayed": boolean;
+  /** create-workspace with initial: the surface of the app tab. */
+  "surface"?: Id;
+  /** create-workspace with initial: the public id of the app tab. */
+  "tab_resource_id"?: string;
   "workspace": Id;
   "workspace_revision": bigint;
 };

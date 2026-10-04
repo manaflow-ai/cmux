@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4.
+// cmux-tui mux protocol 12, IR ba35a5ee811aa5fb93acfd01bfb575f877c37903964478e5d88b27d1391575a4.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -647,6 +647,14 @@ pub struct IdsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InitialApp {
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub route: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KittyGraphicsState {
     pub alternate_next_image_id: u32,
     pub alternate_replay_next_image_id: u32,
@@ -1156,11 +1164,22 @@ pub struct RunResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScreenKind {
+    #[serde(rename = "app")]
+    App,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Screen {
     pub active: bool,
     pub active_pane: Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
     pub id: Id,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ScreenKind>,
     pub layout: Layout,
     pub name: Nullable<String>,
     pub panes: Vec<Pane>,
@@ -1547,11 +1566,15 @@ pub enum TabKind {
     Browser,
     #[serde(rename = "conversation")]
     Conversation,
+    #[serde(rename = "app")]
+    App,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tab {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub browser_error: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1564,6 +1587,8 @@ pub struct Tab {
     pub name: Nullable<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub notification: Optional<NotificationMarker>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub route: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub short_id: Option<String>,
     pub size: Nullable<Size>,
@@ -2108,11 +2133,20 @@ pub struct Workspace {
 pub struct WorkspaceMutationResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub changed: Option<bool>,
+    /// create-workspace with initial: the public browser id of the app tab.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub content_resource_id: Option<String>,
     pub generation: String,
     pub index: u64,
     pub key: String,
     pub registry_id: String,
     pub replayed: bool,
+    /// create-workspace with initial: the surface of the app tab.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub surface: Option<Id>,
+    /// create-workspace with initial: the public id of the app tab.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub tab_resource_id: Option<String>,
     pub workspace: Id,
     pub workspace_revision: u64,
 }
