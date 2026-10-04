@@ -99,6 +99,34 @@ impl Package {
             .collect()
     }
 
+    /// The fragment name of `op`. Full names are canonical: for a
+    /// first-party app `cmux.<name>` resolves to its op `<name>`
+    /// (`cmux.cloud.machine.list` -> `cloud.machine.list`), and the short
+    /// name stays accepted. A third-party op name is already its namespace
+    /// (`<publisher>.<name>.<verb>`), so nothing is stripped.
+    pub fn resolve_op<'a>(&self, op: &'a str) -> &'a str {
+        match op.strip_prefix("cmux.") {
+            Some(short)
+                if self.tier == Tier::FirstParty
+                    && self.catalog_op(op).is_none()
+                    && self.catalog_op(short).is_some() =>
+            {
+                short
+            }
+            _ => op,
+        }
+    }
+
+    /// The full name of a server event `name` of this app: `cmux.<name>`
+    /// for a first-party app, unchanged for a third-party one.
+    pub fn full_name(&self, name: &str) -> String {
+        if self.tier == Tier::FirstParty && !name.starts_with("cmux.") {
+            format!("cmux.{name}")
+        } else {
+            name.to_string()
+        }
+    }
+
     /// The export behind a catalog op of the app.
     pub fn export_for_op(&self, op: &str) -> Option<String> {
         let (_, entry) = self.catalog_ops().into_iter().find(|(name, _)| name == op)?;

@@ -118,14 +118,24 @@ fn reply(
             error_code: None,
             error_delivery: None,
         },
-        Err(e) => Response {
-            id,
-            ok: false,
-            data: None,
-            error: Some(e.message),
-            error_code: Some(e.code),
-            error_delivery: None,
-        },
+        Err(e) => {
+            let response = Response {
+                id,
+                ok: false,
+                data: None,
+                error: Some(e.message),
+                error_code: Some(e.code),
+                error_delivery: None,
+            };
+            // The owner's details and retryable ride next to the error,
+            // unchanged (a page reads details.status, details.upstream_code).
+            let Ok(mut value) = serde_json::to_value(response) else { return false };
+            if let Some(details) = e.details {
+                value["error_details"] = details;
+            }
+            value["retryable"] = Value::Bool(e.retryable);
+            return writer.send_control(&value).is_ok();
+        }
     };
     send_response(writer, response)
 }
@@ -382,6 +392,31 @@ mod tests {
             json!({ "cmd": "apps-provider-result", "request_id": 4, "ok": false, "body": { "code": "x" } }),
         );
         assert!(matches!(result.command, Command::ProviderResult { request_id: 4, ok: false, .. }));
+    }
+
+    #[test]
+    fn error_replies_carry_details_and_retryable() {
+        let mux = Mux::new_for_test("apps-error-details", SurfaceOptions::default());
+        let (client, outbound) = connection(&mux, Some("app"), false);
+        let writer = mux.control_clients.state.lock().unwrap().clients[&client].writer.clone();
+        let mut error = crate::apps::ApiError::new("cmux.cloud.not_found", "no such machine");
+        error.details = Some(json!({ "status": 404, "upstream_code": "vm_not_found" }));
+        error.retryable = true;
+        assert!(reply(&writer, Some(json!(7)), Err(error)));
+        let sent: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(
+            sent,
+            json!({ "id": 7, "ok": false, "error": "no such machine", "error_code": "cmux.cloud.not_found",
+                "error_details": { "status": 404, "upstream_code": "vm_not_found" }, "retryable": true })
+        );
+        // Without details the reply still says whether a retry may help.
+        assert!(reply(
+            &writer,
+            Some(json!(8)),
+            Err(crate::apps::ApiError::new("apps.unknown", "no"))
+        ));
+        let plain: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!((plain.get("error_details"), plain["retryable"].clone()), (None, json!(false)));
     }
 
     #[test]
