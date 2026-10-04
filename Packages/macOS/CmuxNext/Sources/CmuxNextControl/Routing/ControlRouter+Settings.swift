@@ -22,7 +22,7 @@ extension ControlRouter {
             }
             if let descriptor, !writer.mayWrite(descriptor) {
                 guard call.params["confirm"]?.boolValue == true else { throw ControlSettingsPolicy.userOnly(descriptor.id) }
-                guard await owner.confirmUserOnlyWrite(key: descriptor.id, value: value) else {
+                guard await ControlSettingsPolicy.confirm(descriptor.id, value: value, owner: owner, connection: call.connection) else {
                     throw ControlSettingsPolicy.declined(descriptor.id)
                 }
                 writer = .user
