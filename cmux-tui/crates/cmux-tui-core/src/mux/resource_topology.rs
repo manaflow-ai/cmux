@@ -27,6 +27,7 @@ mod layout_projection;
 mod pane_browser;
 mod published_screen;
 mod structural_move;
+mod unpublished_creation;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
 use layout_projection::{remove_pane_from_layout, sync_layout_column_projection};
 use pane_browser::{creation_identity_kind, effect_browser_cell_size};
@@ -3804,16 +3805,7 @@ impl Mux {
                     created_path,
                 ) {
                     Ok(commit) => Ok(ResourceCreationSettlement::Created(commit)),
-                    Err(_) => {
-                        if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
-                            return Ok(settlement);
-                        }
-                        if recovery.interrupted {
-                            return Ok(ResourceCreationSettlement::Pending);
-                        }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
-                    }
+                    Err(error) => self.settle_unpublished_creation(&recovery, failure, error),
                 }
             }
             ResourceCreationEvidence::NotApplied(reason) => {
