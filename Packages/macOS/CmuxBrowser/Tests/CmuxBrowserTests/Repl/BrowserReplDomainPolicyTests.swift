@@ -87,6 +87,33 @@ struct BrowserReplDomainPolicyTests {
         }
     }
 
+    /// When the system's Public Suffix List cannot be read, a wildcard cannot
+    /// be told from one over a public suffix (`*.com`), so it is refused
+    /// rather than accepted over every site.
+    @Test("Without a Public Suffix List, wildcard patterns are refused; exact hosts and * are not")
+    func wildcardsFailClosedWithoutTheList() throws {
+        let boundary = BrowserReplBoundary(publicSuffixes: .unavailable)
+        for raw in ["*.com", "*.co.uk", "*.example.com", "https://*.example.com:8443"] {
+            let (result, updated) = boundary.policyOperation("set", ["allowed": [raw], "title": "session.allowedDomains"])
+            #expect(updated == nil, "\(raw)")
+            guard case .failure(let error) = result else {
+                Issue.record("\(raw) was accepted without a Public Suffix List")
+                continue
+            }
+            #expect(error.message.contains("Public Suffix List"), "\(error.message)")
+            let secret = boundary.secretsOperation("set", ["name": "pw", "value": "hunter22", "domains": [raw]])
+            #expect(throws: BrowserReplDriverError.self, "secret \(raw)") { try secret.get() }
+        }
+        for raw in ["example.com", "https://www.example.co.uk:8443", "*"] {
+            let (result, updated) = boundary.policyOperation("set", ["allowed": [raw], "title": "session.allowedDomains"])
+            #expect(throws: Never.self, "\(raw)") { try result.get() }
+            #expect(updated != nil, "\(raw)")
+        }
+        #expect(BrowserReplPublicSuffixList.unavailable.site(of: "a.b.example.com") == "a.b.example.com")
+        #expect(!BrowserReplPublicSuffixList.unavailable.isAvailable)
+        #expect(BrowserReplPublicSuffixList(isPublicSuffix: { _ in false }).isAvailable)
+    }
+
     @Test("Setting a cookie on a parent domain needs every subdomain allowed and none prohibited")
     func cookieSetScope() throws {
         let one = try policy(allowed: ["https://www.parent.test"])
