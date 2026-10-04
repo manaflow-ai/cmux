@@ -3,6 +3,7 @@ import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
 import { drainOutbox, isTransientError } from "./projection.ts"
+import { refusalOnInitial } from "./owner-preflight.ts"
 import { SnapshotBatcher } from "./snapshot-batcher.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
@@ -74,10 +75,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     super(ctx, env)
     this.store = doSql(ctx.storage)
     void ctx.blockConcurrencyWhile(async () => {
-      this.store.exec(`CREATE TABLE IF NOT EXISTS do_entity (id INTEGER PRIMARY KEY CHECK (id = 1), entity TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`)
-      this.store.exec(`CREATE TABLE IF NOT EXISTS do_wake (id INTEGER PRIMARY KEY CHECK (id = 1), attempts INTEGER NOT NULL)`)
-      const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
-      if (row) this.open(row.entity)
+      // An object nobody created has no tables: the constructor only reads, so naming an id writes nothing.
+      const row = this.boundEntity()
+      if (row !== null) {
+        this.store.exec(`CREATE TABLE IF NOT EXISTS do_wake (id INTEGER PRIMARY KEY CHECK (id = 1), attempts INTEGER NOT NULL)`)
+        this.open(row)
+      }
     })
   }
 
@@ -96,11 +99,32 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return this.engine
   }
 
-  /** Binds this object to its entity on first use; refuses any other entity. */
+  /** The entity this object is bound to, or null for an object that was never created (no write). */
+  protected boundEntity(): string | null {
+    if (this.store.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'do_entity'`).length === 0) return null
+    return this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]?.entity ?? null
+  }
+
+  /** `{entity}` of a bound object, or undefined (the shape subclasses read before). Never writes. */
+  protected boundRow(): { entity: string } | undefined {
+    const e = this.boundEntity()
+    return e === null ? undefined : { entity: e }
+  }
+
+  /** True when this object exists for `entity`; refuses any other entity. Never writes. */
+  protected isBound(entity: string): boolean {
+    const row = this.boundEntity()
+    if (row !== null && row !== entity) throw new Error(`object bound to ${row}, not ${entity}`)
+    return row !== null
+  }
+
+  /** Binds this object to its entity on first use (creates its storage); refuses any other entity. */
   protected bind(entity: string): OwnerEngine<S> {
-    const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
-    if (!row) this.store.exec(`INSERT INTO do_entity (id, entity) VALUES (1, ?)`, entity)
-    else if (row.entity !== entity) throw new Error(`object bound to ${row.entity}, not ${entity}`)
+    if (!this.isBound(entity)) {
+      this.store.exec(`CREATE TABLE IF NOT EXISTS do_entity (id INTEGER PRIMARY KEY CHECK (id = 1), entity TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`)
+      this.store.exec(`CREATE TABLE IF NOT EXISTS do_wake (id INTEGER PRIMARY KEY CHECK (id = 1), attempts INTEGER NOT NULL)`)
+      this.store.exec(`INSERT INTO do_entity (id, entity) VALUES (1, ?)`, entity)
+    }
     return this.open(entity)
   }
 
@@ -327,6 +351,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** RPC: one op from an authenticated principal. Requester frames return; events fan out to subscribers. */
   async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    // An op on an object that does not exist yet: decide it on the initial state first, and create
+    // storage only when it would commit (home-scale review: no empty objects from refused ops).
+    if (!this.isBound(entity)) {
+      const refused = refusalOnInitial(this.domain, `${this.streamPrefix}:${entity}`, principal, frame)
+      if (refused) return { frames: refused }
+    }
     const engine = this.bind(entity)
     const frames: Array<OwnerFrame> = []
     engine.submit(principal, frame, (target, f) => (target === "all" ? this.broadcast(f) : frames.push(f)))
@@ -336,6 +366,10 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   }
 
   async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
+    if (!this.isBound(entity)) {
+      const r = this.read(this.domain.initial(), op, params, principal)
+      return r.ok ? { ...r, revision: "0" } : r
+    }
     const engine = this.bind(entity)
     const r = this.read(engine.currentState, op, params, principal)
     return r.ok ? { ...r, revision: String(engine.currentSeq) } : r
@@ -359,6 +393,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const principalJson = request.headers.get("x-cmux-principal")
     if (!entity || !principalJson || request.headers.get("Upgrade") !== "websocket") return new Response("bad request", { status: 400 })
     const principal = JSON.parse(principalJson) as Principal
+    if (!this.isBound(entity) && !this.maySubscribe(this.domain.initial(), principal)) return new Response("forbidden", { status: 403 })
     const engine = this.bind(entity)
     if (!this.maySubscribe(engine.currentState, principal)) return new Response("forbidden", { status: 403 })
     const pair = new WebSocketPair()
@@ -373,9 +408,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const a = ws.deserializeAttachment() as Attachment
     // A socket lives no longer than its token.
     if (a.principal.expires_at !== undefined && a.principal.expires_at <= Date.now()) return ws.close(4401, "token expired")
-    const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
-    if (!row) return ws.close(1011, "unbound")
-    const engine = this.open(row.entity)
+    const row = this.boundEntity()
+    if (row === null) return ws.close(1011, "unbound")
+    const engine = this.open(row)
     let frame: { t?: string; after_seq?: number; pending?: Array<string> } & Partial<Omit<OpFrame, "t">>
     try {
       frame = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message))

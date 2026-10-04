@@ -303,7 +303,7 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */
   private existing() {
-    const row = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
+    const row = this.boundRow()
     return row ? this.bind(row.entity) : undefined
   }
 

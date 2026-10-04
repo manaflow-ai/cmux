@@ -194,7 +194,7 @@ export class ConversationDO extends OwnerDO<Head> {
 
   /** State of an object that already serves this conversation; never creates storage for unknown ids. */
   private existingState(entity: string): Head | undefined {
-    const row = this.sqlStore.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
+    const row = this.boundRow()
     if (!row || row.entity !== entity) return undefined
     return this.bind(entity).currentState ?? undefined
   }
