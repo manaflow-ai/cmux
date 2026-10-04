@@ -1,206 +1,169 @@
-// Sample data for the mock provider (dev loop and tests). Shapes follow the Cloud app server's
-// recorded fixtures (first-party-apps/cloud/server/tests/fixtures/, from `web/app/api/vm/**`).
-// Names, ids and addresses are made up.
-import type {
-  CloudDomain,
-  CloudMachine,
-  CloudNetwork,
-  CloudPlan,
-  CloudPublication,
-  CloudSnapshot,
-  CloudTeam,
-  CloudUsage,
-  FirewallRule,
-  MachineStats,
-} from "./ops";
+// Sample data for the mock provider (dev loop and tests). Shapes follow the `cmux.wire/1` records the
+// Cloud app server answers (first-party-apps/cloud/server/src/api/models.rs; vectors
+// backend/catalog/cloud-vectors.json). Names, ids and numbers are made up.
+import type { CloudMachine, CloudSnapshot, CloudTeam, MigrationStatus } from "./ops";
 
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 9, 1, 9, 30);
 
-const creator = { userId: "user-dev-1", displayName: "Dev User" };
+const base = {
+  team: "team_personal",
+  creator: "user_dev1",
+  image: { id: "img_base1", daemon_version: "0.40.0" },
+  error: null,
+};
 
 export function sampleMachines(): CloudMachine[] {
   return [
     {
-      id: "vm-a1",
-      provider: "freestyle",
+      ...base,
+      id: "vm_a1",
+      name: "api-dev",
+      size: { cpu: 4, memory_mb: 8192, disk_mb: 65_536 },
       status: "running",
-      displayName: "api-dev",
-      slug: "api-dev",
-      kind: "terminal",
-      image: "cmux-base",
-      imageVersion: "20260902e",
-      createdAt: T0 - 3 * DAY,
-      address: { ipv4: "10.42.0.11", ipv6: null },
-      createdBy: creator,
-      freeAccessExpiresAt: null,
+      host: "host_a1",
+      classic: false,
+      created_at: T0 - 3 * DAY,
+      last_active_at: T0,
+      idle_policy: { idle_seconds: 1800 },
+      revision: "7",
     },
     {
-      id: "vm-b2",
-      provider: "freestyle",
+      ...base,
+      id: "vm_b2",
+      name: "build-cache",
+      size: { cpu: 2, memory_mb: 4096, disk_mb: 16_384 },
       status: "paused",
-      displayName: "build-cache",
-      slug: "build-cache",
-      kind: "terminal",
-      image: "cmux-base",
-      imageVersion: "20260902e",
-      createdAt: T0 - 10 * DAY,
-      address: { ipv4: null, ipv6: null },
-      createdBy: creator,
-      freeAccessExpiresAt: null,
+      host: "host_b2",
+      classic: false,
+      created_at: T0 - 10 * DAY,
+      last_active_at: T0 - DAY,
+      idle_policy: { idle_seconds: 900 },
+      revision: "4",
     },
     {
-      id: "vm-c3",
-      provider: "freestyle",
+      ...base,
+      id: "vm_c3",
+      name: null,
+      size: { cpu: 2, memory_mb: 4096, disk_mb: 16_384 },
       status: "provisioning",
-      displayName: null,
-      slug: "quiet-otter",
-      kind: "terminal",
-      image: "cmux-base",
-      imageVersion: "20260902e",
-      createdAt: T0,
-      address: null,
-      createdBy: null,
-      freeAccessExpiresAt: null,
+      host: null,
+      classic: false,
+      created_at: T0,
+      last_active_at: null,
+      idle_policy: null,
+      revision: "1",
+    },
+    {
+      ...base,
+      id: "vm_d4",
+      name: "old-box",
+      size: { cpu: 2, memory_mb: 4096, disk_mb: 16_384 },
+      status: "running",
+      image: { id: "img_classic", daemon_version: null },
+      host: null,
+      classic: true,
+      created_at: T0 - 90 * DAY,
+      last_active_at: T0 - 2 * DAY,
+      idle_policy: null,
+      revision: "2",
     },
   ];
 }
 
-/** Snapshots by machine. `createdAt` is an ISO string, as the snapshots route answers it. */
-export function sampleSnapshots(): Array<CloudSnapshot & { machine: string }> {
+/** The machines whose cmux daemon reports the `fs-v1` capability (file ops on the link). */
+export const SAMPLE_FS_MACHINES: readonly string[] = ["vm_a1", "vm_b2"];
+
+export function sampleSnapshots(): CloudSnapshot[] {
   return [
-    { id: "snap-1", name: "before upgrade", machine: "vm-a1", createdAt: new Date(T0 - DAY).toISOString() },
-    { id: "snap-2", name: null, machine: "vm-a1", createdAt: new Date(T0 - 2 * DAY).toISOString() },
-    { id: "snap-3", name: "warm cache", machine: "vm-b2", createdAt: new Date(T0 - 5 * DAY).toISOString() },
+    {
+      id: "snap_1",
+      machine: "vm_a1",
+      name: "before upgrade",
+      size_mb: 2048,
+      status: "ready",
+      created_at: T0 - DAY,
+      revision: "3",
+    },
+    {
+      id: "snap_2",
+      machine: "vm_a1",
+      name: null,
+      size_mb: 1024,
+      status: "ready",
+      created_at: T0 - 2 * DAY,
+      revision: "2",
+    },
+    {
+      id: "snap_3",
+      machine: "vm_b2",
+      name: "warm cache",
+      size_mb: 4096,
+      status: "ready",
+      created_at: T0 - 5 * DAY,
+      revision: "1",
+    },
   ];
 }
 
-/** A small guest tree per machine (fixtures fs-dir.json, fs-stat.json, fs-read.json, fs-stat-large.json). */
+/** A small guest tree per machine (finder `fs.*` answers through the server's `Entry`). */
 export interface SampleFile {
   kind: "file" | "directory" | "symlink";
   /** File content; a file without one is large (`size` only). */
   text?: string;
   size?: number;
-  mode?: number;
   modifiedAt?: number;
 }
 
 export function sampleFiles(): Map<string, SampleFile> {
   return new Map<string, SampleFile>([
     ["/home/cmux", { kind: "directory" }],
-    ["/home/cmux/notes.txt", { kind: "file", text: "hello cloud\n", mode: 420, modifiedAt: 1_791_100_000_000 }],
+    ["/home/cmux/notes.txt", { kind: "file", text: "hello cloud\n", modifiedAt: 1_791_100_000_000 }],
     ["/home/cmux/src", { kind: "directory" }],
-    ["/home/cmux/src/main.rs", { kind: "file", text: "fn main() {}\n", mode: 420 }],
+    ["/home/cmux/src/main.rs", { kind: "file", text: "fn main() {}\n" }],
     ["/home/cmux/big.bin", { kind: "file", size: 20_971_520 }],
-    // fs-dir.json lists a symlink with no size.
+    // A symlink has no size.
     ["/home/cmux/latest", { kind: "symlink" }],
   ]);
 }
 
-/** `GET /api/vm/:id/stats`: sleeping machines answer `asleep` with no numbers. */
-export function sampleStats(machine: CloudMachine, memoryMb = 8192): MachineStats {
-  if (machine.status !== "running") return { state: "asleep" };
-  return {
-    state: "awake",
-    cpus: 4,
-    cpuPercent: 12.5,
-    loadAverage1m: 0.4,
-    memoryTotalMb: memoryMb,
-    memoryUsedMb: 2048,
-    diskTotalMb: 65_536,
-    diskUsedMb: 10_240,
-  };
+/** The plan's fixed part; `usage.active` and `usage.saved` come from the mock's machines. */
+export interface SamplePlan {
+  plan_id: string;
+  max_active: number;
+  max_saved: number;
+  memory_options_mb: number[];
+  locked_memory_options_mb: number[];
+  vm_hours_included: number;
+  vm_hours_used: number;
+  period_end: number;
 }
 
 export interface SampleAccount {
   team: string;
   teams: CloudTeam[];
-  plan: CloudPlan;
-  usage: CloudUsage;
-  domains: CloudDomain[];
-  publications: CloudPublication[];
-  networks: CloudNetwork[];
-  firewall: FirewallRule[];
+  plan: SamplePlan;
+  migration: MigrationStatus;
 }
 
 export function sampleAccount(): SampleAccount {
   return {
-    team: "team-personal",
+    team: "team_personal",
     teams: [
-      { id: "team-personal", name: "Personal" },
-      { id: "team-acme", name: "Acme" },
+      { id: "team_personal", name: "Personal" },
+      { id: "team_acme", name: "Acme" },
     ],
-    // The `limits` of `GET /api/vm`, as `cloud.plan.get` answers them.
     plan: {
-      planId: "go",
-      maxActiveVms: 3,
-      activeVmCount: 2,
-      memoryOptionsMb: [4096, 8192],
-      lockedMemoryOptionsMb: [16_384, 32_768],
-      memoryUpgradePlanId: "pro",
-      freeAccessExpiresAt: null,
-      freeAccessWindowDays: 0,
+      plan_id: "go",
+      max_active: 5,
+      max_saved: 5,
+      // Like the backend vectors: the offered sizes include the locked ones.
+      memory_options_mb: [4096, 8192, 16_384, 32_768],
+      locked_memory_options_mb: [16_384, 32_768],
+      vm_hours_included: 40,
+      vm_hours_used: 12.5,
+      period_end: T0 + 20 * DAY,
     },
-    usage: { vmHoursUsed: 12.5, vmHoursIncluded: 40, activeVmCount: 2, savedVmLimit: 5 },
-    // The server's answers (first-party-apps/cloud/server/tests/fixtures/{domain,publication,network,
-    // firewall}-list.json), with the sample machine ids.
-    domains: [
-      {
-        id: "dom-test01",
-        hostname: "example.test",
-        verificationState: "pending",
-        certificateState: "pending",
-        createdAt: "2026-10-01T00:00:00.000Z",
-        dnsInstructions: [
-          { purpose: "verification", recordTypes: ["TXT"], name: "_cmux.example.test", value: "cmux-verify=test" },
-        ],
-        publications: [{ id: "00000000-0000-4000-8000-000000000001", hostname: "app.example.test", state: "pending" }],
-      },
-    ],
-    publications: [
-      {
-        id: "00000000-0000-4000-8000-000000000001",
-        hostname: "app.example.test",
-        url: "https://app.example.test",
-        domainKind: "custom",
-        vmId: "vm-a1",
-        port: 3000,
-        accessMode: "personal",
-        teamId: null,
-        state: "pending",
-        routingRevision: 1,
-        verification: null,
-      },
-      {
-        id: "00000000-0000-4000-8000-000000000002",
-        hostname: "quiet-test-label.cmux.sh",
-        url: "https://quiet-test-label.cmux.sh",
-        domainKind: "generated",
-        vmId: "vm-b2",
-        port: 8080,
-        accessMode: "team",
-        teamId: "team-personal",
-        state: "active",
-        routingRevision: 3,
-        verification: null,
-      },
-    ],
-    networks: [{ id: "vpc-test01", cidr: "10.64.0.0/16", cidrV6: "fd00:64::/48", scope: "user" }],
-    firewall: [
-      {
-        id: "fw-test01",
-        action: "allow",
-        source: { public: true },
-        destination: { vmId: "vm-a1", port: 443, protocol: "tcp" },
-        description: "https",
-        createdAt: "2026-10-01T00:00:00.000Z",
-      },
-      {
-        id: "fw-test03",
-        action: "allow",
-        source: { cidr: "10.64.0.0/16" },
-        destination: { vmId: "vm-a1", port: 5432, protocol: "tcp" },
-      },
-    ],
+    migration: { state: "available", classic_count: 1, imported: ["vm_d4"] },
   };
 }
