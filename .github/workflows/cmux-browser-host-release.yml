@@ -42,7 +42,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Version (a tag must match the crate)
+          fetch-depth: 0
+      - name: Version (a tag must match the crate and sit on feat-cmux-next)
         id: version
         shell: bash
         run: |
@@ -50,6 +51,10 @@ jobs:
           cargo_toml=cmux-tui/crates/cmux-browser-host/Cargo.toml
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="$(python3 scripts/cmux-next/browser-host-release.py version "$GITHUB_REF_NAME" "$cargo_toml")"
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/feat-cmux-next; then
+              echo "tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on feat-cmux-next" >&2
+              exit 1
+            fi
           else
             version="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["package"]["version"])' "$cargo_toml")"
           fi
@@ -174,6 +179,12 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
+          # A re-run after a partial upload replaces the assets of the release it made.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber \
+              dist/*.tar.gz dist/manifest-entries.json dist/SHA256SUMS
+            exit 0
+          fi
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
             --title "cmux-browser-host $VERSION" \
             --notes "cmux-browser-host $VERSION for Linux (x86_64, aarch64; glibc >= $GLIBC_FLOOR), commit $GITHUB_SHA. Channel-manifest entries: manifest-entries.json (unsigned; verify with gh attestation verify)." \
