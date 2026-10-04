@@ -189,7 +189,7 @@ export class OwnerEngine<S, P = unknown> {
     if (typeof key !== "string" || key.length === 0 || key.length > 128) return { code: "validation.invalid", message: "idempotency_key is required (1 to 128 characters)" }
     const prior = this.sql.exec<{ one: number }>(`SELECT 1 AS one FROM ${this.t.ledger} WHERE identity = ? AND idempotency_key = ?`, principal.identity, key)[0]
     if (prior) return "replay"
-    return this.domain.authorize?.(this.state, frame.op, frame.params as P, principal) ?? undefined
+    return this.domain.authorize?.(this.state, frame.op, frame.params as P, principal, this.authRows) ?? undefined
   }
 
   /** Handles one op from an authenticated connection. Frames go out through `deliver`. */
@@ -235,7 +235,7 @@ export class OwnerEngine<S, P = unknown> {
     }
 
     // 2. Authorization. Not recorded: a later grant may allow the same key.
-    const denied = this.domain.authorize?.(this.state, frame.op, frame.params as P, principal)
+    const denied = this.domain.authorize?.(this.state, frame.op, frame.params as P, principal, this.authRows)
     if (denied) return reply(reject(denied.code, denied.message, denied), 0)
 
     // 3. Decide: revision precondition, then the pure reducer (rows read-only).
@@ -427,6 +427,11 @@ export class OwnerEngine<S, P = unknown> {
   /** Deletes a bounded contiguous prefix older than `before`, never one of the newest `keepLast` (event-window.ts). */
   pruneEvents(before: number, keepLast = EVENT_KEEP_LAST, limit = 1000): number {
     return pruneBefore(this.sql, this.t, this.seq, before, keepLast, limit)
+  }
+
+  /** Rows authorize may read: the owner's rows in row mode, none otherwise (a JSON mirror replays without rows). */
+  private get authRows() {
+    return this.options.rowMode ? readOnly(this.rows) : EMPTY_ROWS
   }
 
   private get window(): EventWindow {

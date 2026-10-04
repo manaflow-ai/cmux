@@ -214,5 +214,6 @@ export interface Domain<S, P = unknown> {
   readonly initial: () => S
   readonly reduce: (state: S, op: string, params: P, ctx: ReduceContext) => ReduceResult<S>
   /** Authorization by grant and op class. A failure is not recorded in the ledger. */
-  readonly authorize?: (state: S, op: string, params: P, principal: Principal) => Reject | undefined
+  /** `rows`: a read-only reader of the owner's rows in row mode (members out of the head, (f)); EMPTY_ROWS otherwise. */
+  readonly authorize?: (state: S, op: string, params: P, principal: Principal, rows?: RowReader) => Reject | undefined
 }
