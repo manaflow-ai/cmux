@@ -262,6 +262,14 @@ impl Started {
             let tx = events_tx.clone();
             let alive = leader_alive.clone();
             tokio::spawn(async move {
+                // End what the agent left running while the exited leader is
+                // still a zombie: its group id cannot be reused yet, so the
+                // kill reaches only this harness's group. Then reap it.
+                if let Some(pg) = pgid {
+                    let _ = tokio::task::spawn_blocking(move || wait_exit_unreaped(pg)).await;
+                    // SAFETY: the unreaped leader keeps this group id ours.
+                    unsafe { libc::killpg(pg, libc::SIGKILL) };
+                }
                 let code = child.wait().await.ok().and_then(|s| s.code());
                 // Reaped: from here the group id may be freed; nobody may
                 // signal it on the strength of the leader being alive.
@@ -357,14 +365,9 @@ impl Started {
                 }
                 Event::Exited(code) => {
                     state.leader_code = Some(code);
-                    // Stop what the agent left running so its pipes close.
-                    // The group outlives its reaped leader while members
-                    // remain, so its id is not reused yet.
+                    // The waiter already ended the group before it reaped
+                    // the leader; the group id may be reused from here on.
                     state.leader_alive.store(false, std::sync::atomic::Ordering::SeqCst);
-                    if let Some(pg) = state.pgid {
-                        // SAFETY: the harness led this process group.
-                        unsafe { libc::killpg(pg, libc::SIGKILL) };
-                    }
                     state.maybe_push_exit();
                     draining = state.exit_h.is_none();
                 }
@@ -732,12 +735,22 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// Block until process `pid` (a child of this process) has exited. Call it
-/// off the async runtime.
+/// Block until process `pid` (a child of this process) has exited, without
+/// reaping it: the zombie keeps its process group id from being reused.
+/// Call it off the async runtime.
 fn wait_exit_unreaped(pid: i32) {
-    let mut status = 0;
-    // SAFETY: waits on this process's own child.
-    unsafe { libc::waitpid(pid, &mut status, 0) };
+    loop {
+        // SAFETY: a zeroed siginfo_t is a valid out-parameter for waitid.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: waits on this process's own child; WNOWAIT leaves it
+        // waitable, so the reaper below still gets its status.
+        let rc = unsafe {
+            libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT)
+        };
+        if rc == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -747,7 +760,8 @@ mod tests {
     /// never signal another process group.
     #[test]
     fn waiting_for_the_leader_leaves_it_unreaped() {
-        let mut child = std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
+        let mut child =
+            std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
         let pid = child.id() as i32;
         super::wait_exit_unreaped(pid);
         // SAFETY: signal 0 to this test's own child only checks existence.
