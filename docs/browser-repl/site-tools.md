@@ -200,7 +200,7 @@ the file back to verify.
 | `googleSlides.slides(url)` | pptx export: `{ index, title, text, notes }` per slide | read |
 | `googleSlides.setNotes(url, slide, text)` | the slide's filmstrip thumbnail (`g#filmstrip-slide-<n>-<page>`); the draft names the slide by its object id (`<page>`) and title, and the write clicks the thumbnail with that object id wherever the slide moved (a deleted slide fails with `slide_changed`); the speaker notes box, old notes selected (Meta+ArrowUp, Meta+Shift+ArrowDown) and deleted, new notes typed; verified through the pptx export | write |
 | `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export. The draft states the match count per slide (slide text and notes, case ignored); right before Replace all the pptx export is read again and the write fails (`document_changed`) unless the deck is unchanged | write |
-| `googleDrive.create(kind, title)` | `docs.google.com/<kind>/create`, then the title field | creates a private file |
+| `googleDrive.create(kind, title, { uid })` | `docs.google.com/<kind>/create?authuser=<email>`, with the email of the account at `/u/<uid>/` (default 0) read first, so a sign-in by another session that moves accounts to other indexes cannot put the file in another account; then the title field. Returns `account` | creates a private file |
 | `googleDrive.trash(url)` | the editor's File > Move to trash, after the sharing check below | delete |
 
 Rule for writes (reference B's confirmation taxonomy, [9] edits others can see):

@@ -92,13 +92,19 @@
           if (typeof query !== "string" || !query.trim()) throw new S.SiteError("invalid", `googleDrive.search: query: expected Drive search text, got ${JSON.stringify(query)}`);
           return driveRows("googleDrive.search", `search?q=${encodeURIComponent(query)}`, options);
         },
-        // Creates a private Google file and names it: create("spreadsheets" | "document" | "presentation", title)
-        // -> { id, url, title }. Files made this way can be trashed without a draft.
+        // Creates a private Google file and names it: create("spreadsheets" | "document" | "presentation", title, { uid })
+        // -> { id, url, title, account }. Files made this way can be trashed without a draft while private.
         async create(kind, title, options = {}) {
           if (!["document", "spreadsheets", "presentation"].includes(kind)) throw new S.SiteError("invalid", `googleDrive.create: kind: expected document, spreadsheets or presentation, got ${JSON.stringify(kind)}`);
           if (typeof title !== "string" || !title.trim()) throw new S.SiteError("invalid", "googleDrive.create: title: expected a name");
-          const q = options.uid !== undefined ? `?authuser=${options.uid}` : "";
-          return t.withTab(`https://docs.google.com/${kind}/create${q}`, async (page) => {
+          const uid = options.uid === undefined ? 0 : options.uid;
+          if (!Number.isInteger(uid) || uid < 0) throw new S.SiteError("invalid", `googleDrive.create: uid: expected a non-negative integer, got ${JSON.stringify(options.uid)}`);
+          // Loading /create makes the file, as the account authuser names.
+          // The /u/ index is positional (another session's sign-in moves
+          // accounts to other indexes), so the URL names the account by the
+          // email at that index now, which Google accepts as authuser.
+          const account = await g.accountEmail(t, "googleDrive.create", uid);
+          return t.withTab(`https://docs.google.com/${kind}/create?${new URLSearchParams({ authuser: account })}`, async (page) => {
             await t.waitIn(page, () => /\/d\/[\w-]+\/edit/.test(location.pathname) && !!document.querySelector(".docs-title-input"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.create", what: "the new file's editor", timeout: 45000 });
             const id = /\/d\/([\w-]+)\//.exec(new URL(page.url()).pathname)[1];
             // A rename typed while the editor loads is lost: rename once it
@@ -130,7 +136,7 @@
             }
             if (!saved) throw new S.SiteError("rename_failed", `googleDrive.create: created ${kind} ${id} but its new name did not save`);
             created.add(id);
-            return { id, url: `https://docs.google.com/${kind}/d/${id}/edit`, title };
+            return { id, url: `https://docs.google.com/${kind}/d/${id}/edit`, title, account };
           });
         },
         // Moves a Google file to the trash through its editor's File menu.
