@@ -36,6 +36,12 @@ extension CmuxTuiSurfaceProvider {
         // No discovery round trip first: the create command installs the guest
         // helper itself and its reply is the full catalog, so a prior `list`
         // only added a second VM exec (about two seconds) to the first click.
+        // The new display's pane needs this machine's browser carrier. Its first
+        // start costs seconds (trusted-listener preparation, process launch),
+        // so begin it alongside the guest exec instead of after it. The link
+        // manager shares one start per machine; the pane awaits the same one.
+        let links = self.links, machineID = self.machineID
+        Task { _ = try? await links.browserProxy(machineID: machineID) }
         let generation = currentLifecycleGeneration
         defer {
             if isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() { publishDisplays() }
