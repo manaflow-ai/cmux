@@ -11,13 +11,16 @@ import Foundation
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
-// - `connected` (`value` bool): the owner link state on the page's connection stream.
+// - `connected` (`value` bool): the owner link state on the page's connection stream;
+// - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
+//   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
+//   Cloud page, a hidden one is made first (the app has no Cloud page entry yet).
 // The control router's deadline bounds every action.
 extension AppControl {
-    func registerPageDebugMethods() {
+    func registerPageDebugMethods(_ services: AppServices) {
         #if DEBUG
         service?.router.register([
-            .async("debug.page") { call in await DebugPages.handle(call.params) },
+            .async("debug.page") { [weak services] call in await DebugPages.handle(call.params, services: services) },
         ])
         #endif
     }
@@ -25,9 +28,16 @@ extension AppControl {
 
 #if DEBUG
 enum DebugPages {
+    /// Hidden pages `call` made (kept alive for later calls).
+    @MainActor private static var made: [PageWebView] = []
+
     @MainActor
-    static func handle(_ params: [String: JSONValue]) async -> JSONValue {
+    static func handle(_ params: [String: JSONValue], services: AppServices?) async -> JSONValue {
         let id = params["page"]?.stringValue
+        if params["action"]?.stringValue == "call", id == PageDescriptor.cloud.id, PageRegistry.pages(id: id).isEmpty,
+           let services, let cloud = PageFactory(services: services).cloudWebPage() {
+            made.append(cloud)
+        }
         guard let page = PageRegistry.pages(id: id).first else {
             return ["error": .string("no live page\(id.map { " " + $0 } ?? "")")]
         }
@@ -49,6 +59,9 @@ enum DebugPages {
             var arguments: [String: JSONValue] = [:]
             if let text = params["text"] { arguments["text"] = text }
             return ["handled": .bool(page.send(command: command, arguments: arguments))]
+        case "call":
+            guard let op = params["op"]?.stringValue else { return ["error": "op is required"] }
+            return await page.router.handle(["t": "call", "id": 1, "op": .string(op), "params": params["params"] ?? .object([:])])
         case "connected":
             page.setConnected(params["value"]?.boolValue ?? true)
             return ["connected": .bool(page.router.connected)]
