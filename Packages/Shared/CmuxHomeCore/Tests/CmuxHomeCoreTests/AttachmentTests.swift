@@ -259,6 +259,43 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         }
     }
 
+    /// The owner's name rules: 1 to 255 characters, no control characters
+    /// or path separators, not blank, `.` or `..`, and no denied extension
+    /// whatever the type.
+    @Test func namesFollowTheOwnersRules() throws {
+        let longest = String(repeating: "\u{E9}", count: 251) + ".txt"
+        try HomeAttachmentPolicy.check(mimeType: "text/plain", byteCount: 1, name: longest)
+        for bad in [longest + "x", "a\u{7}.txt", "a\u{2028}.txt", "a/b.txt", "a\\b.txt", " ", ".", "..", ""] {
+            #expect(throws: HomeAttachmentError.invalidName(name: bad)) {
+                try HomeAttachmentPolicy.check(mimeType: "text/plain", byteCount: 1, name: bad)
+            }
+        }
+        for denied in ["run.sh", "app.JS", "page.html", "x.svg", "Setup.dmg", "tool.exe"] {
+            #expect(throws: HomeAttachmentError.typeRefused(mimeType: "text/plain", name: denied)) {
+                try HomeAttachmentPolicy.check(mimeType: "text/plain", byteCount: 1, name: denied)
+            }
+        }
+        // A file's own name is made valid before the check.
+        #expect(HomeAttachmentPolicy.sendableName("a\u{1}b/c.txt") == "a_b_c.txt")
+        let trimmed = HomeAttachmentPolicy.sendableName(String(repeating: "n", count: 300) + ".txt")
+        #expect(trimmed.unicodeScalars.count == 255)
+        #expect(trimmed.hasSuffix(".txt"))
+        #expect(HomeAttachmentPolicy.sendableName("  ") == "attachment")
+    }
+
+    /// The copy into the cache stops one byte past the limit (the file grew
+    /// after its size was read), and leaves nothing behind.
+    @Test func ingestStopsCopyingPastTheLimit() throws {
+        let root = try temporaryDirectory()
+        let source = root.appendingPathComponent("growing.txt")
+        try Data(repeating: 1, count: 100).write(to: source)
+        let cache = root.appendingPathComponent("cache")
+        #expect(throws: HomeAttachmentError.tooLarge(byteCount: 11, limit: 10)) {
+            try AttachmentMedia.ingest(fileURL: source, root: cache, maxBytes: 10)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path).isEmpty)
+    }
+
     @Test func attachmentRefWithoutNewFieldsDecodes() throws {
         let expected = AttachmentRef(hash: "abc", name: "a.png", mimeType: "image/png", byteCount: 3, width: 4, height: 5)
         let wire = Data(#"{"hash":"abc","name":"a.png","mime_type":"image/png","byte_count":3,"width":4,"height":5}"#.utf8)
@@ -561,9 +598,9 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         let photo = try await store.prepareAttachment(fileURL: file)
         try await store.send(conversation: conversation, text: "", attachments: [photo], key: IdempotencyKey("attach-fetch"))
 
-        #expect(try await store.fetchAttachment(photo.ref, variant: .original) == photo.fileURL)
-        let localThumb = try await store.fetchAttachment(photo.ref, variant: .thumbnail(maxPixel: 60))
-        #expect(try await store.fetchAttachment(photo.ref, variant: .thumbnail(maxPixel: 60)) == localThumb)
+        #expect(try await store.fetchAttachment(photo.ref, variant: .original, in: conversation) == photo.fileURL)
+        let localThumb = try await store.fetchAttachment(photo.ref, variant: .thumbnail(maxPixel: 60), in: conversation)
+        #expect(try await store.fetchAttachment(photo.ref, variant: .thumbnail(maxPixel: 60), in: conversation) == localThumb)
 
         let here = AttachmentLocation(conversation: conversation)
         let first = try await source.fetch(photo.ref, at: here, variant: .original)
@@ -592,7 +629,7 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         try await store.send(conversation: conversation, text: "", attachments: [video], key: IdempotencyKey("attach-poster"))
         #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(video.ref)])
 
-        #expect(try await store.fetchAttachment(video.ref, variant: .poster) == posterFile)
+        #expect(try await store.fetchAttachment(video.ref, variant: .poster, in: conversation) == posterFile)
         let here = AttachmentLocation(conversation: conversation)
         let fetched = try await source.fetch(video.ref, at: here, variant: .poster)
         #expect(try await source.fetch(video.ref, at: here, variant: .poster) == fetched)
@@ -784,12 +821,57 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         await other.open(conversation)
         await waitUntil { other.transcript(for: self.conversation).last?.key == IdempotencyKey("attach-located") }
         #expect(other.transcript(for: conversation).last?.localAttachments.isEmpty == true)
-        let url = try await other.fetchAttachment(b.ref, variant: .original)
+        let url = try await other.fetchAttachment(b.ref, variant: .original, in: conversation)
         #expect(try Data(contentsOf: url) == Data("second".utf8))
         #expect(await source.fetchLocations.last == AttachmentLocation(conversation: conversation, message: message.id, partIndex: 1))
         await #expect(throws: HomeRejection.invalid("attachment_not_loaded")) {
             try await other.fetchAttachment(AttachmentRef(hash: "nowhere", name: "x", mimeType: "text/plain", byteCount: 1),
-                                            variant: .original)
+                                            variant: .original, in: conversation)
+        }
+    }
+
+    /// The part goes out with the owner's mime spelling and without a
+    /// size or duration the owner would refuse (a zero width from AV, a
+    /// duration past 24 hours).
+    @Test func sendCanonicalizesTheMimeTypeAndDropsOutOfRangeMediaFacts() async throws {
+        let (store, source) = try await started()
+        let photo = try await store.prepareAttachment(data: try makeJPEG(width: 8, height: 4, orientation: 1),
+                                                      typeIdentifier: UTType.jpeg.identifier)
+        var ref = photo.ref
+        ref.mimeType = "image/JPG"
+        ref.width = 0
+        ref.height = 200_000
+        ref.durationMs = 90_000_000
+        let odd = LocalAttachment(ref: ref, fileURL: photo.fileURL)
+        try await store.send(conversation: conversation, text: "", attachments: [odd], key: IdempotencyKey("attach-canonical"))
+        var expected = photo.ref
+        expected.width = nil
+        expected.height = nil
+        #expect(try await source.snapshot(of: conversation, tail: 1).messages.last?.parts == [.attachment(expected)])
+    }
+
+    /// The same bytes in two conversations: the fetch names the part in the
+    /// conversation the row belongs to.
+    @Test func fetchNamesThePartInTheRowsConversation() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        let aziz = ConversationID("conv_aziz")
+        await store.open(aziz)
+        try await store.send(conversation: conversation, text: "", attachments: [a], key: IdempotencyKey("attach-two-a"))
+        try await store.send(conversation: aziz, text: "", attachments: [a], key: IdempotencyKey("attach-two-b"))
+
+        let other = HomeStore(source: source, blobCacheDirectory: try temporaryDirectory())
+        other.start()
+        await waitUntil { other.isOnline && !other.rows.isEmpty }
+        await other.open(conversation)
+        await other.open(aziz)
+        await waitUntil {
+            other.transcript(for: self.conversation).last?.key == IdempotencyKey("attach-two-a")
+                && other.transcript(for: aziz).last?.key == IdempotencyKey("attach-two-b")
+        }
+        for target in [aziz, conversation, aziz, conversation] {
+            _ = try await other.fetchAttachment(a.ref, variant: .original, in: target)
+            #expect(await source.fetchLocations.last?.conversation == target)
         }
     }
 

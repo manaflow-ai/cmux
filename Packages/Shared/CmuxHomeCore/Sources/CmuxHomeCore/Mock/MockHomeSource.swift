@@ -204,6 +204,16 @@ public actor MockHomeSource: HomeSource {
         // The connection may have dropped while the bytes were in flight.
         guard online else { throw HomeRejection.ownerUnreachable }
         if let failure = failingUploads.removeValue(forKey: file.ref.hash) { throw failure }
+        // The owner's upload intent rules: an allowed type spelled as on
+        // the allow list, positive dimensions, a duration within 24 hours.
+        guard HomeAttachmentPolicy.allowedTypes[file.ref.mimeType.lowercased()] != nil else {
+            throw HomeRejection.invalid("type_refused")
+        }
+        let dimensions = [file.ref.width, file.ref.height].compactMap { $0 }
+        guard dimensions.allSatisfy(HomeAttachmentPolicy.dimensionRange.contains),
+              file.ref.durationMs.map(HomeAttachmentPolicy.durationRange.contains) ?? true else {
+            throw HomeRejection.invalid("validation_invalid")
+        }
         if let record = blobs[file.ref.hash] {
             file.progress(1)
             return Self.stored(file.ref, record)
