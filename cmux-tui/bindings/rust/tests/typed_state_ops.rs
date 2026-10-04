@@ -228,6 +228,14 @@ fn column_update_sends_typed_edge_mode_and_width() {
                    "mode": "overlay"})
         );
         mutation_ok(stream, &pin, screen.clone());
+        for edge in ["top", "bottom"] {
+            let dock = request(reader, "column.update");
+            assert_eq!(
+                (&dock["params"]["edge"], &dock["params"]["mode"]),
+                (&json!(edge), &json!("docked"))
+            );
+            mutation_ok(stream, &dock, screen.clone());
+        }
         let width = request(reader, "column.update");
         let params = width["params"].as_object().unwrap();
         assert_eq!((params["width"].as_f64(), params.get("sticky")), (Some(0.5), None));
@@ -245,6 +253,9 @@ fn column_update_sends_typed_edge_mode_and_width() {
     screen
         .update_column(SPLIT, ColumnUpdateOptions::pin(ColumnEdge::Left, ColumnMode::Overlay))
         .unwrap();
+    for edge in [ColumnEdge::Top, ColumnEdge::Bottom] {
+        screen.update_column(SPLIT, ColumnUpdateOptions::pin(edge, ColumnMode::Docked)).unwrap();
+    }
     screen.update_column(SPLIT, ColumnUpdateOptions::width(0.5)).unwrap();
     screen.update_column(SPLIT, ColumnUpdateOptions::unpin()).unwrap();
     for invalid in [
@@ -254,7 +265,7 @@ fn column_update_sends_typed_edge_mode_and_width() {
         ColumnUpdateOptions { edge: Some("left".into()), ..ColumnUpdateOptions::width(0.5) },
         ColumnUpdateOptions { edge: Some("left".into()), ..ColumnUpdateOptions::unpin() },
         ColumnUpdateOptions {
-            edge: Some("top".into()),
+            edge: Some("middle".into()),
             sticky: Some(true),
             mode: None,
             width: None,

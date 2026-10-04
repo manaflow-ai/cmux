@@ -9650,10 +9650,12 @@
               "kind": "enum",
               "values": [
                 "left",
-                "right"
+                "right",
+                "top",
+                "bottom"
               ]
             },
-            "description": "Viewport edge for sticky:true. Default right."
+            "description": "Viewport edge for sticky:true. Default right. top and bottom are the edge docks of edge-docks-v1."
           },
           "mode": {
             "required": false,

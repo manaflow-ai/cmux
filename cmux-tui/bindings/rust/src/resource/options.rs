@@ -342,9 +342,9 @@ pub struct SplitRatioOptions {
     pub ratio: f64,
 }
 
-/// `column.update`: set `sticky`, `width`, or both. `edge` ("left" or
-/// "right") and `mode` ("docked" or "overlay") apply only when `sticky` is
-/// `Some(true)`.
+/// `column.update`: set `sticky`, `width`, or both. `edge` ("left",
+/// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
+/// when `sticky` is `Some(true)`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ColumnUpdateOptions {
     pub sticky: Option<bool>,

@@ -4044,8 +4044,8 @@ class Screen(_Handle[ScreenId, ScreenSnapshot]):
         """Pin, unpin, or resize one viewport column (``column.update``).
 
         ``column`` is the column's split ID. Pass ``sticky``, ``width``, or
-        both; ``edge`` ("left" or "right") and ``mode`` ("docked" or
-        "overlay") apply only with ``sticky=True``.
+        both; ``edge`` ("left", "right", "top" or "bottom") and ``mode``
+        ("docked" or "overlay") apply only with ``sticky=True``.
         """
         params: Dict[str, Any] = {**self._params(), "column": column}
         for name, value in (("sticky", sticky), ("edge", edge), ("mode", mode), ("width", width)):
