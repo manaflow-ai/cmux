@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import GhosttyNextKit
 
 /// Which part of a GHOSTSNP snapshot a ``TerminalIOEvent/snapshot(_:phase:)`` holds.
