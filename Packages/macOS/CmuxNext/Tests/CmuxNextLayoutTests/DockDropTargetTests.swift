@@ -31,6 +31,19 @@ import Testing
         #expect(dock(g, y: 300) == nil)
     }
 
+    /// The tab bar takes drops into the strip, so the top band starts below
+    /// it: inside the tab bar no top dock opens, just below it one does.
+    @Test func theTopBandStartsBelowTheTabBar() {
+        let g = geometry()
+        let at = { (y: CGFloat) in
+            DropZoneGeometry.dockTarget(atView: CGPoint(x: 500, y: y), screen: "s", geometry: g, style: style, topInset: 30)
+        }
+        #expect(at(10) == nil)
+        #expect(at(31) == .newDock(screen: "s", edge: .top))
+        #expect(at(30 + style.dockDropBand) == .newDock(screen: "s", edge: .top))
+        #expect(at(31 + style.dockDropBand) == nil)
+    }
+
     @Test func anEdgeThatHasADockOpensNoSecondOne() {
         let g = geometry(dock: StickyColumn(edge: .top, mode: .docked))
         #expect(dock(g, y: 0) == nil)
