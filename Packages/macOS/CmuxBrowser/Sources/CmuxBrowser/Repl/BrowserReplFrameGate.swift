@@ -55,6 +55,61 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     }
 }
 
+extension WKWebView {
+    private static let callWithGestureSelector = NSSelectorFromString("_callAsyncJavaScript:arguments:inFrame:inContentWorld:withUserGesture:completionHandler:")
+
+    /// `callAsyncJavaScript`, with or without a user gesture. WebKit's public
+    /// call always gives the script one (a page may then write the system
+    /// clipboard); without one this uses WebKit's own variant that takes the
+    /// choice, and throws `unsupported` when that is missing rather than
+    /// give the gesture anyway.
+    @MainActor
+    public func browserReplCallAsyncJavaScript(
+        _ body: String,
+        arguments: [String: Any],
+        in frame: WKFrameInfo?,
+        contentWorld: WKContentWorld,
+        userGesture: Bool
+    ) async throws -> Any? {
+        if userGesture {
+            return try await callAsyncJavaScript(body, arguments: arguments, in: frame, contentWorld: contentWorld)
+        }
+        guard responds(to: Self.callWithGestureSelector) else {
+            throw BrowserReplDriverError(code: "unsupported", message: "This WebKit cannot run the agent's script without a user gesture")
+        }
+        typealias Completion = @convention(block) (Any?, (any Error)?) -> Void
+        typealias Function = @convention(c) (AnyObject, Selector, NSString, NSDictionary, WKFrameInfo?, WKContentWorld, Bool, Completion) -> Void
+        let function = unsafeBitCast(method(for: Self.callWithGestureSelector), to: Function.self)
+        let box = BrowserReplScriptResultBox()
+        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<BrowserReplScriptResult, any Error>) in
+            box.continuation = continuation
+            let completion: Completion = { value, error in
+                MainActor.assumeIsolated {
+                    if let error { box.finish(.failure(error)) } else { box.finish(.success(BrowserReplScriptResult(value: value))) }
+                }
+            }
+            function(self, Self.callWithGestureSelector, body as NSString, arguments as NSDictionary, frame, contentWorld, false, completion)
+        }
+        return result.value is NSNull ? nil : result.value
+    }
+}
+
+/// A script's result, handed from WebKit's completion on the main thread.
+private struct BrowserReplScriptResult: @unchecked Sendable {
+    let value: Any?
+}
+
+/// Resumes a script call's continuation once.
+@MainActor
+private final class BrowserReplScriptResultBox {
+    var continuation: CheckedContinuation<BrowserReplScriptResult, any Error>?
+
+    func finish(_ result: Result<BrowserReplScriptResult, any Error>) {
+        continuation?.resume(with: result)
+        continuation = nil
+    }
+}
+
 extension WKNavigationAction {
     /// The document of the frame that started the navigation, as WebKit
     /// recorded it, or nil when no frame did (a load the app started).
@@ -155,6 +210,11 @@ public final class BrowserReplFrameGate {
     /// checks, in the frame, that the document is the one the gate approved,
     /// and returns without running `body` if the frame has navigated since;
     /// the gate then judges the new document and runs it again.
+    ///
+    /// With `userGesture` false the script runs without a user gesture (the
+    /// agent's own world): a page's handler it sets off synchronously (a
+    /// `focus`, a dispatched event) holds none either, and neither does the
+    /// script, so neither can write the system clipboard.
     public func callAsyncJavaScript(
         _ body: String,
         arguments: [String: Any],
@@ -164,7 +224,7 @@ public final class BrowserReplFrameGate {
         userGesture: Bool = true
     ) async throws -> Any? {
         guard policy.isActive else {
-            return try await webView.callAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld)
+            return try await webView.browserReplCallAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld, userGesture: userGesture)
         }
         let key = key(frame, webView)
         var expected = known[key]
@@ -177,11 +237,12 @@ public final class BrowserReplFrameGate {
         for _ in 0..<3 {
             bound[Self.originArgument] = expected.origin ?? NSNull()
             bound[Self.placeArgument] = expected.place
-            let value = try await webView.callAsyncJavaScript(
+            let value = try await webView.browserReplCallAsyncJavaScript(
                 Self.documentCheck + body,
                 arguments: bound,
                 in: frame.info,
-                contentWorld: contentWorld
+                contentWorld: contentWorld,
+                userGesture: userGesture
             )
             guard value as? String == Self.movedMarker else {
                 known[key] = expected

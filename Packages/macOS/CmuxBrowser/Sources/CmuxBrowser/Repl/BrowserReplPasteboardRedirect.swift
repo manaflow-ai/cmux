@@ -95,7 +95,9 @@ public import WebKit
 /// `+generalPasteboard`, which the WebKit tests catch as a change of the
 /// system pasteboard's change count. Writes a page's own scripts make (the
 /// asynchronous Clipboard API, `execCommand("copy")`) are not commands and
-/// are not redirected; ``BrowserReplPageClipboard`` handles those.
+/// are not redirected; ``BrowserReplPageClipboard`` handles those in a tab a
+/// session created, and ``beginQuarantine()`` while an agent's call gives a
+/// user's tab a gesture.
 public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// The redirect: one per process, since the hook it installs is.
     public static let shared = BrowserReplPasteboardRedirect()
@@ -146,6 +148,12 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     private var targets: [String: Target] = [:]
     private let lock = NSLock()
     @MainActor private var installed = false
+    /// Agent gestures' quarantine (``beginQuarantine()``): the calls in
+    /// flight, when the last one's lingering ends, and its private
+    /// pasteboard. Guarded by `lock`.
+    private var quarantineHolders = 0
+    private var quarantineUntil: ContinuousClock.Instant?
+    private var quarantineSink: NSPasteboard?
     /// The command WebKit has not reported done, within or past its timeout.
     @MainActor private var unfinished: Command?
     /// The automated drag whose window is open.
@@ -163,15 +171,17 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         let replacement: @convention(block) @Sendable (AnyObject, NSString) -> NSPasteboard = { cls, name in
             self.redirectedLookup(of: name as String) ?? original(cls, selector, name)
         }
-        // `+generalPasteboard` is not redirected; a call from WebKit during
-        // a command only marks the command (see `noteSystemPasteboardRead`).
+        // `+generalPasteboard` is not redirected for a command; a call from
+        // WebKit during one only marks it (see `noteSystemPasteboardRead`).
+        // During an agent gesture's quarantine WebKit's calls get its
+        // private pasteboard (`beginQuarantine`).
         let generalSelector = NSSelectorFromString("generalPasteboard")
         if let generalMethod = class_getClassMethod(NSPasteboard.self, generalSelector) {
             typealias General = @convention(c) (AnyObject, Selector) -> NSPasteboard
             let originalGeneral = unsafeBitCast(method_getImplementation(generalMethod), to: General.self)
             let generalReplacement: @convention(block) @Sendable (AnyObject) -> NSPasteboard = { cls in
                 self.noteSystemPasteboardRead()
-                return originalGeneral(cls, generalSelector)
+                return self.quarantinedLookup() ?? originalGeneral(cls, generalSelector)
             }
             method_setImplementation(generalMethod, imp_implementationWithBlock(generalReplacement))
         }
@@ -444,7 +454,9 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         lock.lock()
         let inFlight = targets[name] != nil
         lock.unlock()
-        guard inFlight else { return nil }
+        guard inFlight else {
+            return name == NSPasteboard.Name.general.rawValue ? quarantinedLookup() : nil
+        }
         return redirectTarget(forLookupOf: name, origin: Self.lookupOrigin())
     }
 
@@ -551,19 +563,84 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
 
     // MARK: - Agent gestures
 
-    /// Starts a quarantine of WebKit's writes of the general pasteboard.
+    /// Starts a quarantine of WebKit's own use of the general pasteboard,
+    /// for an agent's call that gives a page with no page clipboard guard
+    /// (a user's tab) a user gesture. Returns `false` when the hooks are
+    /// missing; the caller must then not make the call.
+    ///
+    /// A page holding a gesture can write the system clipboard through
+    /// `execCommand("copy" | "cut")` (WebKit's UI process looks the general
+    /// pasteboard up by name while it handles the web process's message) or
+    /// the asynchronous Clipboard API (`+generalPasteboard`, also off the
+    /// main thread), and neither says which page wrote. So until every
+    /// quarantine ended and its lingering time passed, every such lookup
+    /// WebKit makes, on its own turn or called by the app, gets a private
+    /// pasteboard emptied at each lookup: what is written there reaches
+    /// nobody, and a read finds nothing. Lookups by any other code (the
+    /// terminal, AppKit text fields, `NSPasteboard.general` from cmux) keep
+    /// the system pasteboard. A command (``perform(_:in:pasteboard:tab:timeout:grace:systemChangeCount:mayEndWebContent:whenWebKitFinishes:)``)
+    /// in flight keeps its own pasteboard for lookups by name.
+    ///
+    /// The cost: WebKit cannot tell pages apart here, so a copy or paste the
+    /// person makes in another web view during the quarantine does nothing.
     @MainActor
     public func beginQuarantine() -> Bool {
-        install()
+        guard install() else { return false }
+        lock.lock()
+        let needsSink = quarantineSink == nil
+        lock.unlock()
+        // Created outside the lock: making a pasteboard looks one up by
+        // name, which comes back through the hook.
+        let fresh = needsSink ? NSPasteboard.withUniqueName() : nil
+        lock.lock()
+        if quarantineSink == nil, let fresh { quarantineSink = fresh }
+        let unused = fresh.flatMap { $0 === quarantineSink ? nil : $0 }
+        quarantineHolders += 1
+        lock.unlock()
+        unused?.releaseGlobally()
+        return true
     }
 
-    /// Ends one ``beginQuarantine()``.
+    /// Ends one ``beginQuarantine()``. The quarantine lasts `lingering`
+    /// longer: WebKit keeps honoring a gesture for a while after the call
+    /// that gave it (a timer the page set within 1 s, a fetch that settles
+    /// within 10 s; measured on macOS 27.0, 26A428).
     @MainActor
-    public func endQuarantine(lingering: Duration) {}
+    public func endQuarantine(lingering: Duration) {
+        let until = ContinuousClock.now.advanced(by: lingering)
+        lock.lock()
+        quarantineHolders = max(0, quarantineHolders - 1)
+        if quarantineUntil.map({ $0 < until }) ?? true { quarantineUntil = until }
+        lock.unlock()
+    }
 
-    /// Ends every quarantine at once (tests).
+    /// The quarantine's private pasteboard, once one began (tests).
+    var quarantinePasteboard: NSPasteboard? {
+        lock.lock()
+        defer { lock.unlock() }
+        return quarantineSink
+    }
+
+    /// Ends every quarantine at once, lingering included (tests).
     @MainActor
-    func liftQuarantine() {}
+    func liftQuarantine() {
+        lock.lock()
+        quarantineHolders = 0
+        quarantineUntil = nil
+        lock.unlock()
+    }
+
+    /// The emptied private pasteboard a lookup of the general pasteboard
+    /// gets during a quarantine when WebKit makes it, or nil.
+    private func quarantinedLookup() -> NSPasteboard? {
+        lock.lock()
+        let active = quarantineHolders > 0 || quarantineUntil.map { ContinuousClock.now < $0 } == true
+        let sink = active ? quarantineSink : nil
+        lock.unlock()
+        guard let sink, Self.lookupOrigin() != .notWebKit else { return nil }
+        sink.clearContents()
+        return sink
+    }
 
     // MARK: - Automated drags
 

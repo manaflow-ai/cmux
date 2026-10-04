@@ -302,40 +302,44 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             try checkPagePolicy(method: method, params: params)
             let guardsInput = Self.isGuardedInput(method) && currentPolicy.isActive && tabToPrepare != nil
             if !guardsInput { try await checkFramePolicy(method: method, params: params) }
-            let value: Any?
-            if guardsInput, let panel = tabToPrepare {
-                // The input is a point or a key for the whole tab: while it
-                // is in flight, and while it is checked, every frame the
-                // policy blocks is inert (BrowserReplFrameGate.guardingInput),
-                // so a page that moves one under the point, or the focus into
-                // it, after the check does not hand it the event.
-                let webView = panel.webView
-                value = try await frameGate.guardingInput(
-                    in: webView,
-                    frames: { await BrowserReplFrameTree.frames(of: webView) },
-                    checkFocusAfter: method == "input.key" || method == "input.insertText"
-                ) {
-                    try await checkFramePolicy(method: method, params: params)
+            let value: Any? = try await withUserTabClipboardQuarantine(
+                tabToPrepare,
+                when: Self.isGuardedInput(method) || (method == "frame.evaluate" && params["world"] as? String != "agent")
+            ) { () async throws -> Any? in
+                if guardsInput, let panel = tabToPrepare {
+                    // The input is a point or a key for the whole tab: while it
+                    // is in flight, and while it is checked, every frame the
+                    // policy blocks is inert (BrowserReplFrameGate.guardingInput),
+                    // so a page that moves one under the point, or the focus into
+                    // it, after the check does not hand it the event.
+                    let webView = panel.webView
+                    return try await frameGate.guardingInput(
+                        in: webView,
+                        frames: { await BrowserReplFrameTree.frames(of: webView) },
+                        checkFocusAfter: method == "input.key" || method == "input.insertText"
+                    ) {
+                        try await checkFramePolicy(method: method, params: params)
+                        return try await attachment(panel).withInput(sessionID: sessionID) {
+                            try await handle(method: method, params: params)
+                        }
+                    }
+                } else if Self.isActionOnPage(method), let panel = tabToPrepare {
+                    // What the page opens while it handles this session's input
+                    // goes to this session, never to cmux's UI in front of the user.
                     return try await attachment(panel).withInput(sessionID: sessionID) {
                         try await handle(method: method, params: params)
                     }
+                } else if method == "frame.evaluate", params["world"] as? String == "page", let panel = tabToPrepare {
+                    // The agent's own page script (el.click(), form.submit()):
+                    // what it opens goes to the session, for at most a second,
+                    // so a long script leaves the user's dialogs and popups alone.
+                    // The runtime's own reads run in the agent world and hold none.
+                    return try await attachment(panel).withInput(sessionID: sessionID, atMost: .seconds(1), sleeper: sleeper) {
+                        try await handle(method: method, params: params)
+                    }
+                } else {
+                    return try await handle(method: method, params: params)
                 }
-            } else if Self.isActionOnPage(method), let panel = tabToPrepare {
-                // What the page opens while it handles this session's input
-                // goes to this session, never to cmux's UI in front of the user.
-                value = try await attachment(panel).withInput(sessionID: sessionID) {
-                    try await handle(method: method, params: params)
-                }
-            } else if method == "frame.evaluate", params["world"] as? String == "page", let panel = tabToPrepare {
-                // The agent's own page script (el.click(), form.submit()):
-                // what it opens goes to the session, for at most a second,
-                // so a long script leaves the user's dialogs and popups alone.
-                // The runtime's own reads run in the agent world and hold none.
-                value = try await attachment(panel).withInput(sessionID: sessionID, atMost: .seconds(1), sleeper: sleeper) {
-                    try await handle(method: method, params: params)
-                }
-            } else {
-                value = try await handle(method: method, params: params)
             }
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
             guard let json = JSONSerialization.browserReplString(value) else {
@@ -412,6 +416,38 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     static func error(_ code: String, _ message: String) -> BrowserReplDriverError {
         BrowserReplDriverError(code: code, message: message)
+    }
+
+    /// How long WebKit's general-pasteboard use stays quarantined after an
+    /// agent's call in a user's tab: WebKit lets a page use the call's
+    /// gesture for up to 10 s (a fetch started in it; measured on macOS 27.0,
+    /// 26A428), plus a margin.
+    static let gestureQuarantineLingering: Duration = .seconds(11)
+
+    /// Runs `body`, a call that gives the page a user gesture (trusted
+    /// input, page-world script), so that in a user's tab no page script
+    /// writes the system clipboard with that gesture. A tab a session
+    /// created has the page clipboard guard instead. A user's tab has none
+    /// (its pages keep the browser's clipboard), so while the call is in
+    /// flight and for ``gestureQuarantineLingering`` after it, WebKit's own
+    /// general-pasteboard lookups get a private pasteboard that is emptied at
+    /// every lookup (``BrowserReplPasteboardRedirect/beginQuarantine()``):
+    /// the page's write is dropped, never handed to the session, since
+    /// WebKit does not say which web view wrote. When the hook is missing the
+    /// call is refused.
+    @MainActor
+    private func withUserTabClipboardQuarantine<T>(
+        _ panel: BrowserPanel?,
+        when applies: Bool,
+        _ body: () async throws -> T
+    ) async throws -> T {
+        guard applies, let panel, !attachment(panel).appliesSessionPolicies else { return try await body() }
+        let redirect = BrowserReplPasteboardRedirect.shared
+        guard redirect.beginQuarantine() else {
+            throw Self.error("unsupported", "This call would give the page of the user's tab a user gesture, and the system clipboard cannot be kept from it on this system")
+        }
+        defer { redirect.endQuarantine(lingering: Self.gestureQuarantineLingering) }
+        return try await body()
     }
 
     /// Refuses a read or input on a tab whose page the domain policy blocks,
@@ -1580,7 +1616,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 // Runs only while the frame shows a document the domain
                 // policy allows; a frame looked up from an earlier tree read
                 // may have navigated since.
-                value = try await frameGate.callAsyncJavaScript(body, arguments: arguments, in: panel.webView, frame: frame, contentWorld: world)
+                // Script in the agent's world runs without a user gesture: a
+                // page handler it sets off (focus, a dispatched event) must
+                // not hold one, nor the script, with which either could
+                // write the system clipboard (execCommand("copy") is native
+                // in that world, also in a tab a session created).
+                value = try await frameGate.callAsyncJavaScript(
+                    body, arguments: arguments, in: panel.webView, frame: frame, contentWorld: world,
+                    userGesture: world == WKContentWorld.page
+                )
             } catch let error as BrowserReplDriverError {
                 throw error
             } catch {

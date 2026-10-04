@@ -37,11 +37,18 @@ extension BrowserReplPasteboardRedirectTests {
             try await Self.withStandInSystemPasteboard { standIn in
                 let webView = try await PageScripts.load(PageScripts.page) { _ in }
                 #expect(redirect.beginQuarantine())
+                let quarantine = try #require(redirect.quarantinePasteboard)
+                // WebKit's write lands on the stand-in, or (quarantined) on the
+                // private pasteboard, which every lookup empties.
+                let landed = { (before: Int, quarantined: Int) in
+                    standIn.changeCount != before || quarantine.changeCount != quarantined
+                }
                 for button in ["exec-copy", "write-text"] {
                     let before = standIn.changeCount
+                    let quarantined = quarantine.changeCount
                     try await PageScripts.click(button, in: webView)
                     _ = try await PageScripts.waitForDone(in: webView)
-                    try await PageScripts.settle { standIn.changeCount != before }
+                    try await PageScripts.settle { landed(before, quarantined) }
                     written.append(standIn.changeCount != before || standIn.string(forType: .string) != PageScripts.personsClipboard)
                     try await Self.reset(webView)
                 }
@@ -49,9 +56,10 @@ extension BrowserReplPasteboardRedirectTests {
                 // 10 s through a fetch), so the quarantine lingers.
                 redirect.endQuarantine(lingering: .seconds(120))
                 let before = standIn.changeCount
+                let quarantined = quarantine.changeCount
                 try await PageScripts.click("exec-copy", in: webView)
                 _ = try await PageScripts.waitForDone(in: webView)
-                try await PageScripts.settle { standIn.changeCount != before }
+                try await PageScripts.settle { landed(before, quarantined) }
                 lingered.append(standIn.changeCount != before)
                 try await Self.reset(webView)
             }
@@ -94,7 +102,7 @@ extension BrowserReplPasteboardRedirectTests {
                     contentWorld: .world(name: "cmux-agent-gesture-tests-agent"),
                     userGesture: false
                 )
-                try await PageScripts.settle { standIn.changeCount != before }
+                // A copy WebKit ran writes the pasteboard before execCommand returns.
                 written = standIn.changeCount != before
             }
             #expect(result as? String == "false", "the agent world's execCommand(\"copy\") ran in a user gesture")
