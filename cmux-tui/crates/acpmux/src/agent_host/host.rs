@@ -265,8 +265,11 @@ impl Started {
                 // End what the agent left running while the exited leader is
                 // still a zombie: its group id cannot be reused yet, so the
                 // kill reaches only this harness's group. Then reap it.
-                if let Some(pg) = pgid {
-                    let _ = tokio::task::spawn_blocking(move || wait_exit_unreaped(pg)).await;
+                if let Some(pg) = pgid
+                    && tokio::task::spawn_blocking(move || wait_exit_unreaped(pg))
+                        .await
+                        .is_ok_and(|ok| ok)
+                {
                     // SAFETY: the unreaped leader keeps this group id ours.
                     unsafe { libc::killpg(pg, libc::SIGKILL) };
                 }
@@ -737,8 +740,9 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Block until process `pid` (a child of this process) has exited, without
 /// reaping it: the zombie keeps its process group id from being reused.
-/// Call it off the async runtime.
-fn wait_exit_unreaped(pid: i32) {
+/// Call it off the async runtime. False when the wait failed (for example
+/// another reaper took the child): the group id is then not proven ours.
+fn wait_exit_unreaped(pid: i32) -> bool {
     loop {
         // SAFETY: a zeroed siginfo_t is a valid out-parameter for waitid.
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
@@ -747,8 +751,11 @@ fn wait_exit_unreaped(pid: i32) {
         let rc = unsafe {
             libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT)
         };
-        if rc == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return;
+        if rc == 0 {
+            return true;
+        }
+        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return false;
         }
     }
 }
@@ -763,7 +770,7 @@ mod tests {
         let mut child =
             std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
         let pid = child.id() as i32;
-        super::wait_exit_unreaped(pid);
+        assert!(super::wait_exit_unreaped(pid), "the wait failed");
         // SAFETY: signal 0 to this test's own child only checks existence.
         assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
         assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
