@@ -78,6 +78,8 @@ final class AppServices {
     private(set) lazy var history = HistoryService(services: self)
     /// `cmux://history`: opens the page and serves its data.
     private(set) lazy var historyPage = HistoryPageService(services: self)
+    /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
+    private(set) lazy var agentCursorVisibility = AgentCursorVisibilitySource(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()

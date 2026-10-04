@@ -6,6 +6,7 @@ import type { DomainDO } from "./domain-do.ts"
 import type { PairingDO } from "./pairing-do.ts"
 import type { HostDO } from "./host-do.ts"
 import type { TeamVmDO } from "./team-vm-do.ts"
+import type { CloudDO } from "./cloud-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
 import type { FeedDO } from "./feed-do.ts"
 import type { UsageMeterDO } from "./usage-meter-do.ts"
@@ -57,6 +58,24 @@ export interface Env {
   readonly TEAM_VM_SLUG_PREFIX?: string
   /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */
   readonly TEAM_VM_DRIVER?: string
+  /** One CloudDO per team: Cloud machines, the provider-call ledger and plan checks (state-placement.md 5). */
+  readonly CLOUD_DO: DurableObjectNamespace<CloudDO>
+  /**
+   * Secret: the cmux-next Cloud Freestyle key (state-placement.md 5.3), never FREESTYLE_API_KEY (the team VM lane's).
+   * Never logged. Without it, or without CLOUD_FREESTYLE_SNAPSHOT, create and delete answer cloud.provider.unavailable.
+   */
+  readonly CLOUD_FREESTYLE_API_KEY?: string
+  readonly CLOUD_FREESTYLE_API_URL?: string
+  /** Var: the image every Cloud machine boots from; must start with cmuxnp-<env>-vmimg- (CLOUD-DEV-SNAPSHOT). */
+  readonly CLOUD_FREESTYLE_SNAPSHOT?: string
+  /** Var: provider name prefix; must equal this environment's (cmuxnp-dev-cld-, cmuxnp-stg-cld-, cmuxnp-prod-cld-; FREESTYLE-NAMES) or the provider is off. */
+  readonly CLOUD_NAME_PREFIX?: string
+  /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
+  readonly CLOUD_ALLOWED_TEAMS?: string
+  /** Per-team limit on cloud.machine.create and delete (namespace 1151-1153). */
+  readonly CLOUD_MUTATION_LIMIT?: RateLimit
+  /** Test only: `fake` selects the in-object fake Cloud provider when ENVIRONMENT=test. */
+  readonly CLOUD_DRIVER?: string
   /** Per-IP limit on unauthenticated pairing begins. */
   readonly PAIR_BEGIN_LIMIT?: RateLimit
   /** Where provider redirects land (the dashboard's /integrations/callback). */

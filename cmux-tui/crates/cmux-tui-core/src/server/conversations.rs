@@ -11,10 +11,11 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+use super::remote_relay::participants::{device_id_refused, is_device_id};
 use super::{Mux, MuxEvent, validate_client_transaction};
 use crate::conversation_search::ConversationSearchRejected;
 use crate::conversation_store::{
-    ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES,
+    ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES, OpOutcome,
 };
 
 /// The local conversation owner: the `conversation-*` commands and the
@@ -38,28 +39,28 @@ pub(super) struct CreateParams {
 /// `conversation-snapshot`: the summary and the last `tail` (1-500) messages.
 #[derive(Deserialize)]
 pub(super) struct SnapshotParams {
-    conversation: String,
-    tail: u32,
+    pub(super) conversation: String,
+    pub(super) tail: u32,
 }
 
 /// `conversation-history`: up to `limit` (1-500) messages below `before_seq`.
 #[derive(Deserialize)]
 pub(super) struct HistoryParams {
-    conversation: String,
-    before_seq: u64,
-    limit: u32,
+    pub(super) conversation: String,
+    pub(super) before_seq: u64,
+    pub(super) limit: u32,
 }
 
 /// `conversation-op`: one op under a client idempotency key.
 #[derive(Deserialize)]
 pub(super) struct OpParams {
-    conversation: String,
-    idempotency_key: String,
+    pub(super) conversation: String,
+    pub(super) idempotency_key: String,
     #[serde(default)]
-    actor: Option<String>,
+    pub(super) actor: Option<String>,
     #[serde(default)]
-    transaction: Option<String>,
-    op: Value,
+    pub(super) transaction: Option<String>,
+    pub(super) op: Value,
 }
 
 /// `conversation-search`: Home-only search, the shared read model
@@ -74,10 +75,10 @@ pub(super) struct SearchParams {
 /// `conversation-typing`: a typing indicator. Never stored.
 #[derive(Deserialize)]
 pub(super) struct TypingParams {
-    conversation: String,
+    pub(super) conversation: String,
     #[serde(default)]
-    actor: Option<String>,
-    on: bool,
+    pub(super) actor: Option<String>,
+    pub(super) on: bool,
 }
 
 /// `conversation-bind`: become agent `participant` for the rest of the
@@ -130,11 +131,11 @@ fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn decode<T: DeserializeOwned>(value: Value, field: &str) -> anyhow::Result<T> {
+pub(super) fn decode<T: DeserializeOwned>(value: Value, field: &str) -> anyhow::Result<T> {
     serde_json::from_value(value).map_err(|error| anyhow::anyhow!("bad request: {field}: {error}"))
 }
 
-fn validate_page(value: u32, field: &str) -> anyhow::Result<()> {
+pub(super) fn validate_page(value: u32, field: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         (1..=MAX_PAGE_MESSAGES).contains(&value),
         "bad request: {field} must be 1-{MAX_PAGE_MESSAGES}"
@@ -143,6 +144,9 @@ fn validate_page(value: u32, field: &str) -> anyhow::Result<()> {
 }
 
 pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    if mux.is_remote_client(client) {
+        return super::remote_relay::conversations::list(mux, client);
+    }
     require_local(mux, client)?;
     let conversations = mux.with_conversations(|store| store.list())?;
     Ok(json!({"conversations": conversations}))
@@ -153,6 +157,10 @@ pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Re
     let CreateParams { idempotency_key, actor, title, participants } = params;
     let actor = resolve_actor(mux, client, actor)?;
     let participants: Vec<Participant> = decode(participants, "participants")?;
+    // Device participants come only from the pairing system path.
+    if participants.iter().any(|participant| is_device_id(&participant.id)) {
+        return Err(device_id_refused());
+    }
     let outcome = mux.conversation_write(
         |store| store.create(&idempotency_key, &actor, &title, &participants),
         |outcome| {
@@ -172,6 +180,9 @@ pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Re
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
+    if mux.is_remote_client(client) {
+        return super::remote_relay::conversations::snapshot(mux, client, params);
+    }
     require_local(mux, client)?;
     let SnapshotParams { conversation, tail } = params;
     validate_page(tail, "tail")?;
@@ -181,6 +192,9 @@ pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow
 }
 
 pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::Result<Value> {
+    if mux.is_remote_client(client) {
+        return super::remote_relay::conversations::history(mux, client, params);
+    }
     require_local(mux, client)?;
     let HistoryParams { conversation, before_seq, limit } = params;
     validate_page(limit, "limit")?;
@@ -200,58 +214,97 @@ pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Re
 }
 
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
+    if mux.is_remote_client(client) {
+        return super::remote_relay::conversations::op(mux, client, params);
+    }
     require_local(mux, client)?;
     let OpParams { conversation, idempotency_key, actor, transaction, op } = params;
     let actor = resolve_actor(mux, client, actor)?;
     validate_client_transaction(transaction.as_deref())?;
     let op: Op = decode(op, "op")?;
+    if let Op::ParticipantsAdd { participant } = &op
+        && is_device_id(&participant.id)
+    {
+        return Err(device_id_refused());
+    }
     let transaction: Option<Arc<str>> = transaction.map(Arc::from);
-    let outcome = mux.conversation_write(
-        |store| store.apply_op(&conversation, &idempotency_key, &actor, &op),
+    let outcome = commit_op(mux, &conversation, &idempotency_key, &actor, &op, &transaction)?;
+    Ok(op_reply(&outcome, outcome.result.change.clone(), transaction))
+}
+
+/// Commit `op` as `actor` and publish its `conversation-changed` (not for a
+/// replay). Shared by the local and the remote handler.
+pub(super) fn commit_op(
+    mux: &Mux,
+    conversation: &str,
+    idempotency_key: &str,
+    actor: &str,
+    op: &Op,
+    transaction: &Option<Arc<str>>,
+) -> anyhow::Result<OpOutcome> {
+    mux.conversation_write(
+        |store| store.apply_op(conversation, idempotency_key, actor, op),
         |outcome| {
             if outcome.replayed {
                 return None;
             }
             Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
-                conversation: conversation.clone(),
+                conversation: conversation.to_string(),
                 rev: outcome.result.rev,
                 transaction: transaction.clone(),
                 change: outcome.result.change.clone(),
             })))
         },
-    )?;
-    let result = outcome.result;
-    let mut reply =
-        json!({"rev": result.rev, "replayed": outcome.replayed, "change": result.change});
+    )
+}
+
+/// The `conversation-op` reply with `change` (local or projected).
+pub(super) fn op_reply(outcome: &OpOutcome, change: Value, transaction: Option<Arc<str>>) -> Value {
+    let result = &outcome.result;
+    let mut reply = json!({"rev": result.rev, "replayed": outcome.replayed, "change": change});
     if let Some(seq) = result.seq {
         reply["seq"] = json!(seq);
     }
     if let Some(transaction) = transaction {
         reply["transaction"] = json!(&*transaction);
     }
-    Ok(reply)
+    reply
 }
 
 pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
+    if mux.is_remote_client(client) {
+        return super::remote_relay::conversations::typing(mux, client, params);
+    }
     require_local(mux, client)?;
     let TypingParams { conversation, actor, on } = params;
     let actor = resolve_actor(mux, client, actor)?;
+    publish_typing(mux, &conversation, &actor, on)?;
+    Ok(json!({}))
+}
+
+/// Validate and publish a typing indicator of `actor`. Never stored.
+pub(super) fn publish_typing(
+    mux: &Mux,
+    conversation: &str,
+    actor: &str,
+    on: bool,
+) -> anyhow::Result<()> {
     mux.conversation_write(
-        |store| store.check_typing(&conversation, &actor),
+        |store| store.check_typing(conversation, actor),
         |_| {
             Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Typing {
-                conversation: conversation.clone(),
-                participant: actor.clone(),
+                conversation: conversation.to_string(),
+                participant: actor.to_string(),
                 on,
             })))
         },
-    )?;
-    Ok(json!({}))
+    )
 }
 
 pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
     let BindParams { participant, token } = params;
+    anyhow::ensure!(participant.starts_with("agent_"), "only agent participants bind with a token");
     let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
     anyhow::ensure!(valid, "conversation agent token is not valid for {participant}");
     mux.bind_conversation_principal(client, participant.clone());
@@ -267,6 +320,10 @@ pub(super) fn agent_token(
     anyhow::ensure!(
         mux.conversation_principal(client) == LOCAL_USER,
         "only the local user mints agent tokens"
+    );
+    anyhow::ensure!(
+        params.participant.starts_with("agent_"),
+        "agent tokens are only for agent participants"
     );
     let token = mux.with_conversations(|store| store.mint_agent_token(&params.participant))?;
     // A replaced token also ends the connections bound with the old one.
