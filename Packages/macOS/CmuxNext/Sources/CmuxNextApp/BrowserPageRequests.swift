@@ -26,6 +26,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     private var closedBeforeAdoption: [WeakPage] = []
     /// Daemon tabs to close when they appear: their page closed first.
     private var closeOnArrival: Set<SurfaceID> = []
+    /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
+    let proxiedTabs = ProxiedBrowserTabs()
 
     func browserTab(_ page: any BrowserTab, didRequest intent: BrowserTabIntent) {
         // A popup panel's page: the panel handles it (window.close closes

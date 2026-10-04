@@ -30,6 +30,9 @@ final class AppPageNativeProvider: PageProvider {
             if let name = params["action"]?.stringValue, let kind = page.confirmedOps[name] {
                 return try await runConfirmed(name, kind: kind, args: params["args"] ?? .object([:]), context: context)
             }
+            if params["action"]?.stringValue == BrowserTabOpen.action {
+                return try await BrowserTabOpen.run(args: params["args"] ?? .object([:]), page: context.page, services: services)
+            }
             guard let name = params["action"]?.stringValue, page.actions.contains(name) else {
                 throw PageError(code: "cmux.app.action_refused", message: "\(params["action"]?.stringValue ?? "") is not an action of this page")
             }

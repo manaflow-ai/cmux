@@ -100,7 +100,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }()
 
     /// The remote-localhost derived store, nil for the profile's own store.
-    @ObservationIgnored var machineStore: BrowserMachineStore?
+    @ObservationIgnored public internal(set) var machineStore: BrowserMachineStore?
     @ObservationIgnored var navigationGuard: BrowserNavigationGuard = .none
 
     init(id: BrowserTabID, profile: BrowserProfileID, host: CEFPaneHost, runtime: CEFRuntime) {

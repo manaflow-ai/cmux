@@ -287,7 +287,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     var hasDelegate: Bool { delegate != nil }
 
     func makeChildTab(configuration: WKWebViewConfiguration) -> WebKitTab? {
-        engine?.makeWebKitTab(BrowserTabConfiguration(profile: profileID), webViewConfiguration: configuration)
+        engine?.makeWebKitTab(profile: profileID, webViewConfiguration: configuration)
     }
 
     var downloadsDirectory: URL {

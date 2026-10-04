@@ -19,7 +19,7 @@ import WebKit
         }
 
         func openAutomationTab(url: URL?) async throws -> WebKitTab {
-            let tab = engine.makeWebKitTab(BrowserTabConfiguration(profile: .default))
+            let tab = engine.makeWebKitTab(profile: .default)
             tab.webView.frame = CGRect(x: 0, y: 0, width: 800, height: 600)
             tabs.append(tab)
             return tab
