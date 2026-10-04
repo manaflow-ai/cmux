@@ -11,8 +11,9 @@
 //!
 //! Garbage collection: a sweep at registry open and before each new put
 //! deletes the blobs that no field in `ICON_REFERENCE_FIELDS` names and that
-//! nobody put for `UNREFERENCED_GRACE_MS`. A put that would take the store
-//! past `MAX_TOTAL_BYTES` after the sweep is refused.
+//! nobody put for `UNREFERENCED_GRACE_MS`. When a new put would take the
+//! store past `MAX_TOTAL_BYTES`, a second sweep uses `FULL_STORE_GRACE_MS`;
+//! a put that still does not fit is refused.
 //!
 //! The table is additive and carries no foreign key, so an older binary that
 //! opens the registry ignores it. Blobs are not journaled and emit no event:
@@ -41,6 +42,9 @@ pub const MAX_SVG_BYTES: usize = 64 * 1024;
 pub const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
 /// How long a blob that no field names survives after its last put.
 pub const UNREFERENCED_GRACE_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+/// The shorter grace a put uses when the store is full: an unreferenced
+/// blob older than this goes, so a full store cannot lock out puts for days.
+pub const FULL_STORE_GRACE_MS: u64 = 10 * 60 * 1000;
 /// Longest accepted base64 `data`: the raster limit, encoded with padding.
 pub const MAX_BASE64_BYTES: usize = MAX_RASTER_BYTES.div_ceil(3) * 4;
 
@@ -55,6 +59,8 @@ pub(crate) const ICON_REFERENCE_FIELDS: &[(&str, &str)] = &[
     ("browser_profiles", "icon"),
     ("workspace_status_entries", "icon"),
     ("closed_history", "record_json"),
+    // Opaque client JSON: kept conservatively in case a window stores an icon.
+    ("window_records", "record_json"),
 ];
 
 pub(crate) fn create_blob_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -189,7 +195,7 @@ pub fn parse_blob_reference(value: &str) -> Option<&str> {
 }
 
 /// Check, size, sanitize and hash one asset. Returns the bytes to store.
-pub(crate) fn prepare_blob(media_type: &str, data: &[u8]) -> anyhow::Result<StoredBlob> {
+pub fn prepare_blob(media_type: &str, data: &[u8]) -> anyhow::Result<StoredBlob> {
     let media_type = BlobMediaType::parse(media_type).ok_or_else(|| {
         invalid_asset("media_type must be image/png, image/jpeg, image/webp, or image/svg+xml")
     })?;
@@ -228,11 +234,19 @@ pub(crate) fn put_blob_in(
         return Ok(false);
     }
     sweep_blobs(transaction, now_ms)?;
-    let total: i64 =
-        transaction
-            .query_row("SELECT COALESCE(SUM(size), 0) FROM personal_blobs", [], |row| row.get(0))?;
     let size = u64::try_from(blob.data.len())?;
-    if u64::try_from(total)?.saturating_add(size) > MAX_TOTAL_BYTES {
+    let fits = |transaction: &Transaction<'_>| -> anyhow::Result<bool> {
+        let total: i64 = transaction.query_row(
+            "SELECT COALESCE(SUM(size), 0) FROM personal_blobs",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(u64::try_from(total)?.saturating_add(size) <= MAX_TOTAL_BYTES)
+    };
+    if !fits(transaction)? {
+        sweep_blobs_with_grace(transaction, now_ms, FULL_STORE_GRACE_MS)?;
+    }
+    if !fits(transaction)? {
         return Err(asset_error(
             "asset_store_full",
             format!(
@@ -331,7 +345,15 @@ fn collect_digests(text: &str, digests: &mut HashSet<String>) {
 /// Delete every blob that no registered field names and that was last put
 /// more than `UNREFERENCED_GRACE_MS` before `now_ms`. Returns the count.
 pub(crate) fn sweep_blobs(connection: &Connection, now_ms: u64) -> anyhow::Result<usize> {
-    let cutoff = i64::try_from(now_ms.saturating_sub(UNREFERENCED_GRACE_MS))?;
+    sweep_blobs_with_grace(connection, now_ms, UNREFERENCED_GRACE_MS)
+}
+
+fn sweep_blobs_with_grace(
+    connection: &Connection,
+    now_ms: u64,
+    grace_ms: u64,
+) -> anyhow::Result<usize> {
+    let cutoff = i64::try_from(now_ms.saturating_sub(grace_ms))?;
     let stale = {
         let mut statement =
             connection.prepare("SELECT digest FROM personal_blobs WHERE touched_ms < ?1")?;
@@ -358,9 +380,9 @@ pub(crate) fn open_blob_store(transaction: &Transaction<'_>) -> anyhow::Result<(
 }
 
 impl WorkspaceRegistry {
-    /// `put-blob`: store one asset and return it (without re-reading).
-    pub fn put_blob(&mut self, media_type: &str, data: &[u8]) -> anyhow::Result<StoredBlob> {
-        let blob = prepare_blob(media_type, data)?;
+    /// `put-blob`: store one asset prepared (checked, sanitized, hashed)
+    /// with [`prepare_blob`] before the registry lock was taken.
+    pub fn put_blob(&mut self, blob: StoredBlob) -> anyhow::Result<StoredBlob> {
         let tx = self.connection.transaction()?;
         put_blob_in(&tx, &blob, unix_epoch_ms()?)?;
         tx.commit()?;
