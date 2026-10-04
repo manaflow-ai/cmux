@@ -65,7 +65,7 @@ fail() {
     echo "warning: CEF unavailable: $*; building without the Chromium engine" >&2
     exit 0
   fi
-  echo "error: $*" >&2
+  echo "error: $*; see cmuxterm-hq REPAIR.md (ensure-cef store parser)" >&2
   exit 1
 }
 
@@ -91,7 +91,7 @@ field() {
   # CI also exercises this script on Linux, where macOS plutil is absent.
   # Keep the manifest reader JSON-only and portable without changing the
   # signed artifact or checksum path.
-  /usr/bin/python3 - "$key" "$MANIFEST" <<'PYJSON'
+  python3 - "$key" "$MANIFEST" <<'PYJSON'
 import json
 import sys
 try:
