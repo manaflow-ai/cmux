@@ -94,12 +94,14 @@ declare namespace Cmux {
   type Grant = { id: Cmux.GrantId; grantee: string; op_classes: Array<Cmux.OpClass>; approval: "none" | "per_call" | "per_session"; expires_at: number | null; revoked_at: number | null; created_from: "install" | "ui" | "automation" | "standing_rule" }
   type GrantId = string
   type GroupColor = "grey" | "blue" | "red" | "yellow" | "green" | "pink" | "purple" | "cyan" | "orange"
+  type HomeAttachmentPoster = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
+  type HomeAttachmentPreview = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeChief = { id: Cmux.ChiefId; owner_user: string; display_name: string; is_default: boolean; brain: "cloud"; main_conversation: Cmux.ConversationId | null; harness: string | null; rev: unknown; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; archived_at: Cmux.Timestamp | null }
   type HomeConversationCommit = { rev: number; seq?: number; message_id?: Cmux.MessageId; change: string }
   type HomeConversationSettings = { wake_policy: "auto" | "mentions" | "all"; agent_budget: { turns: number; gap_ms: number }; history_visible: "all" | "since_join" }
   type HomeConversationSummary = { id: Cmux.ConversationId; owner: string; title: string; participants: Array<Cmux.HomeParticipant>; last_seq: number; rev: number; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; last_message?: Cmux.HomeMessage; read_cursors: Record<string, number>; kind?: Cmux.ConversationKind; team?: string; created_by?: string; state?: "active" | "archived"; settings?: Cmux.HomeConversationSettings; invites?: Array<Cmux.HomeInvite>; retention_days?: number }
   type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
-  type HomeInboxEntry = { conversation: Cmux.ConversationId; rev: number; kind: Cmux.ConversationKind; title: string; last_seq: number; last_at: Cmux.Timestamp; preview: string; dm_peer?: Cmux.ParticipantId; removed: boolean; unread: number; mentions: number; counts_rev: number; pinned: boolean; pin_position?: number; muted: boolean; muted_until?: unknown; archived: boolean; archived_seq: number; marked_unread: boolean }
+  type HomeInboxEntry = { conversation: Cmux.ConversationId; rev: number; kind: Cmux.ConversationKind; title: string; last_seq: number; last_at: Cmux.Timestamp; preview: string; preview_attachments?: { kind: "photo" | "video" | "audio" | "file"; count: number }; dm_peer?: Cmux.ParticipantId; removed: boolean; unread: number; mentions: number; counts_rev: number; pinned: boolean; pin_position?: number; muted: boolean; muted_until?: unknown; archived: boolean; archived_seq: number; marked_unread: boolean }
   type HomeInvite = { id: Cmux.InviteId; address: Cmux.AddressId; channel: "email" | "sms"; display_name: string; invited_by: Cmux.ParticipantId; created_at: Cmux.Timestamp; expires_at: Cmux.Timestamp; status: "pending" | "pending_approval" | "accepted" | "revoked" | "expired"; accepted_by?: string; accepted_at?: Cmux.Timestamp; requested_by?: string; requested_name?: string; requested_at?: Cmux.Timestamp; delivery: { state: Cmux.HomeDeliveryState; provider_id?: string; at: Cmux.Timestamp }; copy_variant: string; locale: string }
   type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
   type HomePart = unknown
@@ -108,6 +110,7 @@ declare namespace Cmux {
   type HomePartRef = { message_id: Cmux.MessageId; part_index: number }
   type HomeReaction = { author: Cmux.ParticipantId; part_index: number; kind: Cmux.HomeReactionKind; at: Cmux.Timestamp }
   type HomeReactionKind = unknown
+  type HomeSha256 = string
   type HomeTextRun = { start: number; length: number; mention?: Cmux.ParticipantId; link?: string }
   type Host = { id: Cmux.HostId; name: string; platform: Cmux.Platform; owner_user: Cmux.UserId; enrolled_by: Cmux.InstallId; enrolled_at: number; kind?: Cmux.HostKind; wg_public_key?: Cmux.WgPublicKey; tags?: Array<string> }
   type HostId = string
@@ -590,7 +593,7 @@ interface CmuxGlobal {
     update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; column: string /* split_… */; sticky?: boolean; edge?: "left" | "right"; mode?: "docked" | "overlay"; width?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
   }
   conversation: {
-    /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+    /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
     create: CmuxOp<{ kind?: "group"; title?: string; participants: Array<Cmux.HomeParticipantInput>; settings?: Cmux.HomeConversationSettings; expected_revision?: string }, Cmux.MutationResult<{ conversation: Cmux.HomeConversationSummary }>>
     /** `conversation.history` (read, scope `conversation:read`): Page older messages before before_seq (newest first within the page). */
     history: CmuxOp<{ conversation: Cmux.ConversationId; before_seq?: number; limit?: number }, { messages: Array<Cmux.HomeMessage>; next_before_seq: number | null; revision: string }>
@@ -719,8 +722,8 @@ interface CmuxGlobal {
     /** `home.search` (read, scope `home:read`): Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
     search: CmuxOp<{ q: string; conversation?: Cmux.ConversationId; author?: Cmux.ParticipantId; kind?: Cmux.ConversationKind; before?: Cmux.Timestamp; cursor?: string; limit?: number }, { hits: Array<{ conversation: Cmux.ConversationId; title: string | null; seq: number; message_id: string; author: Cmux.ParticipantId; created_at: Cmux.Timestamp; snippet: string; ranges: Array<{ start: number; length: number }> }>; cursor?: string }>
     settings: {
-      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone and who may start a DM with you. */
-      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_dm_from?: "anyone" | "teams" | "contacts"; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_dm_from: "anyone" | "teams" | "contacts" }>>
+      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
+      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_requests_from?: "anyone" | "teams" | "nobody"; email_requests?: boolean; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_requests_from: "anyone" | "teams" | "nobody"; email_requests: boolean }>>
     }
   }
   inbox: {
@@ -729,7 +732,7 @@ interface CmuxGlobal {
     /** `inbox.dm_peer` (read, scope `inbox:read`): Your existing one-to-one conversation with a peer, if any (dm.open checks it before deriving a new id). */
     dm_peer: CmuxOp<{ peer: Cmux.ParticipantId }, { conversation: Cmux.ConversationId | null }>
     /** `inbox.list` (read, scope `inbox:read`): List your Home conversations: pinned first by position, then newest activity first. */
-    list: CmuxOp<{ limit?: number; include_archived?: boolean }, { entries: Array<Cmux.HomeInboxEntry>; revision: string }>
+    list: CmuxOp<{ limit?: number; include_archived?: boolean; cursor?: string }, { entries: Array<Cmux.HomeInboxEntry>; next_cursor: string | null; revision: string }>
     /** `inbox.mark_unread` (mutation, scope `inbox:write`): Flag a conversation unread (the read cursor stays). */
     mark_unread: CmuxOp<{ conversation: Cmux.ConversationId; unread: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeInboxEntry>>
     /** `inbox.mute` (mutation, scope `inbox:write`): Mute a conversation (until a time in ms, or until unmuted). Approvals still notify. */
@@ -930,7 +933,7 @@ interface CmuxGlobal {
     zoom: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; enabled?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
   }
   participants: {
-    /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+    /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms). */
     add: CmuxOp<{ conversation: Cmux.ConversationId; participant: Cmux.HomeParticipantInput; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   push: {

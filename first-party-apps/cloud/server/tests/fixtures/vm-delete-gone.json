@@ -1,0 +1,12 @@
+{
+  "$comment": "Shape of a 404 from web/app/api/vm/[id]/route.ts DELETE when the machine is missing (web/services/vms/routeHelpers.ts vm_not_found).",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/vm/vm-alpha01"
+  },
+  "status": 404,
+  "body": {
+    "error": "vm_not_found",
+    "message": "Not found."
+  }
+}

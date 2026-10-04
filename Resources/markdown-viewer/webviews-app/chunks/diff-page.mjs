@@ -1,0 +1,1 @@
+import{t as e}from"./preload-helper.mjs";var t=document.getElementById(`root`);if(!t)throw Error(`Missing cmux webview root`);e(()=>import(`./diffSurface.mjs`).then(e=>e.mountDiffSurface(t)),[]).catch(e=>{document.documentElement.dataset.cmuxDiffBoot=`failed`,console.error(`cmux diff page boot failed`,e)});

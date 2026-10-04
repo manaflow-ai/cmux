@@ -4,9 +4,10 @@
  * events, effects or snapshots. The owner keeps the full values. Gap: the
  * `invhash` table's row keys are token hashes, and the engine redacts row
  * values, not keys; until it can drop whole tables from effects, keep
- * `invhash` writes out of subscriber effects (PRIVATE_TABLES).
+ * `invhash` writes out of subscriber effects (PRIVATE_TABLES). `unread` (per-user counts) and
+ * `consent` (who has written in a DM, consent.ts) are owner bookkeeping and stay private too.
  */
-export const PRIVATE_TABLES: ReadonlyArray<string> = ["invhash", "unread", "attref"]
+export const PRIVATE_TABLES: ReadonlyArray<string> = ["invhash", "unread", "consent", "attref"]
 
 const without = (value: unknown, keys: ReadonlyArray<string>): unknown => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value

@@ -1,0 +1,62 @@
+name: Agent brand icons
+
+# The agent brand marks: design/agent-icons is the one source, and
+# scripts/agent-icons/generate.py writes the Swift catalog and the TS module.
+# `drift` fails when a generated file or an SVG breaks the rules; `swift-test`
+# runs the shared package's resolver and renderer tests.
+
+on:
+  pull_request:
+    # Exactly what the jobs below read, generate or test.
+    paths:
+      - design/agent-icons/**
+      - scripts/agent-icons/**
+      - scripts/icons/build_pack.py
+      - Packages/Shared/CmuxAgentBrands/**
+      - webviews/src/agent-session/shared/agentBrands.generated.ts
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
+      - .github/workflows/agent-brands.yml
+  push:
+    branches: [main, feat-cmux-next]
+    paths:
+      - design/agent-icons/**
+      - scripts/agent-icons/**
+      - scripts/icons/build_pack.py
+      - Packages/Shared/CmuxAgentBrands/**
+      - webviews/src/agent-session/shared/agentBrands.generated.ts
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
+      - .github/workflows/agent-brands.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-brands-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  drift:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - run: python3 scripts/agent-icons/generate.py --check --sizes
+
+  swift-test:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Resolver and renderer tests
+        run: swift test --package-path Packages/Shared/CmuxAgentBrands

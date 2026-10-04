@@ -1,5 +1,6 @@
 export { apply, isSend, targetMessageId } from "./apply.ts"
 export { BUDGET_WINDOW, checkAgentBudget, checkAgentStreak, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS } from "./budget.ts"
+export { consentMarkerWrites, hasConsentMarker, TABLE_CONSENT, withConsentMarkers } from "./consent.ts"
 export { checkTyping, create, summary, type CreateRequest, type CreateResult } from "./create.ts"
 export {
   actorOf,
@@ -18,6 +19,7 @@ export {
 export type { Domain, OutboxItem, Principal, ReduceContext, ReduceResult, RowRange, RowReader, RowWrite, StoredRow } from "./engine-types.ts"
 export {
   fanOut,
+  hasApprovalPart,
   mentionsOf,
   PREVIEW_CHARS,
   previewOf,
@@ -53,6 +55,7 @@ export {
   type ParticipantDecision,
   type ParticipantPolicy
 } from "./policy.ts"
+export { ALLOW_REQUESTS_FROM, NOT_REACHABLE, reachDecision, type AllowRequestsFrom, type HumanReach, type ReachDecision } from "./reach.ts"
 export { safeDisplayName } from "./validate.ts"
 export { commitOutbox, createOutbox } from "./outbox.ts"
 export { CLOUD_REJECT_CODES, LOCAL_REJECT_CODES, REJECT_CODES, type ConversationReject, type RejectCode } from "./reject.ts"
@@ -100,3 +103,5 @@ export {
   type QuotaResult
 } from "./attachments.ts"
 export { IMPORT_OPS, MAX_IMPORT_BATCH, MAX_IMPORT_BATCH_BYTES, reduceImport } from "./import.ts"
+export { nextSweepAt, RETENTION_BATCH, SWEEP_OP } from "./sweep.ts"
+export { TYPING_MAX_ON, TYPING_REFRESH_MS, TYPING_WINDOW_MS, typingGate, type TypingDecision, type TypingMemo } from "./typing.ts"

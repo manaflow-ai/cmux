@@ -89,6 +89,11 @@ export const PAGES = {
       },
     ],
   },
+  // The Keyboard Shortcuts page has its own table in the app's resources.
+  keybindings: {
+    out: "webviews/src/pages/keybindings/generated/strings.json",
+    catalogs: [{ file: `${sources}/CmuxNextApp/Resources/KeybindingsPage.xcstrings` }],
+  },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
     out: "webviews/src/pages/cloud/generated/strings.json",

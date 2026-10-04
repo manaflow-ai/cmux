@@ -146,6 +146,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
+        if let keyRecorder, keyRecorder(event, window) {
+            cancelChord()
+            return true
+        }
         // A shortcut recording in a Settings tab takes every key first.
         if let window, services?.windows.owner(of: window) != nil, services?.settingsWindow.handlePaneRecorderKey(event) == true {
             chords.cancel()
@@ -246,6 +251,10 @@ final class KeyRouter: BrowserKeyRouting {
         services.popups.close(panel.page)
         return true
     }
+
+    /// Set while the Keyboard Shortcuts page records keys: returns whether
+    /// it took the key-down (only its own window's keys).
+    var keyRecorder: ((NSEvent, NSWindow?) -> Bool)?
 
     /// The last intercepted action and window (for `debug.key`).
     private(set) var lastInterception: (action: ActionID, window: String)?

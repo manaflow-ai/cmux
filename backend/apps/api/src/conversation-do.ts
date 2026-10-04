@@ -1,15 +1,18 @@
-import type { Domain, EventFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import { tablesFor, type Domain, type EventFrame, type OwnerEngine, type OwnerFrame, type Principal } from "@cmux/ownership"
 import { conversation, invites } from "@cmux/home-core"
 
 /** An invite still waiting for its recipient (pending, or waiting for approval). */
 const isOpen = (i: conversation.Invite) => i.status === "pending" || i.status === "pending_approval"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { publicActor } from "./public-actor.ts"
 import { withAdmit } from "./home-admit.ts"
 import * as store from "./home-attachment-store.ts"
+import * as gc from "./home-attachment-gc.ts"
 
 type Head = conversation.ConversationState
+/** A conversation socket remembers whether its sender last broadcast `typing on` (for close). */
+type ConvAttachment = Attachment & { typing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
 const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept", "conversation.import", "conversation.import.commit", "participants.add"])
@@ -17,7 +20,8 @@ const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.cr
 /**
  * Reach policy with owner records: an agent participant is allowed when it is one of the
  * caller's chiefs (principal.owned_agents, resolved by the Worker from UserDO); everything
- * else follows home-core's default policy.
+ * else follows home-core's default policy. An agent caller always has reach facts here (its
+ * owner's, or none): the stored record of a departed human is never a shortcut back in.
  */
 const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participant, head) => {
   if (participant.kind === "agent") {
@@ -25,6 +29,8 @@ const ownerRecordPolicy: conversation.ParticipantPolicy = (principal, participan
     const actor = conversation.actorOf(principal)
     if (owned && actor?.startsWith("user_")) return { ok: true, owner_user: actor, display_name: owned.display_name }
   }
+  if (participant.kind === "human" && principal.agent && principal.kind !== "system" && principal.home_reach === undefined)
+    return conversation.defaultParticipantPolicy({ ...principal, home_reach: [] }, participant, head)
   return conversation.defaultParticipantPolicy(principal, participant, head)
 }
 /** Accept rejects that count toward the lock (a wrong or used link), not transient ones. */
@@ -43,8 +49,6 @@ export type AttachmentAccess =
 
 /** A download the owner allows: the record, and (when asked by message part) that part, whose name is the file name. */
 export type DownloadAccess = { readonly record: conversation.AttachmentRecord; readonly name: string | null; readonly part?: conversation.AttachmentPart } | null
-
-type Users = { releaseAttachmentStorage(e: string, key: string): Promise<void>; refundAttachmentQuota(e: string, slot: string): Promise<void> }
 
 export type InvitePreviewResult =
   | { readonly state: "ok"; readonly inviter: string; readonly kind: "dm" | "group"; readonly title?: string }
@@ -76,6 +80,9 @@ export class ConversationDO extends OwnerDO<Head> {
       eventWindow: { retentionMs: 7 * 24 * 3600_000, maxEvents: 10_000, maxBytes: 256 * 1024 * 1024, floor: 1_000 }
     })
   }
+
+  /** Typing memos per participant, in memory only (home-core typingGate); lost on eviction, which is fine. */
+  private readonly typing = new Map<string, conversation.TypingMemo>()
 
   private member(state: Head, principal: Principal) {
     const actor = conversation.actorOf(principal)
@@ -136,43 +143,110 @@ export class ConversationDO extends OwnerDO<Head> {
     if ((op === "message.retract" || op === "message.edit") && frames.some((f) => f.t === "result")) store.markDirty(this.sqlStore, Date.now())
   }
 
-  /** The alarm also expires upload slots and runs the attachment sweep (shared with the outbox drain and the prunes). */
-  protected override nextWakeAt(_state: Head, _now: number): number | null {
-    const times = [store.nextSweepAt(this.sqlStore), store.nextSlotDue(this.sqlStore), store.purgeAt(this.sqlStore)].filter((t): t is number => t !== null)
+  /** What the attachment storage paths (home-attachment-gc.ts) need from this object. */
+  private get gc(): gc.AttachmentGcDeps {
+    return { sql: this.sqlStore, env: this.env, users: (user) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as gc.AttachmentUsers, scheduleAlarm: () => this.scheduleAlarm() }
+  }
+
+  /**
+   * Hygiene wake (home-messaging.md section 10): the oldest message's retention expiry or the
+   * earliest open invite's expiry. The base alarm takes the earlier of this, the outbox drain and
+   * the engine prunes, so other alarm work keeps its schedule.
+   */
+  private sweepDueAt(state: Head): number | null {
+    const engine = this.boundEngine
+    if (!state || !engine) return null
+    const oldest = state.retention_days === undefined ? null : (engine.rows.range<conversation.Message>(conversation.TABLE_MSG, { limit: 1 })[0]?.row ?? null)
+    return conversation.nextSweepAt(state, oldest)
+  }
+
+  /** The alarm's own work: hygiene (above) and the attachment slots, sweep and purge (home-attachment-gc.ts). */
+  protected override nextWakeAt(state: Head, _now: number): number | null {
+    const times = [this.sweepDueAt(state), gc.attachmentWakeAt(this.sqlStore)].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 
   protected override async onWake(now: number): Promise<void> {
-    await this.expireSlots(now)
-    const due = store.nextSweepAt(this.sqlStore)
-    if (due !== null && due <= now) await this.sweepAttachments(now)
-    const purge = store.purgeAt(this.sqlStore)
-    const entity = this.boundRow()?.entity
-    if (purge !== null && purge <= now && entity) {
-      await this.deletePrefix(entity)
-      store.clearPurge(this.sqlStore, purge)
+    // The attachment work and the hygiene sweep each run even when the other throws; the first failure is rethrown so the alarm backs off.
+    let failure: unknown
+    for (const run of [() => gc.runAttachmentWake(this.gc, this.boundRow()?.entity, now), () => this.sweepWake(now)]) {
+      try {
+        await run()
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "conversation wake step failed", error: String(e).slice(0, 200) }))
+        failure ??= e
+      }
     }
-  }
-
-  private users(user: string): Users {
-    return this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as Users
+    if (failure !== undefined) throw failure
   }
 
   /**
-   * Slots whose time is up: their object key is deleted (a PUT that never committed, or a re-PUT
-   * to a presigned URL after the slot ended), a slot that never committed is refunded, then the
-   * row goes. Each step is idempotent, so a failed wake retries safely.
+   * Runs `conversation.sweep` when hygiene work is due. The key names the head revision and the
+   * due time, so a repeated alarm replays instead of applying twice, and each batch gets a new
+   * key. Work still due after a sweep that changed nothing (refused, replayed or a no-op) throws,
+   * so the base alarm backs off instead of firing again at once.
    */
-  private async expireSlots(now: number): Promise<void> {
-    for (;;) {
-      const due = store.dueSlots(this.sqlStore, now, 100)
-      if (due.length === 0) return
-      if (this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(due.flatMap(store.slotKeys))
-      for (const slot of due) {
-        if (slot.state !== "tombstone") await this.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
-        store.removeSlot(this.sqlStore, slot.id)
-      }
-      if (due.length < 100) return
+  private async sweepWake(now: number): Promise<void> {
+    const state = this.boundEngine?.currentState
+    const due = state ? this.sweepDueAt(state) : null
+    if (!state || due === null || due > now) return
+    const res = this.submitSystem(conversation.SWEEP_OP, {}, `sweep:${state.rev}:${due}`)
+    const after = this.boundEngine?.currentState
+    const still = after ? this.sweepDueAt(after) : null
+    if (after?.rev === state.rev && still !== null && still <= Date.now()) {
+      const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+      throw new Error(`conversation.sweep made no progress (${reply?.t === "reject" ? reply.code : "no change"})`)
+    }
+  }
+
+  /**
+   * `typing {on, conversation?}`: an ephemeral broadcast to the other subscribed members as
+   * `conversation-typing {conversation, participant, on}` (home-messaging.md section 20 row 7).
+   * Never committed, never in the ledger or the outbox; limited per participant by typingGate.
+   */
+  protected onFrame(ws: WebSocket, frame: { readonly t?: string } & Record<string, unknown>): boolean {
+    if (frame.t !== "typing") return false
+    const a = ws.deserializeAttachment() as ConvAttachment | null
+    const state = this.boundEngine?.currentState
+    const fail = (code: string, message: string) => {
+      try {
+        ws.send(JSON.stringify({ t: "error", code, message }))
+      } catch {}
+      return true
+    }
+    if (typeof frame.on !== "boolean" || (frame.conversation !== undefined && frame.conversation !== state?.id)) return fail("validation.invalid", "typing needs a boolean `on` (and this conversation, when named)")
+    const actor = a ? conversation.actorOf(a.principal) : null
+    if (!a || !state || !actor || conversation.checkTyping(state, actor)) return fail("auth.forbidden", "not a participant")
+    this.sendTyping(state, actor, frame.on, ws)
+    if ((a.typing ?? false) !== frame.on) ws.serializeAttachment({ ...a, typing: frame.on } satisfies ConvAttachment)
+    return true
+  }
+
+  /**
+   * A sender whose socket closes while typing is turned off for the others. The `off` skips the
+   * gate: the memo may be gone after an eviction, and one `off` per socket is bounded anyway.
+   */
+  override async webSocketClose(ws: WebSocket, code: number) {
+    const a = ws.deserializeAttachment() as ConvAttachment | null
+    const state = this.boundEngine?.currentState
+    const actor = a ? conversation.actorOf(a.principal) : null
+    if (a?.typing && state && actor) this.sendTyping(state, actor, false, ws, true)
+    await super.webSocketClose(ws, code)
+  }
+
+  private sendTyping(state: NonNullable<Head>, actor: string, on: boolean, from: WebSocket, force = false) {
+    const memo = this.typing.get(actor)
+    const decision = force ? { send: true, memo: memo ? { ...memo, on: false, at: Date.now() } : undefined } : conversation.typingGate(memo, on, Date.now())
+    if (decision.memo) this.typing.set(actor, decision.memo)
+    if (!decision.send) return
+    const text = JSON.stringify({ t: "conversation-typing", conversation: state.id, participant: actor, on })
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === from) continue
+      const other = ws.deserializeAttachment() as ConvAttachment | null
+      if (!other?.subscribed || !this.member(state, other.principal)) continue
+      try {
+        ws.send(text)
+      } catch {}
     }
   }
 
@@ -239,7 +313,8 @@ export class ConversationDO extends OwnerDO<Head> {
   /**
    * Whether `principal` is a current participant of an existing conversation. The Worker asks
    * before invite.create stashes a secret and a raw address in an AddressDO, so a stranger can
-   * never make AddressDOs for conversations it is not in (security review P2). Never writes.
+   * never make AddressDOs for conversations it is not in (security review P2), and before
+   * participants.add resolves reach facts (home-reach.ts). Never writes.
    */
   async mayInvite(entity: string, principal: Principal): Promise<boolean> {
     const state = this.existingState(entity)
@@ -374,67 +449,44 @@ export class ConversationDO extends OwnerDO<Head> {
     return part === undefined ? null : { record, name: part.name, part }
   }
 
-  /** Unreferenced uploads past the grace period: forget, delete their objects, release the uploaders' storage. */
-  private async sweepAttachments(now: number): Promise<number> {
-    const { records, done } = store.sweepBatch(this.sqlStore, now - conversation.ATTACHMENT_LIMITS.unreferencedGraceMs)
-    await this.dropObjects(records)
-    store.markSwept(this.sqlStore, now, done)
-    return records.length
-  }
-
-  private async dropObjects(records: ReadonlyArray<conversation.AttachmentRecord>): Promise<void> {
-    if (records.length && this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(records.flatMap(store.recordKeys))
-    for (const r of records) {
-      try {
-        await this.users(r.quota_user).releaseAttachmentStorage(r.quota_user, r.object_key)
-      } catch (e) {
-        // Fails safe: the uploader's stored-bytes count stays high until a later release.
-        console.error(JSON.stringify({ msg: "attachment storage release failed", error: String(e) }))
-      }
-    }
-  }
-
   /** Runs the sweep now (tests and operators); the alarm runs the same code when due. */
   async collectAttachments(entity: string, now = Date.now()): Promise<number> {
-    return this.existingState(entity) ? this.sweepAttachments(now) : 0
+    return this.existingState(entity) ? gc.sweepAttachments(this.gc, now) : 0
+  }
+
+  /** Conversation storage deletion (home-attachment-gc.ts deleteAttachmentStorage); the alarm purges the prefix again later. */
+  async deleteAttachmentStorage(entity: string): Promise<number> {
+    return this.existingState(entity) ? gc.deleteAttachmentStorage(this.gc, entity) : 0
   }
 
   /**
-   * Conversation storage deletion: forgets every record and slot, deletes every object under
-   * `home/v1/<conversation>/` (also orphans of failed uploads) and releases the uploaders' storage.
-   * A dropped slot's URL may still finish a PUT after this (S3 checks expiry only at the start),
-   * so the prefix is deleted again by the alarm once the latest dropped slot is past its expiry
-   * plus the upload grace. The deletion path that calls it (no human for 30 days, section 10)
-   * does not exist yet; the conversation takes no new uploads by then (archived).
+   * Worker only (home-reach.ts): the reach facts this DM gives `adder` about `target`. `peer` is
+   * the target's name while both are current human participants; `consented` holds when the
+   * pair gave consent (16.8): both have sent a message here, or the DM came from an invite one of
+   * them sent and the other accepted (16.4). Authorship comes from the private `consent`
+   * markers (home-core consent.ts), which retention never deletes, so an old DM stays connected
+   * after its messages expire. A DM from before the markers falls back to its `msgkey` rows
+   * (keyed `<author>:<client_msg_id>`, an index range read): any commit that deletes such a row
+   * writes the author's marker in the same commit, so the fallback is only read while the rows
+   * it reads still exist.
    */
-  async deleteAttachmentStorage(entity: string): Promise<number> {
-    if (!this.existingState(entity) || !this.env.HOME_ATTACHMENTS) return 0
-    const { records, slots } = store.forgetAll(this.sqlStore)
-    if (slots.length) {
-      store.schedulePurge(this.sqlStore, Math.max(...slots.map((s) => s.expires_at)) + store.UPLOADING_GRACE_MS)
-      this.scheduleAlarm()
-    }
-    await this.dropObjects(records)
-    for (const slot of slots) if (slot.state !== "tombstone") await this.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
-    const known = new Set(records.flatMap(store.recordKeys))
-    return records.length + (await this.deletePrefix(entity)).filter((k) => !known.has(k)).length
-  }
-
-  /** Deletes every object under `home/v1/<conversation>/`; answers the keys it deleted. */
-  private async deletePrefix(entity: string): Promise<Array<string>> {
-    const bucket = this.env.HOME_ATTACHMENTS
-    if (!bucket) return []
-    const deleted: Array<string> = []
-    let cursor: string | undefined
-    do {
-      const page = await bucket.list({ prefix: conversation.attachmentPrefix(entity), ...(cursor ? { cursor } : {}) })
-      if (page.objects.length) {
-        await bucket.delete(page.objects.map((o) => o.key))
-        deleted.push(...page.objects.map((o) => o.key))
-      }
-      cursor = page.truncated ? page.cursor : undefined
-    } while (cursor)
-    return deleted
+  async homeDmLink(entity: string, adder: string, target: string): Promise<{ peer: string | null; consented: boolean } | null> {
+    const state = this.existingState(entity)
+    if (!state || state.kind !== "dm") return null
+    const current = (id: string) => state.participants.find((p) => p.id === id && p.kind === "human" && p.left_at === undefined)
+    if (!current(adder)) return null
+    const peer = current(target)
+    if (!peer) return { peer: null, consented: false }
+    const rows = tablesFor().rows
+    const authored = (who: string) =>
+      conversation.hasConsentMarker(this.boundEngine!.rows, who) ||
+      this.sqlStore.exec<{ one: number }>(`SELECT 1 AS one FROM ${rows} WHERE tbl = ? AND k >= ? AND k < ? LIMIT 1`, conversation.TABLE_MSGKEY, `${who}:`, `${who};`).length > 0
+    const pair = new Set([adder, target])
+    const invited = () =>
+      [...(state.invites ?? []), ...this.boundEngine!.rows.scan<conversation.Invite>(conversation.TABLE_INV, 1000).map((r) => r.row)].some(
+        (i) => i.status === "accepted" && i.accepted_by !== undefined && i.invited_by !== i.accepted_by && pair.has(i.invited_by) && pair.has(i.accepted_by)
+      )
+    return { peer: peer.display_name, consented: (authored(adder) && authored(target)) || invited() }
   }
 
   /** State of an object that already serves this conversation; never creates storage for unknown ids. */

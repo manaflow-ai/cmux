@@ -78,6 +78,14 @@ const VIEWS = [
     ready: ".apps-installed-row",
     fit: ".apps-installed-row, .apps-installed-row *",
   },
+  {
+    name: "keybindings",
+    path: "/keybindings/?mock",
+    ready: ".keys-row",
+    fit: ".keys-header *, .keys-row, .keys-row *",
+    title: ".keys-title",
+    chips: ".keys-filters",
+  },
 ];
 
 /** Runs in the page: every problem as text. */

@@ -22,6 +22,14 @@ history.md (entry kinds, owners, retention), app-platform.md (catalog semantics,
 | Theme | `WebTheme.bootstrapScript` + `--cmux-*` variables (windows.md "Web theme") | html/body transparent, separators `--cmux-separator`, hover/selection `--cmux-hover`/`--cmux-selection`, no blue, `appearance.borders = none` gives no lines |
 | Swift host | one generic `PageWebView` (WKWebView, `drawsBackground = false`) + scheme handler `cmux-page://<page id>/` serving the bundled webviews output | one origin per page id (pane-protocol.md Pages); proposed to the settings lead as the shared host instead of a per-page scheme |
 
+### 1.0a First-party page roots (coordinator decision 2026-10-04)
+
+`PageID.registerBundledRoot(root, for: id)` (H10) stays as the one way to give a first-party page a root
+in the app bundle outside CmuxNextPages (for example cmux.diff on the one webviews-app build, with
+`PageDescriptor.entry`). It accepts only ids in `PageID.firstParty`, is called once at launch, and the
+first registration wins. P5 of the agent pane move deletes only the agent pane's own special path, not
+H10. App pages never use it.
+
 ### 1.1 Transport
 
 The pane protocol router is not in the daemon yet. The page code calls one interface:

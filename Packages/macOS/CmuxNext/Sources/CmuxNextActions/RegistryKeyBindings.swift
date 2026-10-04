@@ -71,8 +71,10 @@ public struct RegistryKeyBindings {
         }
         var entries = KeyBindingDefaults.entries(registry: registry)
         let removals = registry.keyBindingLayers.removals
+        var removed: [KeyBinding] = []
         for source in KeyBinding.Source.allCases {
             if source == .user, !removals.isEmpty {
+                removed = entries.filter { entry in removals.contains { $0.removes(entry) } }
                 entries.removeAll { entry in removals.contains { $0.removes(entry) } }
             }
             let ranked = (layers[source] ?? []).sorted { lhs, rhs in
@@ -85,7 +87,7 @@ public struct RegistryKeyBindings {
             case .user: entries += registry.keyBindingLayers.user.filter { registry.disabledFeature(for: $0.command) == nil }
             }
         }
-        return KeyBindingTable(entries)
+        return KeyBindingTable(entries, removed: removed)
     }
 
     /// A user override equal to the catalog default stays a default entry,

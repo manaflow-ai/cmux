@@ -10,10 +10,17 @@ import { CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
+/** Most teams one user's index holds (the user head is one SQLite row). */
+export const MAX_TEAM_INDEX = 1_000
+const TEAM_ROLES: ReadonlySet<string> = new Set(["owner", "admin", "member"])
+const TEAM_KINDS: ReadonlySet<string> = new Set(["personal", "stack"])
+
 export interface UserState extends PushTargetsState, ChiefsState {
   readonly user: UserProfile | null
   /** Text confirmation level and presence keys (home-core user/), absent until first used. */
   readonly confirm?: homeUser.UserConfirmState
+  /** Home settings (home-messaging.md section 4.2), absent until the first home.settings.set. */
+  readonly home_settings?: homeUser.HomeSettings
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
   /**
@@ -215,9 +222,13 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           const { [v.team]: _gone, ...rest } = state.team_index ?? {}
           return { ok: true, state: { ...state, team_index: rest }, value: null }
         }
-        if (typeof v.role !== "string" || typeof v.kind !== "string") return reject("validation.invalid", "role and kind are required")
-        if (cur && cur.role === v.role && cur.kind === v.kind) return { ok: true, state, value: cur, changed: false }
-        return { ok: true, state: { ...state, team_index: { ...(state.team_index ?? {}), [v.team]: { role: v.role, kind: v.kind } } }, value: { role: v.role, kind: v.kind } }
+        if (!TEAM_ROLES.has(v.role as string) || !TEAM_KINDS.has(v.kind as string)) return reject("validation.invalid", "role must be owner, admin or member; kind personal or stack")
+        const role = v.role as string
+        const kind = v.kind as string
+        if (cur && cur.role === role && cur.kind === kind) return { ok: true, state, value: cur, changed: false }
+        // The user head is one row: a user in more than MAX_TEAM_INDEX teams is refused (logged by the sender).
+        if (!cur && Object.keys(state.team_index ?? {}).length >= MAX_TEAM_INDEX) return reject("user.team_index_full", `a user belongs to at most ${MAX_TEAM_INDEX} teams`)
+        return { ok: true, state: { ...state, team_index: { ...(state.team_index ?? {}), [v.team]: { role, kind } } }, value: { role, kind } }
       }
       case "install.ssh_revoke_done": {
         // UserDO's own alarm, after every team in the notice confirmed the KRL entries.
@@ -239,6 +250,13 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
         const cur = p.install ? state.installs[p.install] : undefined
         if (!cur || p.kind !== "install") return reject("auth.forbidden", "only an install signs itself out")
         return revokeInstall(state, cur, ctx.now)
+      }
+      case "home.settings.set": {
+        if (p.kind !== "session") return reject("auth.forbidden", "home.settings.set needs a user session")
+        const r = homeUser.reduceHomeSettings(state.home_settings, params)
+        if (!r.ok) return reject("validation.invalid", r.code)
+        if (JSON.stringify(state.home_settings) === JSON.stringify(r.settings)) return { ok: true, state, value: r.settings, changed: false }
+        return { ok: true, state: { ...state, home_settings: r.settings }, value: r.settings }
       }
       case "push.target.register":
       case "push.target.remove":

@@ -1,4 +1,5 @@
 public import Foundation
+import Synchronization
 
 /// Page ids and their trust (coordinator rule from the P8 review): a page id is its origin host
 /// (`cmux-page://<id>`), and a first-party host inherits first-party access (`cmux.agent` reaches
@@ -9,6 +10,7 @@ public nonisolated enum PageID {
     /// First-party pages the app ships.
     public static let firstParty: Set<String> = [
         "cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",
+        "cmux.diff", "cmux.markdown",
     ]
 
     /// Whether `id` is a first-party page in the table (it gets first-party access).
@@ -21,6 +23,24 @@ public nonisolated enum PageID {
     public static func isReserved(_ id: String) -> Bool {
         let lowered = id.lowercased()
         return isFirstParty(lowered) || lowered == "cmux" || lowered.hasPrefix("cmux.")
+    }
+
+    private static let registeredRoots = Mutex<[String: URL]>([:])
+
+    /// Names the bundled root of a first-party page whose files live in another module's resource
+    /// bundle (`cmux.agent` in CmuxNextAgentPane). Only a first-party id, only once: the first
+    /// registration wins, so a later caller cannot move a first-party origin to other files. An
+    /// app manifest has no Swift code and cannot call it.
+    public static func registerBundledRoot(_ root: URL, for id: String) {
+        guard isFirstParty(id) else { return }
+        registeredRoots.withLock { roots in
+            if roots[id.lowercased()] == nil { roots[id.lowercased()] = root }
+        }
+    }
+
+    /// The bundled root registered for `id`, else nil.
+    public static func bundledRoot(for id: String) -> URL? {
+        registeredRoots.withLock { $0[id.lowercased()] }
     }
 
     /// Why an app page was refused.

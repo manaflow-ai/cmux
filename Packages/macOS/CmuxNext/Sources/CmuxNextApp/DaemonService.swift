@@ -112,7 +112,20 @@ final class DaemonService {
                 await withTaskCancellationHandler { await prestart.outcome() } onCancel: { prestart.cancel() }
             }
         }
-        start(first: first) { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
+        // After an update the daemon may still be the previous build's: hand
+        // it off to the bundled build; terminals survive (their hosts are
+        // adopted by the new daemon) and the connection reconnects by itself.
+        let logger = logger
+        let afterConnect: @Sendable (DaemonConnection, DaemonIdentity) async -> Void = { connection, identity in
+            let decision = await launcher.handOffIfStale(identity: identity, using: connection)
+            if case .restart(let running, let bundled) = decision {
+                DebugTimings.markLaunch("daemon_version_handoff")
+                logger.info("daemon handoff \(running, privacy: .public) -> \(bundled, privacy: .public)")
+            }
+        }
+        start(first: first, afterConnect: afterConnect) {
+            DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider)
+        }
     }
 
 
@@ -120,6 +133,7 @@ final class DaemonService {
     /// succeeds (`DaemonStartup`), then mirrors the connection into `store`.
     /// The connection reconnects by itself afterwards.
     func start(first: (@Sendable () async -> DaemonPrestart.Outcome)? = nil,
+               afterConnect: (@Sendable (DaemonConnection, DaemonIdentity) async -> Void)? = nil,
                makeConnection: @escaping @Sendable () -> DaemonConnection) {
         guard runTask == nil else { return }
         let store = store
@@ -143,6 +157,10 @@ final class DaemonService {
             logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
             // task-owner: one hop to read the endpoint; the store run below owns the connection
             Task { await self.rememberSocket(identity, connection: connection) }
+            if let afterConnect {
+                // task-owner: one version check per first connect; its request carries the control deadline
+                Task { await afterConnect(connection, identity) }
+            }
             await store.run(connection: connection, scheduler: scheduler)
         }
     }
