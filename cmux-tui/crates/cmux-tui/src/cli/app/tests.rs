@@ -477,3 +477,18 @@ fn a_double_dash_ends_the_settings_options() {
     assert!(parse(&args(&["settings", "set", "a.b", "--"])).is_err());
     assert!(parse(&args(&["settings", "set", "a.b", "--", "x", "y"])).is_err());
 }
+
+/// A `--confirm` write says first that the sheet is in the app; other
+/// requests print no note.
+#[test]
+fn a_confirmed_write_says_where_to_answer() {
+    let messages = &crate::localization::catalog().app_control;
+    let confirmed = json!({ "path": "a.b", "confirm": true });
+    for method in ["settings.set", "settings.reset", "settings.unset"] {
+        assert_eq!(settings::waiting_note(method, &confirmed), Some(messages.settings_waiting));
+    }
+    assert_eq!(settings::waiting_note("settings.set", &json!({ "path": "a.b" })), None);
+    assert_eq!(settings::waiting_note("action.run", &confirmed), None);
+    assert!(output_shows_notes(OutputMode::Human));
+    assert!(!output_shows_notes(OutputMode::Json) && !output_shows_notes(OutputMode::Quiet));
+}
