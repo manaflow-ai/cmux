@@ -332,8 +332,10 @@ rest. Measurements: [performance.md](performance.md).
   session that drives such a tab does not change these; they follow the
   creating session. Any other tab is the user's, also one a session drives
   with `tabs.use()` or one a finished run kept with `page.keep()`: it keeps
-  its own user agent, headers and content, and cmux's own dialogs, file
-  panel, download location, permission prompts and insecure-HTTP prompt.
+  its own user agent, headers and content, cmux's own dialogs, file
+  panel, download location, permission prompts and insecure-HTTP prompt,
+  and the windows its page opens (they stay the user's tabs, with no
+  `popup` event).
   The domain policy there only refuses the session's reads and input while
   the tab, or a frame of it, shows a blocked page (see "Guards" in
   [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that

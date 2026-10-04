@@ -453,11 +453,15 @@ public enum BrowserReplPopupRoute: Equatable, Sendable {
     /// Nowhere: the window does not open.
     case refused(String)
 
-    /// Routes a window the page in a driven tab opens. The page controls the
-    /// URL, and a session's popup opens through cmux's own navigation, which
+    /// Routes a window the page in a driven tab opens. Only a tab a session
+    /// created hands its windows to the sessions: a user's tab that a
+    /// session drives keeps them, so no session adopts (and at its end
+    /// closes) a window the user's page opened. The page controls the URL,
+    /// and a session's popup opens through cmux's own navigation, which
     /// trusts local files and internal schemes, so it goes to the sessions
     /// only if it passes as an untrusted navigation under the browser's URL
-    /// allowlist and the creating session's domain policy.
+    /// allowlist and the creating session's domain policy; otherwise it
+    /// does not open.
     ///
     /// - Parameters:
     ///   - openerCreatedBySession: Whether an attached session created the
@@ -469,10 +473,10 @@ public enum BrowserReplPopupRoute: Equatable, Sendable {
         creatorPolicy: BrowserReplDomainPolicy,
         allowlist: BrowserURLAllowlistPolicy
     ) {
-        guard let reason = creatorPolicy.popupBlockReason(url, allowlist: allowlist) else {
-            self = .session
+        guard openerCreatedBySession else {
+            self = .browser
             return
         }
-        self = openerCreatedBySession ? .refused(reason) : .browser
+        self = creatorPolicy.popupBlockReason(url, allowlist: allowlist).map(Self.refused) ?? .session
     }
 }

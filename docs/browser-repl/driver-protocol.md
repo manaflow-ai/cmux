@@ -40,7 +40,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
-Tabs the session opened (`tabs.open`, popups) close when the session ends;
+Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends;
 `tab.keep` releases one so it stays open.
 
 A tab the session created (`tabs.open`, and popups of such a tab) gets the
@@ -219,14 +219,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   blocked frame from loading at all; its empty frame belongs to the parent
   and refuses nothing. The page can still move a frame or the focus in its
   own web process between the check and the input reaching it.
-- Page-opened windows: a window a page opens from a tab a session drives
-  becomes a popup tab through cmux's own navigation, which trusts local
-  files and cmux's internal schemes, and the page controls its URL. So it
-  goes to the session (`tab.created`) only when it is an `http`, `https`,
-  `about:blank` or `blob:` (of such an origin) page that the browser's URL
-  allowlist and the creating session's domain policy allow. Otherwise a
-  tab a session created opens nothing, and a user's tab a session only
-  drives leaves the window to the browser's own popup handling. When WebKit refuses to compile the policy's
+- Page-opened windows: a window a page opens from a user's tab, also one
+  a session drives, goes to the browser's own popup handling and never to
+  a session, so no session adopts it or closes it when it ends. A window
+  a page opens from a tab a session created becomes a popup tab through
+  cmux's own navigation, which trusts local files and cmux's internal
+  schemes, and the page controls its URL. So it goes to the sessions
+  (`tab.created`) only when it is an `http`, `https`, `about:blank` or
+  `blob:` (of such an origin) page that the browser's URL allowlist and
+  the creating session's domain policy allow; otherwise it opens nothing. When WebKit refuses to compile the policy's
   content rules, every driver call of the session fails with `invalid`
   (`the domain policy could not be applied: ...`) until the session sets a
   policy that compiles (a locked one needs a reset); the tabs keep the last
