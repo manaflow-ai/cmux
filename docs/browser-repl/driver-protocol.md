@@ -102,7 +102,9 @@ drops a marked key that arrives outside the web view's own delivery.
 
 ## Hibernated and crashed tabs
 
-Every call with a `targetId` except `tabs.close`, `tab.keep`,
+A tab a relaunch restored but no pane has shown yet lists as `hibernated`
+too; the first call on it creates its browser, which then wakes the same
+way. Every call with a `targetId` except `tabs.close`, `tab.keep`,
 `tab.navigate`, `tab.reload` and `tab.history` first wakes a hibernated tab
 (the driver starts the restore of the page cmux unloaded, off screen) and
 waits, at most 30 s on the injected clock, until the restore commits and

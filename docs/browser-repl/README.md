@@ -387,7 +387,7 @@ reaches it. `tabs.list()` and `tab.info` report each tab's `state`:
 | `state` | Meaning |
 | --- | --- |
 | `live` | The page is loaded. |
-| `hibernated` | cmux unloaded the hidden page. Listing it does not load it. |
+| `hibernated` | cmux unloaded the hidden page, or a relaunch restored the tab without loading it yet. Listing it does not load it. |
 | `waking` | The page is loading again. |
 | `crashed` | The tab's web content process ended (a WebKit crash, or macOS reclaimed its memory) while the tab was shown; the pane offers Reload. |
 
