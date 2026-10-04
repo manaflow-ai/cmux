@@ -253,9 +253,10 @@ CREATE INDEX home_invites_address ON home_invites (address_id, created_at DESC);
 ```
 
 Outbox kinds (drain statements in `projection.ts`): `home.conversation.upsert`,
-`home.participant.upsert`, `home.message.upsert`, `home.message.delete`, `home.invite.upsert`.
-A retraction or retention delete sends `home.message.delete`; an edit sends an upsert with the
-new body. No raw address, token or token hash is ever projected.
+`home.participant.upsert`, `home.message.upsert`, `home.message.delete`,
+`home.message.delete_through`, `home.invite.upsert`. A retraction sends `home.message.delete`; a
+retention sweep sends one `home.message.delete_through {conversation_id, seq}` per batch; an edit
+sends an upsert with the new body. No raw address, token or token hash is ever projected.
 
 ## 8. Search (Home messages only)
 
@@ -312,8 +313,10 @@ new body. No raw address, token or token hash is ever projected.
 ## 10. Retention
 
 - Messages: kept until the team policy `home.retention_days` (minimum 30) or user deletion;
-  default keep. The ConversationDO alarm deletes expired message rows in batches and emits
-  `home.message.delete` projection rows. Retraction removes the body at once (DO and search).
+  default keep. The ConversationDO alarm runs the system op `conversation.sweep`: it deletes
+  expired message rows oldest first, 500 per commit, and emits one `home.message.delete_through`
+  projection row per batch; when the newest message expires, inbox previews are cleared. The same
+  op expires pending invites past `expires_at`. Retraction removes the body at once (DO and search).
 - Ledger: 7 days (engine default). Events (`own_events`): keep the last 30 days or 10,000 events,
   whichever is more; older resumes take a snapshot (engine need E3).
 - Invites: pending ones expire after 14 days; records are kept 90 days, then reduced to counts.
@@ -369,7 +372,9 @@ sends (it may import `deliverInvite` from `@cmux/home-core/invites`), the accept
 - WebSocket `cmux.wire/1`: the UserDO gateway carries `user:<user>` and `inbox:<user>` (inbox
   events: bump, pin, mute, archive); brain hosts subscribe to `mux:<agent>`; the open
   conversation uses `GET /v1/wire/conv/<id>` (snapshot with `tail`, resume with `after_seq`, events `message`, `message-updated`,
-  `read-cursor`, `conversation`, `typing`, `invite`).
+  `read-cursor`, `conversation`, `typing`, `invite`). Typing is the non-op frame
+  `{t: "typing", on, conversation?}` in and `{t: "conversation-typing", conversation, participant,
+  on}` out (home-core `typingGate` limits it per participant; never stored).
 - Generated clients: the TS client in `clients/ts/cloud` and the Swift client from the same
   catalog; the Swift Home client keeps the mirror + intent log from home.md section 3.
 

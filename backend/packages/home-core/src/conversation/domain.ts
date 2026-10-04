@@ -11,6 +11,8 @@ import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, typ
 import type { OpRequest } from "./request.ts"
 import { SYSTEM_ACTOR, type ConversationHead, type ConversationKind, type Invite, type Message, type Op, type Participant } from "./types.ts"
 import { currentParticipant, safeDisplayName } from "./validate.ts"
+import { reduceSweep, SWEEP_OP } from "./sweep.ts"
+import { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY } from "./tables.ts"
 
 export { actorOf } from "./policy.ts"
 
@@ -34,10 +36,7 @@ export { actorOf } from "./policy.ts"
  * which the Domain hashes. A token hash seen in an event or row is useless,
  * and a proof appears only in the accept event, after its single use.
  */
-export const TABLE_MSG = "msg"
-export const TABLE_MSGKEY = "msgkey"
-export const TABLE_INV = "inv"
-export const TABLE_INVHASH = "invhash"
+export { inviteWrites, msgKey, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY } from "./tables.ts"
 
 export type ConversationState = ConversationHead | null
 export type ConversationParams = Readonly<Record<string, unknown>>
@@ -55,8 +54,6 @@ export interface ConversationDomainOptions {
 }
 
 const refuse = (code: string): ReduceResult<ConversationState> => ({ ok: false, code, message: code })
-
-export const msgKey = (author: string, clientMsgId: string) => `${author}:${clientMsgId}`
 
 const CREATE_OPS = new Set(["conversation.create", "dm.open"])
 
@@ -122,17 +119,6 @@ const loadInvite = (head: ConversationHead, ctx: ReduceContext, op: Op): Invite 
   return rowsOf(ctx).get<Invite>(TABLE_INV, id)?.row
 }
 
-const inviteWrites = (before: ReadonlyArray<Invite>, after: ReadonlyArray<Invite>): Array<RowWrite> => {
-  const writes: Array<RowWrite> = []
-  for (const invite of after) {
-    const old = before.find((candidate) => candidate.id === invite.id)
-    if (old && JSON.stringify(old) === JSON.stringify(invite)) continue
-    writes.push({ table: TABLE_INV, op: "upsert", key: invite.id, n: null, row: invite })
-    if (!old) writes.push({ table: TABLE_INVHASH, op: "upsert", key: invite.token_hash, n: null, row: { invite_id: invite.id } })
-  }
-  return writes
-}
-
 /**
  * Turns Domain params into a core op and the host-trusted request fields.
  * Returns a reject code when the params are refused before the core runs.
@@ -178,6 +164,7 @@ export const makeConversationDomain = (options: ConversationDomainOptions = {}):
     if (IMPORT_OPS.has(op)) return reduceImport(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
     if (CREATE_OPS.has(op)) return reduceCreate(state, op, params, ctx, actor, options.participantPolicy ?? defaultParticipantPolicy)
     if (!state) return refuse("unknown_conversation")
+    if (op === SWEEP_OP) return reduceSweep(state, ctx, actor)
     const prepared = prepare(state, op, params, ctx, actor, options)
     if (typeof prepared === "string") return refuse(prepared)
     const coreOp = prepared.op
