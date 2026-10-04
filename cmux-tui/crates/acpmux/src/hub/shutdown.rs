@@ -72,7 +72,8 @@ impl Hub {
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, stop).await.is_err() {
             tracing::warn!("agents did not stop within {SHUTDOWN_GRACE:?}");
         }
-        let fallback = futures::future::join_all(host_fallback.iter().map(|s| self.end_unadopted_host(s)));
+        let fallback =
+            futures::future::join_all(host_fallback.iter().map(|s| self.end_unadopted_host(s)));
         if tokio::time::timeout(SHUTDOWN_GRACE + LOCK * 2, fallback).await.is_err() {
             tracing::warn!("agent hosts did not end within {SHUTDOWN_GRACE:?}");
         }

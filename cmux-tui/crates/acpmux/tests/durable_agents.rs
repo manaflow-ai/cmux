@@ -421,5 +421,10 @@ async fn shutdown_with_end_agents_keeps_the_named_sessions_running() {
         !daemon.events(&chief).iter().any(|e| e["kind"] == "turn_result"),
         "the kept session's turn was settled"
     );
-    assert!(daemon.events(&other).iter().any(|e| e["kind"] == "turn_result" && e["msg"]["detail"] == "quit"));
+    assert!(
+        daemon
+            .events(&other)
+            .iter()
+            .any(|e| e["kind"] == "turn_result" && e["msg"]["detail"] == "quit")
+    );
 }
