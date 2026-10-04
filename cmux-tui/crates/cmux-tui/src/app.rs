@@ -32538,7 +32538,7 @@ mod tests {
 
     #[test]
     fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
-        let mux = Mux::new("scoped-mouse-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-mouse-capture-test", crate::test_wait::quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
@@ -32569,7 +32569,7 @@ mod tests {
     /// the inner application still owns the mouse.
     #[test]
     fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
-        let mux = Mux::new("scoped-canonical-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-canonical-capture-test", crate::test_wait::quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
