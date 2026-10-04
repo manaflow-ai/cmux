@@ -553,7 +553,6 @@ jobs:
               ;;
             *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
           esac
-          echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
           echo "root=$root" >> "$GITHUB_OUTPUT"
 
       - name: Prepare isolated admission DerivedData
