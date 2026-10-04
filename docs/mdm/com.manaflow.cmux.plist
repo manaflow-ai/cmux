@@ -1028,6 +1028,46 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.internalPage.color</string>
+			<key>pfm_title</key>
+			<string>Internal Pages Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.internalPage.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Internal Pages Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.splitDivider.color</string>
+			<key>pfm_title</key>
+			<string>Split Divider Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.splitDivider.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Split Divider Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
 			<string>appearance.surfaces.docks.color</string>
 			<key>pfm_title</key>
 			<string>Docked Columns Color</string>

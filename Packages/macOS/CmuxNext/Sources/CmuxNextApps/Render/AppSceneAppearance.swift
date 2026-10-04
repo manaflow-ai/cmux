@@ -9,11 +9,12 @@ public import SwiftUI
 @Observable
 public final class AppSceneAppearance {
     public var colors: AppSceneColors = .fallback
+    public var surface: SurfaceKind = .internalPage
 
-    public init() {}
+    public init(surface: SurfaceKind = .internalPage) { self.surface = surface }
 
     public func update(from view: NSView) {
-        let resolved = AppSceneColors.resolve(in: view)
+        let resolved = AppSceneColors.resolve(in: view, surface: surface)
         if resolved != colors { colors = resolved }
     }
 }

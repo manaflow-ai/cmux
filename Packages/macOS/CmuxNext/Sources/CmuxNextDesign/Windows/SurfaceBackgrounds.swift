@@ -3,7 +3,7 @@ public import CmuxTheme
 /// A part of the window whose background the user may change
 /// (`appearance.surfaces.<surface>` in cmux.json, Lawrence R55;
 /// plans/cmux-next/surface-backgrounds.md). Its raw value is the cmux.json
-/// key. A Chromium page is not a surface: a page paints itself.
+/// key. A real web page is not a surface; cmux-owned internal pages are.
 public nonisolated enum SurfaceKind: String, CaseIterable, Sendable, Hashable {
     case sidebar
     case tabBar
@@ -14,6 +14,10 @@ public nonisolated enum SurfaceKind: String, CaseIterable, Sendable, Hashable {
     case home
     case browserChrome
     case docks
+    /// Native and bundled internal pages such as History, Bookmarks, Tasks and App Store.
+    case internalPage
+    /// The draggable and visible split divider line.
+    case splitDivider
 }
 
 /// One surface's override: a color, an opacity, or both. Both nil is no

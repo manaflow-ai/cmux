@@ -159,7 +159,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func applyTheme(force: Bool = false) {
         guard loaded else { return }
-        let theme = WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
+        let theme = WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+                             surface: .internalPage)
         guard force || theme.payloadJSON != appliedTheme else { return }
         appliedTheme = theme.payloadJSON
         webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)

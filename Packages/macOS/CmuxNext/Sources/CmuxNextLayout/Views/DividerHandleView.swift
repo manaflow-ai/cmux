@@ -156,7 +156,7 @@ final class DividerHandleView: NSView {
             if isEdge {
                 color = active ? Palette.focusRing.withAlphaComponent(0.45) : .clear
             } else {
-                color = active ? Palette.focusRing.withAlphaComponent(0.6) : (showsIdleLine ? Palette.separator : .clear)
+                color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
             }
             Motion.transaction(.hover) {
                 line.backgroundColor = color.cgColor

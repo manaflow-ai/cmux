@@ -43,10 +43,10 @@ public nonisolated struct AppSceneColors: Sendable, Equatable {
 
     /// Resolves the palette for `view`'s theme scope.
     @MainActor
-    public static func resolve(in view: NSView) -> AppSceneColors {
+    public static func resolve(in view: NSView, surface: SurfaceKind = .internalPage) -> AppSceneColors {
         view.performWithTheme {
             AppSceneColors(
-                background: c(Palette.sidebarBackground), elevated: c(Palette.elevatedBackground), primary: c(Palette.textPrimary),
+                background: c(Palette.surfaceOverride(surface) ?? Palette.sidebarBackground), elevated: c(Palette.elevatedBackground), primary: c(Palette.textPrimary),
                 secondary: c(Palette.textSecondary), tertiary: c(Palette.textTertiary), separator: c(Palette.separator),
                 hover: c(Palette.hoverFill), selection: c(Palette.selectionFill), badge: c(Palette.badgeFill),
                 success: c(Palette.success), attention: c(Palette.attention), danger: c(Palette.danger))

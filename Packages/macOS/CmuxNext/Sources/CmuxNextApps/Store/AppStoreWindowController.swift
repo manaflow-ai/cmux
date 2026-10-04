@@ -92,6 +92,7 @@ final class AppStoreContentView: NSHostingView<AnyView> {
 
     func resolveColors() {
         // The window background is its kind's (`NSWindow.install`).
+        appearanceModel.surface = .internalPage
         appearanceModel.update(from: self)
     }
 }

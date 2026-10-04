@@ -5,7 +5,7 @@ public import SwiftUI
 /// section provider wants an `NSView` plus a height for a width).
 public final class AppSceneHostingView: NSHostingView<AnyView> {
     public let model: AppSceneModel
-    private let sceneAppearance = AppSceneAppearance()
+    private let sceneAppearance = AppSceneAppearance(surface: .sidebar)
     /// Measures heights for a width without laying out this view.
     private let measurer: NSHostingController<AnyView>
 
