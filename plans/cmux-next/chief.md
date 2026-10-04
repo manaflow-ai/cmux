@@ -155,3 +155,28 @@ cursors stay on the Mac; search and contacts are not supported.
 </invoke>
 <invoke name="Bash">
 <parameter name="command">cd /tmp/optmem-src && sed -n 1,80p test.py
+## 9. Proposal: the iMessage UI and the harnesses meet only at the conversation owner
+
+Lawrence (2026-10-03): decouple the iMessage UI from the agent side, so harnesses can be iterated
+fast; state lives in Rust, the Swift app is a projection that talks to a Rust daemon over a Unix
+socket (a WebSocket for web or remote clients), and the daemon talks to the Durable Objects.
+
+Three layers, two seams:
+
+1. UI (no agent code): CmuxHomeCore (model, mirror, intent log) + CmuxHomeRender + the AppKit and
+   UIKit hosts. Its only input is `HomeSource`. iMessage parity work happens here alone.
+2. Conversation owners (Rust daemon for local conversations, ConversationDO for cloud): one op
+   vocabulary (home-messaging.md section 20). The app's `HomeSource` is the daemon client.
+3. Harnesses: any agent that participates in a conversation through the owner's agent ops (wake or
+   `conversation-changed` in, `message.send`/edit/work cards/typing out, owner-stamped agent
+   principal, idempotency keys). The ACP Chief brain (chief-mac.md, P1) is one harness; this
+   experiment's OptMem engine is another; codex or pi brains would be more. A harness never
+   renders and never reaches the UI.
+
+Consequence for this experiment: `CmuxNextChief.ChiefHomeSource` (Swift talking HTTP and WebSocket
+straight to the experiment Worker) breaks seam 1 and the "Swift is a projection of the Rust
+daemon" rule. It stays only while the experiment is isolated. The fix is to attach the OptMem
+engine as a harness behind the owner: ChiefDO consumes wakes and posts its turns as the chief's
+agent principal into a conversation, and the app shows that conversation through the normal Home
+source. That touches production surfaces (MuxDO or the daemon's agent ops), so it waits for the
+coordinator's decision.
