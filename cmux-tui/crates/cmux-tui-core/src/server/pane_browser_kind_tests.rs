@@ -28,7 +28,12 @@ impl Wire {
         let id = self.next_id;
         self.next_id += 1;
         request["id"] = json!(id);
-        handle_message(&self.mux, 7, &request.to_string(), &self.writer);
+        handle_message(
+            &self.mux,
+            self.mux.local_test_client(7),
+            &request.to_string(),
+            &self.writer,
+        );
         let response: Value = serde_json::from_str(&self.outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response["id"], id, "response must answer the request: {response}");
         response
@@ -86,11 +91,15 @@ fn new_pane_right_with_browser_kind_creates_a_browser_column() {
         "kind": "browser", "url": "https://example.com/column",
     }));
     wire.assert_browser_pane(&created, pane, "https://example.com/column");
-    let columns =
-        handle_command(&wire.mux, 0, Command::ListWorkspaces, &wire.writer).unwrap()["workspaces"]
-            [0]["screens"][0]["columns"]
-            .as_array()
-            .map_or(0, Vec::len);
+    let columns = handle_command(
+        &wire.mux,
+        wire.mux.local_test_client(0),
+        Command::ListWorkspaces,
+        &wire.writer,
+    )
+    .unwrap()["workspaces"][0]["screens"][0]["columns"]
+        .as_array()
+        .map_or(0, Vec::len);
     assert_eq!(columns, 2, "new-pane-right still makes a viewport column");
 }
 
