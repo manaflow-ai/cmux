@@ -8,6 +8,12 @@ public struct RowCommands: Sendable {
 
     public init(_ connection: DaemonConnection) { self.connection = connection }
 
+    /// A `set-row-heights` transaction. The daemon echoes it as a decimal
+    /// string in the commit's `screen-changed` delta, so it doubles as the
+    /// store intent's transaction; random, so no two workspaces or
+    /// connections share one. Below 2^53, so JSON tools keep it exact.
+    public static func makeTransaction() -> UInt64 { UInt64.random(in: 1...(1 << 53)) }
+
     /// New row below `pane`'s row in its column, `height` permille tall.
     @discardableResult
     public func newRow(below pane: PaneID, height: Int, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
