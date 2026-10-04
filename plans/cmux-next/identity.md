@@ -121,8 +121,9 @@ Rules:
     stdin; ensure passes it to an owner it spawns on `--owner-install-key-fd`;
     the owner reads it, closes the fd and keeps it in memory. A running owner
     never takes a new key. DEV key: a 0600 file in the tag state dir, created
-    with O_EXCL, refused with any other mode or owner. Signed builds keep the
-    key in the login Keychain and never read the DEV file.
+    with O_EXCL, refused with any other mode or owner. Signed builds have no
+    install key at all (no Keychain item, no file): the key would grant
+    nothing there.
   - A Team-signed daemon accepts ONLY prover A (security review P1: a
     same-uid process could restart the owner with its own key). Unreadable
     signing information counts as signed (fail closed); a signed daemon
