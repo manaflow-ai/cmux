@@ -1,0 +1,14 @@
+[package]
+name = "optchat-core"
+version = "0.1.0"
+edition = "2021"
+description = "OptChat memory: append-only log, binary summary tree, incremental view, compactor order (sans I/O)"
+license = "MIT"
+publish = false
+
+# Its own workspace: this crate lives in the chief experiment, not in cmux-tui.
+[workspace]
+
+[dependencies]
+
+[dev-dependencies]
