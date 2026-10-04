@@ -163,7 +163,12 @@ impl PeerTable {
             tunn,
             index,
             allowed_ips: peer.allowed_ips,
-            endpoint: peer.endpoint.or(previous.and_then(|old| old.endpoint)),
+            // Stub: gateway routes are not carried yet.
+            endpoint: match peer.route {
+                Some(crate::mesh_route::PeerRoute::Udp(address)) => Some(address),
+                _ => None,
+            }
+            .or(previous.and_then(|old| old.endpoint)),
             schedule: TimerSchedule::new(now, keepalive),
         };
         self.by_index.insert(index, peer.public_key);
@@ -213,7 +218,7 @@ mod tests {
             public_key: crate::testing::random_keypair().1,
             preshared_key: None,
             allowed_ips: allowed,
-            endpoint: None,
+            route: None,
             persistent_keepalive: None,
         }
     }

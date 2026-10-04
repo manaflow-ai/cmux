@@ -7,7 +7,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 
 use cmux_link::pairing::Pairings;
-use cmux_wg::{IpNetwork, WgMesh, WgMeshListener, WgPeer, WgStream};
+use cmux_wg::{IpNetwork, PeerRoute, WgMesh, WgMeshListener, WgPeer, WgStream};
 
 use super::control::OverlayListener;
 use super::dial::Overlay;
@@ -78,7 +78,7 @@ impl Overlay for MeshOverlay {
                 public_key: key,
                 preshared_key: None,
                 allowed_ips: shape.0.clone(),
-                endpoint: shape.1,
+                route: shape.1.map(PeerRoute::from),
                 persistent_keepalive: Some(KEEPALIVE_SECONDS),
             };
             self.mesh.add_peer(peer).await.map_err(io::Error::other)?;
