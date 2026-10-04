@@ -86,14 +86,15 @@ pub(crate) fn wait_for_no_host_records_naming(root: &Path, socket: &Path, named:
     );
 }
 
-/// Waits up to 10 s for every host record and exit sidecar to go; returns
-/// what is still there at the deadline.
-fn host_records_left_after_close(
-    root: &Path,
-) -> Option<(
+/// Host records and exit sidecars still present at a close deadline.
+type LeftoverHostRecords = (
     Vec<(PathBuf, TerminalHostRecord)>,
     Vec<(PathBuf, cmux_tui_core::terminal_host_runtime::TerminalHostExitRecord)>,
-)> {
+);
+
+/// Waits up to 10 s for every host record and exit sidecar to go; returns
+/// what is still there at the deadline.
+fn host_records_left_after_close(root: &Path) -> Option<LeftoverHostRecords> {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     while Instant::now() < deadline {
         if load_terminal_host_records(root).unwrap().is_empty()
