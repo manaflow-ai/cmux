@@ -158,18 +158,19 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
         let topOffset = -collectionView.adjustedContentInset.top
         let wasAtTop = collectionView.contentOffset.y <= topOffset + 1
         let state = bannerState
-        // A header already on screen (the other banner changed) re-renders in place.
-        for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: HomeBannersView.elementKind) {
-            let header = collectionView.supplementaryView(forElementKind: HomeBannersView.elementKind, at: indexPath)
-            (header as? HomeBannersView)?.configure(state)
+        // Same cards, new minimum version: the header on screen re-renders in place.
+        if let kind = state.elementKind {
+            for indexPath in collectionView.indexPathsForVisibleSupplementaryElements(ofKind: kind) {
+                (collectionView.supplementaryView(forElementKind: kind, at: indexPath) as? HomeBannersView)?.configure(state)
+            }
         }
         let configuration = UICollectionViewCompositionalLayoutConfiguration()
-        if !state.isEmpty {
+        if let kind = state.elementKind {
             // One header holds every banner: boundary items that share an
             // alignment would overlap.
             configuration.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
                 layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(80)),
-                elementKind: HomeBannersView.elementKind, alignment: .top)]
+                elementKind: kind, alignment: .top)]
         }
         layout.configuration = configuration
         if wasAtTop, hasApplied {
@@ -201,10 +202,11 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
             cell.configure(model, spokenTime: self.time.spokenLabel(for: model.timestamp, now: Date()),
                            actions: self.performer.accessibilityActions(actions.leading + actions.trailing, id: id))
         }
-        let bannerRegistration = UICollectionView.SupplementaryRegistration<HomeBannersView>(
-            elementKind: HomeBannersView.elementKind) { [weak self] header, _, _ in
-            if let state = self?.bannerState { header.configure(state) }
-        }
+        let bannerRegistrations = Dictionary(uniqueKeysWithValues: HomeBannersView.elementKinds.map { kind in
+            (kind, UICollectionView.SupplementaryRegistration<HomeBannersView>(elementKind: kind) { [weak self] header, _, _ in
+                if let state = self?.bannerState { header.configure(state) }
+            })
+        })
 
         let dataSource = UICollectionViewDiffableDataSource<Section, Item>(collectionView: collectionView) {
             collectionView, indexPath, item in
@@ -215,8 +217,8 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
                 collectionView.dequeueConfiguredReusableCell(using: pinRegistration, for: indexPath, item: id)
             }
         }
-        dataSource.supplementaryViewProvider = { collectionView, _, indexPath in
-            collectionView.dequeueConfiguredReusableSupplementary(using: bannerRegistration, for: indexPath)
+        dataSource.supplementaryViewProvider = { collectionView, kind, indexPath in
+            bannerRegistrations[kind].map { collectionView.dequeueConfiguredReusableSupplementary(using: $0, for: indexPath) }
         }
         return dataSource
     }

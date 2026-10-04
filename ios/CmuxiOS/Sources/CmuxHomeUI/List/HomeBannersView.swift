@@ -1,17 +1,28 @@
 import UIKit
 
 /// Home's one list header: the active banner cards stacked top to bottom
-/// (update required first, then offline). A single boundary item, because
+/// (update required, then offline). A single boundary item, because
 /// compositional layout overlaps boundary items that share an alignment.
 @MainActor
 final class HomeBannersView: UICollectionReusableView {
-    static let elementKind = "home.banners"
+    /// One element kind per set of cards: a header whose cards change gets a
+    /// new kind, so the layout measures it again instead of keeping the old
+    /// self-sized height.
+    static let elementKinds = ["home.banners.update", "home.banners.offline", "home.banners.update-offline"]
 
     struct State: Equatable {
         var updateRequired: HomeUpdateRequired?
         var isOffline = false
 
-        var isEmpty: Bool { updateRequired == nil && !isOffline }
+        /// The element kind for these cards; nil when no card shows.
+        var elementKind: String? {
+            switch (updateRequired != nil, isOffline) {
+            case (false, false): nil
+            case (true, false): HomeBannersView.elementKinds[0]
+            case (false, true): HomeBannersView.elementKinds[1]
+            case (true, true): HomeBannersView.elementKinds[2]
+            }
+        }
     }
 
     private let updateRequired = UpdateRequiredBannerView()
