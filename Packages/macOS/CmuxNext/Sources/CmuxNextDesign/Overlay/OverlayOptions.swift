@@ -22,7 +22,9 @@ public struct OverlayOptions: Equatable, Sendable {
     public var anchor: NSRect?
     /// Focus trap: the overlay takes the keyboard, Tab cycles inside it, and
     /// the previous first responder comes back when it is dismissed. Clicks
-    /// anywhere in the window are blocked.
+    /// anywhere in the window are blocked, or only inside `modalRegion` when
+    /// it is set (a tab dialog: a click outside gives the keyboard back to
+    /// the window, a click inside takes it again).
     public var isModal: Bool
     /// Escape (`cancelOperation`) dismisses it.
     public var dismissOnEscape: Bool
@@ -74,6 +76,13 @@ public final class OverlayHandle {
     /// Moves the overlay to a new anchor (window coordinates).
     public func update(anchor: NSRect) {
         options.anchor = anchor
+        host?.layout(self)
+    }
+
+    /// Moves the overlay and its blocked region (a tab dialog after a tab resize).
+    public func update(anchor: NSRect, modalRegion: NSRect?) {
+        options.anchor = anchor
+        options.modalRegion = modalRegion
         host?.layout(self)
     }
 

@@ -35,7 +35,7 @@ public extension WindowOverlayHost {
         let bounds = panel.overlayContainer.bounds
         return handles.flatMap { handle -> [NSRect] in
             let options = handle.options
-            if options.isModal || options.dimsContent { return [bounds] }
+            if options.dimsContent || (options.isModal && options.modalRegion == nil) { return [bounds] }
             var rects: [NSRect] = []
             if let region = options.modalRegion { rects.append(region) }
             if !options.passesThroughClicks { rects.append(handle.content.frame) }
@@ -117,8 +117,14 @@ extension WindowOverlayHost {
         routeMouse(at: NSEvent.mouseLocation)
         guard mouseMonitor == nil else { return }
         mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged,
-                                                                   .otherMouseDragged, .mouseEntered, .mouseExited]) { [weak self] event in
-            self?.routeMouse(at: NSEvent.mouseLocation)
+                                                                   .otherMouseDragged, .mouseEntered, .mouseExited,
+                                                                   .leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            if event.type == .leftMouseDown || event.type == .rightMouseDown {
+                self.clickDidLand(in: event.window)
+            } else {
+                self.routeMouse(at: NSEvent.mouseLocation)
+            }
             return event
         }
     }
@@ -127,6 +133,20 @@ extension WindowOverlayHost {
         let point = panel.frame.isEmpty ? screenPoint : panel.convertPoint(fromScreen: screenPoint)
         let accepts = acceptsMouse(at: point)
         if panel.ignoresMouseEvents == accepts { panel.ignoresMouseEvents = !accepts }
+    }
+
+    /// A tab dialog takes the keyboard when a click lands on it; a click
+    /// anywhere else leaves the keyboard where that click puts it.
+    func wantsKey(forClickIn clicked: NSWindow?) -> Bool {
+        clicked === panel && handles.contains { $0.options.isModal }
+    }
+
+    func clickDidLand(in clicked: NSWindow?) {
+        guard wantsKey(forClickIn: clicked), !panel.isKeyWindow else { return }
+        panel.makeKey()
+        if let top = handles.last(where: { $0.options.isModal }), !(panel.firstResponder is NSText) {
+            panel.makeFirstResponder(Self.keyViews(in: top.content).first ?? top.content)
+        }
     }
 
     func removeMouseMonitor() {
