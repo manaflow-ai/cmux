@@ -259,6 +259,16 @@ export const env = createEnv({
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // iOS in-app purchases (docs/billing/ios-in-app-purchases.md). Read by
+    // services/billing/apple/config.ts. Without the key, transactions are
+    // still verified but not refreshed from the App Store Server API.
+    APPLE_IAP_KEY_ID: z.string().min(1).optional(),
+    APPLE_IAP_ISSUER_ID: z.string().min(1).optional(),
+    APPLE_IAP_PRIVATE_KEY: z.string().min(1).optional(),
+    APPLE_IAP_BUNDLE_IDS: z.string().min(1).optional(),
+    APPLE_IAP_APP_APPLE_ID: z.string().regex(/^\d+$/).optional(),
+    APPLE_IAP_SANDBOX_ENTITLEMENTS: z.string().min(1).optional(),
+    APPLE_IAP_ONLINE_CHECKS: z.enum(["0", "1"]).optional(),
     // Svix signing secret (`whsec_...`) for the Stack Auth webhook endpoint
     // `/api/webhooks/stack`. Optional: when unset the route answers 503 and
     // team removal is enforced only by the reconcile cron.
@@ -495,6 +505,13 @@ export const env = createEnv({
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
+    APPLE_IAP_KEY_ID: trimEnv(process.env.APPLE_IAP_KEY_ID),
+    APPLE_IAP_ISSUER_ID: trimEnv(process.env.APPLE_IAP_ISSUER_ID),
+    APPLE_IAP_PRIVATE_KEY: trimEnv(process.env.APPLE_IAP_PRIVATE_KEY),
+    APPLE_IAP_BUNDLE_IDS: trimEnv(process.env.APPLE_IAP_BUNDLE_IDS),
+    APPLE_IAP_APP_APPLE_ID: trimEnv(process.env.APPLE_IAP_APP_APPLE_ID),
+    APPLE_IAP_SANDBOX_ENTITLEMENTS: trimEnv(process.env.APPLE_IAP_SANDBOX_ENTITLEMENTS),
+    APPLE_IAP_ONLINE_CHECKS: trimEnv(process.env.APPLE_IAP_ONLINE_CHECKS),
     STACK_WEBHOOK_SECRET: trimEnv(process.env.STACK_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_MONTHLY_50_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_50_PRICE_ID),

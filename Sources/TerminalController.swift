@@ -3938,6 +3938,15 @@ class TerminalController {
             if case VMClientError.lifecycleUnsupported = error {
                 return v2Error(id: id, code: "vm_operation_unsupported", message: String(describing: error))
             }
+            // Network policy refusals name the offending entry; the generic
+            // Cloud VM line would hide which domain or range was wrong.
+            if let editError = error as? CloudNetworkPolicyEditError {
+                return v2Error(id: id, code: "invalid_params", message: editError.errorDescription ?? String(describing: editError))
+            }
+            if let requestError = error as? CloudNetworkPolicyRequestError {
+                let code = requestError == .unsupported ? "vm_operation_unsupported" : "invalid_network_policy"
+                return v2Error(id: id, code: code, message: requestError.errorDescription ?? String(describing: requestError))
+            }
             if let deliveryError = error as? CloudEnvDelivery.DeliveryError {
                 return v2Error(id: id, code: "vm_env_delivery_failed", message: deliveryError.localizedDescription)
             }
@@ -4077,6 +4086,11 @@ class TerminalController {
         // that blocked the open; the generic Cloud VM line would hide it.
         if let rejection = error as? SurfaceTransferRejection {
             return rejection.message
+        }
+        // Remote tmux requests come through this wrapper too. Their errors are about an ssh
+        // host, and `RemoteTmuxError.message` already flattens and caps any remote text.
+        if let remoteTmuxError = error as? RemoteTmuxError {
+            return remoteTmuxError.message
         }
         guard case let VMClientError.httpStatus(status, body) = error else {
             guard let vmError = error as? VMClientError else { return fallback }
