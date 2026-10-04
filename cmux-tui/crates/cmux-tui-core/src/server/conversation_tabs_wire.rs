@@ -253,3 +253,7 @@ mod agent_session_tests;
 #[cfg(test)]
 #[path = "agent_session_tabs_wire_tests.rs"]
 mod agent_session_wire_tests;
+
+#[cfg(test)]
+#[path = "agent_session_bind_tests.rs"]
+mod agent_session_bind_tests;
