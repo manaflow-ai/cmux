@@ -17,7 +17,12 @@ public final class HomeNativeFixture {
     // task-owner: kept and cancelled in `close()`
     private var loading: Task<Void, Never>?
 
-    public init() {
+    /// With `attachments`, the conversation also gets a photo, a video and a
+    /// PDF from me (prepared and sent through the store like a drop).
+    private let attachments: Bool
+
+    public init(attachments: Bool = false) {
+        self.attachments = attachments
         store = HomeStore(source: source)
         store.start()
         loading = Task { [weak self] in await self?.load() }
@@ -42,6 +47,15 @@ public final class HomeNativeFixture {
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         self.view = view
+        if attachments { await addAttachments(in: id) }
+    }
+
+    private func addAttachments(in id: ConversationID) async {
+        guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
+        for file in files {
+            guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }
+            try? await store.send(conversation: id, text: "", attachments: [prepared])
+        }
     }
 }
 #endif

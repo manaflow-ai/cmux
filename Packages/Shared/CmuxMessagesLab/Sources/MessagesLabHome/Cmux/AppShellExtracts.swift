@@ -10,8 +10,6 @@ import AppKit
 enum NativeStrings {
     static var attach: String { String(localized: "compose.attach", defaultValue: "Add Attachment", table: "AppKitNative", bundle: .module) }
     static var emoji: String { String(localized: "compose.emoji", defaultValue: "Emoji", table: "AppKitNative", bundle: .module) }
-    static var chooseImages: String { String(localized: "attach.panel.message", defaultValue: "Choose images to send", table: "AppKitNative", bundle: .module) }
-    static var attachPrompt: String { String(localized: "attach.panel.prompt", defaultValue: "Attach", table: "AppKitNative", bundle: .module) }
     static var video: String { String(localized: "header.video", defaultValue: "FaceTime Video", table: "AppKitNative", bundle: .module) }
     /// The name pill: "Contact details for %@".
     static var contactFormat: String { String(localized: "header.contact", defaultValue: "Contact details for %@", table: "AppKitNative", bundle: .module) }

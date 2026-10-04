@@ -4,8 +4,29 @@ import UniformTypeIdentifiers
 
 /// Drop, paste and the file picker all end in `attach`: inputs the allow
 /// list refuses get a notice, the rest are prepared by the data side in
-/// arrival order and land in the draft tray.
+/// arrival order and land in the field as MessagesLab's chips.
 extension HomeNativeTranscriptView {
+    /// The MessagesLab host's entry points ("+", paste, drop) and the
+    /// binding's callbacks reach this view's intake and notice.
+    func connectAttachments() {
+        transcript.onPickAttachments = { [weak self] in self?.pickFiles() }
+        transcript.onAttachmentPasteboard = { [weak self] board in self?.handlePaste(board) ?? false }
+        transcript.acceptsAttachmentDrag = { [weak self] board in
+            self?.attachmentPreparer != nil && HomeAttachmentIntake.offers(board)
+        }
+        transcript.onAttachmentRefusal = { [weak self] refusal in self?.showAttachmentRefusal(refusal) }
+        transcript.onDraftTextChange = { [weak self] in
+            guard let self, self.notice != nil, !self.transcript.draftText.isEmpty else { return }
+            self.showNotice(nil)
+        }
+        transcript.fetchAttachment = binding.fetchAttachment
+        transcript.onCancelSend = { [weak binding] key in binding?.cancelSend(key) ?? false }
+        transcript.onRefusal = { [weak self] _, rejection in self?.showRefusal(rejection) }
+        binding.onRefusal = { [weak self] _, rejection in self?.showRefusal(rejection) }
+        binding.onUnanswered = { [weak self] intent in self?.showUnanswered(intent) }
+        registerForDraggedTypes(HomeAttachmentIntake.dragTypes)
+    }
+
     /// Files or pictures dropped anywhere on the transcript or the field.
     @discardableResult
     func handleDrop(_ board: any HomePasteboardContents) -> Bool {
@@ -50,7 +71,7 @@ extension HomeNativeTranscriptView {
         var accepted: [HomeDraftInput] = []
         var refusals: [String] = []
         // Attachments plus the text part fit the owner's part limit.
-        var room = CmuxHomeCore.HomeAttachmentPolicy.maxParts - 1 - field.draftAttachments.count
+        var room = CmuxHomeCore.HomeAttachmentPolicy.maxParts - 1 - transcript.draftAttachments.count
         for input in inputs {
             if let refusal = HomeComposerCheck.refusal(for: input) {
                 refusals.append(refusal)
@@ -61,53 +82,54 @@ extension HomeNativeTranscriptView {
                 room -= 1
             }
         }
-        field.showNotice(refusals.first)
+        showNotice(refusals.first)
         guard !accepted.isEmpty else { return }
         let previous = intake
+        let keepLocation = self.keepLocation()
         intake = Task { [weak self] in
             await previous?.value
             for input in accepted {
                 let prepared: LocalAttachment
                 do {
-                    prepared = try await Self.prepare(input, with: preparer)
+                    prepared = try await Self.prepare(input, with: preparer, keepLocation: keepLocation)
                 } catch let refusal as HomeAttachmentError {
-                    self?.field.showNotice(HomeStrings.attachmentRefusal(refusal))
+                    self?.showNotice(HomeStrings.attachmentRefusal(refusal))
                     continue
                 } catch {
-                    self?.field.showNotice(HomeStrings.attachFailed)
+                    self?.showNotice(HomeStrings.attachFailed)
                     continue
                 }
-                let thumbnail = await HomeDraftAttachment.thumbnail(for: prepared)
                 guard let self, !Task.isCancelled else { return }
-                self.field.addDraft(HomeDraftAttachment(prepared: prepared, thumbnail: thumbnail))
+                await self.transcript.addDraftAttachment(prepared)
             }
         }
     }
 
-    private static func prepare(_ input: HomeDraftInput, with preparer: any HomeAttachmentPreparing) async throws
+    private static func prepare(_ input: HomeDraftInput, with preparer: any HomeAttachmentPreparing, keepLocation: Bool) async throws
         -> LocalAttachment {
         switch input {
-        case .file(let url): try await preparer.prepareAttachment(fileURL: url, keepLocation: false)
-        case .data(let data, let type): try await preparer.prepareAttachment(data: data, typeIdentifier: type, keepLocation: false)
+        case .file(let url): try await preparer.prepareAttachment(fileURL: url, keepLocation: keepLocation)
+        case .data(let data, let type):
+            try await preparer.prepareAttachment(data: data, typeIdentifier: type, keepLocation: keepLocation)
         }
     }
 
     /// The owner's data side refused a send's attachment before logging it
     /// (`HomeStoreBinding.onAttachmentRefusal`); the draft is back.
     public func showAttachmentRefusal(_ refusal: HomeAttachmentError) {
-        field.showNotice(HomeStrings.attachmentRefusal(refusal))
+        showNotice(HomeStrings.attachmentRefusal(refusal))
     }
 
     /// A send the owner refused after it left the composer (a resumed
     /// upload, a resend after backoff): `HomeStoreBinding.onRefusal`.
     public func showRefusal(_ rejection: HomeRejection) {
-        field.showNotice(HomeStrings.rejection(rejection))
+        showNotice(HomeStrings.rejection(rejection))
     }
 
     /// An op (a tapback, a read cursor) ran out of resends unanswered
     /// (`HomeStoreBinding.onUnanswered`): it may not have gone through.
     public func showUnanswered(_ intent: HomeIntent) {
-        field.showNotice(HomeStrings.unanswered)
+        showNotice(HomeStrings.unanswered)
     }
 
     /// Returns when every attachment given so far is in the draft (tests).

@@ -13,10 +13,13 @@ enum HomeMapping {
         aliases[item.key] ?? item.key.rawValue
     }
 
+    /// A hash's bubble picture (`HomeMedia.asset`), nil until it is ready.
+    typealias Media = (String) -> String?
+
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                        summary: ConversationSummary?) -> Message {
+                        summary: ConversationSummary?, media: Media = { _ in nil }) -> Message {
         Message(id: id(item, aliases: aliases), senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: item.isRetracted ? [] : item.parts.map(part),
+                parts: item.isRetracted ? [] : item.parts.map { part($0, media: media, progress: item.attachmentProgress) },
                 replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map(reaction))
@@ -42,7 +45,7 @@ enum HomeMapping {
         }
     }
 
-    static func part(_ p: MessagePart) -> Part {
+    static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:]) -> Part {
         switch p {
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {
@@ -51,19 +54,36 @@ enum HomeMapping {
         case .linkPreview(let link):
             let host = URL(string: link.url)?.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
             return .link(url: link.url, title: link.title ?? host, siteName: host, image: nil, theme: "dark")
-        case .attachment(let file):
-            // Lane 16 seam: the bytes (blob store) and the image bubble land
-            // with the attachment intake; here the row draws the file card.
-            let kind = file.mimeType.hasPrefix("image/") ? "image" : file.mimeType.hasPrefix("video/") ? "video" : "file"
-            return .attachment(Attachment(id: file.hash, kind: kind, fileName: file.name, mimeType: file.mimeType,
-                                          byteSize: file.byteCount, asset: nil, poster: nil, width: file.width,
-                                          height: file.height, durationSeconds: nil, transfer: .done))
+        case .attachment(let ref):
+            return .attachment(attachment(ref, picture: media(ref.hash), progress: progress[ref.hash]))
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
         case .work, .approval:
             // Agent session and approval cards are not MessagesLab rows: their text.
             return .text(p.plainText, runs: [])
         }
+    }
+
+    /// MessagesLab's attachment kind (its row drawing): image and video
+    /// bubbles, the audio row, else the file row.
+    static func kind(of ref: AttachmentRef) -> String {
+        let type = ref.mimeType.lowercased()
+        if type.hasPrefix("image/") { return "image" }
+        if type.hasPrefix("video/") { return "video" }
+        if type.hasPrefix("audio/") { return "audio" }
+        return "file"
+    }
+
+    /// A HomeStore attachment part as MessagesLab's: the id is the content
+    /// hash; an image's picture is its asset, a video's its poster (the row
+    /// drawing reads `poster ?? asset`, so a video never loads the movie);
+    /// an upload in flight is MessagesLab's `.uploading` transfer.
+    static func attachment(_ ref: AttachmentRef, picture: String?, progress: Double?) -> Attachment {
+        let kind = kind(of: ref)
+        return Attachment(id: ref.hash, kind: kind, fileName: ref.name, mimeType: ref.mimeType, byteSize: ref.byteCount,
+                          asset: kind == "image" ? picture : nil, poster: kind == "video" ? picture : nil,
+                          width: ref.width, height: ref.height, durationSeconds: ref.durationMs.map { Double($0) / 1000 },
+                          transfer: progress.map { .uploading($0) } ?? .done)
     }
 
     static func reaction(_ r: CmuxHomeCore.Reaction) -> Reaction {

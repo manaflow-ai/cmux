@@ -11,6 +11,11 @@ enum CmuxStrings {
         String(localized: "label.mayNotHaveBeenDelivered", defaultValue: "May Not Have Been Delivered", table: "CmuxHome", bundle: .module)
     }
 
+    /// The context menu item that cancels my send while it uploads or after it failed.
+    static var cancelUpload: String {
+        String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: .module)
+    }
+
     /// The reason HomeMapping gives a failed send that reached the owner and
     /// got no answer (`TranscriptItem.mayHaveBeenDelivered`).
     static let mayHaveBeenDeliveredReason = "cmux.mayHaveBeenDelivered"

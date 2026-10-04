@@ -113,6 +113,70 @@ public final class MessagesLabHomeView: NSView {
         set { projection.onRefusal = newValue }
     }
 
+    // MARK: Attachments (lane 16)
+
+    /// The "+" button (the host's file picker).
+    public var onPickAttachments: () -> Void {
+        get { projection.onPickAttachments }
+        set { projection.onPickAttachments = newValue }
+    }
+    /// A paste in the field or a drop on the pane: true when the host's
+    /// intake took the pasteboard.
+    public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
+        get { projection.onAttachmentPasteboard }
+        set { projection.onAttachmentPasteboard = newValue }
+    }
+    /// While dragging (types only): whether a drop would be taken.
+    public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {
+        get { projection.acceptsAttachmentDrag }
+        set { projection.acceptsAttachmentDrag = newValue }
+    }
+    /// The store refused a send's attachment before logging it; the text
+    /// and attachments are back in the field.
+    public var onAttachmentRefusal: (HomeAttachmentError) -> Void {
+        get { projection.onAttachmentRefusal }
+        set { projection.onAttachmentRefusal = newValue }
+    }
+    /// The field's text changed (the host clears its notice).
+    public var onDraftTextChange: () -> Void {
+        get { projection.onDraftTextChange }
+        set { projection.onDraftTextChange = newValue }
+    }
+    /// Cancel Upload in a bubble's menu (`HomeStoreBinding.cancelSend`).
+    public var onCancelSend: (IdempotencyKey) -> Bool {
+        get { projection.onCancelSend }
+        set { projection.onCancelSend = newValue }
+    }
+    /// Loads attachment bytes (`HomeStoreBinding.fetchAttachment`): bubble
+    /// pictures (`.thumbnail`, a video's `.poster`) and originals on click.
+    public var fetchAttachment: (@Sendable (AttachmentRef, AttachmentVariant) async throws -> URL)? {
+        get { projection.media.fetch }
+        set {
+            projection.media.fetch = newValue
+            projection.refreshAttachments()
+        }
+    }
+
+    /// Puts a prepared attachment in the field as a chip (MessagesLab's
+    /// draft); its bubble picture is made first.
+    public func addDraftAttachment(_ attachment: LocalAttachment) async {
+        await projection.addDraft(attachment)
+    }
+
+    /// The field's attachments, in the order they arrived.
+    public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+
+    public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
+
+    /// The field's text.
+    public var draftText: String { controller.store?.state.ui.draft.text ?? "" }
+
+    /// Return in the field: sends the text and the attachments as one message.
+    public func sendDraft() { projection.send() }
+
+    /// Returns when every bubble picture asked for so far is ready (tests).
+    public func mediaSettled() async { await projection.media.settled() }
+
     /// The top of the area under the header (the first-run panel's top).
     public var headerHeight: CGFloat { Fixture.headerHeight }
     /// The field's top in this view (the first-run panel's bottom).

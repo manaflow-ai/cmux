@@ -28,6 +28,9 @@ and render-server field animation, blurred header and native scrolling.
   `HomeProjection`/`ProjectionCore`/`HomeDiff`/`HomeMapping` (HomeStore
   snapshots to MessagesLab actions; sends and tapbacks to HomeIntents),
   `PaneHeaderView` (HeaderBar's avatar and pill inside the pane),
+  `HomeMedia` (attachment bubble pictures as `file:` assets MessagesLab's
+  row drawing reads: local files first, else `HomeStoreBinding.fetchAttachment`),
+  `CmuxStrings` (Resources/CmuxHome.xcstrings),
   `FixtureTheme` (cmux theme to Fixture colours), `MessagesLabHomeView`
   (the public view).
 
@@ -44,6 +47,8 @@ and render-server field animation, blurred header and native scrolling.
 | Layout | a failed send that reached the owner unanswered says May Not Have Been Delivered (`CmuxStrings`, Resources/CmuxHome.xcstrings in every app language) |
 | Engine, Materials | Xcode 26.6 compile fixes (`self.` capture; a macOS 27 SDK property by key) |
 | SwipeReply | the pane controller's window is optional |
+| Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
+| Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 
 ## Updating
 

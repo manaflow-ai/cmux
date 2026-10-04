@@ -32,13 +32,14 @@ struct HomeDiff: Equatable {
     static let bulk = 3
 
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
-                     newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID) -> HomeDiff {
+                     newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
+                     media: HomeMapping.Media = { _ in nil }) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
-        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary) }
+        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media) }
 
         // Older page: the new messages before the first shown one.
         var head = 0

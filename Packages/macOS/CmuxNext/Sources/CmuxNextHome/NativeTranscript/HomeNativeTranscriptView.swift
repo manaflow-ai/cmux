@@ -1,21 +1,43 @@
 public import AppKit
 public import CmuxHomeCore
-import CmuxHomeRender
+public import CmuxHomeRender
 import CmuxNextDesign
 import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
-/// own code and motion (`MessagesLabHome`, vendored at MessagesLab 3a53206),
+/// own code and motion (`MessagesLabHome`, vendored at the MessagesLab
+/// commit in Packages/Shared/CmuxMessagesLab/vendor.tsv),
 /// hosted in the pane over the shared HomeStore. The rows, springs, send
 /// morph, Liquid Glass field and its render-server field animation, the
 /// blurred header and native scrolling are MessagesLab's; this view adds the
-/// cmux parts around it: the theme, the first-run panel, focus and
-/// availability. Data reaches it only from HomeStore (the single writer);
-/// sends and tapbacks leave as HomeIntents.
+/// cmux parts around it: the theme, the first-run panel, focus,
+/// availability, and lane 16's attachment intake (the file picker, paste
+/// and drop checks, preparing through HomeStore, the notice above the
+/// field). Data reaches it only from HomeStore (the single writer); sends
+/// and tapbacks leave as HomeIntents. The view owns its conversation's
+/// `HomeStoreBinding` (refusals, unanswered ops, attachment fetches, Cancel
+/// Upload), so no host can leave those unwired.
 public final class HomeNativeTranscriptView: NSView {
     let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
     let me: ParticipantID
+    /// This conversation's part of the store: chained refusal and
+    /// unanswered callbacks, attachment bytes, Cancel Upload.
+    public let binding: HomeStoreBinding
+    /// The notice above the field (an attachment refused, a send refused in
+    /// the background, an op that may not have gone through).
+    let noticeLabel = NSTextField(wrappingLabelWithString: "")
+    private(set) var notice: String?
+    /// Prepares dropped, pasted and picked files (the data side; the store
+    /// by default, a recorder in tests). Nil: the composer takes none.
+    public var attachmentPreparer: (any HomeAttachmentPreparing)?
+    /// Whether photos and videos keep their location (Settings > Home,
+    /// `home.attachments.keepLocation`; false strips it, the default).
+    public var keepLocation: () -> Bool = { false }
+    /// The chain of attachment preparations, in the order they arrived.
+    // task-owner: replaced by the next intake; awaited by attachmentsReady
+    var intake: Task<Void, Never>?
+    private var stopped = false
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
     public var isSendEnabled = true {
@@ -28,10 +50,24 @@ public final class HomeNativeTranscriptView: NSView {
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
         self.me = me
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
+        // One binding per shown conversation; `stop()` ends it once. The
+        // open below moves into the binding with the cloud source's
+        // open/close contract (HomeStoreBinding opens and closes its own).
+        binding = HomeStoreBinding(store: store, conversation: conversation)
+        // task-owner: one snapshot read; ends with its reply
+        Task { await store.open(conversation) }
+        attachmentPreparer = store
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(transcript)
         addSubview(firstRun)
+        noticeLabel.isHidden = true
+        noticeLabel.font = .systemFont(ofSize: 11)
+        noticeLabel.alignment = .center
+        noticeLabel.maximumNumberOfLines = 2
+        noticeLabel.isSelectable = false
+        addSubview(noticeLabel)
+        connectAttachments()
         firstRun.isHidden = true
         firstRun.onSuggestion = { [weak self] prompt in
             guard let self else { return }
@@ -50,8 +86,14 @@ public final class HomeNativeTranscriptView: NSView {
         for o in observers { NotificationCenter.default.removeObserver(o) }
     }
 
-    /// Stops forwarding (the conversation closed).
-    public func stop() { transcript.stop() }
+    /// Stops forwarding (the conversation closed). Once.
+    public func stop() {
+        guard !stopped else { return }
+        stopped = true
+        intake?.cancel()
+        transcript.stop()
+        binding.stop()
+    }
 
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
@@ -68,11 +110,34 @@ public final class HomeNativeTranscriptView: NSView {
         super.layout()
         // Showing the tab again re-attaches the same views: nothing to do
         // unless the size changed (no layout, bitmap or backdrop rebuild).
-        guard transcript.frame != bounds else { return }
+        guard transcript.frame != bounds else { layoutNotice(); return }
         transcript.frame = bounds
         transcript.layoutSubtreeIfNeeded()
         let top = transcript.headerHeight
         firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
+        layoutNotice()
+    }
+
+    /// Above the field, inset like it; MessagesLab's field keeps its geometry.
+    func layoutNotice() {
+        guard notice != nil else { return }
+        let width = max(0, bounds.width - 32)
+        noticeLabel.preferredMaxLayoutWidth = width
+        let height = ceil(noticeLabel.intrinsicContentSize.height)
+        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
+    }
+
+    /// Shows (or with nil clears) the notice; VoiceOver hears it.
+    func showNotice(_ text: String?) {
+        guard text != notice else { return }
+        notice = text
+        noticeLabel.stringValue = text ?? ""
+        noticeLabel.isHidden = text == nil
+        noticeLabel.setAccessibilityLabel(text)
+        if let text {
+            NSAccessibility.post(element: noticeLabel, notification: .announcementRequested, userInfo: [.announcement: text])
+        }
+        layoutNotice()
     }
 
     /// The first-run panel shows only in an empty Chief conversation.
@@ -115,6 +180,7 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.applyTheme(active: active, inactive: inactive)
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
+            noticeLabel.textColor = Palette.textSecondary
         }
     }
 }

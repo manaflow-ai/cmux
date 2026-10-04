@@ -30,8 +30,27 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onRowsChange: () -> Void = {}
     /// A refused tapback (a refused send restores its draft instead).
     var onRefusal: (HomeIntent, HomeRejection) -> Void = { _, _ in }
-    /// Lane 16 seam: the attachment intake.
-    var onAttach: () -> Void = {}
+
+    // Attachments (lane 16): the host owns the intake (picker, paste and
+    // drop checks, preparing through HomeStore, notices); the chips, the
+    // morph and the bubbles are MessagesLab's.
+    /// The "+" button.
+    var onPickAttachments: () -> Void = {}
+    /// A paste or a drop; true when taken.
+    var onAttachmentPasteboard: (NSPasteboard) -> Bool = { _ in false }
+    /// While dragging, types only.
+    var acceptsAttachmentDrag: (NSPasteboard) -> Bool = { _ in false }
+    /// The store refused a send's attachment before logging it; the draft is back.
+    var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
+    /// The field's text changed.
+    var onDraftTextChange: () -> Void = {}
+    /// Cancel Upload (`HomeStoreBinding.cancelSend`).
+    var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
+    /// Bubble pictures and originals.
+    let media = HomeMedia()
+    /// Prepared attachments in the field by content hash (the chips are
+    /// MessagesLab's draft; a removed chip's entry is ignored).
+    private var drafts: [String: LocalAttachment] = [:]
 
     /// What the projection shows, as HomeStore said it (shared with the harness).
     private(set) var core: ProjectionCore
@@ -52,7 +71,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.me = me
         self.controller = controller
         core = ProjectionCore(me: me)
+        let media = self.media
+        core.media = { [unowned media] in media.asset($0) }
         controller.intents = self
+        media.onReady = { [weak self] _ in self?.refreshAttachments() }
     }
 
     func start() {
@@ -113,6 +135,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
         if titleChanged { applyHeader() }
+        refreshAttachments()
         if summaryChanged { onSummaryChange(summary) }
         onRowsChange()
         askForOlderIfNeeded()
@@ -125,6 +148,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         controller.install(conv, windowStart: w.start, total: w.total)
         applyHeader()
         for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
+        refreshAttachments()
         onSummaryChange(summary)
         onRowsChange()
     }
@@ -137,7 +161,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         rebuilds += 1
         let pinned = controller.store.state.ui.scroll.pinnedToBottom
         let anchor = demo.anchorProbe
-        let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary) }
+        let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media) }
         let pendingLocal = controller.store.state.conversation.messages.filter { m in
             aliases.contains { $0.value == m.id } && !msgs.contains { $0.id == m.id }
         }
@@ -165,33 +189,143 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func send() {
         guard isSendEnabled, homeStore.isOnline, let store = controller.store else { return }
-        let text = store.state.ui.draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, store.state.atNewest else { return }
+        let draft = store.state.ui.draft
+        let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attachments = draft.attachments.compactMap { drafts[$0.id] }
+        guard !text.isEmpty || !attachments.isEmpty, store.state.atNewest else { return }
         let key = IdempotencyKey.make()
         controller.dispatch(.send)
         guard core.recordSend(key, in: controller.store.state) else { return }
-        let op = HomeOp.sendMessage(conversation: conversation, parts: [.text(text)])
-        let homeStore = self.homeStore
-        // task-owner: one op; ends with the owner's answer
+        for a in attachments {
+            media.useLocal(a.files, for: a.ref.hash)
+            drafts[a.ref.hash] = nil
+        }
+        let homeStore = self.homeStore, conversation = self.conversation
+        // task-owner: one send; ends with the owner's answer
         Task { [weak self] in
             do {
-                _ = try await homeStore.perform(op, key: key)
+                if attachments.isEmpty {
+                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)]), key: key)
+                } else {
+                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key)
+                }
+            } catch let refusal as HomeAttachmentError {
+                self?.sendRefused(key, text: text, attachments: attachments, notice: refusal)
             } catch let rejection as HomeRejection {
-                self?.sendRefused(key, text: text, rejection)
+                self?.sendRefused(key, text: text, attachments: attachments, rejection)
             } catch {
                 // HomeSendState.pendingResend: the store resends with the same key.
+                // CancellationError: Cancel Upload removed the row.
             }
         }
     }
 
-    /// Refused before it reached the log (offline, nothing queues): the
-    /// local message goes and the text returns. A logged refusal stays as
-    /// "Not Delivered" (HomeStore's item).
-    func sendRefused(_ key: IdempotencyKey, text: String, _ rejection: HomeRejection) {
+    /// Refused before it reached the log (offline, nothing queues, or an
+    /// attachment the owner would refuse): the local message goes and the
+    /// text and attachments return. A logged refusal stays as "Not
+    /// Delivered" (HomeStore's item).
+    func sendRefused(_ key: IdempotencyKey, text: String, attachments: [LocalAttachment] = [], _ rejection: HomeRejection? = nil,
+                     notice: HomeAttachmentError? = nil) {
         guard !stopped, !homeStore.transcript(for: conversation).contains(where: { $0.key == key }) else { return }
         core.forget(key)
         rebuild()
-        if controller.store.state.ui.draft.text.isEmpty { controller.dispatch(.setDraft(text)) }
+        if controller.store.state.ui.draft.text.isEmpty, !text.isEmpty { controller.dispatch(.setDraft(text)) }
+        for a in attachments { restoreDraft(a) }
+        if let notice { onAttachmentRefusal(notice) }
+    }
+
+    // MARK: Attachments
+
+    /// A prepared attachment enters the field as MessagesLab's chip, with its
+    /// bubble picture made first (the morph and the bubble show it at once).
+    func addDraft(_ attachment: LocalAttachment) async {
+        let hash = attachment.ref.hash
+        guard !stopped, controller.store?.state.ui.draft.attachments.contains(where: { $0.id == hash }) == false else { return }
+        await media.prepare(attachment)
+        restoreDraft(attachment)
+    }
+
+    private func restoreDraft(_ attachment: LocalAttachment) {
+        let hash = attachment.ref.hash
+        guard !stopped, let store = controller.store, !store.state.ui.draft.attachments.contains(where: { $0.id == hash }) else { return }
+        drafts[hash] = attachment
+        controller.dispatch(.attach(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil)))
+    }
+
+    /// The field's attachments, in order.
+    var draftAttachments: [LocalAttachment] {
+        (controller.store?.state.ui.draft.attachments ?? []).compactMap { drafts[$0.id] }
+    }
+
+    func removeDraft(_ hash: String) {
+        drafts[hash] = nil
+        controller.dispatch(.removeDraftAttachment(hash))
+    }
+
+    /// Each shown attachment part gets its picture and upload state:
+    /// HomeStore's progress and HomeMedia's pictures change no transcript
+    /// content, so they reach MessagesLab's message without a transition
+    /// (`.cmuxSetAttachment`, the row redraws in place).
+    func refreshAttachments() {
+        guard !stopped, let store = controller.store else { return }
+        for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty {
+            for (hash, files) in item.localAttachments { media.useLocal(files, for: hash) }
+            let id = HomeMapping.id(item, aliases: aliases)
+            guard let message = store.state.message(id) else { continue }
+            for part in item.parts {
+                guard case .attachment(let ref) = part else { continue }
+                media.request(ref)
+                let want = HomeMapping.attachment(ref, picture: media.asset(ref.hash), progress: Self.shownProgress(item, ref))
+                let have = message.parts.lazy.compactMap { p -> Attachment? in
+                    if case let .attachment(a) = p, a.id == ref.hash { return a }
+                    return nil
+                }.first
+                if let have, have != want { controller.dispatch(.cmuxSetAttachment(id, want)) }
+            }
+        }
+    }
+
+    /// MessagesLab draws upload progress only on file rows (a bar); image and
+    /// video bubbles show none. Steps of 2%, so a fast upload redraws its
+    /// row at most 50 times.
+    static func shownProgress(_ item: TranscriptItem, _ ref: AttachmentRef) -> Double? {
+        guard let p = item.attachmentProgress[ref.hash], !["image", "video"].contains(HomeMapping.kind(of: ref)) else { return nil }
+        return (p * 50).rounded(.down) / 50
+    }
+
+    private func item(_ message: ID) -> TranscriptItem? {
+        shown.first { HomeMapping.id($0, aliases: aliases) == message }
+    }
+
+    func pickAttachments() { onPickAttachments() }
+    func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
+    func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func draftChanged() { onDraftTextChange() }
+
+    /// lane 16's rule (HomeController.cancellableSend): my pending send while
+    /// it uploads, or a failed one.
+    func canCancelSend(_ message: ID) -> Bool {
+        guard let item = item(message), item.seq == nil, item.author == me else { return false }
+        switch item.delivery {
+        case .notDelivered: return true
+        case .sending: return !item.attachmentProgress.isEmpty
+        case .committed: return false
+        }
+    }
+
+    func cancelSend(_ message: ID) {
+        guard canCancelSend(message), let item = item(message) else { return }
+        _ = onCancelSend(item.key)
+    }
+
+    func openAttachment(_ message: ID, _ attachment: ID) {
+        guard let ref = item(message)?.parts.lazy.compactMap({ p -> AttachmentRef? in
+            if case .attachment(let r) = p, r.hash == attachment { return r }
+            return nil
+        }).first else { return }
+        let media = self.media
+        // task-owner: one fetch; ends when the file opens
+        Task { if let url = try? await media.original(ref) { NSWorkspace.shared.open(url) } }
     }
 
     /// Test seams for the alias table.
@@ -213,8 +347,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
             } catch {}
         }
     }
-
-    func attach() { onAttach() }
 
     func scrolled() {
         askForOlderIfNeeded()
@@ -258,6 +390,8 @@ struct ProjectionCore {
     private(set) var summary: ConversationSummary?
     /// HomeStore key of a send this view started -> its reducer id.
     var aliases: [IdempotencyKey: ID] = [:]
+    /// Bubble pictures by content hash (`HomeMedia.asset`).
+    var media: HomeMapping.Media = { _ in nil }
 
     init(me: ParticipantID) { self.me = me }
 
@@ -268,13 +402,13 @@ struct ProjectionCore {
         self.summary = summary
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
-                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary) })
+                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media) })
         return (conv, HomeMapping.window(items, summary: summary))
     }
 
     /// The actions from the shown snapshot to this one.
     mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
-        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me)
+        let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media)
         shown = items
         summary = new
         return d

@@ -14,9 +14,20 @@ protocol ChatIntents: AnyObject {
     /// The owner can take a reply (MessagesLab's `.reply`: swipe-to-reply,
     /// Reply in the menu). False until HomeOp has a reply operation.
     var canReply: Bool { get }
-    /// The "+" button, a paste or a drop of an image. Lane 16 seam: the
-    /// attachment intake (blob upload, chips, image bubble) lands there.
-    func attach()
+    /// The "+" button: the host's file picker.
+    func pickAttachments()
+    /// A paste in the field or a drop: true when the host's attachment
+    /// intake took the pasteboard (files and pictures, Home's type rule).
+    func takeAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// While dragging: whether a drop would be taken (types only).
+    func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
+    /// The field's text changed (the host clears its notice).
+    func draftChanged()
+    /// My send can be cancelled (an upload, or a failed send): Cancel Upload.
+    func canCancelSend(_ message: ID) -> Bool
+    func cancelSend(_ message: ID)
+    /// A click on an attachment bubble: open its bytes.
+    func openAttachment(_ message: ID, _ attachment: ID)
     /// The transcript moved (user scroll, pin): paging and read cursor.
     func scrolled()
 }

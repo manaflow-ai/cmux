@@ -1,6 +1,24 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
-@@ -117,7 +117,8 @@
+@@ -8,6 +8,9 @@
+     var onSend: () -> Void = {}
+     var onEscape: () -> Void = {}
+     var onPasteImage: (NSImage) -> Void = { _ in }
++    /// cmux: the host's attachment intake reads the pasteboard first
++    /// (files and pictures, Home's type rule); true when it took the paste.
++    var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
+     /// Marked (IME) text changed. UITextView reports marked text through
+     /// `textViewDidChange`, so the draft (and the field height) follows the
+     /// composition; NSTextView does not post a text change for it.
+@@ -40,6 +43,7 @@
+ 
+     override func paste(_ sender: Any?) {
+         let pb = pasteboard
++        if onPastePasteboard(pb) { return }  // cmux
+         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
+         super.paste(sender)
+     }
+@@ -117,7 +121,8 @@
      static func height(lines: Int, chips: Bool) -> CGFloat {
          30 + 16 * CGFloat(lines - 1) + (lines >= 2 ? 1 : 0) + (chips ? 30 : 0)
      }
@@ -10,7 +28,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
-@@ -130,8 +131,8 @@
+@@ -130,8 +135,8 @@
          default: return .limited
          }
      }()
@@ -21,7 +39,7 @@
      }
      private var dx: CGFloat { bounds.width - Fixture.windowWidth }
      private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
-@@ -397,7 +398,7 @@
+@@ -397,7 +402,7 @@
          placeholderLayer.opacity = text.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -30,7 +48,7 @@
          let old = fieldHeight
          fieldHeight = h
          place(height: h)
-@@ -473,7 +474,7 @@
+@@ -473,7 +478,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

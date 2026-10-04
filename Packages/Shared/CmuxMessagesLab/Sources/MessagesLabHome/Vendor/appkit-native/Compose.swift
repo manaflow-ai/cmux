@@ -8,6 +8,9 @@ final class FieldTextView: NSTextView {
     var onSend: () -> Void = {}
     var onEscape: () -> Void = {}
     var onPasteImage: (NSImage) -> Void = { _ in }
+    /// cmux: the host's attachment intake reads the pasteboard first
+    /// (files and pictures, Home's type rule); true when it took the paste.
+    var onPastePasteboard: (NSPasteboard) -> Bool = { _ in false }
     /// Marked (IME) text changed. UITextView reports marked text through
     /// `textViewDidChange`, so the draft (and the field height) follows the
     /// composition; NSTextView does not post a text change for it.
@@ -40,6 +43,7 @@ final class FieldTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         let pb = pasteboard
+        if onPastePasteboard(pb) { return }  // cmux
         if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
         super.paste(sender)
     }

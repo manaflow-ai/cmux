@@ -6,8 +6,6 @@
 // TranscriptAccess refer to ChatController and HostView. The differences
 // from Host.swift are marked `cmux:`.
 import AppKit
-import AVFoundation
-import UniformTypeIdentifiers
 
 /// A layer-hosting NSView: AppKit never touches its layer tree, and it takes
 /// no mouse events.
@@ -201,7 +199,8 @@ extension TranscriptDocumentView {
 /// source, and the user's changes leave through `intents` instead of being
 /// dispatched (send, tapback); the wake timer is the host's scheduler; reply,
 /// edit and undo send are not offered (HomeOp has no reply, edit or unsend);
-/// attachments wait for lane 16 (`intents.attach`).
+/// the attachment intake (picker, paste, drop) is the host's (`intents`),
+/// the chips, morph and bubbles MessagesLab's.
 final class ChatController: NSObject, NSTextViewDelegate {
     var window: NSWindow? { host.window }
     let host: HostView
@@ -253,7 +252,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.paneHeader.title = store.state.conversation.title
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
-        host.fieldChrome.onPlus = { [weak self] in self?.intents?.attach() }
+        host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
         host.fieldChrome.onEmoji = { [weak self] in self?.showEmojiPicker() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
@@ -261,7 +260,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         tv.view.delegate = self
         tv.onSend = { [weak self] in self?.send() }
         tv.onEscape = { [weak self] in self?.escape() }
-        tv.view.onPasteImage = { [weak self] _ in self?.intents?.attach() }
+        // cmux: files and pictures go through the host's intake (Home's type
+        // rule, prepared by HomeStore); a picture it refuses is not attached.
+        tv.view.onPastePasteboard = { [weak self] pb in self?.intents?.takeAttachments(from: pb) ?? false }
+        tv.view.onPasteImage = { _ in }
         tv.view.onMarkedTextChange = { [weak self] in
             guard let self else { return }
             let s = self.demo.compose.textView.view.string
@@ -387,6 +389,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func textDidChange(_ notification: Notification) {
         dispatch(.setDraft(demo.compose.textView.view.string))
+        intents?.draftChanged()
     }
 
     func escape() {
@@ -395,8 +398,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     // MARK: Drops
 
-    func dragEntered(_ sender: NSDraggingInfo) -> NSDragOperation { [] }
-    func performDrop(_ sender: NSDraggingInfo) -> Bool { false }
+    // cmux: the host's intake reads the pasteboard (types only while dragging).
+    func dragEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        intents?.acceptsAttachments(from: sender.draggingPasteboard) == true ? .copy : []
+    }
+    func performDrop(_ sender: NSDraggingInfo) -> Bool {
+        intents?.takeAttachments(from: sender.draggingPasteboard) ?? false
+    }
 
     private func showEmojiPicker() {
         focusCompose()
@@ -425,12 +433,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func clicked(_ p: CGPoint) {
         guard let demo else { return }
         if picker != nil { closePicker(); return }
+        if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
         guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
         if let hit = demo.hit(p) {
             let local = CGPoint(x: p.x - hit.body.minX - Fixture.bubblePadX, y: p.y - hit.body.minY - Fixture.bubblePadY)
             if let tl = hit.row.text, let url = tl.link(at: local).flatMap(URL.init(string:)) { NSWorkspace.shared.open(url); return }
             switch hit.row.part {
             case let .link(url, _, _, _, _): if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+            // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
+            case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
             default: break
             }
             return
@@ -484,6 +495,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if case let .text(text, _) = hit.row.part {
             menu.addItem(MenuAction(title: Strings.menuCopy, symbol: "doc.on.doc") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
         }
+        // cmux: lane 16's Cancel Upload, only while the send can be cancelled.
+        if intents?.canCancelSend(ref.messageId) == true {
+            menu.addItem(MenuAction(title: CmuxStrings.cancelUpload, symbol: "xmark.circle") { [weak self] in self?.intents?.cancelSend(ref.messageId) })
+        }
         return menu.items.isEmpty ? nil : menu
     }
 
@@ -515,63 +530,6 @@ final class MenuAction: NSMenuItem {
     required init(coder: NSCoder) { fatalError() }
     @objc private func fire() { run() }
 }
-
-/// The attachment entry points' shared parts: the open panel, and what a
-/// drop or a paste carries.
-enum AttachmentPicker {
-    /// The "+" button's panel: images only, several at once.
-    static func makePanel() -> NSOpenPanel {
-        let p = NSOpenPanel()
-        p.allowsMultipleSelection = true
-        p.canChooseDirectories = false
-        p.canChooseFiles = true
-        p.allowedContentTypes = [.image]
-        p.message = NativeStrings.chooseImages
-        p.prompt = NativeStrings.attachPrompt
-        return p
-    }
-
-    static func isImage(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType)?.conforms(to: .image)
-            ?? UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) ?? false
-    }
-
-    /// Image file URLs on a pasteboard, else image data (no file). Other
-    /// files are not taken.
-    static func read(_ pb: NSPasteboard) -> (urls: [URL], image: NSImage?) {
-        let all = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        let urls = all.filter(isImage)
-        if all.isEmpty, let img = NSImage(pasteboard: pb) { return ([], img) }
-        return (urls, nil)
-    }
-
-    /// Pasted or dropped image data, written as a PNG in the temporary folder.
-    static func writePNG(_ img: NSImage, name: String) -> URL? {
-        guard let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
-              let data = rep.representation(using: .png, properties: [:]) else { return nil }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        do { try data.write(to: url) } catch { return nil }
-        return url
-    }
-}
-
-enum AttachmentFactory {
-    static func make(url: URL, id: ID) -> Attachment {
-        let type = UTType(filenameExtension: url.pathExtension) ?? .data
-        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-        var kind = "file"
-        var w: Int?, h: Int?
-        if type.conforms(to: .image), let src = CGImageSourceCreateWithURL(url as CFURL, nil),
-           let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
-            kind = "image"; w = props[kCGImagePropertyPixelWidth] as? Int; h = props[kCGImagePropertyPixelHeight] as? Int
-        } else if type.conforms(to: .movie) { kind = "video"; w = 1280; h = 720 }
-        else if type.conforms(to: .audio) { kind = "audio" }
-        else if type.conforms(to: .vCard) { kind = "contact" }
-        return Attachment(id: id, kind: kind, fileName: url.lastPathComponent, mimeType: type.preferredMIMEType ?? "application/octet-stream",
-                          byteSize: size, asset: url.absoluteString, poster: nil, width: w, height: h, durationSeconds: nil, transfer: .done)
-    }
-}
-
 
 /// Keeps every content-less layer of the hosted trees at the window's scale.
 /// Layers the shared code creates without a contentsScale (typing dots, masks)

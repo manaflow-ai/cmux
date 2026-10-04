@@ -18,16 +18,13 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
         super.init(frame: .zero)
-        // Paste, drop and the picker attach files through the store; refusals
-        // and Cancel Upload go through the binding.
-        transcript.connect(binding)
+        // Paste, drop and the picker attach files through the store; the view
+        // owns its conversation's binding (refusals, Cancel Upload).
         wantsLayer = true
         message.alignment = .center
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
-        // task-owner: one snapshot read; ends with its reply
-        Task { await service.homeStore.open(id) }
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             for await (available, online) in Observations({ (service.isAvailable, service.homeStore.isOnline) }) {
