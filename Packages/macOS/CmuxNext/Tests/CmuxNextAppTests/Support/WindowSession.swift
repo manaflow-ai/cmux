@@ -5,7 +5,7 @@ import Testing
 /// process runs in a console (window server) login session. The GUI lane
 /// (cmux-lawrence-2) has one; the headless lent minis of `cmux-ci run` do not.
 /// Use `.enabled(if: WindowSession.available, WindowSession.reason)`.
-enum WindowSession {
+nonisolated enum WindowSession {
     static let reason: Comment = "AppKit sheets need a window session; headless lent minis have none"
 
     static var available: Bool {
