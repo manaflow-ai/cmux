@@ -31,7 +31,7 @@ enum DebugWindowRecord {
         let recorder = Recorder(window: window, dir: URL(fileURLWithPath: dir), seconds: seconds) { running = nil }
         running = recorder
         recorder.start()
-        return .object(["dir": .string(dir), "seconds": JSONValue(seconds)])
+        return .object(["dir": .string(dir), "seconds": .number(seconds)])
     }
 
     private final class Recorder: NSObject {

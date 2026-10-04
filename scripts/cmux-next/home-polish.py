@@ -18,6 +18,8 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 parser.add_argument("--size", default="818x1060")
 parser.add_argument("--app", default=None)
+parser.add_argument("--activate", action="store_true",
+                    help="let the window become key (its Liquid Glass renders as in use; lab Mac only)")
 opts = parser.parse_args()
 WIDTH, HEIGHT = (int(v) for v in opts.size.split("x"))
 APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
@@ -88,6 +90,8 @@ try:
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
            "CMUX_NEXT_TEST_WINDOW_FRAME": f"40,40,{WIDTH},{HEIGHT}"}
+    if opts.activate:
+        env.pop("CMUX_NEXT_NO_ACTIVATE")
     log = open(os.path.join(opts.out, f"app-{opts.tag}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     print(f"launched pid {app.pid}", flush=True)
