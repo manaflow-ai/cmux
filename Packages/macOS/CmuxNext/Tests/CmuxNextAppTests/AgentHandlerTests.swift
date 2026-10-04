@@ -52,5 +52,9 @@ import Testing
         #expect(ids.count == 1)
         #expect(ids[0].hasPrefix(LocalAgentTab.prefix))
         #expect(pane.stripModel.selectedID?.rawValue == ids[0])
+        #expect(window.state.workspaceID == TopologyDaemon.firstKey)
+        let commands = daemon.commands.names.withLock { $0 }
+        #expect(commands.contains("create-terminal"))
+        #expect(!commands.contains("create-workspace"), "Cmd-I must repair the active workspace, not create a different one")
     }
 }

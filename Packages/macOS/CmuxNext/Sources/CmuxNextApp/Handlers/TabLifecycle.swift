@@ -44,7 +44,29 @@ enum TabLifecycle {
     /// Agent Chat paths, so focus and options match them. Scripts (CLI,
     /// MCP) always get the same kind, whatever the user's setting.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
-        guard let pane = ctx.daemonPane(invocation) else { return }
+        guard let pane = ctx.daemonPane(invocation) else {
+            // Cmd-T can arrive while the active workspace is still empty and
+            // has no pane controller. Repair that exact workspace through the
+            // shared first-terminal owner; callers awaiting tracked work then
+            // observe the pane mount without switching workspaces.
+            guard invocation.target == nil,
+                  let workspace = ctx.scope(invocation).workspace,
+                  let key = workspace.key,
+                  let daemon = ctx.services.machines.daemon(forWorkspace: workspace.id),
+                  let connection = daemon.connection else { return }
+            let repair = ctx.services.machines.emptyWorkspaceRepair(daemon.machineID, local: ctx.services.emptyWorkspaces)
+            ctx.registry.track(Task { @MainActor in
+                do {
+                    _ = try await repair.populating(key) {
+                        try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
+                    }
+                    return nil
+                } catch {
+                    return ActionWorkFailure("new terminal", mayHaveApplied: true, terminalMayAppear: true)
+                }
+            })
+            return
+        }
         let controller = ctx.services.paneController(for: pane)
         // The targeted tab (CLI `--tab`), else the pane's selected tab (an
         // empty pane has none and gets a terminal; never a refusal).

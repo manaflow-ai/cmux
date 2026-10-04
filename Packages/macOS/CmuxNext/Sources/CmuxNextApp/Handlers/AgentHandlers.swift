@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import Observation
 
 /// Agent actions. Forks read the agent session the daemon reports for the
 /// focused terminal (`TabModel.agent`, from `list-agents` state) and start
@@ -47,26 +48,26 @@ enum AgentHandlers {
             // its controller before opening the agent tab. Explicit targets
             // still fail normally instead of silently switching panes.
             guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
+            guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
             _ = context.registry.perform("newTab.sameKind", invocation: invocation)
             context.registry.track(Task { @MainActor in
-                for attempt in 0..<100 {
-                    if let pane = context.scope(invocation).pane {
-                        openNewAgentChat(in: pane, invocation: invocation, context: context)
+                let pane = await withTaskGroup(of: PaneController?.self) { group -> PaneController? in
+                    group.addTask { await Self.waitForPaneController(in: workspace, context: context) }
+                    group.addTask {
+                        // One-shot mount deadline; cancelled when the
+                        // event-driven observation wins.
+                        try? await Task.sleep(for: .seconds(10))
                         return nil
                     }
-                    // A workspace with no mounted pane cannot satisfy
-                    // newTab.sameKind yet. After a short settle window, use
-                    // the shared new-workspace path with a valid cwd; it
-                    // creates the active workspace and its first terminal.
-                    if attempt == 5 {
-                        var workspaceInvocation = invocation
-                        workspaceInvocation.arguments["cwd"] = .string(FileManager.default.homeDirectoryForCurrentUser.path)
-                        _ = context.registry.perform("newTab", invocation: workspaceInvocation)
-                    }
-                    try? await Task.sleep(for: .milliseconds(50))
+                    defer { group.cancelAll() }
+                    return await group.next() ?? nil
                 }
-                context.refuse(MiscHandlerStrings.noPane)
-                return ActionWorkFailure(MiscHandlerStrings.noPane)
+                guard let pane else {
+                    context.refuse(MiscHandlerStrings.noPane)
+                    return ActionWorkFailure(MiscHandlerStrings.noPane)
+                }
+                openNewAgentChat(in: pane, invocation: invocation, context: context)
+                return nil
             })
         }
         registry.bind(.fileOpen, run: { try openFile($0, context: context) })
@@ -136,6 +137,17 @@ enum AgentHandlers {
             ["palette.computerUse.setup", "computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
             ActionFailure(message: MiscHandlerStrings.computerUse)
         )
+    }
+
+    @MainActor
+    private static func waitForPaneController(in workspace: WorkspaceModel, context: AppActionContext) async -> PaneController? {
+        for await paneID in Observations({ workspace.screens.flatMap(\.panes).first?.id }) {
+            guard let paneID, let pane = workspace.screens.flatMap(\.panes).first(where: { $0.id == paneID }) else { continue }
+            for await mounted in Observations({ context.services.paneController(for: pane) != nil }) where mounted {
+                return context.services.paneController(for: pane)
+            }
+        }
+        return nil
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
