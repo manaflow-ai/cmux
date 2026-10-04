@@ -15,7 +15,6 @@ import Testing
         var intents: [TabStripIntent] = []
 
         init() {
-            DesignSettings.shared.animationSpeed = .off
             model = TabStripModel(
                 tabs: [TabItem(id: TabID("t0"), title: "Tab"), TabItem(id: TabID("t1"), title: "Other")],
                 selectedID: TabID("t0"),
@@ -58,6 +57,16 @@ import Testing
         }
     }
 
+    /// Runs `body` with a fresh harness and animations off, so alpha changes
+    /// apply at once, and restores the speed before returning. Synchronous on
+    /// the main actor: no other test runs while the speed is off.
+    func withHarness(_ body: (Harness) throws -> Void) rethrows {
+        let saved = DesignSettings.shared.animationSpeed
+        defer { DesignSettings.shared.animationSpeed = saved }
+        DesignSettings.shared.animationSpeed = .off
+        try body(Harness())
+    }
+
     /// `DesignSettings.shared` is process-wide and the package runs every
     /// test target in one process: a reveal test that turns animations off
     /// must turn them back on, or later motion tests (launch mark, spinners,
@@ -71,74 +80,80 @@ import Testing
     }
 
     @Test func buttonsAreHiddenUntilThePointerIsOverTheStrip() {
-        let h = Harness()
-        #expect(!h.buttonsVisible)
-        h.enter()
-        #expect(h.buttonsVisible)
-        h.exit()
-        #expect(!h.buttonsVisible)
+        withHarness { h in
+            #expect(!h.buttonsVisible)
+            h.enter()
+            #expect(h.buttonsVisible)
+            h.exit()
+            #expect(!h.buttonsVisible)
+        }
     }
 
     @Test func movingOverTheStripRevealsThemWithoutAnEnterEvent() {
-        let h = Harness()
-        h.move(to: CGPoint(x: 100, y: 10))
-        #expect(h.buttonsVisible)
+        withHarness { h in
+            h.move(to: CGPoint(x: 100, y: 10))
+            #expect(h.buttonsVisible)
+        }
     }
 
     @Test func revealingTheButtonsNeverMovesTheTabs() {
-        let h = Harness()
-        let clip = h.strip.tabsClip.frame
-        let tabs = h.strip.cells.mapValues(\.frame)
-        h.enter()
-        h.strip.layoutSubtreeIfNeeded()
-        #expect(h.strip.tabsClip.frame == clip)
-        #expect(h.strip.cells.mapValues(\.frame) == tabs)
-        h.exit()
-        h.strip.layoutSubtreeIfNeeded()
-        #expect(h.strip.tabsClip.frame == clip)
+        withHarness { h in
+            let clip = h.strip.tabsClip.frame
+            let tabs = h.strip.cells.mapValues(\.frame)
+            h.enter()
+            h.strip.layoutSubtreeIfNeeded()
+            #expect(h.strip.tabsClip.frame == clip)
+            #expect(h.strip.cells.mapValues(\.frame) == tabs)
+            h.exit()
+            h.strip.layoutSubtreeIfNeeded()
+            #expect(h.strip.tabsClip.frame == clip)
+        }
     }
 
     @Test func anOpenStripMenuKeepsThemUntilItCloses() throws {
-        let h = Harness()
-        let menu = NSMenu()
-        menu.addItem(withTitle: "Item", action: nil, keyEquivalent: "")
-        h.strip.contextMenuProvider = { _ in menu }
-        h.enter()
-        let click = NSEvent.mouseEvent(with: .rightMouseDown, location: h.windowPoint(CGPoint(x: 50, y: 10)), modifierFlags: [],
-                                       timestamp: 0, windowNumber: h.window.windowNumber, context: nil, eventNumber: 0,
-                                       clickCount: 1, pressure: 1)!
-        let shown = try #require(h.strip.menu(for: click))
-        NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: shown)
-        h.exit()
-        #expect(h.buttonsVisible, "the pointer left for the menu; the buttons stay")
-        NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: shown)
-        #expect(!h.buttonsVisible)
+        try withHarness { h in
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Item", action: nil, keyEquivalent: "")
+            h.strip.contextMenuProvider = { _ in menu }
+            h.enter()
+            let click = NSEvent.mouseEvent(with: .rightMouseDown, location: h.windowPoint(CGPoint(x: 50, y: 10)), modifierFlags: [],
+                                           timestamp: 0, windowNumber: h.window.windowNumber, context: nil, eventNumber: 0,
+                                           clickCount: 1, pressure: 1)!
+            let shown = try #require(h.strip.menu(for: click))
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: shown)
+            h.exit()
+            #expect(h.buttonsVisible, "the pointer left for the menu; the buttons stay")
+            NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: shown)
+            #expect(!h.buttonsVisible)
+        }
     }
 
     @Test func accessibilityFocusRevealsThemAndPressStillWorksWhileHidden() throws {
-        let h = Harness()
-        let element = try #require(h.strip.buttonGroup.accessibilityChildren()?.first as? NSAccessibilityElement)
-        #expect(element.accessibilityPerformPress(), "reachable from assistive tech while hidden")
-        #expect(h.intents == [.trailingButton("cmux.splitRight")])
-        element.setAccessibilityFocused(true)
-        #expect(h.buttonsVisible)
-        element.setAccessibilityFocused(false)
-        #expect(!h.buttonsVisible)
+        try withHarness { h in
+            let element = try #require(h.strip.buttonGroup.accessibilityChildren()?.first as? NSAccessibilityElement)
+            #expect(element.accessibilityPerformPress(), "reachable from assistive tech while hidden")
+            #expect(h.intents == [.trailingButton("cmux.splitRight")])
+            element.setAccessibilityFocused(true)
+            #expect(h.buttonsVisible)
+            element.setAccessibilityFocused(false)
+            #expect(!h.buttonsVisible)
+        }
     }
 
     /// R120: the plus button shows only while the tab bar is hovered, in
     /// place, through the one hover-reveal mechanism (HoverReveal).
     @Test func thePlusButtonRevealsOnlyOnHover() {
-        let h = Harness()
-        let frame = h.strip.newTabButton.frame
-        #expect(!h.strip.newTabButton.isHidden)
-        #expect(!h.plusVisible)
-        h.enter()
-        #expect(h.plusVisible)
-        #expect(h.strip.newTabButton.frame == frame)
-        h.exit()
-        #expect(!h.plusVisible)
-        #expect(HoverReveal.owner(of: h.strip.newTabButton) === HoverReveal.owner(of: h.strip.buttonGroup))
+        withHarness { h in
+            let frame = h.strip.newTabButton.frame
+            #expect(!h.strip.newTabButton.isHidden)
+            #expect(!h.plusVisible)
+            h.enter()
+            #expect(h.plusVisible)
+            #expect(h.strip.newTabButton.frame == frame)
+            h.exit()
+            #expect(!h.plusVisible)
+            #expect(HoverReveal.owner(of: h.strip.newTabButton) === HoverReveal.owner(of: h.strip.buttonGroup))
+        }
     }
 
     /// `tabs.plusButton` = always keeps the plus shown at rest while the
@@ -147,11 +162,12 @@ import Testing
         let saved = DesignSettings.shared.plusButton
         defer { DesignSettings.shared.plusButton = saved }
         DesignSettings.shared.plusButton = .always
-        let h = Harness()
-        #expect(h.plusVisible)
-        #expect(!h.buttonsVisible)
-        DesignSettings.shared.plusButton = .hover
-        h.strip.reveal.applyPlusButtonMode()
-        #expect(!h.plusVisible)
+        withHarness { h in
+            #expect(h.plusVisible)
+            #expect(!h.buttonsVisible)
+            DesignSettings.shared.plusButton = .hover
+            h.strip.reveal.applyPlusButtonMode()
+            #expect(!h.plusVisible)
+        }
     }
 }
