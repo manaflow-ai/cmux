@@ -84,8 +84,13 @@ impl LocalAppAuth {
 
     /// Whether `hello` is the local app: every condition in the module docs.
     pub fn is_local_app(&self, hello: &Hello<'_>) -> bool {
-        let _ = (hello, &self.page_origins, &self.token);
-        false
+        let loopback = hello.listener.ip().is_loopback() && hello.peer.ip().is_loopback();
+        let origin = match hello.origins {
+            [one] => cmux_local_auth::parse_origin(one)
+                .is_some_and(|o| self.page_origins.iter().any(|p| p == &o)),
+            _ => false,
+        };
+        loopback && origin && hello.first_frame.is_some_and(|f| self.frame_has_token(f))
     }
 
     fn frame_has_token(&self, frame: &str) -> bool {
@@ -124,8 +129,11 @@ mod tests {
     const DEV: &str = "http://127.0.0.1:5173";
 
     fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("acpmux-la-{tag}-{}-{}", std::process::id(), uuid::Uuid::now_v7()));
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-la-{tag}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -197,8 +205,9 @@ mod tests {
         assert!(!verdict(&auth, ok.0, ok.1, &[PANE], Some(&wrong)));
         let empty = init("");
         assert!(!verdict(&auth, ok.0, ok.1, &[PANE], Some(&empty)));
-        let none = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
-            .to_string();
+        let none =
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+                .to_string();
         assert!(!verdict(&auth, ok.0, ok.1, &[PANE], Some(&none)));
         assert!(!verdict(&auth, ok.0, ok.1, &[PANE], None), "no first frame");
         // The token in a first frame that is not `initialize`.

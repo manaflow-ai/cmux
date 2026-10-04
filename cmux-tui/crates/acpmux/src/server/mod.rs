@@ -770,9 +770,9 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+pub mod local_app;
 mod requests;
 mod wait;
-pub mod local_app;
 use requests::{handle_notification, handle_request};
 
 #[cfg(test)]

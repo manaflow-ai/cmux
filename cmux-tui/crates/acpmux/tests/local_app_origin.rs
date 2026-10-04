@@ -91,8 +91,12 @@ impl Drop for Daemon {
         }
         for dir in [self.home.join("hosts"), self.home.join("hosts/pool")] {
             for r in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-                if let Ok(v) = serde_json::from_slice::<Value>(&std::fs::read(r.path()).unwrap_or_default()) {
-                    for pid in [v["harness_pid"].as_i64(), v["host_pid"].as_i64()].into_iter().flatten() {
+                if let Ok(v) =
+                    serde_json::from_slice::<Value>(&std::fs::read(r.path()).unwrap_or_default())
+                {
+                    for pid in
+                        [v["harness_pid"].as_i64(), v["host_pid"].as_i64()].into_iter().flatten()
+                    {
                         // SAFETY: process groups this test's daemon created.
                         unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
                     }
@@ -103,7 +107,8 @@ impl Drop for Daemon {
     }
 }
 
-type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// A WebSocket client with the listener token, `origin` (None: no header),
 /// and a first frame `initialize` carrying `local_token`.
@@ -158,7 +163,13 @@ async fn the_app_pane_is_local_and_the_pool_serves_it() {
     let token = d.local_token();
     let (mut ws, init) = hello(&d, Some(PANE), Some(&token)).await;
     assert_eq!(origin_of(&init), "local", "{init}");
-    let warmed = call(&mut ws, 2, "_acpmux/prewarm", json!({"harness": "fake", "cwd": d.home, "wait": true})).await;
+    let warmed = call(
+        &mut ws,
+        2,
+        "_acpmux/prewarm",
+        json!({"harness": "fake", "cwd": d.home, "wait": true}),
+    )
+    .await;
     assert_eq!(warmed["result"]["accepted"], true, "{warmed}");
     let status = call(&mut ws, 3, "_acpmux/status", json!({})).await;
     let text = status.to_string();
@@ -211,7 +222,8 @@ fn unix_status(home: &Path) -> String {
     use std::io::Write;
     let mut s = std::os::unix::net::UnixStream::connect(home.join("s.sock")).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    writeln!(s, "{}", json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/status", "params": {}})).unwrap();
+    writeln!(s, "{}", json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/status", "params": {}}))
+        .unwrap();
     let mut line = String::new();
     BufReader::new(s).read_line(&mut line).unwrap();
     line

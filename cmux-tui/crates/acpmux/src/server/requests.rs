@@ -149,6 +149,9 @@ async fn dispatch_request(
                 },
                 "authMethods": [],
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                // `local`: the unix socket or the proven local app
+                // (`local_app.rs`), which the session pool serves.
+                "origin": if conn.origin == Origin::Web { "remote" } else { "local" },
                 "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
