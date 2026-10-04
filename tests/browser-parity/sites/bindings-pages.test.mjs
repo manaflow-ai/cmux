@@ -42,3 +42,16 @@ test("webmcp.call: the draft binds the previewed tool's name, description and sc
   assert.deepEqual(d.preview.inputSchema, { type: "object", properties: { sku: { type: "string" } } });
   assert.match(d.preview.toolHash, /^[0-9a-f]{16}$/);
 });
+
+test("a site tool's same-origin call never runs in a document another origin's redirect put in its tab", async () => {
+  // Both Notion origins' bootstrap documents redirect to another site.
+  env.state.notionRobotsRedirect = "https://assets.example/robots.txt";
+  try {
+    const before = env.state.requests.length;
+    assert.match(await s.error("sites.notion.accounts()"), /origin|redirect/i);
+    const foreign = env.state.requests.slice(before).filter((r) => r.url.startsWith("https://assets.example/") && r.url !== "https://assets.example/robots.txt");
+    assert.deepEqual(foreign.map((r) => r.url), [], "the Notion API call ran on assets.example");
+  } finally {
+    env.state.notionRobotsRedirect = null;
+  }
+});

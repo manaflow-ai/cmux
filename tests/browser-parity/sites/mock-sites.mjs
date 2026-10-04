@@ -60,7 +60,7 @@ export function createState() {
   // current when a Gmail or Calendar page loads; notionUser: the Notion user
   // the session holds; notionSwitchOnSync: the user another session signs
   // in as when Notion next answers syncRecordValues.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -525,6 +525,8 @@ export const NOTION_MALLORY = { id: "user-mallory", email: "mallory@example.com"
 const wrap = (map) => Object.fromEntries(Object.entries(map).map(([k, v]) => [k, { value: { value: v, role: "editor" } }]));
 
 function notion(req, url, body, state) {
+  // A bootstrap document that redirects to another site.
+  if (url.pathname === "/robots.txt" && state.notionRobotsRedirect) return { redirect: state.notionRobotsRedirect };
   if (url.pathname === "/robots.txt") return { status: 200, headers: { "content-type": "text/plain" }, body: "User-agent: *\n" };
   const m = /^\/api\/v3\/(\w+)$/.exec(url.pathname);
   if (!m || req.method !== "POST") return { status: 404, text: "" };
