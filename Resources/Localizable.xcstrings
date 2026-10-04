@@ -623607,6 +623607,65 @@
         }
       }
     },
+    "cli.browser.repl.error.sessionOwned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That REPL session belongs to another client; name a session with --session to share one"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتمي جلسة REPL هذه إلى عميل آخر؛ سمِّ جلسة باستخدام --session لمشاركتها"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese REPL-Sitzung gehört einem anderen Client; benenne eine Sitzung mit --session, um sie zu teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa sesión de REPL pertenece a otro cliente; nombra una sesión con --session para compartirla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette session REPL appartient à un autre client ; nommez une session avec --session pour la partager"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この REPL セッションは別のクライアントのものです。共有するには --session でセッションに名前を付けてください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 REPL 세션은 다른 클라이언트의 것입니다. 공유하려면 --session으로 세션 이름을 지정하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该 REPL 会话属于另一个客户端；要共享会话，请用 --session 为其命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該 REPL 工作階段屬於另一個用戶端；若要共用，請用 --session 為工作階段命名"
+          }
+        }
+      }
+    },
     "cli.browser.repl.error.sessionName": {
       "extractionState": "manual",
       "localizations": {

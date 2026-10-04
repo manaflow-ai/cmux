@@ -30,7 +30,12 @@ public struct BrowserReplSessionKey: Hashable, Sendable {
 
 /// Keeps named REPL sessions alive between CLI calls and closes idle ones.
 ///
-/// Sessions are keyed by workspace and name (``BrowserReplSessionKey``). At
+/// Sessions are keyed by workspace and name (``BrowserReplSessionKey``). A
+/// session a client makes without a name of its own (one-shot, interactive
+/// and MCP runs without `--session`) carries that client's owner token, a
+/// random string only the client holds: it is left out of every other
+/// caller's list, and attaching to it or resetting it needs the token, so
+/// knowing or guessing its name gives another local client nothing. At
 /// most ``maximumSessions`` live at once: each holds a JavaScript thread,
 /// timers and directories, so one more is refused rather than an idle one
 /// evicted. Each touch re-arms the session's idle timer on a shared
@@ -52,6 +57,9 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         case invalidName
         /// ``maximumSessions`` sessions are live.
         case tooManySessions(limit: Int)
+        /// A live session of that name belongs to another client (its
+        /// owner token is not the caller's).
+        case ownedByAnotherClient
     }
 
     /// The longest session name.
@@ -73,6 +81,8 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
     public let maximumSessions: Int
     private let lock = NSLock()
     private var sessions: [BrowserReplSessionKey: BrowserReplSession] = [:]
+    /// The owner token of each session made with one.
+    private var owners: [BrowserReplSessionKey: String] = [:]
     private var timerIDs: [BrowserReplSessionKey: Int] = [:]
     private var keysByTimerID: [Int: BrowserReplSessionKey] = [:]
     private var nextTimerID = 0
@@ -94,15 +104,24 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
     /// absent. `make` gets the new instance's id
     /// (``BrowserReplSessionKey/init(instanceID:)`` reads it back). Re-arms
     /// the idle timer.
+    /// - Parameter owner: The calling client's owner token for a session
+    ///   only it may use, or nil for a named session any client shares. A
+    ///   live session is returned only to a caller with its token (nil for
+    ///   one made without).
     /// - Throws: ``Refusal``.
     public func session(
         for key: BrowserReplSessionKey,
+        owner: String? = nil,
         make: (_ instanceID: String) -> BrowserReplSession
     ) throws -> BrowserReplSession {
         guard Self.isValidName(key.name) else { throw Refusal.invalidName }
         lock.lock()
         let session: BrowserReplSession
         if let existing = sessions[key], !existing.isClosed {
+            guard owners[key] == owner else {
+                lock.unlock()
+                throw Refusal.ownedByAnotherClient
+            }
             session = existing
         } else {
             let live = sessions.values.filter { !$0.isClosed }.count
@@ -112,6 +131,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
             }
             session = make(key.makeInstanceID())
             sessions[key] = session
+            owners[key] = owner
         }
         let timerID = timerIDs[key] ?? {
             nextTimerID += 1
@@ -124,12 +144,24 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         return session
     }
 
-    /// Closes and forgets the session for `key`.
-    /// - Returns: Whether a session existed.
+    /// Closes and forgets the session for `key`, when `owner` is its owner
+    /// token (nil for a session made without one).
+    /// - Returns: Whether such a session existed.
     @discardableResult
-    public func reset(_ key: BrowserReplSessionKey) -> Bool {
+    public func reset(_ key: BrowserReplSessionKey, owner: String? = nil) -> Bool {
+        remove(key, ifOwnedBy: owner)
+    }
+
+    /// Closes and forgets the session for `key` while its owner token is
+    /// `owner`. - Returns: Whether it existed.
+    private func remove(_ key: BrowserReplSessionKey, ifOwnedBy owner: String?) -> Bool {
         lock.lock()
+        guard owners[key] == owner else {
+            lock.unlock()
+            return false
+        }
         let session = sessions.removeValue(forKey: key)
+        owners.removeValue(forKey: key)
         let timerID = timerIDs.removeValue(forKey: key)
         if let timerID { keysByTimerID.removeValue(forKey: timerID) }
         lock.unlock()
@@ -139,21 +171,24 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
     }
 
     /// Closes and forgets the sessions named `name` in `workspaceID`, or in
-    /// every workspace when it is `nil`.
+    /// every workspace when it is `nil`, that `owner` may reset.
     /// - Returns: How many sessions existed.
     @discardableResult
-    public func reset(name: String, workspaceID: UUID?) -> Int {
+    public func reset(name: String, workspaceID: UUID?, owner: String? = nil) -> Int {
         let keys = lock.withLock {
             sessions.keys.filter { $0.name == name && (workspaceID == nil || $0.workspaceID == workspaceID) }
         }
-        return keys.filter { reset($0) }.count
+        return keys.filter { reset($0, owner: owner) }.count
     }
 
     /// Live sessions of `workspaceID`, or of every workspace when it is
-    /// `nil`, sorted by name.
-    public func list(workspaceID: UUID?) -> [Entry] {
+    /// `nil`, sorted by name: the shared ones and those `owner` owns.
+    public func list(workspaceID: UUID?, owner: String? = nil) -> [Entry] {
         lock.lock()
-        let current = sessions.filter { !$0.value.isClosed && (workspaceID == nil || $0.key.workspaceID == workspaceID) }
+        let current = sessions.filter { key, session in
+            !session.isClosed && (workspaceID == nil || key.workspaceID == workspaceID)
+                && (owners[key] == nil || owners[key] == owner)
+        }
         lock.unlock()
         let now = ContinuousClock.now
         return current
@@ -176,11 +211,12 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         // an evaluation is still running: a cell that runs longer than the
         // idle timeout does not keep its session alive.
         let idle = ContinuousClock.now - session.lastUsed
+        let owner = owners[key]
         lock.unlock()
         if idle < idleTimeout {
             scheduler.schedule(id: timerID, after: idleTimeout - idle, repeating: false)
             return
         }
-        reset(key)
+        _ = remove(key, ifOwnedBy: owner)
     }
 }
