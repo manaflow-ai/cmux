@@ -9,7 +9,7 @@ import Foundation
 /// idempotent in the store, so two windows or a reconnect never duplicate.
 extension HomeService {
     /// The idempotency key of the chief conversation's creation.
-    static let chiefKey = "home-chief"
+    static let chiefKey = HomeChiefName.createKey
     /// The key of the chief conversation tab's creation (`origin` + `mutation_id`).
     static let tabOrigin = "cmux-next-home"
     static let chiefTabKey = "home-chief-tab"
@@ -52,9 +52,7 @@ extension HomeService {
         }) {
             return existing.id
         }
-        let request = CreateConversationRequest(idempotencyKey: Self.chiefKey, title: HomeStrings.title,
-                                                participants: [Self.localUser, Self.mux])
-        return try await client.create(request).conversation.id
+        return try await client.create(HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)).conversation.id
     }
 
     private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID) async throws {
