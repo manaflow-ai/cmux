@@ -125,6 +125,8 @@ export type SettingsOps = {
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
+  /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
+  "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
   /** Native: show the settings file in Finder. */
   "cmux.settings.file.reveal": [Record<string, never>, unknown];
   /** Native: show `value` live while a gesture runs; never written. */

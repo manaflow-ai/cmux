@@ -200,4 +200,26 @@ import Testing
                                         context: otherPage)
         }
     }
+
+    /// A folder list row's Add Folder… (picker.pinned): the person chooses in the cmux picker, so
+    /// the host writes the new folders as the user (a user-only key), without duplicates; a row
+    /// that is not a folder list is refused; leaving the picker writes nothing.
+    @Test func addFoldersWritesThePickersChoice() async throws {
+        let (provider, settings, directory) = try await make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var picked: [String]? = ["~/src", "/opt/work"]
+        provider.pickFolders = { picked }
+        let first = try await provider.call("cmux.settings.folders.add", params: ["key": "picker.pinned"], context: context)
+        #expect(first["added"] == ["~/src", "/opt/work"])
+        #expect(try await settings.file.value(at: ["picker", "pinned"]) == ["~/src", "/opt/work"])
+        picked = ["/opt/work", "~/notes"]
+        _ = try await provider.call("cmux.settings.folders.add", params: ["key": "picker.pinned"], context: context)
+        #expect(try await settings.file.value(at: ["picker", "pinned"]) == ["~/src", "/opt/work", "~/notes"])
+        picked = nil
+        let left = try await provider.call("cmux.settings.folders.add", params: ["key": "picker.pinned"], context: context)
+        #expect(left["added"] == [])
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.settings.folders.add", params: ["key": "appearance.density"], context: context)
+        }
+    }
 }
