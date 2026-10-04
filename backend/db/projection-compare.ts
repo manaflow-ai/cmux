@@ -47,3 +47,69 @@ export const toMysqlValue = (v: unknown): unknown => {
   if (v !== null && typeof v === "object") return JSON.stringify(v)
   return v
 }
+
+/** Key columns that are numbers, not ASCII ids. */
+const NUMERIC_KEYS: ReadonlySet<string> = new Set(["n", "seq"])
+
+export interface PgLike {
+  query(sql: string, values?: Array<unknown>): Promise<{ rows: Array<Record<string, unknown>> }>
+}
+export interface MyLike {
+  query(sql: string, values?: Array<unknown>): Promise<unknown>
+}
+
+const mysqlColumns = async (my: MyLike, table: string): Promise<Array<string>> => {
+  const [rows] = (await my.query("SELECT column_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position", [table])) as [Array<{ c: string }>]
+  return rows.map((r) => r.c)
+}
+const pgColumns = async (pgc: PgLike, table: string): Promise<Set<string>> =>
+  new Set((await pgc.query("SELECT column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND is_generated = 'NEVER'", [table])).rows.map((r) => String(r.c)))
+
+/** The columns both databases have (Postgres-only columns such as the tsvector are left out). */
+export const sharedColumns = async (pgc: PgLike, my: MyLike, table: string) => {
+  const inPg = await pgColumns(pgc, table)
+  return (await mysqlColumns(my, table)).filter((c) => inPg.has(c))
+}
+
+export interface TableReport {
+  readonly table: string
+  readonly equal: boolean
+  readonly pgCount: number
+  readonly mysqlCount: number
+  /** More rows than the bound: counts compared, rows only for the first maxRows keys. */
+  readonly partial: boolean
+  readonly missingInMysql: Array<string>
+  readonly missingInPostgres: Array<string>
+  readonly changed: Array<string>
+}
+
+/**
+ * Compares the given tables (all by default). Rows are read in byte order of the key on both sides
+ * (Postgres COLLATE "C", MySQL ascii_bin keys) and at most `maxRows` per table: a larger table
+ * compares its counts and the first `maxRows` keys, and the report says `partial`.
+ */
+export const verifyTables = async (pgc: PgLike, my: MyLike, options: { readonly maxRows?: number; readonly tables?: ReadonlyArray<string> } = {}): Promise<Array<TableReport>> => {
+  const out: Array<TableReport> = []
+  const limit = options.maxRows ?? 1_000_000
+  for (const [table, spec] of Object.entries(PROJECTION_TABLES)) {
+    if (options.tables && !options.tables.includes(table)) continue
+    const columns = (await sharedColumns(pgc, my, table)).filter((c) => !spec.skip.includes(c))
+    const keyOf = (r: Record<string, unknown>) => spec.key.map((k) => String(r[k])).join("/")
+    // Text keys sort in byte order like MySQL ascii_bin; the numeric keys (n, seq) sort as numbers on both.
+    const pgOrder = spec.key.map((k) => (NUMERIC_KEYS.has(k) ? `"${k}"` : `"${k}" COLLATE "C"`)).join(", ")
+    const myOrder = spec.key.map((k) => `\`${k}\``).join(", ")
+    const pgRows = (await pgc.query(`SELECT ${columns.map((c) => `"${c}"`).join(", ")} FROM ${table} ORDER BY ${pgOrder} LIMIT ${limit}`)).rows
+    const [myRows] = (await my.query(`SELECT ${columns.map((c) => `\`${c}\``).join(", ")} FROM \`${table}\` ORDER BY ${myOrder} LIMIT ${limit}`)) as [Array<Record<string, unknown>>]
+    const pgCount = Number((await pgc.query(`SELECT count(*) AS n FROM ${table}`)).rows[0]?.n ?? 0)
+    const [[myCountRow]] = (await my.query(`SELECT count(*) AS n FROM \`${table}\``)) as [Array<{ n: number | string }>]
+    const mysqlCount = Number(myCountRow?.n ?? 0)
+    const partial = pgCount > limit || mysqlCount > limit
+    const pgHash = new Map(pgRows.map((r) => [keyOf(r), rowHash(shapeRow(r, columns))]))
+    const myHash = new Map(myRows.map((r) => [keyOf(r), rowHash(shapeRow(r, columns))]))
+    const missingInMysql = [...pgHash.keys()].filter((k) => !myHash.has(k)).sort()
+    const missingInPostgres = [...myHash.keys()].filter((k) => !pgHash.has(k)).sort()
+    const changed = [...pgHash.keys()].filter((k) => myHash.has(k) && myHash.get(k) !== pgHash.get(k)).sort()
+    out.push({ table, equal: pgCount === mysqlCount && missingInMysql.length + missingInPostgres.length + changed.length === 0, pgCount, mysqlCount, partial, missingInMysql, missingInPostgres, changed })
+  }
+  return out
+}
