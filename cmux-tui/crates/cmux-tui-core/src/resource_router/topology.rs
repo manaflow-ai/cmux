@@ -412,8 +412,8 @@ mod tests {
     use super::*;
     use crate::SurfaceOptions;
     use crate::resource::{
-        EnvelopeType, MachinePublicId, PanePublicId, RequestId, ScreenPublicId, SessionPublicId,
-        TabPublicId, TerminalPublicId, WorkspacePublicId,
+        MachinePublicId, PanePublicId, RequestId, ScreenPublicId, SessionPublicId, TabPublicId,
+        TerminalPublicId, WorkspacePublicId,
     };
 
     fn mux() -> Arc<Mux> {
@@ -427,14 +427,12 @@ mod tests {
         key: Option<&str>,
     ) -> ParsedResourceRequest {
         ParsedResourceRequest {
-            envelope: RequestEnvelope {
-                protocol: crate::resource::PROTOCOL.to_string(),
-                envelope_type: EnvelopeType::Request,
-                id: RequestId::parse("topology-test").unwrap(),
+            envelope: RequestEnvelope::request(
+                RequestId::parse("topology-test").unwrap(),
                 operation,
-                params: json!({}),
-                idempotency_key: key.map(str::to_string),
-            },
+                json!({}),
+                key.map(str::to_string),
+            ),
             selectors,
             fields: fields.as_object().unwrap().clone(),
         }

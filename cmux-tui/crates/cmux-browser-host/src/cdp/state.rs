@@ -152,7 +152,8 @@ pub struct State {
 }
 
 impl State {
-    #[cfg(test)]
+    /// The tab a CDP session belongs to: its page session or one of its
+    /// frame sessions.
     pub fn target_for_session(&self, session_id: &str) -> Option<&str> {
         self.sessions.get(session_id).map(String::as_str)
     }

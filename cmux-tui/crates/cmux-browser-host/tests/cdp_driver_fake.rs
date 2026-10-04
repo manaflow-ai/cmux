@@ -726,9 +726,15 @@ fn unknown_methods_and_browser_level_raw_cdp_are_refused() {
 fn a_request_filter_intercepts_and_decides_every_request() {
     let h = Harness::new();
     let target = h.open(None);
-    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|url: &str| {
-        url.contains("evil.test").then(|| "not in session.allowedDomains (example.com)".to_owned())
-    });
+    // The filter sees the tab each request belongs to.
+    let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+    let record = seen.clone();
+    let filter: cmux_browser_host::driver::RequestFilter =
+        Arc::new(move |target: &str, url: &str| {
+            record.lock().unwrap().push((target.to_owned(), url.to_owned()));
+            url.contains("evil.test")
+                .then(|| "not in session.allowedDomains (example.com)".to_owned())
+        });
     let mark = h.mark();
     assert!(h.driver.set_request_filter(Some(filter)));
     let enabled = h.sent_since(mark);
@@ -745,6 +751,8 @@ fn a_request_filter_intercepts_and_decides_every_request() {
     loop {
         let sent = h.sent_since(mark);
         if sent.len() >= 2 {
+            let seen = seen.lock().unwrap().clone();
+            assert!(seen.iter().all(|(t, _)| t == &target), "requests name their tab: {seen:?}");
             assert!(
                 sent.contains(&(
                     "Fetch.failRequest".to_string(),
@@ -776,7 +784,7 @@ fn a_request_filter_intercepts_and_decides_every_request() {
 fn workers_and_prerenders_are_intercepted_before_they_run() {
     let h = Harness::new();
     h.open(None);
-    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_: &str| None);
+    let filter: cmux_browser_host::driver::RequestFilter = Arc::new(|_: &str, _: &str| None);
     assert!(h.driver.set_request_filter(Some(filter)));
     let mark = h.mark();
     for (session, kind, subtype) in [("W1", "worker", ""), ("P1", "page", "prerender")] {

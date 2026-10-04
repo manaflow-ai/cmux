@@ -143,6 +143,7 @@ impl ResourceOperation {
             Self::SidebarViewResize => "sidebar_view.resize",
             Self::SidebarViewReload => "sidebar_view.reload",
             Self::StreamCancel => "stream.cancel",
+            Self::OriginConfirmationIssue => "origin.confirmation.issue",
             Self::ClosedList => "closed.list",
             Self::ClosedReopen => "closed.reopen",
             Self::WindowRecordList => "window_record.list",

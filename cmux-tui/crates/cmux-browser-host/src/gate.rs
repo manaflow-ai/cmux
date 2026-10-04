@@ -121,7 +121,8 @@ impl Gate {
         };
         let filter: Option<crate::driver::RequestFilter> = active.then(|| {
             let policy = self.policy.clone();
-            let filter: crate::driver::RequestFilter = Arc::new(move |url: &str| {
+            // The session's policy is the same for every tab it drives.
+            let filter: crate::driver::RequestFilter = Arc::new(move |_target: &str, url: &str| {
                 let parsed = url::Url::parse(url).ok()?;
                 policy.lock().unwrap_or_else(PoisonError::into_inner).subresource_refusal(&parsed)
             });
