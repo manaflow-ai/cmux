@@ -246,7 +246,8 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
     secretAccessKey: s3!.secretAccessKey,
     headers,
     expiresSec: L.uploadTtlMs / 1000,
-    now: Date.now()
+    // The URL ends exactly at the slot's stored expiry (the grace is counted from it).
+    now: slot.expires_at - L.uploadTtlMs
   })
   return success({ state: "upload", mode, method: "PUT", upload_url: url, headers, slot: slot.id, expires_at: slot.expires_at, ...posterUpload })
 }

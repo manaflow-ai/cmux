@@ -369,7 +369,10 @@ new body. No raw address, token or token hash is ever projected.
 - Slots: every slot is charged its declared bytes at intent; its row lives until the alarm deletes
   its object key at expiry (refunding a slot that never committed). An `exists` commit deletes the
   slot's object at once and refunds; a presigned slot that did not keep its object stays a
-  tombstone until its URL expires, so a later PUT to the key is deleted too.
+  tombstone until its URL expires, so a later PUT to the key is deleted too. A presigned URL ends
+  exactly at the slot's stored `expires_at`; presigned slots (open or tombstone) and `uploading`
+  slots are reaped only one hour (`UPLOADING_GRACE_MS`) after it, because S3 checks expiry only when
+  a PUT starts: one hour covers a 100 MB PUT down to about 230 kbit/s.
 - Retention: `attref` rows are written in each message's commit; the ConversationDO alarm sweeps
   uploads unreferenced for 24 h in batches with a persistent (created_at, hash) cursor (a long run
   of referenced records costs one pass, never a hot loop) and releases the uploader's stored bytes. Hooks for paths that do

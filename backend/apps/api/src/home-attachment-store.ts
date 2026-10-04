@@ -40,7 +40,13 @@ export interface UploadSlot {
   readonly poster_etag?: string
 }
 
-/** An `uploading` slot whose PUT never finished is reclaimed this long after its expiry (a slow upload may still be running). */
+/**
+ * How long after its expiry a slot that may still receive bytes is kept: an `uploading` slot (its
+ * Worker PUT may still be streaming) and every presigned slot, open or tombstone (S3 checks the
+ * URL's expiry only when a request starts, so a PUT that began in time may finish later). One
+ * hour covers a maximum-size (100 MB) PUT down to about 230 kbit/s; the alarm deletes the key,
+ * refunds and drops the row only after it, so a late PUT never leaves an object outside the quota.
+ */
 export const UPLOADING_GRACE_MS = 3_600_000
 /** One sweep batch examines at most this many records and forgets at most SWEEP_DELETE of them. */
 export const SWEEP_SCAN = 400
@@ -200,9 +206,9 @@ export const settleSlot = (sql: Sql, slot: UploadSlot, kept: boolean): void => {
   else sql.exec(`UPDATE ${SLOTS} SET state = 'tombstone' WHERE id = ?`, slot.id)
 }
 
-const DUE = `CASE WHEN state = 'uploading' THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
+const DUE = `CASE WHEN state = 'uploading' OR mode = 'presigned' THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
 
-/** Slots whose time is up: open (never used), uploading (a PUT that never finished) and tombstones. */
+/** Slots whose time is up: open stream slots at expiry; uploading and presigned slots (open or tombstone) after the grace. */
 export const dueSlots = (sql: Sql, now: number, limit: number): Array<UploadSlot> =>
   has(sql, SLOTS) ? sql.exec<SlotRow>(`SELECT * FROM ${SLOTS} WHERE ${DUE} <= ? ORDER BY ${DUE} LIMIT ?`, now, limit).map(slotRow) : []
 
