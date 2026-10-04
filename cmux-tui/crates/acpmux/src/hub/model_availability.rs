@@ -42,7 +42,9 @@ impl Hub {
     /// refused request as the agent's message) counts as that refusal too.
     pub(super) fn note_reply_refusal(&self, session: &Session) {
         let reply = session.stream.lock().unwrap().trailing_text.clone();
-        if reply.trim_start().starts_with("{\"type\":\"error\"") {
+        let is_error_object = serde_json::from_str::<Value>(reply.trim())
+            .is_ok_and(|value| value.get("type").and_then(Value::as_str) == Some("error"));
+        if is_error_object {
             self.note_model_refusal(session, &reply);
         }
     }
