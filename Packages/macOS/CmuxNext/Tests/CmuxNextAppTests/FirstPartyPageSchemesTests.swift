@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxNextPages
 @testable import CmuxNextApp
 
 /// cmux-page:// first-party pages for Chromium tabs: a reserved host is
@@ -31,6 +32,20 @@ import Testing
             == .outsideBundle("cmux.agent"))
         #expect(FirstPartyPageSchemes.refusal(id: "cmux.agent", root: resources.appending(path: "../outside"), bundleResources: resources)
             == .outsideBundle("cmux.agent"))
+    }
+
+    /// Review P2: each first-party page keeps its own CSP (inline module
+    /// scripts, the agent pane's ws://127.0.0.1 connection); the shim's
+    /// default-src 'self' would leave the page blank.
+    @Test func entriesCarryThePageCSP() throws {
+        let (resources, base) = try fixture()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let entries = FirstPartyPageSchemes.entries(
+            roots: ["cmux.agent": resources.appending(path: "agent-pane")], bundleResources: resources)
+        #expect(entries["cmux.agent"]?.csp == PageDescriptor.agent.csp.header)
+        #expect(entries["cmux.agent"]?.root == resources.appending(path: "agent-pane"))
+        #expect(FirstPartyPageSchemes.entries(
+            roots: ["cmux.agent": base.appending(path: "outside")], bundleResources: resources).isEmpty)
     }
 
     @Test func aBundledFirstPartyPageIsAccepted() throws {

@@ -39,5 +39,11 @@ import Testing
         #expect(CEFDevToolsRawMessage.replyID(in: #"{"id":12,"result":{}}"#) == nil)
         #expect(CEFDevToolsRawMessage.replyID(in: #"{"id":1073741824.5}"#) == nil)
         #expect(CEFDevToolsRawMessage.replyID(in: "not json") == nil)
+        // No full parse: a lone surrogate in a value or deep nesting still
+        // finds the reply id; a repeated "id" is refused (review P2/P3).
+        #expect(CEFDevToolsRawMessage.replyID(in: #"{"id":1073741832,"result":{"value":"\ud800"}}"#) == 1_073_741_832)
+        #expect(CEFDevToolsRawMessage.replyID(in: #"{"id":1073741833,"result":"# + String(repeating: "[", count: 300) + String(repeating: "]", count: 300) + "}") == 1_073_741_833)
+        #expect(CEFDevToolsRawMessage.replyID(in: #"{"id":5,"id":1073741824}"#) == nil)
+        #expect(CEFDevToolsRawMessage.replyID(in: #"{"method":"M","params":{"id":1073741824}}"#) == nil)
     }
 }

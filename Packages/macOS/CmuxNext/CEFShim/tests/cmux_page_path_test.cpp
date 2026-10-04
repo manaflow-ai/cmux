@@ -64,7 +64,40 @@ static void Reserved(const std::string& id, bool want) {
          "reserved '" + id + "' -> " + (valid && cmux_shim::IsReservedPageId(normalized) ? "yes" : "no"));
 }
 
+// Review P2: only cmux-page frames of the same host load a page's files;
+// a main-frame navigation is the one exception.
+static void Allowed(bool main_frame, const std::string& frame_url, const std::string& parent_url,
+                    const std::string& domain, bool want) {
+  Expect(cmux_shim::PageRequestAllowed(main_frame, frame_url, parent_url, domain) == want,
+         "request from '" + frame_url + "' parent '" + parent_url + "' for " + domain);
+}
+
 int main() {
+  Allowed(true, "https://evil.test/", "", "cmux.agent", true);
+  Allowed(false, "cmux-page://cmux.agent/index.html", "", "cmux.agent", true);
+  Allowed(false, "https://evil.test/", "", "cmux.agent", false);
+  Allowed(false, "", "", "cmux.agent", false);
+  Allowed(false, "cmux-page://cmux.history/", "", "cmux.agent", false);
+  Allowed(false, "cmux-page://cmux.agentx/", "", "cmux.agent", false);
+  Allowed(false, "cmux-page://cmux.agent.evil/", "", "cmux.agent", false);
+  // A child frame being navigated: its parent decides.
+  Allowed(false, "about:blank", "cmux-page://cmux.agent/", "cmux.agent", true);
+  Allowed(false, "about:blank", "https://evil.test/", "cmux.agent", false);
+  {
+    auto headers = cmux_shim::PageResponseHeaders("default-src 'self'");
+    bool xfo = false, corp = false, nosniff = false, csp = false;
+    for (auto& [name, value] : headers) {
+      xfo |= name == "X-Frame-Options" && value == "SAMEORIGIN";
+      corp |= name == "Cross-Origin-Resource-Policy" && value == "same-origin";
+      nosniff |= name == "X-Content-Type-Options" && value == "nosniff";
+      csp |= name == "Content-Security-Policy" && value == "default-src 'self'; frame-ancestors 'self'";
+    }
+    Expect(xfo && corp && nosniff && csp, "page response headers");
+    auto kept = cmux_shim::PageResponseHeaders("default-src 'none'; frame-ancestors 'none'");
+    bool same = false;
+    for (auto& [name, value] : kept) same |= name == "Content-Security-Policy" && value == "default-src 'none'; frame-ancestors 'none'";
+    Expect(same, "a CSP with its own frame-ancestors is kept");
+  }
   char tmpl[] = "/tmp/cmux-page-path.XXXXXX";
   if (!mkdtemp(tmpl)) return 2;
   // /tmp is a symlink to /private/tmp: the root is given through it on
