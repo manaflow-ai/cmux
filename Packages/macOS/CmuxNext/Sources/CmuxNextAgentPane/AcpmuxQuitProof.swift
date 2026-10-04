@@ -50,7 +50,7 @@ public nonisolated enum AcpmuxQuitProof {
             guard let data = try? Data(contentsOf: file),
                   let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let session = record["session_id"] as? String,
-                  let nonce = record["start_nonce"] as? String, !nonce.contains("/") else {
+                  let nonce = record["start_nonce"] as? String, isPathComponent(session), isPathComponent(nonce) else {
                 unknown.append(fallback)
                 continue
             }
@@ -90,8 +90,17 @@ public nonisolated enum AcpmuxQuitProof {
     /// endAgents), so the proof does not count the kept Chief host.
     static let knownChief = Mutex<Set<String>>([])
 
+    /// A record field that stays one name inside hosts/ (no "/", no "..").
+    static func isPathComponent(_ text: String) -> Bool {
+        !text.isEmpty && !text.contains("/") && !text.contains("..")
+    }
+
     /// `flock(LOCK_EX|LOCK_NB)` probe, released at once. A missing file is
-    /// free; a lock that cannot be probed is unknown.
+    /// free; a lock that cannot be probed is unknown. The probe holds the
+    /// exclusive lock for an instant: an acpmux daemon that starts in that
+    /// instant fails with "another acpmux daemon holds daemon.lock" and the
+    /// app's next findOrStart retries (acpmux's own host probe has the same
+    /// window; accepted in the durable review).
     static func lockState(_ url: URL) -> LockState {
         let fd = open(url.path, O_RDWR | O_CLOEXEC)
         if fd < 0 { return errno == ENOENT ? .free : .unknown }
