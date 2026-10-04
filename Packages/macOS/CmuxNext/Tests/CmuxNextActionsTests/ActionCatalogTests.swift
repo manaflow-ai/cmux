@@ -120,24 +120,38 @@ import Testing
         #expect(registry.shortcutConflicts().isEmpty, "\(registry.shortcutConflicts())")
     }
 
-    /// Navigation defaults run ahead of a focused terminal. Keep the
-    /// terminal's readline, TUI and editor controls available by never
-    /// taking plain Control-letter, Control-Shift-letter or Option-letter
-    /// bindings in that tier. Numbered Control shortcuts and the approved
-    /// Control-Command pane resize family are intentionally outside this
-    /// list.
-    @Test func navigationDefaultsDoNotTakeTerminalEditingKeys() {
-        let violations = ActionCatalog.all.compactMap { descriptor -> String? in
-            guard let shortcut = descriptor.defaultShortcut,
-                  ActionKeyTier.defaultTier(for: descriptor) == .navigation,
-                  shortcut.key.rangeOfCharacter(from: .letters) != nil,
-                  shortcut.key.count == 1 else { return nil }
-            let terminalKey = shortcut.modifiers == [.control]
-                || shortcut.modifiers == [.control, .shift]
-                || shortcut.modifiers == [.option]
-            return terminalKey ? "\(descriptor.id): \(shortcut.displayString)" : nil
+    /// These keys belong to readline, TUIs and terminal editors. A catalog
+    /// default may not claim them at the resolver layer while a terminal has
+    /// focus. The Control-Shift family includes H/J/K/L deliberately: the old
+    /// pane-resize defaults must not return.
+    @Test func neverTakeFromTerminalDefaultsStayOutOfTheResolver() {
+        let registry = ActionRegistry.standard()
+        for descriptor in registry.descriptors {
+            _ = registry.bind(descriptor.id) {}
         }
-        #expect(violations.isEmpty, "navigation defaults take terminal keys: \(violations)")
+        registry.context = [.terminalFocused]
+
+        for shortcut in Self.neverTakeFromTerminal {
+            #expect(registry.resolve(shortcut) == nil, "terminal key claimed by \(shortcut.displayString)")
+        }
+
+        let catalogClaims = registry.descriptors.compactMap { descriptor -> String? in
+            guard let shortcut = registry.effectiveShortcut(for: descriptor.id),
+                  Self.neverTakeFromTerminal.contains(shortcut) else { return nil }
+            return "\(descriptor.id): \(shortcut.displayString)"
+        }
+        #expect(catalogClaims.isEmpty, "catalog defaults claim terminal keys: \(catalogClaims)")
+    }
+
+    private static var neverTakeFromTerminal: [Shortcut] {
+        Array("abcdefghijklmnopqrstuvwxyz").flatMap { character in
+            let key = String(character)
+            return [
+                Shortcut(key, modifiers: [.control]),
+                Shortcut(key, modifiers: [.control, .shift]),
+                Shortcut(key, modifiers: [.option]),
+            ]
+        }
     }
 
     /// Clipboard and clear-screen actions remain terminal-scoped content
