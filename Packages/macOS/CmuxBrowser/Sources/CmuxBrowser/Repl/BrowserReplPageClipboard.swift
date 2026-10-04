@@ -62,6 +62,9 @@ public struct BrowserReplPageClipboard {
     /// once.
     ///
     /// - Parameters:
+    ///   - refusing: why a write from a frame (as WebKit recorded the frame
+    ///     that sent it) is refused, or nil; a refusal rejects the page's
+    ///     write before `onWrite`. The first install on a controller sets it.
     ///   - onWrite: receives the web view a page wrote from and its items
     ///     (`[["type": String, "base64": String]]`); returns whether a tab's
     ///     clipboard took them. A refusal rejects the page's write.
@@ -70,14 +73,14 @@ public struct BrowserReplPageClipboard {
     @discardableResult
     public func install(
         on webView: WKWebView,
-        refusing: (@MainActor (_ frame: WKFrameInfo) -> String?)? = nil,
+        refusing: (@MainActor (_ webView: WKWebView, _ frame: WKFrameInfo) -> String?)? = nil,
         onWrite: @escaping @MainActor (_ webView: WKWebView, _ items: [[String: Any]]) -> Bool
     ) -> Bool {
         let off = Self.disableAsyncClipboardAPI(in: webView.configuration.preferences)
         let controller = webView.configuration.userContentController
         if objc_getAssociatedObject(controller, &Self.installedKey) == nil {
             objc_setAssociatedObject(controller, &Self.installedKey, true as NSNumber, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-            controller.addScriptMessageHandler(Handler(onWrite: onWrite), contentWorld: .page, name: Self.messageHandlerName)
+            controller.addScriptMessageHandler(Handler(refusing: refusing, onWrite: onWrite), contentWorld: .page, name: Self.messageHandlerName)
             controller.addUserScript(
                 WKUserScript(
                     source: Self.userScriptSource(shim: shim),
@@ -174,9 +177,14 @@ public struct BrowserReplPageClipboard {
     }
 
     private final class Handler: NSObject, WKScriptMessageHandlerWithReply {
+        let refusing: (@MainActor (WKWebView, WKFrameInfo) -> String?)?
         let onWrite: @MainActor (WKWebView, [[String: Any]]) -> Bool
 
-        init(onWrite: @escaping @MainActor (WKWebView, [[String: Any]]) -> Bool) {
+        init(
+            refusing: (@MainActor (WKWebView, WKFrameInfo) -> String?)?,
+            onWrite: @escaping @MainActor (WKWebView, [[String: Any]]) -> Bool
+        ) {
+            self.refusing = refusing
             self.onWrite = onWrite
         }
 
@@ -187,6 +195,12 @@ public struct BrowserReplPageClipboard {
         ) {
             guard let items = BrowserReplPageClipboard.items(from: message.body) else {
                 replyHandler(nil, "the clipboard write is not a list of typed items within the size limit")
+                return
+            }
+            // The frame that wrote, as WebKit recorded it; a frame the
+            // domain policy blocks does not reach the tab's clipboard.
+            if let webView = message.webView, let reason = refusing?(webView, message.frameInfo) {
+                replyHandler(nil, "this frame may not write the tab's clipboard: \(reason)")
                 return
             }
             guard let webView = message.webView, onWrite(webView, items) else {

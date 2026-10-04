@@ -104,7 +104,7 @@ struct BrowserReplPageClipboardFrameTests {
             let probe = WKWebView(frame: .zero, configuration: configuration)
             BrowserReplPageClipboard(shim: shim).install(
                 on: probe,
-                refusing: { info in blockedPolicy.blockReason(document: BrowserReplFrameDocument(info: info)) },
+                refusing: { _, info in blockedPolicy.blockReason(document: BrowserReplFrameDocument(info: info)) },
                 onWrite: { _, items in
                     for item in items {
                         if let data = (item["base64"] as? String).flatMap({ Data(base64Encoded: $0) }) {

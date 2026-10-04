@@ -275,8 +275,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   is not subtracted, and a blocked frame whose box it cannot find refuses
   every point), `input.key` and `input.insertText` while a blocked frame
   holds the focus (its document has it or holds a focused element, or its
-  parent's focused element is its frame; a frame that cannot answer counts
-  as focused), PDFs while any frame shows a blocked page, and file
+  parent's focused element, also inside a shadow tree, is its frame element,
+  found by the frame's own position in `window.frames`; a frame that cannot
+  answer, or whose element cannot be told, counts as focused). Meta+C,
+  Meta+X and Meta+V check the focus again after the key, on a fresh tree
+  right before WebKit's Copy, Cut or Paste runs (the page's key handlers
+  can move the focus into a blocked frame meanwhile), and Copy and Cut
+  once more after it, before the tab's clipboard takes what they copied;
+  either fails with `blocked` and leaves the tab's clipboard unchanged.
+  A page script's write to the tab's clipboard (`page-clipboard.js`) from
+  a frame the creating session's policy blocks, judged by WebKit's record
+  of the frame that sent it, is rejected, so `clipboard.read` never hands
+  the agent what a blocked frame wrote.
+  The driver refuses PDFs while any frame shows a blocked page, and file
   chooser answers other than `cancel` when the chooser's own frame (as
   WebKit recorded it when the chooser opened, and the document it shows
   now) is blocked. A screenshot blanks, in gray, the box of each main-frame

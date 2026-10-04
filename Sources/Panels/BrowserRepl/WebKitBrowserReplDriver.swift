@@ -1943,7 +1943,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         _ command: String,
         attachment: BrowserReplTabAttachment,
         webView: CmuxWebView
-    ) async throws {
+    ) async throws -> [[String: Any]]? {
         switch command {
         case "copy:", "cut:":
             let selection = try? await webView.callAsyncJavaScript(
@@ -1959,10 +1959,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 contentWorld: BrowserReplAgentWorld.world
             ) as? String
             let text = selection ?? ""
-            attachment.clipboardItems = [["type": "text/plain", "base64": Data(text.utf8).base64EncodedString()]]
             if command == "cut:", !text.isEmpty {
                 NSApp.sendAction(NSSelectorFromString("delete:"), to: webView, from: nil)
             }
+            return [["type": "text/plain", "base64": Data(text.utf8).base64EncodedString()]]
         default:
             let text = attachment.clipboardItems
                 .first { ($0["type"] as? String) == "text/plain" }
@@ -1971,6 +1971,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             if let text, !text.isEmpty {
                 try? await BrowserReplNativeInput.insertText(text, into: webView)
             }
+            return nil
         }
     }
 
@@ -2024,6 +2025,94 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return true
     }
 
+    /// Runs Copy, Cut or Paste in a tab a session created and returns what
+    /// the tab's clipboard takes (`nil`: it stays as it is). The caller
+    /// stores it only after the focus check that follows the command.
+    @MainActor
+    private func runClipboardCommand(
+        _ command: String,
+        panel: BrowserPanel,
+        attachment: BrowserReplTabAttachment,
+        webView: CmuxWebView
+    ) async throws -> [[String: Any]]? {
+        let isPaste = command == "paste:"
+        // WebKit beeps on Copy or Cut with nothing selected; that case
+        // keeps the script path, which empties the tab's clipboard.
+        if !isPaste, await !Self.hasSelection(webView) {
+            return try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
+        }
+        // The tab's creator and its tabs now: a session that detaches,
+        // or a tab that closes, during the command leaves the page no
+        // way to keep its process from being ended.
+        guard panel.webView === webView, let creator = attachment.creatorSessionID else {
+            return try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
+        }
+        let sessionTabs = tabsCreated(by: creator)
+        let pasteboard = NSPasteboard.withUniqueName()
+        if isPaste {
+            BrowserReplClipboardItems.write(attachment.clipboardItems, to: pasteboard)
+        } else {
+            pasteboard.clearContents()
+        }
+        let name = Self.clipboardCommandNames[command] ?? command
+        // Until WebKit reports the command done, a JavaScript dialog from
+        // the page is answered at once instead of held for the session,
+        // so it cannot keep the command open.
+        attachment.clipboardCommandsInFlight.append(name.lowercased())
+        let outcome = await BrowserReplPasteboardRedirect.shared.perform(
+            name,
+            in: webView,
+            pasteboard: pasteboard,
+            tab: panel.id.uuidString,
+            mayEndWebContent: { [weak self] in
+                guard let self else { return true }
+                return self.webContentEndsOnlySessionTabs(webView, creator: creator, sessionTabs: sessionTabs)
+            }
+        ) { [weak attachment] in
+            attachment?.clipboardCommandFinished(name.lowercased())
+        }
+        // The tab's clipboard takes only what this command wrote: the
+        // pasteboard was reachable only during the command's own window,
+        // which no other REPL command shares. It is emptied and released
+        // here, except after `timedOutStillRunning`, when the redirect
+        // releases it once WebKit finishes or its grace ends.
+        defer {
+            if outcome != .timedOutStillRunning {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+        }
+        switch outcome {
+        case .completed:
+            guard !isPaste else { return nil }
+            let items = BrowserReplClipboardItems.read(pasteboard)
+            // Copying nothing leaves an empty clipboard, as before.
+            return items.isEmpty ? [["type": "text/plain", "base64": ""]] : items
+        case .timedOut:
+            throw Self.error(
+                "timeout",
+                "\(name) did not finish within 5 s, so cmux ended the tab's web content process: nothing the page does later reaches the system clipboard. The tab's clipboard is unchanged; call page.reload() or page.goto() to load the page again"
+            )
+        case .timedOutStillRunning:
+            throw Self.error(
+                "timeout",
+                "\(name) did not finish within 5 s and the tab's clipboard is unchanged. The tab's web content process also runs a tab or popup window no session created, so cmux gives the page up to 5 s more: until it finishes, WebKit's copies and pastes in every browser tab use a private pasteboard, never the system clipboard, and Copy, Cut and Paste wait for it. Then cmux ends that process, and the pages in it crash (page.reload() loads them again)"
+            )
+        case .busy(let tab):
+            throw Self.error(
+                "timeout",
+                "\(name) did not start within 5 s: a Copy, Cut or Paste in tab \(tab) has not finished. One runs at a time across all tabs, since WebKit's pasteboard requests do not say which tab they serve"
+            )
+        case .interfered:
+            throw Self.error(
+                "stale",
+                "\(name) finished, but a copy in another web view reached the private pasteboard during it (WebKit's pasteboard requests do not say which web view they serve), so the tab's clipboard is unchanged\(isPaste ? " and the page may have pasted nothing" : ""). Try again"
+            )
+        case .unavailable:
+            return try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
+        }
+    }
+
     /// Runs the Cocoa editing action behind a Command shortcut. Clipboard
     /// actions use the tab's virtual clipboard, not the system pasteboard:
     /// WebKit's own Copy, Cut and Paste run against a private pasteboard that
@@ -2039,87 +2128,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         switch command {
         case "copy:", "cut:", "paste:":
             try refuseClipboardCommandInUserTab(command, panel: panel)
-            let isPaste = command == "paste:"
-            // WebKit beeps on Copy or Cut with nothing selected; that case
-            // keeps the script path, which empties the tab's clipboard.
-            if !isPaste, await !Self.hasSelection(webView) {
-                try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
-                return
+            // The page's own key handlers ran before the command and can have
+            // moved the focus into a frame the domain policy blocks, whose
+            // selection Copy or Cut would take into the tab's clipboard (or
+            // into which Paste would put it): the focus is checked again
+            // right before the command, and after it before the clipboard
+            // takes anything (BrowserReplFrameGate.guardingFocus).
+            let taken = try await frameGate.guardingFocus(in: webView, frames: { await BrowserReplFrameTree.frames(of: webView) }) {
+                try await runClipboardCommand(command, panel: panel, attachment: attachment, webView: webView)
             }
-            // The tab's creator and its tabs now: a session that detaches,
-            // or a tab that closes, during the command leaves the page no
-            // way to keep its process from being ended.
-            guard panel.webView === webView, let creator = attachment.creatorSessionID else {
-                try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
-                return
-            }
-            let sessionTabs = tabsCreated(by: creator)
-            let pasteboard = NSPasteboard.withUniqueName()
-            if isPaste {
-                BrowserReplClipboardItems.write(attachment.clipboardItems, to: pasteboard)
-            } else {
-                pasteboard.clearContents()
-            }
-            let name = Self.clipboardCommandNames[command] ?? command
-            // Until WebKit reports the command done, a JavaScript dialog from
-            // the page is answered at once instead of held for the session,
-            // so it cannot keep the command open.
-            attachment.clipboardCommandsInFlight.append(name.lowercased())
-            let outcome = await BrowserReplPasteboardRedirect.shared.perform(
-                name,
-                in: webView,
-                pasteboard: pasteboard,
-                tab: panel.id.uuidString,
-                mayEndWebContent: { [weak self] in
-                    guard let self else { return true }
-                    return self.webContentEndsOnlySessionTabs(webView, creator: creator, sessionTabs: sessionTabs)
-                }
-            ) { [weak attachment] in
-                attachment?.clipboardCommandFinished(name.lowercased())
-            }
-            // The tab's clipboard takes only what this command wrote: the
-            // pasteboard was reachable only during the command's own window,
-            // which no other REPL command shares. It is emptied and released
-            // here, except after `timedOutStillRunning`, when the redirect
-            // releases it once WebKit finishes or its grace ends.
-            defer {
-                if outcome != .timedOutStillRunning {
-                    pasteboard.clearContents()
-                    pasteboard.releaseGlobally()
-                }
-            }
-            switch outcome {
-            case .completed:
-                if !isPaste {
-                    let items = BrowserReplClipboardItems.read(pasteboard)
-                    // Copying nothing leaves an empty clipboard, as before.
-                    attachment.clipboardItems = items.isEmpty
-                        ? [["type": "text/plain", "base64": ""]]
-                        : items
-                }
-            case .timedOut:
-                throw Self.error(
-                    "timeout",
-                    "\(name) did not finish within 5 s, so cmux ended the tab's web content process: nothing the page does later reaches the system clipboard. The tab's clipboard is unchanged; call page.reload() or page.goto() to load the page again"
-                )
-            case .timedOutStillRunning:
-                throw Self.error(
-                    "timeout",
-                    "\(name) did not finish within 5 s and the tab's clipboard is unchanged. The tab's web content process also runs a tab or popup window no session created, so cmux gives the page up to 5 s more: until it finishes, WebKit's copies and pastes in every browser tab use a private pasteboard, never the system clipboard, and Copy, Cut and Paste wait for it. Then cmux ends that process, and the pages in it crash (page.reload() loads them again)"
-                )
-            case .busy(let tab):
-                throw Self.error(
-                    "timeout",
-                    "\(name) did not start within 5 s: a Copy, Cut or Paste in tab \(tab) has not finished. One runs at a time across all tabs, since WebKit's pasteboard requests do not say which tab they serve"
-                )
-            case .interfered:
-                throw Self.error(
-                    "stale",
-                    "\(name) finished, but a copy in another web view reached the private pasteboard during it (WebKit's pasteboard requests do not say which web view they serve), so the tab's clipboard is unchanged\(isPaste ? " and the page may have pasted nothing" : ""). Try again"
-                )
-            case .unavailable:
-                try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
-            }
+            if let taken { attachment.clipboardItems = taken }
         case "bold", "italic", "underline":
             // Chrome's editor formats the selection of an editable element on
             // Command+B/I/U; the page sees its usual beforeinput and input.

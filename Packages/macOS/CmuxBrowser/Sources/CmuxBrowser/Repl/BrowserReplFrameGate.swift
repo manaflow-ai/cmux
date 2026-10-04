@@ -218,10 +218,15 @@ public final class BrowserReplFrameGate {
             if focus["inner"] as? Bool == true { continue }
             if focus["focused"] as? Bool == true { throw refusal }
             guard let parentID = entry.frame.parentFrameID, let parent = byID[parentID] else { continue }
+            // The frame's own position in its parent's window.frames, as it
+            // reported it: WebKit's tree also holds frames in shadow trees,
+            // so a tree index can name a sibling there.
+            let position = (focus["position"] as? NSNumber)?.intValue ?? -1
+            let length = (focus["length"] as? NSNumber)?.intValue ?? -1
             let ownsFocus: Bool?
             do {
                 ownsFocus = try await probe(
-                    Self.ownerFocusSource, arguments: ["index": entry.frame.indexInParent], in: webView, frame: parent.info,
+                    Self.ownerFocusSource, arguments: ["index": position, "length": length], in: webView, frame: parent.info,
                     what: "frame \(parent.url) did not report its focus"
                 ) as? Bool
             } catch let error as BrowserReplDriverError where error.code == "stale" {
@@ -233,16 +238,32 @@ public final class BrowserReplFrameGate {
         }
     }
 
-    /// Runs `command`, a Copy, Cut or Paste on the focused frame.
+    /// Runs `command`, a Copy, Cut or Paste on the focused frame, only
+    /// while no frame the policy blocks holds the focus, and gives its
+    /// result back only if none holds it after the command either.
     ///
-    /// Models the driver as it is: the focus was checked before the key,
-    /// and the command runs without another check.
+    /// The driver checks the focus before it delivers the key, but the
+    /// page's own key handlers run before the command and can move the
+    /// focus into a blocked frame (whose selection the command would copy,
+    /// or into which it would paste the tab's clipboard), and a page can
+    /// move it during the command. So the focus is checked again on a fresh
+    /// tree right before the command, and after it before its result (the
+    /// copied pasteboard) is taken. The page can still move the focus in its
+    /// own web process between the last check and WebKit running the command.
     public func guardingFocus<T>(
         in webView: WKWebView,
         frames: @MainActor () async -> [BrowserReplFrame],
         _ command: () async throws -> T
     ) async throws -> T {
-        try await command()
+        guard policy.isActive else { return try await command() }
+        try await checkFocus(in: webView, frames: await frames())
+        let value = try await command()
+        do {
+            try await checkFocus(in: webView, frames: await frames())
+        } catch let error as BrowserReplDriverError where error.code == "blocked" {
+            throw BrowserReplDriverError(code: "blocked", message: "\(error.message); the focus moved there during the command, so its result was discarded")
+        }
+        return value
     }
 
     /// Throws `blocked` when any frame of the tab shows a page the policy
@@ -442,16 +463,32 @@ public final class BrowserReplFrameGate {
     return { boxes, escapes, backdrop };
     """
 
+    /// The frame's focus, and its own position in its parent's
+    /// `window.frames` (-1 in a shadow tree) with that list's length.
     private static let focusSource = """
     const e = document.activeElement;
     const inner = !!e && (e.tagName === "IFRAME" || e.tagName === "FRAME" || e.tagName === "OBJECT");
-    return { inner, focused: !inner && (document.hasFocus() || (!!e && e !== document.body && e !== document.documentElement)) };
+    const p = window.parent;
+    let position = -1;
+    const length = p === window ? 0 : p.length;
+    for (let i = 0; i < length; i++) if (p[i] === window) { position = i; break; }
+    return { inner, focused: !inner && (document.hasFocus() || (!!e && e !== document.body && e !== document.documentElement)), position, length };
     """
 
+    /// Whether the parent's focused element (inside shadow trees too) is
+    /// the frame element of the child at `index` in `window.frames`; null
+    /// when that cannot be told (the list changed since the child read its
+    /// place, or a focused frame element is in a shadow tree, where
+    /// `window.frames` does not reach), which counts as focused.
     private static let ownerFocusSource = """
-    const e = document.activeElement;
-    const w = window.frames[index];
-    return !!e && !!w && e.contentWindow === w;
+    let e = document.activeElement;
+    while (e && e.shadowRoot && e.shadowRoot.activeElement) e = e.shadowRoot.activeElement;
+    if (!e || !(e.tagName === "IFRAME" || e.tagName === "FRAME" || e.tagName === "OBJECT" || e.tagName === "EMBED")) return false;
+    if (window.frames.length !== length) return null;
+    const w = e.contentWindow;
+    if (index >= 0) return !!w && w === window.frames[index];
+    for (let i = 0; i < window.frames.length; i++) if (window.frames[i] === w) return false;
+    return null;
     """
 
     private struct BlockedTop {

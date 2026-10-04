@@ -585,11 +585,22 @@ final class BrowserReplTabAttachment {
     /// stopped and replaced by an empty document with no script, so no page
     /// there holds the agent's gestures with the system clipboard in reach.
     private func guardPageClipboard(_ webView: WKWebView) {
-        let installed = BrowserReplTabAttachments.shared.pageClipboard?.install(on: webView) { webView, items in
-            guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
-            attachment.clipboardItems = items
-            return true
-        } ?? false
+        let installed = BrowserReplTabAttachments.shared.pageClipboard?.install(
+            on: webView,
+            refusing: { webView, frame in
+                // A frame the creating session's policy blocks can still run
+                // here (it loaded before the policy tightened); what it
+                // writes must not reach the agent through clipboard.read.
+                guard let creator = BrowserReplTabAttachments.shared.attachment(showing: webView)?.creatorSessionID,
+                      let policy = BrowserReplPolicyBoard.shared.policy(for: creator) else { return nil }
+                return policy.blockReason(document: BrowserReplFrameDocument(info: frame))
+            },
+            onWrite: { webView, items in
+                guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
+                attachment.clipboardItems = items
+                return true
+            }
+        ) ?? false
         guard !installed else { return }
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
