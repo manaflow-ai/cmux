@@ -33,16 +33,15 @@ public nonisolated enum DropZoneGeometry {
     }
 
     /// Drop target under `point` (content space). Column gap zones win over
-    /// pane edges so "new column" is reachable between columns.
+    /// pane edges so "new column" is reachable between columns. A point in
+    /// no pane goes to the nearest pane.
     public static func target(at point: CGPoint, screen: ScreenID, geometry: ScreenGeometry, headers: [PaneID: CGFloat] = [:],
                               style: LayoutStyle) -> DropTarget? {
         for zone in geometry.gapZones where zone.frame.contains(point) {
             return .newColumn(screen: screen, after: zone.after)
         }
-        for (pane, rect) in geometry.panes.sorted(by: { $0.key < $1.key }) where rect.contains(point) {
-            return .pane(pane, zone(at: point, in: rect, header: header(of: pane, in: rect, headers, style), style: style))
-        }
-        return nil
+        let candidates = geometry.panes.map { (pane: $0.key, cell: $0.value, visible: $0.value) }
+        return paneTarget(at: point, candidates, headers: headers, style: style)
     }
 
     /// The tab bar height of `pane` measured from its cell top: the cell's
@@ -55,24 +54,61 @@ public nonisolated enum DropZoneGeometry {
     /// Drop target under `point` in view coordinates, with the strip
     /// scrolled to `offset`. Docked columns sit above the strip: their panes
     /// take the drop, and the rest of what a docked column covers (its glass
-    /// rim, a docked column's edge band) takes none, so nothing lands in a
-    /// strip pane hidden under it. The strip resolves as `target(at:)`.
+    /// rim, a docked column's edge band) goes to the nearest docked pane, so
+    /// nothing lands in a strip pane hidden under it. The strip resolves as
+    /// `target(at:)`. Every point resolves while the screen has a pane.
     public static func target(atView point: CGPoint, offset: CGFloat, screen: ScreenID, geometry: ScreenGeometry,
                               headers: [PaneID: CGFloat] = [:], style: LayoutStyle) -> DropTarget? {
+        let shift = geometry.viewShift(offset: offset)
         if let cover = geometry.dock.first(where: { $0.cover.contains(point) }) {
-            let pane = geometry.panes.filter { geometry.fixedPanes.contains($0.key) && cover.frame.contains($0.value) }
-                .sorted { $0.key < $1.key }.first { $0.value.contains(point) }
-            return pane.map { .pane($0.key, zone(at: point, in: $0.value, header: header(of: $0.key, in: $0.value, headers, style),
-                                                 style: style)) }
+            let panes = geometry.panes.filter { geometry.fixedPanes.contains($0.key) && cover.frame.contains($0.value) }
+            return paneTarget(at: point, panes.map { (pane: $0.key, cell: $0.value, visible: $0.value) }, headers: headers, style: style)
         }
-        let content = CGPoint(x: point.x - geometry.viewShift(offset: offset), y: point.y)
+        let content = CGPoint(x: point.x - shift, y: point.y)
         for zone in geometry.gapZones where zone.frame.contains(content) {
             return .newColumn(screen: screen, after: zone.after)
         }
-        for (pane, rect) in geometry.panes.sorted(by: { $0.key < $1.key }) where geometry.scrolls(pane: pane) && rect.contains(content) {
-            return .pane(pane, zone(at: content, in: rect, header: header(of: pane, in: rect, headers, style), style: style))
+        // Every pane, in view coordinates, clipped to what the docks leave
+        // visible: the pane the point is in, else the nearest one.
+        let uncovered = geometry.dock.isEmpty ? nil : CGRect(x: geometry.uncoveredMinX, y: geometry.uncoveredMinY,
+                                                             width: geometry.uncoveredMaxX - geometry.uncoveredMinX,
+                                                             height: geometry.uncoveredMaxY - geometry.uncoveredMinY)
+        let candidates = geometry.panes.compactMap { entry -> (pane: PaneID, cell: CGRect, visible: CGRect)? in
+            let (pane, rect) = (entry.key, entry.value)
+            guard geometry.scrolls(pane: pane) else { return (pane, rect, rect) }
+            let cell = rect.offsetBy(dx: shift, dy: 0)
+            guard let uncovered else { return (pane, cell, cell) }
+            let visible = cell.intersection(uncovered)
+            return visible.isNull || visible.isEmpty ? nil : (pane, cell, visible)
         }
-        return nil
+        return paneTarget(at: point, candidates, headers: headers, style: style)
+    }
+
+    /// The pane target under `point`: the pane whose cell holds it, else
+    /// the pane nearest to it, with the zone at the nearest point of that
+    /// pane (tab-dnd: no dead zones, so the gutters, the padding and a
+    /// docked column's rim preview the pane next to them; Lawrence
+    /// 2026-10-04). `visible` is the part of the cell nothing covers.
+    static func paneTarget(at point: CGPoint, _ candidates: [(pane: PaneID, cell: CGRect, visible: CGRect)],
+                           headers: [PaneID: CGFloat], style: LayoutStyle) -> DropTarget? {
+        let sorted = candidates.sorted { $0.pane < $1.pane }
+        if let hit = sorted.first(where: { $0.visible.contains(point) }) {
+            return .pane(hit.pane, zone(at: point, in: hit.cell, header: header(of: hit.pane, in: hit.cell, headers, style), style: style))
+        }
+        guard let nearest = sorted.min(by: { distance(point, $0.visible) < distance(point, $1.visible) }) else { return nil }
+        let clamped = clamp(point, into: nearest.visible)
+        return .pane(nearest.pane, zone(at: clamped, in: nearest.cell,
+                                        header: header(of: nearest.pane, in: nearest.cell, headers, style), style: style))
+    }
+
+    static func distance(_ point: CGPoint, _ rect: CGRect) -> CGFloat {
+        let dx = max(rect.minX - point.x, 0, point.x - rect.maxX)
+        let dy = max(rect.minY - point.y, 0, point.y - rect.maxY)
+        return (dx * dx + dy * dy).squareRoot()
+    }
+
+    static func clamp(_ point: CGPoint, into rect: CGRect) -> CGPoint {
+        CGPoint(x: min(max(point.x, rect.minX), rect.maxX), y: min(max(point.y, rect.minY), rect.maxY))
     }
 
     /// DD1: an edge band that opens a dock, while that edge has none (view

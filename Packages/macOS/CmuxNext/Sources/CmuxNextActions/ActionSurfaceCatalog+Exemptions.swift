@@ -165,7 +165,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "palette.searchShortcuts",
             "palette.pro.upgrade", "palette.welcomeChecklist", "sendFeedback", "help.featureFlags",
-            "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
+            "help.documentation", "help.showCrashLogs", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
         ],
         .liveInput: [

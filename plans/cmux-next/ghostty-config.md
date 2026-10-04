@@ -104,3 +104,15 @@ keys follow the creator, which is deterministic and documented (a second client 
 rendering, input and keybinds, but the creator's replies). Trade-offs: three small fork APIs to carry;
 cmux.json keys migrate (one-time, logged); `+show-config` adds a process spawn for client-less
 hosts (off the startup path); clipboard-read prompts need a client round trip.
+
+## Lane follow-ups (in order)
+
+1. `new-screen` and `new-workspace` send no `env` and no `shell_args` from the Mac, so their
+   terminals get no app environment and only the host's integration (`shell-integration = none`
+   still ignored there). Add `env`/`shell_args` to both with the same capability pattern.
+2. Fork PR 2 (manaflow-ai/ghostty-next): deferred clipboard reads in libghostty-vt
+   (`ghostty_terminal_clipboard_read_complete`, original terminator kept, timeout replies empty and
+   frees the token, no leaked tokens on terminal close); then the host broker (single subscribed
+   frontend answers; zero or several = deny; client default deny/ask).
+3. Fork PR 1 pin bump (needs a window): key list, key sources, loaded files.
+

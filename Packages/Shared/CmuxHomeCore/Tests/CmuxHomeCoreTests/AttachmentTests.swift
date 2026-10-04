@@ -48,8 +48,8 @@ func makeImage(type: UTType, width: Int, height: Int, alpha: Bool) throws -> Dat
     return data as Data
 }
 
-/// A JPEG with EXIF orientation 6 and a GPS position.
-func makeJPEGWithLocation(width: Int, height: Int) throws -> Data {
+/// A JPEG with EXIF orientation `orientation` (6 by default) and a GPS position.
+func makeJPEGWithLocation(width: Int, height: Int, orientation: Int = 6) throws -> Data {
     let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
@@ -62,7 +62,7 @@ func makeJPEGWithLocation(width: Int, height: Int) throws -> Data {
         kCGImagePropertyGPSLatitude: 37.3349, kCGImagePropertyGPSLatitudeRef: "N",
         kCGImagePropertyGPSLongitude: 122.009, kCGImagePropertyGPSLongitudeRef: "W",
     ]
-    CGImageDestinationAddImage(destination, image, [kCGImagePropertyOrientation: 6, kCGImagePropertyGPSDictionary: gps] as CFDictionary)
+    CGImageDestinationAddImage(destination, image, [kCGImagePropertyOrientation: orientation, kCGImagePropertyGPSDictionary: gps] as CFDictionary)
     #expect(CGImageDestinationFinalize(destination))
     return data as Data
 }
@@ -83,7 +83,9 @@ func movieHasLocation(_ url: URL) async throws -> Bool {
 /// by its track transform (display size is `height` x `width`).
 func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int32 = 10,
                        location: String? = nil, locationName: String? = nil, trackLocation: String? = nil,
-                       timedLocation: String? = nil) async throws {
+                       timedLocation: String? = nil,
+                       timedIdentifier: AVMetadataIdentifier = .quickTimeMetadataLocationISO6709,
+                       subtitle: String? = nil) async throws {
     let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
     func item(_ identifier: AVMetadataIdentifier, _ value: String) -> AVMutableMetadataItem {
         let item = AVMutableMetadataItem()
@@ -99,12 +101,14 @@ func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int3
     // A timed metadata track of positions (a GoPro or drone GPS track).
     var timedInput: AVAssetWriterInput?
     var timedAdaptor: AVAssetWriterInputMetadataAdaptor?
+    // A location identifier carries ISO 6709 data; any other (an iPhone's
+    // orientation or still-image-time track) carries UTF-8 text here.
+    let timedDataType = timedIdentifier == .quickTimeMetadataLocationISO6709
+        ? kCMMetadataDataType_QuickTimeMetadataLocation_ISO6709 as String : kCMMetadataBaseDataType_UTF8 as String
     if timedLocation != nil {
         let spec: [String: Any] = [
-            kCMMetadataFormatDescriptionMetadataSpecificationKey_Identifier as String:
-                AVMetadataIdentifier.quickTimeMetadataLocationISO6709.rawValue,
-            kCMMetadataFormatDescriptionMetadataSpecificationKey_DataType as String:
-                kCMMetadataDataType_QuickTimeMetadataLocation_ISO6709 as String,
+            kCMMetadataFormatDescriptionMetadataSpecificationKey_Identifier as String: timedIdentifier.rawValue,
+            kCMMetadataFormatDescriptionMetadataSpecificationKey_DataType as String: timedDataType,
         ]
         var description: CMFormatDescription?
         CMMetadataFormatDescriptionCreateWithMetadataSpecifications(allocator: nil, metadataType: kCMMetadataFormatType_Boxed,
@@ -115,6 +119,17 @@ func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int3
         timedAdaptor = AVAssetWriterInputMetadataAdaptor(assetWriterInput: input)
         writer.add(input)
         timedInput = input
+    }
+    // A 3GPP text track (a drone writes its GPS as subtitles).
+    var textInput: AVAssetWriterInput?
+    var textFormat: CMFormatDescription?
+    if subtitle != nil {
+        textFormat = try makeTextFormatDescription()
+        let input = AVAssetWriterInput(mediaType: .text, outputSettings: nil, sourceFormatHint: textFormat)
+        input.expectsMediaDataInRealTime = false
+        try #require(writer.canAdd(input), "the writer must take a text track")
+        writer.add(input)
+        textInput = input
     }
     let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
         AVVideoCodecKey: AVVideoCodecType.h264,
@@ -134,14 +149,21 @@ func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int3
     writer.startSession(atSourceTime: .zero)
     if let timedLocation, let timedInput, let timedAdaptor {
         let point = AVMutableMetadataItem()
-        point.identifier = .quickTimeMetadataLocationISO6709
-        point.dataType = kCMMetadataDataType_QuickTimeMetadataLocation_ISO6709 as String
+        point.identifier = timedIdentifier
+        point.dataType = timedDataType
         point.value = timedLocation as NSString
         let group = AVTimedMetadataGroup(items: [point], timeRange: CMTimeRange(start: .zero,
                                                                                 duration: CMTime(value: CMTimeValue(frames), timescale: fps)))
         while !timedInput.isReadyForMoreMediaData { await Task.yield() }
         #expect(timedAdaptor.append(group))
         timedInput.markAsFinished()
+    }
+    if let subtitle, let textInput, let textFormat {
+        let sample = try makeTextSample(subtitle, format: textFormat,
+                                        duration: CMTime(value: CMTimeValue(frames), timescale: fps))
+        while !textInput.isReadyForMoreMediaData { await Task.yield() }
+        #expect(textInput.append(sample))
+        textInput.markAsFinished()
     }
     for frame in 0..<frames {
         while !input.isReadyForMoreMediaData { await Task.yield() }
@@ -159,6 +181,55 @@ func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, fps: Int3
     writer.endSession(atSourceTime: CMTime(value: CMTimeValue(frames), timescale: fps))
     await writer.finishWriting()
     #expect(writer.status == .completed, "AVAssetWriter failed: \(String(describing: writer.error))")
+}
+
+/// A 3GPP timed text format: the extensions the format requires.
+func makeTextFormatDescription() throws -> CMFormatDescription {
+    let white: [CFString: Any] = [kCMTextFormatDescriptionColor_Red: 255, kCMTextFormatDescriptionColor_Green: 255,
+                                  kCMTextFormatDescriptionColor_Blue: 255, kCMTextFormatDescriptionColor_Alpha: 255]
+    let clear: [CFString: Any] = [kCMTextFormatDescriptionColor_Red: 0, kCMTextFormatDescriptionColor_Green: 0,
+                                  kCMTextFormatDescriptionColor_Blue: 0, kCMTextFormatDescriptionColor_Alpha: 0]
+    let extensions: [CFString: Any] = [
+        kCMTextFormatDescriptionExtension_DisplayFlags: 0,
+        kCMTextFormatDescriptionExtension_BackgroundColor: clear,
+        kCMTextFormatDescriptionExtension_DefaultTextBox: [
+            kCMTextFormatDescriptionRect_Top: 0, kCMTextFormatDescriptionRect_Left: 0,
+            kCMTextFormatDescriptionRect_Bottom: 0, kCMTextFormatDescriptionRect_Right: 0,
+        ] as [CFString: Any],
+        kCMTextFormatDescriptionExtension_DefaultStyle: [
+            kCMTextFormatDescriptionStyle_StartChar: 0, kCMTextFormatDescriptionStyle_EndChar: 0,
+            kCMTextFormatDescriptionStyle_Font: 1, kCMTextFormatDescriptionStyle_FontFace: 0,
+            kCMTextFormatDescriptionStyle_FontSize: 12, kCMTextFormatDescriptionStyle_ForegroundColor: white,
+        ] as [CFString: Any],
+        kCMTextFormatDescriptionExtension_HorizontalJustification: 0,
+        kCMTextFormatDescriptionExtension_VerticalJustification: 0,
+        kCMTextFormatDescriptionExtension_FontTable: ["1": "Helvetica"],
+    ]
+    var format: CMFormatDescription?
+    let status = CMFormatDescriptionCreate(allocator: nil, mediaType: kCMMediaType_Text, mediaSubType: kCMTextFormatType_3GText,
+                                           extensions: extensions as CFDictionary, formatDescriptionOut: &format)
+    #expect(status == noErr)
+    return try #require(format)
+}
+
+/// One 3GPP text sample: a big-endian length, then the UTF-8 text.
+func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTime) throws -> CMSampleBuffer {
+    let utf8 = Array(text.utf8)
+    let bytes = [UInt8(utf8.count >> 8 & 0xff), UInt8(utf8.count & 0xff)] + utf8
+    var block: CMBlockBuffer?
+    #expect(CMBlockBufferCreateWithMemoryBlock(allocator: nil, memoryBlock: nil, blockLength: bytes.count, blockAllocator: nil,
+                                               customBlockSource: nil, offsetToData: 0, dataLength: bytes.count,
+                                               flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &block) == noErr)
+    let buffer = try #require(block)
+    #expect(bytes.withUnsafeBytes { CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: buffer,
+                                                                   offsetIntoDestination: 0, dataLength: bytes.count) } == noErr)
+    var timing = CMSampleTimingInfo(duration: duration, presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
+    var size = bytes.count
+    var sample: CMSampleBuffer?
+    #expect(CMSampleBufferCreateReady(allocator: nil, dataBuffer: buffer, formatDescription: format, sampleCount: 1,
+                                      sampleTimingEntryCount: 1, sampleTimingArray: &timing, sampleSizeEntryCount: 1,
+                                      sampleSizeArray: &size, sampleBufferOut: &sample) == noErr)
+    return try #require(sample)
 }
 
 @Suite struct AttachmentPreparationTests {

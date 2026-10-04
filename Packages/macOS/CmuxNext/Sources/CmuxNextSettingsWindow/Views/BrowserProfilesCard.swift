@@ -116,16 +116,35 @@ private struct BrowserProfileRowView: View {
     static func trimmed(_ title: String) -> String { title.hasSuffix("…") ? String(title.dropLast()) : title }
 }
 
-/// A profile's icon or first letter on its color.
+/// A profile's icon (an SF Symbol drawn as an image, an emoji as text) or
+/// its first letter, on its color.
 struct BrowserProfileAvatar: View {
     let row: SettingsBrowserProfileRow
+
+    enum Content: Equatable {
+        case symbol(String)
+        case text(String)
+    }
+
+    static func content(_ row: SettingsBrowserProfileRow) -> Content {
+        switch IconValue(wire: row.icon) {
+        case .symbol(let name)?: .symbol(name)
+        case .emoji(let text)?: .text(text)
+        case .image?, .svg?: .symbol("photo")
+        case nil: .text(row.name.first.map { String($0).uppercased() } ?? "?")
+        }
+    }
 
     var body: some View {
         let color = row.color.flatMap(GroupColor.init(rawValue:))
         ZStack {
             Circle().fill(color.map { Color(nsColor: $0.fill) } ?? SettingsStyle.hover)
-            Text(row.icon ?? row.name.first.map { String($0).uppercased() } ?? "?")
-                .font(.system(size: 10, weight: .semibold)).foregroundStyle(SettingsStyle.secondary)
+            switch Self.content(row) {
+            case .symbol(let name):
+                Image(systemName: name).font(.system(size: 10, weight: .semibold)).foregroundStyle(SettingsStyle.secondary)
+            case .text(let text):
+                Text(text).font(.system(size: 10, weight: .semibold)).foregroundStyle(SettingsStyle.secondary)
+            }
         }
         .frame(width: 20, height: 20)
     }

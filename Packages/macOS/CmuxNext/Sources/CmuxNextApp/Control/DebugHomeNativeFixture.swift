@@ -15,13 +15,16 @@ extension InternalPageID {
 @MainActor
 final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
+    /// The next page shows the attachment fixture (`{"attachments": true}`).
+    var nextAttachments = false
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture()
+        let fixture = HomeNativeFixture(attachments: nextAttachments)
+        nextAttachments = false
         fixtures[key] = fixture
         return fixture.container
     }
@@ -30,8 +33,9 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         fixtures.removeValue(forKey: key)?.close()
     }
 
-    static func open(services: AppServices) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
         let view = services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }

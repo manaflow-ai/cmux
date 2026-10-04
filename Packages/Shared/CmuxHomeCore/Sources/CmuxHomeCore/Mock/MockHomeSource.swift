@@ -64,9 +64,16 @@ public actor MockHomeSource: HomeSource {
     private var pausedUploads: [UUID: CheckedContinuation<Void, Never>] = [:]
     /// Paused uploads whose task was cancelled before they registered.
     private var cancelledPauses: Set<UUID> = []
-    private var failingUploads: [String: HomeRejection] = [:]
+    private var failingUploads: [String: (times: Int, error: HomeRejection)] = [:]
     /// Submits of these keys fail before the ledger, `times` more times.
     private var failingSubmits: [IdempotencyKey: (times: Int, error: HomeRejection)] = [:]
+    /// The next submit of each key commits, then loses its answer and holds
+    /// back its events; the value is how many later submits fail after it.
+    private var losingAnswers: [IdempotencyKey: Int] = [:]
+    /// True while a commit whose answer is lost runs: its events wait in
+    /// `withheldEvents` until `releaseWithheldEvents`.
+    private var holdingEvents = false
+    private var withheldEvents: [HomeEvent] = []
     /// The progress callback of every upload call, in call order (tests
     /// replay late callbacks with `replayProgress`).
     private var progressCallbacks: [@Sendable (Double) -> Void] = []
@@ -144,6 +151,15 @@ public actor MockHomeSource: HomeSource {
             failingSubmits[intent.key] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
             throw failing.error
         }
+        if let failingAfter = losingAnswers.removeValue(forKey: intent.key), ledger[intent.key] == nil {
+            // Committed, but neither the answer nor the echo arrives.
+            holdingEvents = true
+            let outcome = Result { try apply(intent) }
+            holdingEvents = false
+            if case .success(let result) = outcome { ledger[intent.key] = (intent.op, .success(result)) }
+            if failingAfter > 0 { failingSubmits[intent.key] = (failingAfter, .indeterminate) }
+            throw HomeRejection.indeterminate
+        }
         if let decided = ledger[intent.key] {
             guard decided.op == intent.op else { throw HomeRejection.invalid("idempotency_conflict") }
             var replay = try decided.outcome.get()
@@ -210,7 +226,10 @@ public actor MockHomeSource: HomeSource {
         if uploadsPaused { try await pause() }
         // The connection may have dropped while the bytes were in flight.
         guard online else { throw HomeRejection.ownerUnreachable }
-        if let failure = failingUploads.removeValue(forKey: file.ref.hash) { throw failure }
+        if let failing = failingUploads[file.ref.hash] {
+            failingUploads[file.ref.hash] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
+            throw failing.error
+        }
         // The owner's upload intent rules: an allowed type spelled as on
         // the allow list, positive dimensions, a duration within 24 hours.
         guard HomeAttachmentPolicy.allowedTypes[file.ref.mimeType.lowercased()] != nil else {
@@ -362,9 +381,9 @@ public actor MockHomeSource: HomeSource {
         for continuation in waiting { continuation.resume() }
     }
 
-    /// The next upload of this hash fails with `error` (once).
-    public func failNextUpload(hash: String, with error: HomeRejection = .invalid("attachment_upload_failed")) {
-        failingUploads[hash] = error
+    /// The next `times` uploads of this hash fail with `error`.
+    public func failNextUpload(hash: String, with error: HomeRejection = .invalid("attachment_upload_failed"), times: Int = 1) {
+        failingUploads[hash] = times > 0 ? (times, error) : nil
     }
 
     /// Calls the progress callback of upload call `index` again (a late
@@ -378,6 +397,21 @@ public actor MockHomeSource: HomeSource {
     /// looks at them (an answer lost in flight, by default); 0 clears it.
     public func failNextSubmits(of key: IdempotencyKey, times: Int, with error: HomeRejection = .indeterminate) {
         failingSubmits[key] = times > 0 ? (times, error) : nil
+    }
+
+    /// The next submit of `key` commits, then throws `indeterminate` and
+    /// holds back its events (the answer and the echo are lost); the
+    /// `failingAfter` submits after it fail before the ledger, like
+    /// `failNextSubmits`. `releaseWithheldEvents` delivers the echo.
+    public func commitThenLoseAnswer(of key: IdempotencyKey, failingAfter: Int = 0) {
+        losingAnswers[key] = failingAfter
+    }
+
+    /// Publishes the events a lost answer held back, in order.
+    public func releaseWithheldEvents() {
+        let events = withheldEvents
+        withheldEvents.removeAll()
+        for event in events { publish(event) }
     }
 
     /// The next `times` submits that reference `hash` drop its record first,
@@ -589,6 +623,10 @@ public actor MockHomeSource: HomeSource {
     }
 
     private func publish(_ event: HomeEvent) {
+        if holdingEvents {
+            withheldEvents.append(event)
+            return
+        }
         for continuation in subscribers.values { continuation.yield(event) }
     }
 

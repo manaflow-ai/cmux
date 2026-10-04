@@ -310,3 +310,77 @@ fn only_a_grid_change_resyncs_a_snapshot_viewer() {
     drop(stream);
     surface.kill();
 }
+
+/// Cost of the viewer snapshot under the terminal lock with scrollback
+/// (`terminal-snapshot-history-v1` encodes COMPLETE). Run on a Testbox:
+/// `cargo test -p cmux-tui-core --release --lib snapshot_history_encode_cost -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement"]
+fn snapshot_history_encode_cost() {
+    for lines in [10_000usize, 100_000] {
+        let mut term =
+            Terminal::new(80, 24, DEFAULT_SCROLLBACK_LIMIT_BYTES, Callbacks::default()).unwrap();
+        for line in 0..lines {
+            term.vt_write(
+                format!(
+                    "\x1b[32m{line:06}\x1b[0m compiling crate-{} v0.{}.{} (/home/dev/src/project/crates/c{}) in {}ms\r\n",
+                    line % 977,
+                    line % 13,
+                    line % 101,
+                    line % 31,
+                    line % 4099
+                )
+                .as_bytes(),
+            );
+        }
+        let runs = 5;
+        let mut ready_time = Duration::ZERO;
+        let mut complete_time = Duration::ZERO;
+        let (mut ready_len, mut complete_len) = (0, 0);
+        for _ in 0..runs {
+            let started = Instant::now();
+            ready_len = term.encode_snapshot(SnapshotPhase::Ready).unwrap().len();
+            ready_time += started.elapsed();
+            let started = Instant::now();
+            let complete = term.encode_snapshot(SnapshotPhase::Complete).unwrap();
+            complete_time += started.elapsed();
+            complete_len = complete.len();
+            assert_eq!(ghostty_vt::snapshot_ready_len(&complete), Some(ready_len));
+        }
+        println!(
+            "snapshot-history-cost lines={lines} history_rows={} ready_bytes={ready_len} \
+             history_bytes={} complete_bytes={complete_len} ready_ms={:.3} complete_ms={:.3}",
+            term.history_rows(),
+            complete_len - ready_len,
+            ready_time.as_secs_f64() * 1000.0 / runs as f64,
+            complete_time.as_secs_f64() * 1000.0 / runs as f64,
+        );
+    }
+}
+
+/// Grid changes before the worker takes its snapshot collapse into one
+/// pending snapshot (the queue keeps a flag, not one event per change).
+#[test]
+fn a_burst_of_grid_changes_queues_one_snapshot() {
+    let lifecycle = AttachLifecycle::default();
+    let (tap, receiver) = AttachTap::snapshot_pair(lifecycle, 64, 1 << 20);
+    receiver.finish_snapshot_locked();
+    for cols in 0..10u16 {
+        assert!(tap.try_send(AttachFrame::Resized {
+            cols: 60 + cols,
+            rows: 20,
+            replay: Arc::from(&b"replay"[..]),
+            kitty_image_aliases: Vec::new(),
+            kitty_state: KittyReplayState::default(),
+            pending_sequence: Arc::from([]),
+        }));
+    }
+    assert_eq!(receiver.resyncs(), 1, "ten grid changes ask for one snapshot");
+    assert!(is_snapshot(&next_event(&receiver)));
+    receiver.finish_snapshot_locked();
+    let interrupt = StreamInterrupt::new();
+    assert!(
+        receiver.recv_viewer_event(&interrupt, Some(Instant::now())).is_err(),
+        "nothing else is queued after the one snapshot"
+    );
+}

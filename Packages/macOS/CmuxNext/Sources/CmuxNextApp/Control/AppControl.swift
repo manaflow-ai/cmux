@@ -182,9 +182,10 @@ final class AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
             },
-            .mainActor("debug.home_native_fixture.open") { [weak services] _ in
+            .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugHomeNativeFixture.open(services: services))
+                let attachments = call.params["attachments"]?.boolValue ?? false
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments))
             },
             .mainActor("debug.window_list") { [weak services] _ in
                 guard let services else { return .value(.null) }

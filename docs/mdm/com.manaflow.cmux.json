@@ -638,6 +638,18 @@
       "title" : "Padding",
       "type" : "number"
     },
+    "layout.paneSeparation" : {
+      "default" : "borders",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "enum" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "title" : "Separation",
+      "type" : "string"
+    },
     "layout.rows" : {
       "default" : true,
       "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
@@ -998,6 +1010,19 @@
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
+    },
+    "sidebar.border" : {
+      "default" : false,
+      "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
+      "title" : "Border",
+      "type" : "boolean"
+    },
+    "sidebar.borderWidth" : {
+      "description" : "sidebar.borderWidth",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Border Width",
+      "type" : "number"
     },
     "sidebar.bottomBandMaxShare" : {
       "default" : 0.25,

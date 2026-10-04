@@ -86,6 +86,7 @@ final class DaemonService {
     /// (`DaemonService.prestart`); without one the first attempt starts here.
     func start(launch: LaunchIdentity, terminalEnvironment: [String: String],
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
+               resolvesShellIntegration: Bool = false,
                prestart: DaemonPrestart? = nil) {
         guard runTask == nil else { return }
         let launcher: DaemonLauncher
@@ -107,6 +108,7 @@ final class DaemonService {
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
             terminalEnvironment: terminalEnvironmentProvider,
+            resolvesShellIntegration: resolvesShellIntegration,
             sessionEvents: true)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
