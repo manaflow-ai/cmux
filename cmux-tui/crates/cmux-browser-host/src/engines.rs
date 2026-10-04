@@ -9,7 +9,7 @@
 use crate::cdp::CdpDriver;
 use crate::driver::{Driver, EventSink};
 use crate::protocol::{DriverError, ErrorCode};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -139,6 +139,15 @@ impl HostEngines {
             self.agent_source.clone(),
             events,
         )?;
+        // Chromium opens a start tab; it is no session's tab, so the session
+        // starts with none (headless Chromium keeps running without tabs).
+        if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {
+            for tab in tabs {
+                if let Some(target) = tab["targetId"].as_str() {
+                    let _ = driver.call("tabs.close", &json!({"targetId": target}));
+                }
+            }
+        }
         Ok(Arc::new(HeadlessDriver { driver, _browser: browser }))
     }
 
