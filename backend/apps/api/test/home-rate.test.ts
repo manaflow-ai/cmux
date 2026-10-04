@@ -217,4 +217,30 @@ describe("Home rate limits before reach", { timeout: 120_000 }, () => {
     const fresh = await conversationMutate(testEnv as never, sessionPrincipal(ola), { t: "op", op: "dm.open", params: { peer: quin.user }, idempotency_key: crypto.randomUUID() })
     expect(rejectOf(fresh)).toMatchObject({ code: "home.rate_limited" })
   })
+
+  it("a same-key dm.open retry after the budget is spent replays its stored result with no reach, after a create and after a reopen", async () => {
+    const rex = await signIn("rate-dmreplay-rex", "Rex")
+    const sam = await signIn("rate-dmreplay-sam", "Sam")
+    await joinTeam(rex, sam)
+    const open = (env: never, key: string) => conversationMutate(env, sessionPrincipal(rex), { t: "op", op: "dm.open", params: { peer: sam.user }, idempotency_key: key })
+    const created = crypto.randomUUID()
+    const first = (await open(testEnv as never, created)).frames.find((f) => f.t === "result") as { value: { conversation: { id: string } } } | undefined
+    const dm = first!.value.conversation.id
+    // Wait until the DM is in Rex's inbox peer index, so the next dm.open reopens it.
+    const peerOf = () => inDO(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(rex.user)), async (i) => (await i.readInbox(rex.user, sessionPrincipal(rex), "inbox.dm_peer", { peer: sam.user })).value?.conversation)
+    for (let n = 0; n < 100 && (await peerOf()) !== dm; n++) {
+      await fireAlarm(testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm)))
+      await new Promise((r) => setTimeout(r, 20))
+    }
+    const reopened = crypto.randomUUID()
+    expect((await open(testEnv as never, reopened)).frames.find((f) => f.t === "result")).toMatchObject({ value: { conversation: { id: dm } } })
+    await spend(rex, rex.user, "conversation.create", 60)
+    for (const key of [created, reopened]) {
+      const rec = recordingEnv()
+      const again = await open(rec.env, key)
+      expect(rejectOf(again)).toBeUndefined()
+      expect(again.frames.find((f) => f.t === "result")).toMatchObject({ replayed: true, value: { conversation: { id: dm } } })
+      expect(rec.calls).toEqual([])
+    }
+  })
 })
