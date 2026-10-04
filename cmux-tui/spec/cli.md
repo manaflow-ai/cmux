@@ -17,6 +17,7 @@ cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
+cmux link dial --host <install or host id> [--service daemon|ssh]
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -24,7 +25,30 @@ socket. Machine connectors use it as a transport primitive. `wg hub` owns one
 in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
 socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
-on SIGTERM or SIGINT. `attach` opens the
+on SIGTERM or SIGINT.
+
+`link dial` bridges standard I/O to a service of a paired install or a Cloud
+host (`host_…`) through this machine's running `cmux link` (the caller never
+holds peer keys or link tokens). `--service` is `daemon` (the default; the
+session's remote entry) or `ssh` (the host's sshd, Cloud hosts only, when
+their policy allows it; paired installs serve only `daemon`). Standard error
+always gets exactly one JSON line first: `{"ok":true,"path_state":"direct"|"tunnel",
+"relay_available":false}` when connected, then the stream's bytes use
+standard input and output until the stream ends; otherwise
+`{"ok":false,"error_code":...,"path_state":"unreachable","relay_available":false}`.
+Key order is not part of the contract. Exit codes:
+
+| Exit | `error_code` | Meaning |
+| --- | --- | --- |
+| 0 | (none) | connected; the stream ended |
+| 2 | `unknown_host` | no paired install or Cloud machine has this id |
+| 3 | `not_authorized` | the caller may not reach this host or service |
+| 4 | `host_paused` | the Cloud machine is paused; start it and dial again |
+| 5 | `unreachable` | no path answered |
+| 6 | `link_unavailable` | no `cmux link` runs, or it did not answer the dial |
+| 64 | `bad_request` | bad arguments or a malformed dial |
+
+`attach` opens the
 complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
 from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
