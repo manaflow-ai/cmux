@@ -407,16 +407,33 @@ pub struct SshTarget {
 /// character, an `@` in the host, and a port that is not a plain number in
 /// 1..=65535. The reason never quotes the value (it may hold a secret).
 pub fn ssh_target(url: &str) -> Result<SshTarget, &'static str> {
-    // RED stub: the old parse, which takes anything.
     let rest = url.strip_prefix("ssh://").ok_or("not an ssh:// url")?;
-    let (host, port) = match rest.rsplit_once(':') {
-        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty() => {
-            (h.to_owned(), p.parse().unwrap_or(SSH_PEER_PORT))
-        }
-        _ => (rest.to_owned(), SSH_PEER_PORT),
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let (user, hostport) = match rest.split_once('@') {
+        Some((user, hostport)) => (Some(user), hostport),
+        None => (None, rest),
     };
-    let _ = check_ssh_part;
-    Ok(SshTarget { destination: host, port })
+    let bracketed = hostport.starts_with('[') && hostport.ends_with(']');
+    let (host, port) = match hostport.rsplit_once(':') {
+        Some((host, port)) if !bracketed => {
+            let plain = !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit());
+            let port = port.parse::<u16>().ok().filter(|p| plain && *p > 0);
+            (host, port.ok_or("the port is not a plain number")?)
+        }
+        _ => (hostport, SSH_PEER_PORT),
+    };
+    check_ssh_part(host, "host")?;
+    if host.contains('@') {
+        return Err("the host has an @");
+    }
+    let destination = match user {
+        Some(user) => {
+            check_ssh_part(user, "user")?;
+            format!("{user}@{host}")
+        }
+        None => host.to_owned(),
+    };
+    Ok(SshTarget { destination, port })
 }
 
 fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {
@@ -458,16 +475,25 @@ pub fn tunnel_argv(destination: &str, port: u16) -> Vec<String> {
     .map(|s| s.to_string())
     .collect();
     argv.push(format!("127.0.0.1:{port}"));
+    argv.push("--".into());
     argv.push(destination.to_owned());
     argv
 }
 
 /// `ssh ... -- DESTINATION 'cat ~/.acpmux/config.json'` (a fixed command).
 pub fn read_config_argv(destination: &str) -> Vec<String> {
-    ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", destination, "cat ~/.acpmux/config.json"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "--",
+        destination,
+        "cat ~/.acpmux/config.json",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
 }
 
 #[cfg(test)]
@@ -508,7 +534,10 @@ mod ssh_tests {
     fn plain_targets_parse() {
         let t = |u: &str| ssh_target(u).unwrap();
         assert_eq!(t("ssh://box"), SshTarget { destination: "box".into(), port: 47811 });
-        assert_eq!(t("ssh://me@box.local:2222"), SshTarget { destination: "me@box.local".into(), port: 2222 });
+        assert_eq!(
+            t("ssh://me@box.local:2222"),
+            SshTarget { destination: "me@box.local".into(), port: 2222 }
+        );
         assert_eq!(t("ssh://box/"), SshTarget { destination: "box".into(), port: 47811 });
         assert_eq!(t("ssh://[::1]"), SshTarget { destination: "[::1]".into(), port: 47811 });
         assert_eq!(t("ssh://[::1]:9"), SshTarget { destination: "[::1]".into(), port: 9 });

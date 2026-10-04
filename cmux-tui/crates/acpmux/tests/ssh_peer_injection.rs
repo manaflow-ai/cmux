@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 struct Daemon {
     child: Option<Child>,
     home: PathBuf,
+    /// Everything the daemon wrote to stdout (its log goes there too).
+    out: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
 impl Drop for Daemon {
@@ -32,28 +34,40 @@ fn start(tag: &str, peers: Value) -> Daemon {
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(home.join("config.json"), json!({"peers": peers}).to_string()).unwrap();
-    let log = std::fs::File::create(home.join("daemon.stderr")).unwrap();
     let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
-        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+        .args([
+            "daemon",
+            "run",
+            "--memory",
+            "--listen",
+            "127.0.0.1:0",
+            "--ready-fd",
+            "1",
+            "--log",
+            "warn",
+        ])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         .env_remove("ACPMUX_LOGIN_ENV")
         .env_remove("XPC_SERVICE_NAME")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(log)
+        .stderr(Stdio::inherit())
         .spawn()
         .unwrap();
     let stdout = child.stdout.take().unwrap();
-    let d = Daemon { child: Some(child), home };
+    let out = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let d = Daemon { child: Some(child), home, out: out.clone() };
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        // Log lines may come first on stdout; the ready line is JSON.
+        // Log lines may come before the ready line (JSON); keep them all.
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             if line.starts_with('{') {
-                let _ = tx.send(line);
-                return;
+                let _ = tx.send(line.clone());
             }
+            let mut o = out.lock().unwrap();
+            o.push_str(&line);
+            o.push('\n');
         }
     });
     rx.recv_timeout(Duration::from_secs(20)).expect("daemon ready");
@@ -63,7 +77,8 @@ fn start(tag: &str, peers: Value) -> Daemon {
 fn unix(home: &Path, method: &str, params: Value) -> Value {
     let mut s = std::os::unix::net::UnixStream::connect(home.join("s.sock")).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-    writeln!(s, "{}", json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})).unwrap();
+    writeln!(s, "{}", json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
+        .unwrap();
     let mut reader = BufReader::new(s);
     loop {
         let mut line = String::new();
@@ -109,7 +124,7 @@ fn a_saved_option_shaped_peer_is_never_used_at_start() {
     assert!(!marker.exists(), "ssh ran a ProxyCommand from a saved peer URL");
     let listed = unix(&d.home, "_acpmux/peers", json!({}));
     assert_eq!(listed["result"]["peers"], json!([]), "refused peers do not run: {listed}");
-    let log = std::fs::read_to_string(d.home.join("daemon.stderr")).unwrap();
+    let log = d.out.lock().unwrap().clone();
     assert!(log.contains("peer refused"), "the refusal is logged: {log}");
     assert!(!log.contains("ProxyCommand"), "the log never quotes the URL: {log}");
     let _ = std::fs::remove_dir_all(&marker_dir);
@@ -122,7 +137,11 @@ fn peer_add_refuses_an_option_shaped_ssh_url() {
     let marker = marker_dir.join("pwned");
     let d = start("add", json!({}));
     for (i, url) in attacks(&marker).into_iter().enumerate() {
-        let reply = unix(&d.home, "_acpmux/peer_add", json!({"name": format!("p{i}"), "url": url, "wait": true}));
+        let reply = unix(
+            &d.home,
+            "_acpmux/peer_add",
+            json!({"name": format!("p{i}"), "url": url, "wait": true}),
+        );
         assert!(reply.get("error").is_some(), "{url:?} was accepted: {reply}");
     }
     std::thread::sleep(Duration::from_millis(500));

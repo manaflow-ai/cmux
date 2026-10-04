@@ -24,7 +24,7 @@ fn checked_host(host: &str) -> Result<&str> {
 /// acpmux's own fixed text.
 fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
     let host = checked_host(host)?;
-    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host, script]
+    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", host, script]
         .iter()
         .map(|s| s.to_string())
         .collect())
@@ -37,6 +37,7 @@ fn scp_push_argv(host: &str, local: &str, remote: &str) -> Result<Vec<String>> {
         "-q".into(),
         "-o".into(),
         "BatchMode=yes".into(),
+        "--".into(),
         local.to_owned(),
         format!("{host}:{remote}"),
     ])
@@ -46,12 +47,18 @@ fn scp_push_argv(host: &str, local: &str, remote: &str) -> Result<Vec<String>> {
 /// made. `remote` comes from the peer's reply: only a plain absolute or
 /// home path is accepted (a remote scp may hand it to a shell).
 pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Result<Vec<String>> {
-    let t = crate::peer::ssh_target(peer_url).map_err(|why| anyhow!("refusing that peer: {why}"))?;
-    let _ = remote;
+    let t =
+        crate::peer::ssh_target(peer_url).map_err(|why| anyhow!("refusing that peer: {why}"))?;
+    let plain = (remote.starts_with('/') || remote.starts_with("~/"))
+        && remote.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-~+".contains(&b));
+    if !plain {
+        return Err(anyhow!("refusing the bundle path the peer sent (not a plain path)"));
+    }
     Ok(vec![
         "-rq".into(),
         "-o".into(),
         "BatchMode=yes".into(),
+        "--".into(),
         format!("{}:{remote}", t.destination),
         local.to_owned(),
     ])
