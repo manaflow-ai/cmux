@@ -22,6 +22,8 @@ mod calls;
 #[cfg(unix)]
 mod catalog;
 #[cfg(unix)]
+mod credential_relay;
+#[cfg(unix)]
 mod egress;
 #[cfg(unix)]
 mod grants;

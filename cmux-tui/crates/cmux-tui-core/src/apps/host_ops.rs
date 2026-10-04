@@ -13,10 +13,8 @@
 //!   lane's registration exists); event `cmux.host.link.changed` with the
 //!   same value. Needs server scope `op:cmux.host.link.get` and a
 //!   first-party app, else `host.error` `apps.scope_missing`.
-//! - `cmux.credential.relay` answers `host.error` `unavailable` until the
-//!   Mac provider side exists (APP-R1): the supervisor will forward the
-//!   request params over the provider channel and the Mac app answers
-//!   through its host capabilities; no user credential enters the daemon.
+//! - `cmux.credential.relay` goes to the Mac app over the provider channel;
+//!   its frames and errors are in `credential_relay.rs`.
 //! - Any other `cmux.host.*` op answers `host.error` `apps.op.unknown`.
 
 use serde_json::{Value, json};
@@ -51,7 +49,7 @@ impl Supervisor {
 
     /// Whether `app` may call the host op `op`: a first-party app whose
     /// manifest declares the server scope `op:<op>`.
-    fn host_op_allowed(inner: &Inner, app: &str, op: &str) -> bool {
+    pub(super) fn host_op_allowed(inner: &Inner, app: &str, op: &str) -> bool {
         inner.catalog.packages.get(app).is_some_and(|package| {
             package.tier == Tier::FirstParty
                 && package
@@ -77,9 +75,6 @@ impl Supervisor {
                         false,
                     )
                 }
-            }
-            "cmux.credential.relay" => {
-                error("unavailable", "the cmux credential relay is not available yet", true)
             }
             op => error("apps.op.unknown", &format!("the host has no op {op}"), false),
         }

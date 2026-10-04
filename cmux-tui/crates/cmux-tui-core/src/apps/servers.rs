@@ -577,6 +577,12 @@ impl Supervisor {
                 self.terminal_line(app, &value).iter().for_each(|r| process.send(line(r)));
                 return;
             }
+            if value["t"] == "host.request" && value["op"] == super::credential_relay::RELAY_OP {
+                let outs = self.relay_locked(&mut inner, app, generation, &value);
+                drop(inner);
+                self.emit(outs);
+                return;
+            }
             if value["t"] == "host.request" {
                 let reply = self.host_request_locked(&inner, app, &value);
                 inner.servers[app].process.send(line(&reply));
@@ -671,6 +677,7 @@ impl Supervisor {
                 })
                 .collect();
             outs.extend(self.terminal_server_gone_locked(&mut inner, app));
+            outs.extend(self.relay_server_gone_locked(&mut inner, app));
             let level = if server.stopping { "info" } else { "error" };
             outs.extend(self.log_locked(
                 &mut inner,
