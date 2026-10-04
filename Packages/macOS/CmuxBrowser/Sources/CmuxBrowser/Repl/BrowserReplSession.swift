@@ -1194,7 +1194,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
-            if let refusal = self.startOrQueueFetch(callID: Int(callID), requestJSON: request?.toString() ?? "{}") {
+            let requestJSON = request?.toString() ?? "{}"
+            // An oversized body is refused before it waits in the queue.
+            if let refusal = BrowserReplFetcher.oversizedRequest(requestJSON) {
+                self.resolveCall(Int(callID), .failure(refusal))
+                return
+            }
+            if let refusal = self.startOrQueueFetch(callID: Int(callID), requestJSON: requestJSON) {
                 self.resolveCall(Int(callID), .failure(refusal))
             }
         }

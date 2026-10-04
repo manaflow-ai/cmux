@@ -21,6 +21,25 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     /// The largest response body a fetch returns, 64 MiB.
     public static let defaultMaxBodyBytes = 64 << 20
 
+    /// The largest request body a fetch sends, 64 MiB.
+    public static let maxRequestBodyBytes = 64 << 20
+
+    /// Why `requestJSON` (the host contract's fetch request) is refused for
+    /// its size before it is parsed, or nil: its body could not decode to
+    /// at most ``maxRequestBodyBytes`` bytes (Base64 is 4 characters per 3
+    /// bytes; 1 MiB is left for the URL and headers).
+    public static func oversizedRequest(_ requestJSON: String) -> BrowserReplDriverError? {
+        guard requestJSON.utf8.count > maxRequestBodyBytes / 3 * 4 + (1 << 20) else { return nil }
+        return requestBodyTooLarge(atLeast: (requestJSON.utf8.count - (1 << 20)) / 4 * 3)
+    }
+
+    private static func requestBodyTooLarge(atLeast count: Int) -> BrowserReplDriverError {
+        BrowserReplDriverError(
+            code: "invalid",
+            message: "fetch: the request body is more than \(count) bytes; a fetch sends at most 64 MiB"
+        )
+    }
+
     /// The most response body bytes one fetcher's requests hold at once, 128 MiB.
     public static let defaultMaxBufferedBytes = 128 << 20
 
@@ -120,6 +139,7 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         requestJSON: String,
         onResponse: (@Sendable () -> Void)?
     ) async -> (result: Result<String, BrowserReplDriverError>, heldBytes: Int) {
+        if let refusal = Self.oversizedRequest(requestJSON) { return (.failure(refusal), 0) }
         let request = JSONSerialization.browserReplObject(requestJSON)
         guard let urlString = request["url"] as? String,
               let url = URL(string: urlString),
@@ -147,8 +167,14 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
                 urlRequest.addValue(pair[1], forHTTPHeaderField: pair[0])
             }
         }
-        if let body = request["bodyBase64"] as? String, let data = Data(base64Encoded: body) {
-            urlRequest.httpBody = data
+        if let body = request["bodyBase64"] as? String {
+            // Refused before it is decoded: what it decodes to, less padding.
+            let padding = body.utf8.reversed().prefix(2).prefix { $0 == UInt8(ascii: "=") }.count
+            let decodedAtLeast = max(0, body.utf8.count / 4 * 3 - padding)
+            guard decodedAtLeast <= Self.maxRequestBodyBytes else {
+                return (.failure(Self.requestBodyTooLarge(atLeast: decodedAtLeast)), 0)
+            }
+            if let data = Data(base64Encoded: body) { urlRequest.httpBody = data }
         }
         if urlRequest.value(forHTTPHeaderField: "Cookie") == nil, Self.sendsCookies(info, to: url),
            let cookie = await cookieHeader(for: url, targetID: info.targetID) {
