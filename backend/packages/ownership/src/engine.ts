@@ -88,6 +88,22 @@ export const LEDGER_RETENTION_MS = 7 * 24 * 3600_000
  * EVENT_KEEP_LAST always stay. A resume from before the oldest kept event gets
  * a snapshot instead of a replay (`canReplayFrom`).
  */
+/** Largest committed head (one SQLite row; Durable Object rows are at most 2 MB). */
+export const STATE_MAX_BYTES = 1_500_000
+const utf8Length = (text: string): number => {
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (c < 0x80) n += 1
+    else if (c < 0x800) n += 2
+    else if (c >= 0xd800 && c <= 0xdbff) {
+      n += 4
+      i++
+    } else n += 3
+  }
+  return n
+}
+
 export const EVENT_RETENTION_MS = 30 * 24 * 3600_000
 export const EVENT_KEEP_LAST = 10_000
 
@@ -252,6 +268,18 @@ export class OwnerEngine<S, P = unknown> {
         : { ok: false, frame: reject(r.code, r.message, r) }
     }
 
+    // The head is one SQLite row (at most 2 MB): a commit that would pass STATE_MAX_BYTES is a typed,
+    // retryable refusal (owner.state_full) instead of an SQLite error that fails every later commit.
+    let stateJson: string | undefined
+    if (decision.ok && decision.changed) {
+      stateJson = JSON.stringify(decision.state)
+      const bytes = utf8Length(stateJson)
+      if (bytes > STATE_MAX_BYTES) {
+        console.error(JSON.stringify({ msg: "owner state full", stream: this.stream, op: frame.op, bytes }))
+        decision = { ok: false, frame: reject("owner.state_full", `the owner's state would be ${bytes} bytes (limit ${STATE_MAX_BYTES})`, { retryable: true }) }
+      }
+    }
+
     // 4. Commit (state, rows, ledger, events, outbox) in one transaction, then publish.
     const changed = decision.ok && decision.changed
     const nextSeq = changed ? this.seq + 1 : this.seq
@@ -281,7 +309,7 @@ export class OwnerEngine<S, P = unknown> {
     if (this.options.mutants?.publishBeforeCommit) publish()
     this.sql.transaction(() => {
       if (changed && decision.ok) {
-        this.sql.exec(`INSERT INTO ${t.state} (id, seq, json) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET seq = excluded.seq, json = excluded.json`, nextSeq, JSON.stringify(decision.state))
+        this.sql.exec(`INSERT INTO ${t.state} (id, seq, json) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET seq = excluded.seq, json = excluded.json`, nextSeq, stateJson ?? JSON.stringify(decision.state))
         this.rows.apply(decision.writes)
         this.sql.exec(
           `INSERT INTO ${t.events} (seq, tx, op, params, actor, origin, at, effects) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
