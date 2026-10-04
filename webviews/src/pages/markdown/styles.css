@@ -60,8 +60,9 @@ body,
   height: 100%;
 }
 
+/* R139: the page selects nothing by default (shared/desktop.css); the document (.md-doc) is
+   `.selectable` and the source textarea is a field. */
 body {
-  user-select: text;
   font-size: var(--cmux-md-ui-font-size);
 }
 

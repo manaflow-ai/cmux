@@ -4,7 +4,7 @@
 //!   cmux-browser-host serve [--socket PATH]
 //!   cmux-browser-host eval [--session NAME] [--engine E] [--max-output N] [--timeout-ms N] (-|CODE)
 //!   cmux-browser-host mcp [--session NAME] [--engine E] [--timeout-ms N]
-//!   cmux-browser-host list | close --session NAME | guide
+//!   cmux-browser-host list | close --session NAME | guide | version
 //!
 //! `eval` starts the host on demand when no host answers on the socket.
 
@@ -113,6 +113,15 @@ mod unix {
             }
         };
         match command.as_str() {
+            // `cmux-browser-host <version> (<build sha>)`, one line (release smoke check).
+            "version" | "--version" => {
+                println!(
+                    "cmux-browser-host {} ({})",
+                    env!("CARGO_PKG_VERSION"),
+                    option_env!("CMUX_BUILD_SHA").unwrap_or("unknown")
+                );
+                0
+            }
             "serve" => serve_command(&options),
             "guide" => {
                 print!("{}", bundle::GUIDE);

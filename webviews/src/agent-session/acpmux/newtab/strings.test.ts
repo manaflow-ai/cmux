@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { NEW_TAB_STRING_TABLES, nt } from "./strings";
+import { NEW_TAB_STRING_TABLES, translateNewTab } from "./strings";
 
 test("every new tab string has English and Japanese text with the same placeholders", () => {
   const { en, ja } = NEW_TAB_STRING_TABLES;
@@ -11,6 +11,6 @@ test("every new tab string has English and Japanese text with the same placehold
 });
 
 test("placeholders fill in either language", () => {
-  expect(nt("row.ask", { agent: "Codex" }, "en")).toBe("Ask Codex");
-  expect(nt("row.ask", { agent: "Codex" }, "ja")).toBe("Codexに質問");
+  expect(translateNewTab("row.ask", { agent: "Codex" }, "en")).toBe("Ask Codex");
+  expect(translateNewTab("row.ask", { agent: "Codex" }, "ja")).toBe("Codexに質問");
 });

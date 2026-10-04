@@ -1177,7 +1177,7 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
+  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "conversation.create": {
     readonly params: {
       readonly kind?: "group"
@@ -1253,7 +1253,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. */
+  /** Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. With a user peer it spends the conversation.create budget (home.rate_limited), except when it reopens an existing DM; home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "dm.open": {
     readonly params: {
       readonly peer: ParticipantId | {
@@ -2040,7 +2040,7 @@ export interface CloudOps {
       }>
     }
   }
-  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms). */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId

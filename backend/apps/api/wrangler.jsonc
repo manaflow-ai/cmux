@@ -34,6 +34,8 @@
   "env": {
     "development": {
       "name": "cmux-api-development",
+      // The Postgres/MySQL projection compare during the dual write (projection-compare-cron.ts).
+      "triggers": { "crons": ["*/15 * * * *"] },
       "vars": { "ENVIRONMENT": "development", "WORKER_NAME": "cmux-api-development", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
@@ -64,7 +66,8 @@
       // Logs also go to Axiom (dataset cmux-api-staging-logs, monitor cmux-api-staging-kms-fallback); query strings
       // (SSO codes, emails) are removed first. Workers Logs stay on (persist).
       "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": true, "persist": true, "destinations": ["axiom-cmux-api-staging"] } },
-      "triggers": { "crons": ["23 * * * *"] },
+      // 23 * * * *: feed text sweep; */15: the Postgres/MySQL projection compare during the dual write.
+      "triggers": { "crons": ["23 * * * *", "*/15 * * * *"] },
       "workers_dev": true,
       "vars": { "ENVIRONMENT": "staging", "WORKER_NAME": "cmux-api-staging", "PROJECTION_SHADOW": "mysql", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {

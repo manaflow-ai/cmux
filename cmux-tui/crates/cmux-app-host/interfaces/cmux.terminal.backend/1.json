@@ -1,18 +1,18 @@
 {
   "name": "cmux.terminal.backend/1",
   "version": 1,
-  "docs": "Bytes mode (ghostty-next-switch.md section 3, cloud-app.md): the backend carries raw terminal bytes; the local session host parses them, answers terminal queries unless capabilities.answers_queries, and owns snapshots and the journal. An app backend runs as the app's server (implements with server: true) and needs the restricted scope terminal:backend. No method or host op gives the backend a secret or a signature: for connection handles of kind ssh the host owns the SSH transport (it dials, checks the pinned host key and authenticates with the user's key) and the backend gets a channel (hostOps). Rust trait TerminalBackend (cmux-tui-core terminal_backend, slice S3).",
+  "docs": "Bytes mode (ghostty-next-switch.md section 3, cloud-app.md): the backend carries raw terminal bytes; the local session host parses them, answers terminal queries unless capabilities.answers_queries, and owns snapshots and the journal. An app backend runs as the app's server (implements with server: true) and needs the restricted scope terminal:backend. No method or host op gives the backend a secret or a signature: for connection handles of kind ssh the host owns the SSH transport (it dials, checks the pinned host key and authenticates with the user's key) and the backend gets a channel (hostOps). Rust traits TerminalBackend, ByteTerminal and HostChannels in the crate cmux-terminal-iface (synchronous, frames pulled with take_frames); the daemon side is cmux-tui-core terminal_backend.",
   "props": {
     "kind": "string (one of options.kinds)",
     "target": "string (an opaque connection handle conn_..., or a backend-defined id such as a cloud machine id; never a host name typed by a user or an agent)"
   },
   "methods": {
-    "open": "({terminal, kind, target, open_token, cols, rows, cell_width_px?, cell_height_px?, cwd?, command?, env?}) -> {capabilities, window_bytes, resume_token?}. The session host picks terminal (it owns the journal). A kind not in options.kinds fails with denied.",
-    "resume": "({terminal, resume_token, open_token}) -> {capabilities, window_bytes, offset}: output continues from offset; an offset the backend cannot serve ends with lost",
+    "open": "removed from the wire (2026-10-04, P1): the app opens a terminal with the host op cmux.terminal.backend.open; the Rust trait TerminalBackend::open stays as the app's own shape",
+    "resume": "removed from the wire: host op cmux.terminal.backend.resume",
     "write": "removed: input is data frames on the terminal channel (dataPlane), within the backend's in credit",
-    "resize": "({terminal, cols, rows, cell_width_px?, cell_height_px?}) -> void (capabilities.resize)",
-    "signal": "({terminal, signal}) -> void (capabilities.signals; signal is a name without SIG: INT, TERM, HUP, KILL, ...)",
-    "close": "({terminal}) -> void"
+    "resize": "host.event cmux.terminal.backend.resize {terminal, cols, rows, cell_width_px?, cell_height_px?}: the session host's grid changed (capabilities.resize)",
+    "signal": "not sent yet: the session host sends no signals; Ctrl-C and similar keys are input bytes",
+    "close": "host.event cmux.terminal.backend.close {terminal}: the session host closed the terminal (a kill, or it never had a view within 60 s); the terminal has already ended on the host"
   },
   "events": [
     "output",
@@ -23,7 +23,8 @@
     "type": "object",
     "additionalProperties": false,
     "required": [
-      "kinds"
+      "kinds",
+      "openOps"
     ],
     "properties": {
       "kinds": {
@@ -44,14 +45,14 @@
         "uniqueItems": true,
         "items": {
           "type": "string",
-          "maxLength": 96,
-          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-zA-Z0-9_-]*)+$"
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-zA-Z0-9_-]*)+$",
+          "maxLength": 96
         },
-        "description": "Catalog ops of this app whose user runs open a connection: only an origin-user run of one of these gets an open token (stamped by the host, single use, 60 s). Every entry must be an op in the app's catalog fragment."
+        "description": "Catalog ops of this app whose user runs open a link or terminal: only an origin-user run of one of these gets an open token (stamped by the host, single use, 60 s), and the host accepts a token only when it was minted for one of them (default deny). Every entry must be an op in the app's catalog fragment."
       }
     }
   },
-  "status": "draft: shapes chosen by the ghostty-next lead (2026-10-04, revised with the SSH sample's gaps: offsets, typed host key refusal, exit signal, answers_queries, host-owned SSH transport with no signing op; 2026-10-04 later: credit-based data frames, host-picked terminal ids, denied for undeclared kinds); refined with the cmux Cloud and third-party sample backends before the interface is public",
+  "status": "draft: shapes chosen by the ghostty-next lead (2026-10-04, revised with the SSH sample's gaps: offsets, typed host key refusal, exit signal, answers_queries, host-owned SSH transport with no signing op; 2026-10-04 later: credit-based data frames, host-picked terminal ids, denied for undeclared kinds); refined with the cmux Cloud and third-party sample backends before the interface is public; 2026-10-04 later: terminal open/resume are app -> host ops, host channels open per terminal, resize/close are host events",
   "eventShapes": {
     "output": "data frames on the terminal channel (dataPlane), within the session host's out credit; offset is the running total since open and continues across resume",
     "exit": "end {terminal, exit: {code?, signal?, core_dumped, message?}}: code when the far end sent an exit status; signal is the name without SIG; message is far-end text, at most 4 KiB, shown and never parsed",
@@ -74,11 +75,13 @@
     "invalid": "{reason}"
   },
   "hostOps": {
-    "connection.channel.open": "({connection, open_token, pty: {term, cols, rows}, command?}) -> {channel, window_bytes} for a connection handle of kind ssh. The host resolves the handle, dials, checks the host key the user pinned for it (else the call fails with hostKey), authenticates with the user's credential, opens a session channel with a PTY and returns a byte channel (data in and out, window change, signal, exit status). The backend never sees the host name, the key or a signature. Data, credit and end on the channel follow dataPlane.",
+    "cmux.terminal.backend.open": "({kind, target, open_token}) -> {terminal, window_bytes}. Direction: app server -> host. The host consumes open_token first (issued to this app, single use, 60 s; any attempt burns it), then checks that it was minted for an op in options.openOps, that the app implements this interface with its server and holds the terminal:backend grant, that kind is in options.kinds, and target (1 to 256 bytes, no control characters); at most 64 terminals per app. The session host assigns the terminal id, creates it as a catalog-owned terminal with zero views (it parses, answers queries, keeps the journal and snapshots) at its own grid, and broadcasts apps-terminal {terminal, terminal_id, id, app, target, run_key} to its clients; the client whose user run has run_key gives it its first view with terminal.project in its own focused workspace; a terminal that never had a view 60 s after its open is closed. Output is data frames for channel=terminal; the app's end frame (exit or lost) ends the terminal after its last output.",
+    "cmux.terminal.backend.resume": "({terminal, resume_token, open_token}) -> {window_bytes, offset}: after a user run of an op in options.openOps (\"disconnected, click to reconnect\"); nothing resumes on its own. v1: the token is consumed and checked, then the host answers unsupported (reviving an ended session-host terminal is not built).",
+    "cmux.terminal.channel.open": "({terminal, connection, pty: {term, cols, rows}, command?}) -> {channel, window_bytes} (P2): only for an open terminal this app holds (its open consumed the token). The host resolves the connection handle, dials, checks the pinned host key (else hostKey), authenticates with the user's credential and opens a PTY channel. The backend never sees the host name, the key or a signature. v1: the transport is not built and answers unavailable {retryable: false}.",
     "connection.channel.resize": "({channel, cols, rows}) -> void",
     "connection.channel.signal": "({channel, signal}) -> void",
     "connection.channel.close": "({channel}) -> void",
-    "open_token": "issued by the host for one open or resume of one terminal after the user's gesture; host ops refuse a missing, expired or reused token"
+    "open_token": "issued by the host for one open or resume of one terminal after the user's gesture (a user-origin run of an op in options.openOps); host ops refuse a missing, expired, reused or other app's token, or one minted for an op outside options.openOps"
   },
   "dataPlane": {
     "frames": "Data moves as frames on the app host's stream (binary payload), never as op calls. Per channel, in order: data {channel, offset, bytes} (offset = running byte total after this frame, per direction), credit {channel, direction: in|out, bytes} and end {channel, exit? | lost?} (exactly once, after the last data). channel is a host channel (hostOps), a terminal (backend output and input) or a connector link.",

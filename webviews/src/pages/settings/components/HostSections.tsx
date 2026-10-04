@@ -140,6 +140,7 @@ function ProfileRow({
             <span className="row-help">{t("settingsWindow.profileName")}</span>
             <input
               className="field"
+              aria-label={t("settingsWindow.profileName")}
               value={name}
               onChange={(event) => setDraft({ for: current, name: event.target.value, icon })}
               onKeyDown={(event) => {
@@ -173,6 +174,7 @@ function ProfileRow({
             <span className="row-help">{t("settingsWindow.profileIcon")}</span>
             <input
               className="field"
+              aria-label={t("settingsWindow.profileIcon")}
               value={icon}
               onChange={(event) => setDraft({ for: current, name, icon: event.target.value })}
               onKeyDown={(event) => {

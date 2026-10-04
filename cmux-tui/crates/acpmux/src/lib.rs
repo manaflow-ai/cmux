@@ -11,6 +11,7 @@
 
 pub mod adopt;
 pub mod agent;
+pub mod agent_host;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;
@@ -24,6 +25,7 @@ pub mod rpc;
 pub mod schema;
 pub mod server;
 pub mod session_name;
+pub mod sha256;
 pub mod store;
 pub mod transcript;
 pub mod trust;

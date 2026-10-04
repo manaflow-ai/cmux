@@ -2,9 +2,10 @@ import CmuxNextActions
 import CmuxNextServer
 
 /// cmux server actions on this Mac (plans/cmux-next/server.md 13). DEV and
-/// NIGHTLY: the menu bar item and its panels are prototypes over a mock
-/// `server.status`; the launch agent registers only in builds that carry the
-/// server software. Scripts use the Rust CLI's `cmux server …` verbs.
+/// NIGHTLY: the menu bar item and its panels render the bundled CLI's
+/// `server status`; the launch agent registers only in builds that carry the
+/// server software, and Stop Serving also reverts the helper's fixes and
+/// removes the helper. Scripts use the Rust CLI's `cmux server …` verbs.
 enum ServerHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let menuBar = context.services.serverMenuBar
@@ -19,11 +20,11 @@ enum ServerHandlers {
         registry.bind("server.stopServing", run: { _ in
             menuBar.hide()
             registry.track(Task { @MainActor in
-                do {
-                    try await ServerLaunchAgent.unregister()
+                do throws(ServerStopServing.Failure) {
+                    try await ServerStopServing.app().run()
                     return nil
                 } catch {
-                    return ActionWorkFailure(String(describing: error))
+                    return ActionWorkFailure(error.message)
                 }
             })
         })

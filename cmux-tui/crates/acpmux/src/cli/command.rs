@@ -107,7 +107,7 @@ pub enum Command {
     #[command(alias = "presets")]
     Preset {
         name: Option<String>,
-        /// key=value pairs: harness, model, effort, policy, description, env.KEY
+        /// key=value pairs: harness, model, effort, policy, description, env.KEY, args (a JSON list)
         pairs: Vec<String>,
         #[arg(long)]
         clear: bool,

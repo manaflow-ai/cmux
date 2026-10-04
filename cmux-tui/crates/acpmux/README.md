@@ -436,6 +436,32 @@ acpmux run -p omx --cwd ~/proj -m codex/gpt-5.5 "…"                 # -m and -
 acpmux preset                                                        # list; `preset NAME --clear` removes one
 ```
 
+A preset's `args` are words appended to the harness command line, given as one JSON list
+(`acpmux preset compact harness=claude-sr 'args=["--tools", "", "--no-session-persistence"]'`).
+Each entry is one argv word passed as it is, never through a shell. They are an allowlist that
+can only take capabilities away: on a Claude Code harness `--tools ""` (an empty value only),
+`--strict-mcp-config` (no `--mcp-config` may be given) and `--no-session-persistence`; on any
+other harness none. Every other word is refused when the preset is set and when a session
+starts, `=` forms and short aliases included.
+
+A preset's `systemPrompt` is the text of a Claude Code system prompt (set over the RPC
+`_acpmux/presets`, never echoed back). acpmux writes it to `presets/<name>/system.md` next to
+its `config.json` (directory 0700, file read-only), records its sha256 (`systemPromptSha256`),
+checks the file against that hash at every session start (a mismatch or a missing file refuses
+the start) and passes `--system-prompt-file` with that path itself. Set the preset again when
+the text changes; the new hash applies to sessions that start after it. Preset names that carry
+one use ASCII letters, digits, `-`, `_` and `.`.
+
+A connection from the WebSocket listener (peer daemons, remote clients) is remote-origin:
+remote chains build their settings from scratch, so it never starts a session with, sets,
+changes or clears a preset that carries `args` or a `systemPrompt`, and a session it created
+never spawns with one later.
+
+On Claude Code harnesses, a text block's `cache_control` in `session/prompt` reaches Claude
+Code's stream-json input unchanged (other extra block fields are dropped), so a client can
+place its own cache breakpoint. Claude Code adds up to three breakpoints of its own and the API
+allows four, so a client has room for one.
+
 ### Bring your own ACP harness
 
 Every harness is a `harnesses` entry in `~/.acpmux/config.json`. Discovery fills in the ones on

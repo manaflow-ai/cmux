@@ -19,9 +19,11 @@ use crate::workspace_registry::{
 use crate::{ResourceSelectors, ResourceTarget, SurfaceId};
 use live_screen::registry_screen_from_live;
 use published_screens::PublishedScreens;
+use split_ids::ensure_split_public_ids;
 
 mod live_screen;
 mod published_screens;
+mod split_ids;
 
 impl Mux {
     pub(crate) fn resource_project_terminal_selected(
@@ -41,7 +43,8 @@ impl Mux {
             "name": name,
         });
         let mux = std::sync::Arc::clone(self);
-        self.commit_resource_mutation_plan(
+        let (first_view, registered) = super::app_terminals::FirstView::pair();
+        let commit = self.commit_resource_mutation_plan(
             mutation,
             "terminal.project",
             &fingerprint,
@@ -82,9 +85,11 @@ impl Mux {
                     .find(|candidate| candidate.public_id == pane_id)
                     .cloned()
                     .context("destination pane has no durable projection")?;
-                let host = mux
-                    .resource_terminal_host_identity(&terminal)
-                    .context("terminal omitted its durable host identity")?;
+                let first = mux.app_terminal_first_view(state, &terminal, pane)?;
+                let host = match &first {
+                    Some((host, _)) => host.clone(),
+                    None => mux.resource_terminal_host_identity(&terminal).context("no host")?,
+                };
                 let host_id = host.terminal_id;
                 let tab_id = TabPublicId::random()?;
                 let surface_id = mux.next_id();
@@ -148,9 +153,10 @@ impl Mux {
                         }
                     }));
                 let terminal_tab_ids = terminal_tab_order.remove(&terminal_id).unwrap_or_default();
-                let durable = registry
-                    .terminal_record(&host_id)?
-                    .context("terminal projection has no durable host")?;
+                let durable = match &first {
+                    Some((_, record)) => record.clone(),
+                    None => registry.terminal_record(&host_id)?.context("no durable host")?,
+                };
                 let terminal_value = public_terminal_snapshot(
                     &terminal_id,
                     &durable,
@@ -174,7 +180,7 @@ impl Mux {
                     "value":terminal_value,
                 }));
 
-                let mut patch_changes = Vec::with_capacity(if focused { 3 } else { 2 });
+                let mut patch_changes = first_view.record(first, &terminal_id, terminal.id);
                 if focused {
                     patch_changes.push(ResourceChange::UpsertPane(destination_pane));
                 }
@@ -240,7 +246,9 @@ impl Mux {
                     },
                 ))
             },
-        )
+        )?;
+        self.finish_app_terminal_first_view(&registered)?;
+        Ok(commit)
     }
 
     pub(crate) fn resource_move_terminal_selected(
@@ -982,7 +990,10 @@ impl Mux {
             }
         }
         for (terminal_id, surface) in &state.terminal_catalog {
-            if !live_terminals.insert(terminal_id.clone()) {
+            // An app terminal is published by its first view (`app_terminals.rs`).
+            if !live_terminals.insert(terminal_id.clone())
+                || self.is_unregistered_app_terminal(surface.id)
+            {
                 continue;
             }
             let host = self
@@ -1150,39 +1161,6 @@ fn ordered_terminal_tab_ids(
         }
     }
     Ok(terminal_tab_ids_in_canonical_order(tabs))
-}
-
-fn ensure_split_public_ids(state: &mut State) -> anyhow::Result<()> {
-    let mut splits = HashSet::new();
-    for workspace in &state.workspaces {
-        for screen in &workspace.screens {
-            collect_node_split_ids(&screen.root, &mut splits);
-            for column in &screen.layout_columns {
-                splits.extend(std::iter::once(column.id).chain(column.row_ids()));
-                collect_node_split_ids(&column.root, &mut splits);
-            }
-        }
-    }
-    for split in splits {
-        if state.resource_indexes.split_ids.contains_key(&split) {
-            continue;
-        }
-        let public_id = SplitPublicId::random()?;
-        state.resource_indexes.splits.insert(public_id.clone(), split);
-        state.resource_indexes.split_ids.insert(split, public_id);
-    }
-    Ok(())
-}
-
-fn collect_node_split_ids(node: &Node, splits: &mut HashSet<crate::SplitId>) {
-    match node {
-        Node::Leaf(_) | Node::Stack { .. } => {}
-        Node::Split { id, a, b, .. } => {
-            splits.insert(*id);
-            collect_node_split_ids(a, splits);
-            collect_node_split_ids(b, splits);
-        }
-    }
 }
 
 fn registry_layout_node(state: &State, node: &Node) -> anyhow::Result<RegistryLayoutNode> {

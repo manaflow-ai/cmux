@@ -74,7 +74,7 @@ test("a file header shows the dim directory, the bright name, the counts and a c
   expect(doc.querySelector(".file-header-additions")?.textContent).toBe("+17");
   expect(doc.querySelector(".file-header-deletions")?.textContent).toBe("-8");
   expect(doc.querySelector(".cmux-file-icon")?.getAttribute("data-icon-token")).toBe("swift");
-  const order = Array.from(doc.querySelector(".file-header")!.children).map((child) => child.getAttribute("class"));
+  const order = Array.from(doc.querySelector(".file-header")!.children).map((child) => child.classList[0]);
   expect(order.indexOf("file-header-caret")).toBe(order.indexOf("file-header-path") + 1);
 });
 

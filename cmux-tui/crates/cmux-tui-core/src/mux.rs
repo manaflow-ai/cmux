@@ -2,6 +2,7 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+pub(crate) mod app_terminals;
 mod conversations;
 mod exit_settle;
 mod host_close;
@@ -9,8 +10,10 @@ mod host_close;
 mod host_death_tests;
 mod idle_close;
 mod kitty_reservation;
+use kitty_reservation::{kitty_image_limits_exceed, kitty_image_limits_within};
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
+mod layout_undo_commit;
 mod personal;
 mod presentation;
 mod public_projections;
@@ -417,24 +420,6 @@ fn kitty_image_limits_for_capacity(capacity: usize) -> KittyGraphicsLimits {
         .unwrap_or(0)
         .min(ghostty_vt::MAX_KITTY_PLACEMENTS);
     KittyGraphicsLimits { image_bytes, inflight_bytes, images, placements }
-}
-
-fn kitty_image_limits_within(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
-    candidate.image_bytes <= ceiling.image_bytes
-        && candidate.inflight_bytes <= ceiling.inflight_bytes
-        && candidate.images <= ceiling.images
-        && candidate.placements <= ceiling.placements
-}
-
-fn kitty_image_limits_exceed(candidate: KittyGraphicsLimits, ceiling: KittyGraphicsLimits) -> bool {
-    !kitty_image_limits_within(candidate, ceiling)
-}
-
-fn kitty_image_limits_enabled(limits: KittyGraphicsLimits) -> bool {
-    limits.image_bytes > 0
-        && limits.inflight_bytes > 0
-        && limits.images > 0
-        && limits.placements > 0
 }
 
 #[derive(Clone)]
@@ -2591,6 +2576,8 @@ pub struct Mux {
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
+    layout_undo_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
@@ -2598,6 +2585,8 @@ pub struct Mux {
     deadline_fanout_pool: DeadlineFanoutPool,
     kitty_image_budget: Mutex<KittyImageBudgetState>,
     kitty_image_budget_changed: Condvar,
+    /// App byte-backend terminals (`app_terminals.rs`), by catalog surface.
+    app_terminals: Mutex<HashSet<SurfaceId>>,
     #[cfg(debug_assertions)]
     terminal_host_reconnect_completion_failures: AtomicU64,
     #[cfg(debug_assertions)]
@@ -3059,6 +3048,8 @@ impl Mux {
             #[cfg(test)]
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
+            layout_undo_before_commit: Mutex::new(None),
+            #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
@@ -3066,6 +3057,7 @@ impl Mux {
             deadline_fanout_pool: DeadlineFanoutPool::new(),
             kitty_image_budget: Mutex::new(KittyImageBudgetState::default()),
             kitty_image_budget_changed: Condvar::new(),
+            app_terminals: Mutex::default(),
             #[cfg(debug_assertions)]
             terminal_host_reconnect_completion_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_RECONNECT_COMPLETION_FAILURES")
@@ -17179,9 +17171,12 @@ impl Mux {
         })?;
         let mut fields = Map::from_iter([("confirm_close".into(), Value::Bool(confirm_close))]);
         fields.insert("expected_layout_revision".into(), Value::from(current_revision));
-        let expected_resource_revision = if created_panes.is_empty() {
-            None
-        } else {
+        // The confirmation token fences exactly what closes; it is computed
+        // once. The resource revision is only the commit's precondition, so a
+        // conflict from an unrelated commit between reading it and committing
+        // is retried (bounded) with the same token: the commit re-checks the
+        // token against the state it commits on.
+        if !created_panes.is_empty() {
             let registry = self.workspace_registry.lock().unwrap();
             let state = self.state.lock().unwrap();
             let Some((workspace_index, screen_index)) = state.screen_of(pane) else {
@@ -17196,29 +17191,9 @@ impl Mux {
                 .as_str()
                 .context("layout undo confirmation omitted its token")?;
             fields.insert("confirmation_token".into(), Value::String(token.to_string()));
-            Some(registry.resource_topology_snapshot()?.revision)
-        };
-        let commit = self
-            .commit_resource_topology_operation(
-                ResourceOperation::ScreenLayoutUndo,
-                selectors,
-                fields,
-                expected_resource_revision,
-                &WorkspaceMutation::local("cmux-tui-layout-undo"),
-            )
-            .map_err(|error| {
-                if error
-                    .downcast_ref::<ResourceError>()
-                    .is_some_and(|error| error.code == "revision.conflict")
-                {
-                    anyhow::Error::new(LayoutUndoError::Stale(
-                        "layout revision conflict: resource topology changed before confirmed undo could commit"
-                            .to_string(),
-                    ))
-                } else {
-                    error
-                }
-            })?;
+        }
+        let commit =
+            self.commit_confirmed_layout_undo(selectors, fields, !created_panes.is_empty())?;
         let screen = commit
             .result
             .get("screen")
@@ -20196,6 +20171,7 @@ mod tests {
 
     mod column_update;
     mod kitty_reservation;
+    mod layout_undo_commit;
     mod rows;
     mod sticky_columns;
 
@@ -21827,9 +21803,13 @@ mod tests {
 
     #[test]
     fn durable_workspace_creation_supports_the_in_process_terminal_runtime() {
+        // A child that writes nothing: a live shell's OSC 7 cwd report can
+        // commit a second revision before the snapshot below (1 of 3 full runs).
+        let quiet = vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()];
+        let options = SurfaceOptions { command: Some(quiet), ..SurfaceOptions::default() };
         let mux = Mux::new(
             format!("in-process-resource-{}", WorkspacePublicId::random().unwrap()),
-            SurfaceOptions::default(),
+            options,
         );
 
         let surface = mux.new_workspace(Some("headless".into()), Some((80, 24))).unwrap();

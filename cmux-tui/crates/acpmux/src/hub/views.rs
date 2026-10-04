@@ -108,6 +108,9 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            // New agents outlive this daemon (agent hosts): a restart for an
+            // update keeps them running.
+            "agentHosts": self.agent_hosts_enabled(),
             "harnesses": cfg.harnesses.keys().collect::<Vec<_>>(),
             "defaultHarness": cfg.default_harness,
             "permissionPolicy": cfg.permission_policy.to_string(),

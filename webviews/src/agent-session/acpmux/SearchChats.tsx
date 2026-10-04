@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "./shortcuts";
 
 /** How many chats the palette lists (⌃1 to ⌃9 open them). */
@@ -35,6 +35,7 @@ export function SearchChats({
   onNewChat(): void;
   onClose(): void;
 }) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const chats: Row[] = searchChats(sessions, query).map((session, index) => ({

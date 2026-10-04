@@ -10,7 +10,7 @@
 import type { AcpmuxRow } from "../model";
 import { turnPreviewUrl } from "./previewUrl";
 import { timestampTurns } from "./timestamps";
-import { t } from "../i18n";
+import type { Translate } from "../i18n";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -42,7 +42,7 @@ export const toolCalls = (count = 0) => (count === 1 ? "1 tool call" : `${count}
 /// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
 /// or "34 previous messages" for a turn whose timing is unknown (a reloaded turn without a
 /// summary). It shows no tool-call count.
-export function workedLabel(row: AcpmuxRow): string {
+export function workedLabel(t: Translate, row: AcpmuxRow): string {
   if (row.previous !== undefined)
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
   if (row.durationMs === undefined) return toolCalls(row.toolCount);

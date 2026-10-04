@@ -243,7 +243,15 @@ to UsageMeterDO (hard cap) and ClickHouse (detail); MySQL holds the monthly summ
    reads `vpc_endpoint`/`gateway` from TeamDO's peer map (lane 12), and mints a `link_token` (signed,
    single host, single install, the allowed services, this epoch, at most 5 minutes). Not bound
    answers `cloud.machine.not_bound`; paused answers the record with `state: paused`.
-4. Revocation: install revocation through UserDO closes links (the token is checked at hello and
+4. Access (decision CLOUD-CONNECT-ACCESS, Cloud owner a9, 2026-10-04): on a team machine, team members
+   may connect by default and an admin can restrict it; on a personal machine only the creator, plus
+   grants the creator can revoke. Policy is per service (daemon, ssh). Agents act as their principal
+   (their owner's access, never more). Every connect_info and every link_token mint is audited.
+5. `cloud.machine.link_token {host, services}` (decision LINK-TOKEN-OP): install principals only, never
+   a session (an app or page caller never holds a link token, decision LINK-RESOLVE); not a read and
+   no idempotency key, because each call mints a fresh short-lived credential; risk execute; audited;
+   never cached or logged. connect_info carries no credential.
+6. Revocation: install revocation through UserDO closes links (the token is checked at hello and
    bound to one install); a machine delete emits `cloud.machine.removed` and drops the peer entry.
 
 ## 6. Classic Cloud migration

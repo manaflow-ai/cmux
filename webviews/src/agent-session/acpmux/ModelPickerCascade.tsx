@@ -1,7 +1,7 @@
 import type React from "react";
 import { useId, useState } from "react";
 import { SearchIcon } from "./ComposerPickers";
-import { t } from "./i18n";
+import { useT } from "./i18n";
 import { MenuLevel, rowId } from "./MenuLevel";
 import { menuNodes, pickerData, recentKey, typeKey } from "./modelMenuNodes";
 import { useMenuHandle, type ModelMenuProps } from "./modelPickerLayout";
@@ -14,6 +14,7 @@ import { useMenuTree, type MenuNode } from "./useMenuTree";
 /// the bottom next to the pointer, the rest under "More…"; a click on one lands on its default
 /// in one action.
 export function ModelPickerCascade(props: ModelMenuProps) {
+  const t = useT();
   const { trigger, menu, close } = props;
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -23,6 +24,7 @@ export function ModelPickerCascade(props: ModelMenuProps) {
     order: "bestLast",
     expanded,
     expand: (key) => setExpanded((keys) => new Set([...keys, key])),
+    t,
   });
   const some = (node: MenuNode | undefined) => (node ? [node] : []);
   const root: MenuNode[] = query
