@@ -15,9 +15,12 @@
 #
 # Sources, in order; every download is checked against the manifest sha256:
 #   1. the local cache
-#   2. the private R2 bucket (manifest r2_bucket/r2_key) through the S3 API,
+#   2. the fleet controller's artifact store: the controller signs a short-lived
+#      GET of sha256:<manifest sha256> for a caller on its tailnet (no token or
+#      credential on this host); unreachable off the tailnet, then skipped
+#   3. the private R2 bucket (manifest r2_bucket/r2_key) through the S3 API,
 #      when read credentials are set (environment or an env file, below)
-#   3. the private GitHub release on manaflow-ai/cef (gh login or a token)
+#   4. the private GitHub release on manaflow-ai/cef (gh login or a token)
 #
 # Environment:
 #   CMUX_NEXT_SKIP_CEF=1   print nothing, exit 0 (builds without CEF)
@@ -31,6 +34,10 @@
 #                          ~/.secrets/cmux-cef.env) if that file exists.
 #   CMUX_CEF_R2_ENDPOINT   S3 endpoint override (default
 #                          https://<account>.r2.cloudflarestorage.com)
+#   CMUX_CEF_STORE_URL     fleet controller (default http://100.89.225.106:18765,
+#                          its tailnet address; MagicDNS does not resolve on
+#                          every fleet host)
+#   CMUX_CEF_NO_STORE=1    skip the controller artifact store
 #   CMUX_CEF_NO_R2=1       skip R2 (test the GitHub fallback)
 #   GH_TOKEN/GITHUB_TOKEN  used when `gh` is not logged in (private repo)
 #
@@ -134,6 +141,26 @@ verified() { # <file>; the manifest sha256 decides every source
   return 1
 }
 
+# The archive is content addressed in the store, and verified() checks the bytes
+# against the manifest, so trust stays with the manifest, as for every source.
+fetch_store() {
+  [[ "${CMUX_CEF_NO_STORE:-0}" == "1" ]] && return 1
+  [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || return 1
+  local controller="${CMUX_CEF_STORE_URL:-http://100.89.225.106:18765}" signed
+  # The artifact edge refuses some default user agents; send ours.
+  signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30       -A cmux-ensure-cef "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |
+    /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("url", ""))' 2>/dev/null || true)"
+  [[ "$signed" == https://* || "$signed" == http://* ]] || return 1
+  echo "==> downloading $asset ($version) from the controller artifact store" >&2
+  if curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --connect-timeout 15       --max-time 1800 -A cmux-ensure-cef -o "$archive" "$signed" >&2; then
+    verified "$archive" "the controller artifact store" && return 0
+  else
+    echo "warning: artifact store download failed; trying R2" >&2
+    rm -f "$archive"
+  fi
+  return 1
+}
+
 fetch_r2() {
   [[ "${CMUX_CEF_NO_R2:-0}" == "1" ]] && return 1
   [[ -n "$r2_bucket" && -n "$r2_key" ]] || return 1
@@ -180,7 +207,7 @@ fetch_github() {
   return 1
 }
 
-fetch_r2 || fetch_github ||
+fetch_store || fetch_r2 || fetch_github ||
   fail "could not download a verified $asset (set CMUX_CEF_R2_* or ~/.secrets/cmux-cef.env, or log in with gh / set GH_TOKEN)"
 
 mkdir -p "$tmp/x"

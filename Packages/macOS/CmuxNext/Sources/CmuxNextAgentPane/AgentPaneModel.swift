@@ -84,6 +84,14 @@ public final class AgentPaneModel {
         self.newTab = sessionId == nil ? newTab : nil
     }
 
+    /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
+    /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
+    /// already became a chat keeps its chat.
+    public func adoptNewTab(_ page: AgentPaneNewTab) {
+        guard newTab != nil else { return }
+        newTab = page
+    }
+
     /// The reply for one page request.
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
@@ -98,6 +106,7 @@ public final class AgentPaneModel {
                     handshake.cwd = seed.cwd
                     handshake.draft = seed.draft
                     handshake.prompt = seed.prompt
+                    handshake.harness = seed.harness
                     handshake.adopt = seed.adopt
                 }
                 // The surface holds after the chat has a session (a reload

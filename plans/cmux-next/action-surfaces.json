@@ -5377,6 +5377,29 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "tab new-from-text",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "newTab.submit",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Tab from Text",
+      "title_key" : "action.newTab.submit",
+      "title_table" : "NewTabActions"
+    },
+    {
       "cli" : "focusMove",
       "cli_name" : "tab focus-location",
       "context_menu" : "focusMove",

@@ -118,6 +118,9 @@ test("a prompt lists the agents; Enter asks the first, Tab switches to Search an
   await type("fix the build");
   const titles = () => [...container.querySelectorAll(".nt-row")].map((row) => row.getAttribute("data-type"));
   expect(titles()).toEqual(["agent", "agent", "search"]);
+  // Each agent row wears its brand mark (design/agent-icons).
+  const marks = [...container.querySelectorAll('.nt-row[data-type="agent"] svg.agent-mark')];
+  expect(marks.map((svg) => svg.getAttribute("data-agent"))).toEqual(["claude", "openai"]);
   await key("Enter");
   expect(calls).toEqual(["ask:claude:fix the build"]);
   await key("Tab");
