@@ -171,7 +171,9 @@ test("a drag that selects text in the path does not toggle the file", () => {
   const { calls, doc } = renderToggleHeader(false);
   const name = doc.querySelector(".file-header-name")!;
   const mouse = (type: string, x: number) =>
-    name.dispatchEvent(new dom!.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: 8 }));
+    name.dispatchEvent(
+      new dom!.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: 8 }),
+    );
   // Press, drag across the name, release: a selection, not a toggle.
   mouse("mousedown", 10);
   mouse("mouseup", 70);

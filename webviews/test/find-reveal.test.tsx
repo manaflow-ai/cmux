@@ -29,7 +29,12 @@ afterEach(async () => {
   }
 });
 
-function item(id: string, line: string, extra: Partial<DiffItem> = {}, fileDiff: Record<string, unknown> = {}): DiffItem {
+function item(
+  id: string,
+  line: string,
+  extra: Partial<DiffItem> = {},
+  fileDiff: Record<string, unknown> = {},
+): DiffItem {
   return {
     id,
     type: "diff",
