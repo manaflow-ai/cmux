@@ -1001,6 +1001,34 @@ function turnCases(): CorpusCase[] {
   return cases;
 }
 
+function promptRetryCases(): CorpusCase[] {
+  const cases: CorpusCase[] = [];
+  {
+    const c = new CaseBuilder("prompts: a rejected prompt is sent again on the clock (1 s, then 2 s), not at the next connect; an answered one is not");
+    boot(c);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
+    c.step(live(m1), ["persist", "prompt"]);
+    c.step({ kind: "prompt_settled", prompt_id: m1.id, rejected: true } as Input, ["arm_timer"], (e) => {
+      const timer = c.get(e, "arm_timer");
+      c.check(timer.key === `prompt:${m1.id}` && timer.at === c.now + 1_000, `retry in 1 s, got ${JSON.stringify(timer)}`);
+    });
+    c.step({ kind: "timer", key: `prompt:${m1.id}` }, ["prompt"], (e) => c.check(c.get(e, "prompt").prompt_id === m1.id, "sent again"), 1_000);
+    c.step({ kind: "prompt_settled", prompt_id: m1.id, rejected: true } as Input, ["arm_timer"], (e) =>
+      c.check(c.get(e, "arm_timer").at === c.now + 2_000, "then in 2 s"),
+    );
+    c.step({ kind: "timer", key: `prompt:${m1.id}` }, ["prompt"], undefined, 2_000);
+    c.step(mux(ev(1, "user_message", { promptId: m1.id })), ["conversation_op"]);
+    c.step(mux(ev(2, "turn_started")), ["typing"]);
+    c.step(mux(chunk(3, "hi")), []);
+    c.step(mux(ev(4, "turn_end")), ["persist", "conversation_op", "typing"]);
+    c.step({ kind: "prompt_settled", prompt_id: m1.id }, []);
+    // A stale retry of an answered prompt sends nothing.
+    c.step({ kind: "timer", key: `prompt:${m1.id}` }, []);
+    cases.push(c.end());
+  }
+  return cases;
+}
+
 function outboxCases(): CorpusCase[] {
   const cases: CorpusCase[] = [];
   const reply = (key: string, text: string) => ({
@@ -1566,7 +1594,7 @@ export const NOTES = [
 ];
 
 export async function buildCorpus(): Promise<Corpus> {
-  const cases = [...wakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...outboxCases(), ...childCases()];
+  const cases = [...wakeCases(), ...catchUpCases(), ...disconnectCases(), ...turnCases(), ...promptRetryCases(), ...outboxCases(), ...childCases()];
   const names = new Set<string>();
   for (const c of cases) {
     if (names.has(c.name)) throw new Error(`duplicate case ${c.name}`);
