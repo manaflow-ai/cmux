@@ -167,14 +167,14 @@ kase(
   "machine.create.quota",
   "cloud.machine.create",
   { name: "sixth box", size: SIZE },
-  [opErr("cloud.machine.create", "key-create-quota", "cloud.quota.exceeded", "this plan allows 5 active machines", false, { limit: 5, used: 5, resource: "active" })],
+  [opErr("cloud.machine.create", "key-create-quota", "cloud.quota.exceeded", "this plan allows 5 active machines", false, { limit: 5, used: 5, resource: "active", plan: "max" })],
   { key: "key-create-quota" }
 )
 kase(
   "machine.create.size_locked",
   "cloud.machine.create",
   { name: "huge box", size: { cpu: 16, memory_mb: 65536, disk_mb: 262144 } },
-  [opErr("cloud.machine.create", "key-create-locked", "cloud.size.locked", "this size needs another plan", false, { memory_mb: 65536 })],
+  [opErr("cloud.machine.create", "key-create-locked", "cloud.size.locked", "this size needs another plan", false, { memory_mb: 65536, plan: "max" })],
   { key: "key-create-locked" }
 )
 kase(
@@ -214,7 +214,7 @@ kase(
   "machine.start.quota",
   "cloud.machine.start",
   { machine: vm(2) },
-  [opErr("cloud.machine.start", "key-start-quota", "cloud.quota.exceeded", "this plan allows 2 active machines", false, { limit: 2, used: 2, resource: "active" })],
+  [opErr("cloud.machine.start", "key-start-quota", "cloud.quota.exceeded", "this plan allows 2 active machines", false, { limit: 2, used: 2, resource: "active", plan: "pro" })],
   { key: "key-start-quota" }
 )
 kase("machine.pause", "cloud.machine.pause", { machine: vm(1) }, [opOk("cloud.machine.pause", "key-pause-1", { machine: { ...M1, status: "pausing", revision: "49" } }, "49")], {
@@ -228,7 +228,7 @@ kase(
   "machine.resize.size_locked",
   "cloud.machine.resize",
   { machine: vm(1), size: { cpu: 16, memory_mb: 65536, disk_mb: 262144 } },
-  [opErr("cloud.machine.resize", "key-resize-locked", "cloud.size.locked", "this size needs another plan", false, { memory_mb: 65536 })],
+  [opErr("cloud.machine.resize", "key-resize-locked", "cloud.size.locked", "this size needs another plan", false, { memory_mb: 65536, plan: "max" })],
   { key: "key-resize-locked" }
 )
 kase(
@@ -324,7 +324,7 @@ kase(
   "snapshot.create.quota",
   "cloud.snapshot.create",
   { machine: vm(1), name: "one more" },
-  [opErr("cloud.snapshot.create", "key-snap-quota", "cloud.quota.exceeded", "this plan keeps 10 saved snapshots", false, { limit: 10, used: 10, resource: "saved" })],
+  [opErr("cloud.snapshot.create", "key-snap-quota", "cloud.quota.exceeded", "this plan keeps 10 saved snapshots", false, { limit: 10, used: 10, resource: "saved", plan: "max" })],
   { key: "key-snap-quota" }
 )
 const M6 = machine(6, "restored box", "provisioning", 44, { bound: false })
@@ -343,6 +343,7 @@ kase("snapshot.delete", "cloud.snapshot.delete", { snapshot: snap(1) }, replayPa
 // ---- plan and billing
 const PLAN = {
   plan_id: "pro",
+  upgrade_plan: "max",
   limits: { max_active: 5, max_saved: 10, memory_options_mb: [4096, 8192, 16384, 32768, 65536], locked_memory_options_mb: [65536], vm_hours_included: 500 },
   usage: { active: 2, saved: 3, vm_hours_used: 41.5, period_end: 1792000000000 }
 }
