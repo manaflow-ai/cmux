@@ -49,7 +49,8 @@ public nonisolated enum FolderPickerNotice: Equatable, Sendable {
     case unreadable
 }
 
-public nonisolated enum FolderPickerRows {
+public nonisolated struct FolderPickerRows {
+    public nonisolated init() {}
     /// The rows of `state` for its listing, in the order of the webviews
     /// reference picker (webviews/src/viewer-empty/pickerModel.ts):
     /// "Use This Folder" first when folders are chosen; then the level's
