@@ -127,3 +127,20 @@ fn allow_from_the_app_lifts_a_stop_by_actor() {
     provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
     renamed.call("input.key", &json!({"targetId": "W"})).unwrap();
 }
+
+/// An observe counts as the fresh read after hand back only when it
+/// succeeded: a failed read leaves the next act stale.
+#[test]
+fn a_failed_observe_is_not_the_fresh_read() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let first = session(&provider, "webkit", "s1");
+    first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
+    app.send(Frame::UserInput { target_id: "W".into() });
+    app.send(Frame::LeaseUser { op: "hand_back".into(), target_id: Some("W".into()), actor: None });
+    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    first.call("tab.info", &json!({"targetId": "W", "failForTest": true})).unwrap_err();
+    let stale = first.call("input.key", &json!({"targetId": "W"})).unwrap_err();
+    assert_eq!(stale.error_name.as_deref(), Some("stale_after_hand_back"), "{stale}");
+    first.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    first.call("input.key", &json!({"targetId": "W"})).unwrap();
+}
