@@ -53,6 +53,7 @@ public final class SidebarView: NSView {
     let aboveLine = CALayer()
     let belowLine = CALayer()
     let newButton = SidebarIconButton(symbol: "plus", label: Strings.newWorkspace)
+    let cardStack = SidebarCardStackView()
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
     /// Bands minimal mode hides right now (the fade's target, R54).

@@ -20,8 +20,10 @@ enum TabHoverCardContent: Equatable {
 /// A tab strip's side of the app's hover cards (`HoverCardCoordinator`):
 /// it names the strip's targets (tabs and group chips) by id, hit-tests
 /// them, supplies the one reused card body, samples the active tab's CPU
-/// and memory, and caches thumbnails for the active card only. Timing,
-/// showing and hiding belong to the coordinator.
+/// and memory, and keeps recent thumbnails and samples so a retarget never
+/// blanks the card (R131). Timing, showing and hiding belong to the
+/// coordinator.
+@MainActor
 final class TabHoverCardController: HoverCardSource {
     weak var previewProvider: (any TabPreviewProvider)?
     /// The strip whose targets these are.
@@ -48,13 +50,28 @@ final class TabHoverCardController: HoverCardSource {
 
     private var body: TabHoverCardView?
     private var thumbnailTask: Task<Void, Never>?
-    /// The active card's thumbnail (one image, dropped when it ends).
-    private var thumbnail: (TabID, CGImage)?
+    /// Recently hovered tabs' thumbnails.
+    var thumbnails = TabThumbnailCache()
+    /// Each recently hovered tab's last CPU and memory sample, shown until
+    /// the first fresh one arrives (no placeholder flash on a retarget).
+    private var lastReports: [TabID: ResourceReport] = [:]
     private var bodyID: HoverTargetID?
+    private var memoryPressure: (any DispatchSourceMemoryPressure)?
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
+        let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in
+                self?.thumbnails.removeAll()
+                self?.lastReports.removeAll()
+            }
+        }
+        source.activate()
+        memoryPressure = source
     }
+
+    isolated deinit { memoryPressure?.cancel() }
 
     static func targetID(_ id: TabID) -> HoverTargetID {
         HoverTargetID("tab:\(id.rawValue)")
@@ -98,9 +115,11 @@ final class TabHoverCardController: HoverCardSource {
         let body = body ?? TabHoverCardView()
         self.body = body
         body.configure(content)
-        if case .tab = content { body.setResources(resources.report) }
+        if case .tab = content { body.setResources(resources.report ?? lastReports[tab]) }
         let newCard = bodyID != id
-        if newCard { body.setThumbnail(thumbnail.flatMap { $0.0 == tab ? $0.1 : nil }) }
+        // A retarget keeps the shown thumbnail until this tab's lands; a tab
+        // seen before shows its own at once.
+        if newCard, let cached = thumbnails.image(for: tab) { body.setThumbnail(cached) }
         bodyID = id
         // Once per card, not on every content refresh (resource samples).
         if newCard, case .tab = content { loadThumbnail(for: tab) }
@@ -111,19 +130,42 @@ final class TabHoverCardController: HoverCardSource {
 
     func hoverCardActivated(_ id: HoverTargetID) {
         guard let tab = tabID(id), !tab.isGroupChip else { return }
+        forgetClosedTabs()
         resources.open(.tab(tab.rawValue)) { [weak self] report in
-            guard let self, self.bodyID == id else { return }
+            guard let self else { return }
+            self.rememberReport(report, for: tab)
+            guard self.bodyID == id else { return }
             self.body?.setResources(report)
             self.coordinator.contentChanged(id)
         }
     }
 
+    /// The card left `id`: sampling and a fetch in flight stop. On a
+    /// retarget the body keeps what it shows until the next tab's data
+    /// lands (no blank frame).
     func hoverCardDeactivated(_ id: HoverTargetID) {
         resources.close()
         thumbnailTask?.cancel()
-        thumbnail = nil
         bodyID = nil
-        body?.setThumbnail(nil)
+        // A card that hides starts its next show blank, never with this tab's image.
+        if !cardIsShowing() { body?.setThumbnail(nil) }
+    }
+
+    /// Whether a card is on screen (a deactivation then is a retarget, not
+    /// a hide). Tests replace it.
+    lazy var cardIsShowing: () -> Bool = { [weak self] in self?.coordinator.machine.shownTarget != nil }
+
+    /// Closed tabs' thumbnails and samples go (at the next hover).
+    private func forgetClosedTabs() {
+        guard let strip else { return }
+        let open = Set(strip.model.tabs.map(\.id))
+        thumbnails.keep(only: open)
+        lastReports = lastReports.filter { open.contains($0.key) }
+    }
+
+    private func rememberReport(_ report: ResourceReport, for tab: TabID) {
+        if lastReports[tab] == nil, lastReports.count >= thumbnails.maxCount { lastReports.removeAll() }
+        lastReports[tab] = report
     }
 
     // MARK: Strip calls
@@ -141,7 +183,7 @@ final class TabHoverCardController: HoverCardSource {
     }
 
     private func loadThumbnail(for id: TabID) {
-        guard thumbnail?.0 != id, let provider = previewProvider else { return }
+        guard thumbnails.image(for: id) == nil, let provider = previewProvider else { return }
         thumbnailTask?.cancel()
         let scale = strip?.window?.backingScaleFactor ?? 2
         let size = CGSize(width: TabHoverCardView.thumbnailSize.width * scale, height: TabHoverCardView.thumbnailSize.height * scale)
@@ -149,7 +191,8 @@ final class TabHoverCardController: HoverCardSource {
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
-            if let image { self.thumbnail = (id, image) }
+            guard let image else { return }
+            self.thumbnails.insert(image, for: id)
             self.body?.setThumbnail(image)
         }
     }

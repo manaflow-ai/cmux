@@ -33,6 +33,7 @@ extension SidebarView {
             line.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
             layer?.addSublayer(line)
         }
+        installCardStack()
     }
 
     /// Lays out both bands between `top` and the footer; returns the

@@ -180,6 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)
+        services.updater.follow(settings)
         services.startHibernation(settings: settings)
         services.terminalTheme.follow(settings)
         services.themes.start()
@@ -196,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 control.registerAccountsMethods(services)
                 control.registerRemoteMethods(services)
                 control.registerMobileMethods(services)
-                control.registerUpdateMethods(services.updater)
+                control.registerUpdateMethods(services.updater, services: services)
                 control.registerInputMethods(services)
                 control.registerSettingsDebugMethods(services)
                 control.registerPageDebugMethods()

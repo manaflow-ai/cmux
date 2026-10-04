@@ -69,6 +69,8 @@ export interface Env {
    */
   /** Operator key for POST /v1/admin/outbox/replay (admin-outbox.ts); the route is absent without it. */
   readonly OUTBOX_ADMIN_KEY?: string
+  /** Operator key for /v1/admin/team-vm/* (team-vm-admin.ts: registry counts, on-demand prefix report); the routes are absent without it. */
+  readonly TEAM_VM_ADMIN_KEY?: string
   readonly INTEGRATIONS_KMS_KEY_ARN?: string
   readonly INTEGRATIONS_KMS_REGION?: string
   /** Secrets: the IAM user's access key, allowed only kms:Encrypt and kms:Decrypt with our encryption context. */

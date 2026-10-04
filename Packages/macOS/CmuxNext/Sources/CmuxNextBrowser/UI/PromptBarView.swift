@@ -81,6 +81,23 @@ final class PromptBarView: NSView {
         density.start()
     }
 
+    /// Lines the message takes (tests).
+    var messageLineCount: Int {
+        let line = NSLayoutManager().defaultLineHeight(for: messageLabel.font ?? BrowserMetrics.bodyFont)
+        return max(1, Int((messageLabel.intrinsicContentSize.height / line).rounded()))
+    }
+
+    /// The message wraps at the bar's real width (a narrower pane makes it
+    /// narrower than `promptMaxWidth`), or its last lines are cut off.
+    override func layout() {
+        super.layout()
+        let width = messageLabel.frame.width
+        if width > 0, abs(messageLabel.preferredMaxLayoutWidth - width) > 0.5 {
+            messageLabel.preferredMaxLayoutWidth = width
+            needsLayout = true
+        }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

@@ -1213,6 +1213,58 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.checkAutomatically" : {
+      "default" : true,
+      "description" : "updates.checkAutomatically",
+      "title" : "Check for Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.checkIntervalSeconds" : {
+      "default" : 3600,
+      "description" : "updates.checkIntervalSeconds",
+      "maximum" : 604800,
+      "minimum" : 900,
+      "title" : "Check Every",
+      "type" : "number"
+    },
+    "updates.downloadAutomatically" : {
+      "default" : true,
+      "description" : "Off: a found update waits, and one click downloads and installs it.",
+      "title" : "Download Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.installOnQuit" : {
+      "default" : true,
+      "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
+      "title" : "Install Updates When Quitting",
+      "type" : "boolean"
+    },
+    "updates.notify" : {
+      "default" : "card",
+      "description" : "updates.notify",
+      "enum" : [
+        "card",
+        "badge",
+        "silent"
+      ],
+      "title" : "When an Update Is Ready",
+      "type" : "string"
+    },
+    "updates.quietHours" : {
+      "description" : "No update card between these times.",
+      "properties" : {
+        "end" : {
+          "title" : "end",
+          "type" : "string"
+        },
+        "start" : {
+          "title" : "start",
+          "type" : "string"
+        }
+      },
+      "title" : "Quiet Hours",
+      "type" : "object"
+    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",

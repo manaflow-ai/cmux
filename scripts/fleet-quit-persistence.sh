@@ -17,12 +17,11 @@
 # EXPECTED FAILURES (remove a line when its fix lands; an XPASS is reported):
 #   second-quit-keeps          dialogs lead + app lifecycle (D2, plan Q3): a second Cmd-Q is ignored today
 #   dock-quit-inactive         dialogs lead + app lifecycle (G7, plan Q3): no inactive-app quit hook (debug.quit inactive)
-#   update-relaunch-no-prompt  app lifecycle (D3, plan Q3): no debug hook drives a Sparkle relaunch
 # The End Everything checks (end-everything-*) are NOT on this list: they
 # must pass (the home_not_closable fix).
 set -euo pipefail
 
-XFAIL=(second-quit-keeps dock-quit-inactive update-relaunch-no-prompt)
+XFAIL=(second-quit-keeps dock-quit-inactive)
 
 app="" zip="" tag="" out=""
 while [ $# -gt 0 ]; do
@@ -204,7 +203,19 @@ else
   launch
 fi
 check dock-quit-inactive 1 "needs debug.quit {open:true, inactive:true}"
-check update-relaunch-no-prompt 1 "needs a debug hook for updaterWillRelaunchApplication"
+# 9b. Update relaunch (R138, D3): Sparkle's relaunch path never asks and keeps sessions.
+HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"
+rpc_ok debug.updater '{"action":"relaunch"}' >"$out/update-relaunch.json"
+asked=no
+for i in $(seq 1 15); do
+  alive "$APP_PID" || break
+  rpc debug.quit '{}' 2 2>/dev/null | grep -q '"asking": *true' && asked=yes
+  sleep 1
+done
+check update-relaunch-no-prompt "$(cond test "$asked" = no)" "$(cat "$out/update-relaunch.json")"
+check update-relaunch-app-quits "$(cond wait_exit "$APP_PID" 20)"
+for p in "$TUI_PID" $HOSTS "$SHELL_PID" "$LOOP_PID"; do check "update-relaunch-keeps-$p" "$(cond alive "$p")"; done
+launch
 
 # 8b. Quit Everything, keep layout (D1: End Sessions, Keep Layout today) -------------
 HOSTS="$(pgrep -f "^$BIN/cmux-tui __terminal-host" | tr '\n' ' ' || true)"

@@ -26,4 +26,37 @@ extension UpdateController {
         guard driver.stagedInstall == nil else { return driver.installStaged() }
         driver.installsWhenStaged = true
     }
+
+    /// Cancels the staged update's pending installer (Sparkle would install it when the app
+    /// quits) without skipping its version. No-op without one.
+    public func cancelStagedUpdate() {
+        driver.cancelStaged()
+    }
+
+    /// With ``installsUpdatesInBackground``: whether a found update downloads at once (true,
+    /// the default) or waits as ``UpdateState/updateAvailable(_:)`` for ``acceptAvailableUpdate()``.
+    public var downloadsUpdatesInBackground: Bool {
+        get { driver.downloadsInBackground }
+        set { driver.downloadsInBackground = newValue }
+    }
+
+    /// Downloads the update that waits for the user; it then stages like a background download.
+    public func acceptAvailableUpdate() {
+        guard case .updateAvailable(let available) = model.state, !available.reply.isConsumed else { return }
+        driver.acceptInBackground(available)
+    }
+
+    /// Sparkle's automatic-check schedule (the `SU*` keys; Sparkle persists them and restarts
+    /// its cycle). Writes only what changed.
+    public func setSchedule(automaticChecks: Bool, interval: TimeInterval) {
+        if updater.automaticallyChecksForUpdates != automaticChecks { updater.automaticallyChecksForUpdates = automaticChecks }
+        if updater.updateCheckInterval != interval { updater.updateCheckInterval = interval }
+    }
+
+    /// A feed URL that replaces the baked `SUFeedURL` for every check (test feeds); nil uses
+    /// the baked feed. Sparkle still requires the app's EdDSA key on every item.
+    public var feedOverride: String? {
+        get { driver.feedOverride }
+        set { driver.feedOverride = newValue }
+    }
 }
