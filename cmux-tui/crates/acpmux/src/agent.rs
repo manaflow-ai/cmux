@@ -617,21 +617,30 @@ impl ChildAgent {
     }
 
     /// Wait until the entries through `h` are in the session log, as long as
-    /// they keep coming: it gives up only when no entry is logged for `stall`
-    /// (a stalled or closed link), however long a large replay takes.
-    pub async fn wait_replayed(&self, h: u64, stall: std::time::Duration) -> bool {
+    /// they keep coming: it gives up when no entry is logged for `stall` (a
+    /// stalled, broken or closed link), and in any case after `ceiling`, so
+    /// one large replay cannot hold daemon startup without end.
+    pub async fn wait_replayed(
+        &self,
+        h: u64,
+        stall: std::time::Duration,
+        ceiling: std::time::Duration,
+    ) -> bool {
         let Some(hosted) = &self.hosted else { return true };
         let mut rx = hosted.logged.subscribe();
-        loop {
-            if *rx.borrow_and_update() >= h {
-                return true;
+        let progress = async {
+            loop {
+                if *rx.borrow_and_update() >= h {
+                    return true;
+                }
+                // `changed` ends only with progress: the sender lives as long
+                // as this agent, so a dead link ends the wait by the stall.
+                if tokio::time::timeout(stall, rx.changed()).await.is_err() {
+                    return false;
+                }
             }
-            match tokio::time::timeout(stall, rx.changed()).await {
-                Ok(Ok(())) => continue,
-                // No progress for `stall`, or the reader is gone.
-                Ok(Err(_)) | Err(_) => return *rx.borrow() >= h,
-            }
-        }
+        };
+        tokio::time::timeout(ceiling, progress).await.unwrap_or(false)
     }
 
     /// The Claude translator's state, wherever the translator runs.

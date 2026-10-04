@@ -53,7 +53,7 @@ async fn a_replay_that_keeps_progressing_is_waited_for_past_one_stall_period() {
         wire
     });
     assert!(
-        child.wait_replayed(5, Duration::from_secs(1)).await,
+        child.wait_replayed(5, Duration::from_secs(1), Duration::from_secs(30)).await,
         "adoption gave up on a replay that was still progressing"
     );
     let _ = feeder.await;
