@@ -253,17 +253,23 @@ nonisolated final class CloudHomeSource: HomeSource {
     }
 
     /// Whether `event` belongs to the account whose cloud id is `cloudID`
-    /// (nil: none). An event that names none (an older daemon) is kept.
+    /// (nil: none). The daemon tags every event with the `sub` of the
+    /// socket's lease and leaves it out only for a lease without a readable
+    /// `sub` (which this app never sets) or a `disconnected` state without
+    /// a lease (home-cloud-proxy.md section 5). So a data event (a change,
+    /// a resync, an inbox change) without one is refused; a socket state or
+    /// an inbox reset without one carries no data and is kept.
     static func isForAccount(_ event: CloudConversationsEvent, cloudID: String?) -> Bool {
-        let account: String? = switch event {
-        case .changed(let changed): changed.account
-        case .resynced(let resynced): resynced.account
-        case .inboxChanged(let changed): changed.account
-        case .inboxReset(_, let account): account
-        case .subscriptionState(let report): report.account
-        case .sessionNeeded: nil
+        let account: String?
+        switch event {
+        case .changed(let changed): account = changed.account
+        case .resynced(let resynced): account = resynced.account
+        case .inboxChanged(let changed): account = changed.account
+        case .inboxReset(_, let named): return named.map { cloudID == CloudIdentity.cloudID(stackUserID: $0) } ?? true
+        case .subscriptionState(let report): return report.account.map { cloudID == CloudIdentity.cloudID(stackUserID: $0) } ?? true
+        case .sessionNeeded: return true
         }
-        guard let account else { return true }
+        guard let account else { return false }
         return cloudID == CloudIdentity.cloudID(stackUserID: account)
     }
 

@@ -10,7 +10,8 @@ public struct CloudConversationChanged: Decodable, Sendable, Hashable {
     public var transaction: String?
     public var change: ConversationChange
     /// The cloud account (the `sub` of the lease the daemon used) this
-    /// event came through. Optional: older daemons do not send it.
+    /// event came through. Absent only for a lease without a readable
+    /// `sub`; the app refuses such an event.
     public var account: String?
 
     public init(conversation: String, rev: UInt64, seq: UInt64, transaction: String? = nil, change: ConversationChange,
@@ -33,7 +34,8 @@ public struct CloudConversationResynced: Decodable, Sendable, Hashable {
     public var summary: ConversationSummary
     public var messages: [ConversationMessage]
     /// The cloud account (the `sub` of the lease the daemon used) this
-    /// event came through. Optional: older daemons do not send it.
+    /// event came through. Absent only for a lease without a readable
+    /// `sub`; the app refuses such an event.
     public var account: String?
 
     public init(conversation: String, rev: UInt64, seq: UInt64, summary: ConversationSummary, messages: [ConversationMessage],
@@ -53,7 +55,8 @@ public struct CloudInboxChanged: Decodable, Sendable, Hashable {
     public var transaction: String?
     public var entries: [CloudInboxEntry]
     /// The cloud account (the `sub` of the lease the daemon used) this
-    /// event came through. Optional: older daemons do not send it.
+    /// event came through. Absent only for a lease without a readable
+    /// `sub`; the app refuses such an event.
     public var account: String?
 
     public init(seq: UInt64, transaction: String? = nil, entries: [CloudInboxEntry], account: String? = nil) {
