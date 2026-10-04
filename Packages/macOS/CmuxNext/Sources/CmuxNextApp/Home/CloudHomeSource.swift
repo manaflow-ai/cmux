@@ -33,6 +33,8 @@ nonisolated final class CloudHomeSource: HomeSource {
         /// The daemon holds a lease for `identity`. Until it does, no op goes
         /// out (they wait, `ownerUnreachable`) and nothing recovers.
         var leased = false
+        /// Asks the link for a lease when an op or read found none.
+        var leaseMissing: (@Sendable () -> Void)?
         /// Bumps on every configure; work started under an older one is dropped.
         var generation: UInt64 = 0
         var entries: [ConversationID: CloudInboxEntry] = [:]
@@ -192,6 +194,24 @@ nonisolated final class CloudHomeSource: HomeSource {
         if case .inboxChanged = event { recover() }
     }
 
+    /// Called (off any lock) when an op or read is refused because the
+    /// daemon holds no lease for this account: nothing reaches the daemon
+    /// then, so the daemon never asks for one itself.
+    func onLeaseMissing(_ action: @escaping @Sendable () -> Void) {
+        state.withLock { $0.leaseMissing = action }
+    }
+
+    /// A new display name for the account this source acts as; any other
+    /// account changes nothing (that is a `configure`).
+    func rename(_ identity: CloudIdentity) {
+        let renamed = state.withLock { state -> Bool in
+            guard let current = state.identity, current.cloudID == identity.cloudID, current != identity else { return false }
+            state.identity = identity
+            return true
+        }
+        if renamed { publishInbox() }
+    }
+
     /// The account this source acts as (its cloud id), leased or not.
     var accountID: String? { state.withLock { $0.identity?.cloudID } }
 
@@ -239,9 +259,11 @@ nonisolated final class CloudHomeSource: HomeSource {
     }
 
     /// The cloud inbox; empty while signed out or without the transport.
+    /// Without the lease it reads nothing (the daemon may still hold the
+    /// previous account's) and answers what this source knows.
     func inbox() async throws -> InboxSnapshot {
-        let (commands, identity, generation) = state.withLock { ($0.commands, $0.identity, $0.generation) }
-        guard let commands, let identity else { return state.withLock { snapshot(&$0) } }
+        let (commands, identity, generation, leased) = state.withLock { ($0.commands, $0.identity, $0.generation, $0.leased) }
+        guard let commands, let identity, leased else { return state.withLock { snapshot(&$0) } }
         let list = try await reply(for: identity) { try await commands.inboxList(limit: Self.inboxLimit) }
         let (inbox, missing, unlisted, current) = state.withLock { state -> (InboxSnapshot, [ConversationID], [ConversationID],
                                                                              (any CloudConversationCommands)?) in
@@ -261,8 +283,10 @@ nonisolated final class CloudHomeSource: HomeSource {
         return inbox
     }
 
+    #if DEBUG
     /// Conversations queued for or in a hydration read (tests).
     var queuedHydrations: Int { state.withLock { $0.hydrating.count } }
+    #endif
 
     /// The cloud part of the inbox as this source knows it now (no read).
     func currentInbox() -> InboxSnapshot { state.withLock { snapshot(&$0) } }
@@ -743,25 +767,29 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     /// The transport and account for a read, or for an intent whose key
     /// `binding` names: that key now belongs to this account, unless a
-    /// previous account submitted it.
+    /// previous account submitted it. Without the daemon's lease for this
+    /// account nothing goes out (a reply could be another account's): the
+    /// refusal waits (`ownerUnreachable`) and asks the link for a lease.
     private func requireEndpoint(binding key: String? = nil) throws -> (any CloudConversationCommands, CloudIdentity, UInt64) {
+        var missing: (@Sendable () -> Void)?
         let endpoint = state.withLock { state -> Result<(any CloudConversationCommands, CloudIdentity, UInt64), HomeRejection> in
             guard let identity = state.identity else { return .failure(.notAuthorized) }
             if let key {
                 if state.revoked.contains(key) { return .failure(.notAuthorized) }
                 state.accepted.insert(key)
-                // No lease for this account yet: nothing may go out under another one's.
-                guard state.leased else {
-                    state.degraded = true
-                    return .failure(.ownerUnreachable)
-                }
             }
             guard let commands = state.commands else {
                 state.degraded = true
                 return .failure(.ownerUnreachable)
             }
+            guard state.leased else {
+                state.degraded = true
+                missing = state.leaseMissing
+                return .failure(.ownerUnreachable)
+            }
             return .success((commands, identity, state.generation))
         }
+        missing?()
         return try endpoint.get()
     }
 

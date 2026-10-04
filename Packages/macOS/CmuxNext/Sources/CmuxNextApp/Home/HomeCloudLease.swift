@@ -41,6 +41,8 @@ final class HomeCloudLease {
         case signedOut
         /// No lease for the account asked for.
         case failed
+        /// Newer lease work replaced this one before it finished.
+        case superseded
     }
 
     private enum Refusal: Error {
@@ -71,38 +73,45 @@ final class HomeCloudLease {
         prior?.cancel()
         // task-owner: one token read and one cloud-session-set or -clear, after the previous lease work; ends with the reply
         let task = Task { [weak self] () -> Outcome in
-            await prior?.value
-            guard let self else { return .failed }
+            _ = await prior?.value
+            guard let self else { return .superseded }
             return await lease(sessions, expectedUserID: expectedUserID, forceRefresh: false, clearOnFailure: true)
         }
         leasing = task
         return await task.value
     }
 
-    /// The daemon asked for a lease. `expectedUserID` names the account the
-    /// cloud source acts as when the work runs (nil: none, nothing to lease).
+    /// A new lease for the account the cloud source acts as when the work
+    /// runs (`expectedUserID`; nil: none, nothing to lease, `.signedOut`).
+    /// The daemon asked (`cloud-session-needed`), or an op found no lease.
     /// `missing` takes the current token; the others need a refreshed one
     /// (an `expiring` token may still be the current one, which would only
-    /// be asked for again). `leased` runs with the leased account once the
-    /// daemon holds the lease, so ops it refused can go again. A failure
-    /// leaves the daemon's lease as it was: it is that account's or none.
+    /// be asked for again). `finished` runs with the outcome once the work
+    /// ends, so ops it refused can go again or the caller can retry. A
+    /// failure leaves the daemon's lease as it was: that account's or none.
     func renew(_ sessions: any CloudLeaseSessions, reason: String, expectedUserID: @escaping @MainActor () -> String?,
-               leased: @escaping @MainActor (String) -> Void) {
+               finished: @escaping @MainActor (Outcome) -> Void) {
         let prior = leasing
         // task-owner: one token read and one cloud-session-set, after the previous lease work; ends with the reply
         leasing = Task { [weak self] () -> Outcome in
-            await prior?.value
-            guard let self, let expected = expectedUserID() else { return .failed }
+            _ = await prior?.value
+            guard let self else { return .superseded }
+            guard let expected = expectedUserID() else {
+                finished(.signedOut)
+                return .signedOut
+            }
             let outcome = await lease(sessions, expectedUserID: expected, forceRefresh: reason != "missing", clearOnFailure: false)
-            if case .leased(let subject) = outcome { leased(subject) }
+            finished(outcome)
             return outcome
         }
     }
 
+    #if DEBUG
     /// Waits for the lease work started so far (tests).
     func settle() async {
         _ = await leasing?.value
     }
+    #endif
 
     private func lease(_ sessions: any CloudLeaseSessions, expectedUserID: String?, forceRefresh: Bool,
                        clearOnFailure: Bool) async -> Outcome {
@@ -124,8 +133,11 @@ final class HomeCloudLease {
             _ = try await sessions.setSession(CloudSessionSetRequest(apiBaseURL: origin, accessToken: token, expiresAt: expiresAt,
                                                                      clientVersion: clientVersion))
             return .leased(subject: subject)
+        } catch is CancellationError {
+            if clearOnFailure { _ = try? await sessions.clearSession() }
+            return .superseded
         } catch {
-            if !(error is CancellationError) { logger.error("cloud lease: \(String(describing: error), privacy: .public)") }
+            logger.error("cloud lease: \(String(describing: error), privacy: .public)")
             if clearOnFailure { _ = try? await sessions.clearSession() }
             return .failed
         }

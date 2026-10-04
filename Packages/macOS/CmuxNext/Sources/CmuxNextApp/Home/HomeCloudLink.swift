@@ -26,11 +26,18 @@ final class HomeCloudLink {
     private let source: CloudHomeSource
     private let localID: ParticipantID
     private var last: Link?
+    /// Lease work started and not finished. A missing lease asks for a new
+    /// one only while none is in flight: that one's outcome answers it.
+    private var leasing = 0
 
     init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID) {
         self.lease = lease
         self.source = source
         self.localID = localID
+        source.onLeaseMissing { [weak self] in
+            // task-owner: one hop to the main actor; ends at once
+            Task { @MainActor in self?.leaseMissing() }
+        }
     }
 
     /// One observed link. Returns once the source is configured for it.
@@ -39,10 +46,18 @@ final class HomeCloudLink {
     /// account's lease: a lease that failed (no token, or a token for
     /// another account because the user switched meanwhile) leaves the
     /// daemon without one and the source holding the account unleased. It
-    /// sends no op then and shows nothing that a read did not return for
-    /// it; the daemon's next `cloud-session-needed` leases it again.
+    /// sends no op and makes no read then. The daemon asks again only when a
+    /// command reaches it, and none does, so the source asks instead: an op
+    /// or read it refused for the missing lease leases again
+    /// (`leaseMissing`). A new display name alone is the same account on
+    /// the same connection and keeps the lease.
     func apply(_ link: Link) async {
         guard link != last else { return }
+        if let previous = last, previous.id == link.id, previous.userID == link.userID {
+            last = link
+            if let identity = identity(link.userID, link) { source.rename(identity) }
+            return
+        }
         if let previous = last, previous.userID != nil, previous.userID != link.userID {
             // The previous account ends before the daemon holds the next
             // one's lease: an op submitted in between is refused here
@@ -55,12 +70,15 @@ final class HomeCloudLink {
             source.configure(commands: nil, link: nil, identity: identity(link.userID, link), leased: false)
             return
         }
-        switch await lease.sync(endpoint, expectedUserID: link.userID) {
+        leasing += 1
+        let outcome = await lease.sync(endpoint, expectedUserID: link.userID)
+        leasing -= 1
+        switch outcome {
         case .leased(let subject):
             source.configure(commands: endpoint, link: link.id, identity: identity(subject, link), leased: true)
         case .signedOut:
             source.configure(commands: endpoint, link: link.id, identity: nil)
-        case .failed:
+        case .failed, .superseded:
             source.configure(commands: endpoint, link: link.id, identity: identity(link.userID, link), leased: false)
         }
     }
@@ -69,9 +87,22 @@ final class HomeCloudLink {
     /// account the source acts as when the lease work runs, and only a
     /// lease for that account counts as renewed.
     func sessionNeeded(reason: String) {
+        renew(reason: reason)
+    }
+
+    /// The source refused an op or a read because the daemon holds no lease
+    /// for its account.
+    private func leaseMissing() {
+        guard leasing == 0 else { return }
+        renew(reason: "missing")
+    }
+
+    private func renew(reason: String) {
         guard let endpoint = last?.endpoint else { return }
-        lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [source] subject in
-            source.leaseRenewed(subject: subject)
+        leasing += 1
+        lease.renew(endpoint, reason: reason, expectedUserID: { [source] in source.accountID }) { [weak self, source] outcome in
+            if case .leased(let subject) = outcome { source.leaseRenewed(subject: subject) }
+            self?.leasing -= 1
         }
     }
 
@@ -79,8 +110,10 @@ final class HomeCloudLink {
         userID.map { CloudIdentity(stackUserID: $0, displayName: link.displayName, localID: localID) }
     }
 
+    #if DEBUG
     /// Waits for the lease work started so far (tests).
     func settle() async {
         await lease.settle()
     }
+    #endif
 }
