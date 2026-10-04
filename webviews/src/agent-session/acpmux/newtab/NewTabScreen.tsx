@@ -118,7 +118,16 @@ export function NewTabScreen(props: Props) {
   };
 
   return (
-    <div className="nt-screen">
+    <div className="nt-screen" data-converting={converting || undefined}>
+      {converting && (
+        // R81: the terminal shows in this frame (same background, the typed command, a cursor)
+        // while the daemon starts the shell; a quiet "starting" line appears after 1 s (CSS delay).
+        <div className="nt-terminal" aria-label={nt("terminal")}>
+          <span className="nt-terminal-command">{text.replace(/^\s*!/, "")}</span>
+          <span className="nt-cursor" aria-hidden="true" />
+          <span className="nt-terminal-starting">{nt("terminal")}</span>
+        </div>
+      )}
       <div className="nt-box">
         <input
           ref={field}
@@ -141,7 +150,6 @@ export function NewTabScreen(props: Props) {
             composing.current = false;
           }}
         />
-        {converting && <span className="nt-hint">{nt("terminal")}</span>}
       </div>
       {rows.length > 0 && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role

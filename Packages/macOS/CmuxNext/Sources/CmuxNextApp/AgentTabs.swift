@@ -33,6 +33,11 @@ final class AgentTabStore {
     /// Chats outside any pane (onboarding's first task), weakly held, so
     /// they get customization changes too.
     private let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
+    /// Takes back a closed, untouched new tab page as the pool's spare
+    /// (NewTabSparePool.recycle); false when the pool already has one.
+    var recycle: ((AgentPaneView) -> Bool)?
+    /// Closed pages leave the view tree at once; their teardown waits (R81).
+    private let retirer = AgentPageRetirer()
     /// Session each tab last showed, kept across a web content crash or a
     /// view rebuilt after the tab was released.
     private var sessions: [String: String] = [:]
@@ -312,7 +317,14 @@ final class AgentTabStore {
     func close(_ key: String) {
         for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
-        BenchSpans.measure("agentPane.close") { views.removeValue(forKey: key)?.close() }
+        if let view = views.removeValue(forKey: key) {
+            // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81).
+            if newTabPages[key] != nil, recycle?(view) == true {
+                standaloneViews.add(view)
+            } else {
+                retirer.retire(view)
+            }
+        }
         sessions[key] = nil
         newTabPages[key] = nil
         seeds[key] = nil

@@ -72,6 +72,7 @@ final class NewTabSparePool {
 
     /// At launch: follow the key main window; park in the first visible one.
     func start() {
+        services.agentTabs.recycle = { [weak self] view in self?.recycle(view) ?? false }
         observeWindows()
         if let window = NSApp.keyWindow.flatMap(mainWindow) ?? services.windows.controllers.compactMap(\.window).first(where: \.isVisible) {
             retarget(window)
@@ -137,6 +138,24 @@ final class NewTabSparePool {
         return (view, window !== target)
     }
 
+    /// A closed new tab page that never became a chat or a terminal: reset to
+    /// the spare context (the page remounts its screen) and parked as the
+    /// spare, so the close does no teardown and the pool builds nothing (R81).
+    /// False when the slot is full or no page is likely.
+    func recycle(_ view: AgentPaneView) -> Bool {
+        guard slot.shouldWarm, isLikely, view.model.newTab != nil, let content = target?.contentView else { return false }
+        BenchSpans.measure("pool.recycle") {
+            view.adoptNewTab(NewTabPage.sparePage(services))
+            park(in: content)
+            view.frame = parking.bounds
+            view.autoresizingMask = [.width, .height]
+            parking.addSubview(view)
+            slot.parked(view)
+        }
+        warmTimer.cancel()
+        return true
+    }
+
     func record(_ opening: Opening) {
         openings.append(opening)
         if openings.count > Self.maximumOpenings { openings.removeFirst(openings.count - Self.maximumOpenings) }
@@ -184,7 +203,8 @@ final class NewTabSparePool {
         if let inputMonitor { NSEvent.removeMonitor(inputMonitor) }
         inputMonitor = nil
         guard isLikely, slot.shouldWarm, let content = target?.contentView,
-              let view = services.agentTabs.makeSpare(NewTabPage.sparePage(services)) else { return }
+              let view = BenchSpans.measure("pool.makeSpare", { services.agentTabs.makeSpare(NewTabPage.sparePage(services)) })
+        else { return }
         park(in: content)
         view.frame = parking.bounds
         view.autoresizingMask = [.width, .height]
