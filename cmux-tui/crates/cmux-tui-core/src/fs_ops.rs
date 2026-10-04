@@ -56,8 +56,7 @@ pub fn installed() -> Option<&'static FsService> {
 /// The capability to advertise in `identify`, when served.
 #[must_use]
 pub fn advertised() -> Option<&'static str> {
-    // RED: advertised whether or not an owner is installed.
-    Some(FS_CAPABILITY)
+    installed().map(|_| FS_CAPABILITY)
 }
 
 /// The `cmd` of `line` when it is one of [`FS_COMMANDS`], exactly.
