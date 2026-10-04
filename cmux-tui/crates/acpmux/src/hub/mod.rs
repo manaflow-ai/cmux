@@ -242,6 +242,9 @@ pub struct Hub {
     pub(super) handoffs: handoff::Handoffs,
     /// New agents run under agent hosts (`enable_agent_hosts`).
     pub(super) agent_hosts: AtomicBool,
+    /// `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything):
+    /// the coming shutdown ends hosted agents instead of detaching them.
+    pub(super) end_agents_on_shutdown: AtomicBool,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -300,6 +303,7 @@ impl Hub {
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
             agent_hosts: AtomicBool::new(false),
+            end_agents_on_shutdown: AtomicBool::new(false),
         });
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {

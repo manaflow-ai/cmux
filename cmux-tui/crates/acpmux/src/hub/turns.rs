@@ -928,11 +928,21 @@ impl Hub {
         }
     }
 
+    /// The coming shutdown ends hosted agents too (the app's Quit
+    /// Everything); without it a shutdown detaches them.
+    pub fn end_agents_at_shutdown(&self) {
+        self.end_agents_on_shutdown.store(true, Ordering::SeqCst);
+    }
+
     /// Stop every agent at once and save. Each agent's process group gets
     /// SIGTERM, then SIGKILL after `SHUTDOWN_GRACE`; every wait here has a
     /// deadline, so this returns within about `SHUTDOWN_GRACE` + 1 s.
+    /// Agents under hosts are detached and keep running, unless
+    /// `end_agents_at_shutdown` asked to end them: then they end through
+    /// their host, and a turn in progress is recorded as cancelled.
     pub async fn shutdown_all(&self) {
         const LOCK: std::time::Duration = std::time::Duration::from_millis(200);
+        let end_agents = self.end_agents_on_shutdown.load(Ordering::SeqCst);
         let sessions = self.sessions();
         let mut children = Vec::new();
         let mut hosted = Vec::new();
@@ -940,8 +950,9 @@ impl Hub {
             // An agent under a host keeps running, with its turn and its
             // permission prompts, for the next daemon to adopt.
             let mut slot = tokio::time::timeout(LOCK, s.child.lock()).await.ok();
-            if let Some(child) =
-                slot.as_ref().and_then(|g| g.as_ref()).filter(|c| c.host_record().is_some())
+            if !end_agents
+                && let Some(child) =
+                    slot.as_ref().and_then(|g| g.as_ref()).filter(|c| c.host_record().is_some())
             {
                 hosted.push(child.clone());
                 continue;
@@ -951,7 +962,15 @@ impl Hub {
             self.revoke_permission_chat(s);
             self.cancel_pending_permissions(s);
             children.extend(taken);
-            *s.turn.lock().unwrap() = None;
+            let turn = s.turn.lock().unwrap().take();
+            if end_agents && let Some(turn) = turn {
+                self.append(
+                    s,
+                    "mux",
+                    "turn_cancelled",
+                    json!({"reason": "quit", "turnId": turn.turn_id, "promptId": turn.prompt_id, "turnSeq": turn.turn_seq}),
+                );
+            }
             if s.status() != SessionStatus::Closed {
                 self.set_status(s, SessionStatus::Idle);
             }

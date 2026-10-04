@@ -894,9 +894,16 @@ pub(super) async fn handle_request(
             Ok(hub.session_summary(&s))
         }
         method::MUX_SHUTDOWN => {
+            // `endAgents: true` (the app's Quit Everything) ends agents that
+            // run under agent hosts; otherwise they keep running for the next
+            // daemon.
+            let end_agents = params.get("endAgents").and_then(Value::as_bool) == Some(true);
+            if end_agents {
+                hub.end_agents_at_shutdown();
+            }
             hub.shutdown.notify_waiters();
             hub.shutdown.notify_one();
-            Ok(json!({}))
+            Ok(json!({"endAgents": end_agents}))
         }
         method::MUX_HANDOFF_PREPARE => hub.handoff_prepare(&params).await,
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
