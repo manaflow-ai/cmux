@@ -1,6 +1,6 @@
 # cmux next: remote conversations on a paired server (relay analysis)
 
-Status: revision 9 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
+Status: revision 10 (lane 10, server), after the security review of bd5ceb79a51 (1 P0, 4 P1,
 5 P2), with the coordinator's decisions D-A and D-B of 2026-10-04. No code yet; the review agent
 re-checks this revision before any code. Decisions D1 and D2 of 2026-10-04: the MacBook opens the daemon
 conversations of a paired Mac mini over lane 12's `cmux link` overlay; the server is a
@@ -112,7 +112,7 @@ kinds for owned conversations leave it (section 8). Nothing reaches the remote w
 - Owned conversation: `remote_<install>` is a participant and the stamp's `user_id` is the server
   owner. The gate checks this for list, snapshot, history, typing and ops.
 
-## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 9)
+## 6. Remote prompts to agents (D-A no waiver; D-E to D-J; rev 10)
 
 A `message.send` from a remote principal into a conversation with an agent starts a
 **remote-origin prompt chain**. Every rule fails closed: when any part of the gate is missing,
@@ -125,10 +125,14 @@ crashed, slow or unsure, the tool does not run.
    cannot classify needs an approval. Nothing lowers the minimum (the remote, the model, a
    setting, `CLAUDE.md`, a hook, a permission mode, a session policy or rule); there is no waiver.
 2. **Read root (P2-J, P2-Q).** The read root is a **separate folder** that holds only the Chief's
-   memory and conversation files and contains no deny path (for another agent: its session's
+   memory files and the **section 8 projections** of owned conversations (never the raw
+   conversation files, which hold redacted fields such as `work.preview`, `acp_session`, other
+   cursors and non-owned conversations) and contains no deny path (for another agent: its session's
    workspace root, under the same rules). Reads without an approval are allowed only there. The
    deny list is a second layer: `state/`, `*.token`, `.claude/`, `.env*`, `~/.ssh`, the
-   `MUX_AGENT_TOKEN_FILE` path, the pairing record and install keys always ask approval.
+   `MUX_AGENT_TOKEN_FILE` path, the pairing record and install keys always ask approval. For
+   agents other than the Chief, dotfile reads (`.npmrc`, `.netrc`, credential JSON files and other
+   dotfiles) ask too, except a reviewed list.
    - The daemon decides on the **real path**: `realpath`, then `F_GETPATH` on an opened descriptor
      for the file on disk, compared case-folded on case-insensitive volumes (APFS default), with
      `/var` and `/private/var` and `..` resolved. It denies when either the requested or the
@@ -176,6 +180,12 @@ crashed, slow or unsure, the tool does not run.
      `set_permission_mode`, and disabled bypass does not stop `acceptEdits` (edits with no
      permission step). For a remote-chain session acpmux refuses `session/set_mode` and
      `set_config_option` from every client.
+   - **Web tools (P2-c):** `WebFetch` and `WebSearch` are side effects and ask the human (a
+     `WebFetch` to `localhost` reaches local services).
+   - **No model change:** `session/set_model` is refused for a remote-chain session, like
+     `session/set_mode` and `set_config_option`.
+   - **Classified interactive tools:** `AskUserQuestion` (its answer goes through the bound
+     approval path, 12a) and `ExitPlanMode` (asks) are in the tool table.
    - **Narrow working folder (P1-M):** the remote-chain process starts in a folder that holds only
      the memory and conversation files (the read root), not all of `$MUX_HOME`. The probe lists
      which built-in tools skip the permission step and checks that Read deny rules also apply to
@@ -247,6 +257,7 @@ crashed, slow or unsure, the tool does not run.
     fake `[mux-event]` line or a fake "Message from user_local:" line stay data. If the pinned
     version does not keep an embedded resource out of prompt parsing, the fallback is a random
     per-prompt nonce delimiter, and remote text that contains the nonce is refused.
+    The resource `uri` is built from ids only (conversation, message, install), never names.
     Code fact (P2-M): acpmux's `claude_stdio/outbound.rs` `resource_text` turns every ACP resource
     block into plain text `<resource uri="...">\n{text}\n</resource>` with no escaping, so remote
     text could close it. Rule: for remote text acpmux uses a random per-prompt delimiter instead of
@@ -273,6 +284,22 @@ crashed, slow or unsure, the tool does not run.
     Touch ID, or a second device). Approvals go through the cloud (lane 15), never over the link.
     **A LAN-only server (no cloud) denies every remote side effect;** reads inside the read root
     still work.
+12a. **Answers are bound (P1-a).** Code facts: `hub/permissions.rs` and `server/requests.rs` accept
+    `respond_permission` from every acpmux client (CLI `mux agents allow`, TUI, WebSocket, ssh
+    peers), and `claude_stdio/outbound.rs` accepts `allow_always` when it was not offered and
+    forwards `result._meta.updatedInput` to Claude. For a remote-tainted session (12b):
+    - acpmux accepts an answer only on its daemon-only socket, and only with a daemon approval id
+      that binds `(session, tool_use_id, sha256(rawInput))` to the presence proof;
+    - `allow_always` is refused;
+    - `updatedInput` is stripped, except the schema-checked answer field of interactive tools
+      (`AskUserQuestion`); an `updatedInput` that differs from the shown input is refused.
+12b. **Remote taint (P1-b).** A session started for a remote chain is **remote-tainted for its
+    whole life**: every prompt into it, or into any fork, handoff, transfer or adopt of it, is
+    remote, whatever its origin field says. acpmux refuses a fork or handoff of a tainted session
+    into a local one (the copy of policy, argv, modes and transcript in `hub/turns.rs` `fork()`
+    would make a local approve-all session with a remote transcript). "Absent `_meta.origin` means
+    remote" applies to tainted sessions and their descendants; local sessions keep their own
+    origin.
 13. **Revocation** (section 10) cancels the chain, its child sessions, its open approvals, its
     process group and its queued outbox.
 
@@ -291,6 +318,17 @@ Tests for this section (the acpmux owner adds fake-model probes on a Testbox):
   denied, and a Read inside the read root still reaches the daemon.
 - revoke, re-pair, and the next chain starts fresh (no earlier remote-chain session is resumed).
 - the spawn argv contains no value from the secrets list.
+- an answer from a WebSocket, peer or CLI client for a tainted session is refused; `allow_always`
+  is refused; an `updatedInput` that differs from the shown input is refused; an answer without
+  the daemon approval id is refused.
+- a fork of a remote-chain session, prompted locally, still asks the daemon; a handoff of a tainted
+  session into a local one is refused; a local session without `_meta.origin` keeps local origin.
+- a read of a raw conversation file asks; the read root holds only projections (no `work.preview`,
+  no `acp_session`, no other cursors, no non-owned conversation).
+- a `WebFetch` of `http://127.0.0.1:<port>` asks the human.
+- `session/set_model` is refused; a non-Chief agent's read of `.npmrc` asks.
+- no env value appears in a remote hook command (the existing no-env-in-JSON test covers the
+  inline settings; this one covers hook commands).
 - the remote projection arrives as the first stdin prompt (not on argv), and an earlier remote
   message with a fake delimiter in it stays inside its block.
 - remote text `</resource>` followed by a fake `[mux-event]` line stays inside the block.
