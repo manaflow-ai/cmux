@@ -31,7 +31,7 @@ import Testing
         #expect(root.titlebar.frame.maxX <= 760.5)
         #expect(root.sidebar.side == .right)
         // The traffic lights are not over a right sidebar's header.
-        #expect(root.sidebar.sidebarView.titlebarLeadingReserve == 0)
+        #expect(!root.sidebar.sidebarView.headerHasWindowControls)
     }
 
     @Test func switchingBackRestoresTheLeftLayout() {
@@ -39,5 +39,26 @@ import Testing
         root.sidebarSide = .left
         root.layoutSubtreeIfNeeded()
         #expect(root.sidebar.frame.minX == 0 && root.contentHost.frame.minX == 240)
+    }
+
+    /// Counts layout passes (the workspace layout re-syncs pane overlays and
+    /// strips under the traffic lights in its layout).
+    private final class LayoutCounter: NSView {
+        var passes = 0
+        override func layout() {
+            super.layout()
+            passes += 1
+        }
+    }
+
+    @Test func aSideSwitchLaysOutTheMovedContent() {
+        let root = root(.left)
+        let content = LayoutCounter()
+        root.show(content)
+        root.layoutSubtreeIfNeeded()
+        let before = content.passes
+        root.sidebarSide = .right
+        #expect(content.passes > before, "the content moved without a size change and must still lay out")
+        #expect(content.convert(content.bounds, to: root).minX == 0)
     }
 }

@@ -25,6 +25,9 @@ public final class SidebarView: NSView {
     /// Where the titlebar row's accessory may start: after the window's
     /// toolbar band (R68).
     public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { needsLayout = true } } }
+    /// False when the traffic lights are not over this header (a right
+    /// sidebar, R109): the accessory then starts at the reserve alone.
+    public var headerHasWindowControls = true { didSet { if oldValue != headerHasWindowControls { needsLayout = true } } }
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
 
     let list: SidebarListView
@@ -251,7 +254,7 @@ public final class SidebarView: NSView {
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
-            let x = max(Metrics.trafficLightInset, titlebarLeadingReserve)
+            let x = headerHasWindowControls ? max(Metrics.trafficLightInset, titlebarLeadingReserve) : titlebarLeadingReserve
             let width = max(0, min(size.width, newButton.frame.minX - Metrics.space2 - x))
             accessory.frame = NSRect(x: x, y: (titlebarHeight - size.height) / 2, width: width, height: size.height)
             accessory.isHidden = width < size.height

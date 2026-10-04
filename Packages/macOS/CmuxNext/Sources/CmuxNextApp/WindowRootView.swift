@@ -94,6 +94,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
             contentHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        // The first window opens on the configured side (no move after).
+        sidebarSide = DesignSettings.shared.sidebarSide
+        sidebar.side = sidebarSide
+        sidebar.sidebarView.spacesPosition = DesignSettings.shared.spacesPosition
         sidePins = Self.sidePins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight
@@ -208,7 +212,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         let bandHeight = TitlebarBandButton.side
         toolbarBand.frame = CGRect(x: x, y: (midY - bandHeight / 2).rounded(), width: TitlebarToolbarBand.width, height: bandHeight)
         // A right sidebar's header is clear of the traffic lights and the band.
-        sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : 0
+        sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
+        sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : Metrics.space3
         layoutTitlebarReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge

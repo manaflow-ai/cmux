@@ -25,7 +25,8 @@ public final class SidebarContainerView: NSView {
 
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
-    /// Holds the sidebar at `model.width`, pinned to the clip's trailing edge.
+    /// Holds the sidebar at `model.width`, pinned to the clip's edge that
+    /// faces the content (`side`).
     private let panel = NSView()
     private var panelWidth: NSLayoutConstraint!
     let handle: SidebarResizeHandle
@@ -244,7 +245,7 @@ public final class SidebarContainerView: NSView {
     }
 }
 
-/// Strip on the sidebar's trailing edge that resizes it. Invisible until
+/// Strip on the sidebar's edge facing the content that resizes it. Invisible until
 /// the pointer is over it; then a hairline fades in (and stays while
 /// dragging), so the edge never shows as a seam at rest.
 final class SidebarResizeHandle: NSView {

@@ -27,16 +27,21 @@ extension WindowRootView {
         ]
     }
 
-    /// Swaps the pins to `sidebarSide` without animating; the panes move,
-    /// so strips under the traffic lights re-check themselves on layout.
+    /// Swaps the pins to `sidebarSide` without animating. The layout may
+    /// only move (same size), which runs no layout pass of its own, so it
+    /// is laid out here: pane rings and overlay rects follow, and strips
+    /// under the traffic lights re-check themselves (`syncOverlay`).
     func applySidebarSide() {
         for (side, constraints) in sidePins where side != sidebarSide { NSLayoutConstraint.deactivate(constraints) }
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         sidebar.side = sidebarSide
-        needsLayout = true
+        layoutSubtreeIfNeeded()
+        content?.needsLayout = true
+        content?.layoutSubtreeIfNeeded()
     }
 
-    /// Follows the two settings from `DesignSettings` (change events only).
+    /// Follows the two settings from `DesignSettings` (init reads the
+    /// first values; the first emission repeats them and changes nothing).
     func observePlacement() -> Task<Void, Never> {
         Task { [weak self] in
             for await (side, spaces) in Observations({ (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition) }) {
