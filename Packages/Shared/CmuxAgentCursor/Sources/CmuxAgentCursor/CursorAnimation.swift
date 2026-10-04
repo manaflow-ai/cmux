@@ -1,7 +1,8 @@
 import QuartzCore
 
 /// Turns a [`GlidePlan`] into CoreAnimation animations for the cursor layer.
-public enum CursorAnimation {
+public struct CursorAnimation {
+    public init() {}
     /// `position` keyframes, one per sample, linear between samples.
     /// The first keyframe is the start point (the glide origin), so the
     /// animation needs no separate `fromValue`.

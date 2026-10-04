@@ -5,7 +5,8 @@ import Foundation
 /// per browser. Raw sends use ids from 2^30 up to `Int32.max`; the shim
 /// assigns its own calls ids below 2^30. A reply with a raw id arrives as
 /// `CEFShimEvent.devToolsMessage`, never as `devToolsResult`.
-public nonisolated enum CEFDevToolsRawMessage {
+public nonisolated struct CEFDevToolsRawMessage {
+    public nonisolated init() {}
     public static let firstRawID = 1 << 30
 
     public static func isRawID(_ id: Int) -> Bool {

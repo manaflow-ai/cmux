@@ -2,7 +2,8 @@ public import CmuxAgentCursor
 public import CoreGraphics
 
 /// Pure mapping from an `automation.input` event to overlay coordinates.
-public enum AgentCursorGeometry {
+public struct AgentCursorGeometry {
+    public init() {}
     /// The page point the input lands on: `point`, else the center of
     /// `rect` (type and key may carry only the focused element), else nil.
     public static func pagePoint(of event: AutomationInputEvent) -> CGPoint? {

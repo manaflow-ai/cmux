@@ -12,7 +12,8 @@ public nonisolated enum ProviderCodecError: Error, Hashable, Sendable {
 /// The provider framing (plans/cmux-next/browser-host.md, "Provider
 /// connection"): a big-endian u32 byte length, then that many bytes of UTF-8
 /// JSON tagged by `t`, at most 64 MiB, in both directions.
-public nonisolated enum ProviderCodec {
+public nonisolated struct ProviderCodec {
+    public nonisolated init() {}
     public static let version: UInt32 = 1
     public static let maxFrameBytes = 64 << 20
     /// The host reads `hello` with this smaller limit (`MAX_HELLO_BYTES`).
