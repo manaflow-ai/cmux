@@ -44,6 +44,7 @@ struct ServerStopServing {
     var agent: ServerServiceRegistration?
     var helper: ServerServiceRegistration?
     var revert: @MainActor (ServerFix) async throws(ServerHelperClient.Failure) -> Void
+    var gate: ServerFixGate = .shared
 
     static func app() -> ServerStopServing {
         ServerStopServing(

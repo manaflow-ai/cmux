@@ -70,7 +70,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
     }
 
     func harness(binary: URL? = URL(fileURLWithPath: "/App/Contents/Resources/bin/cmux"),
-                 fix: LocalServerSource.Fix? = nil) -> Harness {
+                 fix: LocalServerSource.Fix? = nil, localFixes: [HealthCheckID: HealthFix] = [:]) -> Harness {
         let harness = Harness()
         harness.cli.answer(LocalServerSource.statusArguments, Self.status)
         harness.cli.answer(LocalServerSource.rolesArguments, Self.roles)
@@ -88,7 +88,8 @@ func eventually(_ condition: () -> Bool) async -> Bool {
                 let watcher = FakeServerWatcher(file: file, onChange: onChange)
                 harness?.watchers.append(watcher)
                 return watcher
-            })
+            },
+            localFixes: localFixes)
         return harness
     }
 
@@ -143,7 +144,7 @@ func eventually(_ condition: () -> Bool) async -> Bool {
         #expect(h.snapshots.first?.roles.isEmpty == true)
     }
 
-    @Test func itWatchesTheRolesStatusAndTheConfigAndReadsAgainOnAChange() async {
+    @Test func itWatchesTheRolesStatusAndTheConfigAndReadsAgainOnAChange() async throws {
         let h = started(harness())
         #expect(await eventually { h.snapshots.count == 1 })
         #expect(h.watchers.map(\.file.path) == [
@@ -152,22 +153,22 @@ func eventually(_ condition: () -> Bool) async -> Bool {
         ])
         #expect(h.watchers.allSatisfy { $0.started })
         h.cli.answer(LocalServerSource.rolesArguments, #"{"roles": [{"name": "session", "state": "crash-loop"}]}"#)
-        h.watchers[0].onChange()
+        try #require(h.watchers.first).onChange()
         #expect(await eventually { h.snapshots.count == 2 })
         #expect(h.snapshots.last?.roles == [ServerRoleStatus(.session, .failed)])
         let reads = h.statusReads()
-        h.watchers[1].onChange()
+        try #require(h.watchers.last).onChange()
         #expect(await eventually { h.statusReads() == reads + 1 })
         #expect(h.snapshots.count == 2, "an unchanged status is not sent again")
     }
 
-    @Test func stopEndsTheWatchesAndTheReads() async {
+    @Test func stopEndsTheWatchesAndTheReads() async throws {
         let h = started(harness())
         #expect(await eventually { h.snapshots.count == 1 })
         h.source.stop()
         #expect(h.watchers.allSatisfy { $0.stopped })
         let reads = h.statusReads()
-        h.watchers[0].onChange()
+        try #require(h.watchers.first).onChange()
         h.source.refresh()
         try? await Task.sleep(for: .milliseconds(20))
         #expect(h.statusReads() == reads)
@@ -182,5 +183,23 @@ func eventually(_ condition: () -> Bool) async -> Bool {
         #expect(h.settled("open") == .some(nil))
         #expect(h.settled("pair") != nil && h.settled("pair") != .some(nil), "not served yet: a refusal")
         #expect(await eventually { h.statusReads() > reads })
+    }
+
+    /// The Fix button of a check this app fixes names the app's own action,
+    /// never the server's words.
+    @Test func anAllowlistedChecksFixTitleIsTheAppsOwn() async throws {
+        let mine = HealthFix(title: "Keep Awake on Power", needsAdmin: true)
+        let h = harness(localFixes: [.sleepEnabled: mine])
+        h.cli.answer(LocalServerSource.statusArguments, """
+        {"enabled": true, "mode": "user", "alerts": [
+          {"check": "sleep.enabled", "severity": "info", "title": "t", "body": "b", "fix": {"title": "run pmset now"}, "raised_at_ms": 1},
+          {"check": "disk.low", "severity": "warning", "title": "t", "body": "b", "fix": {"title": "Open Storage", "opens_settings": true}, "raised_at_ms": 2}
+        ]}
+        """)
+        _ = started(h)
+        #expect(await eventually { !h.snapshots.isEmpty })
+        let alerts = try #require(h.snapshots.first).alerts
+        #expect(alerts.first { $0.check == .sleepEnabled }?.fix == mine)
+        #expect(alerts.first { $0.check == .diskLow }?.fix == HealthFix(title: "Open Storage", opensSettings: true))
     }
 }

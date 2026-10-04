@@ -55,7 +55,7 @@ final class LocalServerSource: ServerSource {
     private var lastUnavailable: String?
 
     init(binary: URL?, hostName: String, watchedFiles: [URL], runCLI: @escaping RunCLI,
-         fix: @escaping Fix, makeWatcher: @escaping MakeWatcher) {
+         fix: @escaping Fix, makeWatcher: @escaping MakeWatcher, localFixes: [HealthCheckID: HealthFix] = [:]) {
         self.binary = binary
         self.hostName = hostName
         self.watchedFiles = watchedFiles

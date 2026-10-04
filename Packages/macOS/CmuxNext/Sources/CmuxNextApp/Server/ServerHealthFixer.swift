@@ -12,6 +12,7 @@ struct ServerHealthFixer {
     typealias Run = @MainActor (_ fix: ServerFix, _ revert: Bool) async throws(ServerHelperClient.Failure) -> Void
 
     let run: Run
+    var gate: ServerFixGate = .shared
 
     /// The App's fixer: the helper of this build.
     static let helper = ServerHealthFixer { (fix: ServerFix, revert: Bool) async throws(ServerHelperClient.Failure) in

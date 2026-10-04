@@ -77,6 +77,14 @@ struct LocalServerStatusTests {
         #expect(snapshot.roles == [ServerRoleStatus(.session, .on), ServerRoleStatus(.link, .off)])
     }
 
+    /// A stopped server runs no role, whatever a stale roles file says.
+    @Test func aStoppedServerShowsEveryRoleOff() throws {
+        let status = Data(#"{"enabled": false, "mode": "user", "postgres": {"state": "running"}}"#.utf8)
+        let snapshot = try LocalServerStatus.snapshot(status: status, roles: Self.roles, hostName: "h")
+        #expect(!snapshot.roles.isEmpty)
+        #expect(snapshot.roles.allSatisfy { $0.state == .off })
+    }
+
     @Test func aTopLevelThatIsNotAnObjectIsMalformed() {
         #expect(throws: LocalServerStatus.Malformed.self) {
             try LocalServerStatus.snapshot(status: Data("[]".utf8), roles: nil, hostName: "h")
