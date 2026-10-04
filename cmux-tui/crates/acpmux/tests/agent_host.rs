@@ -290,7 +290,8 @@ async fn an_escaped_grandchild_does_not_hold_back_the_exit() {
     )
     .await;
     // End the escaped grandchild this test started.
-    if let Ok(pid) = std::fs::read_to_string(&pid_file).map(|p| p.trim().parse::<i32>().unwrap_or(0))
+    if let Ok(pid) =
+        std::fs::read_to_string(&pid_file).map(|p| p.trim().parse::<i32>().unwrap_or(0))
         && pid > 0
     {
         // SAFETY: the pid this test's harness wrote for its own grandchild.
