@@ -93,12 +93,13 @@ import Testing
         defer { server.stop() }
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: server.path))
         try await connection.start()
-        let ensured = try await AppWorkspaceClient(connection).ensureApp("home")
+        let ensured = try await AppWorkspaceClient(connection).ensureApp("cmux/home", displayName: "Home")
         #expect(ensured.workspaceID == ResourceID(rawValue: "workspace_9"))
         #expect(ensured.screenID == ResourceID(rawValue: "screen_4"))
         let request = seen.withLock { $0 }
         #expect(request["operation"]?.stringValue == "workspace.ensure_app")
-        #expect(request["params"]?["app"]?.stringValue == "home")
+        #expect(request["params"]?["app"]?.stringValue == "cmux/home")
+        #expect(request["params"]?["display_name"]?.stringValue == "Home")
         #expect(request["params"]?["kind"]?.stringValue == "app")
         #expect(request["idempotency_key"]?.stringValue?.isEmpty == false)
         await connection.close()
