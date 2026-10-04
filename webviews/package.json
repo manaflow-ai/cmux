@@ -10,6 +10,8 @@
     "check:fix": "vp check --fix",
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
+    "dev:settings": "vp dev --config vite.config.settings-page.mjs",
+    "strings:settings": "bun scripts/pages/settings/generate-strings.mjs",
     "compare:agent-pane": "node scripts/agent-pane/compare.mjs",
     "fmt": "vp fmt",
     "lint": "vp lint",

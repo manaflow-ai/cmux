@@ -788,6 +788,7 @@ let package = Package(
             dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
             resources: [
                 .process("Localizable.xcstrings"),
+                .copy("Resources/settings-page"),
             ],
             swiftSettings: uiSwiftSettings
         ),
