@@ -57,6 +57,13 @@ static void Id(const std::string& in, const char* want) {
   Expect(want ? (ok && out == want) : (!ok && out.empty()), "id '" + in + "' -> " + (ok ? out : "refused"));
 }
 
+static void Reserved(const std::string& id, bool want) {
+  std::string normalized;
+  bool valid = cmux_shim::NormalizePageId(id, &normalized);
+  Expect(valid && cmux_shim::IsReservedPageId(normalized) == want,
+         "reserved '" + id + "' -> " + (valid && cmux_shim::IsReservedPageId(normalized) ? "yes" : "no"));
+}
+
 int main() {
   char tmpl[] = "/tmp/cmux-page-path.XXXXXX";
   if (!mkdtemp(tmpl)) return 2;
@@ -158,6 +165,19 @@ int main() {
   Id("cmux apps", nullptr);
   Id("cmux:apps", nullptr);
   Id(std::string(254, 'a'), nullptr);
+
+  // Reserved hosts (PageID.isReserved in CmuxNextPages): "cmux" and every
+  // "cmux." id. cmux_shim_page_scheme_add refuses them; only the first-party
+  // export serves them.
+  Reserved("cmux.agent", true);
+  Reserved("cmux.settings", true);
+  Reserved("cmux.agentx", true);
+  Reserved("CMUX.Apps", true);
+  Reserved("cmux", true);
+  Reserved("cmuxapps", false);
+  Reserved("com.example.app", false);
+  Reserved("mycmux.agent", false);
+  Reserved("cmux-agent", false);
 
   std::string cleanup = "rm -rf '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
