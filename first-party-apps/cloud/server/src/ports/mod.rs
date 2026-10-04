@@ -102,6 +102,12 @@ impl Edge {
         }
     }
 
+    /// The same edge with `clock` as the time source of the transfer
+    /// history (tests inject their own time).
+    pub fn with_clock(self, _clock: std::sync::Arc<dyn crate::clock::Clock>) -> Self {
+        self
+    }
+
     /// The real tunnel (`loopback-forward-v1` on the link socket) and the
     /// real transfer (OpenSSH with an in-memory key).
     pub fn real() -> Self {

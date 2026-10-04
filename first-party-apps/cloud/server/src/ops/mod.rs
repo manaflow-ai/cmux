@@ -89,6 +89,7 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.file.push", Kind::UserOnly),
     ("cloud.file.pull", Kind::UserOnly),
     // Stopping a transfer only stops work a person started: no gesture.
+    ("cloud.file.transfer.list", Kind::Read),
     ("cloud.file.transfer.cancel", Kind::Mutation),
     // Ports and browser routes (crate::ports).
     ("cloud.port.list", Kind::Read),

@@ -33,6 +33,8 @@ pub const TRANSFER_FAILED: &str = "cmux.cloud.transfer_failed";
 /// The code of a transfer that `cloud.file.transfer.cancel` stopped (its
 /// event says `state: cancelled`).
 pub const TRANSFER_CANCELLED: &str = "cmux.cloud.transfer_cancelled";
+/// `cloud.file.transfer.list {}`.
+pub(crate) const LIST: &str = "cloud.file.transfer.list";
 /// `cloud.file.transfer.cancel {transfer}`.
 pub(crate) const CANCEL: &str = "cloud.file.transfer.cancel";
 pub const LOCAL_EXISTS: &str = "cmux.cloud.local_exists";
@@ -269,6 +271,15 @@ fn check_local(local: &std::path::Path, direction: Direction) -> Result<(), Clou
             }
         }
     }
+}
+
+/// `cloud.file.transfer.list {}` (STUB).
+pub(crate) fn list<C: ControlPlane>(
+    _server: &mut Server<C>,
+    raw: &Value,
+) -> Result<Value, CloudError> {
+    args::object(raw, &[])?;
+    Ok(json!({ "transfers": [] }))
 }
 
 /// `cloud.file.transfer.cancel {transfer}`: `cancelling` for a running
