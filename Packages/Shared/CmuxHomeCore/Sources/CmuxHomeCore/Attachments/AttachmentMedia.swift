@@ -134,8 +134,8 @@ enum AttachmentMedia {
         return (5...8).contains(orientation) ? (height, width) : (width, height)
     }
 
-    /// A JPEG whose longer side is at most `maxPixel`, orientation applied.
-    static func thumbnailJPEG(of url: URL, maxPixel: Int, quality: Double = 0.85) throws -> Data {
+    /// The image whose longer side is at most `maxPixel`, orientation applied.
+    private static func thumbnailImage(of url: URL, maxPixel: Int) throws -> (source: CGImageSource, image: CGImage) {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { throw HomeRejection.invalid("not_an_image") }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -145,21 +145,77 @@ enum AttachmentMedia {
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
             throw HomeRejection.invalid("not_an_image")
         }
-        return try jpeg(image, quality: quality)
+        return (source, image)
+    }
+
+    /// A JPEG whose longer side is at most `maxPixel`, orientation applied.
+    static func thumbnailJPEG(of url: URL, maxPixel: Int, quality: Double = 0.85) throws -> Data {
+        try jpeg(thumbnailImage(of: url, maxPixel: maxPixel).image, quality: quality)
+    }
+
+    /// A thumbnail whose longer side is at most `maxPixel`: PNG when the
+    /// image is transparent (a JPEG would fill it black), else JPEG.
+    static func thumbnail(of url: URL, maxPixel: Int) throws -> (data: Data, fileExtension: String) {
+        let (source, image) = try thumbnailImage(of: url, maxPixel: maxPixel)
+        if isTransparent(source, sample: image) { return (try png(image), "png") }
+        return (try jpeg(image), "jpg")
+    }
+
+    /// True when the image may show through: ImageIO reports
+    /// `kCGImagePropertyHasAlpha`, or `sample` (a decoded copy) has an
+    /// alpha channel with a pixel that is not fully opaque.
+    static func isTransparent(_ source: CGImageSource, sample: CGImage?) -> Bool {
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        if (properties?[kCGImagePropertyHasAlpha] as? Bool) == true { return true }
+        guard let sample else { return false }
+        switch sample.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: return false
+        default: return !isOpaque(sample)
+        }
+    }
+
+    /// Every pixel's alpha is 255 (drawn into a cleared RGBA buffer).
+    private static func isOpaque(_ image: CGImage) -> Bool {
+        let width = image.width, height = image.height
+        guard width > 0, height > 0 else { return true }
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return false }
+        return stride(from: 3, to: pixels.count, by: 4).allSatisfy { pixels[$0] == 255 }
     }
 
     /// An image's preview: a JPEG at most `previewMaxPixel` on its long edge
     /// and `previewMaxBytes`, trying lower quality and size before giving
     /// up. Nil when the image is small enough to show itself (and not HEIC,
-    /// which some readers cannot decode), or no attempt fits.
+    /// which some readers cannot decode), when it is transparent (a JPEG
+    /// has no alpha, and the owner keeps the first preview of a hash for
+    /// good; readers load the original), or when no attempt fits.
     static func previewJPEG(of url: URL, mimeType: String, byteCount: Int, displaySize: (width: Int, height: Int)) -> Data? {
         let maxPixel = HomeAttachmentPolicy.previewMaxPixel
         let maxBytes = HomeAttachmentPolicy.previewMaxBytes
         if mimeType != "image/heic", max(displaySize.width, displaySize.height) <= maxPixel, byteCount <= maxBytes { return nil }
+        guard let sample = try? thumbnailImage(of: url, maxPixel: 512),
+              !isTransparent(sample.source, sample: sample.image) else { return nil }
         for (pixels, quality) in [(maxPixel, 0.8), (maxPixel, 0.6), (maxPixel * 3 / 4, 0.6), (maxPixel / 2, 0.6)] {
             if let data = try? thumbnailJPEG(of: url, maxPixel: pixels, quality: quality), data.count <= maxBytes { return data }
         }
         return nil
+    }
+
+    static func png(_ image: CGImage) throws -> Data {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, UTType.png.identifier as CFString, 1, nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+        return data as Data
     }
 
     static func jpeg(_ image: CGImage, quality: Double = 0.85) throws -> Data {
@@ -435,7 +491,8 @@ enum AttachmentMedia {
                                previewURL: previewURL)
     }
 
-    /// A cached thumbnail next to the blob (`thumb-<maxPixel>.jpg`).
+    /// A cached thumbnail next to the blob (`thumb-<maxPixel>.jpg`, or
+    /// `.png` for a transparent image).
     static func localThumbnail(of files: LocalAttachmentFiles, ref: AttachmentRef, maxPixel: Int) throws -> URL {
         let sourceURL: URL
         if let poster = files.posterURL {
@@ -447,11 +504,15 @@ enum AttachmentMedia {
         } else {
             throw HomeRejection.invalid("no_thumbnail")
         }
-        let target = files.fileURL.deletingLastPathComponent().appendingPathComponent("thumb-\(maxPixel).jpg")
-        if FileManager.default.fileExists(atPath: target.path) { return target }
-        let data = try thumbnailJPEG(of: sourceURL, maxPixel: maxPixel)
+        let directory = files.fileURL.deletingLastPathComponent()
+        for fileExtension in ["jpg", "png"] {
+            let cached = directory.appendingPathComponent("thumb-\(maxPixel).\(fileExtension)")
+            if FileManager.default.fileExists(atPath: cached.path) { return cached }
+        }
+        let thumb = try thumbnail(of: sourceURL, maxPixel: maxPixel)
         try Task.checkCancellation()
-        try data.write(to: target, options: .atomic)
+        let target = directory.appendingPathComponent("thumb-\(maxPixel).\(thumb.fileExtension)")
+        try thumb.data.write(to: target, options: .atomic)
         return target
     }
 }
