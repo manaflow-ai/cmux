@@ -333,3 +333,26 @@ fn elevated_scopes_are_never_granted_at_install_and_need_a_user_grant() {
         assert!(!revoked.apps["local/c"].grants.contains("terminal:backend"));
     }
 }
+
+#[test]
+fn enabled_and_sandboxed_need_the_user_in_both_directions() {
+    let m =
+        apply(&Mirror::default(), set("1", "octo/b", |o| o.installed = Some(true))).unwrap().mirror;
+    let as_cli = |key: &str, f: fn(&mut SetOp)| {
+        let mut op = set(key, "octo/b", f);
+        if let Op::Set(set) = &mut op {
+            set.origin = Origin::Cli;
+        }
+        op
+    };
+    assert_eq!(apply(&m, as_cli("2", |o| o.enabled = Some(false))), Err(Reject::Origin("enabled")));
+    let off = apply(&m, set("3", "octo/b", |o| o.enabled = Some(false))).unwrap().mirror;
+    assert_eq!(
+        apply(&off, as_cli("4", |o| o.enabled = Some(true))),
+        Err(Reject::Origin("enabled"))
+    );
+    assert_eq!(
+        apply(&m, as_cli("5", |o| o.sandboxed = Some(true))),
+        Err(Reject::Origin("sandboxed"))
+    );
+}
