@@ -22,7 +22,7 @@ nonisolated enum AppearanceSettingsSchema {
         let surfaceBackgrounds: [SettingDescriptor] = surfaceNames.map { name, label in
             SettingDescriptor(
                 ["appearance", "surfaceBackgrounds", name], section: .appearance, group: window,
-                title: SettingsText.keyed("settings.layout.paneBorderColor", label),
+                title: SettingText(key: "settings.layout.paneBorderColor", text: label),
                 help: SettingsText.keyed("settings.appearance.backgroundOpacity.help", "Unset follows the theme's one background token."),
                 kind: .color, default: nil, defaultLabel: theme,
                 keywords: ["background", "surface", "color", label.lowercased()]
