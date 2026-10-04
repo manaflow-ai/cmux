@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4'
+IR_SHA256 = '7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e'
 
 
 @dataclass(frozen=True)
@@ -1547,10 +1547,12 @@ COMMANDS = {
             'cwd': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'env': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
+            'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'width': CommandFieldMetadata(None, None),
         },
     ),
@@ -2532,10 +2534,12 @@ COMMANDS = {
             'dir': CommandFieldMetadata(None, None),
             'env': CommandFieldMetadata(12, 'terminal-env-v1'),
             'keep': CommandFieldMetadata(12, 'terminal-reap-v1'),
+            'kind': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(12, 'terminal-shell-args-v1'),
             'terminal_id': CommandFieldMetadata(12, 'terminal-placement-env-v1'),
+            'url': CommandFieldMetadata(12, 'pane-browser-kind-v1'),
         },
     ),
     'subscribe': CommandMetadata(

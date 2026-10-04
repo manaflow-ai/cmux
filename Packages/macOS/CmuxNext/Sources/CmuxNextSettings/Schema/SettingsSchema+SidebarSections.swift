@@ -58,6 +58,8 @@ extension SettingsSchema {
             ),
             SidebarSectionsSetting.showWorkspaceTabsDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
+            ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
+            ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
         ]
     }
 }

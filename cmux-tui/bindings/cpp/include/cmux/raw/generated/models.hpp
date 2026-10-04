@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4";
+inline constexpr std::string_view kProtocolIrSha256 = "7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -96,6 +96,7 @@ enum class NotificationSource;
 struct NotifyResult;
 struct Pane;
 enum class PaneDirection;
+enum class PaneKind;
 struct PaneNeighborResult;
 struct PaneRef;
 struct PingResult;
@@ -2610,15 +2611,22 @@ struct NewPaneRequest {
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
 
+enum class PaneKind {
+    pty,
+    browser,
+};
+
 struct NewPaneRightRequest {
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
+    Field<PaneKind> kind{};
     Id pane{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
+    Field<std::string> url{};
     Field<float> width{};
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
@@ -3723,10 +3731,12 @@ struct SplitRequest {
     SplitDirection dir{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
     std::optional<bool> keep{};
+    Field<PaneKind> kind{};
     Id pane{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
+    Field<std::string> url{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
 };
 
@@ -4749,6 +4759,12 @@ template <>
 struct Codec<PaneDirection> {
     static Result<Json> encode(const PaneDirection& value);
     static Result<PaneDirection> decode(const Json& value);
+};
+
+template <>
+struct Codec<PaneKind> {
+    static Result<Json> encode(const PaneKind& value);
+    static Result<PaneKind> decode(const Json& value);
 };
 
 template <>

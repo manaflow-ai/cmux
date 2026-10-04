@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4. */
+/* cmux-tui mux protocol 12, IR 7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "cb87c564b621f28bd70ba05258e2eb6a6c8ac3006763927d09c2bda59de833a4" as const;
+export const SDK_IR_SHA256 = "7b7c445e6f487e924d64e54b651c963379b48649106abfeabfa4e0146181919e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1379,6 +1379,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "kind": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
+      },
       "shell_args": {
         "since": 12,
         "capability": "terminal-shell-args-v1"
@@ -1386,11 +1390,16 @@ export const COMMAND_METADATA = {
       "terminal_id": {
         "since": 12,
         "capability": "terminal-placement-env-v1"
+      },
+      "url": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
       }
     },
     "stream": null,
     "constraints": [
-      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
     ]
   },
   "new-row": {
@@ -2253,6 +2262,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "terminal-reap-v1"
       },
+      "kind": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
+      },
       "shell_args": {
         "since": 12,
         "capability": "terminal-shell-args-v1"
@@ -2260,12 +2273,17 @@ export const COMMAND_METADATA = {
       "terminal_id": {
         "since": 12,
         "capability": "terminal-placement-env-v1"
+      },
+      "url": {
+        "since": 12,
+        "capability": "pane-browser-kind-v1"
       }
     },
     "stream": null,
     "constraints": [
       "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
-      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+      "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
+      "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1)."
     ]
   },
   "subscribe": {
@@ -6113,6 +6131,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "right",
       "up",
       "down"
+    ]
+  },
+  "PaneKind": {
+    "kind": "enum",
+    "values": [
+      "pty",
+      "browser"
     ]
   },
   "PaneNeighborResult": {
@@ -15282,6 +15307,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "boolean"
           }
         },
+        "kind": {
+          "capability": "pane-browser-kind-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "PaneKind"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -15321,6 +15357,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
             }
           ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "capability": "pane-browser-kind-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",
@@ -18816,6 +18863,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "boolean"
           }
         },
+        "kind": {
+          "capability": "pane-browser-kind-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "PaneKind"
+          }
+        },
         "pane": {
           "nullable": false,
           "presence": "required",
@@ -18855,6 +18913,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
               "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$"
             }
           ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "capability": "pane-browser-kind-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",

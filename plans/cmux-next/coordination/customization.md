@@ -1,0 +1,8 @@
+# Lane: customization
+
+## Active streams
+- R93 customization lead: settings in the palette (one generic mechanism over `SettingsSchema`), theme swatches (R98), chrome placement (R109: `sidebar.side`, `sidebar.spacesPosition`, then pane chrome order and position), the tab bar button editor (R120). Touches: settings lead (schema rows, export), sidebar lead (container and footer layout), browser lead (toolbar order, later).
+
+## Landed
+- 2026-10-04 (this push) R109 part 1: `sidebar.side` (left|right) and `sidebar.spacesPosition` (top|bottom), schema choices in the Sidebar group (palette and Settings list them), agent-settable. `SidebarContainerView.side` pins the panel and resize handle to the content edge; `WindowRootView` swaps the sidebar, content and title pins and follows `DesignSettings` (no animation on a switch). With the sidebar on the right, the traffic lights sit over the top-left tab strip (its existing avoidance) and the sidebar header has no leading reserve. Spaces at the top get their own row under the titlebar row; the account row stays in the footer.
+- 2026-10-04 798f4e257f8 R98 part 2: theme swatch strips. `ThemeCatalog` reads every Ghostty theme file once off the main thread and keeps one strip per theme (background, ANSI 1-6, foreground). Palette theme argument lists (`PaletteSources.argumentSwatches`), the palette `appearance.theme` row (now lists every theme) and the Settings theme picker card draw them. v1 limits (accepted): hex colors only (no X11 names or includes), no refresh when a theme file changes at runtime, the Settings Theme dropdown menu has no strips, a palette page opened before the strips load shows symbols until reopened (follow-up: refresh on arrival).

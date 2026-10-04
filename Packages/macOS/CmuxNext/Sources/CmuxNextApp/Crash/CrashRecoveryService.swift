@@ -69,8 +69,8 @@ final class CrashRecoveryService {
         notice = panel
     }
 
-    /// Help > Show Crash Logs, the palette, `cmux action run
-    /// help.showCrashLogs` and the restart notice: the newest crash log in
+    /// Help > Show Crash Logs, the palette, `cmux settings show-crash-logs`
+    /// and the restart notice: the newest crash log in
     /// TextEdit (`CrashLogOpener`). The folder listing runs off the main
     /// thread.
     func showCrashLogs(opener: CrashLogOpener = .system) {
