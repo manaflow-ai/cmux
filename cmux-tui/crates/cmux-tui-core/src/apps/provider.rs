@@ -37,8 +37,19 @@ use super::timer::TimerId;
 /// `net.fetch`) and the daemon's catalog ops are never routed.
 /// The allowlist stays explicit: a new family is a decision, never "any
 /// family the daemon does not own".
-pub const FAMILIES: &[&str] =
-    &["fs", "action", "app.settings", "power", "feed", "integration", "team", "app", "coderouter"];
+pub const FAMILIES: &[&str] = &[
+    "fs",
+    "action",
+    "app.settings",
+    "power",
+    "feed",
+    "integration",
+    "team",
+    "app",
+    "coderouter",
+    // cmux.credential.relay from first-party app servers (credential_relay.rs).
+    "credential",
+];
 
 /// Ops that wait for the user (a file panel) get the long deadline.
 const WAITS_FOR_USER: &[&str] = &["fs.pick"];
@@ -86,7 +97,7 @@ pub fn normalize_method(params: &mut Value) {
 }
 
 /// A provider's error body in the ABI shape `{code, message, retryable}`.
-fn error_body(body: Value) -> Value {
+pub(super) fn error_body(body: Value) -> Value {
     let code = body.get("code").and_then(Value::as_str).unwrap_or("operation.failed").to_string();
     let message = body
         .get("message")
@@ -262,6 +273,9 @@ impl Supervisor {
     pub(super) fn provider_send_failed(&self, request_id: u64) {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
+            if self.relay_send_failed_locked(&mut inner, request_id) {
+                return;
+            }
             let Some(call) = inner.provider_calls.remove(&request_id) else { return };
             self.timers.cancel(call.timer);
             let body = unavailable(&call.op);
@@ -317,6 +331,16 @@ impl Supervisor {
         body: Value,
     ) -> Result<Value, ApiError> {
         let mut inner = self.inner.lock().unwrap();
+        match self.relay_result_locked(&mut inner, client, request_id, ok, body.clone()) {
+            Some(true) => return Ok(json!({})),
+            Some(false) => {
+                return Err(ApiError::new(
+                    "apps.provider.unknown",
+                    "no such provider request on this connection",
+                ));
+            }
+            None => {}
+        }
         match inner.provider_calls.get(&request_id) {
             Some(call) if call.client == client => {}
             _ => {
@@ -362,6 +386,7 @@ impl Supervisor {
     /// calls fail at once.
     pub(super) fn provider_disconnect_locked(&self, inner: &mut Inner, client: u64) -> Vec<Out> {
         inner.providers.retain(|_, provider| *provider != client);
+        self.relay_provider_gone_locked(inner, client);
         let gone: Vec<u64> = inner
             .provider_calls
             .iter()

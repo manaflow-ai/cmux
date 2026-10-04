@@ -181,6 +181,8 @@ pub(super) struct Inner {
     /// (`provider.rs`).
     pub providers: HashMap<String, u64>,
     pub provider_calls: HashMap<u64, super::provider::ProviderCall>,
+    /// Credential relays waiting for the Mac app (`credential_relay.rs`).
+    pub relay_calls: HashMap<u64, super::credential_relay::RelayCall>,
     pub next_provider_request: u64,
     /// `apps-run` replay by idempotency key (`runs.rs`).
     pub run_keys: HashMap<String, super::runs::RunKey>,
@@ -267,6 +269,7 @@ impl Supervisor {
                 events_started: false,
                 providers: HashMap::new(),
                 provider_calls: HashMap::new(),
+                relay_calls: HashMap::new(),
                 next_provider_request: 0,
                 run_keys: HashMap::new(),
                 run_key_order: VecDeque::new(),

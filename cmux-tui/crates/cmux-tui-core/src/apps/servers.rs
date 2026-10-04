@@ -571,6 +571,12 @@ impl Supervisor {
             if inner.servers.get(app).is_none_or(|s| s.generation != generation) {
                 return;
             }
+            if value["t"] == "host.request" && value["op"] == super::credential_relay::RELAY_OP {
+                let outs = self.relay_locked(&mut inner, app, generation, &value);
+                drop(inner);
+                self.emit(outs);
+                return;
+            }
             if value["t"] == "host.request" {
                 let reply = self.host_request_locked(&inner, app, &value);
                 inner.servers[app].process.send(line(&reply));
@@ -664,6 +670,7 @@ impl Supervisor {
                     Out::Respond(respond, Err(ApiError::new("apps.server_exited", exit.describe())))
                 })
                 .collect();
+            outs.extend(self.relay_server_gone_locked(&mut inner, app));
             let level = if server.stopping { "info" } else { "error" };
             outs.extend(self.log_locked(
                 &mut inner,
