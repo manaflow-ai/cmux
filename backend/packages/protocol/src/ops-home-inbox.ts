@@ -173,15 +173,17 @@ export const HomeSettingsSet = def({
   params: Schema.Struct({
     discoverable_by_email: Schema.optionalKey(Schema.Boolean),
     discoverable_by_phone: Schema.optionalKey(Schema.Boolean),
-    allow_dm_from: Schema.optionalKey(Schema.Literals(["anyone", "teams", "contacts"]))
+    allow_requests_from: Schema.optionalKey(Schema.Literals(["anyone", "teams", "nobody"])),
+    email_requests: Schema.optionalKey(Schema.Boolean)
   }),
   result: Schema.Struct({
     discoverable_by_email: Schema.Boolean,
     discoverable_by_phone: Schema.Boolean,
-    allow_dm_from: Schema.Literals(["anyone", "teams", "contacts"])
+    allow_requests_from: Schema.Literals(["anyone", "teams", "nobody"]),
+    email_requests: Schema.Boolean
   }),
   errors: mutationErrors,
-  docs: "Choose who can find you by email or phone and who may start a DM with you.",
+  docs: "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.",
   cli: { path: "home settings", visible: true },
   mcp: { expose: "never", group: "home" }
 })

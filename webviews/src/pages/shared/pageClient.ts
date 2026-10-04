@@ -9,13 +9,16 @@
 export interface PageError extends Error {
   code: string;
   retryable: boolean;
+  /** The owner's structured details (pane-protocol `err.details`), when it sent any. */
+  details?: unknown;
 }
 
-export function pageError(code: string, message: string, retryable = false): PageError {
+export function pageError(code: string, message: string, retryable = false, details?: unknown): PageError {
   const error = new Error(message) as PageError;
   error.name = "PageError";
   error.code = code;
   error.retryable = retryable;
+  if (details !== undefined) error.details = details;
   return error;
 }
 
@@ -41,7 +44,7 @@ export interface PageClient {
 type Envelope =
   | { t: "call"; id: number; op: string; params?: unknown }
   | { t: "ok"; id: number; value?: unknown }
-  | { t: "err"; id: number; code: string; message: string; retryable?: boolean }
+  | { t: "err"; id: number; code: string; message: string; retryable?: boolean; details?: unknown }
   | { t: "sub"; id: number; stream: string; filter?: Record<string, unknown> }
   | { t: "ev"; sub: number; seq: number; data: unknown }
   | { t: "unsub"; sub: number };
@@ -111,8 +114,8 @@ export class BridgePageClient implements PageClient {
     const message = reply as Partial<Envelope> | null;
     if (message?.t === "ok" && message.id === envelope.id) return (message as { value?: unknown }).value;
     if (message?.t === "err") {
-      const err = message as { code?: string; message?: string; retryable?: boolean };
-      throw pageError(err.code ?? "cmux.protocol.error", err.message ?? "request failed", err.retryable ?? false);
+      const err = message as { code?: string; message?: string; retryable?: boolean; details?: unknown };
+      throw pageError(err.code ?? "cmux.protocol.error", err.message ?? "request failed", err.retryable ?? false, err.details);
     }
     throw pageError("cmux.protocol.invalid_result", "malformed reply");
   }

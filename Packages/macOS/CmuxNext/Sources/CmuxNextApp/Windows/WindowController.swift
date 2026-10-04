@@ -49,18 +49,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
         }
         let registry = services.registry
-        // Back and Forward run the trail's actions; the list runs history.goTo (R69).
-        root.toolbarBand.onHistory = { [weak registry] direction in
-            _ = registry?.perform(direction == .back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
-        }
-        root.toolbarBand.historyMenu = { [weak services, weak registry] direction in
-            guard let items = services?.locationTrail.list(direction), !items.isEmpty else { return nil }
-            return TitlebarHistoryMenu.make(items) { index in
-                _ = registry?.perform("history.goTo", invocation: ActionInvocation(arguments: ["index": .int(index)], origin: .user))
-            }
-        }
-        root.toolbarBand.describeHistory(back: registry.descriptor(for: "focusHistoryBack")?.title ?? "",
-                                         forward: registry.descriptor(for: "focusHistoryForward")?.title ?? "")
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         let window = ShellWindow(
@@ -78,6 +66,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         super.init(window: window)
+        installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope)
@@ -317,6 +306,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         services.keyRouter.cancelChord()
+        removeHistoryObserver()
         services.windows.windowWillClose(self)
     }
 }

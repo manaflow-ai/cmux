@@ -78,7 +78,7 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `reaction.add` / `reaction.remove` | `{message_id, part_index, reaction}` | client key | participants | one per (author, part, kind) |
 | `read_cursor.set` | `{seq}` | client key (`read:<seq>` recommended) | humans | monotonic, `<= last_seq` |
 | `title.set` | `{title}` | client key | members (group) | not for `dm`, `chief` |
-| `participants.add` | `{participant: user or chief}` | client key | members | a human may be added only when they share a team with the adder or already share a conversation with them; anyone else needs `invite.create`. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
+| `participants.add` | `{participant: user or chief}` | client key | members | 120 per hour per actor and `conversation.create` 60 per hour, checked before any reach lookup (section 9); a human may be added only when they share a team with the adder or are connected to them (a shared group is no connection), and their `allow_requests_from` allows it (section 16.10); anyone else needs `invite.create` (later a message request). A chief adds the humans its owner could add, under its owner's reach. A chief may be added by its owner, or by anyone when its `reachability` allows. Max 64 |
 | `participants.remove` | `{participant}` | client key | self (leave), conversation owner, chief owner (for their chief) | removing the last human archives the conversation |
 | `invite.create` | `{invite_id, address, channel, display_name, locale, copy_variant}` | `invite_id` (the Worker derives it from the client key) | members | Worker first runs `address.ensure` and `invite.quota.take`; commit emits outbox `address.deliver` (send happens after commit); max 20 pending invites per conversation |
 | `invite.revoke` | `{invite_id}` | client key | inviter, conversation owner | pending only |
@@ -102,7 +102,7 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | `chief.create` | `{name, parent?, avatar?, brain}` | client key | session | creates the agent principal, its grant (class `mux`), its `MuxDO` and its `chief` conversation (outbox, system ops with derived keys); the first chief is pinned |
 | `chief.update` / `chief.archive` | `{agent, ...}` | client key | session (owner) | archive keeps history read-only |
 | `invite.quota.take` | `{invite_id, channel}` | `quota:<invite_id>` | system (Worker on the inviter's behalf) | per-user windows (section 9); a refused take refuses the invite |
-| `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_dm_from: anyone|teams|contacts}` | client key | session | |
+| `home.settings.set` | `{discoverable_by_email?, discoverable_by_phone?, allow_requests_from?: anyone|teams|nobody, email_requests?}` | client key | session | at least one field. Defaults: `allow_requests_from: anyone`, `discoverable_by_email: false`, `discoverable_by_phone: false`, `email_requests: true`. `allow_requests_from` limits `dm.open`, group creation and `participants.add` of this user (section 16.10): `anyone` = a shared team or a connection (interim, until message requests exist), `teams` = a shared team or a connection (a connected contact never needs a request), `nobody` = no new reach, also from contacts (an existing DM keeps working). `email_requests` is stored but not read yet (16.10 item 9) |
 
 ### 4.3 MuxDO, TeamDO, AddressDO
 
@@ -295,6 +295,13 @@ new body. No raw address, token or token hash is ever projected.
   all future sends.
 - Per conversation: 20 pending invites; 10 failed `invite.accept` attempts per hour lock invite
   acceptance for that conversation for an hour (secret guessing; secrets are 128-bit).
+- Reach (built 2026-10-04, `home-rate.ts`): `conversation.create` 60 per hour and
+  `participants.add` 120 per hour per acting principal (a user, or each of the user's chiefs),
+  counted in the user's UserDO (private table `home_rate`). The Worker takes the attempt before
+  the member check and before any reach RPC, so a flood never fans out to TeamDOs, other users'
+  UserDOs or ConversationDOs; every attempt counts, also a refused one. A spent budget is
+  `home.rate_limited`, retryable, `details.retry_after_ms` (until the oldest counted attempt
+  leaves the hour). Reach lookups are capped at 64 targets per op after the gate.
 - Per network: Cloudflare rate limiting on `invite.create`, `dm.open` with an address, and
   `invite.preview`: 30 per minute per IP.
 - Content: inviter text appears in the invite only for trusted inviters (verified email, account
@@ -314,6 +321,15 @@ new body. No raw address, token or token hash is ever projected.
 - Messages: kept until the team policy `home.retention_days` (minimum 30) or user deletion;
   default keep. The ConversationDO alarm deletes expired message rows in batches and emits
   `home.message.delete` projection rows. Retraction removes the body at once (DO and search).
+- DM consent markers (2026-10-04, home-core `consent.ts`): retention deletes `msg` and `msgkey`
+  rows, but connection proof (16.7) must outlive the messages. Each human author of a DM has one
+  private `consent` row (key = author, `{at}`), written in the commit of their first message
+  there. No sweep, retention pass or purge deletes `consent` rows; they go only with the DO
+  storage when the conversation itself is deleted. Any commit in a DM that writes or deletes a
+  human author's `msgkey` row adds that author's missing marker in the same commit, so a
+  retention batch over a DM from before the markers leaves the markers behind (the sweep must
+  stay inside the wrapped domain reduce). The table is in `PRIVATE_TABLES` (never in
+  subscriber effects).
 - Ledger: 7 days (engine default). Events (`own_events`): keep the last 30 days or 10,000 events,
   whichever is more; older resumes take a snapshot (engine need E3).
 - Invites: pending ones expire after 14 days; records are kept 90 days, then reduced to counts.
@@ -511,6 +527,14 @@ addee are connected or share an org where the adder's role may add people, read 
 UserDO projection (eventually consistent; a block takes effect at the pair owner at once and in
 projections within one drain).
 
+Built so far (2026-10-03, branch feat-cmux-next-home-reach): until pair state exists, "connected"
+means a DM where both are current participants and both gave consent (both sent a message there,
+or one accepted the other's one-to-one invite). "Both sent a message" is read from the DM's
+private consent markers (section 10), not from message rows, so a connection survives
+retention; a DM from before the markers falls back to its `msgkey` rows while they exist. The setting is `allow_requests_from:
+anyone|teams|nobody` plus `email_requests` (R2, default on, stored only); `allow_dm_from` is
+gone (section 16.10).
+
 ### 16.8 Migration from today
 
 `memberships.role` today is owner, admin or member; add `guest` and `billing` (expand
@@ -523,6 +547,39 @@ between two existing org members creates their relationship only when both send 
 - R1: the three primitives are accepted: Contacts (relationships), Grants, and Team with the roles guest, member, admin, owner and billing. The product and code keep the name "Team" (`team_` ids); "org" in this section only separates it from relationships.
 - R2: message requests from unrelated users show in Home AND send an email (on by default; the recipient can turn email off in `home.settings.set {email_requests}`).
 - R3: the address owner is `AddressDO`, participants `addr_<26>`, secret `HOME_ADDRESS_KEY` (backend and home-core renamed).
+
+### 16.10 Reach decisions (coordinator, 2026-10-03)
+
+1. Names are the 16.7 ones: `home.settings.set {allow_requests_from: anyone|teams|nobody,
+   email_requests}`. `allow_dm_from` is removed everywhere; `nobody` refuses all new reach.
+2. A shared group is no connection (16.3 stands).
+3. Interim rule, until message requests (16.4) exist: `anyone` reaches only people who share a
+   team with the caller or are connected to them; a stranger gets `not_reachable`, the same
+   answer as an unknown account. Target: a stranger's DM or add becomes a message request.
+4. The setting limits group adds too (`conversation.create` and `participants.add`): only people
+   the caller can reach are added; the client offers an invite (later a request) for the others.
+5. Defaults: `allow_requests_from: anyone`, `discoverable_by_email: false`,
+   `discoverable_by_phone: false`.
+6. A chief adds the humans its owner could add, acting under its owner's reach: the Worker
+   resolves the reach facts for the chief's `owner_user` (the owner's teams, the owner's
+   connections, the target's setting checked against the owner) after the owner's UserDO
+   confirms the agent is one of the owner's active chiefs. Any other agent caller gets no facts,
+   so a cloud owner never re-adds a departed human through the stored record for an agent.
+   The owner's UserDO checks the agent class explicitly: only class `mux` (a chief) qualifies;
+   an automation run principal that carries a chief's id gets no facts. A chief never opens a
+   DM (DMs are between humans).
+7. Backend owner, 2026-10-04: a connected pair needs no request under `anyone` and `teams`, also
+   without a shared team (16.3). Under `nobody` the pair's existing DM keeps working (`dm.open`
+   reuses it), but a new group add by the contact or the contact's chief is refused.
+8. Rate limits before reach (section 9): `conversation.create` 60 per hour, `participants.add`
+   120 per hour, `home.rate_limited` with `retry_after_ms`.
+9. Follow-up, NOT built: the message-request path. There is no pending-request store, no
+   `relation.request` / accept / decline ops, and `email_requests` is stored by
+   `home.settings.set` but never read (no email is sent). Until it exists a stranger under
+   `anyone` is refused `not_reachable`, the same as under `teams`; so today `anyone` and `teams`
+   behave the same. Needed: the pair owner (16.7) holds `requested` state, the recipient's UserDO
+   lists requests in Home, accept makes the pair connected, decline and block are silent to the
+   sender, and the request email honors `email_requests` and the section 9 windows.
 
 ## 17. Engine and flow questions (answered by the backend lead, 2026-10-02)
 

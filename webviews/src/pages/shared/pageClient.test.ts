@@ -42,6 +42,22 @@ describe("BridgePageClient", () => {
     expect(error).toMatchObject({ code: "cmux.history.not_found", message: "gone", retryable: false });
   });
 
+  test("err replies keep the host's details", async () => {
+    const { client } = host((m) => ({
+      t: "err",
+      id: m.id,
+      code: "operation.failed",
+      message: "no",
+      details: { origin: "session_host", details: { exit_code: 128 } },
+    }));
+    const error = await client.call("x", {}).catch((e) => e);
+    expect((error as { details?: unknown }).details).toEqual({ origin: "session_host", details: { exit_code: 128 } });
+    const plain = await host((m) => ({ t: "err", id: m.id, code: "c", message: "m" }))
+      .client.call("x", {})
+      .catch((e) => e);
+    expect((plain as { details?: unknown }).details).toBeUndefined();
+  });
+
   test("a failed post is a retryable transport error; a malformed reply is invalid_result", async () => {
     const lost: ReplyHandler = { postMessage: () => Promise.reject(new Error("closed")) };
     const error = await new BridgePageClient(lost, {}).call("x", {}).catch((e) => e);

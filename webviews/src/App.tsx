@@ -103,16 +103,11 @@ import {
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
-import {
-  createDiffTransport,
-  DiffTransportError,
-  type DiffTransport,
-  type DiffViewerTransportConfig,
-} from "./diff/transport";
+import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
 import { FindBar } from "./find/FindBar";
 import { useDiffFind, type DiffFindController } from "./find/useDiffFind";
 import { useFindKeyboard } from "./find/useFindKeyboard";
-import type { DiffSource } from "./diff/generated/protocol";
+import type { DiffSource, DiffTransportConfig, SessionOpened } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 import { diffLanguages } from "./diff-languages/registry";
 
@@ -127,6 +122,13 @@ type ConfigProps = {
   config: DiffViewerConfig;
   initialStatus: DiffViewerStatus;
 };
+
+/** A session the host opened for the viewer (branchChange answers `sessionOpened`). */
+type AdoptedDiffSession = { session: SessionOpened; capabilityToken: string };
+
+/** Switches the viewer to `source`: opens a session for it, or adopts `opened` when the host
+ * already opened one. */
+type SelectSessionSource = (source: DiffSource, opened?: AdoptedDiffSession) => void;
 
 type ActiveDiffSession = {
   capabilityToken: string;
@@ -553,6 +555,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const codeViewScrollTopRef = useRef(0);
   const copyFallbackRef = useRef<HTMLTextAreaElement | null>(null);
   const activeSessionRef = useRef<ActiveDiffSession | null>(null);
+  const adoptedSessionRef = useRef<AdoptedDiffSession | null>(null);
   const viewerContainerRef = useRef<HTMLDivElement | null>(null);
   useDiffLanguageChanges(dispatch);
   const workerPoolOptions = createDiffWorkerPoolOptions();
@@ -696,6 +699,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     activeSessionSource,
     rememberResolvedSessionSource,
     state.renderGeneration,
+    adoptedSessionRef,
   );
   useViewerPrefsBootstrap(payload, dispatch);
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
@@ -895,16 +899,18 @@ export function App({ config, initialStatus }: ConfigProps) {
           window.location.href = resolveDiffNavigationURL(url);
         }}
         activeSessionSource={resolvedSessionSource ?? activeSessionSource}
-        onSelectSessionSource={(source) => {
+        onSelectSessionSource={(source, opened) => {
           const currentSource = resolvedSessionSource ?? activeSessionSource;
           // Branch reopens the base last used in this repository; Uncommitted
           // (a branch session against HEAD) is always exactly that.
-          const selectedSource =
-            source.kind === "branch" &&
-            source.baseRef !== UNCOMMITTED_BASE_REF &&
-            (currentSource?.kind !== "branch" ||
-              currentSource.baseRef === UNCOMMITTED_BASE_REF ||
-              source.baseRef == null)
+          // A session the host already opened (branchChange) is adopted as it is.
+          const selectedSource = opened
+            ? opened.session.source
+            : source.kind === "branch" &&
+                source.baseRef !== UNCOMMITTED_BASE_REF &&
+                (currentSource?.kind !== "branch" ||
+                  currentSource.baseRef === UNCOMMITTED_BASE_REF ||
+                  source.baseRef == null)
               ? (branchSourceByRepoRef.current.get(source.repoRoot) ?? source)
               : source;
           if (selectedSource.kind === "branch" && selectedSource.baseRef !== UNCOMMITTED_BASE_REF) {
@@ -915,6 +921,7 @@ export function App({ config, initialStatus }: ConfigProps) {
           dispatch({ type: "reset-diff", status });
           setActivePatchURL(undefined);
           void closeActiveSession();
+          adoptedSessionRef.current = opened ?? null;
           setResolvedSessionSource(selectedSource);
           setActiveSessionSource(selectedSource);
         }}
@@ -1431,7 +1438,7 @@ function Toolbar({
   label: DiffViewerLabelResolver;
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
-  onSelectSessionSource: (source: DiffSource) => void;
+  onSelectSessionSource: SelectSessionSource;
   rememberedBranch: Extract<DiffSource, { kind: "branch" }> | null;
   state: AppState;
   transport: DiffTransport | null;
@@ -1616,7 +1623,7 @@ function SourceControls({
   items: DiffItem[];
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
-  onSelectSessionSource: (source: DiffSource) => void;
+  onSelectSessionSource: SelectSessionSource;
   payload: any;
   rememberedBranch: Extract<DiffSource, { kind: "branch" }> | null;
   transport: DiffTransport | null;
@@ -1700,7 +1707,7 @@ function BaseControl({
   activeSessionSource: DiffSource | null;
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
-  onSelectSessionSource: (source: DiffSource) => void;
+  onSelectSessionSource: SelectSessionSource;
   payload: any;
   transport: DiffTransport | null;
 }) {
@@ -1742,6 +1749,9 @@ function BaseControl({
         key={branchPickerStateKey(picker)}
         label={label}
         onNavigate={onNavigate}
+        onBranchSessionOpened={(session) =>
+          onSelectSessionSource(session.source, { session, capabilityToken: picker.capabilityToken ?? "" })
+        }
         picker={picker}
         transport={transport}
       />
@@ -2410,6 +2420,7 @@ function useRenderDiff(
   sessionSource: DiffSource | null,
   onResolvedSessionSource: (source: DiffSource) => void,
   renderGeneration: number,
+  adoptedSessionRef: React.MutableRefObject<AdoptedDiffSession | null>,
 ) {
   useEffect(() => {
     if (isStatusOnlyPayload(config.payload, transport, sessionSource)) {
@@ -2435,15 +2446,25 @@ function useRenderDiff(
     void (async () => {
       try {
         let patchURL = payload.patchURL as string | undefined;
-        const session = diffSessionRequest(payload, transport, sessionSource);
-        if (session) {
-          const result = await transport!.request({ method: "sessionOpen", params: session });
-          if (result.type !== "sessionOpened") {
-            throw new DiffTransportError("invalidResponse", "Diff transport did not open a session");
+        // Taken once: a later render of the same source opens its own session.
+        const adopted = adoptedSessionRef.current;
+        adoptedSessionRef.current = null;
+        const session = adopted ? null : diffSessionRequest(payload, transport, sessionSource);
+        if (adopted || session) {
+          let opened: SessionOpened;
+          if (adopted) {
+            opened = adopted.session;
+          } else {
+            const result = await transport!.request({ method: "sessionOpen", params: session! });
+            if (result.type !== "sessionOpened") {
+              throw new DiffTransportError("invalidResponse", "Diff transport did not open a session");
+            }
+            opened = result.value;
           }
+          const result = { value: opened };
           const openedSession = {
-            sessionId: result.value.sessionId,
-            capabilityToken: String(payload.capabilityToken ?? ""),
+            sessionId: opened.sessionId,
+            capabilityToken: adopted?.capabilityToken ?? String(payload.capabilityToken ?? ""),
           };
           if (cancelled) {
             await closeDiffSession(transport!, openedSession);
@@ -2555,6 +2576,7 @@ function useRenderDiff(
     renderGeneration,
     sessionSource,
     transport,
+    adoptedSessionRef,
   ]);
 }
 
@@ -2896,7 +2918,7 @@ function useFileSearchDismiss(fileSearchOpen: boolean, dispatch: React.Dispatch<
   }, [dispatch, fileSearchOpen]);
 }
 
-function useDiffTransport(config: DiffViewerTransportConfig | undefined): DiffTransport | null {
+function useDiffTransport(config: DiffTransportConfig | undefined): DiffTransport | null {
   const transportRef = useRef<DiffTransport | null | undefined>(undefined);
   if (transportRef.current === undefined) {
     transportRef.current = createDiffTransport(config);

@@ -13671,11 +13671,13 @@
         "auth.unauthenticated",
         "conversation_exists",
         "forbidden",
+        "home.rate_limited",
         "idempotency.conflict",
         "invalid_participant",
         "invalid_title",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -13703,7 +13705,7 @@
         "expose": "default",
         "group": "home"
       },
-      "docs": "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation.",
+      "docs": "Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -16260,6 +16262,7 @@
         "invite_limit",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -26465,15 +26468,22 @@
               "name": "boolean"
             }
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "required": false,
             "type": {
               "kind": "enum",
               "values": [
                 "anyone",
                 "teams",
-                "contacts"
+                "nobody"
               ]
+            }
+          },
+          "email_requests": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
             }
           },
           "expected_revision": {
@@ -26508,15 +26518,22 @@
                   "name": "boolean"
                 }
               },
-              "allow_dm_from": {
+              "allow_requests_from": {
                 "required": true,
                 "type": {
                   "kind": "enum",
                   "values": [
                     "anyone",
                     "teams",
-                    "contacts"
+                    "nobody"
                   ]
+                }
+              },
+              "email_requests": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
                 }
               }
             }
@@ -26552,7 +26569,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Choose who can find you by email or phone and who may start a DM with you.",
+      "docs": "Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -26563,13 +26580,16 @@
           "discoverable_by_phone": {
             "type": "boolean"
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "type": "string",
             "enum": [
               "anyone",
               "teams",
-              "contacts"
+              "nobody"
             ]
+          },
+          "email_requests": {
+            "type": "boolean"
           }
         },
         "additionalProperties": true,
@@ -26584,19 +26604,23 @@
           "discoverable_by_phone": {
             "type": "boolean"
           },
-          "allow_dm_from": {
+          "allow_requests_from": {
             "type": "string",
             "enum": [
               "anyone",
               "teams",
-              "contacts"
+              "nobody"
             ]
+          },
+          "email_requests": {
+            "type": "boolean"
           }
         },
         "required": [
           "discoverable_by_email",
           "discoverable_by_phone",
-          "allow_dm_from"
+          "allow_requests_from",
+          "email_requests"
         ],
         "additionalProperties": true,
         "$defs": {}
@@ -34266,10 +34290,12 @@
         "auth.unauthenticated",
         "duplicate_participant",
         "forbidden",
+        "home.rate_limited",
         "idempotency.conflict",
         "invalid_participant",
         "kind_forbids",
         "not_participant",
+        "not_reachable",
         "owner.unreachable",
         "unknown_conversation",
         "validation.invalid"
@@ -34297,7 +34323,7 @@
         "expose": "opt_in",
         "group": "home"
       },
-      "docs": "Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create.",
+      "docs": "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -40365,7 +40391,7 @@
         "expose": "default",
         "group": "team"
       },
-      "docs": "Read a team's directory: members and enrolled hosts (U2).",
+      "docs": "Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -41143,6 +41169,295 @@
         }
       }
     },
+    "team.hosts.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "hosts": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "Host"
+              }
+            }
+          },
+          "host_count": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team hosts",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "team"
+      },
+      "docs": "Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Host"
+            }
+          },
+          "host_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "hosts",
+          "host_count",
+          "next_cursor",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "Platform": {
+            "type": "string",
+            "enum": [
+              "macos",
+              "ios",
+              "linux",
+              "windows",
+              "web"
+            ]
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "HostKind": {
+            "type": "string",
+            "enum": [
+              "device",
+              "server"
+            ]
+          },
+          "WgPublicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9+/]{43}=$",
+            "description": "A WireGuard public key, standard base64 of 32 bytes."
+          },
+          "Host": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/HostId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "platform": {
+                "$ref": "#/$defs/Platform"
+              },
+              "owner_user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "enrolled_by": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "enrolled_at": {
+                "type": "integer"
+              },
+              "kind": {
+                "$ref": "#/$defs/HostKind"
+              },
+              "wg_public_key": {
+                "$ref": "#/$defs/WgPublicKey"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "platform",
+              "owner_user",
+              "enrolled_by",
+              "enrolled_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "team.integration.release_lock": {
       "class": "mutation",
       "idempotency": "required",
@@ -41252,6 +41567,261 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "team.members.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "team": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "role": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "owner",
+                "admin",
+                "member"
+              ]
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "members": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamMember"
+              }
+            }
+          },
+          "member_count": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "next_cursor": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "revision": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team members",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "team"
+      },
+      "docs": "Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member"
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamMember"
+            }
+          },
+          "member_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "team",
+          "members",
+          "member_count",
+          "next_cursor",
+          "revision"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamMember": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "owner",
+                  "admin",
+                  "member"
+                ]
+              },
+              "display_name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "user",
+              "role",
+              "display_name"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "team.policy.get": {

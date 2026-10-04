@@ -590,7 +590,7 @@ interface CmuxGlobal {
     update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; column: string /* split_… */; sticky?: boolean; edge?: "left" | "right"; mode?: "docked" | "overlay"; width?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
   }
   conversation: {
-    /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+    /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
     create: CmuxOp<{ kind?: "group"; title?: string; participants: Array<Cmux.HomeParticipantInput>; settings?: Cmux.HomeConversationSettings; expected_revision?: string }, Cmux.MutationResult<{ conversation: Cmux.HomeConversationSummary }>>
     /** `conversation.history` (read, scope `conversation:read`): Page older messages before before_seq (newest first within the page). */
     history: CmuxOp<{ conversation: Cmux.ConversationId; before_seq?: number; limit?: number }, { messages: Array<Cmux.HomeMessage>; next_before_seq: number | null; revision: string }>
@@ -719,8 +719,8 @@ interface CmuxGlobal {
     /** `home.search` (read, scope `home:read`): Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
     search: CmuxOp<{ q: string; conversation?: Cmux.ConversationId; author?: Cmux.ParticipantId; kind?: Cmux.ConversationKind; before?: Cmux.Timestamp; cursor?: string; limit?: number }, { hits: Array<{ conversation: Cmux.ConversationId; title: string | null; seq: number; message_id: string; author: Cmux.ParticipantId; created_at: Cmux.Timestamp; snippet: string; ranges: Array<{ start: number; length: number }> }>; cursor?: string }>
     settings: {
-      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone and who may start a DM with you. */
-      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_dm_from?: "anyone" | "teams" | "contacts"; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_dm_from: "anyone" | "teams" | "contacts" }>>
+      /** `home.settings.set` (mutation, scope `home:write`): Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
+      set: CmuxOp<{ discoverable_by_email?: boolean; discoverable_by_phone?: boolean; allow_requests_from?: "anyone" | "teams" | "nobody"; email_requests?: boolean; expected_revision?: string }, Cmux.MutationResult<{ discoverable_by_email: boolean; discoverable_by_phone: boolean; allow_requests_from: "anyone" | "teams" | "nobody"; email_requests: boolean }>>
     }
   }
   inbox: {
@@ -930,7 +930,7 @@ interface CmuxGlobal {
     zoom: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; enabled?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
   }
   participants: {
-    /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+    /** `participants.add` (mutation, scope `participants:write`): Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms). */
     add: CmuxOp<{ conversation: Cmux.ConversationId; participant: Cmux.HomeParticipantInput; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeConversationCommit>>
   }
   push: {
@@ -1214,7 +1214,7 @@ interface CmuxGlobal {
       /** `team.device.report_status` (mutation, scope `team:write`): Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one. */
       report_status: CmuxOp<{ policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; expected_revision?: string }, Cmux.MutationResult<Cmux.DeviceStatus>>
     }
-    /** `team.directory` (read, scope `team:read`): Read a team's directory: members and enrolled hosts (U2). */
+    /** `team.directory` (read, scope `team:read`): Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list. */
     directory: CmuxOp<{ team?: Cmux.TeamId }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; hosts: Array<Cmux.Host>; revision: string }>
     enrollment_token: {
       /** `team.enrollment_token.create` (mutation, scope `team:write`): Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once. */
@@ -1222,9 +1222,17 @@ interface CmuxGlobal {
       /** `team.enrollment_token.list` (read, scope `team:read`): List enrollment tokens and managed devices (owners and admins). */
       list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; tokens: Array<Cmux.EnrollmentToken>; devices: Array<Cmux.ManagedDevice>; revision: string }>
     }
+    hosts: {
+      /** `team.hosts.list` (read, scope `team:read`): Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor). */
+      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number }, { team: Cmux.TeamId; hosts: Array<Cmux.Host>; host_count: unknown; next_cursor: string | null; revision: string }>
+    }
     integration: {
       /** `team.integration.release_lock` (mutation, scope `team:write`): Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
       release_lock: CmuxOp<{ reason?: string; expected_revision?: string }, Cmux.MutationResult<{ released: "sso" | "mdm" }>>
+    }
+    members: {
+      /** `team.members.list` (read, scope `team:read`): Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role. */
+      list: CmuxOp<{ team?: Cmux.TeamId; cursor?: string; limit?: number; role?: "owner" | "admin" | "member" }, { team: Cmux.TeamId; members: Array<Cmux.TeamMember>; member_count: unknown; next_cursor: string | null; revision: string }>
     }
     policy: {
       /** `team.policy.get` (read, scope `team:read`): Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */

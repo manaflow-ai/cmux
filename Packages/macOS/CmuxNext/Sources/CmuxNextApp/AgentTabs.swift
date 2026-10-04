@@ -243,7 +243,7 @@ final class AgentTabStore {
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         if let git { model.onGit = { request in try await git.read(request) } }
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
         view.previewFeatures = previewFeatures
@@ -262,7 +262,7 @@ final class AgentTabStore {
     func standaloneView(seed: AgentPaneSeed) -> AgentPaneView? {
         let model = AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts
         view.previewFeatures = previewFeatures
