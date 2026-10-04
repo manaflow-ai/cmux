@@ -85,22 +85,23 @@ pub(super) enum Principal {
 }
 
 impl super::ClientRegistry {
+    /// The transport of a registered client, or `None` for an id the
+    /// registry does not list (never registered, or already disconnected).
+    pub(super) fn transport_of(&self, client: u64) -> Option<ClientTransport> {
+        self.state.lock().unwrap().clients.get(&client).map(|record| record.transport)
+    }
+
     /// True for a connection that came through the remote entry.
     pub(super) fn is_remote(&self, client: u64) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .clients
-            .get(&client)
-            .is_some_and(|record| matches!(record.transport, ClientTransport::Remote))
+        matches!(self.transport_of(client), Some(ClientTransport::Remote))
     }
 }
 
 impl Mux {
-    /// True for a remote client: it came through the remote entry, or it has
-    /// a peer record (even if the registry no longer lists it). Unregistered
-    /// ids stay local: production registers every connection before its
-    /// first frame, and in-process tests use unregistered ids as local.
+    /// True for a client that gets the remote gates: it came through the
+    /// remote entry, it has a peer record, or the registry does not list it
+    /// at all. An unregistered id fails closed: it is never trusted as
+    /// local (a frame racing its connection's disconnect, a stray id).
     pub(super) fn is_remote_client(&self, client: u64) -> bool {
         self.control_clients.is_remote(client) || self.remote_relay().peer(client).is_some()
     }
@@ -209,6 +210,43 @@ pub(super) fn handle_frame(
     match serde_json::from_str::<super::Request>(message) {
         Ok(request) => super::handle_request(mux, client, request, writer),
         Err(_) => writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok(),
+    }
+}
+
+/// The in-process form of `handle_connection_frame` for tests: the
+/// transport comes from the registry, and an unregistered id gets the
+/// remote path (fail closed). Connections pass their own transport value.
+#[cfg(test)]
+pub(super) fn handle_connection_message(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+    scheduler: &Arc<super::ConnectionSurfaceScheduler>,
+) -> bool {
+    let transport = mux.control_clients.transport_of(client).unwrap_or(ClientTransport::Remote);
+    super::handle_connection_frame(mux, client, transport, message, writer, scheduler)
+}
+
+#[cfg(test)]
+impl Mux {
+    /// Tests: make the fixed id `client` a registered trusted-local
+    /// connection, so in-process tests that dispatch with a literal id get
+    /// local trust only as a registered client (an unregistered id fails
+    /// closed).
+    pub(super) fn local_test_client(&self, client: u64) -> u64 {
+        if self.control_clients.transport_of(client).is_none() {
+            let sink = super::QueuedSink {
+                outbound: Arc::new(super::BoundedOutbound::default()),
+                control: None,
+            };
+            let id = self.control_clients.register(ClientTransport::Unix, MessageWriter::new(sink));
+            let mut state = self.control_clients.state.lock().unwrap();
+            if let Some(record) = state.clients.remove(&id) {
+                state.clients.entry(client).or_insert(record);
+            }
+        }
+        client
     }
 }
 

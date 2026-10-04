@@ -167,7 +167,7 @@ fn assert_no_accept(listener: &TcpListener) {
 fn loopback_forward_capability_is_advertised() {
     let mux = mux("loopback-identify");
     let (writer, _) = tests::captured_writer();
-    let identity = handle_command(&mux, 0, Command::Identify, &writer).unwrap();
+    let identity = handle_command(&mux, mux.local_test_client(0), Command::Identify, &writer).unwrap();
     assert!(
         identity["capabilities"]
             .as_array()

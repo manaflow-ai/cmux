@@ -25,7 +25,7 @@ impl Wire {
         let id = self.next_id;
         self.next_id += 1;
         request["id"] = json!(id);
-        handle_message(&self.mux, 7, &request.to_string(), &self.writer);
+        handle_message(&self.mux, self.mux.local_test_client(7), &request.to_string(), &self.writer);
         let response: Value = serde_json::from_str(&self.outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response["id"], id, "response must answer the request: {response}");
         response

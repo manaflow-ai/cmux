@@ -305,7 +305,14 @@ fn handle_websocket_connection_with_permit(
             Ok(Message::Text(text)) => {
                 let mut text = text.to_string();
                 let keep_open =
-                    handle_connection_message(&mux, client, &text, &writer, &surface_scheduler);
+                    handle_connection_frame(
+                        &mux,
+                        client,
+                        ClientTransport::WebSocket,
+                        &text,
+                        &writer,
+                        &surface_scheduler,
+                    );
                 zeroize_string(&mut text);
                 if !keep_open {
                     break;
