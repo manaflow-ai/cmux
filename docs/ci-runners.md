@@ -13,6 +13,27 @@
   move only by force-cancel plus rerun; GitHub cannot rerun one job until its
   whole run finishes.
 
+## Exact-head merging
+
+`gh-merge-green` requires a completed, successful `ci-status` check on the
+exact pull-request head. App diffs also require the completed
+`macos / macOS compile admission` check. A missing, queued, stale, or
+unsuccessful check is a refusal, and the helper prints the repair pointer.
+
+When a known red check is safe to waive, pass a written reason with at least
+eight words:
+
+```bash
+scripts/gh-merge-green manaflow-ai/cmux#123 --override \
+  "ci-status is a known main failure; this exact fix addresses the failing path"
+```
+
+The helper posts that reason as a `merge-override:` comment, rechecks that the
+pull-request head did not move, and then merges. It never waives a missing or
+still-running check, conflict markers, or a changed head. `--main-fix` remains
+the evidence path for red-main cmux-next fixes and posts its audit comment
+before merging.
+
 Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
@@ -704,7 +725,7 @@ A job belongs in the lane only if all of these hold:
 Members today: `build-ghosttykit.yml` (Xcode from the image default, Zig
 xcframework build), and the two macOS Rust legs of `cmux-tui-artifacts.yml`
 and `cmux-tui-nightly.yml` (passed as `macos_runner` to
-`cmux-tui-build-package.yml`; release and merge-gate callers keep their own
+`cmux-tui-build-package.yml`; release and full-suite callers keep their own
 runner).
 
 The fallback is `macos-15`, never `macos-26`: the self-hosted fleet carries a

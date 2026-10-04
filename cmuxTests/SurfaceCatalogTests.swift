@@ -325,7 +325,18 @@ struct SurfaceCatalogTests {
         func projectionDidEnd(_ projection: SurfaceProjection) { ended.append(projection) }
 
         var projectionsRestoredCalls = 0
-        func projectionsRestored() { projectionsRestoredCalls += 1 }
+        private var projectionsRestoredWaiter: CheckedContinuation<Void, Never>?
+        func projectionsRestored() {
+            projectionsRestoredCalls += 1
+            projectionsRestoredWaiter?.resume()
+            projectionsRestoredWaiter = nil
+        }
+
+        func waitForProjectionsRestored() async {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                projectionsRestoredWaiter = continuation
+            }
+        }
 
         @discardableResult
         func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
@@ -541,8 +552,9 @@ struct SurfaceCatalogTests {
         // materializes the mirror. When the provider published the resource
         // before the workspace restored (the link was already up, or a closed
         // tab is reopened), nothing else republishes, so the catalog must ask
-        // the provider itself; a record whose resource is still unpublished
-        // stays staged until that provider's next publish resolves it.
+        // the provider itself. If the resource publishes after restore, the
+        // pending projection must wake the provider too, or a Cloud browser
+        // remains stuck on the restore-time unavailable card.
         let catalog = SurfaceCatalog(live: live)
         let machine = SurfaceMachineID(rawValue: "device:6f0d1c5e-2b5a-4d6e-9c1a-1c2d3e4f5a6b@nightly")
         let provider = FakeProvider(machine: machine)
@@ -559,12 +571,22 @@ struct SurfaceCatalogTests {
         #expect(provider.projectionsRestoredCalls == 1)
 
         let unpublished = terminal(machine, "1EDA3953-15EC-43B6-9E9C-500454782170")
+        let latePanelID = UUID()
         catalog.restore(
-            [SurfaceProjectionRecord(panelID: UUID(), resource: unpublished.id, remoteWorkspaceID: nil, remoteTabID: nil)],
+            [SurfaceProjectionRecord(panelID: latePanelID, resource: unpublished.id, remoteWorkspaceID: nil, remoteTabID: nil)],
             workspaceID: workspaceID
         )
         #expect(catalog.projections(of: unpublished.id).isEmpty)
         #expect(provider.projectionsRestoredCalls == 1)
+
+        // The provider's first graph can arrive after restore. Resolving the
+        // pending record must wake it just like the already-published path.
+        let restoredWaiter = Task { await provider.waitForProjectionsRestored() }
+        await Task.yield()
+        catalog.replaceResources([published, unpublished], on: machine, from: provider)
+        #expect(catalog.projections(of: unpublished.id).map(\.panelID) == [latePanelID])
+        await restoredWaiter.value
+        #expect(provider.projectionsRestoredCalls == 2)
     }
 
     @Test func `Resource ID round trips through the wire form`() {

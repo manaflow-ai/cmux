@@ -195,6 +195,7 @@ extension CMUXCLI {
         new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
         local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]
         tmux attach [session] [options]                         (local-tmux alias)
+        local-zellij <start|attach|list|status|close> [session] [options]
         surface resume <set|show|get|clear> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]
         """
     }
@@ -360,6 +361,7 @@ extension CMUXCLI {
         browser url|get-url
         browser snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
         browser eval <script>
+        browser repl [--session <name>] [--workspace <id|ref>] [--eval <code>|-] [<code>]   (see: browser repl guide)
         browser wait [--selector <css>] [--text <text>] [--url-contains <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>]
         browser click|dblclick|hover|focus|check|uncheck|scroll-into-view <selector> [--snapshot-after]
         browser type <selector> <text> [--snapshot-after]
