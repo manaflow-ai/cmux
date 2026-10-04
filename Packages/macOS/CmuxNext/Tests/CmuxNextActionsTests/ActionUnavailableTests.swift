@@ -31,7 +31,7 @@ import Testing
     @Test func refusalIsCapturedOnlyInsideCapture() {
         let registry = ActionRegistry.standard()
         var observed: [String] = []
-        registry.refusalObserver = { observed.append($0) }
+        registry.refusalObserver = { reason, _ in observed.append(reason) }
         registry.bind("closeTab", invoke: { _ in registry.refuse("no tab to close") })
 
         let captured = registry.capturingRefusal { registry.perform("closeTab") }
