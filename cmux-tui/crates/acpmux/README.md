@@ -436,6 +436,19 @@ acpmux run -p omx --cwd ~/proj -m codex/gpt-5.5 "…"                 # -m and -
 acpmux preset                                                        # list; `preset NAME --clear` removes one
 ```
 
+A preset's `args` are words appended to the harness command line, given as one JSON list
+(`acpmux preset compact harness=claude-sr 'args=["--system-prompt-file", "/abs/system.md", "--tools", ""]'`).
+Each entry is one argv word passed as it is, never through a shell: quotes, globs and `$(…)`
+stay literal and `""` is a real empty argument. They expand `${cwd}`, `${home}`, `${model}` and
+a leading `~/` like env values. On a Claude command line the flags acpmux sets itself
+(`-p`, `--input-format`, `--output-format`, `--resume`, `--session-id`, `--model`, `--effort`,
+`--permission-mode` and the like) are refused when the preset is set and when a session starts.
+
+On Claude Code harnesses, a text block's `cache_control` in `session/prompt` reaches Claude
+Code's stream-json input unchanged (other extra block fields are dropped), so a client can
+place its own cache breakpoint. Claude Code adds up to three breakpoints of its own and the API
+allows four, so a client has room for one.
+
 ### Bring your own ACP harness
 
 Every harness is a `harnesses` entry in `~/.acpmux/config.json`. Discovery fills in the ones on

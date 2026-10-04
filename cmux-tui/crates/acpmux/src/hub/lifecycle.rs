@@ -3,6 +3,7 @@
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, session_cwd};
+use crate::config::check_preset_args;
 
 impl Hub {
     // --------------------------------------------------------- lifecycle
@@ -111,6 +112,7 @@ impl Hub {
             let profile = cfg.harnesses[&resolved].clone();
             let mut d = cfg.defaults_for(&resolved);
             if let Some(p) = &preset_cfg {
+                check_preset_args(profile.kind, &p.args).map_err(RpcError::invalid_params)?;
                 d.overlay(&crate::config::SessionDefaults {
                     model: p.model.clone(),
                     effort: p.effort.clone(),
@@ -910,6 +912,7 @@ impl Hub {
             for (k, v) in &preset.env {
                 p.env.insert(k.clone(), v.clone());
             }
+            p.argv.extend(preset.args.iter().cloned());
         }
         let home = dirs::home_dir().unwrap_or_default();
         let model = meta.model_request.clone().unwrap_or_default();

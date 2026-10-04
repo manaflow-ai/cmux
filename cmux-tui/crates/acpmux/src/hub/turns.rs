@@ -669,7 +669,7 @@ impl Hub {
                     .preset
                     .as_ref()
                     .and_then(|n| cfg.presets.get(n))
-                    .map(|p| in_env(&p.env))
+                    .map(|p| in_env(&p.env) || p.args.iter().any(|a| a.contains("${model}")))
                     .unwrap_or(false)
         };
         if at_spawn {

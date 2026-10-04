@@ -89,6 +89,7 @@ fn families_are_derived_and_resolved() {
             effort: Some("low".into()),
             policy: None,
             env: BTreeMap::new(),
+            args: Vec::new(),
             description: None,
         },
     );

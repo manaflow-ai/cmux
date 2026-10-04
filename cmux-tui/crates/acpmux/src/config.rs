@@ -152,6 +152,10 @@ pub struct Preset {
     /// `${model}` and a leading `~/` expand.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    /// Words appended to the harness command line, one argv word each, never
+    /// through a shell; expanded like `env` (`config/preset_args.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }
@@ -976,6 +980,8 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 
 mod codex_adapter;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, codex_through_adapter_package};
+mod preset_args;
+pub use preset_args::{check_preset_args, parse_preset_args};
 
 #[cfg(test)]
 mod tests;

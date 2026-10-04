@@ -1044,6 +1044,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
             effort: None,
             policy: None,
             env: BTreeMap::new(),
+            args: Vec::new(),
             description: None,
         },
     );

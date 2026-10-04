@@ -536,7 +536,7 @@ pub(super) async fn handle_request(
                 None => Ok(json!({"families": resolved, "defaults": cfg.defaults})),
             }
         }
-        // Read or change presets: {name?, set?: {harness, model, effort, policy, env}, clear?: bool}.
+        // Read or change presets: {name?, set?: {harness, model, effort, policy, env, args}, clear?: bool}.
         method::MUX_PRESETS => {
             let name = str_param(&params, "name").map(str::to_owned);
             let set = params.get("set").filter(|v| v.is_object());
@@ -566,6 +566,7 @@ pub(super) async fn handle_request(
                         effort: None,
                         policy: None,
                         env: std::collections::BTreeMap::new(),
+                        args: Vec::new(),
                         description: None,
                     });
                     p.harness = harness;
@@ -585,6 +586,11 @@ pub(super) async fn handle_request(
                             }
                             ("description", Value::Null) => p.description = None,
                             ("description", Value::String(d)) => p.description = Some(d.clone()),
+                            ("args", Value::Null) => p.args.clear(),
+                            ("args", v) => {
+                                p.args = crate::config::parse_preset_args(v)
+                                    .map_err(RpcError::invalid_params)?
+                            }
                             ("env", Value::Null) => p.env.clear(),
                             ("env", Value::Object(map)) => {
                                 for (ek, ev) in map {
@@ -605,12 +611,16 @@ pub(super) async fn handle_request(
                             }
                             (other, _) => {
                                 return Err(RpcError::invalid_params(format!(
-                                    "unknown preset key {other:?}; use harness, model, effort, policy, env, description"
+                                    "unknown preset key {other:?}; use harness, model, effort, policy, env, args, description"
                                 )));
                             }
                         }
                     }
                     let p = merged.unwrap();
+                    // Checked against the profile the preset resolves to now.
+                    let profile = cfg.resolve_harness(&p.harness).map_err(RpcError::invalid_params)?;
+                    crate::config::check_preset_args(cfg.harnesses[&profile].kind, &p.args)
+                        .map_err(RpcError::invalid_params)?;
                     cfg.presets.insert(name.clone(), p);
                 }
                 if let Err(e) = cfg.save() {
@@ -623,7 +633,7 @@ pub(super) async fn handle_request(
                     Ok(x) => (Some(x), None),
                     Err(e) => (None, Some(e)),
                 };
-                json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "description": p.description})
+                json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "description": p.description})
             };
             match name {
                 Some(n) if !clear => cfg
