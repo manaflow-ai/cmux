@@ -38,10 +38,10 @@ public final class RecoveryDraftStore {
     /// The size check is synchronous: `.tooLarge` means no draft is kept for
     /// this update.
     @discardableResult
-    public func update(id: String, title: String, contents: Data, host: String = "local",
-                       filePath: String? = nil) -> RecoveryDraftAcceptance {
+    public func update(id: String, title: String, contents: Data, host: String? = nil,
+                       filePath: String? = nil, base: RecoveryDraftBase? = nil) -> RecoveryDraftAcceptance {
         guard contents.count <= maxDraftBytes else { return .tooLarge }
-        pending[id] = RecoveryDraft(id: id, host: host, title: title, savedAt: Date(), contents: contents, filePath: filePath)
+        pending[id] = RecoveryDraft(id: id, host: host ?? "local", title: title, savedAt: Date(), contents: contents, filePath: filePath)
         let timer = timers[id] ?? DemandTimer(owner: "recovery-draft", clock: clock)
         timers[id] = timer
         timer.schedule(after: debounce) { @MainActor [weak self] in await self?.writeNow(id) }
