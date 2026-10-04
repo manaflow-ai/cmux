@@ -47,6 +47,11 @@ export const E = {
   pickerGit: "picker.git",
   pickerRecent: "picker.recent",
   pickerLocation: "picker.location",
+  pickerLocations: "picker.locations",
+  pickerHome: "picker.home",
+  pickerComputer: "picker.computer",
+  pickerHintPath: "picker.hintPath",
+  pickerStatus: "picker.status",
 } as const;
 
 /** The empty-state strings in the page's language (`languages` overrides the navigator's). */

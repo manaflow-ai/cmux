@@ -643,6 +643,11 @@ impl ChildAgent {
         self.hosted.as_ref().map(|h| h.link().record.clone())
     }
 
+    /// The hosted harness exited (its host is finishing).
+    pub fn has_exited(&self) -> bool {
+        self.hosted.as_ref().is_some_and(|h| h.exited.load(Ordering::SeqCst))
+    }
+
     /// The reader stopped because an entry could not be logged.
     pub fn is_broken(&self) -> bool {
         self.hosted.as_ref().is_some_and(|h| h.broken.load(Ordering::SeqCst))

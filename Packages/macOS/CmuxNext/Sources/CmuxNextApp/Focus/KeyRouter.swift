@@ -73,6 +73,7 @@ final class KeyRouter: BrowserKeyRouting {
     nonisolated static func allows(_ tier: ActionKeyTier, id: ActionID, focus: FocusState) -> Bool {
         if tier == .content, devToolsActions.contains(id), BrowserChordTable.isBrowserContext(focus.resolved),
            !focus.isBrowserFocusModeActive { return true }
+        if tier == .content, browserChromeActions.contains(id), isBrowserChromeField(focus.resolved) { return true }
         return allows(tier, focus: focus)
     }
 

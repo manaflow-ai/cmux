@@ -137,8 +137,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
-                keywords: ["browser", "react", "inspect"],
-                defaultShortcut: Shortcut("g", modifiers: [.command, .shift]), category: .browser,
+                // No default chord: Shift-Cmd-G is Find Previous in a browser
+                // (R88); this action is not built yet.
+                keywords: ["browser", "react", "inspect"], category: .browser,
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
             ),

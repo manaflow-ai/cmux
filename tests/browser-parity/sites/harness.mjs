@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRuntime, createDevBrowser, createNodeHost, createHostedRepl } from "../lib/dev-driver.mjs";
 import { answer, createState, COOKIES, MOCK_HOSTS } from "./mock-sites.mjs";
+import { makeTestDir, removeTestDir, removeTestDirIfEmpty } from "../lib/test-dirs.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const authFillSource = () => fs.readFileSync(path.join(here, "../../../cmux-tui/crates/cmux-browser-host/js/sites/auth-fill.js"), "utf8");
@@ -54,18 +55,22 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
       await seed.close();
     },
   });
-  const workDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-sites-")));
+  const workDir = makeTestDir("cmux-sites-");
   const sessions = new Map();
 
-  // The REPL's native fetch: mock hosts only, redirects followed, cookies as sent by the runtime.
+  // The REPL's native fetch: mock hosts only, redirects followed, the
+  // profile's cookies per hop as BrowserReplFetcher sends them (`credentials`
+  // include: every URL, same-origin: URLs on `origin`, omit: none).
   async function mockFetch(url, init = {}) {
+    const credentials = init.credentials || "include";
+    const sendsCookies = (href) => credentials === "include" || (credentials === "same-origin" && init.origin === new URL(href).origin);
     let href = url;
     let method = init.method || "GET";
     let body = init.body === undefined ? "" : Buffer.from(init.body, "base64").toString("utf8");
     const headers = Object.fromEntries(Object.entries(init.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
     for (let hop = 0; hop < 10; hop++) {
       if (!isMock(href)) throw new Error(`test fetch refused a non-mock URL: ${href}`);
-      const cookies = await context.cookies([href]);
+      const cookies = sendsCookies(href) ? await context.cookies([href]) : [];
       const h = { ...headers, cookie: cookies.map((c) => `${c.name}=${c.value}`).join("; ") };
       const r = answer(state, { method, url: href, headers: h, body });
       if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
@@ -132,18 +137,20 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
     async close() {
       for (const s of sessions.values()) await s.close().catch(() => {});
       await browser.close();
-      fs.rmSync(workDir, { recursive: true, force: true });
+      removeTestDir(workDir);
     },
   };
 }
 
 // Fills credential fields the way the app does after the user presses Fill:
 // sites/auth-fill.js in the frame that holds them (the dev driver's agent
-// world is the page world).
-export function fillLike(values) {
+// world is the page world), with the origin the sheet named as __origin.
+// `origin` stands in for a frame that navigated elsewhere while the sheet
+// was open.
+export function fillLike(values, { origin } = {}) {
   return async (params, { call }) => {
-    const source = `async (__fields, __values) => { ${authFillSource()} }`;
-    const raw = await call("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source, args: [params.fields.map((f) => ({ id: f.id, marker: f.marker })), values], awaitPromise: true });
+    const source = `async (__fields, __values, __origin) => { ${authFillSource()} }`;
+    const raw = await call("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source, args: [params.fields.map((f) => ({ id: f.id, type: f.type, marker: f.marker })), values, origin ?? params.origin], awaitPromise: true });
     return raw;
   };
 }

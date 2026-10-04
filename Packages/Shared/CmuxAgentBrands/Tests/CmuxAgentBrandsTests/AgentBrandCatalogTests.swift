@@ -44,6 +44,36 @@ import Testing
         }
     }
 
+    /// R79: no mark is an unreadable dark shape at 16 pt. A traced picture (more than
+    /// `tracedSegments` path segments) draws its owner's simpler `small` art there, and the
+    /// art drawn at 16 pt is never a traced picture itself.
+    @Test func everyBrandHasALegibleSmallVariant() throws {
+        func segments(_ spec: AgentBrandSpec) -> Int {
+            spec.paths.reduce(0) { $0 + $1.d.filter { "MLC".contains($0) }.count }
+        }
+        for brand in AgentBrandID.allCases {
+            let spec = try #require(AgentBrandCatalog.spec(for: brand))
+            let small = spec.variant(forPointSize: 16)
+            if segments(spec) > AgentBrandCatalog.tracedSegments {
+                #expect(small.paths != spec.paths, "\(brand) is a traced picture and needs small art")
+            }
+            #expect(segments(small) <= AgentBrandCatalog.tracedSegments, "\(brand) art at 16 pt has \(segments(small)) segments")
+            let image = try #require(AgentBrandRenderer.image(small, pixelSize: 16, style: .mono, dark: true))
+            let context = try #require(CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8, bytesPerRow: 64,
+                                                 space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 16, height: 16))
+            let alpha = try #require(context.data).bindMemory(to: UInt8.self, capacity: 1024)
+            let inked = (0..<256).filter { alpha[$0 * 4 + 3] > 64 }.count
+            #expect(inked >= 10, "\(brand) draws almost nothing at 16 px (\(inked) px)")
+        }
+        // Hermes Agent: the wing at 16 pt and below, the portrait above.
+        let small = try #require(AgentBrandCatalog.spec(forAgent: "hermes-agent", pointSize: 12))
+        let large = try #require(AgentBrandCatalog.spec(forAgent: "hermes-agent", pointSize: 32))
+        #expect(small.paths != large.paths)
+        #expect(AgentBrandCatalog.spec(forAgent: "hermes-agent", pointSize: 16)?.paths == small.paths)
+    }
+
     @Test func parserRejectsMalformedData() {
         #expect(AgentBrandRenderer.path("") == nil)
         #expect(AgentBrandRenderer.path("M1 2L3") == nil)

@@ -27,6 +27,67 @@
   // "https://example.com", "*". A port in the pattern must match. Multiple
   // wildcards, wildcard TLDs and embedded wildcards are refused when set.
 
+  // Host names as the policy compares them: lower case, no trailing dot,
+  // internationalized labels in Punycode, as the host's domain policy does.
+  function punycode(input) {
+    const cps = [...input].map((c) => c.codePointAt(0));
+    let out = cps.filter((c) => c < 0x80).map((c) => String.fromCharCode(c)).join("");
+    const basic = out.length;
+    let handled = basic;
+    if (basic) out += "-";
+    let n = 128;
+    let delta = 0;
+    let bias = 72;
+    const digit = (d) => String.fromCharCode(d < 26 ? d + 97 : d + 22);
+    const adapt = (d, count, first) => {
+      d = first ? Math.floor(d / 700) : d >> 1;
+      d += Math.floor(d / count);
+      let k = 0;
+      while (d > 455) {
+        d = Math.floor(d / 35);
+        k += 36;
+      }
+      return k + Math.floor((36 * d) / (d + 38));
+    };
+    while (handled < cps.length) {
+      const m = Math.min(...cps.filter((c) => c >= n));
+      delta += (m - n) * (handled + 1);
+      n = m;
+      for (const c of cps) {
+        if (c < n) delta++;
+        if (c === n) {
+          let q = delta;
+          for (let k = 36; ; k += 36) {
+            const t = k <= bias ? 1 : k >= bias + 26 ? 26 : k - bias;
+            if (q < t) break;
+            out += digit(t + ((q - t) % (36 - t)));
+            q = Math.floor((q - t) / (36 - t));
+          }
+          out += digit(q);
+          bias = adapt(delta, handled + 1, handled === basic);
+          delta = 0;
+          handled++;
+        }
+      }
+      delta++;
+      n++;
+    }
+    return out;
+  }
+  function normalizeHost(raw) {
+    let host = String(raw || "").trim();
+    if (host.includes(":") && !host.startsWith("[")) host = `[${host}]`;
+    if (host.startsWith("[")) return host.toLowerCase();
+    host = host.replace(/\.+$/, "");
+    return host
+      .split(".")
+      .map((label) => {
+        const l = label.normalize("NFC").toLowerCase();
+        return /[^\x00-\x7f]/.test(l) ? "xn--" + punycode(l) : l;
+      })
+      .join(".");
+  }
+
   function parsePattern(raw, title) {
     if (typeof raw !== "string" || !raw.trim()) throw new Error(`${title}: expected domain patterns as non-empty strings, got ${JSON.stringify(raw)}`);
     let p = raw.trim().toLowerCase();
@@ -50,7 +111,9 @@
       if (host.includes("*") && !host.startsWith("*.")) throw new Error(`${title}: ${JSON.stringify(raw)}: use *.example.com; other wildcards are not allowed`);
       if (!host || /[\s/]/.test(host)) throw new Error(`${title}: ${JSON.stringify(raw)}: expected a domain`);
     }
-    return { raw, scheme, host, port };
+    const normalized = host === "*" ? host : host.startsWith("*.") ? "*." + normalizeHost(host.slice(2)) : normalizeHost(host);
+    if (!normalized || normalized === "*.") throw new Error(`${title}: ${JSON.stringify(raw)}: expected a domain`);
+    return { raw, scheme, host: normalized, port };
   }
 
   const globRe = (glob) => new RegExp("^" + glob.replace(/[.+^${}()|[\]\\?]/g, "\\$&").replace(/\*/g, ".*") + "$");
@@ -66,7 +129,7 @@
       return false;
     }
     const scheme = String(u.protocol || "").replace(/:$/, "").toLowerCase();
-    const host = String(u.hostname || "").toLowerCase();
+    const host = normalizeHost(u.hostname || "");
     if (!host) return false;
     if (pattern.scheme) {
       if (!globRe(pattern.scheme).test(scheme)) return false;
@@ -655,7 +718,7 @@
       return { domains: [...domains], totp: !!(options.totp || /bu_2fa_code$/.test(name)) };
     }
     const listSecrets = () => hostCall("secretList");
-    const secrets = {
+    const secrets = Object.freeze({
       // set(name, value, { domains, totp }): the value is typed only into
       // frames on those domains and is masked as <secret:name> everywhere.
       set(name, value, options) {
@@ -701,7 +764,7 @@
       clear() {
         for (const s of listSecrets()) hostCall("secretDelete", s.name);
       },
-    };
+    });
     function secret(name) {
       if (!secrets.has(name)) throw new Error(`secret(${JSON.stringify(name)}): no such secret; register it with secrets.set(name, value, { domains }) or secrets.load(file)`);
       return makeHandle(name);
@@ -808,7 +871,7 @@
     // ---- hooks -------------------------------------------------------------------
     // Recording and downloads only: the policy, secret resolution, masking
     // and capture masking happen in the host around each driver call.
-    session.agentTools = {
+    const hooks = {
       isSecret,
       async beforeCall() {},
       afterCall(method, params, promise) {
@@ -855,27 +918,37 @@
         }
       },
     };
+    // Agent code can reach the session object; the hooks stay fixed. They
+    // are conveniences: the guards are native and do not depend on them.
+    Object.freeze(hooks);
+    Object.defineProperty(session, "agentTools", { value: hooks, writable: false, configurable: false, enumerable: false });
 
     // ---- storage state -------------------------------------------------------------
     // Default scope: the sites (registrable domains) of one tab, so a saved
     // state never carries the rest of the user's profile by accident.
     // { all: true } saves everything; { urls } saves what those URLs see.
+    // cmux-next: registrableDomain below answers a host's site until the
+    // host answers it from the Public Suffix List (policy op "site").
+    const siteOf = (hostname) => registrableDomain(hostname);
     async function storageState(options = {}, fromPage) {
       if (options === null || typeof options !== "object") throw new Error(`session.storageState: options: expected an object, got ${JSON.stringify(options)}`);
       const urls = options.urls ? [].concat(options.urls) : null;
+      const page = fromPage || currentPage();
       let site = null;
       if (!options.all && !urls) {
-        const page = fromPage || currentPage();
         const url = page && !page._closed ? String(page.url()) : "";
         const hostname = /^https?:/i.test(url) ? new core.URL(url).hostname : "";
         if (!hostname) throw new Error(`session.storageState: the current tab (${url || "none"}) has no site to scope to; open the site first, or pass { all: true } for the whole profile or { urls: [...] }`);
-        site = registrableDomain(hostname);
+        site = siteOf(hostname);
       }
-      const inScope = (hostname) => site === null || registrableDomain(hostname) === site;
-      const cookies = (await session.call("cookies.get", urls ? { urls } : {})).filter((c) => inScope(String(c.domain || "")));
+      const inScope = (hostname) => site === null || siteOf(hostname) === site;
+      // The cookies of the page's own data store (cookieScope).
+      const cookies = (await session.call("cookies.get", { ...cookieScope(page), ...(urls ? { urls } : {}) })).filter((c) => inScope(String(c.domain || "")));
+      // localStorage only from the open tabs in that store (storeTabs).
+      const { targetIds } = await storeTabs(page);
       const origins = new Map();
       for (const page of [...session.pages.values()]) {
-        if (page._closed || String(page._targetId).startsWith("lazy:")) continue;
+        if (page._closed || !targetIds.has(page._targetId)) continue;
         for (const frame of [page._mainFrame, ...page._frames.values()]) {
           if (frame._detached) continue;
           const r = await frame._call("agent", "() => { try { return { origin: location.origin, items: Object.entries(localStorage) }; } catch (e) { return null; } }", []).catch(() => null);
@@ -889,21 +962,47 @@
       if (options.path) fs.writeFileSync(options.path, JSON.stringify(state, null, 2));
       return state;
     }
-    async function setStorageState(source) {
+    // A page's cookie calls name its tab, so the driver uses that tab's data
+    // store (a private tab's, or the session's proxy store), not another's.
+    function cookieScope(page) {
+      return page && !page._closed && typeof page._cookieScope === "function" ? page._cookieScope() : {};
+    }
+    // The data store the page's cookie calls use (`tabs.dataStore`), and the
+    // open tabs in it. localStorage belongs to a store too, so storage state
+    // reads and writes it only through those tabs, never through a tab on
+    // the same origin in another store. A driver without `tabs.dataStore`
+    // gets the page's own tab only.
+    async function storeTabs(page) {
+      const scope = cookieScope(page);
+      let dataStore;
+      try {
+        ({ dataStore } = await session.call("tabs.dataStore", scope));
+      } catch (e) {
+        if (errCode(e) !== "unsupported") throw e;
+        return { dataStore: undefined, targetIds: new Set(scope.targetId ? [scope.targetId] : []) };
+      }
+      const list = await session.call("tabs.list", { all: true });
+      return { dataStore, targetIds: new Set(list.filter((t) => t.dataStore === dataStore).map((t) => t.targetId)) };
+    }
+    async function setStorageState(source, fromPage) {
       const state = typeof source === "string" ? JSON.parse(fs.readFileSync(source, "utf8")) : source;
       if (!state || typeof state !== "object" || (!Array.isArray(state.cookies) && !Array.isArray(state.origins))) {
         throw new Error("session.setStorageState: expected { cookies, origins } (Playwright's storage state) or a path to one");
       }
-      if (state.cookies && state.cookies.length) await session.call("cookies.set", { cookies: state.cookies });
+      const target = fromPage || currentPage();
+      if (state.cookies && state.cookies.length) await session.call("cookies.set", { ...cookieScope(target), cookies: state.cookies });
       let restored = 0;
+      let store = null;
       for (const { origin, localStorage } of state.origins || []) {
         if (!localStorage || !localStorage.length) continue;
-        // An open tab on the origin takes the items; otherwise a background
-        // tab loads the origin, takes them and closes.
-        let page = [...session.pages.values()].find((p) => !p._closed && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === origin);
+        // An open tab on the origin in the page's data store takes the
+        // items; otherwise a background tab of that store loads the origin,
+        // takes them and closes.
+        if (!store) store = await storeTabs(target);
+        let page = [...session.pages.values()].find((p) => !p._closed && store.targetIds.has(p._targetId) && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === origin);
         const temp = !page;
         if (temp) {
-          page = await session.newPage(undefined, { background: true });
+          page = await session.newPage(undefined, { background: true, dataStore: store.dataStore });
           await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
         }
         try {
@@ -936,7 +1035,7 @@
         }
       },
       blockedNavigations: () => hostCall("policyLog"),
-      // Playwright browser-context options for the tabs this session drives:
+      // Playwright browser-context options for the tabs this session created:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,
       configuration: () => JSON.parse(JSON.stringify(contextConfig)),
@@ -948,7 +1047,7 @@
       // animated PNG of the run.
       record(options = {}) {
         if (recorder) throw new Error(`session.record: already recording to ${recorder.dir}; call stop() on it first`);
-        const dir = options.dir ? path.resolve(String(options.dir)) : path.join(host.tmpdir, "cmux-browser-repl", String(host.sessionId || "session").replace(/[^\w.-]/g, "_"), `record-${++recordCount}`);
+        const dir = options.dir ? path.resolve(String(options.dir)) : path.join(host.tmpdir, `record-${++recordCount}`);
         fs.mkdirSync(dir, { recursive: true });
         const r = { dir, trace: path.join(dir, "trace.jsonl"), screenshots: options.screenshots !== false, frames: 0, frameFiles: [], actions: 0, busy: false };
         fs.writeFileSync(r.trace, "");
@@ -1283,7 +1382,7 @@
     const c = context.call(this);
     const storage = this._session.agentStorage;
     // Scoped like session.storageState, to this page's site.
-    if (storage) Object.assign(c, { storageState: (options = {}) => storage.storageState(options, this), setStorageState: storage.setStorageState });
+    if (storage) Object.assign(c, { storageState: (options = {}) => storage.storageState(options, this), setStorageState: (source) => storage.setStorageState(source, this) });
     return c;
   };
 
@@ -1292,7 +1391,7 @@
   // stand-in for the Public Suffix List: an unlisted multi-label suffix
   // (e.g. a regional .gov.xx) scopes to the suffix plus one label too few.
   const MULTI_SUFFIXES = new Set(("co.uk org.uk ac.uk gov.uk me.uk ltd.uk plc.uk net.uk co.jp ne.jp or.jp ac.jp go.jp " +
-    "com.au net.au org.au edu.au gov.au co.nz org.nz govt.nz co.in net.in org.in gov.in ac.in com.br net.br org.br gov.br " +
+    "co.at or.at com.au net.au org.au edu.au gov.au co.nz org.nz govt.nz co.in net.in org.in gov.in ac.in com.br net.br org.br gov.br " +
     "com.cn net.cn org.cn gov.cn edu.cn com.hk org.hk com.tw org.tw co.kr or.kr com.sg edu.sg com.mx org.mx co.za org.za " +
     "com.tr com.ar com.co com.pe com.my com.ph com.vn co.id co.il co.th com.ua com.pl com.es com.sa com.eg com.ng " +
     "github.io gitlab.io pages.dev workers.dev vercel.app netlify.app herokuapp.com web.app firebaseapp.com " +
@@ -1308,5 +1407,5 @@
     return labels.slice(-2).join(".");
   }
 
-  ns.agentTools = { install, urlMatches, parsePattern, crc32, buildApng, pngChunks, parseResults, markdownOfFrame, registrableDomain };
+  ns.agentTools = { install, urlMatches, parsePattern, normalizeHost, crc32, buildApng, pngChunks, parseResults, markdownOfFrame, registrableDomain };
 })(typeof globalThis !== "undefined" ? globalThis : this);

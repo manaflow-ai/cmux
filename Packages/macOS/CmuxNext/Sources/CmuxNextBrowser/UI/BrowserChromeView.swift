@@ -44,7 +44,7 @@ public final class BrowserChromeView: NSView {
     }
 
     let toolbar = NSView()
-    private let separator = NSView()
+    let separator = NSView()
     /// Holds an optional bar under the toolbar (the bookmarks bar); zero high when empty.
     let accessoryBar = NSView()
     var accessoryHeight: CGFloat = 0
@@ -60,10 +60,10 @@ public final class BrowserChromeView: NSView {
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
     private let pageStatus = PageStatusViews()
-    private var toolbarHeight: NSLayoutConstraint!
+    var toolbarHeight: NSLayoutConstraint!
     private var observation: ObservationLoop?
     private var showsStop = false
-    private var isToolbarHidden = false
+    var isToolbarHidden = false
     private let density = DensityBinding()
     lazy var extensionToolbar: ExtensionActionToolbar = {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
@@ -71,8 +71,11 @@ public final class BrowserChromeView: NSView {
         return toolbar
     }()
 
-    public static var toolbarHeight: CGFloat { OmnibarStyle.toolbarHeight }
+    /// R101: the toolbar height on this window's pixel grid (else the main screen's).
+    var currentToolbarHeight: CGFloat { OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2) }
 
+    /// Zoom per site (`SiteZoomLevels`).
+    let siteZoom = SiteZoomFollower()
     var toolbarLayout = BrowserToolbarLayout(visiblePinned: ExtensionActionToolbar.maxVisible, showsForward: true)
 
     /// Omnibar editing boundaries. When set, the App owns focus: the chrome
@@ -186,7 +189,7 @@ public final class BrowserChromeView: NSView {
         addSubview(findBar)
 
         toolbarHeight = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [unowned self] in
-            isToolbarHidden ? 0 : Self.toolbarHeight
+            isToolbarHidden ? 0 : currentToolbarHeight
         }
         density.update { [extensionSlot, toolbarButtons] in
             extensionSlot.spacing = BrowserMetrics.buttonSpacing
@@ -199,15 +202,15 @@ public final class BrowserChromeView: NSView {
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
             toolbarHeight,
             density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { OmnibarStyle.toolbarInset },
-            navigation.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            navigation.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
-            addressBar.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: OmnibarStyle.toolbarTopPadding), // R101 gaps
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
             density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
             // On the omnibar's vertical center, wherever the row places the omnibar.
             toolbarButtons.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
-            extensionSlot.centerYAnchor.constraint(equalTo: toolbar.centerYAnchor),
+            extensionSlot.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             density.bind(extensionSlot.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
             // Soft minimums below the window's stay-put priority (500): the
             // omnibar never widens the pane or the window. BrowserToolbarLayout
@@ -276,6 +279,7 @@ public final class BrowserChromeView: NSView {
 
     private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
+        siteZoom.follow(tab)
         if let old, old !== tab {
             old.contentView.removeFromSuperview()
         }
@@ -329,6 +333,12 @@ public final class BrowserChromeView: NSView {
         updateOcclusion()
     }
 
+    /// A move to a screen with another scale snaps the toolbar gap again.
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if !isToolbarHidden { toolbarHeight.constant = currentToolbarHeight }
+    }
+
     public override func layout() {
         applyToolbarLayout()
         super.layout()
@@ -343,30 +353,9 @@ public final class BrowserChromeView: NSView {
     /// bar, prompt bar, and error page cover them.
     private func updateOcclusion() {
         guard let occluded = tab as? any BrowserOcclusionHosting else { return }
-        let content = tab.contentView
-        var candidates: [NSView] = [findBar, promptBar]
-        if let notice = currentNotice { candidates.append(notice) }
-        let bars = candidates.filter { !$0.isHidden && $0.superview != nil }
-        let rects = (bars + pageStatus.shown).map { convert($0.frame, to: content) }
+        let bars = ([findBar, promptBar] + [currentNotice].compactMap { $0 }).filter { !$0.isHidden && $0.superview != nil }
+        let rects = (bars + pageStatus.shown).map { convert($0.frame, to: tab.contentView) }
         if occluded.occlusionRects != rects { occluded.occlusionRects = rects }
-    }
-
-    private func setToolbarHidden(_ hidden: Bool) {
-        guard hidden != isToolbarHidden else { return }
-        isToolbarHidden = hidden
-        let height = hidden ? 0 : Self.toolbarHeight
-        if !hidden { toolbar.isHidden = false; separator.isHidden = false }
-        accessoryBar.isHidden = hidden
-        applyAccessoryHeight()
-        Motion.animateTimed(hidden ? .disappear : .appear, {
-            self.toolbarHeight.animator().constant = height
-            self.layoutSubtreeIfNeeded()
-        }, completion: {
-            if self.isToolbarHidden {
-                self.toolbar.isHidden = true
-                self.separator.isHidden = true
-            }
-        })
     }
 
     public override func viewDidChangeEffectiveAppearance() {

@@ -115,7 +115,7 @@ export function totp(secretBase32, timeMs, { digits = 6, period = 30 } = {}) {
 // Content-blocker regular expressions have no alternation, so each pattern
 // becomes its own rule. Documents are blocked in every frame (no
 // load-context), so an off-policy main-frame navigation never sends its
-// request; the driver reports it as tab.navigationBlocked.
+// request; the driver reports it as navigation.blocked.
 
 const SUBRESOURCES = ["image", "style-sheet", "script", "font", "raw", "svg-document", "media", "ping", "fetch", "websocket", "other"];
 const cbEscape = (s) => s.replace(/[.+?^${}()|[\]\\*]/g, "\\$&");
@@ -349,7 +349,7 @@ export function createReferenceHost(ns, { host, driver }) {
     host.print("warn", maskText(`# navigation to ${p.url} was blocked: ${reason}; the tab now shows about:blank`));
     blockPage(p.targetId, p.url, reason);
   });
-  driver.on("tab.navigationBlocked", (p) => {
+  driver.on("navigation.blocked", (p) => {
     const reason = p && p.url && urlReason(p.url);
     if (reason) record(p.url, reason, "before", p.targetId);
   });

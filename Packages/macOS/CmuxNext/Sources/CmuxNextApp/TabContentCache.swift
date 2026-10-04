@@ -300,6 +300,7 @@ final class TabContentCache {
         let entry = BrowserEntry(tab: page, suggestionEngine: incognito?.suggestions ?? suggestions(for: page.profileID),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.onReturnFocusToPage = { [weak self] in self?.onPageFocusRequest?(key) }
+        pageRequests.routeOmnibarOpens(of: entry.chrome, page: page)
         serveAppPages(entry, key: key)
         entry.chrome.machineBadge = { [weak self] url in self?.machineBadge?(key, url) }
         entry.chrome.addressBar.setProfileBadge(profileBadge?(key))
