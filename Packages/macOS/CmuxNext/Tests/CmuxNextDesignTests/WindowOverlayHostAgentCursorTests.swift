@@ -153,4 +153,9 @@ private final class ForwardingContentView: NSView {
         super.didAddSubview(subview)
         if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(subview) }
     }
+
+    override func addSubview(_ view: NSView, positioned place: NSWindow.OrderingMode, relativeTo otherView: NSView?) {
+        super.addSubview(view, positioned: place, relativeTo: otherView)
+        if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(view) }
+    }
 }
