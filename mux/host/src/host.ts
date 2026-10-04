@@ -1,6 +1,6 @@
 import { isCount } from "../../packages/brain/src/core/acp.ts";
 import { Core, type Effect, type Input } from "../../packages/brain/src/core/core.ts";
-import { DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME } from "../../packages/brain/src/core/rules.ts";
+import { CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME } from "../../packages/brain/src/core/rules.ts";
 import {
   type AcpmuxEvent,
   AcpmuxClient,
@@ -492,7 +492,7 @@ export class MuxHost {
         daemon.create({
           idempotency_key: DEFAULT_CONVERSATION_KEY,
           actor: USER_LOCAL,
-          title: "mux",
+          title: CHIEF_CONVERSATION_TITLE,
           participants: this.defaultParticipants(),
         }),
       );
@@ -519,7 +519,7 @@ export class MuxHost {
   private defaultParticipants(): Participant[] {
     return [
       { id: USER_LOCAL, kind: "human", display_name: this.options.displayName },
-      { id: AGENT_MUX, kind: "agent", display_name: "mux", agent_class: "mux", acp_session: MUX_SESSION_NAME },
+      { id: AGENT_MUX, kind: "agent", display_name: CHIEF_DISPLAY_NAME, agent_class: "mux", acp_session: MUX_SESSION_NAME },
     ];
   }
 

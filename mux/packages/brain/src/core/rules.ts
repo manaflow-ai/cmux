@@ -10,8 +10,11 @@ import { AGENT_MUX, type Message, messageText, type Part, type ParticipantId, ty
 
 /** The Chief's acpmux session name. */
 export const MUX_SESSION_NAME = "mux";
-/** The default conversation's create key. */
-export const DEFAULT_CONVERSATION_KEY = "mux-home-default";
+/** The default conversation's create key: the app's Home Chief conversation (HomeChiefName.createKey), so the user has one Chief conversation. Before: "mux-home-default" (a host.json that names it switches once, at the next daemon connect). */
+export const DEFAULT_CONVERSATION_KEY = "home-chief";
+/** The Home Chief conversation's title and the Chief participant's name (the app's HomeChiefName). */
+export const CHIEF_CONVERSATION_TITLE = "Chief";
+export const CHIEF_DISPLAY_NAME = "Chief";
 /** Tag on every agent the mux started (`mux agents spawn`); its value is the mux's session name. */
 export const PARENT_TAG = "mux.parent";
 /** Prefix of host prompts about child agents; hooks log them as events, not user words. */
