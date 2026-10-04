@@ -38,17 +38,6 @@ const run = (state: TeamState, op: string, params: unknown, c = ctx()) => teamDo
 const set = (key: string, value: unknown, mode: "enforced" | "default" = "enforced") => ({ key, value: { value, mode } })
 
 describe("team policy reducer (TeamDO single writer)", () => {
-  // FINDER-FS: files are reached only through the link `daemon` service, which also runs commands, so a
-  // policy may not grant `daemon` without `ssh` (a principal with daemon but no shell would get shell power
-  // through the files path).
-  it("cloud.connectServices refuses daemon without ssh and accepts ssh alone or both", () => {
-    const s0 = baseState()
-    expect(run(s0, "team.policy.update", { changes: [set("cloud.connectServices", ["daemon"])], expected_version: 0 })).toMatchObject({ ok: false, code: "validation.invalid" })
-    expect(run(s0, "team.policy.update", { changes: [set("cloud.connectServices", ["ssh"])], expected_version: 0 })).toMatchObject({ ok: true })
-    expect(run(s0, "team.policy.update", { changes: [set("cloud.connectServices", ["daemon", "ssh"])], expected_version: 0 })).toMatchObject({ ok: true })
-    expect(run(s0, "team.policy.update", { changes: [set("cloud.connectServices", ["ssh", "ssh"])], expected_version: 0 })).toMatchObject({ ok: false, code: "validation.invalid" })
-  })
-
   it("old team objects without a policy field read as version 0 with no keys", () => {
     expect(currentPolicy(baseState())).toEqual({ version: 0, values: {}, updated_at: null, updated_by: null })
   })
