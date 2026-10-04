@@ -183,7 +183,9 @@ impl TcpStack {
     }
 
     pub(crate) fn now(&self) -> SmolInstant {
-        SmolInstant::from_micros(i64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(i64::MAX))
+        SmolInstant::from_micros(
+            i64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(i64::MAX),
+        )
     }
 
     /// Let smoltcp consume received packets and emit its own.

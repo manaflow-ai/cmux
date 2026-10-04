@@ -6,7 +6,9 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use cmux_wg::testing::random_keypair;
-use cmux_wg::{InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream};
+use cmux_wg::{
+    InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;

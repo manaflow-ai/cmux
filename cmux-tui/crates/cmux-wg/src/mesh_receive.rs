@@ -26,7 +26,9 @@ impl MeshDriver {
     pub(crate) fn handle_datagram(&mut self, datagram: &[u8], source: Option<SocketAddr>) {
         let key = match Tunn::parse_incoming_packet(datagram) {
             Ok(Packet::HandshakeInit(_)) => self.initiator(datagram, source),
-            Ok(Packet::HandshakeResponse(response)) => self.table.by_receiver(response.receiver_idx),
+            Ok(Packet::HandshakeResponse(response)) => {
+                self.table.by_receiver(response.receiver_idx)
+            }
             Ok(Packet::PacketCookieReply(cookie)) => self.table.by_receiver(cookie.receiver_idx),
             Ok(Packet::PacketData(data)) => self.table.by_receiver(data.receiver_idx),
             Err(_) => None,
@@ -53,7 +55,8 @@ impl MeshDriver {
             }
             _ => return None,
         };
-        let half = parse_handshake_anon(self.table.private(), self.table.public(), &initiation).ok()?;
+        let half =
+            parse_handshake_anon(self.table.private(), self.table.public(), &initiation).ok()?;
         let key = half.peer_static_public;
         self.table.contains(&key).then_some(key)
     }

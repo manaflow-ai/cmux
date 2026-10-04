@@ -33,8 +33,7 @@ async fn a_packet_from_outside_the_peers_allowed_ips_is_dropped() {
     assert!(accepted.try_recv().is_err(), "A accepted a connection from outside B's allowed IPs");
 
     // From B's routed address the same peer connects at once.
-    let mut stream =
-        within(b.mesh.connect(SocketAddr::new(overlay(1), LINK_PORT))).await.unwrap();
+    let mut stream = within(b.mesh.connect(SocketAddr::new(overlay(1), LINK_PORT))).await.unwrap();
     let (key, remote) = within(accepted.recv()).await.unwrap();
     assert_eq!(key, b.public);
     assert_eq!(remote.ip(), overlay(2), "the accepted remote is inside the key's allowed IPs");
@@ -88,8 +87,7 @@ async fn an_unknown_initiator_gets_no_handshake_and_peers_still_connect() {
     }
 
     // A configured peer still gets through.
-    let mut stream =
-        within(b.mesh.connect(SocketAddr::new(overlay(1), LINK_PORT))).await.unwrap();
+    let mut stream = within(b.mesh.connect(SocketAddr::new(overlay(1), LINK_PORT))).await.unwrap();
     assert_eq!(within(accepted.recv()).await.unwrap().0, b.public);
     echo_round_trip(&mut stream, 4096).await;
 }

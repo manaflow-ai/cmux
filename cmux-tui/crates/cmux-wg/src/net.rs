@@ -575,10 +575,8 @@ impl Driver {
         match command {
             Command::Connect { remote, reply } => self.begin_connect(remote, reply),
             Command::Listen { port, reply } => {
-                let listener = self
-                    .stack
-                    .begin_listen(port)
-                    .map(|incoming| WgListener { port, incoming });
+                let listener =
+                    self.stack.begin_listen(port).map(|incoming| WgListener { port, incoming });
                 let _ = reply.send(listener);
             }
             Command::LastHandshake { reply } => {

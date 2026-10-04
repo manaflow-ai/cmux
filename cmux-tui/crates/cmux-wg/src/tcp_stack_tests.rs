@@ -23,7 +23,11 @@ fn stack(own: &str, tagged: bool) -> TcpStack {
 
 /// Run both stacks and carry packets between them until both are quiet.
 /// `tag` is the key the server's engine reports for each packet it receives.
-fn exchange(client: &mut TcpStack, server: &mut TcpStack, mut tag: impl FnMut() -> Option<PeerKey>) {
+fn exchange(
+    client: &mut TcpStack,
+    server: &mut TcpStack,
+    mut tag: impl FnMut() -> Option<PeerKey>,
+) {
     for _ in 0..64 {
         client.step();
         server.step();
