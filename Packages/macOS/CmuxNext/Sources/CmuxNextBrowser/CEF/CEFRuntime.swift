@@ -314,6 +314,10 @@ final class CEFRuntime {
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
+        // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
+        for (id, root) in CEFPageSchemes.firstPartyRoots where shim.pageSchemeAddFirstParty(id, root.path, nil) != 1 {
+            logger.error("cmux-page \(id, privacy: .public) refused by the shim")
+        }
         // Google Chrome's native messaging hosts after cmux's own.
         for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
             _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)

@@ -517,20 +517,27 @@ CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* profile_cache_path, con
 // registration. Shutdown releases every watch.
 CMUX_SHIM_EXPORT int cmux_shim_pref_watch(const char* profile_cache_path, const char* pref_name, int enabled);
 
-// cmux-page:// pages: app pages served from a folder of the app. The scheme
+// cmux-page:// pages served from a folder. The scheme
 // is registered at startup in every process (standard, secure,
 // CORS-enabled, fetch-enabled). This call serves cmux-page://<id>/ from
 // resource_root for every profile, also profiles opened later; a repeat
 // replaces the folder and policy of that id. id is lowercased and must be
 // [a-z0-9.-] (for example cmux.settings, cmux.history, cmux.apps,
-// cmux.agent); the page origin is cmux-page://<id>. Responses: GET only
+// cmux.agent); the page origin is cmux-page://<id>. Reserved ids ("cmux"
+// and every "cmux." id, PageID.isReserved in CmuxNextPages) are refused
+// here: only cmux_shim_page_scheme_add_first_party serves them. Responses: GET only
 // (else 405); the URL path resolves below resource_root (real paths,
 // compared component-wise; ".." and symlink escapes are 404); "/" serves
 // index.html; only .html .js .mjs .css .json .svg .wasm .woff .woff2 .ttf
 // .otf, anything else 404. Every response has Content-Security-Policy = csp
 // (NULL = "default-src 'self'") and X-Content-Type-Options: nosniff.
-// Returns 1 when added, 0 for a bad id or a root that is not a directory.
+// Returns 1 when added, 0 for a bad or reserved id or a root that is not a
+// directory.
 CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add(const char* id, const char* resource_root, const char* csp);
+// The same for a reserved id only (0 for any other id): the app's
+// first-party registration, which passes the page's bundled resource root
+// after checking it against the first-party table (FirstPartyPageSchemes).
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party(const char* id, const char* resource_root, const char* csp);
 
 #ifdef __cplusplus
 }

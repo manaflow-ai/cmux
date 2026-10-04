@@ -149,6 +149,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let prefWatch: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     /// cmux-page://<id>/ from a folder: id, resource root, CSP (NULL = default).
     let pageSchemeAdd: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// The same for reserved (`cmux.`) ids only: the first-party path (`CEFPageSchemes`).
+    let pageSchemeAddFirstParty: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -283,6 +285,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         prefSetBool = try r("cmux_shim_pref_set_bool")
         prefWatch = try r("cmux_shim_pref_watch")
         pageSchemeAdd = try r("cmux_shim_page_scheme_add")
+        pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")

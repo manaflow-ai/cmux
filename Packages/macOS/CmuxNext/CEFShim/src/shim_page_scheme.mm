@@ -88,11 +88,13 @@ void InstallPageSchemes() {
 
 using namespace cmux_shim;
 
-extern "C" {
+namespace {
 
-int cmux_shim_page_scheme_add(const char* id, const char* resource_root, const char* csp) {
+// first_party: only reserved ids; otherwise: never a reserved id.
+int AddPage(const char* id, const char* resource_root, const char* csp, bool first_party) {
   std::string domain;
   if (!id || !NormalizePageId(id, &domain) || !resource_root || !*resource_root) return 0;
+  if (IsReservedPageId(domain) != first_party) return 0;
   std::string root;
   if (!page_detail::RealPath(resource_root, &root)) return 0;
   struct stat info;
@@ -106,6 +108,18 @@ int cmux_shim_page_scheme_add(const char* id, const char* resource_root, const c
     context->RegisterSchemeHandlerFactory(kCmuxPageScheme, domain, factory);
   });
   return 1;
+}
+
+}  // namespace
+
+extern "C" {
+
+int cmux_shim_page_scheme_add(const char* id, const char* resource_root, const char* csp) {
+  return AddPage(id, resource_root, csp, false);
+}
+
+int cmux_shim_page_scheme_add_first_party(const char* id, const char* resource_root, const char* csp) {
+  return AddPage(id, resource_root, csp, true);
 }
 
 }  // extern "C"
