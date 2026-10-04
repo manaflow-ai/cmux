@@ -23,6 +23,12 @@ pub trait VmHost: Send + Sync {
     /// A synchronous host function (`secretSet`, `secretList`, `secretDelete`,
     /// `policyNarrow`, `policyGet`). Errors become JS exceptions.
     fn native(&self, name: &str, args: Value) -> Result<Value, String>;
+    /// Masks bytes that cross the VM's file boundary (files the VM writes
+    /// and reads), so a secret value never lands in or comes back from a
+    /// file. The default masks nothing.
+    fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        bytes.to_vec()
+    }
 }
 
 #[derive(Debug, Clone)]
