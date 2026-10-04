@@ -1,6 +1,7 @@
 /// Which schema keys an agent may change (MCP `settings_set` and
 /// `settings_reset`; plans/cmux-next/settings-react.md section 3). Every key
-/// is listed explicitly in exactly one of the two tables, with no default:
+/// is in exactly one of the two tables, with no default (the 18 surface
+/// background rows join the settable table as one decided group, R55):
 /// `SettingsSchemaExportTests` fails on a key in neither or both, so a new
 /// setting cannot reach agents without a decision. The daemon's config actor
 /// enforces the exported flag; MCP only forwards.

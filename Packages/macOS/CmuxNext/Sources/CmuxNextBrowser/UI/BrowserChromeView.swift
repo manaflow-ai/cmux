@@ -387,7 +387,7 @@ public final class BrowserChromeView: NSView {
 
     /// Surface token in an opaque window, clear over a see-through one (windows.md);
     /// the toolbar takes `appearance.surfaces.browserChrome` over that (R55).
-    private func updateColors() {
+    func updateColors() {
         let paints = WindowBackdrop(themeTokens).panesPaintBackground
         performWithTheme {
             let surface = paints ? Palette.surfaceBackground.cgColor : nil

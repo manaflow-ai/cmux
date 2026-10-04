@@ -66,6 +66,14 @@ The CLI, MCP and palette need no new code:
   color over the dock fill, so the override shows only where the pane is
   clear (its tab strip, a see-through window).
 - The Settings window (not the page tab) keeps the window's backdrop.
+- Terminal with Ghostty `background-opacity-cells = true`: the surfaces keep
+  their opaque default background in an opaque window (a forced 0 would
+  erase explicit cell colors), so the terminal override does not show there.
+- Opacity-only terminal override at or below the window opacity: the
+  terminal draws transparent and the pane's surface color shows, which can
+  differ from a terminal-scope theme's own background.
+- Web pages: WebKit's under-page (overscroll) area stays clear, so in an
+  opaque window it shows the window color, not the override.
 
 ## Tests
 
