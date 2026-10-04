@@ -3282,7 +3282,11 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        let payload = capabilityWrappedCommand(Self.automationEnvelopeCommand(command)) + "\n"
+        guard let payload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(Self.automationEnvelopeCommand(command))
+        ) else {
+            throw CLIError(message: "Rejected socket command containing line-terminator characters")
+        }
         try writeAllNonBlocking(
             Data(payload.utf8),
             deadline: operationDeadline,
@@ -3403,9 +3407,14 @@ final class SocketClient {
         )
         recordOperation(operation)
 
+        guard let oneWayPayload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(Self.automationEnvelopeCommand(command))
+        ) else {
+            throw CLIError(message: "Rejected socket command containing line-terminator characters")
+        }
         do {
             try writeAllNonBlocking(
-                Data((capabilityWrappedCommand(Self.automationEnvelopeCommand(command)) + "\n").utf8),
+                Data(oneWayPayload.utf8),
                 deadline: Date.now.addingTimeInterval(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
@@ -4035,8 +4044,13 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 stream request")
         }
 
+        guard let streamPayload = SocketCommandLine.framedLine(
+            for: capabilityWrappedCommand(requestLine)
+        ) else {
+            throw CLIError(message: "Failed to encode v2 stream request")
+        }
         try writeAll(
-            Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
+            Data(streamPayload.utf8),
             timeoutMessage: "Stream request timed out",
             failureMessage: "Failed to write stream request",
             deadline: deadline
@@ -4212,7 +4226,9 @@ struct CMUXCLI {
     // `vm_image_config_error`.
     /// `--size` spellings → memory in MB. The supported base-image ladder is
     /// 4 GB, 8 GB, 16 GB, 24 GB, 32 GB, and 64 GB of RAM, with disk sizes
-    /// following each image. Each machine has its own resources.
+    /// following each image. Disk is per machine; vCPUs and memory come from
+    /// shared vCPU and RAM pools, one per resource, that the plan's active
+    /// machines draw from (the server enforces both).
     private static let cloudVMSizeAliases: [String: Int] = [
         "4g": 4096, "4gb": 4096,
         "8g": 8192, "8gb": 8192,
@@ -5025,6 +5041,17 @@ struct CMUXCLI {
                 return
             }
         }
+        if command == "local-zellij",
+           try LocalZellijInvocation.parse(commandArgs).canRunWithoutCmux {
+            try runLocalZellijCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                idFormat: try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg),
+                windowOverride: windowId
+            )
+            return
+        }
 
         if command == "help" { print(helpOutput(commandArgs: commandArgs)); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
@@ -5300,7 +5327,7 @@ struct CMUXCLI {
                 return
             }
         }
-        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
+        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks", arguments: try Self.parseHooksSetupArguments(commandArgs)); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
@@ -5404,6 +5431,9 @@ struct CMUXCLI {
             commandArgs: commandArgs
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
+        if ["notify", "list-notifications", "dismiss-notification", "mark-notification-read", "open-notification", "clear-notifications"].contains(command) {
+            try validateNotificationCommandArguments(command: command, args: commandArgs)
+        }
         try prepareStandardInputBeforeSocket(command: command, commandArgs: commandArgs)
         let isAuthCommand = ["auth", "login", "logout"].contains(command)
         let authUsage = String(
@@ -5994,7 +6024,7 @@ struct CMUXCLI {
                             vm new: unknown size '\(sizeOpt)'.
 
                             Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
-                            Pro starts 4g to 24g; 32g and 64g need cmux Max. `cmux vm ls` shows your plan.
+                            Pro goes up to 32g; 64g needs cmux Max. Active machines draw from shared vCPU and RAM pools. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed
@@ -6009,7 +6039,7 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --size <4g|8g|16g|24g|32g|64g>  4g to 24g on Pro; 32g and 64g need cmux Max
+                          --size <4g|8g|16g|24g|32g|64g>  4g to 32g on Pro; 64g needs cmux Max
                           --network <full|allowlist|none>  outbound access (see `cmux vm network --help`)
                           --network-policy <json>  full network policy object
                           --agent-updates <latest|image>  \(String(localized: "cli.vm.new.agentUpdatesFlag", defaultValue: "latest keeps coding agents up to date; image (default) keeps the baked versions"))
@@ -7051,6 +7081,14 @@ struct CMUXCLI {
             )
         case "local-tmux", "tmux":
             try runLocalTmuxCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+        case "local-zellij":
+            try runLocalZellijCommand(
                 commandArgs: commandArgs,
                 client: client,
                 jsonOutput: jsonOutput,
@@ -12916,7 +12954,11 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             initialCommand: initialCommand,
             windowRaw: windowRaw ?? windowOverride,
-            noFocus: !(focus ?? Self.defaultFocusForUserOpen()),
+            // `cmux ssh` is an explicit interactive navigation command. Keep
+            // its historical behavior of selecting the connected workspace
+            // unless the caller passes `--no-focus`; script/agent callers can
+            // opt out explicitly without silently leaving the new pane behind.
+            noFocus: focus == false,
             sshOptions: agentForwarding.sshOptions,
             remoteCommand: remoteCommand,
             terminalTransport: terminalTransport,
@@ -16614,7 +16656,7 @@ struct CMUXCLI {
         var surfaceRaw = surfaceOpt
         var args = argsWithoutSurfaceFlag
 
-        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history"]
+        let verbsWithoutSurface: Set<String> = ["open", "open-split", "new", "identify", "import", "profile", "profiles", "react-grab", "reactgrab", "devtools", "dev-tools", "focus-mode", "design-mode", "zoom", "history", "repl"]
         if surfaceRaw == nil, let first = args.first {
             if !first.hasPrefix("-") && !verbsWithoutSurface.contains(first.lowercased()) {
                 surfaceRaw = first
@@ -18209,6 +18251,11 @@ struct CMUXCLI {
             }
             let payload = try sendBrowserAutomationRequest(method: "browser.\(subcommand)", params: ["surface_id": sid, field: content])
             output(payload, fallback: "OK")
+            return
+        }
+
+        if subcommand == "repl" {
+            try runBrowserRepl(subArgs, client: client, jsonOutput: effectiveJSONOutput)
             return
         }
 
@@ -20017,6 +20064,8 @@ struct CMUXCLI {
             return "\(help)\n\n\(newWindowHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":
             return LocalTmuxInvocation.usage
+        case "local-zellij":
+            return LocalZellijInvocation.usage
         case "ssh-session-list":
             return """
             Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
@@ -21146,6 +21195,7 @@ struct CMUXCLI {
               addinitscript|addscript [--script <js> | <js>]
               addstyle [--css <css> | <css>]
               \(Self.browserViewportHelp)
+              \(Self.browserReplHelp)
               geolocation|geo <latitude> <longitude>
               offline <true|false>
               trace <start|stop> [path]
@@ -28954,10 +29004,8 @@ struct CMUXCLI {
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
                 // Claude sets stop_hook_active on a re-entry after a Stop hook
                 // blocked once. That flag describes hook recursion, not pending
-                // work: it must not mark the turn pending, but it does keep the
-                // sidebar pill in Running. Only authoritative background-work
-                // signals mark the turn pending and show Waiting.
-                let isReentrantStop = parsedInput.rawObject?["stop_hook_active"] as? Bool == true
+                // work: it must not mark the turn pending. Only authoritative
+                // background-work signals keep the turn out of Idle.
                 let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
@@ -29026,8 +29074,8 @@ struct CMUXCLI {
                     //
                     // A background task or cron is a deterministic wakeup the pane
                     // is parked on, which reads as Waiting. A re-entrant Stop
-                    // (`stop_hook_active`) keeps the pill on Running separately
-                    // because it does not represent pending background work.
+                    // (`stop_hook_active`) does not change this decision because
+                    // it is not pending background work.
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
@@ -29036,16 +29084,6 @@ struct CMUXCLI {
                         icon: "hourglass",
                         color: "#8E8E93",
                         workState: .waiting
-                    )
-                } else if isReentrantStop {
-                    try? setClaudeStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                        icon: "bolt.fill",
-                        color: "#4C8DFF",
-                        workState: .running
                     )
                 } else {
                     try? setClaudeStatus(
@@ -31837,7 +31875,7 @@ struct CMUXCLI {
         // the owner process for the child rollout and publish the child hook
         // binding. Without this, the first fork may render, but a fork of that
         // child has no durable parent association to discover.
-        monitorArgs += Self.codexForkMonitorArguments(environment: env)
+        monitorArgs += CodexForkMonitorArguments().make(environment: env)
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
         }
@@ -31864,19 +31902,6 @@ struct CMUXCLI {
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
         }
-    }
-
-    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
-        guard let forkParent = environment[CodexForkSessionWatcher.parentSessionEnvironmentKey],
-              !forkParent.isEmpty else { return [] }
-        var arguments = ["--fork-parent", forkParent]
-        if let launchID = environment[CodexForkSessionWatcher.launchIDEnvironmentKey], !launchID.isEmpty {
-            arguments += ["--fork-launch-id", launchID]
-        }
-        if let ownerPID = environment["CMUX_CODEX_PID"], !ownerPID.isEmpty {
-            arguments += ["--fork-owner-pid", ownerPID]
-        }
-        return arguments
     }
 
     /// Watches the Codex rollout until the turn settles.
@@ -35859,7 +35884,16 @@ export default {
             print("{}")
             return
         }
-        let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        guard let pidKey = SocketCommandLine.agentHookPIDKeyArgument(
+            statusKey: def.statusKey,
+            sessionId: sessionId.isEmpty ? "default" : sessionId
+        ) else {
+            // A hook session id that cannot be embedded as one socket argument
+            // has no legitimate producer; refuse the event before composing
+            // any per-session command line from it.
+            print("{}")
+            return
+        }
         var didSendFeedTelemetry = false
         func cursorCriticalTimeout() -> TimeInterval? {
             cursorShellRemainingTimeout() ?? 2.0
@@ -42247,14 +42281,14 @@ export default {
         case "setup":
             try runSetupHooks(
                 uninstall: false,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                arguments: try Self.parseHooksSetupArguments(Array(commandArgs.dropFirst()))
             )
             return true
 
         case "uninstall":
             try runSetupHooks(
                 uninstall: true,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                arguments: try Self.parseHooksSetupArguments(Array(commandArgs.dropFirst()))
             )
             return true
 
@@ -42434,34 +42468,71 @@ export default {
         }
     }
 
-    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
-        var skipNext = false
+    /// The target and mode `cmux hooks setup`/`uninstall` (and the legacy
+    /// `setup-hooks`/`uninstall-hooks`) were asked for.
+    private struct HooksSetupArguments {
+        var flagAgent: String?
         var positionalAgent: String?
-        for arg in args {
-            if skipNext {
-                skipNext = false
-                continue
+        var uninstall = false
+    }
+
+    /// Parses setup/uninstall arguments, rejecting anything it doesn't know
+    /// so a typo can't fall back to every agent.
+    private static func parseHooksSetupArguments(_ args: [String]) throws -> HooksSetupArguments {
+        var parsed = HooksSetupArguments()
+        func setFlagAgent(_ value: String) throws {
+            guard !value.isEmpty, !value.hasPrefix("-") else {
+                throw CLIError(message: String(
+                    localized: "cli.hooks.setup.error.agentRequiresValue",
+                    defaultValue: "--agent requires a value. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+                ))
             }
+            if let existing = parsed.flagAgent, existing != value {
+                throw CLIError(message: String(
+                    localized: "cli.hooks.setup.error.conflictingAgent",
+                    defaultValue: "--agent was given more than once with different values. Specify one agent."
+                ))
+            }
+            parsed.flagAgent = value
+        }
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
             switch arg {
             case "--agent":
-                skipNext = true
-            case "--yes", "-y", "--uninstall":
+                try setFlagAgent(index < args.count ? args[index] : "")
+                index += 1
+            case "--yes", "-y":
                 continue
+            case "--uninstall":
+                parsed.uninstall = true
             default:
-                if !arg.hasPrefix("-") {
-                    if positionalAgent != nil {
+                if arg.hasPrefix("--agent=") {
+                    try setFlagAgent(String(arg.dropFirst("--agent=".count)))
+                } else if arg.hasPrefix("-") {
+                    let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.hooks.setup.error.unknownOption",
+                            defaultValue: "Unknown option %@. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+                        ),
+                        name
+                    ))
+                } else {
+                    if parsed.positionalAgent != nil {
                         throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
                     }
-                    positionalAgent = arg
+                    parsed.positionalAgent = arg
                 }
             }
         }
-        return positionalAgent
+        return parsed
     }
 
-    private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
-        let args = ProcessInfo.processInfo.arguments
-        let flagAgentFilter = optionValue(args, name: "--agent")
+    private func runSetupHooks(uninstall: Bool = false, arguments: HooksSetupArguments) throws {
+        let flagAgentFilter = arguments.flagAgent
+        let positionalAgentFilter = arguments.positionalAgent
         if let flagAgentFilter, let positionalAgentFilter {
             guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
                 throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
@@ -42483,7 +42554,7 @@ export default {
         } else {
             agentFilterDef = nil
         }
-        let isUninstall = uninstall || args.contains("--uninstall")
+        let isUninstall = uninstall || arguments.uninstall
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
@@ -42632,7 +42703,7 @@ export default {
         print()
     }
 
-    private func resolvedVersionInfo() -> [String: String] {
+    func resolvedVersionInfo() -> [String: String] {
         var info: [String: String] = [:]
         if let main = versionInfo(from: Bundle.main.infoDictionary) {
             info.merge(main, uniquingKeysWith: { current, _ in current })

@@ -117,7 +117,7 @@ private final class CallCounter: @unchecked Sendable {
         #expect(installs.count == 1)
     }
 
-    @Test func laterKeepsRestartToCompleteAndRestartNowHonorsExplicitConfirmation() {
+    @Test func laterKeepsUpdateReadyAndRestartNowHonorsExplicitConfirmation() {
         let driver = makeDriver()
         let installs = CallCounter()
         host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 0)
@@ -128,12 +128,12 @@ private final class CallCounter: @unchecked Sendable {
         #expect(!driver.relaunchGate.isWaiting)
         #expect(installing?.isAutoUpdate == true)
         #expect(installing?.relaunchBlockers == nil)
-        #expect(model.text == "Restart to Complete Update")
+        #expect(model.text == "Update Ready")
 
         // Restart Later must not drop the postponed install: Sparkle's session stays open
         // until it runs, so the prompt stays and Restart Now still reaches it.
         installing?.dismiss()
-        #expect(model.text == "Restart to Complete Update")
+        #expect(model.text == "Update Ready")
 
         installing?.retryTerminatingApplication()
         #expect(installs.count == 1)

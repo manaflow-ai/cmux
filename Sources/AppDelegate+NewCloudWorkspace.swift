@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import CmuxCloudMachines
 import Foundation
 
@@ -123,6 +124,10 @@ extension AppDelegate {
         debugSource: String = "newCloudWorkspace",
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
+        if CloudMachinesFeature.isAvailable, !CloudMachinesFeature.isEnabled {
+            Self.presentPreferencesWindow(navigationTarget: .cloudMachines)
+            return true
+        }
         guard let operationController = cloudWorkspaceOperationController,
               operationController.isCurrentlyAvailable else { return false }
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }

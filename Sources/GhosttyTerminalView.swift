@@ -912,7 +912,7 @@ class GhosttyApp {
                }) {
                 representations.append(.init(mimeType: "text/plain", string: fallback))
             }
-            GhosttyApp.terminalPasteboard.writeRepresentations(representations, to: location)
+            GhosttySurfaceScrollView.writeClipboard(representations, to: location, from: callbackContext)
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
@@ -5364,8 +5364,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             queue: .main
         ) { [weak self] notification in
             guard let occludedWindow = notification.object as? NSWindow else { return }
-            // Delivered on the main queue (`queue: .main`), which is the main actor.
-            MainActor.assumeIsolated {
+            // NotificationCenter's `queue: .main` selects the main operation
+            // queue, but it does not establish Swift concurrency's main-actor
+            // executor. AppKit can also post this notification during window
+            // teardown from a non-actor callback. Hop explicitly instead of
+            // assuming the executor, which otherwise traps with EXC_BAD_ACCESS
+            // while a terminal view is being detached.
+            Task { @MainActor [weak self] in
                 self?.applyRendererWindowVisibility(for: occludedWindow)
             }
         }
@@ -5379,7 +5384,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 queue: .main
             ) { [weak self] notification in
                 guard let keyWindow = notification.object as? NSWindow else { return }
-                MainActor.assumeIsolated {
+                Task { @MainActor [weak self] in
                     self?.applyRendererWindowVisibility(for: keyWindow)
                 }
             })
@@ -5399,6 +5404,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Consume the committed bounds and let the portal's queued convergence
         // pass handle any later geometry change.
         _ = reapplyPaneGeometry()
+        // A surface can become visible before its hosted view is reattached to
+        // the real window. In that order the visibility transition correctly
+        // waits for presentation readiness, but no geometry delta may follow
+        // the attachment. Replay the readiness edge here so a renderer born
+        // hidden cannot remain released after its first real window attach.
+        terminalSurface?.rendererPresentationReadinessDidChange()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
         GhosttyApp.shared.synchronizeThemeWithAppearance(
@@ -7696,7 +7707,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         button: ghostty_input_mouse_button_e,
         mods: ghostty_input_mods_e
     ) -> Bool {
-        withPotentialClipboardPasteIntent {
+        withPointerDispatchIntents {
             ghostty_surface_mouse_button(surface, state, button, mods)
         }
     }
@@ -9907,6 +9918,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// occlusion `.visible` bit is remembered per window so the rule can tell a
     /// trustworthy occlusion verdict from a virtual display that never sets it.
     private func applyRendererWindowVisibility(for window: NSWindow) {
+        guard let currentWindow = self.window, currentWindow === window else { return }
         let occlusionVisible = window.occlusionState.contains(.visible)
         if occlusionVisible {
             Self.windowsThatReportedVisible.add(window)

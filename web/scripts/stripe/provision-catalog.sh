@@ -370,8 +370,9 @@ team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
 echo "Resolved Team product." >&2
 
 # Checkout shows the product description. Keep it on the plan limits in
-# web/services/vms/machineSpec.ts and entitlements.ts (5 VMs per seat;
-# 4 vCPU / 8 GB each, 16 vCPU / 32 GB on Max). Updating a description is
+# web/services/vms/machineSpec.ts and entitlements.ts (5 VMs per paid seat sharing
+# vCPU and RAM pools: 20 vCPU / 40 GB per paid seat, pooled across a Team, or
+# 80 vCPU / 160 GB on Max). Updating a description is
 # idempotent, so every run converges on this copy.
 ensure_product_description() {
   local product_id="$1"
@@ -380,9 +381,9 @@ ensure_product_description() {
     --data-urlencode "description=${description}" >/dev/null
   echo "Set description for ${product_id}." >&2
 }
-ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, plus the cmux iOS app."
-ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM."
-ensure_product_description "$team_product_id" "Per seat: up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, the cmux iOS app, and priority support."
+ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
+ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
+ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.

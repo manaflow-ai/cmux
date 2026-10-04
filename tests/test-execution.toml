@@ -86,6 +86,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_browser_repl_cli_io.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_stress_cli_socket_api.py"
 lane = "macos-cli-no-socket"
 
@@ -1497,6 +1502,11 @@ lane = "macos-cli-product"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_hooks_setup_arguments.py"
+lane = "macos-cli-product"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_ci_machine_failure.py"
 lane = "linux-guard"
 
@@ -1567,4 +1577,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_frame_pacing_summary.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_presign.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green.py"
 lane = "linux-guard"

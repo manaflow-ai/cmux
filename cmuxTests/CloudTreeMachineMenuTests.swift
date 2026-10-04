@@ -706,13 +706,13 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.pinChanges.first?.1 == true)
     }
 
-    /// The machine row's hover trash is SwiftUI inside an NSTableView row.
+    /// The machine row's + and ⋯ are SwiftUI inside an NSTableView row.
     /// NSTableView forwards a click only to subviews it validates, so a click
-    /// on the trash used to run the row's click action (toggle) and never
-    /// reached `confirmDelete`. Synthetic events do not drive SwiftUI buttons
-    /// in an offscreen test window, so this checks AppKit's routing decision.
-    @Test("The outline hands a click on the machine row's hover trash to the button")
-    func hoverTrashClickRoutesToButton() throws {
+    /// on a row button used to run the row's click action (toggle) and never
+    /// reached the button. Synthetic events do not drive SwiftUI buttons in an
+    /// offscreen test window, so this checks AppKit's routing decision.
+    @Test("The outline hands a click on the machine row's buttons to the button")
+    func machineRowButtonClickRoutesToButton() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions(recording: recorder),
@@ -744,7 +744,24 @@ struct CloudTreeMachineMenuTests {
         #expect(outline.validateProposedFirstResponder(hit, for: nil))
     }
 
-    @Test("Idle machine hover controls do not steal the row click target")
+    @Test("Machine rows keep New Workspace and More Actions visible without hover")
+    func machineRowButtonsShowAtRest() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 360, height: 32))
+        cell.configure(node: Self.machineNode(), machineActions: Self.machineActions(recording: recorder), nodeActions: Self.nodeActions(recording: recorder))
+        cell.setHovered(false)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        #expect(!buttons.isHidden)
+        #expect(buttons.alphaValue == CloudTreeCellView.restingButtonsAlpha, "Dimmed at rest, full on row hover")
+        cell.setHovered(true)
+        #expect(buttons.alphaValue == 1)
+        #expect(CloudTreeRowHoverButtons.showsAtRest(for: Self.machineNode().kind))
+    }
+
+    @Test("Idle hover-only controls do not steal the row click target")
     func idleHoverControlsDoNotStealRowClick() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
@@ -759,7 +776,7 @@ struct CloudTreeMachineMenuTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = container
         defer { window.contentView = nil; withExtendedLifetime(window) {} }
-        coordinator.apply(nodes: [Self.machineNode()])
+        coordinator.apply(nodes: [CloudTreeNode(id: "terminals", kind: .terminalsPool(machine: .cloud(Self.machineID), count: 0))])
         container.layoutSubtreeIfNeeded()
 
         let outline = try #require(coordinator.outlineView)

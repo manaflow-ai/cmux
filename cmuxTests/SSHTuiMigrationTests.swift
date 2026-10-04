@@ -14,6 +14,28 @@ import Testing
 
 @Suite("SSH cmux-tui migration", .serialized)
 struct SSHTuiMigrationTests {
+    @Test("SSH terminal failures do not use Cloud wording")
+    func sshTerminalFailureUsesSSHCopy() {
+        let failure = CloudPaneCreationFailure(machine: .ssh("austins-macbook-pro"), error: CloudMachineLink.LinkError.timedOut)
+
+        #expect(failure.displayTitle == "Couldn’t open SSH terminal")
+        #expect(failure.errorText == "The SSH connection could not be established.")
+        #expect(failure.recoveryText.contains("SSH connection"))
+        #expect(!failure.copyableText.contains("Cloud"))
+    }
+
+    @Test("SSH terminal failures do not expose provider responses")
+    func sshTerminalFailureSanitizesProviderDetails() {
+        struct LeakyError: LocalizedError {
+            var errorDescription: String? { "provider-name: response payload and secret" }
+        }
+        let failure = CloudPaneCreationFailure(machine: .ssh("host"), error: LeakyError())
+
+        #expect(!failure.errorText.contains("provider-name"))
+        #expect(!failure.copyableText.contains("response payload"))
+        #expect(!failure.copyableText.contains("secret"))
+    }
+
     private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces", profile: WorkspaceRemoteTerminalProfile = .shell) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             terminalProfile: profile, destination: "alice@example.invalid", port: 2222, identityFile: identityFile,
@@ -118,6 +140,15 @@ struct SSHTuiMigrationTests {
         }
     }
 
+    @Test("Restore-only SSH carriers request sidecar recovery")
+    func restoreCarrierRequestsSidecarUpgrade() {
+        let connection = SSHTuiConnection(configuration: configuration())
+        let fresh = connection.arguments(stateDirectory: "/tmp/state", deviceName: "test")
+        let restored = connection.arguments(stateDirectory: "/tmp/state", deviceName: "test", upgrade: true)
+        #expect(!fresh.contains("--upgrade"))
+        #expect(restored.contains("--upgrade"))
+    }
+
     @Test("Changing a ControlMaster path does not change persistent SSH terminal identity")
     func sessionIdentitySurvivesCarrierReplacement() {
         let first = SSHTuiConnection(configuration: configuration(options: ["ControlPath=/tmp/first", "ProxyJump=bastion"]))
@@ -199,6 +230,30 @@ struct SSHTuiMigrationTests {
         #expect(blocked.scopedToOwnerWorkspace(UUID()).sessionSnapshot() == legacy)
         #expect(blocked.withSSHControlMasterLeaseGeneration(UUID()).sessionSnapshot() == legacy)
 
+    }
+
+    @Test("A stale legacy SSH snapshot starts a fresh cmux-tui workspace")
+    func staleLegacySnapshotStartsFreshTuiWorkspace() throws {
+        let legacy = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "fixture@host",
+            preserveAfterTerminalExit: true,
+            relayPort: 1234,
+            persistentDaemonSlot: "legacy-owned"
+        )
+        var configuration = try #require(legacy.workspaceConfiguration())
+        configuration.restoredSSHSession = legacy
+        let prepared = SSHTuiWorkspaceCoordinator.configurationForAttach(configuration)
+        #expect(prepared.restoredSSHSession == nil)
+        #expect(prepared.destination == configuration.destination)
+        #expect(prepared.preserveAfterTerminalExit)
+    }
+
+    @Test("SSH restores do not require Cloud creation receipts")
+    func sshRestoreSkipsCloudOnlyReceiptResolution() {
+        #expect(!SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "ssh:fixture", restoring: true))
+        #expect(SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "vm_fixture", restoring: true))
+        #expect(!SSHTuiWorkspaceCoordinator.usesDurableCreationReceipt(machineID: "ssh:fixture", restoring: false))
     }
 
     @Test("A legacy persistent SSH snapshot running a named tmux session reattaches it through cmux-tui")

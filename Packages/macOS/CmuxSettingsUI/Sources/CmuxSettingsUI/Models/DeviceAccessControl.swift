@@ -15,7 +15,7 @@ public struct DeviceAccessControl {
     ///   - preference: The independent preference this control changes.
     ///   - enabled: Its persisted value.
     ///   - managed: Whether administrator policy disables this preference.
-    ///   - unavailable: Whether Cloud/Beta availability disables My Devices.
+    ///   - unavailable: Whether Cloud availability disables My Devices.
     public init(
         _ preference: DevicesAccessCoordinator.Preference,
         enabled: Bool,
