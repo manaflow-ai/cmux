@@ -56,6 +56,13 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [String: Entry] = [:]
     private var order: [String] = []
+    /// Values the session held under a name that was deleted, cleared or
+    /// given another value, oldest first. They are no longer typed or
+    /// listed, but stay masked for the session's life: the agent never saw
+    /// them, and wherever they came from (a secrets file) still holds them.
+    private var retired: [Entry] = []
+    /// Every value the session held, its current and retired ones.
+    private var heldValues: Set<String> = []
     private var values: [BrowserReplSecretScanner.Value] = []
     private var totpKeys: [(name: String, key: Data, domains: [BrowserReplDomainPattern])] = []
     private var codeCache: (window: Int64, codes: [ValidCodes])?
@@ -68,7 +75,8 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         self.publicSuffixes = publicSuffixes
     }
 
-    public var isEmpty: Bool { lock.withLock { entries.isEmpty } }
+    /// Whether the store masks nothing: it holds no value, current or retired.
+    public var isEmpty: Bool { lock.withLock { entries.isEmpty && retired.isEmpty } }
 
     /// The most secrets a session registers (``set(name:value:domains:totp:title:)``).
     /// Every redaction matches every value, so the store a script fills
@@ -78,6 +86,10 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     public static let maximumValueBytes = 4096
     /// The most domains one secret names.
     public static let maximumDomains = 64
+    /// The most distinct values a session holds over its life, current and
+    /// retired (deleted, cleared or replaced ones stay masked), so the
+    /// values every redaction matches stay bounded.
+    public static let maximumValuesPerSession = 1024
 
     /// Secrets registered through `set`, not values other sessions typed.
     private var registered: Set<String> = []
@@ -106,8 +118,16 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             if !registered.contains(name), registered.count >= Self.maximumSecrets {
                 throw invalid("\(title): \(name): a session holds at most \(Self.maximumSecrets) secrets; delete one (secrets.delete) first")
             }
+            if !heldValues.contains(value), heldValues.count >= Self.maximumValuesPerSession {
+                throw invalid("\(title): \(name): a session holds at most \(Self.maximumValuesPerSession) secret values over its life (deleted and replaced ones stay masked); reset the session (cmux browser repl reset NAME) for new ones")
+            }
             registered.insert(name)
-            if entries[name] == nil { order.append(name) }
+            heldValues.insert(value)
+            if let previous = entries[name] {
+                retireLocked(previous)
+            } else {
+                order.append(name)
+            }
             entries[name] = Entry(name: name, value: value, domains: domains, totp: isTOTP, maskName: name)
             rebuildLocked()
         }
@@ -158,7 +178,8 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     @discardableResult
     public func delete(_ name: String) -> Bool {
         lock.withLock {
-            guard entries.removeValue(forKey: name) != nil else { return false }
+            guard let removed = entries.removeValue(forKey: name) else { return false }
+            retireLocked(removed)
             registered.remove(name)
             order.removeAll { $0 == name }
             rebuildLocked()
@@ -168,6 +189,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
 
     public func clear() {
         lock.withLock {
+            for name in order { if let entry = entries[name] { retireLocked(entry) } }
             entries.removeAll()
             order.removeAll()
             registered.removeAll()
@@ -205,7 +227,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     }
 
     func captureMasks(at date: Date) -> [(value: String, domains: [BrowserReplDomainPattern])] {
-        let plain = lock.withLock { order.compactMap { entries[$0] }.filter { !$0.totp }.map { ($0.value, $0.domains) } }
+        let plain = lock.withLock { (order.compactMap { entries[$0] } + retired).filter { !$0.totp }.map { ($0.value, $0.domains) } }
         return plain + validCodes(at: date).flatMap { entry in entry.codes.map { ($0, entry.domains) } }
     }
 
@@ -244,13 +266,21 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// one-character secret would otherwise grow up to 73 times.
     public static let maximumGrowth = 8 << 20
 
+    /// Keeps `entry`'s value masked after its name lets go of it. Call
+    /// with `lock` held.
+    private func retireLocked(_ entry: Entry) {
+        guard !retired.contains(where: { $0.value == entry.value && $0.totp == entry.totp }) else { return }
+        retired.append(entry)
+    }
+
     private func rebuildLocked() {
         codeCache = nil
-        totpKeys = order.compactMap { entries[$0] }.filter(\.totp).compactMap { entry in
+        let masked = order.compactMap { entries[$0] } + retired
+        totpKeys = masked.filter(\.totp).compactMap { entry in
             Self.base32Decode(entry.value).map { (entry.maskName, $0, entry.domains) }
         }
         // Each value was compiled when it was registered; a change only reorders.
-        values = order.compactMap { entries[$0]?.compiled }
+        values = masked.map(\.compiled)
             .sorted { $0.utf8.count > $1.utf8.count }
     }
 

@@ -310,7 +310,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   and redaction does not find it.
   A session holds at most 256 secrets (`secrets.set`, `secrets.load`;
   replacing one is not another) of at most 4 KiB with at most 64 domains
-  each, refused with an error naming the limit. Each masking pass tries,
+  each, refused with an error naming the limit. `secrets.delete`,
+  `secrets.clear` and replacing a secret's value stop the old value from
+  being typed or listed, but it stays masked (in text, files and captures)
+  for the session's life, since the agent never saw it and its source (a
+  secrets file) may still hold it; a session holds at most 1,024 distinct
+  values over its life, current and retired, and a new one past that is
+  refused until a reset. Each masking pass tries,
   at each position, only the values whose first byte can start there (the
   byte, or the first byte of the character an escape there stands for),
   and stops after comparing 64 bytes per byte of its input past a 1 MiB
