@@ -128,7 +128,8 @@ describe("P2-6: provider settings", { timeout: 60_000 }, () => {
     const sent: Array<{ method: string; url: string; body: any }> = []
     const fetchFn = (async (url: string, init: RequestInit) => {
       sent.push({ method: init.method ?? "GET", url, body: init.body ? JSON.parse(init.body as string) : undefined })
-      return init.method === "POST" ? Response.json({ id: "fs-1" }, { status: 201 }) : Response.json({ code: "NOT_FOUND" }, { status: 404 })
+      if (init.method === "POST") return Response.json({ id: "fs-1" }, { status: 201 })
+      return url.includes("?") ? Response.json({ vms: [], totalCount: 0 }) : Response.json({ code: "NOT_FOUND" }, { status: 404 })
     }) as unknown as typeof fetch
     const driver = new FreestyleCloudDriver("key", "https://fs.test", "cmuxnp-test-vmimg-1", fetchFn)
     const tag = { team: "team_00000000000000000001", machine: "vm_00000000000000000001" }

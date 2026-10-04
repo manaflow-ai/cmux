@@ -139,6 +139,10 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   if (d.value.from_snapshot !== undefined) return reject("cloud.snapshot.not_found", "no such snapshot")
   const memory = d.value.size.memory_mb ?? plan.memory_options_mb[0] ?? 4096
   if (sizeLocked(plan, memory)) return reject("cloud.size.locked", "this size needs another plan", { memory_mb: memory })
+  const cpu = d.value.size.cpu ?? DEFAULT_SIZE.cpu
+  const disk = d.value.size.disk_mb ?? DEFAULT_SIZE.disk_mb
+  if (cpu > plan.max_cpu) return reject("cloud.size.locked", "this size needs another plan", { cpu })
+  if (disk > plan.max_disk_mb) return reject("cloud.size.locked", "this size needs another plan", { disk_mb: disk })
   if (state.active >= plan.max_active) return reject("cloud.quota.exceeded", `this plan allows ${plan.max_active} active machines`, { limit: plan.max_active, used: state.active, resource: "active" })
   if (!ctx.idempotencyKey) return unavailable()
   const blocked = createConfigProblem(config)
@@ -156,7 +160,7 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
     team: state.team ?? p.team!,
     creator: p.user!,
     name: d.value.name ?? null,
-    size: { cpu: d.value.size.cpu ?? DEFAULT_SIZE.cpu, memory_mb: memory, disk_mb: d.value.size.disk_mb ?? DEFAULT_SIZE.disk_mb },
+    size: { cpu, memory_mb: memory, disk_mb: disk },
     status: "provisioning",
     image: { id: config.image, daemon_version: null },
     host: null,
