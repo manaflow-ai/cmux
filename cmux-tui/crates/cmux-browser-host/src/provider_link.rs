@@ -73,6 +73,10 @@ type Waiters = Arc<Mutex<HashMap<u64, mpsc::SyncSender<Result<Value, DriverError
 /// `errorName` of a call refused by the interim extension rule.
 pub const EXTENSION_HOST_ACCESS: &str = "extension_host_access";
 
+/// `errorName` of a call on a tab that shows a browser page (chrome://,
+/// first-party cmux-page hosts: `policy::is_browser_page`).
+pub const BROWSER_PAGE: &str = "browser_page";
+
 const EXTENSION_REFUSAL: &str = "the tab's profile has an enabled extension with access to this \
      page; use a browser profile without extensions, or ask the person to allow agents in this tab";
 const EXTENSION_REFUSAL_HINT: &str =
@@ -83,6 +87,8 @@ const EXTENSION_REFUSAL_HINT: &str =
 #[derive(Default)]
 struct TabTable {
     engines: HashMap<String, String>,
+    /// The main-frame URL of each tab (hello, tab.announced, tab.navigated).
+    urls: HashMap<String, String>,
     /// targetId -> (extension_host_access, user_override, extension names).
     access: HashMap<String, (bool, bool, Vec<String>)>,
 }
@@ -90,10 +96,12 @@ struct TabTable {
 impl TabTable {
     fn announce(&mut self, tab: &TabAnnounce) {
         self.engines.insert(tab.target_id.clone(), tab.engine.clone());
+        self.urls.insert(tab.target_id.clone(), tab.url.clone());
     }
 
     fn forget(&mut self, target_id: &str) {
         self.engines.remove(target_id);
+        self.urls.remove(target_id);
         self.access.remove(target_id);
     }
 
@@ -103,6 +111,20 @@ impl TabTable {
             "tab.announced" => {
                 if let Ok(tab) = serde_json::from_value::<TabAnnounce>(payload.clone()) {
                     self.announce(&tab);
+                }
+            }
+            // Provider tab.navigated is the main frame's (a sub-frame one
+            // names its frameId).
+            "tab.navigated" => {
+                let main =
+                    matches!(payload.get("frameId").and_then(Value::as_str), None | Some("main"));
+                if main
+                    && let (Some(target_id), Some(url)) = (
+                        payload.get("targetId").and_then(Value::as_str),
+                        payload.get("url").and_then(Value::as_str),
+                    )
+                {
+                    self.urls.insert(target_id.to_owned(), url.to_owned());
                 }
             }
             "tab.gone" => {
@@ -119,6 +141,17 @@ impl TabTable {
     /// announce) needs a `tab.access` report that says no enabled extension
     /// holds host access on its page, or the person's override: fail closed.
     fn refusal(&self, method: &str, target_id: &str) -> Option<DriverError> {
+        // D1: a tab that shows a browser page is never driven, on any engine.
+        if let Some(url) = self.urls.get(target_id)
+            && crate::policy::is_browser_page(url)
+        {
+            let mut error = DriverError::new(
+                crate::protocol::ErrorCode::Forbidden,
+                format!("{method}: {} is a browser page, not available to agents", url.trim()),
+            );
+            error.error_name = Some(BROWSER_PAGE.to_owned());
+            return Some(error);
+        }
         if self.engines.get(target_id).map(String::as_str) == Some("webkit") {
             return None;
         }
