@@ -105,6 +105,17 @@ import Testing
         #expect(entry.pinPosition == 2)
         #expect(entry.isListed)
 
+        // The daemon names the lease's account on owner events; older daemons do not.
+        let named = decode("cloud-inbox-changed", #"{"event":"cloud-inbox-changed","seq":5,"account":"user_a","entries":[]}"#)
+        #expect(named == .cloudConversations(.inboxChanged(CloudInboxChanged(seq: 5, entries: [], account: "user_a"))))
+        let namedChange = decode("cloud-conversation-changed", #"""
+        {"event":"cloud-conversation-changed","conversation":"conv_A","rev":7,"seq":12,"account":"user_a","change":{"kind":"read-cursor","participant":"user_b","seq":4}}
+        """#)
+        guard case .cloudConversations(.changed(let withAccount)) = namedChange else { Issue.record("decoded \(namedChange)"); return }
+        #expect(withAccount.account == "user_a")
+        guard case .cloudConversations(.resynced(let withoutAccount)) = resynced else { return }
+        #expect(withoutAccount.account == nil)
+
         #expect(decode("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":9}"#) == .cloudConversations(.inboxReset(seq: 9)))
         #expect(decode("cloud-subscription-state", #"{"event":"cloud-subscription-state","scope":"conversation","conversation":"conv_A","state":"closed","reason":"forbidden"}"#)
             == .cloudConversations(.subscriptionState(CloudSubscriptionState(scope: "conversation", conversation: "conv_A", state: "closed",

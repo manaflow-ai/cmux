@@ -182,6 +182,7 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     /// One `cloud-*` event from the daemon. Lease requests go to the lease, not here.
     func handle(_ event: CloudConversationsEvent) {
+        guard isForThisAccount(event) else { return }
         switch event {
         case .changed(let changed): apply(changed)
         case .resynced(let resynced): apply(resynced)
@@ -219,6 +220,21 @@ nonisolated final class CloudHomeSource: HomeSource {
             return true
         }
         if renamed { publishInbox() }
+    }
+
+    /// An owner event that names its account (the lease's `sub`) belongs to
+    /// this source only when that is the account it acts as: another one's
+    /// is a late event from before a switch, and is dropped. An event that
+    /// names none (an older daemon) is kept.
+    private func isForThisAccount(_ event: CloudConversationsEvent) -> Bool {
+        let account: String? = switch event {
+        case .changed(let changed): changed.account
+        case .resynced(let resynced): resynced.account
+        case .inboxChanged(let changed): changed.account
+        default: nil
+        }
+        guard let account else { return true }
+        return state.withLock { $0.identity?.cloudID } == CloudIdentity.cloudID(stackUserID: account)
     }
 
     /// The account this source acts as (its cloud id), leased or not.

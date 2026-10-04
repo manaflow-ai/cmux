@@ -9,13 +9,18 @@ public struct CloudConversationChanged: Decodable, Sendable, Hashable {
     /// The cloud transaction (not a daemon `ClientTransactionID`).
     public var transaction: String?
     public var change: ConversationChange
+    /// The cloud account (the `sub` of the lease the daemon used) this
+    /// event came through. Optional: older daemons do not send it.
+    public var account: String?
 
-    public init(conversation: String, rev: UInt64, seq: UInt64, transaction: String? = nil, change: ConversationChange) {
+    public init(conversation: String, rev: UInt64, seq: UInt64, transaction: String? = nil, change: ConversationChange,
+                account: String? = nil) {
         self.conversation = conversation
         self.rev = rev
         self.seq = seq
         self.transaction = transaction
         self.change = change
+        self.account = account
     }
 }
 
@@ -27,13 +32,18 @@ public struct CloudConversationResynced: Decodable, Sendable, Hashable {
     public var seq: UInt64
     public var summary: ConversationSummary
     public var messages: [ConversationMessage]
+    /// The cloud account (the `sub` of the lease the daemon used) this
+    /// event came through. Optional: older daemons do not send it.
+    public var account: String?
 
-    public init(conversation: String, rev: UInt64, seq: UInt64, summary: ConversationSummary, messages: [ConversationMessage]) {
+    public init(conversation: String, rev: UInt64, seq: UInt64, summary: ConversationSummary, messages: [ConversationMessage],
+                account: String? = nil) {
         self.conversation = conversation
         self.rev = rev
         self.seq = seq
         self.summary = summary
         self.messages = messages
+        self.account = account
     }
 }
 
@@ -42,11 +52,15 @@ public struct CloudInboxChanged: Decodable, Sendable, Hashable {
     public var seq: UInt64
     public var transaction: String?
     public var entries: [CloudInboxEntry]
+    /// The cloud account (the `sub` of the lease the daemon used) this
+    /// event came through. Optional: older daemons do not send it.
+    public var account: String?
 
-    public init(seq: UInt64, transaction: String? = nil, entries: [CloudInboxEntry]) {
+    public init(seq: UInt64, transaction: String? = nil, entries: [CloudInboxEntry], account: String? = nil) {
         self.seq = seq
         self.transaction = transaction
         self.entries = entries
+        self.account = account
     }
 }
 
