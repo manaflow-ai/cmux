@@ -64,10 +64,20 @@ impl Usage {
 /// `usage` field codex-acp fills from the turn's last model request ("last
 /// request").
 pub fn answer_usage(answer: &Value) -> Option<(Usage, &'static str)> {
-    answer
-        .pointer("/_meta/claude/usage")
-        .and_then(Usage::parse)
-        .map(|u| (u, "turn total"))
+    if let Some(u) = answer.pointer("/_meta/claude/usage").and_then(Usage::parse) {
+        return Some((u, "turn total"));
+    }
+    let usage = answer.get("usage")?;
+    let n = |k: &str| usage.get(k).and_then(Value::as_u64);
+    Some((
+        Usage {
+            input: n("inputTokens")?,
+            cache_read: n("cachedReadTokens").unwrap_or(0),
+            cache_write: n("cachedWriteTokens").unwrap_or(0),
+            output: n("outputTokens").unwrap_or(0),
+        },
+        "last request",
+    ))
 }
 
 #[derive(Debug, Default)]

@@ -216,6 +216,9 @@ pub struct Brain {
     notices: Vec<(String, String)>,
     /// Notice keys already handled (each is posted once per process).
     noticed: HashSet<String>,
+    /// Claude Code refused a turn's cache marker (it placed a fourth
+    /// breakpoint of its own): later turns go without it.
+    marker_refused: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Brain {
@@ -257,6 +260,7 @@ impl Brain {
             fatal: None,
             stop_wanted: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
+            marker_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),

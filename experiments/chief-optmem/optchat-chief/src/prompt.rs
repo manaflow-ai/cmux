@@ -95,8 +95,42 @@ pub enum Tools {
 
 /// The system prompt for `tools`: MASTER, VIEW_DOC, the cmux section (its
 /// tool lines for `tools`), then the user's instructions file.
-pub fn system_text(user: Option<&str>, _tools: &Tools) -> String {
-    claude_md(user)
+pub fn system_text(user: Option<&str>, tools: &Tools) -> String {
+    let cmux = match tools {
+        Tools::Mcp => CMUX_INSTRUCTIONS.to_owned(),
+        Tools::Cli(chief) => cli_instructions(chief),
+    };
+    match user.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(user) => format!("{MASTER}\n\n{VIEW_DOC}\n\n{cmux}\n\n{user}\n"),
+        None => format!("{MASTER}\n\n{VIEW_DOC}\n\n{cmux}\n"),
+    }
+}
+
+/// The cmux section for a harness without the `optchat` MCP server: the
+/// launcher by its absolute path (it is not on that harness's PATH), and the
+/// memory tools as its `zoom` and `date` commands.
+fn cli_instructions(chief: &str) -> String {
+    format!(
+        "# Instructions
+
+You run inside cmux, a terminal for coding agents; the user talks to you in
+cmux Home, and your final reply of each turn is posted there.
+
+- Workspaces, panes, terminals and browsers: use the `cmux` CLI from your
+  shell (`cmux --help`). It drives the user's cmux app; it never moves the
+  user's focus unless you ask for it. Never close or change workspaces the
+  user did not ask about.
+- Subagents: start one with
+  `{chief} agents spawn --name NAME --cwd DIR [--harness claude-sr|codex] \"task\"`.
+  It runs in the background as an acpmux session; when it ends a turn, its
+  final reply reaches you as a message \"[NAME] report\". Steer it with
+  `{chief} agents prompt NAME \"text\"`, see yours with `{chief} agents list`,
+  answer its permission requests with `{chief} agents allow NAME [OPTION_ID]`
+  or `{chief} agents deny NAME` (ask the user first for anything destructive
+  or outward-facing). Start agents only this way: only these report back.
+- Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
+  `{chief} date ID`, run from your shell."
+    )
 }
 
 /// A prompt in the cached layout: the session's system prompt and the user

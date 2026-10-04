@@ -24,7 +24,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use crate::paths::Paths;
-use crate::prompt::claude_md;
+use crate::prompt::{Tools, system_text};
 
 /// What the session directory is made of.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,13 +156,19 @@ pub fn isolation_env(paths: &Paths) -> BTreeMap<String, String> {
 }
 
 /// Writes the directory; a file is rewritten only when its bytes differ.
+/// The instructions go to CLAUDE.md for a Claude Code harness (the old
+/// layout; the cached layout puts them in the turn preset's system prompt
+/// and removes the file, `set_claude_md`), to AGENTS.md for any other.
 pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::create_dir_all(paths.session.join(".claude"))?;
     std::fs::create_dir_all(&paths.bin)?;
-    write_if_changed(
-        &paths.session.join("CLAUDE.md"),
-        claude_md(setup.instructions.as_deref()).as_bytes(),
-    )?;
+    let text = system_text(setup.instructions.as_deref(), &setup.tools);
+    let (keep, drop) = match setup.tools {
+        Tools::Mcp => ("CLAUDE.md", "AGENTS.md"),
+        Tools::Cli(_) => ("AGENTS.md", "CLAUDE.md"),
+    };
+    write_if_changed(&paths.session.join(keep), text.as_bytes())?;
+    remove_if_present(&paths.session.join(drop))?;
     let pretty = |v: &Value| format!("{}\n", serde_json::to_string_pretty(v).expect("json"));
     write_if_changed(
         &paths.session.join(".mcp.json"),
@@ -188,6 +194,25 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     write_if_changed(&chief, launcher(setup).as_bytes())?;
     std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755))?;
     Ok(())
+}
+
+/// Writes the session directory's CLAUDE.md (Some) or removes it (None).
+pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {
+    let path = session.join("CLAUDE.md");
+    match text {
+        Some(text) => {
+            std::fs::create_dir_all(session)?;
+            write_if_changed(&path, text.as_bytes())
+        }
+        None => remove_if_present(&path),
+    }
+}
+
+fn remove_if_present(path: &Path) -> io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
 }
 
 /// Replaces `path` through a temporary file, so a reader never sees half a file.
@@ -241,7 +266,7 @@ mod tests {
             modified,
             "an unchanged file is not rewritten"
         );
-        assert_eq!(first, claude_md(None).as_bytes());
+        assert_eq!(first, crate::prompt::claude_md(None).as_bytes());
         let mcp: Value =
             serde_json::from_slice(&std::fs::read(paths.session.join(".mcp.json")).unwrap())
                 .unwrap();

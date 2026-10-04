@@ -200,6 +200,7 @@ fn a_turn_over_the_acpmux_wire() {
 
     let chat = common::open_chat(&dir.path().join("chat"));
     let start = TurnStart {
+        system_prompt: None,
         key: "turn:optchat:0".into(),
         prompt_id: "optchat:0".into(),
         session: SessionSpec {

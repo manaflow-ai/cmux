@@ -13,7 +13,7 @@ use optchat_host::OptChat;
 use serde_json::Value;
 
 use crate::acpmux::{AgentPort, SessionSpec, TurnSignal};
-use crate::fold::{Entry, TurnFold, Usage, is_cancelled, stop_error};
+use crate::fold::{Entry, TurnFold, Usage, answer_usage, is_cancelled, stop_error};
 
 /// How often a stop for a newer message is sent again while the turn has
 /// not ended: a `session/cancel` that reaches acpmux before the prompt does
@@ -57,15 +57,20 @@ impl Interrupt {
 }
 
 /// Everything a turn needs, decided by the brain.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TurnStart {
     /// The reply's idempotency key: `turn:optchat:<first new message id>`.
     pub key: String,
     /// The acpmux promptId (acpmux runs one id once).
     pub prompt_id: String,
     pub session: SessionSpec,
-    /// The view pieces, then the new messages (prompt::turn_blocks).
+    /// The view pieces, then the new messages (prompt::turn_blocks), or the
+    /// cached layout's blocks (prompt::cached_layout).
     pub blocks: Vec<Value>,
+    /// The cached layout (Claude harnesses): the text the session's preset
+    /// (`session.preset`) gets as its system prompt before the session
+    /// starts. None: the session starts with what its preset holds.
+    pub system_prompt: Option<String>,
     /// Longest a turn may run; past it the session is removed and the turn
     /// fails, so a turn that hangs in the harness cannot block every later
     /// message. None: no limit.
@@ -120,6 +125,21 @@ pub fn run(
     // A session of this name is left from a host that stopped mid-turn.
     if let Ok(Some(old)) = agents.find(&start.session.name) {
         let _ = agents.end_session(&old);
+    }
+    // The cached layout: the stable prefix (system text and view head) is
+    // the preset's system prompt, which acpmux writes into its own preset
+    // directory and checks by sha256 when the session starts.
+    if let Some(text) = &start.system_prompt {
+        let set = match &start.session.preset {
+            Some(preset) => agents.set_system_prompt(preset, text),
+            None => Err("the cached layout needs the turn preset".to_owned()),
+        };
+        if let Err(e) = set {
+            return TurnOutcome {
+                error: Some(format!("setting the turn's system prompt: {e}")),
+                ..TurnOutcome::default()
+            };
+        }
     }
     let session = match agents.new_session(&start.session) {
         Ok(id) => id,
@@ -231,11 +251,7 @@ pub fn run(
                 }
             }
             TurnSignal::Done(answer) => {
-                totals = answer
-                    .as_ref()
-                    .ok()
-                    .and_then(|v| v.pointer("/_meta/claude/usage"))
-                    .and_then(Usage::parse);
+                totals = answer.as_ref().ok().and_then(answer_usage);
                 let stopped = answer
                     .as_ref()
                     .ok()
@@ -265,11 +281,7 @@ pub fn run(
         }
     }
     interrupt.wake_with(None);
-    log(&usage_line(
-        &start.key,
-        fold.first_usage(),
-        totals.map(|u| (u, "turn total")),
-    ));
+    log(&usage_line(&start.key, fold.first_usage(), totals));
     if orphan.is_none()
         && let Err(e) = agents.end_session(&session)
     {
@@ -287,8 +299,11 @@ pub fn run(
 /// One host.log line per turn with its cache use (section 8: verify with the
 /// usage fields). The first request shows what this turn read of the view
 /// another turn cached; the totals cover the whole tool loop.
-pub fn usage_line(key: &str, first: Option<Usage>, totals: Option<(Usage, &'static str)>) -> String {
-    let totals = totals.map(|(u, _)| u);
+pub fn usage_line(
+    key: &str,
+    first: Option<Usage>,
+    totals: Option<(Usage, &'static str)>,
+) -> String {
     let show = |u: Option<Usage>| match u {
         Some(u) => format!(
             "read {} written {} uncached {} output {}",
@@ -296,8 +311,12 @@ pub fn usage_line(key: &str, first: Option<Usage>, totals: Option<(Usage, &'stat
         ),
         None => "not reported".to_owned(),
     };
+    let (scope, totals) = match totals {
+        Some((u, scope)) => (scope, Some(u)),
+        None => ("turn total", None),
+    };
     format!(
-        "turn {key} cache: first request {}; turn total {}",
+        "turn {key} cache: first request {}; {scope} {}",
         show(first),
         show(totals)
     )

@@ -26,6 +26,7 @@ fn start(chat: &optchat_host::OptChat, n: u64, text: &str) -> TurnStart {
     let view = chat.render_view();
     chat.append(Kind::User, text).unwrap();
     TurnStart {
+        system_prompt: None,
         key: format!("turn:live:{n}"),
         prompt_id: format!("live:{n}"),
         session: SessionSpec {

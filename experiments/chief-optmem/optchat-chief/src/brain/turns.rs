@@ -8,8 +8,11 @@ use std::sync::mpsc::channel;
 use optchat_core::Kind;
 
 use super::{Brain, Engine, Input, Phase, Queued, STALL_NOTICE, Source, reply_entry, reply_key};
+use std::sync::atomic::Ordering;
+
 use crate::acpmux::SessionSpec;
-use crate::prompt::turn_blocks;
+use crate::compactor::is_marker_limit_error;
+use crate::prompt::{cached_layout, turn_blocks};
 use crate::state::{Batch, ChildRef, ChildStatus, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 
@@ -21,13 +24,14 @@ impl Brain {
         }
         self.phase = Phase::Settling;
         self.interrupt = Arc::new(Interrupt::new());
-        let (chat, agents, tx, log, engine, interrupt) = (
+        let (chat, agents, tx, log, engine, interrupt, marker_refused) = (
             self.chat.clone(),
             self.agents.clone(),
             self.tx.clone(),
             self.log.clone(),
             self.settings.engine.clone(),
             self.interrupt.clone(),
+            self.marker_refused.clone(),
         );
         let spawned = std::thread::Builder::new()
             .name("turn".into())
@@ -82,7 +86,34 @@ impl Brain {
                                 after,
                             });
                         };
-                        turn::run(&*agents, &chat, &start, &interrupt, &*log, &progress)
+                        let outcome =
+                            turn::run(&*agents, &chat, &start, &interrupt, &*log, &progress);
+                        // Claude Code placed all four cache breakpoints
+                        // itself: the same turn again without the marker
+                        // (the refused request did nothing), and later
+                        // turns go without it.
+                        let marked = start
+                            .blocks
+                            .iter()
+                            .any(|b| b.get("cache_control").is_some());
+                        match &outcome.error {
+                            Some(e) if marked && is_marker_limit_error(e) => {
+                                marker_refused.store(true, Ordering::SeqCst);
+                                log(&format!(
+                                    "turn {}: Claude Code refused the cache_control marker ({e}); running the turn again without it, and later turns go without it",
+                                    start.key
+                                ));
+                                let mut again = start.clone();
+                                for block in &mut again.blocks {
+                                    if let Some(b) = block.as_object_mut() {
+                                        b.remove("cache_control");
+                                    }
+                                }
+                                again.prompt_id = format!("{}:unmarked", start.prompt_id);
+                                turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress)
+                            }
+                            _ => outcome,
+                        }
                     }
                     Engine::Native(native) => {
                         let mailbox = || {
@@ -163,6 +194,32 @@ impl Brain {
         self.phase = Phase::Running;
         self.stop_wanted = false;
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // The cached layout on a Claude harness whose acpmux takes a preset
+        // system prompt; else the view and the messages as blocks.
+        let cached = matches!(self.settings.engine, Engine::Acpmux)
+            .then_some(self.settings.turn_preset.as_deref())
+            .flatten()
+            .filter(|preset| self.agents.system_prompt(preset));
+        let (blocks, system_prompt, preset) = match cached {
+            Some(preset) => {
+                let layout = cached_layout(
+                    &self.settings.system_text,
+                    &view.text,
+                    &texts.join("\n\n"),
+                    !self.marker_refused.load(Ordering::SeqCst),
+                );
+                (layout.blocks, Some(layout.system), Some(preset.to_owned()))
+            }
+            None => (turn_blocks(&view.text, &texts), None, None),
+        };
+        if self.settings.turn_preset.is_some() {
+            // The system prompt carries the instructions in the cached
+            // layout; the old layout reads them from CLAUDE.md.
+            let text = system_prompt.is_none().then_some(self.settings.system_text.as_str());
+            if let Err(e) = crate::session_dir::set_claude_md(&self.settings.session_dir, text) {
+                (self.log)(&format!("updating the session directory's CLAUDE.md: {e}"));
+            }
+        }
         Some(TurnStart {
             prompt_id: format!("optchat:{first}"),
             session: SessionSpec {
@@ -172,9 +229,10 @@ impl Brain {
                 policy: self.settings.policy.clone(),
                 model: self.settings.model.clone(),
                 effort: None,
-                preset: None,
+                preset,
             },
-            blocks: turn_blocks(&view.text, &texts),
+            blocks,
+            system_prompt,
             key,
             limit: self.settings.turn_limit,
         })

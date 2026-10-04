@@ -13,13 +13,16 @@
 //! Claude Code's own refusal fallback. The session's cwd is a slot
 //! directory under the system temporary directory, outside any directory
 //! with instruction files. The request maps onto the session's prompts.
-//! When acpmux installed the preset with its args (a Claude harness, an
-//! acpmux with preset `args`), the cached layout: the system text plus the
-//! context up to the first cache mark is the session's system prompt file,
-//! and the first prompt is the rest of the context with one `cache_control`
-//! marker at the last mark, then the step (`cached_prompt`). Otherwise the
-//! old layout: the system text, the context pieces and the step as one
-//! prompt. Each size loop retry is the next prompt in the same session, the
+//! On a Claude harness whose acpmux takes a preset `systemPrompt`, the
+//! cached layout: each slot has its own preset, whose system prompt the
+//! node sets to the system text plus the context up to the first cache mark
+//! (acpmux writes it into its own preset directory and checks its sha256
+//! when the session starts), and the first prompt is the rest of the
+//! context with one `cache_control` marker at the last mark, then the step
+//! (`cached_prompt`). Otherwise the old layout: the system text, the
+//! context pieces and the step as one prompt, which a harness with
+//! automatic prefix caching (codex) reads back from its cache as long as
+//! the prefix is byte-identical; its nodes share one working directory. Each size loop retry is the next prompt in the same session, the
 //! reply text the line. `end` (after the node is built or failed) kills the session with
 //! purge, deletes its Claude Code transcript and logs its seconds and token
 //! use. At most JOBS sessions live at once across the main and fallback
@@ -35,13 +38,12 @@ use std::time::{Duration, Instant};
 
 use cmux_chief::acp::AcpmuxEvent;
 use optchat_host::{
-    CompactModel, CompactRequest, Config, DEFAULT_BASE_URL, Followup, ModelError, NodeId,
-    PROBE_NODE, Reply, SUBROUTER_KEY,
+    CompactModel, CompactRequest, Config, Followup, ModelError, NodeId, PROBE_NODE, Reply,
 };
 use serde_json::{Value, json};
 
 use crate::acpmux::{AgentPort, Preset, SessionSpec, TurnSignal};
-use crate::fold::{TurnFold, Usage};
+use crate::fold::{TurnFold, Usage, answer_usage};
 use crate::paths::{Paths, home_id};
 
 /// The permission policy of every compactor session: a node needs no tool.
@@ -126,7 +128,8 @@ pub struct CompactorSpec {
     /// compactor's own `CLAUDE_CONFIG_DIR`, and the user's Claude home,
     /// because `sr claude proxy` (claude-sr) resets `CLAUDE_CONFIG_DIR` to it.
     pub transcript_dirs: Vec<PathBuf>,
-    /// The acpmux preset every compactor session requires.
+    /// The base name of the acpmux presets compactor sessions require: slot
+    /// `k` uses `<preset>-slot-<k>` (`slot_preset`).
     pub preset: String,
     pub harness: String,
     pub model: Option<String>,
@@ -178,6 +181,9 @@ struct Live {
     seq: u64,
     slot: usize,
     cwd: PathBuf,
+    /// The slot's preset, and whether this node set its system prompt.
+    preset: String,
+    prompted: bool,
     opened: Instant,
     prompts: u32,
     /// Token use the harness reported, summed over the node's prompts.
@@ -241,11 +247,25 @@ impl AcpmuxCompactor {
         }
     }
 
+    /// A Claude Code harness: the cached layout's flags and system prompt
+    /// apply, and each slot needs its own directory (Claude Code keeps a
+    /// transcript per project directory, deleted per node).
+    fn claude(&self) -> bool {
+        self.spec.harness.starts_with("claude")
+    }
+
     /// The slot's working directory, created, by its real path (Claude
-    /// Code names the project directory after the real path).
+    /// Code names the project directory after the real path). Another
+    /// harness shares one directory across slots: codex names the cwd in
+    /// its environment context, ahead of the prompt, so one cwd keeps the
+    /// request prefix identical from node to node.
     fn slot_dir(&self, slot: usize) -> io::Result<PathBuf> {
         private_dir(&self.spec.work)?;
-        let dir = self.spec.work.join(format!("slot-{slot}"));
+        let dir = if self.claude() {
+            self.spec.work.join(format!("slot-{slot}"))
+        } else {
+            self.spec.work.join("shared")
+        };
         private_dir(&dir)?;
         // Project settings: the only settings claude-sr is sure to read
         // (sr resets CLAUDE_CONFIG_DIR, so the preset's user settings are
@@ -256,13 +276,10 @@ impl AcpmuxCompactor {
     }
 
     /// Opens the node's session (a slot first, so at most JOBS live), with
-    /// `system` as its system prompt file in the cached layout.
+    /// `system` as its slot preset's system prompt in the cached layout.
     fn open(&self, node: NodeId, system: Option<&str>) -> Result<String, ModelError> {
         let slot = self.slots.take();
-        let cwd = match self
-            .slot_dir(slot)
-            .and_then(|cwd| write_system(&cwd, system).map(|()| cwd))
-        {
+        let cwd = match self.slot_dir(slot) {
             Ok(cwd) => cwd,
             Err(e) => {
                 self.slots.give(slot);
@@ -271,6 +288,17 @@ impl AcpmuxCompactor {
                 )));
             }
         };
+        let preset = slot_preset(&self.spec.preset, slot);
+        // The slot is this node's alone, so is its preset: no other node
+        // changes the prompt before this session starts with it.
+        if let Some(text) = system
+            && let Err(e) = self.port.set_system_prompt(&preset, text)
+        {
+            self.slots.give(slot);
+            return Err(ModelError::new(format!(
+                "setting the compactor's system prompt: {e}"
+            )));
+        }
         // A transcript left by a crash in this slot.
         self.delete_transcript(&cwd);
         let name = self.session_name(node);
@@ -285,7 +313,7 @@ impl AcpmuxCompactor {
             policy: POLICY.to_owned(),
             model: self.spec.model.clone(),
             effort: self.spec.effort.clone(),
-            preset: Some(self.spec.preset.clone()),
+            preset: Some(preset.clone()),
         };
         match self.port.new_session(&spec) {
             Ok(id) => {
@@ -296,6 +324,8 @@ impl AcpmuxCompactor {
                         seq: 0,
                         slot,
                         cwd,
+                        preset,
+                        prompted: system.is_some(),
                         opened: Instant::now(),
                         prompts: 0,
                         usage: None,
@@ -411,7 +441,7 @@ impl AcpmuxCompactor {
         let mut live = self.live.lock().expect("live");
         let Some(l) = live.get_mut(&node) else { return };
         l.prompts += 1;
-        if let Some(u) = answer.pointer("/_meta/claude/usage").and_then(Usage::parse) {
+        if let Some((u, _)) = answer_usage(answer) {
             let sum = l.usage.get_or_insert_with(Usage::default);
             sum.input += u.input;
             sum.cache_read += u.cache_read;
@@ -466,7 +496,7 @@ impl CompactModel for AcpmuxCompactor {
             None => {
                 // A fresh conversation: whatever an earlier try left is gone.
                 self.end(request);
-                if self.port.preset_args(&self.spec.preset) {
+                if self.claude() && self.port.system_prompt(&slot_preset(&self.spec.preset, 0)) {
                     return self.first_cached(request);
                 }
                 (self.open(node, None)?, request_blocks(request))
@@ -492,9 +522,11 @@ impl CompactModel for AcpmuxCompactor {
         // Purged: a node's session holds the chat's text, and nothing reads it again.
         let _ = self.port.end_session(&live.id);
         // So is Claude Code's own transcript of it (the whole view, each time),
-        // and the system prompt file (the view's first piece).
+        // and the slot preset's system prompt (the view's first piece).
         self.delete_transcript(&live.cwd);
-        let _ = write_system(&live.cwd, None);
+        if live.prompted {
+            let _ = self.port.set_system_prompt(&live.preset, "");
+        }
         self.slots.give(live.slot);
         let tokens = match live.usage {
             Some(u) => format!(
@@ -505,8 +537,9 @@ impl CompactModel for AcpmuxCompactor {
         };
         let cost = live.cost.map_or(String::new(), |c| format!(", ${c:.3}"));
         self.say(&format!(
-            "compactor node {} ({}): {:.1} s, {} prompt(s), {tokens}{cost}",
+            "compactor node {} ({}, {}): {:.1} s, {} prompt(s), {tokens}{cost}",
             request.node.name(),
+            self.spec.harness,
             self.spec.model.as_deref().unwrap_or("default model"),
             live.opened.elapsed().as_secs_f64(),
             live.prompts
@@ -521,26 +554,6 @@ fn private_dir(dir: &Path) -> io::Result<()> {
         .mode(0o700)
         .create(dir)?;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
-}
-
-/// Writes the slot's system prompt file (0600), or removes it for None.
-fn write_system(cwd: &Path, system: Option<&str>) -> io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let path = cwd.join(SYSTEM_FILE);
-    let Some(text) = system else {
-        return match std::fs::remove_file(&path) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
-        };
-    };
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&path)?;
-    file.write_all(text.as_bytes())
 }
 
 fn text_block(text: &str) -> Value {
@@ -562,25 +575,20 @@ pub fn request_blocks(request: &CompactRequest) -> Vec<Value> {
     blocks
 }
 
-/// The compactor session's system prompt file in its slot directory, which
-/// the preset's `--system-prompt-file ${cwd}/system.md` names.
-pub const SYSTEM_FILE: &str = "system.md";
-
-/// The compactor preset's harness arguments on a Claude harness (acpmux
-/// preset `args`, one argv word each, no shell; acpmux expands `${cwd}` to
-/// the session's absolute cwd, the slot directory). The system prompt file
-/// replaces Claude Code's default prompt, whose cwd and date lines kept one
-/// node's cache from the next; no tools, no MCP servers, no transcript.
-/// Claude Code resolves a relative `--system-prompt-file` against its cwd
-/// (checked live, 2.1.287); the expanded path is absolute anyway.
-pub const COMPACTOR_ARGS: [&str; 6] = [
-    "--system-prompt-file",
-    "${cwd}/system.md",
+/// The compactor presets' harness arguments on a Claude harness: acpmux's
+/// allowlist of preset args, every one of which takes a capability away: no
+/// tools, no MCP servers, no transcript. The system prompt is the preset's
+/// `systemPrompt` text (acpmux writes and checks the file), never a path.
+pub const COMPACTOR_ARGS: [&str; 4] = [
     "--tools",
     "",
     "--strict-mcp-config",
     "--no-session-persistence",
 ];
+
+/// The slot presets' system prompt at install, before any node sets its
+/// own (acpmux needs some text to take the key, which detects support).
+pub const COMPACTOR_PROMPT_SEED: &str = "optchat compactor (each node sets its own system prompt)";
 
 pub use crate::prompt::CachedPrompt;
 
@@ -746,9 +754,17 @@ pub fn user_claude_home() -> PathBuf {
         .join(".claude")
 }
 
-/// The compactor's acpmux preset (`optchat-compact-<home id>`), which every
-/// compactor session requires. OPTCHAT_CHIEF_ISOLATE=0 does not touch it.
-pub fn compactor_preset(paths: &Paths, home: &Path, harness: &str) -> Preset {
+/// The acpmux preset of compactor slot `k` (`<base>-slot-<k>`). One preset
+/// per slot: a node sets its slot preset's system prompt just before its
+/// session starts, and no other node uses that slot meanwhile.
+pub fn slot_preset(base: &str, k: usize) -> String {
+    format!("{base}-slot-{k}")
+}
+
+/// The compactor's acpmux presets (`optchat-compact-<home id>-slot-<k>`, one
+/// per JOBS slot), which every compactor session requires.
+/// OPTCHAT_CHIEF_ISOLATE=0 does not touch them.
+pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str) -> Vec<Preset> {
     let mut env = BTreeMap::new();
     env.insert(
         "CLAUDE_CONFIG_DIR".to_owned(),
@@ -763,30 +779,23 @@ pub fn compactor_preset(paths: &Paths, home: &Path, harness: &str) -> Preset {
     ] {
         env.insert(key.to_owned(), "1".to_owned());
     }
-    // The cached layout's arguments are Claude Code flags: a Claude harness
-    // only (claude, claude-sr, ...); another harness keeps the old layout.
-    let args = if harness.starts_with("claude") {
-        COMPACTOR_ARGS.iter().map(|a| (*a).to_owned()).collect()
-    } else {
-        Vec::new()
-    };
-    Preset {
-        name: format!("optchat-compact-{}", home_id(home)),
-        harness: harness.to_owned(),
-        env,
-        args,
-        system_prompt: None,
-    }
-}
-
-/// The acpmux preset of compactor slot `k` (`<base>-slot-<k>`).
-pub fn slot_preset(base: &str, k: usize) -> String {
-    format!("{base}-slot-{k}")
-}
-
-/// The compactor's acpmux presets, one per slot.
-pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str) -> Vec<Preset> {
-    vec![compactor_preset(paths, home, harness)]
+    // Claude Code flags and system prompts: a Claude harness only (claude,
+    // claude-sr, ...); another harness keeps the old layout.
+    let claude = harness.starts_with("claude");
+    let base = format!("optchat-compact-{}", home_id(home));
+    (0..optchat_core::JOBS)
+        .map(|k| Preset {
+            name: slot_preset(&base, k),
+            harness: harness.to_owned(),
+            env: env.clone(),
+            args: if claude {
+                COMPACTOR_ARGS.iter().map(|a| (*a).to_owned()).collect()
+            } else {
+                Vec::new()
+            },
+            system_prompt: claude.then(|| COMPACTOR_PROMPT_SEED.to_owned()),
+        })
+        .collect()
 }
 
 /// How the compactor's sessions start for `home`.
@@ -835,13 +844,10 @@ pub fn compact_route(choice: Option<&str>, config: &Config) -> Result<CompactRou
         Some("acpmux") => Ok(CompactRoute::Acpmux),
         Some("api") => Ok(CompactRoute::Api),
         Some(other) => Err(format!("OPTCHAT_COMPACTOR={other}: use acpmux or api")),
+        // Purely local ACP: the Messages API only when asked for.
         None => {
-            let subrouter = config.base_url.trim_end_matches('/') == DEFAULT_BASE_URL;
-            if subrouter || config.api_key == SUBROUTER_KEY {
-                Ok(CompactRoute::Acpmux)
-            } else {
-                Ok(CompactRoute::Api)
-            }
+            let _ = config;
+            Ok(CompactRoute::Acpmux)
         }
     }
 }

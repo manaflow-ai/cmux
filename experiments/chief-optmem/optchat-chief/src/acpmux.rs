@@ -143,6 +143,8 @@ pub struct Acpmux {
     ready: Mutex<HashSet<String>>,
     /// Presets installed with their `args` (the daemon knows the key).
     with_args: Mutex<HashSet<String>>,
+    /// Presets installed with a system prompt (the daemon knows `systemPrompt`).
+    with_prompt: Mutex<HashSet<String>>,
 }
 
 impl Acpmux {
@@ -155,13 +157,19 @@ impl Acpmux {
             required,
             ready: Mutex::new(HashSet::new()),
             with_args: Mutex::new(HashSet::new()),
+            with_prompt: Mutex::new(HashSet::new()),
         })
     }
 
     /// Installs (or refreshes) every preset; acpmux saves them in its config.
+    /// A daemon that does not know a key refuses it ("unknown preset key"):
+    /// the preset is installed again without it, and its users keep the
+    /// layout without (args before #17283, systemPrompt before the preset
+    /// system prompt).
     fn install_presets(&self, client: &RpcClient, log: &dyn Fn(&str)) {
         let mut ready = HashSet::new();
         let mut with_args = HashSet::new();
+        let mut with_prompt = HashSet::new();
         let all = self.preset.iter().map(|p| (p, false));
         for (preset, required) in all.chain(self.required.iter().map(|p| (p, true))) {
             let mut set = json!({
@@ -172,29 +180,42 @@ impl Acpmux {
             if !preset.args.is_empty() {
                 set["args"] = json!(preset.args);
             }
-            let mut result =
-                client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
-            let mut args = !preset.args.is_empty();
-            // An acpmux from before preset args refuses the key: install the
-            // preset without them, and its users keep their layout without.
-            if args
-                && let Err(e) = &result
-                && e.to_string().contains("args")
-            {
+            if let Some(text) = &preset.system_prompt {
+                set["systemPrompt"] = json!(text);
+            }
+            let result = loop {
+                let result =
+                    client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
+                let Err(e) = &result else { break result };
+                let text = e.to_string();
+                // An unknown key ("unknown preset key \"systemPrompt\"; use
+                // ..., args, ...") or a refused value ("systemPrompt: ...",
+                // "args: ...").
+                let key = if text.contains("key \"systemPrompt\"") || text.contains("systemPrompt:")
+                {
+                    "systemPrompt"
+                } else if text.contains("args") {
+                    "args"
+                } else {
+                    break result;
+                };
+                let Some(map) = set.as_object_mut() else { break result };
+                if map.remove(key).is_none() {
+                    break result;
+                }
                 log(&format!(
-                    "acpmux refused the args of preset {} ({e}); installed without them",
+                    "acpmux refused the {key} of preset {} ({text}); installed without it",
                     preset.name
                 ));
-                set.as_object_mut().expect("object").remove("args");
-                result =
-                    client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
-                args = false;
-            }
+            };
             match result {
                 Ok(_) => {
                     ready.insert(preset.name.clone());
-                    if args {
+                    if set.get("args").is_some() {
                         with_args.insert(preset.name.clone());
+                    }
+                    if set.get("systemPrompt").is_some() {
+                        with_prompt.insert(preset.name.clone());
                     }
                 }
                 Err(e) if required => log(&format!(
@@ -209,6 +230,7 @@ impl Acpmux {
         }
         *self.ready.lock().expect("ready") = ready;
         *self.with_args.lock().expect("with_args") = with_args;
+        *self.with_prompt.lock().expect("with_prompt") = with_prompt;
     }
 
     fn client(&self) -> Result<Arc<RpcClient>, String> {
@@ -498,5 +520,24 @@ impl AgentPort for Acpmux {
 
     fn preset_args(&self, preset: &str) -> bool {
         self.with_args.lock().expect("with_args").contains(preset)
+    }
+
+    fn system_prompt(&self, preset: &str) -> bool {
+        self.with_prompt.lock().expect("with_prompt").contains(preset)
+    }
+
+    fn set_system_prompt(&self, preset: &str, text: &str) -> Result<(), String> {
+        if !self.system_prompt(preset) {
+            return Err(format!(
+                "the acpmux preset {preset} was not installed with a system prompt"
+            ));
+        }
+        self.client()?
+            .request(
+                "_acpmux/presets",
+                json!({"name": preset, "set": {"systemPrompt": text}}),
+            )
+            .map(|_| ())
+            .map_err(|e| format!("setting the system prompt of preset {preset}: {e}"))
     }
 }
