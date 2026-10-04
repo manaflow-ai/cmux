@@ -19,7 +19,7 @@ import Testing
         return try JSONDecoder().decode(WorkspaceSnapshot.self, from: Data(json.utf8))
     }
 
-    private func workspace(_ fields: String, titles: (String) -> String? = { $0 == "cmux/home" ? "Accueil Tabs" : nil }) throws -> WorkspaceModel {
+    private func workspace(_ fields: String, titles: @escaping (String) -> String? = { $0 == "cmux/home" ? "Accueil Tabs" : nil }) throws -> WorkspaceModel {
         let store = DaemonStore()
         store.titles.appTabs = { titles($0) }
         store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [try snapshot(fields)]))
