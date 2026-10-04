@@ -79,6 +79,7 @@ import {
   VmFileNotFoundError,
   VmFirewallRuleNotFoundError,
   VmFirewallRuleInvalidError,
+  VmFirewallRuleLimitError,
   VmModelPlaneError,
   VmNotFoundError,
   VmResizeInvalidError,
@@ -3816,10 +3817,19 @@ function ensureOwnedFirewallEndpoint(repo: VmRepositoryShape, input: VmFirewallI
   });
 }
 
-/** The caller's own provider VM ids in the account scope (each is a separate provider listing). */
+/** Most rules one caller may hold on the shared provider account. */
+export const VM_FIREWALL_RULE_LIMIT = 100;
+/** Most VMs an unfiltered list reads (one provider call each); older VMs list with ?vmId. */
+export const VM_FIREWALL_LIST_VM_LIMIT = 10;
+
+/** The caller's live provider VM ids in the account scope, newest first, at most the list limit. */
 function callerProviderVmIds(repo: VmRepositoryShape, input: VmFirewallInput, provider: ProviderId) {
   return repo.listUserVms(input.userId, input.billingTeamId).pipe(
-    Effect.map((rows) => rows.filter((row) => row.userId === input.userId && row.provider === provider && row.providerVmId).map((row) => row.providerVmId as string)),
+    Effect.map((rows) => rows
+      .filter((row) => row.userId === input.userId && row.provider === provider && row.providerVmId && row.status !== "destroyed" && row.status !== "failed")
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, VM_FIREWALL_LIST_VM_LIMIT)
+      .map((row) => row.providerVmId as string)),
   );
 }
 
@@ -3830,17 +3840,34 @@ export function listVmFirewallRules(input: VmFirewallInput & { readonly vpcId?: 
     if (input.vpcId && input.vpcId !== networkId) return yield* Effect.fail(new VmNotFoundError({ vmId: input.vpcId }));
     if (input.vmId) yield* ensureOwnedFirewallEndpoint(repo, input, networkId, { vmId: input.vmId });
     if (input.tunnelId) yield* ensureOwnedFirewallEndpoint(repo, input, networkId, { tunnelId: input.tunnelId });
+    const filter = input.vmId || input.tunnelId || input.vpcId ? { vmId: input.vmId, vpcId: input.vpcId, tunnelId: input.tunnelId } : undefined;
+    return yield* readOwnedFirewallRules({ provider, providers, repo, input, networkId, filter });
+  });
+}
+
+/**
+ * The caller's rules. A provider vmId listing holds the rules naming the VM plus those naming its
+ * networks; a network listing misses rules that name only a VM, so no filter means the network
+ * plus the newest live VMs (bounded: each is one call to the shared provider account).
+ */
+function readOwnedFirewallRules(args: {
+  readonly provider: ProviderId;
+  readonly providers: VmProviderGatewayShape;
+  readonly repo: VmRepositoryShape;
+  readonly input: VmFirewallInput;
+  readonly networkId: string;
+  readonly filter?: { readonly vmId?: string; readonly vpcId?: string; readonly tunnelId?: string };
+}) {
+  return Effect.gen(function* () {
+    const { provider, providers, repo, input, networkId } = args;
     const list = providers.listFirewallRules;
     if (!list) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "listFirewallRules" }));
-    // A provider vmId listing holds the rules naming the VM plus those naming its networks; a
-    // network listing misses rules that name only a VM, so no filter means network plus each VM.
-    const filters = input.vmId || input.tunnelId || input.vpcId
-      ? [{ vmId: input.vmId, vpcId: input.vpcId, tunnelId: input.tunnelId }]
+    const filters = args.filter
+      ? [args.filter]
       : [{ vpcId: networkId }, ...(yield* callerProviderVmIds(repo, input, provider)).map((vmId) => ({ vmId }))];
     const listed = yield* Effect.forEach(filters, (filter) => list(provider, filter), { concurrency: 4 });
     const unique = [...new Map(listed.flat().map((rule) => [rule.id, rule])).values()];
-    const owned = yield* Effect.filter(unique, (rule) => ownsFirewallRule(repo, input, networkId, rule));
-    return owned;
+    return yield* Effect.filter(unique, (rule) => ownsFirewallRule(repo, input, networkId, rule));
   });
 }
 
@@ -3884,6 +3911,8 @@ export function createVmFirewallRule(input: VmFirewallInput & VMFirewallRuleInpu
     }
     yield* ensureOwnedFirewallEndpoint(repo, input, network.providerNetworkId, input.source);
     yield* ensureOwnedFirewallEndpoint(repo, input, network.providerNetworkId, input.destination);
+    const existing = yield* readOwnedFirewallRules({ provider, providers, repo, input, networkId: network.providerNetworkId });
+    if (existing.length >= VM_FIREWALL_RULE_LIMIT) return yield* Effect.fail(new VmFirewallRuleLimitError({ limit: VM_FIREWALL_RULE_LIMIT }));
     if (!providers.createFirewallRule) return yield* Effect.fail(new VmOperationUnsupportedError({ provider, operation: "createFirewallRule" }));
     // Only the rule goes to the provider: the driver spreads it into the request body.
     return yield* providers.createFirewallRule(provider, { source: input.source, destination: input.destination, ...(input.description ? { description: input.description } : {}) });

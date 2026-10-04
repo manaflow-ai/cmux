@@ -112,6 +112,11 @@ export class VmFirewallRuleInvalidError extends Data.TaggedError("VmFirewallRule
   readonly reason: string;
 }> {}
 
+/** The caller already has the most firewall rules allowed (route: 409 vm_firewall_rule_limit). */
+export class VmFirewallRuleLimitError extends Data.TaggedError("VmFirewallRuleLimitError")<{
+  readonly limit: number;
+}> {}
+
 /** A Cloud VM file path that does not exist (route: 404 vm_file_not_found, so a retried delete is correct). */
 export class VmFileNotFoundError extends Data.TaggedError("VmFileNotFoundError")<{
   readonly path: string;
@@ -279,6 +284,7 @@ export type VmWorkflowError =
   | VmFileNotFoundError
   | VmFirewallRuleNotFoundError
   | VmFirewallRuleInvalidError
+  | VmFirewallRuleLimitError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
   | VmCreateFailedError
@@ -438,6 +444,7 @@ const vmWorkflowErrorTagRecord = {
   VmFileNotFoundError: true,
   VmFirewallRuleNotFoundError: true,
   VmFirewallRuleInvalidError: true,
+  VmFirewallRuleLimitError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
   VmCreateFailedError: true,

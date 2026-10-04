@@ -1,6 +1,7 @@
 import { parseFirewallEndpoint } from "../../../../services/vms/firewallEndpoint";
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { defaultProviderId } from "../../../../services/vms/drivers";
+import { enforceVmFirewallRateLimit } from "../../../../services/vms/firewallRateLimit";
 import { jsonResponse, resolveVmRouteAccountScope, vmErrorResponse, withAuthedVmApiRoute } from "../../../../services/vms/routeHelpers";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
 import { createVmFirewallRule, deleteVmFirewallRule, getVmFirewallRule, listVmFirewallRules } from "../../../../services/vms/workflows";
@@ -32,6 +33,8 @@ export async function GET(request: Request): Promise<Response> {
 
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(request, "/api/vm/firewall", { "cmux.vm.operation": "firewall_create" }, "/api/vm/firewall POST failed", async ({ user }) => {
+    const limited = await enforceVmFirewallRateLimit({ request, route: "vm.firewall.create", userId: user.id });
+    if (limited) return limited;
     const body = await parseLenientObjectBody(request);
     const source = parseFirewallEndpoint(body.source, "source"); if (source instanceof Response) return source;
     const destination = parseFirewallEndpoint(body.destination, "destination"); if (destination instanceof Response) return destination;
@@ -48,6 +51,8 @@ export async function POST(request: Request): Promise<Response> {
 
 export async function DELETE(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(request, "/api/vm/firewall", { "cmux.vm.operation": "firewall_delete" }, "/api/vm/firewall DELETE failed", async ({ user }) => {
+    const limited = await enforceVmFirewallRateLimit({ request, route: "vm.firewall.delete", userId: user.id });
+    if (limited) return limited;
     const ruleId = optionalString(new URL(request.url).searchParams.get("ruleId"));
     if (!ruleId) return vmErrorResponse({ error: "vm_invalid_firewall_rule", status: 400, message: "ruleId is required.", action: "Pass ?ruleId=... for the rule to delete." });
     const scope = vmScope(user, request);
