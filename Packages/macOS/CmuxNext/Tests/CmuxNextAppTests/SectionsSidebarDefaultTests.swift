@@ -35,11 +35,11 @@ import Testing
     /// A layout the rail default migrated is moved back by ordinary layout
     /// ops; a layout the user changed is left alone.
     @Test func aRailDefaultLayoutMovesBackToTheSections() {
-        #expect(Self.railDefaults.sectionsMigration.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(Self.railDefaults.layoutMigration.sections == SidebarLayoutDocument.defaults.sections)
         var custom = Self.railDefaults
         custom.sections[0].items.removeLast()
-        #expect(custom.sectionsMigrationOps.isEmpty)
-        #expect(SidebarLayoutDocument.defaults.sectionsMigrationOps.isEmpty)
+        #expect(custom.layoutMigrationOps.isEmpty)
+        #expect(SidebarLayoutDocument.defaults.layoutMigrationOps.isEmpty)
     }
 
     /// The rail default layout as stored (Leo, 2026-10-03, #17153).

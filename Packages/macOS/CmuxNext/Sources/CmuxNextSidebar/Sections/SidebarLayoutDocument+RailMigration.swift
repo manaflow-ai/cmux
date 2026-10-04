@@ -79,11 +79,39 @@ extension SidebarLayoutDocument {
 
     /// The ops that turn built-in Home and App Store items into app items
     /// (R63/R64), or none.
-    public nonisolated var appRefMigrationOps: [SidebarLayoutOp] { [] }
+    /// Each item keeps its id, place, label and span.
+    public nonisolated var appRefMigrationOps: [SidebarLayoutOp] {
+        var ops: [SidebarLayoutOp] = []
+        for section in sections {
+            for (index, item) in section.items.enumerated() {
+                guard let builtIn = item.ref.builtIn, let app = Self.firstPartyApps[builtIn] else { continue }
+                ops.append(.itemRemove(item.id))
+                ops.append(.itemAdd(LayoutItem(id: item.id, ref: .app(app), showsLabel: item.showsLabel, span: item.span),
+                                    section: section.id, index: index))
+            }
+        }
+        return ops
+    }
 
-    /// Every migration in order (sections, then app refs), as one op list.
-    public nonisolated var layoutMigrationOps: [SidebarLayoutOp] { sectionsMigrationOps }
+    /// Home's item: the cmux/home app (R63/R64).
+    public nonisolated static let homeRef = LayoutItemRef.app("cmux/home")
+
+    /// Built-ins that are first-party apps now (R63/R64).
+    public nonisolated static let firstPartyApps: [SidebarBuiltIn: String] = [.home: "cmux/home", .appStore: "cmux/app-store"]
+
+    /// Every migration in order (sections, then app refs), as one op list
+    /// that applies to this layout.
+    public nonisolated var layoutMigrationOps: [SidebarLayoutOp] {
+        sectionsMigrationOps + sectionsMigration.appRefMigrationOps
+    }
 
     /// This layout with `layoutMigrationOps` applied.
-    public nonisolated var layoutMigration: SidebarLayoutDocument { sectionsMigration }
+    public nonisolated var layoutMigration: SidebarLayoutDocument {
+        var result = self
+        for op in layoutMigrationOps {
+            guard case .success(let next) = SidebarLayoutReducer.reduce(result, op) else { return self }
+            result = next
+        }
+        return result
+    }
 }

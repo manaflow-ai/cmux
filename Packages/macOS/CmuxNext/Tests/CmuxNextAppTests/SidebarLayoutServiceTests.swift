@@ -51,13 +51,13 @@ import Testing
         let owner = FakeOwner()
         let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
         try service.send(.itemRemove(LayoutItemID("itm_home")))
-        #expect(service.document.firstItem(with: .builtIn(.home)) == nil)
+        #expect(service.document.firstItem(with: .app("cmux/home")) == nil)
         #expect(service.pending.count == 1)
         await settled { owner.isWaiting }
         owner.accept(try #require(owner.calls.first?.key))
         await settled { service.pending.isEmpty }
         #expect(service.mirror.revision == 1)
-        #expect(service.document.firstItem(with: .builtIn(.home)) == nil)
+        #expect(service.document.firstItem(with: .app("cmux/home")) == nil)
     }
 
     @Test func aRejectAnimatesBackAndIsReported() async throws {
@@ -90,7 +90,7 @@ import Testing
         owner.isAvailable = false
         owner.fail(key, DaemonError.connectionClosed(reason: "test"))
         await settled { service.pending.first?.inFlight == false }
-        #expect(service.document.firstItem(with: .builtIn(.home)) == nil)
+        #expect(service.document.firstItem(with: .app("cmux/home")) == nil)
         #expect(throws: (any Error).self) { try service.send(.itemRemove(LayoutItemID("itm_settings"))) }
         owner.isAvailable = true
         await settled { owner.calls.count == 2 }
@@ -107,7 +107,7 @@ import Testing
         owner.stored = try SidebarLayoutReducer.reduce(.defaults, .itemRemove(LayoutItemID("itm_home"))).get()
         owner.changeToken += 1
         await settled { service.mirror.revision == 1 }
-        #expect(service.document.firstItem(with: .builtIn(.home)) == nil)
+        #expect(service.document.firstItem(with: .app("cmux/home")) == nil)
         service.settle("stale", confirmed: .defaults)
         #expect(service.mirror.revision == 1)
     }
@@ -121,7 +121,7 @@ import Testing
         owner.stored = SidebarLayoutDocument(revision: 3, sections: SidebarLayoutDocument.railDefaults.sections)
         let service = SidebarLayoutService(remote: owner, prototypeEnabled: { false })
         service.start()
-        let expected = owner.stored.sectionsMigrationOps
+        let expected = owner.stored.layoutMigrationOps
         #expect(!expected.isEmpty)
         await settled { owner.calls.count == expected.count }
         #expect(owner.calls.map(\.op) == expected)

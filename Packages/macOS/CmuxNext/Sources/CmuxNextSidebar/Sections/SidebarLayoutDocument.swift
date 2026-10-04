@@ -94,9 +94,9 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
-    /// The default layout (plans/cmux-next/sidebar-sections.md): Home, the
-    /// App Store and CodeRouter (a first-party app's label item; it opens
-    /// the app's page, Lawrence R36) on top, the workspaces, then one bottom
+    /// The default layout (plans/cmux-next/sidebar-sections.md): the
+    /// first-party apps Home, App Store and CodeRouter as app items (R63/R64:
+    /// apps like any other, from their manifests) on top, the workspaces, then one bottom
     /// row with Settings (icon and label) over 7/8 of the width and the
     /// account avatar (icon only) over the last 1/8 (a grid of 8 columns,
     /// R53). Sticky sections use
@@ -105,8 +105,8 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// it move back (`sectionsMigrationOps`).
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
-                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
-                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
+                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store")),
                               LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
