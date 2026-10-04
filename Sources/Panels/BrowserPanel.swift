@@ -8582,10 +8582,12 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         let downloadID = UUID().uuidString
         try? FileManager.default.removeItem(at: destURL)
         storeState(DownloadState(downloadID: downloadID, tempURL: destURL, suggestedFilename: safeFilename, sourceURL: sourceURL), for: download)
-        let requestURL = download.originalRequest?.url
+        // The session whose input started the navigation this download came
+        // from, bound to the download when WebKit made it.
+        let starter = BrowserReplTabAttachment.downloadStarter(of: download)
         notifyOnMain { [weak self] in
             self?.onDownloadStarted?(safeFilename, downloadID)
-            self?.replAttachment?()?.downloadDidStart(id: downloadID, url: response.url, requestURL: requestURL, suggestedFilename: safeFilename)
+            self?.replAttachment?()?.downloadDidStart(id: downloadID, startedBy: starter, url: response.url, suggestedFilename: safeFilename)
         }
         #if DEBUG
         cmuxDebugLog("download.decideDestination file=<redacted>")
@@ -8687,8 +8689,9 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
     var closeRequested: ((WKWebView) -> Void)?
 
     /// Geolocation permission (`WKUIDelegatePrivate`). A tab a REPL session
-    /// created answers from the session's granted permissions; every other
-    /// tab is denied, WebKit's behavior when the delegate does not implement this.
+    /// created answers from the session's granted permissions, to an origin
+    /// and frame its domain policy allows; every other request is denied,
+    /// WebKit's behavior when the delegate does not implement this.
     @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
     func _webView(
         _ webView: WKWebView,
@@ -8697,7 +8700,12 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
         let attachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
-        decisionHandler(attachment?.grants("geolocation") == true ? .grant : .deny)
+        let request = BrowserReplPermissionRequest(
+            permissions: ["geolocation"],
+            origin: BrowserReplFrameDocument(securityOrigin: origin),
+            frame: BrowserReplFrameDocument(info: frame)
+        )
+        decisionHandler(attachment?.grants(request) == true ? .grant : .deny)
     }
 
     /// Focus leaving the page (`WKUIDelegatePrivate`): Tab or Shift+Tab past
@@ -8720,7 +8728,11 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         decisionHandler: @escaping (Bool) -> Void
     ) {
         let attachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
-        decisionHandler(attachment?.grants("notifications") == true)
+        let request = BrowserReplPermissionRequest(
+            permissions: ["notifications"],
+            origin: BrowserReplFrameDocument(securityOrigin: securityOrigin)
+        )
+        decisionHandler(attachment?.grants(request) == true)
     }
 
     /// WebKit's beforeunload confirmation (`WKUIDelegatePrivate`). Without a
@@ -9073,7 +9085,14 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             case .cameraAndMicrophone: needed = ["camera", "microphone"]
             @unknown default: needed = ["camera", "microphone"]
             }
-            decisionHandler(needed.allSatisfy(attachment.grants) ? .grant : .deny)
+            // Only to an origin and frame the creating session's domain
+            // policy allows: a blocked frame can still be in the tab.
+            let request = BrowserReplPermissionRequest(
+                permissions: needed,
+                origin: BrowserReplFrameDocument(securityOrigin: origin),
+                frame: BrowserReplFrameDocument(info: frame)
+            )
+            decisionHandler(attachment.grants(request) ? .grant : .deny)
             return
         }
         let allowLabel = String(localized: "common.allow", defaultValue: "Allow")

@@ -125,6 +125,61 @@ public struct BrowserReplFileSandbox: Sendable {
     }
 
     /// Removes `.` and `..` segments and duplicate slashes without touching the disk.
+    /// Why a REPL navigation (`tab.navigate`, `tabs.open`) to `urlString`
+    /// may not load, before any domain policy, or nil.
+    ///
+    /// The browser loads a `file:` URL with read access to its directory, so
+    /// the page could read files the session's `fs` cannot. Only web URLs
+    /// (`http`, `https`), `about:`, `data:` and `blob:` load, and `file:`
+    /// URLs of a file strictly inside one of `roots` (the session's working
+    /// and temporary directories), judged by the path as written (`..`
+    /// resolved lexically) and refused when any part of it below the root
+    /// is a symbolic link, which WebKit would follow out of the root. Any
+    /// other scheme (cmux's internal ones, `javascript:`) is refused. A
+    /// string without a scheme is left to the driver, which reads it as a
+    /// web address; one that looks like a path is refused.
+    public static func navigationRefusal(_ urlString: String, roots: [String]) -> String? {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else {
+            if trimmed.hasPrefix("/") || trimmed.hasPrefix("~") || trimmed.hasPrefix(".") {
+                return "\(urlString) is a local path; use a file: URL inside the session's directories"
+            }
+            return nil
+        }
+        switch scheme {
+        case "http", "https", "about", "data", "blob":
+            return nil
+        case "file":
+            let host = url.host(percentEncoded: false) ?? ""
+            guard host.isEmpty || host.lowercased() == "localhost" else {
+                return "\(urlString) names a file on another host"
+            }
+            let path = lexicallyNormalized(url.path(percentEncoded: false))
+            for root in roots.flatMap(aliases(of:)) where path.hasPrefix(root + "/") {
+                var current = root
+                for part in path.dropFirst(root.count).split(separator: "/") {
+                    current += "/" + part
+                    var info = stat()
+                    if lstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFLNK {
+                        return "\(urlString) goes through the symbolic link \(current), which may lead outside the session's directories"
+                    }
+                }
+                return nil
+            }
+            return "a REPL session loads only files inside its working or temporary directory (\(roots.joined(separator: ", "))), not \(urlString)"
+        default:
+            return "a REPL session loads only http, https, about:, data: and blob: URLs and files inside its own directories, not \(scheme): URLs"
+        }
+    }
+
+    /// `root` and, for a root under `/private`, the same path through the
+    /// system's `/var`, `/tmp` and `/etc` links, as a file URL may name it.
+    private static func aliases(of root: String) -> [String] {
+        let normalized = lexicallyNormalized(root)
+        guard normalized.hasPrefix("/private/") else { return [normalized] }
+        return [normalized, String(normalized.dropFirst("/private".count))]
+    }
+
     static func lexicallyNormalized(_ path: String) -> String {
         var parts: [Substring] = []
         for part in path.split(separator: "/", omittingEmptySubsequences: true) {

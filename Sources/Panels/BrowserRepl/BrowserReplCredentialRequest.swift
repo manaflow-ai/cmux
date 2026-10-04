@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import WebKit
 
 /// The native half of `sites.browserAuth.request`, driver method `auth.request`
@@ -32,12 +33,16 @@ enum BrowserReplCredentialRequest {
     /// - Parameter requester: The tab and workspace whose agent asks, shown
     ///   on the sheet: the sheet appears on whichever cmux window the user
     ///   works in, which may show another workspace.
+    /// - Parameter stillAllowed: Whether the session that asks still drives
+    ///   the tab; checked again after the user's Fill, before anything is
+    ///   filled.
     static func run(
         webView: WKWebView,
         frameInfo: WKFrameInfo?,
         params: [String: Any],
         fillSource: String?,
-        requester: (tab: String, workspace: String)
+        requester: (tab: String, workspace: String),
+        stillAllowed: @MainActor () -> Bool
     ) async -> [String: Any] {
         guard let fillSource else { return ["status": "unavailable"] }
         guard let origin = params["origin"] as? String,
@@ -56,6 +61,9 @@ enum BrowserReplCredentialRequest {
         guard case .filled(let values) = answer else {
             return ["status": answer == .expired ? "expired" : "cancelled"]
         }
+        // The call, or the session, may have ended while the sheet was up:
+        // then the sheet was taken down and nothing is filled.
+        guard !Task.isCancelled, stillAllowed() else { return ["status": "cancelled"] }
         guard currentOrigin(webView) == origin else { return ["status": "origin_changed"] }
         // `frameInfo` records the frame as it was before the sheet opened, so
         // its origin cannot show a navigation since. auth-fill.js compares
@@ -67,11 +75,12 @@ enum BrowserReplCredentialRequest {
             "__origin": fieldsOrigin,
         ]
         do {
-            let result = try await webView.callAsyncJavaScript(
+            let result = try await webView.browserReplCallAsyncJavaScript(
                 fillSource,
                 arguments: arguments,
                 in: frameInfo,
-                contentWorld: BrowserReplDriverWorld.world
+                contentWorld: BrowserReplDriverWorld.world,
+                userGesture: false
             )
             let status = (result as? [String: Any])?["status"] as? String ?? "page_changed"
             return ["status": status]
@@ -152,8 +161,10 @@ final class BrowserReplCredentialSheet: NSObject {
     private let fields: [BrowserReplCredentialRequest.Field]
     private let panel: NSWindow
     private var inputs: [NSTextField] = []
-    private var continuation: CheckedContinuation<Answer, Never>?
-    private var timer: Task<Void, Never>?
+    /// The wait for the user's answer; it also ends when the call that
+    /// asked is cancelled (a cancelled cell, a reset or closed session),
+    /// and takes the sheet down then.
+    private var prompt: BrowserReplPendingPrompt<Answer>?
     private weak var parent: NSWindow?
 
     init(origin: String, pageOrigin: String, fields: [BrowserReplCredentialRequest.Field], requester: (tab: String, workspace: String)) {
@@ -164,18 +175,18 @@ final class BrowserReplCredentialSheet: NSObject {
     }
 
     func present(on window: NSWindow, timeout: Duration) async -> Answer {
-        parent = window
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            window.beginSheet(panel)
+        let prompt = BrowserReplPendingPrompt<Answer> { [weak self] in self?.takeDown() }
+        self.prompt = prompt
+        // A call already cancelled shows nothing.
+        if !Task.isCancelled {
+            parent = window
+            // The completion-handler form: in an async function the plain
+            // call is the async overload, which would wait for the sheet.
+            window.beginSheet(panel, completionHandler: nil)
             NSApp.requestUserAttention(.informationalRequest)
             panel.makeFirstResponder(inputs.first)
-            timer = Task { [weak self] in
-                try? await ContinuousClock().sleep(for: timeout)
-                guard !Task.isCancelled else { return }
-                self?.finish(.expired)
-            }
         }
+        return await prompt.wait(timeout: timeout, expired: .expired, cancelled: .cancelled)
     }
 
     private func build(origin: String, pageOrigin: String, requester: (tab: String, workspace: String)) {
@@ -287,12 +298,14 @@ final class BrowserReplCredentialSheet: NSObject {
     }
 
     private func finish(_ answer: Answer) {
-        guard let continuation else { return }
-        self.continuation = nil
-        timer?.cancel()
-        timer = nil
+        prompt?.finish(answer)
+    }
+
+    /// Clears what the user typed and takes the sheet down, once the prompt
+    /// ended (an answer, the timeout, or the call's cancellation).
+    private func takeDown() {
         for input in inputs { input.stringValue = "" }
         parent?.endSheet(panel)
-        continuation.resume(returning: answer)
+        parent = nil
     }
 }

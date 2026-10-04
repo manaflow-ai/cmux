@@ -45,9 +45,16 @@ extension Dictionary where Key == String, Value == String {
         ["cookie", "set-cookie", "set-cookie2", "authorization", "proxy-authorization", "x-api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token"]
     }
 
-    /// These headers (names lowercase) without the credential ones.
+    /// These headers (names lowercase) without the credential ones: the
+    /// standard names, and every name that says it carries one, by the rule
+    /// `fetch` applies when a redirect leaves the origin
+    /// (``BrowserReplFetcher/isCredentialHeader(_:)``: `auth`, `token`,
+    /// `secret`, `session`, `password`, `signature` and the like).
     public func removingBrowserReplCredentialHeaders() -> [String: String] {
-        filter { !Self.browserReplCredentialHeaderNames.contains($0.key.lowercased()) }
+        filter { header in
+            !Self.browserReplCredentialHeaderNames.contains(header.key.lowercased())
+                && !BrowserReplFetcher.isCredentialHeader(header.key)
+        }
     }
 }
 
@@ -98,13 +105,17 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// Open requests remembered at most; a later event of an older one goes
     /// only to the creator and the sessions with a network listener.
     static let maximumTrackedRequests = 1000
-    /// Navigations a session's own input started, newest last, so a download
-    /// one of them turns into (its response arrives after the input ended)
-    /// can be told to be that session's (``takeDownloadStarter(urls:at:)``).
-    private var navigationStarts: [NavigationStart] = []
+    /// The latest navigation WebKit asked about in each frame (by frame
+    /// key), with the session whose input started it (`nil`: the user's or
+    /// the page's own), so the download it turns into (its response may
+    /// arrive after the input ended) can be told to be that session's
+    /// (``takeDownloadStarter(navigation:at:)``,
+    /// ``takeDownloadStarter(responseInFrame:at:)``). A later navigation in
+    /// the frame replaces it, whatever its URL.
+    private var latestNavigations: [String: NavigationStart] = [:]
     private struct NavigationStart: Sendable, Equatable {
-        let url: String
-        let sessionID: String
+        let navigation: Int
+        let sessionID: String?
         let at: ContinuousClock.Instant
     }
     /// How long a started navigation can claim the download it becomes.
@@ -134,7 +145,9 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         handledEvents.removeValue(forKey: sessionID)
         handlerOrder.removeAll { $0 == sessionID }
         inputSessionIDs.removeAll { $0 == sessionID }
-        navigationStarts.removeAll { $0.sessionID == sessionID }
+        for (frame, start) in latestNavigations where start.sessionID == sessionID {
+            latestNavigations[frame] = NavigationStart(navigation: start.navigation, sessionID: nil, at: start.at)
+        }
         for index in requestRecipients.indices { requestRecipients[index].sessionIDs.remove(sessionID) }
         guard creatorSessionID == sessionID else { return false }
         creatorSessionID = nil
@@ -260,24 +273,52 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         return nil
     }
 
-    /// Records a navigation the page starts (WebKit's navigation action for
-    /// `url`) as the acting session's, when exactly one session's input is
-    /// in flight (``inputSessionID``); otherwise it is nobody's.
-    public mutating func noteNavigationAction(url: String, at now: ContinuousClock.Instant = .now) {
-        guard let sessionID = inputSessionID, attachedSessionIDs.contains(sessionID) else { return }
-        navigationStarts.removeAll { now - $0.at > Self.navigationStartLifetime }
-        navigationStarts.append(NavigationStart(url: url, sessionID: sessionID, at: now))
-        if navigationStarts.count > Self.maximumNavigationStarts { navigationStarts.removeFirst() }
+    /// Records navigation `navigation` (an id the caller gives WebKit's
+    /// navigation action, unique for the tab) in `frame` as the frame's
+    /// latest: the acting session's when exactly one session's input is in
+    /// flight (``inputSessionID``), otherwise nobody's. A redirect
+    /// (`continuing` true) is the same navigation and keeps the session that
+    /// started it, also after its input ended.
+    public mutating func noteNavigationAction(
+        _ navigation: Int,
+        frame: String,
+        continuing: Bool = false,
+        at now: ContinuousClock.Instant = .now
+    ) {
+        let acting = inputSessionID.flatMap { attachedSessionIDs.contains($0) ? $0 : nil }
+        let previous = latestNavigations[frame].flatMap { now - $0.at > Self.navigationStartLifetime ? nil : $0 }
+        let sessionID = acting ?? (continuing ? previous?.sessionID : nil)
+        latestNavigations[frame] = NavigationStart(navigation: navigation, sessionID: sessionID, at: now)
+        if latestNavigations.count > Self.maximumNavigationStarts,
+           let oldest = latestNavigations.min(by: { $0.value.at < $1.value.at })?.key {
+            latestNavigations.removeValue(forKey: oldest)
+        }
     }
 
-    /// The session whose input started the navigation a download came from
-    /// (its request's URL is one of `urls`), within
-    /// ``navigationStartLifetime``; that record is used up. `nil` when no
-    /// session's input started it (the user's, or the page's own).
-    public mutating func takeDownloadStarter(urls: [String], at now: ContinuousClock.Instant = .now) -> String? {
-        navigationStarts.removeAll { now - $0.at > Self.navigationStartLifetime }
-        guard let index = navigationStarts.lastIndex(where: { urls.contains($0.url) }) else { return nil }
-        return navigationStarts.remove(at: index).sessionID
+    /// The session whose input started navigation `navigation`, which
+    /// WebKit turned into a download itself (its navigation action), within
+    /// ``navigationStartLifetime``; the record is used up. `nil` when no
+    /// session's input started it (the user's, or the page's own), or when
+    /// a later navigation in its frame replaced it.
+    public mutating func takeDownloadStarter(navigation: Int, at now: ContinuousClock.Instant = .now) -> String? {
+        guard let frame = latestNavigations.first(where: { $0.value.navigation == navigation })?.key else { return nil }
+        return take(frame, at: now)
+    }
+
+    /// The session whose input started the latest navigation in `frame`,
+    /// whose response became a download, within ``navigationStartLifetime``;
+    /// the record is used up. A navigation the user or the page started in
+    /// the frame after the session's (whatever its URL) replaced the record,
+    /// so its download is not the session's.
+    public mutating func takeDownloadStarter(responseInFrame frame: String, at now: ContinuousClock.Instant = .now) -> String? {
+        take(frame, at: now)
+    }
+
+    private mutating func take(_ frame: String, at now: ContinuousClock.Instant) -> String? {
+        guard let start = latestNavigations[frame] else { return nil }
+        latestNavigations[frame] = NavigationStart(navigation: start.navigation, sessionID: nil, at: start.at)
+        guard now - start.at <= Self.navigationStartLifetime else { return nil }
+        return start.sessionID
     }
 
     /// The session a download goes to (it stays in the temporary directory

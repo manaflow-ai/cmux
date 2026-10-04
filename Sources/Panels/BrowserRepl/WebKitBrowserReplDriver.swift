@@ -260,6 +260,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             + BrowserReplTabAttachments.typedSecrets.captureMasks(forReader: sessionID)
     }
 
+    /// Runs `capture` with the typed-secret masks it takes, and refuses its
+    /// result (`stale`) when another session typed a secret meanwhile: that
+    /// value is not among the masks, and the capture's pixels may show it.
+    @MainActor
+    private func withTypedSecretMasks<T>(_ params: [String: Any], _ capture: ([[String: Any]]) async throws -> T) async throws -> T {
+        let typed = BrowserReplTabAttachments.typedSecrets
+        let mark = typed.captureMark(forReader: sessionID)
+        let result = try await capture(typedSecretMasks(params))
+        guard !typed.typedSince(mark, forReader: sessionID) else {
+            throw Self.error("stale", "Another session typed a secret into a tab while the capture was taken, so it may show the value unmasked; try again")
+        }
+        return result
+    }
+
     @MainActor
     private func dispatchAttached(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         await lock.withLock({ policyRunner }).idle()
@@ -316,7 +330,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             try checkPagePolicy(method: method, params: params)
             let guardsInput = Self.isGuardedInput(method) && currentPolicy.isActive && tabToPrepare != nil
             if !guardsInput { try await checkFramePolicy(method: method, params: params) }
-            let value: Any? = try await withUserTabClipboardQuarantine(
+            let value: Any? = try await withAgentGestureClipboardQuarantine(
                 tabToPrepare,
                 when: Self.isGuardedInput(method) || (method == "frame.evaluate" && params["world"] as? String != "agent")
             ) { () async throws -> Any? in
@@ -418,10 +432,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             try await frameGate.authorize(frame, in: panel.webView)
             let workspaceTitle = allBrowserPanels().first { $0.panel.id == panel.id }?.workspace.title ?? ""
+            let sessionID = self.sessionID
+            let tabAttachment = attachment(panel)
+            let webView = panel.webView
             return await BrowserReplCredentialRequest.run(
-                webView: panel.webView, frameInfo: frame.info, params: params,
+                webView: webView, frameInfo: frame.info, params: params,
                 fillSource: bundle.readResource("sites/auth-fill.js"),
-                requester: (tab: Self.title(panel), workspace: workspaceTitle)
+                requester: (tab: Self.title(panel), workspace: workspaceTitle),
+                stillAllowed: { [weak self, weak panel] in
+                    // The session still runs and drives this tab, which still
+                    // shows the web view the sheet was asked for.
+                    guard let self, let panel, !self.lock.withLock({ self.isDetached }) else { return false }
+                    return panel.webView === webView && tabAttachment.sessionIDs.contains(sessionID)
+                }
             )
         default:
             throw Self.error("unsupported", "Unsupported driver method \(method)")
@@ -433,35 +456,32 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// How long WebKit's general-pasteboard use stays quarantined after an
-    /// agent's call in a user's tab: WebKit lets a page use the call's
-    /// gesture for up to 10 s (a fetch started in it; measured on macOS 27.0,
-    /// 26A428), plus a margin.
+    /// agent's call: WebKit lets a page use the call's gesture for up to 10 s
+    /// (a fetch started in it; measured on macOS 27.0, 26A428), plus a margin.
     static let gestureQuarantineLingering: Duration = .seconds(11)
 
-    /// Runs `body`, a call that gives the page a user gesture (trusted
-    /// input, page-world script), so that in a user's tab no page script
-    /// writes the system clipboard with that gesture. A tab a session
-    /// created has the page clipboard guard instead. A user's tab has none
-    /// (its pages keep the browser's clipboard), so while the call is in
-    /// flight and for ``gestureQuarantineLingering`` after it, WebKit's own
-    /// general-pasteboard lookups get a private pasteboard that is emptied at
-    /// every lookup (``BrowserReplPasteboardRedirect/beginQuarantine()``):
-    /// the page's write is dropped, never handed to the session, since
-    /// WebKit does not say which web view wrote. When the hook is missing the
-    /// call is refused.
+    /// Runs `body`, a call that gives the tab's pages a user gesture (trusted
+    /// input, page-world script), so that no script writes the system
+    /// clipboard with that gesture. A user's tab has no page clipboard guard
+    /// (its pages keep the browser's clipboard), and in a tab a session
+    /// created the guard covers the page's world only: code in the agent's
+    /// world (a listener it registered, a getter it replaced) keeps WebKit's
+    /// own `execCommand("copy")`, and the call sets it off with its gesture.
+    /// So in every tab, while the call is in flight and for
+    /// ``gestureQuarantineLingering`` after it, WebKit's own general-pasteboard
+    /// lookups get a private pasteboard that is emptied at every lookup
+    /// (``BrowserReplPasteboardRedirect/withAgentGesture(lingering:_:)``):
+    /// such a write is dropped, never handed to the session, since WebKit
+    /// does not say which web view wrote. When the hook is missing the call
+    /// is refused. Every other script the driver runs gets no gesture.
     @MainActor
-    private func withUserTabClipboardQuarantine<T>(
+    private func withAgentGestureClipboardQuarantine<T>(
         _ panel: BrowserPanel?,
         when applies: Bool,
         _ body: () async throws -> T
     ) async throws -> T {
-        guard applies, let panel, !attachment(panel).appliesSessionPolicies else { return try await body() }
-        let redirect = BrowserReplPasteboardRedirect.shared
-        guard redirect.beginQuarantine() else {
-            throw Self.error("unsupported", "This call would give the page of the user's tab a user gesture, and the system clipboard cannot be kept from it on this system")
-        }
-        defer { redirect.endQuarantine(lingering: Self.gestureQuarantineLingering) }
-        return try await body()
+        guard applies, panel != nil else { return try await body() }
+        return try await BrowserReplPasteboardRedirect.shared.withAgentGesture(lingering: Self.gestureQuarantineLingering, body)
     }
 
     /// Refuses a read or input on a tab whose page the domain policy blocks,
@@ -1273,11 +1293,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // evaluation; retry against the new document.
             for _ in 0..<50 {
                 do {
-                    _ = try await panel.webView.callAsyncJavaScript(
+                    _ = try await panel.webView.browserReplCallAsyncJavaScript(
                         script,
                         arguments: [:],
                         in: nil,
-                        contentWorld: BrowserReplAgentWorld.world
+                        contentWorld: BrowserReplAgentWorld.world,
+                        userGesture: false
                     )
                     break
                 } catch {
@@ -1334,11 +1355,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // Page script is blocked while a dialog is open; answer from native state.
         guard !attachment.hasPendingDialog else { return result }
         let metrics = await withTimeout(milliseconds: 2_000) { () -> [Any]? in
-            let value = try? await webView.callAsyncJavaScript(
+            let value = try? await webView.browserReplCallAsyncJavaScript(
                 "return [document.readyState === 'complete' ? 2 : document.readyState === 'interactive' ? 1 : 0, innerWidth, innerHeight, location.href, document.title];",
                 arguments: [:],
                 in: nil,
-                contentWorld: BrowserReplAgentWorld.world
+                contentWorld: BrowserReplAgentWorld.world,
+                userGesture: false
             )
             return value as? [Any]
         } ?? nil
@@ -1587,11 +1609,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 handles: handles
             )
         } catch {
-            _ = try? await panel.webView.callAsyncJavaScript(
+            _ = try? await panel.webView.browserReplCallAsyncJavaScript(
                 "const b = window[__key]; if (b) { window.removeEventListener(__key, b.listener, true); delete window[__key]; }",
                 arguments: ["__key": key],
                 in: frame.info,
-                contentWorld: .page
+                contentWorld: .page,
+                userGesture: false
             )
             throw error
         }
@@ -1672,7 +1695,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         attachment(panel).installAgentUserScriptIfNeeded(source: source)
         do {
-            _ = try await panel.webView.evaluateJavaScript(source, in: frame.info, contentWorld: BrowserReplAgentWorld.world)
+            // Without a user gesture: the agent's own code in that world may
+            // have replaced what the install script calls.
+            _ = try await panel.webView.browserReplEvaluateJavaScriptWithoutGesture(source, in: frame.info, contentWorld: BrowserReplAgentWorld.world)
         } catch {
             // Scripts that end in an expression WebKit cannot serialize still
             // installed; the next evaluation tells whether the agent exists.
@@ -2074,7 +2099,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// frame counts as one, since the frame's selection is not visible here.
     @MainActor
     private static func hasSelection(_ webView: WKWebView) async -> Bool {
-        let result = try? await webView.callAsyncJavaScript(
+        let result = try? await webView.browserReplCallAsyncJavaScript(
             """
             const el = document.activeElement;
             if (el && (el.tagName === "IFRAME" || el.tagName === "FRAME")) return true;
@@ -2086,7 +2111,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             """,
             arguments: [:],
             in: nil,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: BrowserReplAgentWorld.world,
+            userGesture: false
         )
         return (result as? Bool) ?? true
     }
@@ -2102,7 +2128,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     ) async throws -> [[String: Any]]? {
         switch command {
         case "copy:", "cut:":
-            let selection = try? await webView.callAsyncJavaScript(
+            let selection = try? await webView.browserReplCallAsyncJavaScript(
                 """
                 const el = document.activeElement;
                 if (el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.selectionStart !== null) {
@@ -2112,7 +2138,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 """,
                 arguments: [:],
                 in: nil,
-                contentWorld: BrowserReplAgentWorld.world
+                contentWorld: BrowserReplAgentWorld.world,
+                userGesture: false
             ) as? String
             let text = selection ?? ""
             if command == "cut:", !text.isEmpty {
@@ -2212,7 +2239,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "bold", "italic", "underline":
             // Chrome's editor formats the selection of an editable element on
             // Command+B/I/U; the page sees its usual beforeinput and input.
-            _ = try? await webView.callAsyncJavaScript(
+            _ = try? await webView.browserReplCallAsyncJavaScript(
                 """
                 const el = document.activeElement;
                 if (!(document.designMode === "on" || (el && el.isContentEditable))) return false;
@@ -2220,7 +2247,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 """,
                 arguments: ["command": command],
                 in: nil,
-                contentWorld: .page
+                contentWorld: .page,
+                userGesture: false
             )
         default:
             NSApp.sendAction(NSSelectorFromString(command), to: webView, from: nil)
@@ -2496,22 +2524,25 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let id = params["chooserId"] as? String else {
             throw Self.error("invalid", "chooserId is required")
         }
+        let attachment = attachment(panel)
+        let gone = Self.error("not_found", "File chooser \(id) is gone")
         var urls: [URL]?
         if params["cancel"] as? Bool != true {
-            let directory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-repl-upload-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            fileChooserDirectories.append(directory)
-            urls = try (params["files"] as? [[String: Any]] ?? []).map { file in
-                let name = ((file["name"] as? String) ?? "file").replacingOccurrences(of: "/", with: "_")
-                let url = directory.appendingPathComponent(name.isEmpty ? "file" : name)
-                try (Data(base64Encoded: file["base64"] as? String ?? "") ?? Data()).write(to: url)
-                return url
+            // Only the session the chooser was routed to may answer it, and
+            // nothing is written to disk before that is known (nor past the
+            // staging bounds). This runs in one main-actor turn, so the
+            // chooser cannot go between the check and the answer.
+            let staged = try BrowserReplUploadStaging(parent: FileManager.default.temporaryDirectory).stage(
+                params["files"] as? [[String: Any]] ?? []
+            ) {
+                attachment.fileChooserFrame(id: id, sessionID: sessionID) != nil
             }
+            guard let staged else { throw gone }
+            fileChooserDirectories.append(staged.directory)
+            urls = staged.urls
         }
-        // Only the session the chooser was routed to may answer it.
-        guard attachment(panel).respondToFileChooser(id: id, sessionID: sessionID, files: urls) else {
-            throw Self.error("not_found", "File chooser \(id) is gone")
+        guard attachment.respondToFileChooser(id: id, sessionID: sessionID, files: urls) else {
+            throw gone
         }
         return nil
     }
@@ -2570,10 +2601,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let quality = (params["quality"] as? NSNumber)?.doubleValue
         let fullPage = params["fullPage"] as? Bool ?? false
         let clip = params["clip"] as? [String: Any]
-        let masks = typedSecretMasks(params)
         let policy = currentPolicy
         let frameGate = self.frameGate
-        let image: CGImage = try await withWindow(panel) { webView, _ in
+        let image: CGImage = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { webView, _ in
             try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .handToCapture, webView: webView) { blockedChildFrames in
                 // Frames the domain policy blocks (an ad or tracker under
                 // allowedDomains) are blanked, not the whole capture refused:
@@ -2587,7 +2617,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     try await BrowserReplCapture.snapshotWithRegion(webView: webView, clip: clip, fullPage: fullPage)
                 }
             }
-        }
+        } }
         let data = try BrowserReplCapture.encode(image, format: format, quality: quality)
         return ["base64": data.base64EncodedString(), "width": image.width, "height": image.height]
     }
@@ -2595,9 +2625,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
-        let masks = typedSecretMasks(params)
         let policy = currentPolicy
-        let data: Data = try await withWindow(panel) { [self] webView, _ in
+        let data: Data = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { [self] webView, _ in
             // A PDF cannot blank a frame: any frame whose marked document
             // the policy blocks refuses it, also one that navigated after
             // checkFramePolicy read the tree.
@@ -2610,7 +2639,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     try await self.printPDF(webView: webView, params: params)
                 }
             }
-        }
+        } }
         return ["base64": data.base64EncodedString()]
     }
 

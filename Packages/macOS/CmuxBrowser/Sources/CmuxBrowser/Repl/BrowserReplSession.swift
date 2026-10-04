@@ -467,6 +467,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let boundary = self.boundary
         fetcher.setBlockReason { url in boundary.blockReason(url) }
+        boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
     }
 
     /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random><suffix>`, a
@@ -1072,6 +1073,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 writeBudget: fileSystem.writeBudget,
                 isCancelled: fileSystem.isCancelled
             )
+            boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
             // The runtime removes the `__cmuxNative` global before agent code
             // runs; the session keeps its own reference.
             nativeHost?.setObject(cwd, forKeyedSubscript: "cwd" as NSString)

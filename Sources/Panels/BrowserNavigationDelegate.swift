@@ -355,9 +355,10 @@ import WebKit
         }
 
         // A download this navigation becomes goes to a browser REPL session
-        // only when that session's own input started it (a user's tab).
-        if let owner, let url = navigationAction.request.url {
-            BrowserReplTabAttachments.shared.attachment(for: owner.id)?.noteNavigationAction(url)
+        // only when that session's own input started it (a user's tab); the
+        // claim is bound to this navigation, not its URL.
+        if let owner {
+            BrowserReplTabAttachments.shared.attachment(for: owner.id)?.noteNavigationAction(navigationAction)
         }
 
         // A tab a browser REPL session created loads nothing while the
@@ -1143,6 +1144,9 @@ import WebKit
         NSLog("BrowserPanel download didBecome from navigationAction")
         didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
         if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
+        if let owner {
+            BrowserReplTabAttachments.shared.attachment(for: owner.id)?.claimDownload(download, fromNavigationAction: navigationAction)
+        }
         download.delegate = downloadDelegate
     }
 
@@ -1154,6 +1158,9 @@ import WebKit
         NSLog("BrowserPanel download didBecome from navigationResponse")
         didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
         if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
+        if let owner {
+            BrowserReplTabAttachments.shared.attachment(for: owner.id)?.claimDownload(download, fromResponse: navigationResponse)
+        }
         download.delegate = downloadDelegate
     }
 }

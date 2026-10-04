@@ -577,11 +577,14 @@ final class BrowserReplTabAttachment {
     private var installedRuleList: WKContentRuleList?
     private weak var ruleListWebView: WKWebView?
 
-    /// Whether the creating session granted `permission` (`camera`,
-    /// `microphone`, `geolocation`, `notifications`). Grants apply only to
-    /// tabs the session created; a user's tab keeps cmux's own answer.
-    func grants(_ permission: String) -> Bool {
-        contextOptions.permissions.contains(permission)
+    /// Whether the creating session granted `request` (`camera`,
+    /// `microphone`, `geolocation`, `notifications`) to the origin and frame
+    /// that ask: only those its current domain policy allows
+    /// (``BrowserReplPermissionRequest/isGranted(by:policy:)``). Grants apply
+    /// only to tabs the session created; a user's tab keeps cmux's own answer.
+    func grants(_ request: BrowserReplPermissionRequest) -> Bool {
+        guard let creator = creatorSessionID else { return false }
+        return request.isGranted(by: contextOptions.permissions, policy: BrowserReplPolicyBoard.shared.policy(for: creator))
     }
 
     /// Puts ``contextOptions`` (user agent, headers, domain rule list) on
@@ -726,6 +729,18 @@ final class BrowserReplTabAttachment {
         for sink in sinks.values { sink(name, body) }
     }
 
+    /// Sends a console message or page error from `document` only to the
+    /// sessions whose domain policy allows that document
+    /// (``BrowserReplPageTelemetry``).
+    private func emitTelemetry(_ name: String, _ payload: [String: Any], from document: BrowserReplFrameDocument) {
+        var body = payload
+        body["targetId"] = targetID
+        let recipients = BrowserReplPageTelemetry().recipients(of: document, among: Array(sinks.keys)) {
+            BrowserReplPolicyBoard.shared.policy(for: $0)
+        }
+        for sessionID in recipients { sinks[sessionID]?(name, body) }
+    }
+
     /// Sends a network event only to the sessions it belongs to
     /// (``BrowserReplTabOwnership/networkRecipients(event:requestID:)``),
     /// with its credential headers only for the tab's creator.
@@ -788,8 +803,8 @@ final class BrowserReplTabAttachment {
         if observer.install(on: webView) {
             resourceObserver = observer
         }
-        let handler = BrowserReplConsoleMessageHandler { [weak self] event, payload in
-            self?.emit(event, payload)
+        let handler = BrowserReplConsoleMessageHandler { [weak self] event, payload, document in
+            self?.emitTelemetry(event, payload, from: document)
         }
         webView.configuration.userContentController.add(
             handler,
@@ -973,11 +988,12 @@ final class BrowserReplTabAttachment {
     private func chooserElementHandle(in frame: WKFrameInfo) async -> String? {
         guard let webView = panel?.webView else { return nil }
         let source = "const a = globalThis[\(BrowserReplRuntimeBundle.agentGlobalKeyExpression)]; return a ? a.chooserHandle() : null;"
-        let value = try? await webView.callAsyncJavaScript(
+        let value = try? await webView.browserReplCallAsyncJavaScript(
             source,
             arguments: [:],
             in: frame,
-            contentWorld: BrowserReplAgentWorld.world
+            contentWorld: BrowserReplAgentWorld.world,
+            userGesture: false
         )
         return value as? String
     }
@@ -1129,10 +1145,63 @@ final class BrowserReplTabAttachment {
         sessionDownloads[id] != nil
     }
 
-    /// Records a navigation the page starts, for the download it may become
-    /// (``BrowserReplTabOwnership/noteNavigationAction(url:at:)``).
-    func noteNavigationAction(_ url: URL) {
-        ownership.noteNavigationAction(url: url.absoluteString)
+    private static var navigationTokenKey: UInt8 = 0
+    /// Read from WebKit's download delegate, which is not main-actor bound;
+    /// only its address is used.
+    nonisolated(unsafe) private static var downloadStarterKey: UInt8 = 0
+    private var lastNavigationToken = 0
+
+    /// Records a navigation WebKit asks about (its navigation action) as its
+    /// frame's latest, with the session whose input started it, for the
+    /// download it may become
+    /// (``BrowserReplTabOwnership/noteNavigationAction(_:frame:continuing:at:)``).
+    /// The claim is bound to this navigation, never to its URL: a later
+    /// navigation in the frame, also to the same URL, replaces it. A
+    /// navigation decided again (after a hold) keeps its first record.
+    func noteNavigationAction(_ action: WKNavigationAction) {
+        guard let frame = Self.frameKey(action.targetFrame),
+              objc_getAssociatedObject(action, &Self.navigationTokenKey) == nil else { return }
+        lastNavigationToken += 1
+        let token = lastNavigationToken
+        objc_setAssociatedObject(action, &Self.navigationTokenKey, NSNumber(value: token), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        let redirectSelector = NSSelectorFromString("_isRedirect")
+        let continuing = action.responds(to: redirectSelector) && (action.value(forKey: "_isRedirect") as? Bool) == true
+        ownership.noteNavigationAction(token, frame: frame, continuing: continuing)
+    }
+
+    /// Binds `download`, which WebKit made of navigation action `action`, to
+    /// the session whose input started that navigation, if any.
+    func claimDownload(_ download: WKDownload, fromNavigationAction action: WKNavigationAction) {
+        guard let token = (objc_getAssociatedObject(action, &Self.navigationTokenKey) as? NSNumber)?.intValue else { return }
+        bind(download, to: ownership.takeDownloadStarter(navigation: token))
+    }
+
+    /// Binds `download`, which WebKit made of a navigation response in
+    /// `frame`, to the session whose input started that frame's latest
+    /// navigation, if any.
+    func claimDownload(_ download: WKDownload, fromResponse response: WKNavigationResponse) {
+        let frameSelector = NSSelectorFromString("_frame")
+        let info = response.responds(to: frameSelector) ? response.value(forKey: "_frame") as? WKFrameInfo : nil
+        let frame = response.isForMainFrame ? "main" : Self.frameKey(info)
+        guard let frame else { return }
+        bind(download, to: ownership.takeDownloadStarter(responseInFrame: frame))
+    }
+
+    private func bind(_ download: WKDownload, to starter: String?) {
+        guard let starter else { return }
+        objc_setAssociatedObject(download, &Self.downloadStarterKey, starter as NSString, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    /// The session whose input started the navigation `download` came from
+    /// (``claimDownload(_:fromNavigationAction:)``), or `nil`.
+    nonisolated static func downloadStarter(of download: WKDownload) -> String? {
+        objc_getAssociatedObject(download, &downloadStarterKey) as? String
+    }
+
+    /// A frame's key for its latest navigation: `main`, or WebKit's frame id.
+    private static func frameKey(_ info: WKFrameInfo?) -> String? {
+        guard let info else { return nil }
+        return info.isMainFrame ? "main" : BrowserReplFrame.frameID(of: info)
     }
 
     /// Reports a download to the one session it goes to
@@ -1141,10 +1210,10 @@ final class BrowserReplTabAttachment {
     /// the user downloads. The decision, and that session, hold for the
     /// download's life; any other download takes the user's normal path.
     /// - Parameters:
+    ///   - startedBy: The session whose input started the navigation the
+    ///     download came from (``downloadStarter(of:)``).
     ///   - url: The response's URL.
-    ///   - requestURL: The URL of the request that started the download.
-    func downloadDidStart(id: String, url: URL?, requestURL: URL?, suggestedFilename: String) {
-        let starter = ownership.takeDownloadStarter(urls: [requestURL, url].compactMap { $0?.absoluteString })
+    func downloadDidStart(id: String, startedBy starter: String?, url: URL?, suggestedFilename: String) {
         guard isAttached, let owner = ownership.downloadRecipient(startedBy: starter), sinks[owner] != nil else { return }
         sessionDownloads[id] = owner
         emit("download.started", [
@@ -1184,9 +1253,11 @@ enum BrowserReplAgentWorld {
 final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
     static let name = "cmuxReplConsole"
 
-    private let emit: (String, [String: Any]) -> Void
+    /// Called with the event, its payload and the document that sent it,
+    /// as WebKit recorded it (the sessions whose policy blocks it get none).
+    private let emit: (String, [String: Any], BrowserReplFrameDocument) -> Void
 
-    init(emit: @escaping (String, [String: Any]) -> Void) {
+    init(emit: @escaping (String, [String: Any], BrowserReplFrameDocument) -> Void) {
         self.emit = emit
     }
 
@@ -1197,17 +1268,18 @@ final class BrowserReplConsoleMessageHandler: NSObject, WKScriptMessageHandler {
         guard message.frameInfo.isMainFrame,
               let body = message.body as? [String: Any],
               let kind = body["kind"] as? String else { return }
+        let document = BrowserReplFrameDocument(info: message.frameInfo)
         switch kind {
         case "console":
             emit("console", [
                 "type": body["type"] as? String ?? "log",
                 "text": body["text"] as? String ?? "",
-            ])
+            ], document)
         case "pageerror":
             emit("pageerror", [
                 "message": body["message"] as? String ?? "",
                 "stack": body["stack"] as? String ?? "",
-            ])
+            ], document)
         default:
             break
         }

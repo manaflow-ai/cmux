@@ -19,16 +19,18 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     /// frame that navigated since shows another one.
     @MainActor
     public init(info: WKFrameInfo) {
-        let securityOrigin = info.securityOrigin
-        if securityOrigin.protocol.isEmpty {
-            origin = "null"
-        } else {
-            let scheme = securityOrigin.protocol.lowercased()
-            let port = securityOrigin.port
-            let isDefault = port == 0 || (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
-            origin = "\(scheme)://\(Self.bracketed(securityOrigin.host.lowercased()))" + (isDefault ? "" : ":\(port)")
-        }
+        origin = Self.origin(of: info.securityOrigin)
         place = Self.place(of: info.request.url)
+    }
+
+    /// `scheme://host[:port]` of a WebKit security origin, `"null"` when opaque.
+    @MainActor
+    static func origin(of securityOrigin: WKSecurityOrigin) -> String {
+        guard !securityOrigin.protocol.isEmpty else { return "null" }
+        let scheme = securityOrigin.protocol.lowercased()
+        let port = securityOrigin.port
+        let isDefault = port == 0 || (scheme == "https" && port == 443) || (scheme == "http" && port == 80)
+        return "\(scheme)://\(bracketed(securityOrigin.host.lowercased()))" + (isDefault ? "" : ":\(port)")
     }
 
     /// A main frame's document as its URL names it.
@@ -89,6 +91,38 @@ extension WKWebView {
                 }
             }
             function(self, Self.callWithGestureSelector, body as NSString, arguments as NSDictionary, frame, contentWorld, false, completion)
+        }
+        return result.value is NSNull ? nil : result.value
+    }
+}
+
+extension WKWebView {
+    private static let evaluateWithGestureSelector = NSSelectorFromString("_evaluateJavaScript:withSourceURL:inFrame:inContentWorld:withUserGesture:completionHandler:")
+
+    /// `evaluateJavaScript(_:in:contentWorld:)` without a user gesture
+    /// (WebKit's public call always gives one); throws `unsupported` when
+    /// WebKit's variant that takes the choice is missing.
+    @MainActor
+    public func browserReplEvaluateJavaScriptWithoutGesture(
+        _ source: String,
+        in frame: WKFrameInfo?,
+        contentWorld: WKContentWorld
+    ) async throws -> Any? {
+        guard responds(to: Self.evaluateWithGestureSelector) else {
+            throw BrowserReplDriverError(code: "unsupported", message: "This WebKit cannot run the driver's script without a user gesture")
+        }
+        typealias Completion = @convention(block) (Any?, (any Error)?) -> Void
+        typealias Function = @convention(c) (AnyObject, Selector, NSString, NSURL?, WKFrameInfo?, WKContentWorld, Bool, Completion) -> Void
+        let function = unsafeBitCast(method(for: Self.evaluateWithGestureSelector), to: Function.self)
+        let box = BrowserReplScriptResultBox()
+        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<BrowserReplScriptResult, any Error>) in
+            box.continuation = continuation
+            let completion: Completion = { value, error in
+                MainActor.assumeIsolated {
+                    if let error { box.finish(.failure(error)) } else { box.finish(.success(BrowserReplScriptResult(value: value))) }
+                }
+            }
+            function(self, Self.evaluateWithGestureSelector, source as NSString, nil, frame, contentWorld, false, completion)
         }
         return result.value is NSNull ? nil : result.value
     }
@@ -211,17 +245,19 @@ public final class BrowserReplFrameGate {
     /// and returns without running `body` if the frame has navigated since;
     /// the gate then judges the new document and runs it again.
     ///
-    /// With `userGesture` false the script runs without a user gesture (the
-    /// agent's own world): a page's handler it sets off synchronously (a
-    /// `focus`, a dispatched event) holds none either, and neither does the
-    /// script, so neither can write the system clipboard.
+    /// The script runs without a user gesture unless `userGesture` is true
+    /// (the agent's page-world script, which the driver runs under the
+    /// clipboard quarantine): a page's handler it sets off synchronously (a
+    /// `focus`, a dispatched event) holds none either, and neither does code
+    /// that replaced a getter the script reads in its world, so none of them
+    /// can write the system clipboard or open a window.
     public func callAsyncJavaScript(
         _ body: String,
         arguments: [String: Any],
         in webView: WKWebView,
         frame: BrowserReplFrame,
         contentWorld: WKContentWorld,
-        userGesture: Bool = true
+        userGesture: Bool = false
     ) async throws -> Any? {
         guard policy.isActive else {
             return try await webView.browserReplCallAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld, userGesture: userGesture)

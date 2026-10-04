@@ -195,6 +195,62 @@ struct BrowserReplBoundaryTests {
         #expect(result?.lines.map(\.text) == ["undefined"])
     }
 
+    /// The browser loads a `file:` URL with read access to its directory, so
+    /// a navigation is the agent's way to read files: it may load only
+    /// files inside the session's working or temporary directory (not
+    /// through a symbolic link), and none of cmux's internal schemes.
+    @Test("A session navigates to local files only inside its own directories")
+    func localNavigationsStayInsideTheSessionsDirectories() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-boundary-local-\(UUID().uuidString)", isDirectory: true)
+        let cwd = base.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let outside = base.appendingPathComponent("outside.html")
+        try Data("outside".utf8).write(to: outside)
+        try Data("inside".utf8).write(to: cwd.appendingPathComponent("inside.html"))
+        try FileManager.default.createSymbolicLink(at: cwd.appendingPathComponent("link.html"), withDestinationURL: outside)
+        let inside = cwd.appendingPathComponent("inside.html").absoluteString
+        let link = cwd.appendingPathComponent("link.html").absoluteString
+
+        let driver = ScriptedPageDriver()
+        let session = BrowserReplSession(
+            id: "boundary-\(UUID().uuidString)",
+            cwd: cwd.path,
+            bundle: try browserReplRepositoryBundle(),
+            driver: driver
+        )
+        defer { session.close() }
+        let refused = [
+            outside.absoluteString,
+            "file:///etc/hosts",
+            "file://localhost/etc/hosts",
+            cwd.absoluteString + "../outside.html",
+            link,
+            "cmux-diff-viewer://session/index.html",
+            "javascript:alert(1)",
+        ]
+        let allowed = [inside, "data:text/html,hi", "about:blank", "https://example.com/"]
+        let script = """
+        const results = {};
+        for (const url of \(JSONSerialization.browserReplString(refused + allowed) ?? "[]")) {
+          try { await page._session.call("tab.navigate", { targetId: "t1", url }); results[url] = "ok"; }
+          catch (e) { results[url] = "refused"; }
+        }
+        console.log(JSON.stringify(results));
+        """
+        let result = await run(session, script)
+        let line = result?.lines.last?.text ?? "{}"
+        let outcomes = JSONSerialization.browserReplObject(line) as? [String: String] ?? [:]
+        let navigated = Set(driver.params("tab.navigate").compactMap { $0["url"] as? String })
+        for url in refused {
+            #expect(outcomes[url] == "refused", "\(url) was not refused: \(line)")
+            #expect(!navigated.contains(url), "the driver was asked to load \(url)")
+        }
+        for url in allowed {
+            #expect(outcomes[url] == "ok", "\(url) was refused: \(line)")
+        }
+    }
+
     @Test("A secret's value never reaches JavaScript, even through runtime internals")
     func secretValueStaysNative() async throws {
         let session = try makeSession(ScriptedPageDriver())

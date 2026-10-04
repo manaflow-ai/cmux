@@ -807,6 +807,58 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(NSPasteboard.general.changeCount == systemBefore)
         }
 
+        /// The same, when the tab's own Copy or Cut writes nothing itself (its
+        /// handler cancels the event and sets no data): the other web view's
+        /// copy is then the only write during the command, and the tab's
+        /// clipboard must still not take it.
+        @Test(arguments: ["Copy", "Cut"])
+        func aCopyInAnotherWebViewDuringACommandThatWritesNothingDoesNotReachTheTabClipboard(command: String) async throws {
+            #expect(BrowserReplPasteboardRedirect.shared.install())
+            let standIn = NSPasteboard.withUniqueName()
+            defer { standIn.releaseGlobally() }
+            standIn.clearContents()
+            standIn.setString("the person's clipboard", forType: .string)
+            let systemBefore = NSPasteboard.general.changeCount
+            var outcome: BrowserReplPasteboardRedirect.Outcome?
+            var tookForeignCopy = false
+            try await Self.withStandInSystemPasteboard(standIn) {
+                let tabView = await load(
+                    """
+                    <input id=i value="tab text"><script>
+                    for (const type of ['copy', 'cut']) addEventListener(type, e => {
+                      e.preventDefault();
+                      const end = Date.now() + 1000;
+                      while (Date.now() < end) {}
+                    });
+                    </script>
+                    """
+                )
+                _ = try await tabView.evaluateJavaScript("const i = document.getElementById('i'); i.focus(); i.select(); true")
+                let otherView = await load("<input id=o value=\"another web view's text\">")
+                _ = try await otherView.evaluateJavaScript("const o = document.getElementById('o'); o.focus(); o.select(); true")
+                let tabProcess = tabView.value(forKey: "_webProcessIdentifier") as? Int
+                let otherProcess = otherView.value(forKey: "_webProcessIdentifier") as? Int
+                try #require(tabProcess != otherProcess, "the two web views share a web content process, so the other copy cannot run during the command")
+
+                let tab = NSPasteboard.withUniqueName()
+                defer { tab.releaseGlobally() }
+                tab.clearContents()
+                let commandTask = Task { @MainActor in
+                    await BrowserReplPasteboardRedirect.shared.perform(command, in: tabView, pasteboard: tab, timeout: .seconds(30))
+                }
+                while BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) !== tab {
+                    await Task.yield()
+                }
+                let copied = try await otherView.evaluateJavaScript("document.execCommand('copy')") as? Bool
+                try #require(copied == true)
+                outcome = await commandTask.value
+                tookForeignCopy = tab.string(forType: .string) == "another web view's text"
+            }
+            #expect(outcome != .completed, "the tab's \(command) completed although another web view wrote the pasteboard during it (it took that copy: \(tookForeignCopy))")
+            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+            #expect(NSPasteboard.general.changeCount == systemBefore)
+        }
+
         /// A person pasting in another web view while a tab's Paste runs
         /// (the tab's paste handler keeps the command in flight) must not
         /// read the tab's private pasteboard. WebKit grants a web content

@@ -60,7 +60,7 @@ reference ([parity-report.md](parity-report.md)).
 | `page.dialog()` | The open JavaScript dialog or `null`: `{ type, message, defaultValue, accept(text?), dismiss() }`. | Reference B `getJsDialog()` |
 | `page.fileChooser()` | The open file chooser or `null`: `{ multiple, setFiles(files), cancel() }`. | Reference B chooser flow |
 | `page.consoleMessages({ level, filter, limit })`, `page.errors()` | Console history and uncaught errors since the tab opened. | Reference B `dev.logs()` |
-| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut` with whatever the page's handler sets. A JavaScript dialog the page opens meanwhile is dismissed and reported in the next snapshot. Neither touches the system clipboard, which other code (the terminal) keeps. The clipboard is the creating session's alone, while it lives: `page.clipboard` and the shortcuts run only in tabs the session opened and throw `unsupported` in a user's tab (also one a finished run kept), so two sessions driving one tab never pass bytes through it. One during which another web view copied, pasted or read the clipboard throws `stale` and leaves the tab's clipboard unchanged (that other web view never reads the tab's clipboard); a Paste gives the page only plain text, HTML, RTF, PNG, TIFF, WebKit's custom web data and `http(s)` URLs, never a file reference. One WebKit does not finish within 5 s throws a timeout, leaves the tab's clipboard unchanged and ends the tab's web content process (the page crashes; `page.reload()` loads it again), so nothing the page does later reaches the system clipboard. In a tab a session created, the page's own scripts write here too, never to the system clipboard, even after an agent's click gave them a user gesture: `navigator.clipboard.write` and `writeText` (a `ClipboardItem` whose data settles later included) and `document.execCommand("copy")` or `"cut"`; their reads reject with `NotAllowedError` ([Guards](driver-protocol.md#guards) says how, and names the one case WebKit leaves open). In a user's tab the page keeps the browser's clipboard, but what its scripts write with the gesture of the agent's input or page script, from the call until 11 s after it, reaches neither the system clipboard nor the session. | Reference B `clipboard` |
+| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut` with whatever the page's handler sets. A JavaScript dialog the page opens meanwhile is dismissed and reported in the next snapshot. Neither touches the system clipboard, which other code (the terminal) keeps. The clipboard is the creating session's alone, while it lives: `page.clipboard` and the shortcuts run only in tabs the session opened and throw `unsupported` in a user's tab (also one a finished run kept), so two sessions driving one tab never pass bytes through it. One during which another web view copied, pasted or read the clipboard throws `stale` and leaves the tab's clipboard unchanged (that other web view never reads the tab's clipboard); a Paste gives the page only plain text, HTML, RTF, PNG, TIFF, WebKit's custom web data and `http(s)` URLs, never a file reference. One WebKit does not finish within 5 s throws a timeout, leaves the tab's clipboard unchanged and ends the tab's web content process (the page crashes; `page.reload()` loads it again), so nothing the page does later reaches the system clipboard. In a tab a session created, the page's own scripts write here too, never to the system clipboard, even after an agent's click gave them a user gesture: `navigator.clipboard.write` and `writeText` (a `ClipboardItem` whose data settles later included) and `document.execCommand("copy")` or `"cut"`; their reads reject with `NotAllowedError` ([Guards](driver-protocol.md#guards) says how, and names the one case WebKit leaves open). In a user's tab the page keeps the browser's clipboard. In any tab, what WebKit would write to the system clipboard with the gesture of the agent's input or page script (the page's scripts in a user's tab, script in the agent's world in any tab), from the call until 11 s after it, reaches neither the system clipboard nor the session; a copy or paste the person makes in another browser tab of cmux during that time does nothing. | Reference B `clipboard` |
 | `page.elementAt(x, y)` | `{ ref, role, name, box }` for the topmost element at a viewport point. | Reference B `elementInfo()` |
 | `page.keep()` | Keep this tab open after a one-shot run. | Reference B `markDeliverable()` |
 | `page.exportContent(options)` | Write the page as Markdown, a Google Docs/Sheets/Slides tab in an export format (`{ format }`), or a YouTube watch page's captions (`{ transcript: true }`, fetched only from a track URL that is https on `www.youtube.com`, `m.youtube.com` or `youtube.com`) to a file; returns the path. | Reference B `content.export*` |
@@ -388,13 +388,17 @@ rest. Measurements: [performance.md](performance.md).
   (`page.on("request")` and the like) in a tab the session did not create
   reach it only while it listens for them, or for a request its own action
   started, and never carry the page's credential headers (`Cookie`,
-  `Authorization` and the like).
+  `Authorization`, and any header whose name says it carries one:
+  `auth`, `token`, `secret`, `session`, `password`, `signature`, `csrf`
+  and the like, the rule `fetch` uses across origins).
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
   session lasts. In them dialogs and file choosers wait for the agent,
   downloads stay in the temporary directory for `download.path()`, camera,
   microphone, geolocation and notification requests are answered from
-  `session.configure({ permissions })`, the user agent and extra headers
+  `session.configure({ permissions })` (granted only to an origin and
+  frame the session's domain policy allows; one it blocks, or an opaque
+  origin under a policy, is denied), the user agent and extra headers
   from `session.configure` apply, the page's scripts copy to the tab's
   clipboard instead of the system's (for the tab's whole life, also after
   the session ends), the domain policy's content rules block
@@ -420,13 +424,16 @@ rest. Measurements: [performance.md](performance.md).
   tab, never as a key window over the user's work (a page that opens one
   after an `await` in the agent's click lands here).
   The domain policy there only refuses the session's reads and input while
-  the tab, or a frame of it, shows a blocked page (see "Guards" in
+  the tab, or a frame of it, shows a blocked page (the console messages and
+  page errors of a main frame the policy blocks do not reach the session
+  either, in any tab) (see "Guards" in
   [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that
   page (`page.on("dialog")`, `page.on("filechooser")`,
   `page.waitForEvent("download")` and the like) goes to the session instead,
   only while the handler is registered; a download, though, only when the
   navigation it came from started while the page handled that session's
-  own call (a click, key or navigation; its response may come later). A
+  own call (a click, key or navigation; its response may come later) and
+  no later navigation in that frame (also one to the same URL) replaced it. A
   file the user downloads in their tab, or one the page starts by itself,
   keeps the user's download location and never reaches a session, and
   neither does one another session's call started. When several sessions drive one tab,
