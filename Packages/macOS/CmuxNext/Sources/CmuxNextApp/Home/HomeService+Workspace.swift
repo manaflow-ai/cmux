@@ -75,8 +75,8 @@ extension HomeService {
             if let workspace { found = workspace; break }
         }
         guard !Task.isCancelled, let workspace = found else { return }
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let open = tabs.contains(where: { $0.kind == .conversation && $0.snapshot.conversation?.conversation == chief })
+        // The chief tab anywhere in the local tree counts (moved out of the home too).
+        let open = HomeChiefTabKey.isOpen(chief: chief, in: local.store.workspaces)
         // A pane when the home has one. An empty home needs `workspace`, which
         // daemons with the raw `Workspace.kind` field accept; an older one
         // would put the tab in the focused pane, so it waits for that pin.
@@ -85,10 +85,9 @@ extension HomeService {
             homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
             return
         }
-        // The key lives on the service; a lost reply keeps it pending for the next connect.
-        var key = chiefTabKey
-        defer { chiefTabKey = key }
-        let created = try await key.ensure(chiefTabOpen: open) { mutationID in
+        // The key lives on the service (shared by overlapping connects); a
+        // lost reply keeps it pending for the next connect.
+        let created = try await chiefTabKey.ensure(chiefTabOpen: open) { mutationID in
             let request = NewConversationTabRequest(conversation: chief, pane: pane, workspace: pane == nil ? workspace.handle : nil,
                                                     origin: Self.tabOrigin, mutationID: mutationID)
             _ = try await connection.request(request)

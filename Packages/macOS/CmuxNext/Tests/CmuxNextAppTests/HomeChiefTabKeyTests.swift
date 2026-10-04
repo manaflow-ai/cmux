@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import Foundation
 import Testing
 @testable import CmuxNextApp
 
@@ -18,13 +19,13 @@ import Testing
     }
 
     @Test func aRetryBeforeTheTabIsSeenReusesTheKey() {
-        var key = HomeChiefTabKey()
+        let key = HomeChiefTabKey()
         let first = key.forCreate()
         #expect(key.forCreate() == first)
     }
 
     @Test func aCreationAfterTheTabWasSeenTakesANewKey() {
-        var key = HomeChiefTabKey()
+        let key = HomeChiefTabKey()
         let first = key.forCreate()
         key.settle()
         let second = key.forCreate()
@@ -34,21 +35,21 @@ import Testing
     }
 
     @Test func keysAreNeverTheRetiredFixedKey() {
-        var key = HomeChiefTabKey()
+        let key = HomeChiefTabKey()
         #expect(key.forCreate() != "home-chief-tab")
     }
 
     /// Open chief tab: reconnects and relaunches create nothing. Closed: the
     /// next connect creates one tab under a new key.
     @Test func reconnectKeepsTheLiveTabAndAClosedTabGetsANewKey() async throws {
-        var key = HomeChiefTabKey()
+        let key = HomeChiefTabKey()
         let sends = Sends()
         #expect(try await key.ensure(chiefTabOpen: false) { try sends.send($0) })
         #expect(try await key.ensure(chiefTabOpen: true) { try sends.send($0) } == false)
         #expect(try await key.ensure(chiefTabOpen: true) { try sends.send($0) } == false)
         #expect(sends.keys.count == 1, "a connect with the chief tab open must not create a tab")
         // A relaunch starts with a fresh key value and still creates nothing while the tab is open.
-        var relaunched = HomeChiefTabKey()
+        let relaunched = HomeChiefTabKey()
         #expect(try await relaunched.ensure(chiefTabOpen: true) { try sends.send($0) } == false)
         #expect(sends.keys.count == 1)
         // The tab was closed: the next connect creates one tab under a new key.
@@ -59,7 +60,7 @@ import Testing
 
     /// A lost reply keeps the key, so the next connect replays the same create.
     @Test func aLostReplyKeepsTheKeyForTheRetry() async throws {
-        var key = HomeChiefTabKey()
+        let key = HomeChiefTabKey()
         let sends = Sends()
         sends.fail = { $0 == 0 ? DaemonError.connectionClosed(reason: "lost") : nil }
         await #expect(throws: DaemonError.self) { try await key.ensure(chiefTabOpen: false) { try sends.send($0) } }
@@ -71,7 +72,7 @@ import Testing
     /// The pending key's tab was created and closed: the refusal is not
     /// shown; one retry under a new key creates the tab.
     @Test func aKeyClosedRefusalRetriesOnceWithANewKey() async throws {
-        var key = HomeChiefTabKey()
+        let key = HomeChiefTabKey()
         let sends = Sends()
         sends.fail = { index in
             index == 0 ? DaemonError.command(cmd: "new-conversation-tab", message: "closed",
@@ -80,5 +81,37 @@ import Testing
         #expect(try await key.ensure(chiefTabOpen: false) { try sends.send($0) })
         #expect(sends.keys.count == 2)
         #expect(sends.keys[0] != sends.keys[1])
+    }
+
+    /// Two connects overlap: the second starts while the first still waits
+    /// for its reply. Both send the one pending key, so the store replays one
+    /// tab instead of creating two.
+    @Test func anOverlappingConnectSendsThePendingKey() async throws {
+        let key = HomeChiefTabKey()
+        var overlapped: String?
+        var sent: String?
+        #expect(try await key.ensure(chiefTabOpen: false) { first in
+            sent = first
+            overlapped = key.forCreate()
+        })
+        #expect(overlapped == sent)
+        #expect(key.forCreate() != sent, "the creation settled: the next one takes a new key")
+    }
+
+    /// The person moved the chief tab out of the home: it is still open, so
+    /// a connect creates no second chief tab.
+    @Test func aChiefTabMovedOutOfTheHomeStillCounts() throws {
+        let tab = #"{"kind":"conversation","name":"","surface":7,"dead":false,"browser_renderer":"frontend","conversation":{"conversation":"conv_01CHIEF","owner":"local"}}"#
+        let json = """
+        {"generation":"g1","workspace_revision":1,"workspaces":[
+        {"active":false,"id":1,"key":"0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a01","name":"Home","kind":"home","screens":[]},
+        {"active":true,"id":2,"key":"0b6c4a52-6d3f-4c55-9d53-8f1f4e0f1a02","name":"work",
+        "screens":[{"active":true,"id":3,"layout":{"pane":4,"type":"leaf"},"name":null,"panes":[{"active_tab":0,"id":4,"name":null,
+        "tabs":[\(tab)]}]}]}]}
+        """
+        let store = DaemonStore()
+        store.apply(snapshot: try JSONDecoder().decode(DaemonTree.self, from: Data(json.utf8)))
+        #expect(HomeChiefTabKey.isOpen(chief: "conv_01CHIEF", in: store.workspaces))
+        #expect(!HomeChiefTabKey.isOpen(chief: "conv_01OTHER", in: store.workspaces))
     }
 }
