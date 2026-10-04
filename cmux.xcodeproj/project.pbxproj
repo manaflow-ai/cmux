@@ -558,6 +558,7 @@
 		C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A060000000000000002 /* BrowserSSLTrustBypassStateTests.swift */; };
 		C2035A080000000000000001 /* BrowserSSLTrustGrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */; };
 		C2035A040000000000000001 /* BrowserSSLTrustScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A040000000000000002 /* BrowserSSLTrustScope.swift */; };
+		57502E2E8CA6E2221BD5BFA9 /* BrowserUIDelegate+LinkHover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34E654DDB810E00BEE86E025 /* BrowserUIDelegate+LinkHover.swift */; };
 		805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000003 /* BrowserValueTextFormatter.swift */; };
 		805500000000000000000005 /* BrowserValueTextFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 805500000000000000000003 /* BrowserValueTextFormatter.swift */; };
 		D8072A02D8072A02D8072A02 /* BrowserViewportRuntimeLoadDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8072A01D8072A01D8072A01 /* BrowserViewportRuntimeLoadDelegate.swift */; };
@@ -5086,6 +5087,7 @@
 		C2035A060000000000000002 /* BrowserSSLTrustBypassStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSSLTrustBypassStateTests.swift; sourceTree = "<group>"; };
 		C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustGrant.swift; sourceTree = "<group>"; };
 		C2035A040000000000000002 /* BrowserSSLTrustScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustScope.swift; sourceTree = "<group>"; };
+		34E654DDB810E00BEE86E025 /* BrowserUIDelegate+LinkHover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserUIDelegate+LinkHover.swift"; sourceTree = "<group>"; };
 		805500000000000000000003 /* BrowserValueTextFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserValueTextFormatter.swift; sourceTree = "<group>"; };
 		D8072A01D8072A01D8072A01 /* BrowserViewportRuntimeLoadDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewportRuntimeLoadDelegate.swift; sourceTree = "<group>"; };
 		D8072A03D8072A03D8072A03 /* BrowserViewportRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserViewportRuntimeTests.swift; sourceTree = "<group>"; };
@@ -11831,6 +11833,7 @@
 				9C4B976F4761E72540766E54 /* RightSidebarModeBarTabsLayout.swift */,
 				DC32D1CB3F917D805A2D845A /* RightSidebarModeBarDrag.swift */,
 				9BF2DDC7F468ACB78B5C88A0 /* LinkHoverIndicatorView.swift */,
+				34E654DDB810E00BEE86E025 /* BrowserUIDelegate+LinkHover.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14503,6 +14506,7 @@
 				C2035A030000000000000001 /* BrowserSSLTrustBypassState.swift in Sources */,
 				C2035A080000000000000001 /* BrowserSSLTrustGrant.swift in Sources */,
 				C2035A040000000000000001 /* BrowserSSLTrustScope.swift in Sources */,
+				57502E2E8CA6E2221BD5BFA9 /* BrowserUIDelegate+LinkHover.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				B1F0C00A0000000000000001 /* BrowserWindowPortalInspectorLayout.swift in Sources */,
 				8286FBAA6462FCA03E523CDB /* BrowserWindowSlotView+PaneDropOverlay.swift in Sources */,

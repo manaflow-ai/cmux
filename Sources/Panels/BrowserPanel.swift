@@ -3308,6 +3308,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.designModeController.webViewWillNavigate()
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
+                WindowBrowserSlotView.hosting(webView)?.setLinkHoverURL(nil)
                 self.isMainFrameProvisionalNavigationActive = false
                 self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
                 self.automationNavigationCoordinator.didCommit(

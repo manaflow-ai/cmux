@@ -1305,7 +1305,9 @@ final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
         didSet {
-            guard isHidden, !oldValue, let window else { return }
+            guard isHidden, !oldValue else { return }
+            setLinkHoverURL(nil)
+            guard let window else { return }
             yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
         }
     }
@@ -1316,6 +1318,7 @@ final class WindowBrowserSlotView: NSView {
     private var designComposerHostingView: BrowserDesignModeComposerHostingView?
     private var designComposerPanelId: UUID?
     private var omnibarSuggestionsHostingView: BrowserPortalOmnibarSuggestionsHostingView?
+    private var linkHoverIndicatorView: LinkHoverIndicatorView?
     private weak var hostedWebView: WKWebView?
     private var hostedWebViewConstraints: [NSLayoutConstraint] = []
     var forwardedDropZone: DropZone?
@@ -1358,6 +1361,7 @@ final class WindowBrowserSlotView: NSView {
     override func layout() {
         super.layout()
         paneDropTargetView.frame = bounds
+        linkHoverIndicatorView?.frame = linkHoverIndicatorFrame()
         applyResolvedDropZoneOverlay()
         if let hostedWebView,
            hostedWebView.cmuxBrowserViewportUsesHost,
@@ -1443,6 +1447,42 @@ final class WindowBrowserSlotView: NSView {
         let webPoint = hostedWebView.convert(localPoint, from: self)
         guard hostedWebView.bounds.contains(webPoint) else { return nil }
         return hostedWebView
+    }
+
+    /// The slot presenting `webView`, when the browser portal hosts it.
+    static func hosting(_ webView: WKWebView) -> WindowBrowserSlotView? {
+        var candidate = webView.cmuxBrowserViewportPresentationView.superview
+        while let view = candidate {
+            if let slot = view as? WindowBrowserSlotView { return slot }
+            candidate = view.superview
+        }
+        return nil
+    }
+
+    /// Shows `url` at the bottom-left of the hosted web view, or hides the
+    /// indicator when `url` is `nil`.
+    func setLinkHoverURL(_ url: String?) {
+        guard let url, !url.isEmpty else {
+            linkHoverIndicatorView?.setURL(nil)
+            return
+        }
+        let indicator: LinkHoverIndicatorView
+        if let linkHoverIndicatorView {
+            indicator = linkHoverIndicatorView
+        } else {
+            indicator = LinkHoverIndicatorView(frame: .zero)
+            linkHoverIndicatorView = indicator
+            addSubview(indicator)
+        }
+        indicator.frame = linkHoverIndicatorFrame()
+        indicator.setURL(url)
+    }
+
+    /// The web view's own frame, so the indicator stays on the page when a
+    /// docked Web Inspector shares the slot.
+    private func linkHoverIndicatorFrame() -> NSRect {
+        guard let hostedWebView, hostedWebView.isDescendant(of: self) else { return bounds }
+        return convert(hostedWebView.bounds, from: hostedWebView)
     }
 
     func setPaneTopChromeHeight(_ height: CGFloat) {
@@ -1758,6 +1798,9 @@ final class WindowBrowserSlotView: NSView {
 
         NSLayoutConstraint.deactivate(hostedWebViewConstraints)
         hostedWebViewConstraints = []
+        if hostedWebView !== webView {
+            setLinkHoverURL(nil)
+        }
         hostedWebView = webView
         // Attached Web Inspector mutates the moved WKWebView's frame directly.
         // Re-pin plain web views after cross-host reattach, but preserve the
@@ -1812,10 +1855,11 @@ final class WindowBrowserSlotView: NSView {
     }
 
     private func interactionLayerPriority(of view: NSView) -> Int {
-        if view === paneDropTargetView { return 4 }
-        if view === omnibarSuggestionsHostingView { return 3 }
-        if view === searchOverlayHostingView { return 2 }
-        if view === designComposerHostingView { return 1 }
+        if view === paneDropTargetView { return 5 }
+        if view === omnibarSuggestionsHostingView { return 4 }
+        if view === searchOverlayHostingView { return 3 }
+        if view === designComposerHostingView { return 2 }
+        if view === linkHoverIndicatorView { return 1 }
         return 0
     }
 
