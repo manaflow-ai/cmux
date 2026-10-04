@@ -23,7 +23,7 @@ public nonisolated struct HistoryQuery: Hashable, Sendable {
         let tokens = Self.tokens(text)
         let interval = range.interval(now: now, calendar: calendar)
         var matched = entries.filter { entry in
-            isDisplayable(entry)
+            Self.isDisplayable(entry)
                 && (kinds.isEmpty || kinds.contains(entry.kind))
                 && (interval.map { $0.contains(entry.time) } ?? true)
                 && Self.matches(entry.searchText, tokens)
