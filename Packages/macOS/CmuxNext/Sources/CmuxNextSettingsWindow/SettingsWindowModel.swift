@@ -157,12 +157,18 @@ public final class SettingsWindowModel {
         text.split(whereSeparator: \.isWhitespace).map(String.init)
     }
 
+    /// One group per heading, in the order each heading first appears.
+    /// A group's title is its view identity (`SettingsGroup.id`), so a
+    /// heading whose settings are not contiguous in the schema (another
+    /// group's rows were added between them) still makes one group.
     static func grouped(_ settings: [SettingDescriptor]) -> [SettingsGroup] {
         var groups: [SettingsGroup] = []
+        var index: [String: Int] = [:]
         for descriptor in settings {
-            if groups.last?.title == descriptor.group {
-                groups[groups.count - 1].settings.append(descriptor)
+            if let at = index[descriptor.group] {
+                groups[at].settings.append(descriptor)
             } else {
+                index[descriptor.group] = groups.count
                 groups.append(SettingsGroup(title: descriptor.group, settings: [descriptor]))
             }
         }

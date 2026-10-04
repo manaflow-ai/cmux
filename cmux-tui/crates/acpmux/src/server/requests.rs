@@ -60,8 +60,12 @@ pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
-    params: Value,
+    mut params: Value,
 ) -> Result<Value, RpcError> {
+    // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
+    if conn.origin != Origin::Local {
+        super::remote_guard::check(m, &mut params).await?;
+    }
     let mut reply = dispatch_request(hub, conn, m, params).await;
     // One place for every reply (status, the peer listings of peer_add,
     // peer_reconnect and peer_remove, forwarded peer replies): only the
@@ -185,12 +189,18 @@ async fn dispatch_request(
                 }
                 return Ok(result);
             }
-            let cwd = str_param(&params, "cwd").map(PathBuf::from);
+            let mut cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
             // The local app starts a preset by its id only: anything that
             // would shape the harness command from the request is refused.
+            // LocalApp cwd: any existing directory of this user until the native transport limits it to workspace roots.
             if conn.origin == Origin::LocalApp {
                 super::local_app::preset_by_id_only(&params, meta)?;
+                if super::local_app::names_preset(&params, meta)
+                    && let Some(given) = &cwd
+                {
+                    cwd = Some(super::local_app::canonical_cwd(given).await?);
+                }
             }
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
@@ -971,8 +981,15 @@ async fn dispatch_request(
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => hub.handoff_start(&params).await,
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
-        // Anything else that names a session goes to the agent untouched.
+        // Anything else that names a session goes to the agent untouched,
+        // from the unix socket only: a harness extension method may take
+        // params that spawn or read (`remote_guard.rs`).
         other => {
+            if conn.origin != Origin::Local && session_key(&params).is_ok() {
+                return Err(RpcError::invalid_params(format!(
+                    "{other} is passed to the harness only from the local unix socket"
+                )));
+            }
             if let Ok(key) = session_key(&params) {
                 let s = hub.resolve(key)?;
                 return hub.forward(&s, other, params).await;

@@ -8,8 +8,7 @@
 //! nothing and may open no stream.
 
 use std::collections::BTreeMap;
-use std::sync::PoisonError;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 pub(crate) use cmux_link::stamp::LinkPeer;
@@ -115,6 +114,61 @@ impl Revocation {
     }
 }
 
+/// A remote-relay lock (one field of [`RemoteRelayState`], or the client
+/// registry that names remote connections).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelayLock {
+    Peers,
+    Pairing,
+    Revocation,
+    Clients,
+}
+
+/// Why a remote-relay admission or revocation step did not run as asked.
+/// A panic poisoned one of the relay's locks: the state behind it is not
+/// trusted, so the step fails closed. An admission is denied; a revocation
+/// closes every remote stream, because the poisoned state cannot say which
+/// streams belong to the install.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelayStateError {
+    Poisoned(RelayLock),
+}
+
+impl std::fmt::Display for RelayStateError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Poisoned(lock) => write!(formatter, "remote relay {lock:?} lock is poisoned"),
+        }
+    }
+}
+
+impl std::error::Error for RelayStateError {}
+
+/// Why a remote stream was not bound to its peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindRefused {
+    /// The install may not open new streams (revoked, never checked, or past
+    /// the 24 h offline limit).
+    Policy,
+    /// A relay lock is poisoned (fail closed).
+    State(RelayStateError),
+}
+
+impl From<RelayStateError> for BindRefused {
+    fn from(error: RelayStateError) -> Self {
+        Self::State(error)
+    }
+}
+
+/// `mutex` locked for an admission or revocation decision: a poisoned lock
+/// is an error, never its possibly half-updated value.
+pub(crate) fn lock_checked<T>(
+    mutex: &Mutex<T>,
+    lock: RelayLock,
+) -> Result<MutexGuard<'_, T>, RelayStateError> {
+    mutex.lock().map_err(|_| RelayStateError::Poisoned(lock))
+}
+
 /// The remote-relay state on the conversation host.
 #[derive(Default)]
 pub(crate) struct RemoteRelayState {
@@ -125,18 +179,37 @@ pub(crate) struct RemoteRelayState {
 }
 
 impl RemoteRelayState {
-    pub(crate) fn peer(&self, client: u64) -> Option<LinkPeer> {
-        self.peers.lock().unwrap_or_else(PoisonError::into_inner).get(&client).cloned()
+    /// The peer record of `client`; an error when the peers lock is
+    /// poisoned (callers fail closed).
+    pub(crate) fn peer_checked(&self, client: u64) -> Result<Option<LinkPeer>, RelayStateError> {
+        Ok(lock_checked(&self.peers, RelayLock::Peers)?.get(&client).cloned())
     }
 
-    pub(crate) fn owner_user(&self) -> Option<String> {
-        let pairing = self.pairing.lock().unwrap_or_else(PoisonError::into_inner).clone();
-        pairing.and_then(|records| records.owner_user())
+    /// The peer record of `client` (tests). A poisoned peers lock gives
+    /// `None`.
+    #[cfg(test)]
+    pub(crate) fn peer(&self, client: u64) -> Option<LinkPeer> {
+        self.peer_checked(client).ok().flatten()
+    }
+
+    /// The server owner from the pairing records; an error when the pairing
+    /// lock is poisoned (callers deny).
+    pub(crate) fn owner_user(&self) -> Result<Option<String>, RelayStateError> {
+        let pairing = lock_checked(&self.pairing, RelayLock::Pairing)?.clone();
+        Ok(pairing.and_then(|records| records.owner_user()))
     }
 
     /// The remote connections of `install`.
-    pub(crate) fn clients_of(&self, install: &str) -> Vec<u64> {
-        let peers = self.peers.lock().unwrap_or_else(PoisonError::into_inner);
-        peers.iter().filter(|(_, peer)| peer.install == install).map(|(c, _)| *c).collect()
+    pub(crate) fn clients_of(&self, install: &str) -> Result<Vec<u64>, RelayStateError> {
+        let peers = lock_checked(&self.peers, RelayLock::Peers)?;
+        Ok(peers.iter().filter(|(_, peer)| peer.install == install).map(|(c, _)| *c).collect())
+    }
+
+    /// Every connection that has a peer record, for a close of all remote
+    /// streams.
+    pub(crate) fn all_peer_clients(&self) -> Vec<u64> {
+        // Safety: this list only closes streams; a poisoned map can name a
+        // stale id, and closing a stale id does nothing.
+        self.peers.lock().unwrap_or_else(PoisonError::into_inner).keys().copied().collect()
     }
 }

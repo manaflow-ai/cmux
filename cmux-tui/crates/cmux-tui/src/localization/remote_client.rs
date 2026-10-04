@@ -63,6 +63,7 @@ pub(crate) struct RemoteClientMessages {
     pub forward_workspace_required: &'static str,
     pub forward_port_required: &'static str,
     pub rpc_request_invalid: &'static str,
+    pub socket_not_a_route: &'static str,
     pub rpc_input_invalid: &'static str,
     pub(super) rpc_stdin_too_large: &'static str,
     pub rpc_stdin_invalid_utf8: &'static str,
@@ -123,6 +124,17 @@ impl RemoteClientMessages {
 
     pub(crate) fn unknown_option(&self, option: &str) -> String {
         self.unknown_option.replace("{option}", &format!("{option:?}"))
+    }
+
+    /// The refusal of an option a connect-family command does not take. A
+    /// global `--socket` moves after the command (main.rs
+    /// normalize_remote_resource_args); a local socket is not a route.
+    pub(crate) fn connect_option_refused(&self, option: &str) -> String {
+        if option == "--socket" || option.starts_with("--socket=") {
+            self.socket_not_a_route.to_owned()
+        } else {
+            self.unknown_option(option)
+        }
     }
 
     pub(crate) fn unknown_option_for_command(&self, option: &str, command: &str) -> String {
@@ -361,6 +373,7 @@ for up to two relay fallbacks
     forward_workspace_required: "forward needs --workspace-root on the daemon",
     forward_port_required: "forward needs --port",
     rpc_request_invalid: "--request is not a WorkspaceRequest JSON object",
+    socket_not_a_route: "remote commands (connect, ssh, forward, rpc) reach a ROUTE and take no --socket; for the cmux app's control socket (/tmp/cmux-debug-<tag>.sock) use --app-socket PATH with an app verb, for example `cmux --app-socket PATH app identify`",
     rpc_input_invalid: "invalid WorkspaceRequest",
     rpc_stdin_too_large: "RPC stdin line exceeds {maximum} bytes",
     rpc_stdin_invalid_utf8: "RPC stdin line is not valid UTF-8",
@@ -530,6 +543,7 @@ ID とセッション:
     forward_workspace_required: "forward にはデーモン上の --workspace-root が必要です",
     forward_port_required: "forward には --port が必要です",
     rpc_request_invalid: "--request は WorkspaceRequest JSON オブジェクトではありません",
+    socket_not_a_route: "リモートコマンド (connect、ssh、forward、rpc) は ROUTE に接続し、--socket は使えません。cmux アプリの制御ソケット (/tmp/cmux-debug-<tag>.sock) には --app-socket パス とアプリの動詞を使ってください (例: `cmux --app-socket パス app identify`)",
     rpc_input_invalid: "WorkspaceRequest が無効です",
     rpc_stdin_too_large: "RPC 標準入力の 1 行が {maximum} バイトの上限を超えています",
     rpc_stdin_invalid_utf8: "RPC 標準入力の行は有効な UTF-8 ではありません",

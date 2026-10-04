@@ -150,7 +150,15 @@ fn assert_ok_connection_id(reply: &Value, mux: &Mux) {
     assert_eq!(reply["ok"], true, "{reply}");
     let connection_id = reply["data"]["connection_id"].as_str().expect("connection_id string");
     assert_eq!(connection_id, only_client(mux).to_string());
-    assert!(reply["data"].get("nonce").is_none(), "step 1 never returns a nonce: {reply}");
+}
+
+/// P8 nonce rule: a nonce exactly when role main names an install id.
+fn assert_nonce(reply: &Value, expected: bool) {
+    let nonce = reply["data"].get("nonce").and_then(Value::as_str);
+    assert_eq!(nonce.is_some(), expected, "{reply}");
+    if let Some(nonce) = nonce {
+        assert!(nonce.len() == 64 && nonce.bytes().all(|b| b.is_ascii_hexdigit()), "{reply}");
+    }
 }
 
 #[test]
@@ -159,6 +167,7 @@ fn hello_as_first_line_returns_the_connection_id_and_fixes_the_role() {
     let mut client = Client::connect(&mux, "first");
     let reply = client.hello(json!({"role": "main"}));
     assert_ok_connection_id(&reply, &mux);
+    assert_nonce(&reply, false);
     assert_eq!(role_for_test(&mux, only_client(&mux)), "main");
 }
 
@@ -241,6 +250,7 @@ fn install_id_is_validated_in_step_one() {
     let longest = "Inst_1-".repeat(19)[..128].to_string();
     let reply = client.hello(json!({"role": "main", "install_id": longest}));
     assert_ok_connection_id(&reply, &mux);
+    assert_nonce(&reply, true);
 }
 
 #[test]

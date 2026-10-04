@@ -102,9 +102,16 @@ fn role(mux: &Mux, client: u64) -> HelloRole {
     state.clients.get(&client).map_or(HelloRole::Legacy, |record| record.origin.role)
 }
 
-/// Fixes `client`'s hello role (step 1). False when the client is gone or
-/// already has a role; nothing changes then.
-pub(super) fn set_hello(mux: &Mux, client: u64, role: HelloRole, peer_key: Option<String>) -> bool {
+/// Fixes `client`'s hello role (step 1), and `verified_app` when prover A
+/// (the app's code signature) passed for a role-main hello. False when the
+/// client is gone or already has a role; nothing changes then.
+pub(super) fn set_hello(
+    mux: &Mux,
+    client: u64,
+    role: HelloRole,
+    peer_key: Option<String>,
+    signature_proved: bool,
+) -> bool {
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(record) = state.clients.get_mut(&client) else { return false };
@@ -113,6 +120,22 @@ pub(super) fn set_hello(mux: &Mux, client: u64, role: HelloRole, peer_key: Optio
     }
     record.origin.role = role;
     record.origin.peer_key = peer_key;
+    record.origin.verified_app = role == HelloRole::Main && signature_proved;
+    true
+}
+
+/// Step 2 passed (prover B): `client`, a role-main connection, is the
+/// verified app. Its `peer_key` stays the audit-token key, so its page
+/// relay (same process, same token) still matches it. False when the client
+/// is gone or is not role main.
+pub(super) fn set_install_proved(mux: &Mux, client: u64) -> bool {
+    let mut state =
+        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let Some(record) = state.clients.get_mut(&client) else { return false };
+    if record.origin.role != HelloRole::Main {
+        return false;
+    }
+    record.origin.verified_app = true;
     true
 }
 

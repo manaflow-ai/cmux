@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "description": "Agent cursor visibility rules (plans/cmux-next/agent-cursor.md section 3; decisions CURSOR-HIDDEN, CURSOR-SHOW, CURSOR-SCREENS, 2026-10-04). Rects are overlay (layout-root, y-down) points of the window. anchor is tabChip | tabStrip | columnEdge.<leading|trailing|top|bottom> | workspaceRow | windowEdge. Replayed by Packages/macOS/CmuxNext/Tests/CmuxNextAgentCursorVisibilityTests.",
+  "description": "Agent cursor visibility rules (plans/cmux-next/agent-cursor.md section 3; decisions CURSOR-HIDDEN, CURSOR-SHOW, CURSOR-SCREENS, 2026-10-04). Rects are points in one window's content view, flipped (origin top-left, y down); the resolver is pure and works in any such space. The sidebar row is at its true position (left of the panes), never moved onto the layout's edge. anchor is tabChip | tabStrip | columnEdge.<leading|trailing|top|bottom> | workspaceRow | windowEdge. Replayed by Packages/macOS/CmuxNext/Tests/CmuxNextAgentCursorVisibilityTests.",
   "cases": [
     {
       "name": "selected_tab_visible",
@@ -2214,6 +2214,108 @@
                 "x": -240,
                 "y": 112,
                 "w": 220,
+                "h": 28
+              }
+            },
+            "panes": []
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "windowEdge",
+        "rect": {
+          "x": 0,
+          "y": 0,
+          "w": 4,
+          "h": 700
+        }
+      }
+    },
+    {
+      "name": "sidebar_row_at_true_position_in_window_space",
+      "rule": "CURSOR-HIDDEN: in window content-view space the workspace row anchor is the row itself, left of the layout (sidebar 240 pt wide), not moved onto the layout's edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1240,
+              "h": 700
+            },
+            "shownWorkspace": "ws2",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": false,
+            "sidebarRows": {
+              "ws1": {
+                "x": 8,
+                "y": 80,
+                "w": 224,
+                "h": 28
+              }
+            },
+            "panes": []
+          }
+        ]
+      },
+      "expect": {
+        "kind": "hidden",
+        "window": "w1",
+        "anchor": "workspaceRow",
+        "rect": {
+          "x": 8,
+          "y": 80,
+          "w": 224,
+          "h": 28
+        }
+      }
+    },
+    {
+      "name": "sidebar_hidden_in_window_space_uses_window_edge",
+      "rule": "CURSOR-HIDDEN: with the sidebar hidden the layout fills the window; a stale row is ignored and the indicator sits on the leading window edge",
+      "target": "tab-a",
+      "snapshot": {
+        "tab": {
+          "workspace": "ws1",
+          "pane": "p1"
+        },
+        "windows": [
+          {
+            "id": "w1",
+            "screen": "Built-in Display",
+            "minimized": false,
+            "onActiveSpace": true,
+            "overlay": {
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 700
+            },
+            "shownWorkspace": "ws2",
+            "listedWorkspaces": [
+              "ws1",
+              "ws2"
+            ],
+            "sidebarHidden": true,
+            "sidebarRows": {
+              "ws1": {
+                "x": 8,
+                "y": 80,
+                "w": 224,
                 "h": 28
               }
             },

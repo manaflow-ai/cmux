@@ -1,7 +1,8 @@
 import CmuxNextDesign
 
-extension SettingsSchema {
-    static var browser: [SettingDescriptor] {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum BrowserSettingsSchema {
+    static var descriptors: [SettingDescriptor] {
         let engine = SettingsText.keyed("settings.group.engine", "Engine")
         let memory = SettingsText.keyed("settings.group.memory", "Memory")
         let remote = SettingsText.keyed("settings.group.remote", "Remote Machines")

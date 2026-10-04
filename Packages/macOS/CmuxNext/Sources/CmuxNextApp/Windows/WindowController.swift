@@ -261,6 +261,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        // Hover cards in other windows show this window's pages (R131). The
+        // next key window is known on the next main-actor turn.
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window else { return }
+            WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
+                                              presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
+                                              cache: self.services.cache)
+        }
     }
 
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }

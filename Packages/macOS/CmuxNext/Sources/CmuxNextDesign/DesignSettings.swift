@@ -97,6 +97,8 @@ public final class DesignSettings {
     public var spacesPosition: SpacesPosition = .bottom
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
+    /// `tabs.barOrder` (R109).
+    public var tabBarOrder: TabBarOrder = .aboveToolbar
 
     public init() {}
 

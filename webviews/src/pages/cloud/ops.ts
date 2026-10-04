@@ -105,6 +105,8 @@ export const CloudErrors = {
   planRequired: "cmux.cloud.plan_required",
   quotaExceeded: "cmux.cloud.quota_exceeded",
   sizeLocked: "cmux.cloud.size_locked",
+  /** No machine image is configured for this deployment yet (dev until the image lane has one). */
+  noSnapshotConfigured: "cmux.cloud.no_snapshot_configured",
   fileOpsBusy: "cmux.cloud.file_ops_busy",
   fileTooLarge: "cmux.cloud.file_too_large",
   /** More than 4 transfers at once: nothing ran, the same action may run again later. */
@@ -140,7 +142,10 @@ export interface PlanRefusal {
   kind: "plan_required" | "quota_exceeded" | "size_locked";
   limit?: number;
   used?: number;
-  /** The plan the backend named (`cloud.plan.required` details): "See plans" checks it out. */
+  /**
+   * The plan "See plans" checks out: the error's `details.plan`, else `CloudPlan.upgrade_plan`.
+   * Absent when neither names one (null = no plan lifts the limit): the sentence shows alone.
+   */
   plan?: string;
 }
 
@@ -150,18 +155,22 @@ const PLAN_KINDS: Record<string, PlanRefusal["kind"]> = {
   [CloudErrors.sizeLocked]: "size_locked",
 };
 
-/** The plan refusal of `error`, read from its code and `details` (`{limit, used}`, `{plan}`). */
-export function planRefusal(error: unknown): PlanRefusal | undefined {
+/**
+ * The plan refusal of `error`, read from its code and `details` (`{limit, used}`, `{plan}`).
+ * `upgradePlan` is `CloudPlan.upgrade_plan`: the plan to offer when the error names none.
+ */
+export function planRefusal(error: unknown, upgradePlan?: string | null): PlanRefusal | undefined {
   const code = codeOf(error);
   const kind = typeof code === "string" ? PLAN_KINDS[code] : undefined;
   if (!kind) return undefined;
   const details = (error as { details?: unknown }).details;
   const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
+  const plan = typeof d.plan === "string" && d.plan ? d.plan : upgradePlan || undefined;
   return {
     kind,
     ...(typeof d.limit === "number" ? { limit: d.limit } : {}),
     ...(typeof d.used === "number" ? { used: d.used } : {}),
-    ...(typeof d.plan === "string" && d.plan ? { plan: d.plan } : {}),
+    ...(plan ? { plan } : {}),
   };
 }
 
@@ -286,6 +295,8 @@ export interface SnapshotResult {
 /** `CloudPlan`: limits and usage in one record (`cloud.usage.get` folded in). No plan logic here. */
 export interface CloudPlan {
   plan_id: string;
+  /** The plan that lifts this plan's limits ("See plans"); null when no plan does. */
+  upgrade_plan?: string | null;
   limits: {
     max_active: number;
     max_saved: number;

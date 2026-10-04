@@ -47,6 +47,26 @@ Global options, accepted before the scope:
 `--socket`, `--session`, `--machine` and `--app-socket` also take the
 `--flag=value` form.
 
+`--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
+`forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
+`/tmp/cmux-debug-<tag>.sock` is the app control socket: pass it with
+`--app-socket` to an app verb (`cmux --app-socket <path> app identify`).
+To call one app control method of a DEV or tagged build (for example a
+`debug.*` read), use `app call`:
+
+```text
+cmux --app-socket /tmp/cmux-debug-<tag>.sock app call debug.surfaces '{}'
+```
+
+`app call METHOD [JSON_OBJECT]` first asks the app `system.identify` and
+refuses (exit 1, `app.call_debug_only`) any app that is not a debug build
+(`com.cmuxterm.app.debug[.<tag>]`). The params are sent as given, with the
+CLI's `origin` (`cli` or `script`) over any `origin` in the JSON, so
+person-only operations stay refused. JSON that is not one object is a usage
+error (exit 2); the app's own error passes through with its code (exit 1).
+Inside a tagged app's terminal, or through `CMUX_TAG=<tag>
+scripts/cmux-debug-cli.sh`, the socket is found without `--app-socket`.
+
 Every command acts on one session. Without `--socket`, `--session` or
 `--all-sessions`, lists and bulk commands act only on the session the CLI
 finds (see [Discovery](#discovery)), so a script that lists and then closes

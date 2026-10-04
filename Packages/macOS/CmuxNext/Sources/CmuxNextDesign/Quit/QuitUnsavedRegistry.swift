@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import Foundation
+import os
 
 /// The one quit hook for unsaved state (R96). The registry holds every
 /// participant weakly; `save` runs every save concurrently, each bounded by
@@ -27,8 +28,18 @@ public final class QuitUnsavedRegistry {
         self.drafts = drafts
     }
 
+    /// Registers `participant` weakly. An id that is not
+    /// `file:<host id>:<absolute path>` (see `QuitParticipantID`) is refused:
+    /// it is logged by its shape only and the returned registration is
+    /// inactive (`isActive` false).
     @discardableResult
     public func register(_ participant: any QuitUnsavedParticipant) -> QuitUnsavedRegistration {
+        let id = participant.quitParticipantID
+        guard QuitParticipantID.isValid(id) else {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
+                .error("refused quit participant id (\(QuitParticipantID.shape(id), privacy: .public))")
+            return QuitUnsavedRegistration(onCancel: nil)
+        }
         let token = nextToken
         nextToken += 1
         entries.append(Entry(token: token, participant: participant))
@@ -103,8 +114,10 @@ public final class QuitUnsavedRegistry {
 @MainActor
 public final class QuitUnsavedRegistration {
     private var onCancel: (() -> Void)?
+    /// False after `cancel`, and for a participant the registry refused.
+    public var isActive: Bool { onCancel != nil }
 
-    init(onCancel: @escaping () -> Void) {
+    init(onCancel: (() -> Void)?) {
         self.onCancel = onCancel
     }
 

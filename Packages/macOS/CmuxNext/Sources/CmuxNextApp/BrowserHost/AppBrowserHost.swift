@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
@@ -15,6 +16,13 @@ final class AppBrowserHost {
     private let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
     private weak var services: AppServices?
+    /// Lease frames to every content's agent cursor (agent-cursor.md section 3).
+    private let cursorLeases: AgentCursorLeaseFanOut
+    private var leaseObservation: ProviderLeaseObservation?
+    /// `input {event}` frames to the owning content's agent cursor (agent-cursor.md section 2).
+    private let inputBridge: AgentCursorInputBridge
+    private var inputObservation: ProviderInputObservation?
+    private var inputLeaseObservation: ProviderLeaseObservation?
 
     init(services: AppServices, installID: String = AppBrowserHost.installID()) {
         self.services = services
@@ -27,6 +35,23 @@ final class AppBrowserHost {
         self.tabs = tabs
         self.relay = relay
         self.driver = driver
+        cursorLeases = AgentCursorLeaseFanOut(models: { [weak services] in
+            guard let services else { return [] }
+            return services.windows.controllers.flatMap { controller in
+                (controller.parked + [controller.content].compactMap { $0 }).compactMap { $0.agentCursor?.model }
+            }
+        })
+        inputBridge = AgentCursorInputBridge(
+            publisher: { [weak services, weak tabs] targetID in
+                guard let services, let workspaceID = tabs?.workspaceID(ofTab: targetID) else { return nil }
+                return Self.owner(ofWorkspace: workspaceID, in: services)?.agentCursor?.publisher
+            },
+            publishers: { [weak services] in
+                guard let services else { return [] }
+                return services.windows.controllers.flatMap { controller in
+                    (controller.parked + [controller.content].compactMap { $0 }).compactMap { $0.agentCursor?.publisher }
+                }
+            })
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
             credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs)
@@ -37,6 +62,16 @@ final class AppBrowserHost {
             driver.agentBundle = bundle
         }
         provider.onTabGone = { [driver] targetID in driver.tabClosed(BrowserTabID(rawValue: targetID)) }
+        leaseObservation = provider.observeLeases { [cursorLeases] targetID, lease in
+            cursorLeases.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
+        }
+        inputObservation = provider.observeInputs { [inputBridge] event in
+            guard let data = try? JSONSerialization.data(withJSONObject: event.foundationValue) else { return }
+            inputBridge.receive(data)
+        }
+        inputLeaseObservation = provider.observeLeases { [inputBridge] targetID, lease in
+            inputBridge.leaseChanged(target: targetID, session: lease?.session, wireState: lease?.state)
+        }
     }
 
     /// Starts the provider (idle until step c2) and feeds it a person's key
@@ -67,6 +102,13 @@ final class AppBrowserHost {
               let services, let controller = services.windows.controllers.first(where: { $0.window === window }),
               case .browserPage(_, let tab) = controller.focus.state.resolved else { return }
         provider.reportUserInput(event: event, synthetic: synthetic, targetID: tab)
+    }
+
+    /// The content that shows or parks `workspaceID`: its window's shown content first.
+    static func owner(ofWorkspace workspaceID: String, in services: AppServices) -> WorkspaceContentController? {
+        let controllers = services.windows.controllers
+        if let shown = controllers.lazy.compactMap(\.content).first(where: { $0.workspace.id == workspaceID }) { return shown }
+        return controllers.lazy.flatMap(\.parked).first { $0.workspace.id == workspaceID }
     }
 
     /// One provider per install: a random id kept in the app's defaults.

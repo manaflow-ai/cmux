@@ -5,7 +5,8 @@
 //! - `page` on every request of a connection whose `client-hello` role is
 //!   `page_relay` (a page's JS reaches the daemon only through one);
 //! - `user` only on a `verified_app` connection (role `main` and a proof;
-//!   P8 sets the proof, so no connection is verified before P8);
+//!   the proof is P8's install-key hello or the app's code signature,
+//!   server/app_trust.rs);
 //! - `app` on the in-process app supervisor router (`apps::routing`);
 //! - `agent` otherwise, including every connection without a hello.
 //!
@@ -101,10 +102,11 @@ pub struct OriginClaim {
 #[derive(Default)]
 pub(crate) struct ConnectionOrigin {
     pub(crate) role: HelloRole,
-    /// `token:<pid>.<pidversion>` of the socket peer, read at the hello;
-    /// P8 adds `install:<id>` once the install key is proven.
+    /// `token:<pid>.<pidversion>` of the socket peer, read at the hello.
+    /// The install-key proof never changes it (request-origin.md).
     pub(crate) peer_key: Option<String>,
-    /// Role main plus a proof. Always false before P8.
+    /// Role main plus a proof (P8: install-key hello on DEV builds, the
+    /// app's code signature on signed builds; server/client_hello.rs).
     pub(crate) verified_app: bool,
     /// Tokens issued for this connection as a relay (page relays only).
     confirmations: Vec<Confirmation>,
