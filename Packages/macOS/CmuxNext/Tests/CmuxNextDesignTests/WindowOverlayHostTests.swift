@@ -242,6 +242,28 @@ import Testing
         #expect(Self.owner(of: main.firstResponder) === before, "the focus the modal took comes back")
     }
 
+    /// The restored field's text got shorter while the modal showed: the
+    /// old selection is clamped to the new text (no range exception).
+    @Test func aRestoredSelectionIsClampedToShorterText() {
+        let main = makeMain()
+        defer { close(main) }
+        let field = NSTextField(frame: NSRect(x: 400, y: 10, width: 200, height: 22))
+        field.stringValue = "a long piece of text"
+        main.contentView?.addSubview(field)
+        main.makeFirstResponder(field)
+        if let editor = main.firstResponder as? NSTextView {
+            editor.selectedRanges = [NSValue(range: NSRange(location: 10, length: 8))]
+        }
+        let host = WindowOverlayHost.host(for: main)
+        let dialog = host.present(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100)), options: .dialog())
+        field.stringValue = "short"
+        dialog.dismiss()
+        let editor = main.firstResponder as? NSTextView
+        #expect(Self.owner(of: editor) === field)
+        let range = editor?.selectedRange() ?? NSRange(location: NSNotFound, length: 0)
+        #expect(NSMaxRange(range) <= 5, "the selection fits the new text")
+    }
+
     /// Dismissing a tab dialog after the person moved on to another view
     /// leaves the keyboard there.
     @Test func dismissingATabDialogKeepsFocusWhereThePersonMovedIt() {
