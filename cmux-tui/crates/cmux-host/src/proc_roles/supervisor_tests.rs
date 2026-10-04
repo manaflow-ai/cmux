@@ -209,7 +209,7 @@ fn many_status_lines_never_close_the_notify_pipe() {
         "echo READY=1 >&3\ni=0\nwhile [ $i -lt 3000 ]; do\n\
          printf 'STATUS=%0500d\\n' $i >&3\ni=$((i+1))\ndone\necho STATUS=done >&3\nexec sleep 600",
     );
-    let sup = Supervisor::start(fx.paths.clone()).unwrap();
+    let sup = Supervisor::start(fx.paths).unwrap();
     sup.apply(set(serde_json::json!({"chatty": {"program": "chatty", "ready": "notify"}})));
     let health = wait_for(&sup, "all status lines", |h| {
         h.first().is_some_and(|c| c.status_text.as_deref() == Some("done"))

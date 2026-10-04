@@ -388,7 +388,8 @@ fn failed_read_after_a_clone_signal_retries_while_running() {
     assert_eq!(m.step(obs(None, None, Some("p"))), [Action::ArmRetry(2 * RETRY_FIRST_MS)]);
     m.step(Input::RetryElapsed);
     let same = m.step(obs(Some("p"), None, Some("p")));
-    assert_eq!(same, [Action::Notify(Lifecycle::Resumed), Action::Announce]);
+    // The skipped tick's loop is armed again once the id is confirmed.
+    assert_eq!(same, [Action::ArmAnnounce, Action::Notify(Lifecycle::Resumed), Action::Announce]);
     assert!(m.step(obs(None, None, Some("p"))).is_empty(), "confirmed: no more retries");
     // A changed id after the signal binds instead of resuming.
     let signal = Observation { clone_signal: true, ..ob(None, None, Some("p")) };
