@@ -23,6 +23,8 @@ export interface PendingIntent {
   idle?: number | null;
   /** The machine id the owner answered for a create. */
   result_id?: string;
+  /** The owner answered; its next event for the machine is the echo. */
+  replied?: boolean;
 }
 
 export interface MachineRow {
@@ -37,13 +39,21 @@ export function machineTitle(machine: CloudMachine): string {
   return machine.display_name || machine.slug || machine.id;
 }
 
+const STATUSES = new Set<string>(["provisioning", "running", "failed", "paused", "destroyed", "unknown"]);
+
+/** A status the page does not know becomes `unknown`, like the Swift decoder. */
+export function normalizeMachine(machine: CloudMachine): CloudMachine {
+  return STATUSES.has(machine.status) ? machine : { ...machine, status: "unknown" };
+}
+
 /** Applies one watch event to the mirror. */
 export function applyEvent(machines: CloudMachine[], event: MachineEvent): CloudMachine[] {
   if (event.type === "removed") return machines.filter((machine) => machine.id !== event.id);
-  const index = machines.findIndex((machine) => machine.id === event.machine.id);
-  if (index < 0) return [...machines, event.machine];
+  const machine = normalizeMachine(event.machine);
+  const index = machines.findIndex((m) => m.id === machine.id);
+  if (index < 0) return [...machines, machine];
   const next = machines.slice();
-  next[index] = event.machine;
+  next[index] = machine;
   return next;
 }
 
@@ -124,17 +134,17 @@ export function moveSelection(rows: MachineRow[], selection: string | undefined,
   return real[Math.max(0, Math.min(real.length - 1, index + delta))].id;
 }
 
-export function formatMegabytes(mb: number, language: string): string {
+export function formatMegabytes(mb: number, t: (key: string) => string, language: string): string {
   const gb = mb / 1024;
   const value = new Intl.NumberFormat(language, { maximumFractionDigits: gb < 10 ? 1 : 0 }).format(gb);
-  return `${value} GB`;
+  return format(t(L.gigabytes), { value });
 }
 
 export function sizeSpec(size: MachineSize | PlanSize, t: (key: string) => string, language: string): string {
   return format(t(L.sizeSpec), {
     cpu: size.cpu ?? 0,
-    memory: formatMegabytes(size.memory_mb ?? 0, language),
-    storage: formatMegabytes(size.storage_mb ?? 0, language),
+    memory: formatMegabytes(size.memory_mb ?? 0, t, language),
+    storage: formatMegabytes(size.storage_mb ?? 0, t, language),
   });
 }
 

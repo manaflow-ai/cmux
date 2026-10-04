@@ -73,6 +73,18 @@ select {
   text-overflow: ellipsis;
 }
 
+.cloud-error-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cloud-error-detail {
+  font-size: 11px;
+  color: var(--cloud-text-2);
+  overflow-wrap: anywhere;
+}
+
 .cloud-error {
   display: flex;
   gap: 12px;

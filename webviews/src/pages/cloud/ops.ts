@@ -56,7 +56,11 @@ export const PAGE_COMMAND = "cmux.page.command";
  * (app-platform.md 15 "Confirmation"). Page JavaScript cannot prove a gesture.
  */
 export const NATIVE_ACTIONS = new Set<string>([
+  CloudOps.authSignIn,
+  CloudOps.authSignOut,
   CloudOps.machineDelete,
+  CloudOps.snapshotRestore,
+  CloudOps.publicationCreate,
   CloudOps.snapshotDelete,
   CloudOps.publicationDelete,
   CloudOps.firewallCreate,
@@ -91,6 +95,8 @@ export interface CloudMachine {
   created_at_ms?: number;
   address?: { ipv4?: string; ipv6?: string };
   size?: MachineSize;
+  // `created_at_ms` and `idle_timeout_seconds` are proposed names (Swift has `createdAt` in ms and
+  // no idle field); confirm against the C1 catalog fragment.
   /** Seconds of inactivity before the owner pauses the machine; absent = never. */
   idle_timeout_seconds?: number;
 }
@@ -198,9 +204,19 @@ export interface CloudUsage {
   storage_gb_limit?: number;
 }
 
+/**
+ * What a machine mutation answers. `revision` is the owner's list revision that holds the change;
+ * when the page already has it, the intent settles without waiting for another event.
+ */
+export interface MutationResult {
+  machine?: CloudMachine;
+  revision?: number;
+}
+
 export interface CreateMachineParams {
   name: string;
-  size: string;
+  /** Absent: the owner picks its default size. */
+  size?: string;
   snapshot_id?: string;
   idempotency_key: string;
 }

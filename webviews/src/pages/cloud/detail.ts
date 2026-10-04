@@ -90,7 +90,8 @@ export class DetailReader {
   }
 
   restoreSnapshot(machine: string, snapshot: string): Promise<void> {
-    return this.mutate(CloudOps.snapshotRestore, { machine, snapshot });
+    // Restore overwrites the machine's disk: the host confirms it natively.
+    return this.native(CloudOps.snapshotRestore, { machine, snapshot });
   }
 
   /** The new machine reaches the list through the watch stream. */
@@ -99,7 +100,8 @@ export class DetailReader {
   }
 
   createPublication(machine: string, port: number): Promise<void> {
-    return this.mutate(CloudOps.publicationCreate, { machine, port }, "publications");
+    // Publishing a port on a public host name is origin user (cloud-app.md section 2).
+    return this.native(CloudOps.publicationCreate, { machine, port }, "publications");
   }
 
   verifyPublication(publication: string): Promise<void> {
