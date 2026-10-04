@@ -71,12 +71,12 @@ fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_
 {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
-    fill(&h.chat, 1_000);
+    fill(&h.chat, 1_200);
     let view = h.chat.render_view().text;
     let marks = optchat_core::cache_marks(&view);
     assert_eq!(marks.len(), 3, "a view past 100k characters: {}", view.len());
     h.connect();
-    h.say("Ada", "where is project 7?");
+    h.say("user_local", "where is project 7?");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     // The turn names the turn preset, whose system prompt it set first.
@@ -104,11 +104,11 @@ fn a_claude_turn_puts_the_view_head_in_the_presets_system_prompt_and_one_marker_
 fn consecutive_claude_turns_send_a_byte_identical_system_prompt_while_the_view_head_holds() {
     let mut h = harness_with(settings);
     h.agents.inner.lock().unwrap().system_prompts = true;
-    fill(&h.chat, 1_000);
+    fill(&h.chat, 1_200);
     h.connect();
-    h.say("Ada", "one");
+    h.say("user_local", "one");
     h.settle();
-    h.say("Ada", "two");
+    h.say("user_local", "two");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 2);
@@ -129,10 +129,10 @@ fn consecutive_claude_turns_send_a_byte_identical_system_prompt_while_the_view_h
 #[test]
 fn without_system_prompt_support_a_claude_turn_keeps_the_old_layout_and_its_claude_md() {
     let mut h = harness_with(settings);
-    fill(&h.chat, 1_000);
+    fill(&h.chat, 1_200);
     let view = h.chat.render_view().text;
     h.connect();
-    h.say("Ada", "hello");
+    h.say("user_local", "hello");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert!(inner.prompt_sets.is_empty());
@@ -154,12 +154,12 @@ fn a_codex_turn_sends_the_view_first_and_the_messages_last_with_no_marker_and_no
         ..settings(dir)
     });
     h.agents.inner.lock().unwrap().system_prompts = true;
-    fill(&h.chat, 1_000);
+    fill(&h.chat, 1_200);
     let view = h.chat.render_view().text;
     h.connect();
-    h.say("Ada", "one");
+    h.say("user_local", "one");
     h.settle();
-    h.say("Ada", "two");
+    h.say("user_local", "two");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert!(inner.prompt_sets.is_empty(), "a codex turn sets no system prompt");
@@ -192,9 +192,9 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
         inner.system_prompts = true;
         inner.answer_error = Some(MARKER_LIMIT.into());
     }
-    fill(&h.chat, 1_000);
+    fill(&h.chat, 1_200);
     h.connect();
-    h.say("Ada", "one");
+    h.say("user_local", "one");
     h.settle();
     {
         let inner = h.agents.inner.lock().unwrap();
@@ -213,7 +213,7 @@ fn a_four_breakpoint_refusal_reruns_the_turn_without_the_marker_and_later_turns_
         "{:?}",
         lines.lock().unwrap()
     );
-    h.say("Ada", "two");
+    h.say("user_local", "two");
     h.settle();
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.prompts.len(), 3);
