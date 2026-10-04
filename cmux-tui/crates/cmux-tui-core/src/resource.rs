@@ -582,10 +582,10 @@ impl ResourceOperation {
     }
 }
 
+mod idempotency_key;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
-mod idempotency_key;
 mod scope;
 mod wire_decimal;
 mod wire_name;
