@@ -398,6 +398,28 @@ struct BrowserReplSessionTests {
         #expect(try fileManager.contentsOfDirectory(atPath: attacker).isEmpty)
     }
 
+    /// Without JavaScriptCore's execution time limit nothing could stop a
+    /// looping cell, and the session's thread would be held for good.
+    @Test("A session whose JavaScriptCore cannot stop a running script refuses to run cells")
+    func missingExecutionLimitRefusesCells() async throws {
+        let session = BrowserReplSession(
+            id: "unguarded",
+            cwd: FileManager.default.temporaryDirectory.path,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+            driver: RecordingReplDriver(),
+            executionTimeLimitSupported: false
+        )
+        defer { session.close() }
+
+        let first = await session.evaluate(code: "console.log('ran');")
+        let second = await session.evaluate(code: "console.log('ran');")
+
+        for result in [first, second] {
+            #expect(result.lines.isEmpty)
+            #expect(result.error?.contains("cannot stop a running script") == true, "\(String(describing: result.error))")
+        }
+    }
+
     @Test("The injected home directory is the one refused")
     func injectedHomeDirectoryIsRefused() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-home-\(UUID().uuidString)")
