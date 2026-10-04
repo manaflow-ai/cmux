@@ -314,3 +314,46 @@ fn an_item_a_downgraded_daemon_reopened_leaves_v2_at_the_next_upgrade() {
     assert!(ids.contains(&json!("closed_full1")), "an evicted row keeps its group");
     assert!(!ids.contains(&json!("closed_full10")), "a reopened row loses its group");
 }
+
+/// Delete Permanently and Clear Recently Closed (`closed.delete`): a group,
+/// chosen members of a group, every group, or every group closed at or
+/// after `since_ms`. A deleted group cannot be reopened.
+#[test]
+fn closed_delete_removes_groups_members_and_clears() {
+    let mux = Mux::new_for_test("closed-v2-delete", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 4);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    let group = mutate(&mux, "tab_group.create", json!({"tabs": [ids[1], ids[2]]}), "group");
+    mutate(&mux, "tab_group.close", json!({"tab_group": group["id"]}), "group-close");
+    assert!(mux.close_surface(tabs[3]).unwrap());
+    let listed = read(&mux, "closed.list", json!({}));
+    let (single, pair) = (listed[0]["id"].clone(), listed[1]["id"].clone());
+
+    let partial = mutate(&mux, "closed.delete", json!({"closed": pair, "members": [0]}), "d1");
+    assert_eq!(partial["deleted"], json!([]));
+    assert_eq!(partial["updated"], json!([pair]));
+    assert_eq!(read(&mux, "closed.list", json!({}))[1]["member_count"], 1);
+
+    let whole = mutate(&mux, "closed.delete", json!({"closed": single}), "d2");
+    assert_eq!(whole["deleted"], json!([single]));
+    let replay = send(&mux, "closed.delete", json!({"closed": single}), Some("d2")).unwrap();
+    assert_eq!(replay["replayed"], true);
+    let gone = send(&mux, "closed.reopen", json!({"closed": single}), Some("r1"));
+    assert_eq!(error_code(gone), "resource.not_found");
+
+    let future = mutate(&mux, "closed.delete", json!({"all": true, "since_ms": "99999999999999"}), "d3");
+    assert_eq!(future["deleted"], json!([]));
+    let cleared = mutate(&mux, "closed.delete", json!({"all": true}), "d4");
+    assert_eq!(cleared["deleted"], json!([pair]));
+    assert!(read(&mux, "closed.list", json!({})).as_array().unwrap().is_empty());
+
+    for (key, params) in [
+        ("bad-1", json!({})),
+        ("bad-2", json!({"all": true, "closed": pair})),
+        ("bad-3", json!({"all": true, "members": [0]})),
+        ("bad-4", json!({"closed": pair, "since_ms": "1"})),
+    ] {
+        let error = send(&mux, "closed.delete", params.clone(), Some(key));
+        assert_eq!(error_code(error), "validation.invalid", "{params}");
+    }
+}

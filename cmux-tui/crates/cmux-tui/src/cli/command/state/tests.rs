@@ -538,6 +538,22 @@ fn closed_history_scopes_to_a_window_and_reopens_groups() {
     assert!(rejects(&["closed", "list", "--limit", "0"]).contains("--limit"));
 }
 
+/// `closed <id> delete [--members]` and `closed clear [--since-ms]`.
+#[test]
+fn closed_history_deletes_and_clears() {
+    assert_eq!(sent(&["closed", "c1", "delete"]), ("closed.delete".into(), json!({"closed": "c1"})));
+    assert_eq!(
+        sent(&["closed", "c1", "delete", "--members", "1"]),
+        ("closed.delete".into(), json!({"closed": "c1", "members": [1]}))
+    );
+    assert_eq!(sent(&["closed", "clear"]), ("closed.delete".into(), json!({"all": true})));
+    assert_eq!(
+        sent(&["closed", "clear", "--since-ms", "1700000000000"]),
+        ("closed.delete".into(), json!({"all": true, "since_ms": "1700000000000"}))
+    );
+    assert!(rejects(&["closed", "clear", "--since-ms", "x"]).contains("--since-ms"));
+}
+
 #[test]
 fn every_state_mutation_takes_an_explicit_idempotency_key() {
     let args = ["room", "Work", "move", "--index", "1", "--idempotency-key", "mutation_retry"]
