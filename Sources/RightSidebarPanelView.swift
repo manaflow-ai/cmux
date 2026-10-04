@@ -87,7 +87,7 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
-    @State private var draggingModeBarMode: RightSidebarMode?
+    @State private var modeBarDrag = RightSidebarModeBarDragController()
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
@@ -251,21 +251,15 @@ struct RightSidebarPanelView: View {
                                 selectMode(mode)
                             }
                         }
-                        .onDrag {
-                            draggingModeBarMode = item.mode
-                            return RightSidebarModeDragPayload.provider(for: item.mode)
-                        }
-                        .onDrop(
-                            of: [RightSidebarModeDragPayload.dropContentType],
-                            delegate: RightSidebarModeBarDropDelegate(
-                                targetMode: item.mode,
-                                displayedModes: displayedModes,
-                                draggingMode: $draggingModeBarMode
-                            )
-                        )
+                        .modifier(RightSidebarModeBarTabDrag(
+                            mode: item.mode, displayedModes: displayedModes,
+                            barHeight: titlebarHeight, controller: modeBarDrag
+                        ))
                         .layoutValue(key: RightSidebarModeBarTabSelectedKey.self, value: item.isSelected(mode: fileExplorerState.mode))
                     }
                 }
+                .background(RightSidebarModeBarDragAnchorView(anchor: modeBarDrag.anchor))
+                .coordinateSpace(.named(RightSidebarModeBarDragController.coordinateSpace))
                 .layoutPriority(1)
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
@@ -668,63 +662,6 @@ extension NSView {
             }
             view = current.superview
         }
-        return true
-    }
-}
-
-/// Pure hover-reorder math for the mode bar, kept UI-free so unit tests cover
-/// the move without a drag session.
-enum RightSidebarModeBarReorderPolicy {
-    /// The displayed order after dragging `dragged` over `target`, or nil when
-    /// the hover changes nothing (same pill, or either mode absent).
-    static func displayedOrder(
-        moving dragged: RightSidebarMode,
-        over target: RightSidebarMode,
-        in displayed: [RightSidebarMode]
-    ) -> [RightSidebarMode]? {
-        guard dragged != target,
-              let from = displayed.firstIndex(of: dragged),
-              let to = displayed.firstIndex(of: target),
-              from != to else {
-            return nil
-        }
-        var next = displayed
-        next.remove(at: from)
-        next.insert(dragged, at: to)
-        return next
-    }
-}
-
-/// Reorders the mode bar while a pill drags across its siblings. Like the
-/// workspace-tab reorder, the order commits live on every hover step
-/// (`RightSidebarTabPreferences` is the single mutation path and its change
-/// notification re-renders the bar), so there is no separate cancel state to
-/// reconcile.
-struct RightSidebarModeBarDropDelegate: DropDelegate {
-    let targetMode: RightSidebarMode
-    let displayedModes: [RightSidebarMode]
-    @Binding var draggingMode: RightSidebarMode?
-
-    func dropEntered(info: DropInfo) {
-        guard let dragging = draggingMode,
-              let next = RightSidebarModeBarReorderPolicy.displayedOrder(
-                moving: dragging,
-                over: targetMode,
-                in: displayedModes
-              ) else {
-            return
-        }
-        withAnimation(.easeInOut(duration: 0.15)) {
-            RightSidebarTabPreferences.setDisplayedOrder(next)
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggingMode = nil
         return true
     }
 }

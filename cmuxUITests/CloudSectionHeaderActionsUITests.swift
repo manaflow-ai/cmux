@@ -34,6 +34,7 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
         super.tearDown()
     }
 
+    /// Verifies every Cloud machine creation entry point opens one shared sheet.
     func testCloudMachinesPlusOpensOneNewMachineSheetLikeCmdY() {
         let app = launchSignedInApp()
         defer { app.terminate() }
@@ -43,6 +44,16 @@ final class CloudSectionHeaderActionsUITests: XCTestCase {
 
         let tree = app.descendants(matching: .any).matching(identifier: "CloudMachinesTree").firstMatch
         XCTAssertTrue(tree.waitForExistence(timeout: 10), "Expected the Cloud tree with its section headers")
+        XCTAssertFalse(app.buttons["CloudHeaderRefreshButton"].exists)
+        XCTAssertFalse(app.buttons["CloudHeaderNewMachineButton"].exists)
+        XCTAssertFalse(
+            app.buttons["CloudMachinesActionsMenu"].exists
+                || app.menuButtons["CloudMachinesActionsMenu"].exists
+        )
+        XCTAssertFalse(
+            app.buttons["CloudMachinesAgentMenu"].exists
+                || app.menuButtons["CloudMachinesAgentMenu"].exists
+        )
         // The full-width action between the team header and tree opens the shared flow.
         let topPlus = app.buttons["CloudNewMachineButton"]
         XCTAssertTrue(topPlus.waitForExistence(timeout: 5), "Expected the right-sidebar New Cloud Machine button")

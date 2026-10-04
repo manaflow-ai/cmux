@@ -5325,7 +5325,7 @@ struct CMUXCLI {
                 return
             }
         }
-        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
+        if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks", arguments: try Self.parseHooksSetupArguments(commandArgs)); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
         if command == "hooks" {
@@ -12952,7 +12952,11 @@ struct CMUXCLI {
             workspaceName: workspaceName,
             initialCommand: initialCommand,
             windowRaw: windowRaw ?? windowOverride,
-            noFocus: !(focus ?? Self.defaultFocusForUserOpen()),
+            // `cmux ssh` is an explicit interactive navigation command. Keep
+            // its historical behavior of selecting the connected workspace
+            // unless the caller passes `--no-focus`; script/agent callers can
+            // opt out explicitly without silently leaving the new pane behind.
+            noFocus: focus == false,
             sshOptions: agentForwarding.sshOptions,
             remoteCommand: remoteCommand,
             terminalTransport: terminalTransport,
@@ -28950,10 +28954,8 @@ struct CMUXCLI {
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
                 // Claude sets stop_hook_active on a re-entry after a Stop hook
                 // blocked once. That flag describes hook recursion, not pending
-                // work: it must not mark the turn pending, but it does keep the
-                // sidebar pill in Running. Only authoritative background-work
-                // signals mark the turn pending and show Waiting.
-                let isReentrantStop = parsedInput.rawObject?["stop_hook_active"] as? Bool == true
+                // work: it must not mark the turn pending. Only authoritative
+                // background-work signals keep the turn out of Idle.
                 let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
@@ -29022,8 +29024,8 @@ struct CMUXCLI {
                     //
                     // A background task or cron is a deterministic wakeup the pane
                     // is parked on, which reads as Waiting. A re-entrant Stop
-                    // (`stop_hook_active`) keeps the pill on Running separately
-                    // because it does not represent pending background work.
+                    // (`stop_hook_active`) does not change this decision because
+                    // it is not pending background work.
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
@@ -29032,16 +29034,6 @@ struct CMUXCLI {
                         icon: "hourglass",
                         color: "#8E8E93",
                         workState: .waiting
-                    )
-                } else if isReentrantStop {
-                    try? setClaudeStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                        icon: "bolt.fill",
-                        color: "#4C8DFF",
-                        workState: .running
                     )
                 } else {
                     try? setClaudeStatus(
@@ -31833,7 +31825,7 @@ struct CMUXCLI {
         // the owner process for the child rollout and publish the child hook
         // binding. Without this, the first fork may render, but a fork of that
         // child has no durable parent association to discover.
-        monitorArgs += Self.codexForkMonitorArguments(environment: env)
+        monitorArgs += CodexForkMonitorArguments().make(environment: env)
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
         }
@@ -31860,10 +31852,6 @@ struct CMUXCLI {
         } catch {
             telemetry.captureError(stage: "codex-monitor-start", error: error, data: monitorTelemetry)
         }
-    }
-
-    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
-        CodexForkMonitorArguments().make(environment: environment)
     }
 
     /// Watches the Codex rollout until the turn settles.
@@ -42243,14 +42231,14 @@ export default {
         case "setup":
             try runSetupHooks(
                 uninstall: false,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                arguments: try Self.parseHooksSetupArguments(Array(commandArgs.dropFirst()))
             )
             return true
 
         case "uninstall":
             try runSetupHooks(
                 uninstall: true,
-                positionalAgentFilter: try Self.hooksSetupPositionalAgentFilter(from: Array(commandArgs.dropFirst()))
+                arguments: try Self.parseHooksSetupArguments(Array(commandArgs.dropFirst()))
             )
             return true
 
@@ -42430,34 +42418,71 @@ export default {
         }
     }
 
-    private static func hooksSetupPositionalAgentFilter(from args: [String]) throws -> String? {
-        var skipNext = false
+    /// The target and mode `cmux hooks setup`/`uninstall` (and the legacy
+    /// `setup-hooks`/`uninstall-hooks`) were asked for.
+    private struct HooksSetupArguments {
+        var flagAgent: String?
         var positionalAgent: String?
-        for arg in args {
-            if skipNext {
-                skipNext = false
-                continue
+        var uninstall = false
+    }
+
+    /// Parses setup/uninstall arguments, rejecting anything it doesn't know
+    /// so a typo can't fall back to every agent.
+    private static func parseHooksSetupArguments(_ args: [String]) throws -> HooksSetupArguments {
+        var parsed = HooksSetupArguments()
+        func setFlagAgent(_ value: String) throws {
+            guard !value.isEmpty, !value.hasPrefix("-") else {
+                throw CLIError(message: String(
+                    localized: "cli.hooks.setup.error.agentRequiresValue",
+                    defaultValue: "--agent requires a value. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+                ))
             }
+            if let existing = parsed.flagAgent, existing != value {
+                throw CLIError(message: String(
+                    localized: "cli.hooks.setup.error.conflictingAgent",
+                    defaultValue: "--agent was given more than once with different values. Specify one agent."
+                ))
+            }
+            parsed.flagAgent = value
+        }
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
             switch arg {
             case "--agent":
-                skipNext = true
-            case "--yes", "-y", "--uninstall":
+                try setFlagAgent(index < args.count ? args[index] : "")
+                index += 1
+            case "--yes", "-y":
                 continue
+            case "--uninstall":
+                parsed.uninstall = true
             default:
-                if !arg.hasPrefix("-") {
-                    if positionalAgent != nil {
+                if arg.hasPrefix("--agent=") {
+                    try setFlagAgent(String(arg.dropFirst("--agent=".count)))
+                } else if arg.hasPrefix("-") {
+                    let name = arg.split(separator: "=", maxSplits: 1).first.map(String.init) ?? arg
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.hooks.setup.error.unknownOption",
+                            defaultValue: "Unknown option %@. Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]"
+                        ),
+                        name
+                    ))
+                } else {
+                    if parsed.positionalAgent != nil {
                         throw CLIError(message: "Too many hooks targets: specify at most one positional agent")
                     }
-                    positionalAgent = arg
+                    parsed.positionalAgent = arg
                 }
             }
         }
-        return positionalAgent
+        return parsed
     }
 
-    private func runSetupHooks(uninstall: Bool = false, positionalAgentFilter: String? = nil) throws {
-        let args = ProcessInfo.processInfo.arguments
-        let flagAgentFilter = optionValue(args, name: "--agent")
+    private func runSetupHooks(uninstall: Bool = false, arguments: HooksSetupArguments) throws {
+        let flagAgentFilter = arguments.flagAgent
+        let positionalAgentFilter = arguments.positionalAgent
         if let flagAgentFilter, let positionalAgentFilter {
             guard let flagDef = Self.agentDef(named: flagAgentFilter) else {
                 throw CLIError(message: "Unknown hooks target: \(flagAgentFilter)")
@@ -42479,7 +42504,7 @@ export default {
         } else {
             agentFilterDef = nil
         }
-        let isUninstall = uninstall || args.contains("--uninstall")
+        let isUninstall = uninstall || arguments.uninstall
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
