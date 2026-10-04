@@ -206,18 +206,6 @@ fn local(answer: &Value) -> SocketAddr {
     SocketAddr::from((Ipv4Addr::LOCALHOST, port))
 }
 
-/// Whether `addr` refuses connections before `WAIT` ends (a closed listener).
-fn refuses_within(addr: SocketAddr) -> bool {
-    let deadline = Instant::now() + WAIT;
-    while Instant::now() < deadline {
-        if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_err() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    false
-}
-
 #[test]
 fn a_link_exit_reaches_the_host_with_no_op_after_it() {
     let mut host = Host::start(FIXTURES);
@@ -245,9 +233,19 @@ fn a_forward_on_a_dead_link_closes_with_no_op_after_the_death() {
     TcpStream::connect(addr).expect("the forward listens while the link is up");
 
     host.spawner.exit("vm-alpha01", 1);
-    assert!(refuses_within(addr), "the listener of a dead link must close with no op");
-    let lines = host.lines_within(Duration::from_millis(500));
-    let down = lines.iter().find(|l| port_changed(l)).unwrap_or_else(|| panic!("{lines:?}"));
+    // The loop closes the listener (and joins its accept thread) before it
+    // sends the line, so one connect after the line is a deterministic check.
+    let mut lines = Vec::new();
+    let down = loop {
+        let line = host.next().unwrap_or_else(|| {
+            panic!("no cloud.port.changed line arrived with no op after the death: {lines:?}")
+        });
+        if port_changed(&line) {
+            break line;
+        }
+        lines.push(line);
+    };
+    assert!(TcpStream::connect(addr).is_err(), "the listener of a dead link is closed");
     assert_eq!(down["machine"], "vm-alpha01");
     assert_eq!(down["port"], 3000);
     assert_eq!(down["localPort"], forward["localPort"]);
