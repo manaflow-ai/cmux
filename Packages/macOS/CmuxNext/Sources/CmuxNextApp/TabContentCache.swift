@@ -372,7 +372,7 @@ final class TabContentCache {
             return image
         }
         if let entry = browsers[key], let image = try? await entry.tab.snapshot() {
-            return image
+            return await TabPreviewFitting.fit(image, maxPixelSize)
         }
         return previews.image(for: key)
     }
