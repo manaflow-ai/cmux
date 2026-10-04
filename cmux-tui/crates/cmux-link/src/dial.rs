@@ -148,7 +148,7 @@ pub enum CloudEvent {
 /// The first line on an overlay link stream: `{"service":"daemon"}` to a
 /// paired peer, `{"service":...,"link_token":...,"epoch":...}` to a Cloud
 /// host (the host checks the token before it serves anything).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceHello {
     pub service: Service,
@@ -156,6 +156,17 @@ pub struct ServiceHello {
     pub link_token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub epoch: Option<u64>,
+}
+
+impl std::fmt::Debug for ServiceHello {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ServiceHello")
+            .field("service", &self.service)
+            .field("has_link_token", &self.link_token.is_some())
+            .field("epoch", &self.epoch)
+            .finish()
+    }
 }
 
 impl ServiceHello {
@@ -209,11 +220,8 @@ mod tests {
             "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\"}\n"
         );
         assert_eq!(line(&ServiceHello::paired(Service::Daemon)), "{\"service\":\"daemon\"}\n");
-        let cloud = ServiceHello {
-            service: Service::Ssh,
-            link_token: Some("tok".into()),
-            epoch: Some(3),
-        };
+        let cloud =
+            ServiceHello { service: Service::Ssh, link_token: Some("tok".into()), epoch: Some(3) };
         assert_eq!(line(&cloud), "{\"service\":\"ssh\",\"link_token\":\"tok\",\"epoch\":3}\n");
         assert_eq!(
             line(&DialReply::failed(DialError::HostPaused)),

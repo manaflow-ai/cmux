@@ -8,16 +8,18 @@ use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
 use cmux_link::LINK_PORT;
+use cmux_link::connect_info::{ConnectInfo, is_cloud_host};
 #[cfg(test)]
 use cmux_link::dial::MAX_LINE_BYTES;
-use cmux_link::connect_info::{ConnectInfo, is_cloud_host};
-use cmux_link::dial::{DialError, DialReply, PathState, Service, ServiceHello, line, parse_request};
+use cmux_link::dial::{
+    DialError, DialReply, PathState, Service, ServiceHello, line, parse_request,
+};
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
+use super::cloud::{CloudResolver, ConnectInfoSource, serve_cloud_dial};
 #[cfg(test)]
 use super::lines::read_line;
-use super::cloud::{CloudResolver, ConnectInfoSource, serve_cloud_dial};
 
 /// How long an overlay connect may take before the dial reports
 /// `unreachable` (direct path only: a peer on the same network answers in

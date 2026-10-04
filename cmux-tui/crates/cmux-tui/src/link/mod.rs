@@ -14,6 +14,7 @@ mod inbound;
 mod launchd;
 mod lines;
 mod mesh;
+mod mesh_cloud;
 mod state;
 
 #[cfg(test)]
@@ -41,7 +42,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use self::control::{Peers, serve_local, serve_overlay};
 use self::dial::Overlay as _;
 use self::mesh::MeshOverlay;
-use self::state::{DIRECT_MTU, LinkConfig, LinkState};
+use self::state::{LINK_MTU, LinkConfig, LinkState};
 use crate::localization::catalog;
 
 /// Start the session daemon's remote entry next to `session_socket` when
@@ -253,15 +254,16 @@ async fn serve(state: LinkState, session_socket: Option<PathBuf>) -> anyhow::Res
             .await
             .with_context(|| format!("bind UDP port {}", config.port))?;
     let own = overlay_address(&config.install);
+    let private_key = state.private_key()?;
     let mesh = WgMesh::start(
         WgMeshConfig {
-            private_key: state.private_key()?,
+            private_key: private_key.clone(),
             addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
-            mtu: DIRECT_MTU,
+            mtu: LINK_MTU,
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh));
+    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
     // Cloud host ids resolve through the host credential relay, which is
     // not served yet: Cloud dials report `unreachable` until it ships.
     let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
