@@ -731,3 +731,27 @@ impl State {
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
+
+/// Block until process `pid` (a child of this process) has exited. Call it
+/// off the async runtime.
+fn wait_exit_unreaped(pid: i32) {
+    let mut status = 0;
+    // SAFETY: waits on this process's own child.
+    unsafe { libc::waitpid(pid, &mut status, 0) };
+}
+
+#[cfg(test)]
+mod tests {
+    /// The leader is waited for without being reaped: while it is a zombie
+    /// its process group id cannot be reused, so ending the group then can
+    /// never signal another process group.
+    #[test]
+    fn waiting_for_the_leader_leaves_it_unreaped() {
+        let mut child = std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
+        let pid = child.id() as i32;
+        super::wait_exit_unreaped(pid);
+        // SAFETY: signal 0 to this test's own child only checks existence.
+        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
+        assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
+    }
+}
