@@ -63,6 +63,11 @@ export const PAGES = {
     out: "webviews/src/pages/history/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextHistory/Resources/Localizable.xcstrings` }],
   },
+  // Cloud has no Swift page, so its table lives next to the page.
+  cloud: {
+    out: "webviews/src/pages/cloud/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/cloud/Localizable.xcstrings" }],
+  },
 };
 
 export function generate(page) {
