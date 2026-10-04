@@ -4,9 +4,11 @@ import type { CloudMachine, CloudPlan } from "@cmux/protocol"
  * Plan limits for CloudDO (state-placement.md 5.7, contract 1.5).
  *
  * STUB: the backend has no Cloud entitlement yet (the billing webhook path, Stripe -> MySQL billing
- * tables -> op to the owner, is not built). Until it lands, every team outside production gets
- * STUB_PLAN, and production gets no plan, so production answers cloud.plan.required and never
- * calls the provider for free. Replace `planFor` with the entitlement read when billing lands.
+ * tables -> op to the owner, is not built). Until it lands, STUB_PLAN exists only in the stub
+ * environments (development, staging, test) and only for teams on CLOUD_ALLOWED_TEAMS; every other
+ * team, every other environment (production, local, previews, anything unknown) gets no plan, so
+ * create answers cloud.plan.required and no provider VM is made for free. Replace `planFor` with
+ * the entitlement read when billing lands.
  */
 export interface PlanLimits {
   readonly plan_id: string
@@ -28,8 +30,9 @@ export const STUB_PLAN: PlanLimits = {
 
 /** What CloudDO's reducer needs from the deployment. Fixed per object instance, so the reducer stays pure. */
 export interface CloudConfig {
-  /** null: no plan (production until billing lands). */
-  readonly plan: PlanLimits | null
+  readonly environment: string
+  /** CLOUD_ALLOWED_TEAMS: the only teams with the stub plan and provider calls; empty = nobody. */
+  readonly allowedTeams: ReadonlySet<string>
   /** This environment's provider name prefix (cmuxnp-dev-, cmuxnp-stg-, cmuxnp-prod-); null = no provider. */
   readonly prefix: string | null
   /** The image every machine boots from; null = no provider, or no usable snapshot (see imageProblem). */
@@ -38,7 +41,16 @@ export interface CloudConfig {
   readonly imageProblem?: "missing" | "foreign"
 }
 
-export const planFor = (environment: string): PlanLimits | null => (environment === "production" ? null : STUB_PLAN)
+/** Environments where the stub plan may apply, as an explicit list (never "not production"). */
+export const STUB_PLAN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development", "staging", "test"])
+
+export const planFor = (environment: string, team: string | null | undefined, allowed: ReadonlySet<string>): PlanLimits | null =>
+  STUB_PLAN_ENVIRONMENTS.has(environment) && team !== null && team !== undefined && allowed.has(team) ? STUB_PLAN : null
+
+export const teamPlan = (config: CloudConfig, team: string | null | undefined) => planFor(config.environment, team, config.allowedTeams)
+
+/** CLOUD_ALLOWED_TEAMS: comma-separated team ids; blanks dropped; unset or empty = nobody. */
+export const parseAllowedTeams = (raw: string | undefined): ReadonlySet<string> => new Set((raw ?? "").split(",").map((t) => t.trim()).filter((t) => t.length > 0))
 
 export const DEFAULT_SIZE = { cpu: 2, disk_mb: 16384 } as const
 export const DEFAULT_IDLE_SECONDS = 1800

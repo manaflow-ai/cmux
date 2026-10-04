@@ -4,7 +4,7 @@ import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError } from "./team-vm-driver.ts"
 import { cloudConfig, cloudDriver } from "./cloud-driver.ts"
-import { planView, type CloudConfig } from "./domains/cloud-plan.ts"
+import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
 import {
   CLOUD_PRIVATE_TABLES,
@@ -90,7 +90,7 @@ export class CloudDO extends OwnerDO<CloudState> {
         return { ok: true, value: publicMachine(row.row), revision: "" }
       }
       case "cloud.plan.get":
-        return { ok: true, value: planView(this.config.plan, state, Date.now()), revision: "" }
+        return { ok: true, value: planView(teamPlan(this.config, state.team ?? principal.team), state, Date.now()), revision: "" }
       default:
         return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     }
@@ -176,6 +176,8 @@ export class CloudDO extends OwnerDO<CloudState> {
       const driver = cloudDriver(this.env, this.sqlStore)
       let result: { key: string; ok: boolean; provider_id?: string; error?: { code: string; message: string }; final?: boolean }
       if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
+      // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
+      else if (row.op === "create" && !teamPlan(this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       else {
         try {
           if (row.op === "create") result = { key: row.key, ok: true, provider_id: (await driver.ensure(row.provider_name, tag)).id }
