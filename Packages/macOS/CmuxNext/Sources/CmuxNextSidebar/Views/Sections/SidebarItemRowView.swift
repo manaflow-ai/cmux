@@ -27,6 +27,12 @@ final class SidebarItemRowView: NSView {
     /// and unread items as a dot on the glyph (the Codex rail).
     var isRailButton = false
     var onPress: (() -> Void)?
+    /// The trailing control was pressed (`SidebarItemInfo.accessory`).
+    var onAccessory: (() -> Void)?
+    /// The accessory draws (tests).
+    var isAccessoryShown: Bool { false }
+    /// The accessory's frame while it draws (tests).
+    var accessoryFrame: CGRect? { nil }
     /// Modifier-aware activation for controls whose action has a one-shot
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
@@ -222,6 +228,11 @@ final class SidebarItemRowView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         guard let onContextMenu else { return super.rightMouseDown(with: event) }
         onContextMenu(event, self)
+    }
+
+    /// A press at `point` (this view's coordinates), as a click there (tests).
+    func press(at point: NSPoint) {
+        onPress?()
     }
 
     override func accessibilityPerformPress() -> Bool {

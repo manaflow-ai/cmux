@@ -51,6 +51,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Run an item of a sticky section (a built-in's action, a pinned
     /// workspace). plans/cmux-next/sidebar-sections.md
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
+    /// Run an item's trailing control (`SidebarItemInfo.accessory`).
+    case activateItemAccessory(LayoutItemID)
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Collapse or expand a titled section (client view state).

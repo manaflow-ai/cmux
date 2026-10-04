@@ -90,7 +90,8 @@ extension SidebarBridge {
     /// Notifications carries `unread`.
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          homeShown: Bool = false, unread: Int = 0,
-                         app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) }) -> [LayoutItemID: SidebarItemInfo] {
+                         app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
+                         updateAvailable: Bool = false) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {

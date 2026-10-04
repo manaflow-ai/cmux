@@ -1,6 +1,12 @@
 public import CmuxNextDesign
 import Foundation
 
+/// A small control on an item's trailing edge with its own action.
+public nonisolated enum SidebarItemAccessory: Hashable, Sendable {
+    /// An app update is available: a click opens the updater (on Settings).
+    case update
+}
+
 /// How a layout item draws. The sidebar knows built-ins; the App resolves
 /// workspace, tab, room and other references (`SidebarModel.itemInfo`).
 public nonisolated struct SidebarItemInfo: Hashable, Sendable {
@@ -17,6 +23,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isMissing: Bool
     /// Not drawn at all (a hidden app, D55); the item stays in the layout.
     public var isHidden: Bool
+    /// The trailing control (`SidebarIntent.activateItemAccessory`).
+    public var accessory: SidebarItemAccessory?
 
     public init(title: String, symbol: String, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false, isMissing: Bool = false,
                 isHidden: Bool = false) {
