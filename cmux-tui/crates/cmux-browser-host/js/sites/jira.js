@@ -6,6 +6,7 @@
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
   const { URL } = root.CmuxBrowserRepl.core;
+  const T = root.CmuxBrowserRepl.agentTools;
 
   async function rest(arg) {
     const out = [];
@@ -70,6 +71,76 @@
         if (!/\.atlassian\.net$/.test(u.hostname)) throw new S.SiteError("invalid", `${name}: site must be an *.atlassian.net site, got ${site}`);
         return { origin: u.origin, key: issueKey };
       }
+      const HOME = "https://home.atlassian.com";
+      // Why the session's domain policy blocks home.atlassian.com, or null.
+      function homeBlocked() {
+        try {
+          if (typeof t.host.policy === "function") return t.host.policy("check", { url: HOME + "/" }) || null;
+          // cmux-next until the native ABI slice (S0b): the host has no URL
+          // check op, so the reason comes from its patterns. An early error
+          // only; the host still enforces the policy on every request.
+          const p = t.host.policyGet();
+          const hits = (list) => (list || []).find((raw) => T.urlMatches(HOME + "/", T.parsePattern(raw, "jira"), false));
+          if (p.allowed && !hits(p.allowed)) return `not in session.allowedDomains (${p.allowed.join(", ")})`;
+          const hit = hits(p.prohibited);
+          return hit ? `prohibited by ${hit} (session.prohibitedDomains)` : null;
+        } catch (e) {
+          return null;
+        }
+      }
+      // Jira Cloud sites of the signed-in Atlassian account, from
+      // Atlassian's own site list (home.atlassian.com): [{ url, name, products }].
+      async function listSites(name = "jira.sites") {
+        const blocked = homeBlocked();
+        if (blocked) throw new S.SiteError("blocked", `${name}: the account's site list is on ${HOME}, which the domain policy blocks (${blocked}); add "${HOME}" to session.allowedDomains, or pass { site } to the other jira tools, which then check the site on its own origin`);
+        const r = await t.inOrigin(HOME, async () => {
+          const res = await fetch("/gateway/api/available-sites", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ products: ["jira-software.ondemand", "jira-core.ondemand", "jira-servicedesk.ondemand", "jira-product-discovery"] }) });
+          let json = null;
+          try {
+            json = await res.json();
+          } catch (e) {}
+          return { status: res.status, json };
+        });
+        if (r.status === 401 || r.status === 403) throw new S.SiteError("not_signed_in", `${name}: the cmux browser is not signed in to Atlassian; open https://home.atlassian.com with tabs.open() and ask the user to sign in`);
+        if (r.status !== 200 || !r.json) throw new S.SiteError("http", `${name}: HTTP ${r.status}`);
+        return (r.json.sites || [])
+          .map((x) => ({ url: x.url, name: x.displayName || x.name || null, products: x.products || x.availableProducts || [] }))
+          .filter((x) => /^https:\/\/[\w-]+\.atlassian\.net\/?$/.test(x.url || "") && JSON.stringify(x.products).includes("jira"));
+      }
+      // Calls go only to an exact origin from the account's own site list
+      // (any *.atlassian.net tenant can be created by anyone). The list is
+      // kept for the session and read again once when an origin is missing.
+      let known = null;
+      // Sites checked on their own origin while home.atlassian.com is blocked.
+      const verified = new Set();
+      // The signed-in account can use `origin` when its Jira API answers
+      // /myself with an account there (anonymous access gets 401).
+      async function verifyOnTenant(tgt, name, blocked) {
+        if (verified.has(tgt.origin)) return tgt;
+        const allow = `; ${HOME}, where cmux reads the account's site list, is blocked by the domain policy (${blocked}), so the site was checked on its own origin. Add "${HOME}" to session.allowedDomains to check it against the account's site list`;
+        let r = null;
+        try {
+          [r] = await t.inOrigin(tgt.origin, rest, { paths: ["/rest/api/3/myself"] });
+        } catch (e) {
+          throw new S.SiteError("invalid", `${name}: ${tgt.origin} is not a Jira site the signed-in account can use (${(e && e.message) || e})${allow}`);
+        }
+        if (r.status === 401) throw new S.SiteError("not_signed_in", `${name}: the cmux browser is not signed in to ${tgt.origin}; open it with tabs.open() and ask the user to sign in${allow}`);
+        if (r.status !== 200 || !r.json || !r.json.accountId) {
+          throw new S.SiteError("invalid", `${name}: ${tgt.origin} is not a Jira site the signed-in account can use (HTTP ${r.status} from /rest/api/3/myself)${allow}`);
+        }
+        verified.add(tgt.origin);
+        return tgt;
+      }
+      async function site(input, options, name) {
+        const tgt = target(input, options, name);
+        const blocked = homeBlocked();
+        if (blocked) return verifyOnTenant(tgt, name, blocked);
+        for (const fresh of known ? [false, true] : [true]) {
+          if (fresh) known = (await listSites(name)).map((x) => new URL(x.url).origin);
+          if (known.includes(tgt.origin)) return tgt;
+        }
+        throw new S.SiteError("invalid", `${name}: ${tgt.origin} is not a Jira site of the signed-in Atlassian account; its sites: ${known.join(", ") || "none"}`);
+      }
       async function get(origin, paths, name) {
         const rs = await t.inOrigin(origin, rest, { paths });
         for (const r of rs) {
@@ -87,7 +158,7 @@
       return {
         // { key, url, summary, status, ..., description (Markdown), comments: [{ author, created, body }] }
         async issue(input, options = {}) {
-          const { origin, key } = target(input, options, "jira.issue");
+          const { origin, key } = await site(input, options, "jira.issue");
           if (!key) throw new S.SiteError("invalid", "jira.issue: expected an issue key such as ABC-123 or an issue URL");
           const [i] = await get(origin, [`/rest/api/3/issue/${key}?fields=${FIELDS},description,comment`], "jira.issue");
           const f = i.fields || {};
@@ -95,7 +166,7 @@
         },
         // JQL search: [{ key, url, summary, status, ... }].
         async search(jql, options = {}) {
-          const { origin } = target("", options, "jira.search");
+          const { origin } = await site("", options, "jira.search");
           const q = `jql=${encodeURIComponent(jql)}&maxResults=${options.limit || 50}&fields=${FIELDS}`;
           let r;
           try {
@@ -109,23 +180,13 @@
         // Jira Cloud sites of the signed-in Atlassian account, from
         // Atlassian's own site list (home.atlassian.com): [{ url, name, products }].
         async sites() {
-          const r = await t.inOrigin("https://home.atlassian.com", async () => {
-            const res = await fetch("/gateway/api/available-sites", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ products: ["jira-software.ondemand", "jira-core.ondemand", "jira-servicedesk.ondemand", "jira-product-discovery"] }) });
-            let json = null;
-            try {
-              json = await res.json();
-            } catch (e) {}
-            return { status: res.status, json };
-          });
-          if (r.status === 401 || r.status === 403) throw new S.SiteError("not_signed_in", "jira.sites: the cmux browser is not signed in to Atlassian; open https://home.atlassian.com with tabs.open() and ask the user to sign in");
-          if (r.status !== 200 || !r.json) throw new S.SiteError("http", `jira.sites: HTTP ${r.status}`);
-          return (r.json.sites || [])
-            .map((x) => ({ url: x.url, name: x.displayName || x.name || null, products: x.products || x.availableProducts || [] }))
-            .filter((x) => /^https:\/\/[\w-]+\.atlassian\.net\/?$/.test(x.url || "") && JSON.stringify(x.products).includes("jira"));
+          const list = await listSites();
+          known = list.map((x) => new URL(x.url).origin);
+          return list;
         },
         // The signed-in user: { accountId, displayName, email }.
         async me(options = {}) {
-          const { origin } = target("", options, "jira.me");
+          const { origin } = await site("", options, "jira.me");
           const [u] = await get(origin, ["/rest/api/3/myself"], "jira.me");
           return { accountId: u.accountId, displayName: u.displayName, email: u.emailAddress || null };
         },

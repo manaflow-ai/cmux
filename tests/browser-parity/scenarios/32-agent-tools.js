@@ -124,7 +124,12 @@ await keyField.evaluate((e) => e.blur());
 const shotText = (await keyField.screenshot()).toString("base64");
 secrets.set("decoy", "xx-xxxx-xxxx", { domains: ["localhost"] });
 const shotDecoy = (await keyField.screenshot()).toString("base64");
+// Two captures at once: the one that ends first must not unmask the other's
+// field, and the field is unmasked once both end.
+const [shotA, shotB] = await Promise.all([keyField.screenshot(), keyField.screenshot()]);
+const concurrentMasked = shotA.toString("base64") === shotDecoy && shotB.toString("base64") === shotDecoy;
 secrets.delete("decoy");
 const shotAfter = (await keyField.screenshot()).toString("base64");
 emitCmux("secret-screenshot", { maskedLikeAnySecret: shotSecret === shotDecoy, textHidden: shotSecret !== shotText, restored: shotAfter === shotText });
+emitCmux("secret-screenshot-concurrent", { masked: concurrentMasked, restored: shotAfter === shotText });
 emitCmux("secret-needs-domains", (() => { try { secrets.set("x", "y"); } catch (e) { return e.message; } })());
