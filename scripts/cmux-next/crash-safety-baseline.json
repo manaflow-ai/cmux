@@ -53,7 +53,7 @@
    "cmux-remote": 51,
    "cmux-remote-protocol": 2,
    "cmux-terminal-client": 27,
-   "cmux-tui": 461,
+   "cmux-tui": 457,
    "cmux-tui-cdp": 30,
    "cmux-tui-core": 1680,
    "cmux-wg": 13,
