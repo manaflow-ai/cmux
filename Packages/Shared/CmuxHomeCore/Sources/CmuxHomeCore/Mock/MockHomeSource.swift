@@ -1,4 +1,5 @@
 public import Foundation
+import UniformTypeIdentifiers
 
 /// An in-memory owner for Home, used until the messaging backend lands and in
 /// tests, previews and demos. It behaves like a real owner: it assigns seqs and
@@ -39,6 +40,17 @@ public actor MockHomeSource: HomeSource {
     private var people: [ParticipantID: Participant] = [:]
     private var members: [ContactAddress: ParticipantID] = [:]
     private var nextID = 1
+    /// The blob store: bytes by content hash, with their mime type.
+    private var blobs: [String: (data: Data, mimeType: String)] = [:]
+    private var uploadsPaused = false
+    private var pausedUploads: [CheckedContinuation<Void, Never>] = []
+    private var failingUploads: Set<String> = []
+    /// Every upload call, by hash, in call order (for tests).
+    public private(set) var uploadCalls: [String] = []
+    /// Where `fetch` writes files (one directory per source instance).
+    private let fetchDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("cmux-home-mock-blobs", isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
 
     public let me: Participant
     public let chief: Participant
@@ -137,7 +149,85 @@ public actor MockHomeSource: HomeSource {
         return .invitable(contact)
     }
 
+    /// Stores the bytes under their hash (verified) and reports progress in
+    /// four steps: 0.25 and 0.5, a pause while `setUploadsPaused(true)`, then
+    /// 0.75 and 1.
+    public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        uploadCalls.append(file.ref.hash)
+        if options.latency > .zero { try? await clock.sleep(for: options.latency) }
+        guard online else { throw HomeRejection.ownerUnreachable }
+        file.progress(0.25)
+        file.progress(0.5)
+        if uploadsPaused { await withCheckedContinuation { pausedUploads.append($0) } }
+        if failingUploads.remove(file.ref.hash) != nil { throw HomeRejection.ownerUnreachable }
+        if blobs[file.ref.hash] == nil {
+            let data = try Data(contentsOf: file.fileURL)
+            guard AttachmentMedia.sha256(of: data) == file.ref.hash else { throw HomeRejection.invalid("hash_mismatch") }
+            blobs[file.ref.hash] = (data, file.ref.mimeType)
+        }
+        if let posterURL = file.posterURL, let posterHash = file.ref.posterHash, blobs[posterHash] == nil {
+            let poster = try Data(contentsOf: posterURL)
+            guard AttachmentMedia.sha256(of: poster) == posterHash else { throw HomeRejection.invalid("hash_mismatch") }
+            blobs[posterHash] = (poster, "image/jpeg")
+        }
+        file.progress(0.75)
+        file.progress(1)
+        return file.ref
+    }
+
+    /// Writes the blob (or a JPEG thumbnail of it, or of the video's poster)
+    /// to a file named by hash and variant. Atomic writes, so a cancelled
+    /// fetch leaves nothing partial; a second fetch returns the same file.
+    public func fetch(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL {
+        guard let blob = blobs[ref.hash] else { throw HomeRejection.invalid("unknown_blob") }
+        try FileManager.default.createDirectory(at: fetchDirectory, withIntermediateDirectories: true)
+        switch variant {
+        case .original:
+            let ext = UTType(mimeType: blob.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let target = fetchDirectory.appendingPathComponent("\(ref.hash)-original\(ext)")
+            if FileManager.default.fileExists(atPath: target.path) { return target }
+            try Task.checkCancellation()
+            try blob.data.write(to: target, options: .atomic)
+            return target
+        case .thumbnail(let maxPixel):
+            let target = fetchDirectory.appendingPathComponent("\(ref.hash)-thumb-\(maxPixel).jpg")
+            if FileManager.default.fileExists(atPath: target.path) { return target }
+            let imageHash: String
+            if UTType(mimeType: blob.mimeType)?.conforms(to: .image) == true {
+                imageHash = ref.hash
+            } else if let poster = ref.posterHash, blobs[poster] != nil {
+                imageHash = poster
+            } else {
+                throw HomeRejection.invalid("no_thumbnail")
+            }
+            let original = try await fetch(AttachmentRef(hash: imageHash, name: "", mimeType: blobs[imageHash]?.mimeType ?? "image/jpeg",
+                                                         byteCount: 0), variant: .original)
+            let data = try AttachmentMedia.thumbnailJPEG(of: original, maxPixel: maxPixel)
+            try Task.checkCancellation()
+            try data.write(to: target, options: .atomic)
+            return target
+        }
+    }
+
     // MARK: Test and demo controls
+
+    /// While paused, uploads stop at 0.5 progress until resumed (previews of
+    /// the uploading state, and tests).
+    public func setUploadsPaused(_ paused: Bool) {
+        uploadsPaused = paused
+        guard !paused else { return }
+        let waiting = pausedUploads
+        pausedUploads.removeAll()
+        for continuation in waiting { continuation.resume() }
+    }
+
+    /// The next upload of this hash fails as unreachable (once).
+    public func failNextUpload(hash: String) {
+        failingUploads.insert(hash)
+    }
+
+    /// True once the blob store holds this hash.
+    public func hasBlob(_ hash: String) -> Bool { blobs[hash] != nil }
 
     /// Simulates losing or regaining the owners.
     public func setOnline(_ value: Bool) {
@@ -163,6 +253,9 @@ public actor MockHomeSource: HomeSource {
         case .sendMessage(let conversation, let parts):
             let text = parts.map(\.plainText).joined()
             guard !text.isEmpty, text.utf8.count <= 65_536 else { throw HomeRejection.invalid("invalid_parts") }
+            for case .attachment(let ref) in parts where blobs[ref.hash] == nil {
+                throw HomeRejection.invalid("attachment_not_uploaded")
+            }
             let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key)
             return HomeOpResult(rev: rev, conversation: conversation)
         case .setReadCursor(let conversation, let seq):

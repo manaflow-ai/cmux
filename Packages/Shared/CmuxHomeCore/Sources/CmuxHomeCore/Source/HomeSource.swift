@@ -83,4 +83,27 @@ public protocol HomeSource: Sendable {
 
     /// Looks up whether an address already belongs to a cmux user.
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution
+
+    /// Uploads one prepared attachment's bytes (and its poster, when set) to
+    /// blob storage under `file.ref.hash`. Idempotent by hash: uploading a
+    /// blob the store already has succeeds without sending the bytes again.
+    /// Returns the stored ref; its `hash` equals `file.ref.hash`.
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef
+
+    /// A local file URL holding the variant's bytes. Idempotent (the same
+    /// ref and variant return the same file) and cancel-safe (a cancelled
+    /// fetch never leaves a partial file behind).
+    func fetch(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL
+}
+
+extension HomeSource {
+    /// Default for sources without blob storage.
+    public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        throw HomeRejection.invalid("attachments unsupported")
+    }
+
+    /// Default for sources without blob storage.
+    public func fetch(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL {
+        throw HomeRejection.invalid("attachments unsupported")
+    }
 }

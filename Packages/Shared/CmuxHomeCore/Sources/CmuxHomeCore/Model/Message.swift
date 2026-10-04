@@ -76,17 +76,26 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
     public var name: String
     public var mimeType: String
     public var byteCount: Int
-    /// Pixel size for images and video, for layout before the bytes arrive.
+    /// Display pixel size for images and video, for layout before the bytes
+    /// arrive: EXIF orientation is applied for images and the track's
+    /// preferred transform for video (a portrait phone photo is taller than wide).
     public var width: Int?
     public var height: Int?
+    /// Playback length of video and audio, in milliseconds.
+    public var durationMs: Int?
+    /// Content hash of the poster frame (a JPEG blob) for video.
+    public var posterHash: String?
 
-    public init(hash: String, name: String, mimeType: String, byteCount: Int, width: Int? = nil, height: Int? = nil) {
+    public init(hash: String, name: String, mimeType: String, byteCount: Int, width: Int? = nil, height: Int? = nil,
+                durationMs: Int? = nil, posterHash: String? = nil) {
         self.hash = hash
         self.name = name
         self.mimeType = mimeType
         self.byteCount = byteCount
         self.width = width
         self.height = height
+        self.durationMs = durationMs
+        self.posterHash = posterHash
     }
 }
 

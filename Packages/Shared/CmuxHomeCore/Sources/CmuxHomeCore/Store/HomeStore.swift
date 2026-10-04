@@ -31,13 +31,30 @@ public final class HomeStore {
     @ObservationIgnored private var refetching: Set<HomeStream> = []
     @ObservationIgnored private var olderLoading: Set<ConversationID> = []
     @ObservationIgnored private var stopped = false
+    /// Where prepared attachments live (`<root>/<hash>/data.<ext>`).
+    @ObservationIgnored public let blobCacheDirectory: URL
+    /// Every attachment this client prepared, by hash (stays after the echo).
+    @ObservationIgnored private var localFiles: [String: LocalAttachmentFiles] = [:]
+    /// Sends with attachments that have not reached the owner yet.
+    @ObservationIgnored private var uploads: [IdempotencyKey: UploadJob] = [:]
+
+    /// Attachment uploads in flight at once, per send.
+    public static let uploadConcurrency = 3
 
     /// Messages fetched when a conversation opens.
     public static let tailSize = 60
     public static let pageSize = 80
 
-    public init(source: any HomeSource) {
+    public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory) {
         self.source = source
+        self.blobCacheDirectory = blobCacheDirectory
+    }
+
+    /// `Caches/cmux-home-blobs`.
+    public nonisolated static var defaultBlobCacheDirectory: URL {
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return caches.appendingPathComponent("cmux-home-blobs", isDirectory: true)
     }
 
     /// Starts consuming owner events. Idempotent.
@@ -71,7 +88,21 @@ public final class HomeStore {
 
     public func transcript(for id: ConversationID) -> [TranscriptItem] {
         guard let me = me?.id else { return [] }
-        return (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
+        let items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
+        guard !localFiles.isEmpty else { return items }
+        return items.map(decorated)
+    }
+
+    /// Adds local files and upload progress to a row with attachment parts.
+    private func decorated(_ item: TranscriptItem) -> TranscriptItem {
+        let hashes = item.attachmentHashes
+        guard !hashes.isEmpty else { return item }
+        var item = item
+        for hash in hashes { if let files = localFiles[hash] { item.localAttachments[hash] = files } }
+        if item.delivery == .sending, let job = uploads[item.key], job.active {
+            item.attachmentProgress = job.progress
+        }
+        return item
     }
 
     public func hasOlderMessages(in id: ConversationID) -> Bool {
@@ -126,10 +157,18 @@ public final class HomeStore {
     }
 
     /// Retries a "Not Delivered" send as a new intent and drops the failed one.
+    /// A send whose attachment upload failed never reached the owner: it
+    /// keeps its key (and its row) and uploads only the missing attachments.
     public func retry(_ key: IdempotencyKey) async throws {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
         guard let entry = log.entries.first(where: { $0.intent.key == key }),
               case .failed = entry.state else { return }
+        if uploads[key] != nil {
+            log.setUploading(key, true)
+            afterLogChange(entry.intent.op)
+            try await uploadAndSubmit(entry.intent)
+            return
+        }
         log.discard(key)
         afterLogChange(entry.intent.op)
         try await perform(entry.intent.op)
@@ -139,6 +178,7 @@ public final class HomeStore {
         guard let entry = log.entries.first(where: { $0.intent.key == key }),
               case .failed = entry.state else { return }
         log.discard(key)
+        uploads[key] = nil
         afterLogChange(entry.intent.op)
     }
 
@@ -159,6 +199,164 @@ public final class HomeStore {
 
     public func resolve(_ contact: ContactAddress) async throws -> ContactResolution {
         try await source.resolve(contact)
+    }
+
+    // MARK: Attachments
+
+    /// Hashes a file (SHA-256, streamed), copies it into the blob cache and
+    /// reads its display size, duration and poster frame. Runs off the main actor.
+    public func prepareAttachment(fileURL: URL) async throws -> LocalAttachment {
+        let root = blobCacheDirectory
+        let prepared = try await AttachmentMedia.prepare(fileURL: fileURL, root: root)
+        localFiles[prepared.ref.hash] = prepared.files
+        return prepared
+    }
+
+    /// The same for in-memory bytes (a paste or a drop) of a UTType identifier.
+    public func prepareAttachment(data: Data, typeIdentifier: String) async throws -> LocalAttachment {
+        let root = blobCacheDirectory
+        let prepared = try await AttachmentMedia.prepare(data: data, typeIdentifier: typeIdentifier, root: root)
+        localFiles[prepared.ref.hash] = prepared.files
+        return prepared
+    }
+
+    /// Sends text with attachments as one message: one pending intent with
+    /// `key`, whose parts are the attachments in order, then the text when
+    /// it is not blank. The row shows at once with `attachmentProgress`;
+    /// the store uploads every attachment through the source, then submits
+    /// `message.send` with the same key. An upload failure leaves the row
+    /// "Not Delivered" (retry uploads only what is missing). Throws like
+    /// `perform`.
+    public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
+                     key: IdempotencyKey = .make()) async throws {
+        guard isOnline else { throw HomeRejection.ownerUnreachable }
+        var parts = attachments.map { MessagePart.attachment($0.ref) }
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
+        guard !parts.isEmpty else { throw HomeRejection.invalid("empty_message") }
+        let op = HomeOp.sendMessage(conversation: conversation, parts: parts)
+        guard !attachments.isEmpty else {
+            try await perform(op, key: key)
+            return
+        }
+        let intent = HomeIntent(key: key, op: op)
+        guard log.append(intent) else { throw HomeRejection.invalid("duplicate intent") }
+        log.setUploading(key, true)
+        var unique: [LocalAttachment] = []
+        for attachment in attachments where !unique.contains(where: { $0.ref.hash == attachment.ref.hash }) {
+            unique.append(attachment)
+            localFiles[attachment.ref.hash] = attachment.files
+        }
+        uploads[key] = UploadJob(conversation: conversation, attachments: unique)
+        afterLogChange(op)
+        try await uploadAndSubmit(intent)
+    }
+
+    /// A local file holding the variant's bytes: this client's own copy when
+    /// it has one, else the source's (which caches). Idempotent and cancel-safe.
+    public func fetchAttachment(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL {
+        if let files = localFiles[ref.hash] {
+            switch variant {
+            case .original:
+                return files.fileURL
+            case .thumbnail(let maxPixel):
+                return try await Self.localThumbnail(files, ref: ref, maxPixel: maxPixel)
+            }
+        }
+        return try await source.fetch(ref, variant: variant)
+    }
+
+    private nonisolated static func localThumbnail(_ files: LocalAttachmentFiles, ref: AttachmentRef,
+                                                   maxPixel: Int) async throws -> URL {
+        try AttachmentMedia.localThumbnail(of: files, ref: ref, maxPixel: maxPixel)
+    }
+
+    /// Uploads the missing attachments of a logged send, then submits it.
+    private func uploadAndSubmit(_ intent: HomeIntent) async throws {
+        let key = intent.key
+        guard var job = uploads[key] else { return }
+        job.active = true
+        let uploaded = job.uploaded
+        job.progress = Dictionary(uniqueKeysWithValues: job.attachments.map { ($0.ref.hash, uploaded.contains($0.ref.hash) ? 1.0 : 0.0) })
+        uploads[key] = job
+        afterLogChange(intent.op)
+
+        let failure = await uploadMissing(of: key)
+        // The send may have left the log meanwhile (its conversation left the inbox).
+        guard log.entries.contains(where: { $0.intent.key == key }) else {
+            uploads[key] = nil
+            return
+        }
+        uploads[key]?.active = false
+        uploads[key]?.progress = [:]
+        if let failure {
+            log.setUploading(key, false)
+            log.fail(key, failure)
+            afterLogChange(intent.op)
+            throw failure
+        }
+        uploads[key] = nil
+        log.setUploading(key, false)
+        afterLogChange(intent.op)
+        _ = try await submit(intent)
+    }
+
+    /// Uploads, at most `uploadConcurrency` at once, every attachment of the
+    /// job not uploaded yet. Successes count even when another one fails.
+    private func uploadMissing(of key: IdempotencyKey) async -> HomeRejection? {
+        guard let job = uploads[key] else { return nil }
+        let pending = job.attachments.filter { !job.uploaded.contains($0.ref.hash) }
+        let source = self.source
+        let conversation = job.conversation
+        var failure: HomeRejection?
+        await withTaskGroup(of: (String, Result<AttachmentRef, Error>).self) { group in
+            var next = pending.makeIterator()
+            func add(_ attachment: LocalAttachment) {
+                let hash = attachment.ref.hash
+                let upload = AttachmentUpload(conversation: conversation, fileURL: attachment.fileURL, ref: attachment.ref,
+                                              posterURL: attachment.posterURL) { [weak self] fraction in
+                    Task { @MainActor [weak self] in self?.uploadProgressed(key, hash: hash, fraction) }
+                }
+                group.addTask {
+                    do { return (hash, .success(try await source.upload(upload))) } catch { return (hash, .failure(error)) }
+                }
+            }
+            for _ in 0..<Self.uploadConcurrency { if let attachment = next.next() { add(attachment) } }
+            for await (hash, result) in group {
+                switch result {
+                case .success(let stored) where stored.hash == hash:
+                    uploads[key]?.uploaded.insert(hash)
+                    if uploads[key]?.active == true { uploads[key]?.progress[hash] = 1 }
+                    bumpUploadRow(key)
+                case .success:
+                    failure = failure ?? .invalid("attachment_hash_mismatch")
+                case .failure(let error):
+                    failure = failure ?? Self.rejection(for: error)
+                }
+                if let attachment = next.next() { add(attachment) }
+            }
+        }
+        return failure
+    }
+
+    private func uploadProgressed(_ key: IdempotencyKey, hash: String, _ fraction: Double) {
+        guard let job = uploads[key], job.active, !job.uploaded.contains(hash) else { return }
+        let value = min(max(fraction, 0), 1)
+        let current = job.progress[hash] ?? 0
+        // Forward only, and skip changes a progress ring cannot show.
+        guard value > current, value - current >= 0.01 || value == 1 else { return }
+        uploads[key]?.progress[hash] = value
+        bumpUploadRow(key)
+    }
+
+    private func bumpUploadRow(_ key: IdempotencyKey) {
+        if let conversation = uploads[key]?.conversation { bumpTranscript(conversation) }
+    }
+
+    private static func rejection(for error: Error) -> HomeRejection {
+        if let rejection = error as? HomeRejection { return rejection }
+        if error is URLError { return .ownerUnreachable }
+        if error is CancellationError { return .indeterminate }
+        return .invalid("attachment_upload_failed")
     }
 
     // MARK: Internals
@@ -290,6 +488,16 @@ public final class HomeStore {
 
     private func bumpTranscript(_ id: ConversationID) {
         transcriptVersion[id, default: 0] += 1
+    }
+
+    private struct UploadJob {
+        var conversation: ConversationID
+        /// Unique by hash, in part order.
+        var attachments: [LocalAttachment]
+        var uploaded: Set<String> = []
+        var progress: [String: Double] = [:]
+        /// True while an upload pass runs.
+        var active = false
     }
 
     private func rebuildRows() {

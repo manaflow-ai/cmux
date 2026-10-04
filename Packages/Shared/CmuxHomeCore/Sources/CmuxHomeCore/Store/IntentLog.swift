@@ -19,6 +19,9 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
     public var state: State
     /// Set once the intent was resent without waiting for a reconnect.
     public var resentImmediately = false
+    /// A send still uploading its attachments: not sent to the owner yet,
+    /// so a disconnect or reconnect never resends it.
+    public var isUploading = false
 
     public init(intent: HomeIntent, state: State = .sending) {
         self.intent = intent
@@ -51,6 +54,15 @@ public struct IntentLog: Hashable, Sendable {
 
     public mutating func fail(_ key: IdempotencyKey, _ rejection: HomeRejection) {
         update(key) { $0.state = .failed(rejection) }
+    }
+
+    /// The uploads of a send finished (`uploading: false`) or a failed send
+    /// uploads again with the same key (`uploading: true`, back to `.sending`).
+    public mutating func setUploading(_ key: IdempotencyKey, _ uploading: Bool) {
+        update(key) {
+            $0.isUploading = uploading
+            if uploading { $0.state = .sending }
+        }
     }
 
     public mutating func discard(_ key: IdempotencyKey) {
@@ -87,7 +99,7 @@ public struct IntentLog: Hashable, Sendable {
 
     /// On disconnect: everything still in flight becomes unconfirmed.
     public mutating func markDisconnected() {
-        for index in entries.indices where entries[index].state == .sending {
+        for index in entries.indices where entries[index].state == .sending && !entries[index].isUploading {
             entries[index].state = .unconfirmed
         }
     }
