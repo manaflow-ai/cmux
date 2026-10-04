@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 
@@ -16,6 +17,13 @@ enum FilePageHandlers {
         let services = context.services
         services.pages.register(services.viewers.markdownPages)
         services.pages.register(services.viewers.editorPages)
+        // R96: a recovered draft of a local file opens in the code editor page as an unsaved edit
+        // (the launch notice's Open; a draft whose file changed on disk says so in that notice).
+        RecoveryDraftStore.shared.restoreHandler = { [weak services] draft in
+            guard let services, let url = FilePageRecovery.document(of: draft),
+                  let pane = services.windows.active?.focusedPane else { return }
+            services.viewers.editorPages.open(url, in: pane, focus: true, recoveredText: String(decoding: draft.contents, as: UTF8.self))
+        }
         for (action, command) in EditorPageCommand.forAction where !sharedFindActions.contains(action) {
             registry.bind(ActionID(rawValue: action), run: { invocation in
                 var arguments: [String: JSONValue] = [:]

@@ -104,6 +104,11 @@ nonisolated enum FilePageStrings {
                table: "FilePages", bundle: .module)
     }
 
+    static func noRecovery(_ name: String) -> String {
+        String(format: String(localized: "filePages.noRecovery", defaultValue: "No crash recovery for “%@”: the file is too large.",
+                              table: "FilePages", bundle: .module), name)
+    }
+
     static var noPane: String {
         String(localized: "filePages.noPane", defaultValue: "No pane is open to show the file.", table: "FilePages", bundle: .module)
     }

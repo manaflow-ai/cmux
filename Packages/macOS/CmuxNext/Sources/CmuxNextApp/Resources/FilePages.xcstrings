@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "filePages.noRecovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No crash recovery for “%@”: the file is too large."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」はファイルが大きすぎるため、クラッシュ時の復元はありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد استرداد بعد الانهيار لـ “%@”: الملف كبير جدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema oporavka nakon pada za „%@”: datoteka je prevelika."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen gendannelse efter nedbrud for “%@”: filen er for stor."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Wiederherstellung nach Absturz für „%@“: Die Datei ist zu groß."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin recuperación tras fallo para «%@»: el archivo es demasiado grande."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune récupération après plantage pour « %@ » : le fichier est trop volumineux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun ripristino dopo un arresto anomalo per “%@”: il file è troppo grande."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានការស្ដារឡើងវិញក្រោយគាំងសម្រាប់ “%@” ទេ៖ ឯកសារធំពេក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”은(는) 파일이 너무 커서 충돌 복구가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen gjenoppretting etter krasj for «%@»: filen er for stor."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak odzyskiwania po awarii dla „%@”: plik jest za duży."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem recuperação após falha para “%@”: o arquivo é grande demais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет восстановления после сбоя для «%@»: файл слишком большой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีการกู้คืนหลังแครชสำหรับ “%@”: ไฟล์ใหญ่เกินไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” için çökme kurtarması yok: dosya çok büyük."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає відновлення після збою для «%@»: файл завеликий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có khôi phục sau sự cố cho “%@”: tệp quá lớn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”没有崩溃恢复：文件太大。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」沒有當機復原：檔案太大。"
+          }
+        }
+      }
+    },
     "filePages.openOutside.title": {
       "extractionState": "manual",
       "localizations": {

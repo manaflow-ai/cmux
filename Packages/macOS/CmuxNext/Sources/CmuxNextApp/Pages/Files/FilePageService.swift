@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -21,6 +22,10 @@ final class FilePageService: InternalPageProvider {
         var page: PageWebView?
         var provider: FilePageProvider?
         var host: FilePageTabHost?
+        /// A recovered crash draft for the page to load as an unsaved edit.
+        var recoveredText: String?
+        /// Ends this tab's flush registration on its quit document.
+        var stopFlush: (() -> Void)?
     }
 
     let kind: FilePageKind
@@ -29,6 +34,10 @@ final class FilePageService: InternalPageProvider {
     private let images: any RemoteImageFetching
     private var tabs: [String: Tab] = [:]
     private(set) lazy var look = FilePageLook(kind: kind, settings: { [unowned services] in services.settings })
+    /// The documents of the R96 quit hook (one per file, shared with the other file page).
+    let documents: FileQuitDocuments
+    /// Files whose draft is over the store's limit and that already said so.
+    private var warnedTooLarge: Set<String> = []
     /// Tabs whose pages are saving their last edits after the tab closed.
     private(set) var flushing: [Task<Void, Never>] = []
 
@@ -38,8 +47,9 @@ final class FilePageService: InternalPageProvider {
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = GuardedRemoteImages()) {
+         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments = .shared) {
         self.services = services
+        self.documents = documents
         self.kind = kind
         self.clock = clock
         self.images = images
@@ -63,10 +73,52 @@ final class FilePageService: InternalPageProvider {
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
     /// already shows it. A user run (`focus`) selects and focuses it.
     @discardableResult
-    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true) -> String {
+    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, recoveredText: String? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        return show(in: pane, focus: focus, Tab(file: real, userChose: userChose)) { [unowned self] key in self.file(key) == real }
+        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, recoveredText: recoveredText)) { [unowned self] key in
+            self.file(key) == real
+        }
+        // A tab that already showed the file takes the draft on its next config.
+        if let recoveredText, let provider = tabs[key]?.provider, provider.recoveredText == nil, tabs[key]?.page != nil {
+            provider.recoveredText = recoveredText
+            tabs[key]?.page?.reload()
+        }
+        return key
+    }
+
+    /// Tab `key` as a holder of its quit document (the markdown and editor pages share documents).
+    private func holder(_ key: String) -> String { kind.namespace + ":" + key }
+
+    // MARK: Quit hook (R96)
+
+    fileprivate func edited(_ url: URL, text: String, baseHash: String?, writable: Bool, from key: String) -> RecoveryDraftAcceptance {
+        let document = documents.document(for: url, holder: holder(key), writable: { [weak self] in self?.tabs[key]?.provider?.isWritable ?? writable })
+        if tabs[key]?.stopFlush == nil, let page = tabs[key]?.page {
+            let op = kind.op("flush")
+            tabs[key]?.stopFlush = document.addFlusher { [weak page] in
+                guard let page, let answer = try? await page.router.callPage(op, params: .object([:])) else { return true }
+                return answer["dirty"]?.boolValue ?? true
+            }
+        }
+        let accepted = document.edited(text: text, baseHash: baseHash)
+        if accepted == .tooLarge, warnedTooLarge.insert(url.path).inserted, let window = tabs[key]?.page?.window {
+            _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery:\(url.path)", message: FilePageStrings.noRecovery(url.lastPathComponent),
+                                                     duration: .seconds(8)), in: window)
+        }
+        return accepted
+    }
+
+    fileprivate func saved(_ url: URL, hash: String) {
+        documents.existing(url)?.saved(hash: hash)
+    }
+
+    /// Tab `key` stops showing `url`: the tab's flush goes; the document goes with the last tab.
+    private func left(_ url: URL?, tab key: String) {
+        tabs[key]?.stopFlush?()
+        tabs[key]?.stopFlush = nil
+        guard let url else { return }
+        documents.release(url, holder: holder(key))
     }
 
     /// Opens (or selects) the window's empty tab of this page.
@@ -99,6 +151,7 @@ final class FilePageService: InternalPageProvider {
 
     /// Tab `key` now shows `url` (an open in the page): retitle it.
     fileprivate func opened(_ url: URL, in key: String) {
+        if let previous = tabs[key]?.file, previous != url { left(previous, tab: key) }
         tabs[key]?.file = url
         if let pane = services.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
     }
@@ -168,6 +221,7 @@ final class FilePageService: InternalPageProvider {
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, host: host, clock: clock,
                                         libraries: libraries, images: images)
+        provider.recoveredText = tab.recoveredText
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = PageWebView(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions, surface: kind.surface,
@@ -199,15 +253,20 @@ final class FilePageService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
-        guard let tab = tabs.removeValue(forKey: key) else { return }
-        guard kind == .editor, let page = tab.page, tab.provider?.file != nil else {
+        guard let tab = tabs[key] else { return }
+        let file = tab.provider?.file ?? tab.file
+        tab.stopFlush?()
+        tabs[key] = nil
+        guard let page = tab.page, let file else {
             tab.page?.close()
             tab.provider?.close()
             return
         }
-        // The editor saves pending edits on `cmux.editor.flush`; the page stays alive (off screen)
-        // until it answers. Past the timeout the page closes, which fails the pending call.
-        let clock = clock, provider = tab.provider, op = kind.op("flush")
+        // The page saves pending edits on `cmux.<page>.flush`; it stays alive (off screen) until it
+        // answers. Past the timeout the page closes, which fails the pending call. A document no
+        // other tab shows then leaves the quit hook; edits that did not save are dropped with it
+        // (a close without saving removes the draft).
+        let clock = clock, provider = tab.provider, op = kind.op("flush"), documents = documents, holder = holder(key)
         let flush = Task { @MainActor in
             let deadline = Task { @MainActor in
                 do { try await clock.sleep(for: Self.flushTimeout) } catch { return } // wakeup-allow: bounded flush on tab close
@@ -217,6 +276,7 @@ final class FilePageService: InternalPageProvider {
             deadline.cancel()
             page.close()
             provider?.close()
+            documents.release(file, holder: holder)
         }
         flushing.append(flush)
         // task-owner: drops the finished flush from `flushing`
@@ -263,6 +323,10 @@ final class FilePageTabHost: FilePageHosting {
     func opened(_ url: URL) { service?.opened(url, in: key) }
     func openExternal(_ url: URL) { service?.openExternal(url, from: key) }
     func openFile(_ url: URL) { service?.openFile(url, from: key) }
+    func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance {
+        service?.edited(url, text: text, baseHash: baseHash, writable: writable, from: key) ?? .kept
+    }
+    func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
     func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { await service?.confirmOpen(url, userGesture: userGesture, from: key) ?? false }
 }

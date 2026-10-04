@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -30,6 +31,10 @@ protocol FilePageHosting: AnyObject {
     /// The native "Open <path>?" sheet for a link outside every granted document's folder: shown
     /// only after a real user gesture, one at a time; false when refused or not shown.
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool
+    /// A page's edit of `url` (the R96 quit hook): the document's unsaved state and its draft.
+    func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
+    /// A normal save of `url` wrote `hash`.
+    func saved(_ url: URL, hash: String)
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -56,6 +61,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Markdown files `resolveLinks` found inside a granted document's folder: the page may open
     /// them in place (following a link it showed).
     private var linked: Set<String> = []
+    /// A recovered crash draft of the tab's file: the next config carries it once (the editor page
+    /// loads it as an unsaved edit).
+    var recoveredText: String?
+    /// Whether the tab's file may be saved (the last config's answer).
+    private var writable = false
+    var isWritable: Bool { writable }
     /// Documents this tab has shown (it may reopen them, its own back and forward).
     private var shown: Set<String> = []
     private(set) var isClosed = false
@@ -93,6 +104,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await config(for: file)
         case kind.op("open"):
             return try await open(path(params["path"]))
+        case kind.op("edited"):
+            return try edited(params, host: host)
         case kind.op("save"):
             return try await save(params)
         case kind.op("setPreference"):
@@ -135,7 +148,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     // MARK: Files
 
-    private func path(_ value: JSONValue?) throws -> URL {
+    func path(_ value: JSONValue?) throws -> URL {
         guard let path = value?.stringValue, path.hasPrefix("/"), !path.contains("\u{0}") else {
             throw PageError.invalidParams("path must be absolute")
         }
@@ -207,6 +220,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     private func config(_ file: FileSnapshot) -> JSONValue {
         var config: [String: JSONValue] = ["path": .string(file.url.path), "text": .string(file.text), "hash": .string(file.hash)]
+        writable = file.readOnlyReason == nil
+        if let recovered = recoveredText, kind == .editor, file.url == self.file {
+            recoveredText = nil
+            config["recoveredText"] = .string(recovered)
+        }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true
             if kind == .editor { config["readOnlyReason"] = .string(reason.rawValue) }
@@ -251,6 +269,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         } catch .failed(let reason) {
             throw PageError(code: kind.op("save_failed"), message: reason, retryable: true)
         }
+        host?.saved(file, hash: result.hash)
         return ["hash": .string(result.hash)]
     }
 
@@ -283,6 +302,15 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             ["path": .string(url.path), "hash": .null, "deleted": true]
         }
         for id in changeListeners.keys.sorted(by: { $0.uuidString < $1.uuidString }) { changeListeners[id]?(event) }
+    }
+
+    /// `cmux.<page>.edited {path, text, baseHash}`: the tab's file was edited (the quit hook).
+    private func edited(_ params: JSONValue, host: any FilePageHosting) throws -> JSONValue {
+        let url = try path(params["path"])
+        guard let file, Self.canonical(url) == file else { throw PageError.invalidParams("path is not this page's file") }
+        guard let text = params["text"]?.stringValue else { throw PageError.invalidParams("text is required") }
+        let accepted = host.edited(file, text: text, baseHash: params["baseHash"]?.stringValue, writable: writable)
+        return ["recovery": accepted == .kept ? "kept" : "tooLarge"]
     }
 
     // MARK: Preferences
@@ -320,21 +348,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         host.openExternal(url)
     }
 
-    /// The real path of a relative link target of the tab's file, inside its folder or a workspace root.
-    private func target(_ relative: String, from base: URL) -> URL? {
-        guard !relative.isEmpty, !relative.hasPrefix("/"), !relative.contains("\u{0}") else { return nil }
-        let real = base.deletingLastPathComponent().appending(path: relative).standardizedFileURL.resolvingSymlinksInPath()
-        let folder = base.deletingLastPathComponent().path
-        guard real.path.hasPrefix(folder + "/") || host?.roots.contains(real.path) == true else { return nil }
-        return real
-    }
-
-    private func linkBase(_ params: JSONValue) throws -> URL {
-        let from = try path(params["from"])
-        guard let file, from.resolvingSymlinksInPath() == file else { throw PageError.invalidParams("from is not this page's file") }
-        return file
-    }
-
     private func resolveLinks(_ params: JSONValue, host: any FilePageHosting) throws -> JSONValue {
         let base = try linkBase(params)
         var links: [String: JSONValue] = [:]
@@ -353,30 +366,6 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             links[relative] = ["exists": true, "path": .string(real.path), "kind": .string(kind)]
         }
         return ["links": .object(links)]
-    }
-
-    private func listFiles(_ params: JSONValue) throws -> JSONValue {
-        let base = try linkBase(params)
-        let prefix = params["prefix"]?.stringValue ?? ""
-        guard !prefix.hasPrefix("/"), !prefix.split(separator: "/").contains("..") else { return ["entries": []] }
-        let folderPart = prefix.lastIndex(of: "/").map { String(prefix[...$0]) } ?? ""
-        let start = String(prefix.dropFirst(folderPart.count)).lowercased()
-        // Symlinks resolved before the folder check: a link in the folder may point anywhere.
-        let root = Self.canonical(base.deletingLastPathComponent())
-        let directory = folderPart.isEmpty ? root : Self.canonical(root.appending(path: folderPart, directoryHint: .isDirectory))
-        guard directory.path == root.path || directory.path.hasPrefix(root.path + "/") else { return ["entries": []] }
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        let entries = names
-            .filter { !$0.hasPrefix(".") && $0 != "node_modules" && $0.lowercased().hasPrefix(start) }
-            .map { name -> (String, Bool) in
-                var isDirectory: ObjCBool = false
-                FileManager.default.fileExists(atPath: directory.appending(path: name).path, isDirectory: &isDirectory)
-                return (name, isDirectory.boolValue)
-            }
-            .sorted { $0.1 != $1.1 ? $0.1 : $0.0.localizedStandardCompare($1.0) == .orderedAscending }
-            .prefix(Self.listLimit)
-            .map { JSONValue.string(folderPart + $0.0 + ($0.1 ? "/" : "")) }
-        return ["entries": .array(Array(entries))]
     }
 
     // MARK: Teardown
