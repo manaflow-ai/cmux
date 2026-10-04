@@ -53,10 +53,15 @@ enum DebugNewTab {
             return .object(["error": .string("no focused pane")])
         }
         pane.newTabPage()
+        // Where the first key goes: the adopted page's web view, or a stale responder.
+        let responder = pane.view.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
         for character in text {
             _ = DebugKey.send(["key": .string(String(character))], services: services)
         }
-        return .object(["opening": pool(services).last.map { .object(["spare": .bool($0.spare), "ms": .number($0.milliseconds)]) } ?? .null])
+        return .object([
+            "opening": pool(services).last.map { .object(["spare": .bool($0.spare), "ms": .number($0.milliseconds)]) } ?? .null,
+            "first_responder": .string(responder),
+        ])
     }
 
     private static func pool(_ services: AppServices) -> [NewTabSparePool.Opening] { services.newTabSpares.openings }

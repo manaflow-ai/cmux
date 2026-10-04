@@ -3,6 +3,7 @@
 // (AgentPaneView.adoptNewTab). WebKit runs that script before any key the user types after Cmd-T,
 // so the remounted screen gets every key.
 import { useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { newTabHost, type NewTabHost } from "../NewTabPage";
 
 export const NEW_TAB_ADOPT_EVENT = "acpmux-newtab-adopt";
@@ -15,8 +16,12 @@ export function useNewTabAdoption(onAdopt: (host: NewTabHost) => void): number {
     const handle = (event: Event) => {
       const host = newTabHost({ newTab: (event as CustomEvent).detail });
       if (!host) return;
-      onAdopt(host);
-      setGeneration((value) => value + 1);
+      // Render the adopted screen inside this event, before WebKit delivers the next key: a
+      // render left for later would let typed keys land in the old field and be dropped.
+      flushSync(() => {
+        onAdopt(host);
+        setGeneration((value) => value + 1);
+      });
     };
     window.addEventListener(NEW_TAB_ADOPT_EVENT, handle);
     return () => window.removeEventListener(NEW_TAB_ADOPT_EVENT, handle);

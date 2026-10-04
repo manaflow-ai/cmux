@@ -68,7 +68,10 @@ def state():
 
 
 def open_and_check(expect_spare, snapshot=None, close=1):
-    opening = (rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}).get("opening") or {}
+    reply = rpc("debug.new_tab", {"action": "open_and_type", "text": opts.text}) or {}
+    opening = reply.get("opening") or {}
+    if reply.get("first_responder") != "WKWebView":
+        print(f"note: first responder right after the open: {reply.get('first_responder')}", flush=True)
     if opening.get("spare") != expect_spare:
         sys.exit(f"FAIL expected spare={expect_spare}, got {opening}")
     last = {}

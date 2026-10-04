@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AgentMark, FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
@@ -59,8 +59,9 @@ export function NewTabScreen(props: Props) {
   const cards = useMemo(() => recentChatCards(snapshot.sessions, now), [snapshot.sessions, now]);
   useEffect(() => setSelected(0), [rows]);
 
-  // The field takes the keyboard when the screen appears and on Cmd-L (FOCUS_LOCATION_EVENT).
-  useEffect(() => {
+  // The field takes the keyboard when the screen appears (in the commit, so an adopted spare's
+  // field has focus before the next key) and on Cmd-L (FOCUS_LOCATION_EVENT).
+  useLayoutEffect(() => {
     const focus = () => {
       field.current?.focus();
       field.current?.select();
