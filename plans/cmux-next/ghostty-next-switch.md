@@ -39,11 +39,11 @@ inventories in `.cmux-scratch/nx-worker/ghostty-next/`
    upstream `f96c9711b`, 10 commits).
 5. Terminal backends (R71): the backend layer is a Rust trait in cmux-tui.
    The surface talks one viewer protocol to a session host, whatever the
-   backend. Two backend modes: `bytes` (a process byte pipe; the local host
-   parses) and `host` (the far end runs its own session host, for example a
-   Cloud VM; the viewer attaches to it). Apps provide backends through
-   manifest v2 `implements: cmux.terminal.backend/1`. Proven by the Cloud app
-   (mode `host`) and a sample SSH app (mode `bytes`).
+   backend. Two interfaces: `cmux.terminal.backend/1` (a process byte pipe;
+   the local host parses) and `cmux.terminal.connector/1` (the far end runs
+   its own session host, for example a Cloud VM; the local host relays it).
+   Both declare `options.kinds`, default deny. Proven by the Cloud app and a
+   sample SSH app.
 
 ## 1. Patch inventory
 
@@ -143,8 +143,8 @@ Token scan of `CmuxNextTerminal` (334 identifiers) against ghostty-next
 Ghostty surface (Mac, iOS)  MANUAL_MIRROR: render + encode input only
         |  viewer protocol: snapshot (GHOSTSNP) + bytes out; input, viewport, presence, focus in
 cmux-tui session host       parser, grid, scrollback, snapshots, journal, hooks, attribution
-        |  TerminalBackend trait (Rust)
-backends: local-pty | app:<app>/<id> (bytes) | app:<app>/<id> (host) | cmux-tui link (host)
+        |  TerminalBackend / TerminalConnector traits (Rust)
+backends (bytes): local-pty | app:<app>/<id>     connectors (host): cmux-tui link | app:<app>/<id>
 ```
 
 Rules:
@@ -161,17 +161,33 @@ Rules:
 3. A backend never sees other terminals and never decides the grid. The
    session host computes the grid (smallest policy) and tells the backend.
 
-### 3.2 Rust interface (cmux-tui-core, module `terminal_backend`)
+### 3.2 Two interfaces (decided 2026-10-04 with the Cloud app lead)
+
+The two modes have different message sets and different trust, so they are
+two interfaces, not one schema with a mode field:
+
+| Interface | Mode | Far end | Local session host | Users |
+| --- | --- | --- | --- | --- |
+| `cmux.terminal.connector/1` | host | runs its own session host (parser, grid, snapshots) | relays the viewer protocol; does not parse | Cloud machines, cmux-tui over the link |
+| `cmux.terminal.backend/1` | bytes | a process byte pipe | parses, owns snapshots, journal, grid | `local-pty`, sample SSH app, Cloud rescue shell |
+
+Both declare `options.kinds`: an array of localId strings, 1 to 16, unique
+(for example `cloud-vm`, `ssh`). The daemon refuses `connect` or `open` for
+a kind that the manifest does not declare (default deny).
+
+### 3.3 Rust traits (cmux-tui-core, module `terminal_backend`)
+
+One registry maps namespaced ids (`local-pty`, `app:<app id>/<id>`) to a
+connector or a backend.
 
 ```rust
-pub trait TerminalBackend: Send + Sync + 'static {
-    fn id(&self) -> &BackendId;                 // "local-pty", "app:dev.example.ssh/ssh"
+pub trait TerminalBackend: Send + Sync + 'static {          // cmux.terminal.backend/1
+    fn id(&self) -> &BackendId;
+    fn kinds(&self) -> &[LocalId];                           // options.kinds; others refused
     fn capabilities(&self) -> BackendCapabilities;
-    async fn open(&self, req: OpenRequest) -> Result<Box<dyn BackendTerminal>, BackendError>;
-    async fn resume(&self, token: &ResumeToken) -> Result<Box<dyn BackendTerminal>, BackendError>;
+    async fn open(&self, req: OpenRequest) -> Result<Box<dyn ByteTerminal>, BackendError>;
+    async fn resume(&self, token: &ResumeToken) -> Result<Box<dyn ByteTerminal>, BackendError>;
 }
-
-pub enum BackendTerminal { Bytes(Box<dyn ByteTerminal>), Host(Box<dyn HostTerminal>) }
 
 pub trait ByteTerminal: Send {
     fn events(&mut self) -> BoxStream<'static, ByteEvent>;   // Output(Bytes) | Exit(ExitStatus) | Lost(reason)
@@ -182,57 +198,63 @@ pub trait ByteTerminal: Send {
     fn resume_token(&self) -> Option<ResumeToken>;                     // capability `resume`
 }
 
-pub trait HostTerminal: Send {
-    // The far end runs a session host. The local host relays its viewer
-    // protocol (snapshot + bytes frames, size state) instead of parsing.
-    fn viewer_stream(&mut self) -> BoxStream<'static, ViewerFrame>;
+pub trait TerminalConnector: Send + Sync + 'static {        // cmux.terminal.connector/1
+    fn id(&self) -> &BackendId;
+    fn kinds(&self) -> &[LocalId];
+    async fn connect(&self, req: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError>;
+}
+
+pub trait HostLink: Send {
+    // Viewer protocol of the far session host: snapshot_ready / history /
+    // bytes / digest frames, size state, terminal list changes.
+    fn frames(&mut self) -> BoxStream<'static, ViewerFrame>;
     async fn send(&self, msg: ViewerMessage) -> Result<(), BackendError>; // input, viewport, presence, focus
 }
 ```
 
-- `OpenRequest`: terminal id, command (argv or default shell), cwd, env
-  (allowlist), initial grid, `connection` handle, actor.
-- `BackendCapabilities`: `mode` (`bytes` | `host`), `resize`, `signals`,
-  `exit_status`, `resume`, `cwd_reports`, `max_write_bytes`,
-  `snapshot_version` (host mode: the GHOSTSNP version it serves).
-- Snapshot and restore: in `bytes` mode the local session host owns
-  snapshots and journal; the backend never needs a VT parser. In `host` mode
-  the far host serves GHOSTSNP; version mismatch falls back to byte replay
-  as `terminal-snapshot-v1` does today. After a session host restart the
-  journal holds `{backend id, resume token}`; `resume` reattaches, or the
-  terminal shows exited with the backend's reason.
+- `OpenRequest`: kind, terminal id, command (argv or default shell), cwd,
+  env (allowlist), initial grid, `connection` handle, actor.
+  `ConnectRequest`: kind, `connection` handle, actor.
+- `BackendCapabilities`: `resize`, `signals`, `exit_status`, `resume`,
+  `cwd_reports`, `max_write_bytes`.
+- Snapshots: a backend never needs a VT parser; the local session host owns
+  snapshots and journal. A connector serves GHOSTSNP from the far host;
+  a version mismatch falls back to byte replay as `terminal-snapshot-v1`
+  does today. After a session host restart the journal holds `{id, resume
+  token}`; `resume` reattaches, or the terminal shows exited with the
+  reason.
 - Flow control: one bounded queue per direction. A full output queue stops
   reading from the backend (backpressure), never drops bytes; viewers keep
   their own credit and resync by snapshot (ghostty-next.md 2).
-- `local-pty` (today's `cmux-pty` spawn path) becomes the first
-  implementation, so the trait is proven by the existing tests before any
-  app backend exists.
+- `local-pty` (today's `cmux-pty` spawn path) becomes the first backend, so
+  the trait is proven by the existing tests before any app backend exists.
+  The link to a remote cmux-tui becomes the first connector.
 
-### 3.3 App-provided backends (manifest v2, with the app platform lead)
+### 3.4 App-provided backends and connectors (manifest v2)
 
-- Interface schema `cmux-tui/crates/cmux-app-host/interfaces/cmux.terminal.backend/1.json`
-  (app-platform.md V2). Manifest: `implements: [{"interface":
-  "cmux.terminal.backend/1", "id": "ssh", "title": <localized>, "mode":
-  "bytes", "connectionKinds": ["ssh"]}]`. Backend id is namespaced
-  `app:<app id>/<id>`.
+- Ownership: the ghostty-next lead owns both interface schemas
+  (`cmux-tui/crates/cmux-app-host/interfaces/cmux.terminal.backend/1.json`,
+  `.../cmux.terminal.connector/1.json`) and the Rust traits. The app
+  platform lead owns the manifest schema and the `terminal:backend` scope.
+- Manifest: `implements: [{"interface": "cmux.terminal.backend/1", "id":
+  "ssh", "title": <localized>, "options": {"kinds": ["ssh"]}}]`. Ids are
+  namespaced `app:<app id>/<id>`.
 - Implementation: the app's server (native or JS). The app host bridges
-  JSON control messages and binary byte frames to `TerminalBackend`. Ops:
-  `open`, `resume`, `write`, `resize`, `signal`, `close`; events `output`,
-  `exit`, `lost`.
-- Scope: new restricted scope `terminal:backend` (provide terminals), plus
-  a `connection` handle per terminal (V6). Secrets stay in a `credential`
-  handle; the app sees a secret only when it holds that handle.
-- Consent: the user creates the terminal through a connect sheet or a
-  command with a gesture; the backend gets only that terminal. Revoke
-  closes every terminal of the backend (terminals show "disconnected:
-  backend revoked") and the journal drops its resume tokens.
-- The terminal record carries `backend` (id and display name), shown in the
-  tab and Info pane. Hooks, agents and notifications work unchanged because
-  the session host parses or relays the same stream.
-- Proof backends, built in parallel (R71): the Cloud app (Cloud app lead,
-  mode `host`; Cloud VMs keep their own session host model) and a sample
-  `samples/apps/ssh-terminal` (mode `bytes`, `connection` kind `ssh`).
-  Interface needs from the Cloud app lead come through the coordinator.
+  JSON control messages and binary frames to the traits.
+- Scope: restricted scope `terminal:backend` for both interfaces, plus a
+  `connection` handle per terminal or link (V6). Secrets stay in a
+  `credential` handle.
+- Consent: the user creates the terminal or link with a gesture (connect
+  sheet or command); the backend gets only that terminal. Revoke closes
+  every terminal and link of the app and drops its resume tokens
+  (terminals show "disconnected: backend revoked").
+- The terminal record carries the backend or connector id and display name
+  (tab and Info pane). Hooks, agents and notifications work unchanged.
+- Proof, in parallel (R71): the Cloud app (Cloud app lead) implements
+  `cmux.terminal.connector/1` with kind `cloud-vm` (Cloud machines keep their
+  own session host) and `cmux.terminal.backend/1` for its rescue shell; the
+  sample `samples/apps/ssh-terminal` implements `cmux.terminal.backend/1`
+  with kind `ssh`.
 
 ## 4. Mac switch plan
 
@@ -265,30 +287,35 @@ pub trait HostTerminal: Send {
 
 | Slice | Where | Red test first | Needs |
 | --- | --- | --- | --- |
-| S0 upstream sync | ghostty-next PR 13 | none (merge) | done, CI running |
-| S1a Mac APIs | ghostty-next | Zig tests per API (fork tests ported): load_string, padding get, grid_metrics, clear_selection, bounded copy, font size callback, keyboard copy | hosted CI or Blacksmith Testbox |
+| S0 upstream sync | ghostty-next PR 13 | none (merge) | merged `f24cb8630` |
+| S1a-1 small Mac APIs | ghostty-next | Zig tests per API: load_string, padding get, grid_metrics, clear_selection, bounded copy, font size callback | ghostty-next CI |
+| S1a-2 keyboard copy API | ghostty-next | fork copy-mode tests (atomic navigation, bounded rich copy, cursor snapshot) in both `test` and `test-lib-vt` | ghostty-next CI |
 | S1b B1 parser fixes | ghostty-next | fork tests "a prompt after a padded partial line must stay at column 0 across resize", "133;P primary prompt ... own line", in both `zig build test` and `test-lib-vt` | Testbox; then cmux-tui gitlink bump (cmux-tui window) |
 | S1c fonts | ghostty-next | fork Hangul NFC/NFD and CJK fallback tests | Testbox |
 | S1d flavor `apple-v6` | ghostty-next | release smoke links the macOS x86_64 slice | hosted CI |
-| S2 Mac switch | feat-cmux-next | `CmuxNextTerminal` test target: snapshot attach restores the screen after a canonical resize on the same surface (today: a new surface) | fleet build `cmux-ci`, cmux-mini-6 tests, dogfood: live resize, 30 tabs idle GPU, Kitty image after reattach, copy mode, IME |
-| S3 trait + `local-pty` | cmux-tui | in-memory fake backend drives a terminal end to end through v12 attach | cmux-tui window |
+| S2 Mac switch | feat-cmux-next | `CmuxNextTerminal` test target: snapshot attach restores the screen after a canonical resize on the same surface (today: a new surface) | fleet build `cmux-ci`, cmux-mini-6 tests, dogfood on cmux-lawrence-2 (never the laptop): live resize, 30 tabs idle GPU, Kitty image after reattach, copy mode, IME |
+| S3k Kitty images after snapshot | cmux-tui | reattach and resize keep an on-screen Kitty image (READY restore, then image replay) | cmux-tui window |
+| S3 traits + `local-pty` + link connector | cmux-tui | in-memory fake backend drives a terminal end to end through v12 attach | cmux-tui window |
 | S4 app bridge + interface + sample SSH app | cmux-tui, samples | manifest fixture valid/invalid; SSH sample opens, writes, resizes, revoke closes | cmux-tui window, app platform lead |
 | S5 Cloud backend | Cloud app lead | their tests on the shared interface | Cloud app lead |
 | S6 iOS on the shared pin | ios | existing iOS smoke | iOS lead |
 
-## 6. Decisions requested
+## 6. Decisions (coordinator, 2026-10-04)
 
-1. Merge-based sync for ghostty-next (PR 13 changes NEXT.md). Recommend yes.
-2. Does cmux-next ship x86_64 macOS? If no, `apple-v6` builds macOS arm64
-   only (smaller, faster CI).
-3. Copy mode: port the fork keyboard-copy API (recommended, tested) or
-   rebuild copy mode on upstream `adjust_selection` plus a new
-   selection-set API.
-4. Kitty images after a snapshot: S2 depends on cmux-tui sending the
-   on-screen Kitty image replay after `snapshot_ready` (D3). If it does not
-   yet, the Mac loses Kitty images on reattach and resize until it does.
-5. Port B1 parser fixes to ghostty-next (recommended): the host already
-   lost them when cmux-tui moved to ghostty-next.
+1. Merge-based sync: approved. PR 13 merged (`f24cb8630`).
+2. cmux-next ships for Intel Macs: `apple-v6` is macOS arm64 + x86_64
+   (universal) plus iOS and iOS simulator.
+3. Copy mode: port the fork keyboard copy API. Real size is about 2,800
+   lines (fork PRs 154, 156, 157, 159 and the selection-tracking commits),
+   and it changes `Screen` and `Selection`, which libghostty-vt also builds.
+   It lands as its own ghostty-next PR (S1a-2) after the small APIs (S1a-1).
+4. cmux-tui re-sends the on-screen Kitty images after a snapshot; no image
+   loss on reattach or resize. New slice S3k (cmux-tui window).
+5. Port the OSC 133 prompt fixes to ghostty-next (S1b).
+6. Two interfaces, `cmux.terminal.backend/1` and
+   `cmux.terminal.connector/1`, both with `options.kinds` and default deny.
+7. No window-opening tests on the laptop. S2 Mac dogfood runs on
+   cmux-lawrence-2.
 
 Shortcuts taken in this proposal: no build ran; the Mac API gap is a token
 scan, not a link; group counts reuse the 2026-10-02 inventory; D5/D7
