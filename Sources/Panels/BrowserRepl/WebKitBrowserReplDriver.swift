@@ -241,7 +241,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         switch method {
         case "tabs.list": return try listTabs(all: params["all"] as? Bool == true)
         case "history.search": return try searchHistory(params)
-        case "tabs.dataStore": return ["dataStore": Self.dataStoreID(try cookieTab(params).store)]
+        case "tabs.dataStore": return try dataStore(params)
         case "tabs.open": return try await openTab(params)
         case "tabs.close": return try closeTab(params)
         case "tabs.activate", "tab.bringToFront": return try activateTab(params)
@@ -657,6 +657,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         String(UInt(bitPattern: ObjectIdentifier(store).hashValue), radix: 16)
     }
 
+    /// `tabs.dataStore`: the store cookie calls with these params use.
+    @MainActor
+    private func dataStore(_ params: [String: Any]) throws -> [String: Any] {
+        let store = try cookieTab(params).store
+        return ["dataStore": Self.dataStoreID(store)]
+    }
+
     /// The store and profile `tabs.open` uses: the session's proxy store
     /// (or the default profile's) without `dataStore`, else the store a
     /// session-reachable tab with that id uses, and that tab's profile.
@@ -667,7 +674,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "tabs.open: dataStore must be a string from tabs.list or tabs.dataStore")
         }
         if let proxyDataStore, Self.dataStoreID(proxyDataStore) == id { return (proxyDataStore, nil) }
-        if let panel = allBrowserPanels().map(\.panel).first(where: { Self.dataStoreID($0.webView.configuration.websiteDataStore) == id }) {
+        if let panel = allBrowserPanels().map({ $0.panel }).first(where: { Self.dataStoreID($0.webView.configuration.websiteDataStore) == id }) {
             return (panel.webView.configuration.websiteDataStore, panel.profileID)
         }
         let defaultStore = try cookieTab([:]).store
