@@ -147,6 +147,9 @@ const create = (config: CloudConfig, state: CloudState, params: unknown, ctx: Re
   if (d.value.image !== undefined && d.value.image !== config.image) return reject("validation.invalid", "unknown image")
   const rev = state.rev + 1
   const id = ctx.newId("vm")
+  // The id comes from the request's transaction (identity and key): a key re-sent after the engine's
+  // 7-day ledger window names the same id. Never upsert over a live machine or a tombstone.
+  if (ctx.rows?.get(TABLE_MACHINE, id) || ctx.rows?.get(TABLE_TOMBSTONE, id)) return reject("idempotency.conflict", "this idempotency key was already used for another machine")
   const name = providerName(config.prefix, id)
   const machine: MachineRow = {
     id,
