@@ -1971,6 +1971,7 @@ Errors:
 | `bad request: terminal_id must be a 32-character lowercase UUIDv4 hex value` | `terminal_id` is malformed (`screen-terminal-env-v1`) |
 | `terminal_id_exists: <id>` | `terminal_id` names an existing terminal |
 | invalid `env` error | `env` breaks the per-terminal environment limits, as on `new-pane` |
+| `origin.forbidden: a page origin cannot send <fields> on new-screen` (`error_code` `origin.forbidden`) | A page relay connection (derived origin `page`) sent `cwd`, `env` or `shell_args`; nothing is created. The env merge of `new-pane` applies to every other origin: the daemon owns its keys and keeps the `claude` shim first on `PATH` |
 | spawn or PTY error string | PTY creation or child spawn fails |
 | `bad request: ...` | Wrong JSON type |
 
