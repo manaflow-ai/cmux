@@ -4670,7 +4670,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicionar chave do %@"
+            "value": "Adicionar chave %@"
           }
         },
         "ru": {
@@ -5414,7 +5414,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Detenido"
+            "value": "No se está ejecutando"
           }
         },
         "fr": {

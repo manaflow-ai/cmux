@@ -14,6 +14,9 @@
          location = "group:CmuxAgentBrands">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentCursor">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
