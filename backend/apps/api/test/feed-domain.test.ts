@@ -353,10 +353,27 @@ describe("review fixes: authority, bounds and adopt", () => {
     bad({ ...open, home, state: "answered", closed_at: g.now, answer: { value: { decision: "launch" }, by: "x", device: null, at: g.now } })
     bad({ ...open, home, archived_at: g.now })
     bad({ ...open, home, poster: { ...open.poster, install: "inst_other00000000000000", scope: "inst:inst_other00000000000000" } })
-    bad({ ...open, home, closed_at: g.now + 1_000_000, state: "expired" })
-    bad({ ...open, home, expires_at: g.now + 400 * 24 * 3600_000 })
     bad({ ...open, home, needs_mac: true })
     const answered = { ...open, home, state: "answered", closed_at: g.now, read_at: g.now, answer: { value: { decision: "deny" }, by: mac.identity, device: null, at: g.now } }
     expect(g.do(daemon, "feed.adopt", { item: answered }).item).toMatchObject({ home: "cloud", state: "answered" })
+  })
+
+  it("adopt clamps a daemon clock that runs ahead and takes push timing from the cloud prefs", () => {
+    const src = driver()
+    const home = `local:${daemon.install}`
+    const g = driver()
+    // A daemon clock one hour ahead: times come down to the DO clock, far deadlines to the limits.
+    const ahead = src.do(agentA, "feed.post", approve()).item
+    const skewed = { ...ahead, home, created_at: g.now + 3600_000, updated_at: g.now + 3600_000, read_at: g.now + 3600_000, expires_at: g.now + 400 * 24 * 3600_000, push_due_at: g.now + 3600_000 }
+    const a = g.do(daemon, "feed.adopt", { item: skewed }).item
+    expect(a).toMatchObject({ created_at: g.now, read_at: g.now, expires_at: g.now + 30 * 24 * 3600_000 })
+    // An open request pushes on the cloud delay from its creation (high: 20 s), whatever the daemon sent.
+    expect(a.push_due_at).toBe(g.now + 20_000)
+    const early = src.do(agentA, "feed.post", approve()).item
+    expect(g.do(daemon, "feed.adopt", { item: { ...early, home, created_at: g.now - 60_000, push_due_at: null } }).item.push_due_at).toBe(g.now)
+    // Push off for that priority in the cloud: the daemon's due time is dropped.
+    g.do(mac, "feed.prefs.set", { push_delay: { high: null } }, "user")
+    const off = src.do(agentA, "feed.post", approve()).item
+    expect(g.do(daemon, "feed.adopt", { item: { ...off, home, push_due_at: g.now } }).item.push_due_at).toBeNull()
   })
 })

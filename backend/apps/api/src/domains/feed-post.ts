@@ -16,6 +16,7 @@ import {
   openRequestCount,
   posterScope,
   pushDueAt,
+  pushEligible,
   touch,
   type FeedState
 } from "./feed-state.ts"
@@ -190,7 +191,7 @@ export const reducePost = (state: FeedState, params: unknown, ctx: ReduceContext
 }
 
 /** Checks an item a local feed server hands over; returns the reason it is refused. */
-const adoptProblem = (i: FeedItem, p: Principal, now: number): string | undefined => {
+const adoptProblem = (i: FeedItem, p: Principal): string | undefined => {
   if (i.poster.install !== p.install || !(i.poster.scope === `inst:${p.install}` || i.poster.scope.startsWith(`inst:${p.install}/agent:`))) return "the item's poster must be this install or its agents"
   const shape = checkShape({ type: i.type, kind: i.kind, prompt: i.prompt, answer_schema: i.answer_schema, actions: i.actions })
   if (shape) return shape.message
@@ -204,13 +205,35 @@ const adoptProblem = (i: FeedItem, p: Principal, now: number): string | undefine
     if (!r.ok) return `answer: ${r.message}`
   }
   if (i.type === "request" && i.state === "open" && (i.archived_at !== null || i.snoozed_until !== null)) return "an open request cannot be archived or snoozed"
-  const times = [i.created_at, i.updated_at, i.closed_at, i.read_at, i.seen_at, i.archived_at, i.pushed_at, i.answer?.at ?? null, i.cancel?.at ?? null]
-  if (times.some((t) => t !== null && t > now)) return "times must not be in the future"
-  if (i.expires_at > now + MAX_EXPIRY_MS) return "expiry is too far ahead"
-  if (i.snoozed_until !== null && i.snoozed_until > now + 365 * 24 * 3600_000) return "snooze is too far ahead"
   if (i.needs_mac !== kindNeedsMac(i.kind)) return "needs_mac does not match the kind"
   if (tooBig({ ...i, answer: null })) return `an item is at most ${MAX_ITEM_BYTES} bytes`
   return undefined
+}
+
+const MAX_SNOOZE_MS = 365 * 24 * 3600_000
+const nullOrAtLeast = (t: number | null, min: number) => (t === null ? null : Math.max(t, min))
+
+/**
+ * The daemon's clock is not ours: times ahead of the DO clock come down to now and far deadlines to
+ * the post limits. A refusal here would leave the local item in `handing_off` forever (feed.md 5.3e).
+ */
+const clampTimes = (i: FeedItem, now: number): FeedItem => {
+  const past = (t: number) => Math.min(t, now)
+  const pastOrNull = (t: number | null) => (t === null ? null : past(t))
+  return {
+    ...i,
+    created_at: past(i.created_at),
+    updated_at: past(i.updated_at),
+    closed_at: pastOrNull(i.closed_at),
+    read_at: pastOrNull(i.read_at),
+    seen_at: pastOrNull(i.seen_at),
+    archived_at: pastOrNull(i.archived_at),
+    pushed_at: pastOrNull(i.pushed_at),
+    answer: i.answer === null ? null : { ...i.answer, at: past(i.answer.at) },
+    cancel: i.cancel === null ? null : { ...i.cancel, at: past(i.cancel.at) },
+    expires_at: Math.min(i.expires_at, now + MAX_EXPIRY_MS),
+    snoozed_until: i.snoozed_until === null ? null : Math.min(i.snoozed_until, now + MAX_SNOOZE_MS)
+  }
 }
 
 /**
@@ -229,19 +252,21 @@ export const reduceAdopt = (state: FeedState, params: unknown, ctx: ReduceContex
     if (prior.poster.install !== p.install) return reject("validation.invalid", "the id belongs to another item")
     return { ok: true, state, value: { item: prior }, changed: false }
   }
-  const problem = adoptProblem(incoming, p, ctx.now)
+  const problem = adoptProblem(incoming, p)
   if (problem) return reject("validation.invalid", `cannot adopt: ${problem}`)
   const counted = countPost(state, p, incoming.poster.scope, ctx.now)
   if (!counted.ok) return counted
   if (incoming.type === "request" && incoming.state === "open" && openRequestCount(state) >= MAX_OPEN_REQUESTS) {
     return { ...reject("feed.full", "too many open requests to adopt more"), retryable: true }
   }
+  const clamped = clampTimes(incoming, ctx.now)
   const item: FeedItem = {
-    ...incoming,
+    ...clamped,
     home: "cloud",
     poster: { ...incoming.poster, kind: posterKind(p, incoming.poster.agent, incoming.poster.kind) },
-    // An item that already closed or was read locally does not push again from the cloud.
-    push_due_at: incoming.push_due_at === null ? null : Math.max(incoming.push_due_at, ctx.now),
+    // The user's cloud push preferences decide, never the daemon's value: the delay counts from the
+    // item's creation, and an item already pushed, closed, read, seen or snoozed does not push.
+    push_due_at: pushEligible(clamped) && clamped.pushed_at === null ? nullOrAtLeast(pushDueAt(state.prefs, clamped.priority, clamped.created_at), ctx.now) : null,
     order: state.next_order,
     revision: incoming.revision + 1,
     updated_at: ctx.now
