@@ -89,6 +89,27 @@ test("gmail.send: a composer that holds more than the drafted body sends nothing
   }
 });
 
+// The preview names the recipients and subject, so the compose window
+// must hold exactly those right before Send: an address a page script or
+// another session adds to To, Cc or Bcc, or a changed subject, sends
+// nothing.
+test("gmail.send: a compose window whose recipients or subject differ from the draft sends nothing", async () => {
+  const sent = env.state.gmailSent.length;
+  for (const tamper of [{ to: "eve@example.net" }, { cc: "eve@example.net" }, { bcc: "eve@example.net" }, { subject: "Payroll export" }]) {
+    env.state.gmailComposeTamper = tamper;
+    try {
+      const d = await s.value('sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", subject: "Numbers", body: "Looks good." })');
+      assert.match(await s.error(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`), /compose_mismatch|recipients|subject/, JSON.stringify(tamper));
+    } finally {
+      env.state.gmailComposeTamper = null;
+    }
+  }
+  assert.equal(env.state.gmailSent.length, sent, "nothing was sent");
+  const d = await s.value('sites.gmail.send({ to: "bob@example.com", cc: "cy@example.com", bcc: "ada@example.com", subject: "Numbers", body: "Looks good." })');
+  assert.equal((await s.value(`sites.gmail.send(${JSON.stringify(d.id)}, { confirm: true })`)).status, "sent");
+  assert.deepEqual(env.state.gmailSent.at(-1), { to: "bob@example.com", cc: "cy@example.com", bcc: "ada@example.com", subject: "Numbers", body: "Looks good." });
+});
+
 test("drafts live in the session that made them", async () => {
   const d = await s.value('sites.gmail.send({ to: "bob@example.com", subject: "s", body: "b" })');
   const other = env.session("other");
