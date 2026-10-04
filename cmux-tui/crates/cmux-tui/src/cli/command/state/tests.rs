@@ -517,6 +517,27 @@ fn closed_history_lists_and_reopens() {
     assert!(rejects(&["closed", "c1", "explode"]).contains("closed"));
 }
 
+/// `closed-history-v2`: window scope, list limit, Reopen Closed without an
+/// id (Cmd-Shift-T) and partial reopen of chosen members.
+#[test]
+fn closed_history_scopes_to_a_window_and_reopens_groups() {
+    assert_eq!(
+        sent(&["closed", "list", "--window", "inst/win", "--limit", "5"]),
+        ("closed.list".into(), json!({"window": "inst/win", "limit": 5}))
+    );
+    assert_eq!(
+        sent(&["closed", "reopen", "--window", "inst/win"]),
+        ("closed.reopen".into(), json!({"window": "inst/win"}))
+    );
+    assert_eq!(sent(&["closed", "reopen"]), ("closed.reopen".into(), json!({})));
+    assert_eq!(
+        sent(&["closed", "c1", "reopen", "--members", "0,2"]),
+        ("closed.reopen".into(), json!({"closed": "c1", "members": [0, 2]}))
+    );
+    assert!(rejects(&["closed", "c1", "reopen", "--members", "x"]).contains("--members"));
+    assert!(rejects(&["closed", "list", "--limit", "0"]).contains("--limit"));
+}
+
 #[test]
 fn every_state_mutation_takes_an_explicit_idempotency_key() {
     let args = ["room", "Work", "move", "--index", "1", "--idempotency-key", "mutation_retry"]
