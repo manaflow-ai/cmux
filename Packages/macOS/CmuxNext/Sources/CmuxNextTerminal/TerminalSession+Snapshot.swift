@@ -7,6 +7,26 @@ public nonisolated enum TerminalSnapshotPhase: Sendable, Equatable {
     case ready
     /// Records after READY through FINISH (scrollback), possibly in chunks.
     case history
+    /// A READY cut exactly at the owner's resize: the surface reflows and
+    /// keeps its own history when it matches the owner's check (S2c).
+    case readyLocalHistory(TerminalLocalHistory)
+}
+
+/// The owner's grid and history check of a local-history READY.
+public nonisolated struct TerminalLocalHistory: Sendable, Equatable {
+    public var columns: Int
+    public var rows: Int
+    /// The owner's primary-screen history rows at the cut.
+    public var historyRows: UInt64
+    /// libghostty's history digest of the owner's newest history rows.
+    public var digest: Data
+
+    public init(columns: Int, rows: Int, historyRows: UInt64, digest: Data) {
+        self.columns = columns
+        self.rows = rows
+        self.historyRows = historyRows
+        self.digest = digest
+    }
 }
 
 extension TerminalSession {
@@ -14,6 +34,10 @@ extension TerminalSession {
     /// (`ghostty_surface_snapshot_version`). A daemon IO asks the PTY owner
     /// for snapshots at this version (`terminal-snapshot-v1`); 0 means none.
     public nonisolated static var snapshotVersion: UInt16 { ghostty_surface_snapshot_version() }
+
+    /// The linked libghostty restores local-history READYs
+    /// (`ghostty_surface_restore_snapshot_local_history`, GhosttyNextKit pin).
+    public nonisolated static let restoresLocalHistory = true
 }
 
 extension TerminalSession {
@@ -36,6 +60,24 @@ extension TerminalSession {
             await lane.waitForCapacity()
             surfaceView.lane?.restoreSnapshot(data, phase: GHOSTTY_SURFACE_SNAPSHOT_HISTORY)
             return true
+        case .readyLocalHistory(let local):
+            return await restoreLocalHistory(data, local, on: lane)
         }
+    }
+
+    /// The local-history READY: the surface's grid record follows the
+    /// restore (no set_grid: the restore reflows the old grid itself). On a
+    /// mismatch the READY is restored without history and the IO asks for a
+    /// fresh READY + history; on an error the IO asks as well.
+    private func restoreLocalHistory(_ data: Data, _ local: TerminalLocalHistory, on lane: TerminalOutputLane) async -> Bool {
+        lane.restoreLocalHistory(data, expectedRows: local.historyRows, digest: local.digest)
+        surfaceView.applyAnnouncedGrid(TerminalGridSize(columns: local.columns, rows: local.rows), restored: true)
+        await lane.drained()
+        let result = lane.lastLocalHistoryResult
+        guard result == Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) else {
+            noteLocalHistoryMismatch()
+            return result == Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue)
+        }
+        return true
     }
 }

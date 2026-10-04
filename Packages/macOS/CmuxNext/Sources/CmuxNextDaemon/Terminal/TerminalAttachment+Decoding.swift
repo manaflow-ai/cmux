@@ -54,10 +54,24 @@ extension TerminalAttachment {
         /// History chunks: `deflate` (raw DEFLATE) and the inflated length.
         var compression: String?
         var rawBytes: Int?
+        /// A local-history READY: `history: "local"` with the host's check.
+        var history: String?
+        var historyRows: UInt64?
+        var historyDigest: String?
 
         enum CodingKeys: String, CodingKey {
-            case surface, phase, generation, offset, version, cols, rows, colors, data, compression
+            case surface, phase, generation, offset, version, cols, rows, colors, data, compression, history
             case rawBytes = "raw_bytes"
+            case historyRows = "history_rows"
+            case historyDigest = "history_digest"
+        }
+
+        /// The check of a local-history READY; nil (a plain READY whose
+        /// history is lost) when it is missing or malformed.
+        var localHistory: TerminalLocalHistoryCheck? {
+            guard phase == "ready", history == "local", let historyRows,
+                  let digest = historyDigest.flatMap(TerminalLocalHistoryCheck.digest(hex:)) else { return nil }
+            return TerminalLocalHistoryCheck(rows: historyRows, digest: digest)
         }
     }
 
@@ -117,7 +131,8 @@ extension TerminalAttachment {
                 }
                 return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
                     phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
-                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors, data: data)))
+                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
+                    localHistory: snapshot.localHistory, data: data)))
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
                 guard scoped(output.surface) else { return nil }
