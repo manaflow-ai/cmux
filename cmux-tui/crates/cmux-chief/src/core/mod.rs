@@ -308,7 +308,8 @@ pub struct Core {
     pending_permissions: Vec<PendingPermission>,
     /// Failed session lists in a row (the retry backoff).
     sessions_failures: u32,
-    /// Rejections per outstanding prompt (the retry backoff), until acpmux accepts it.
+    /// Rejections per outstanding prompt (the retry backoff), until acpmux
+    /// accepts it. Memory only: a restart resets the budget.
     prompt_rejections: BTreeMap<String, u32>,
     inbox: VecDeque<InboxItem>,
     task: Task,
@@ -421,12 +422,14 @@ impl Core {
     /// `MAX_PROMPT_RETRIES` times; then the prompt stops.
     fn prompt_settled(&mut self, prompt_id: &str, rejected: bool, error: Option<&str>) {
         self.accept(prompt_id);
-        if !rejected || !self.state.prompts.contains_key(prompt_id) {
+        // A refusal of the prompt whose turn runs is stale (a duplicate's answer): ignored.
+        if !rejected || !self.state.prompts.contains_key(prompt_id) || self.is_running(prompt_id) {
             return;
         }
         let rejections = self.prompt_rejections.get(prompt_id).copied().unwrap_or(0) + 1;
         if rejections > MAX_PROMPT_RETRIES {
-            self.stop_refused_prompt(prompt_id, error.unwrap_or("refused"));
+            let error = error.filter(|text| !text.is_empty()).unwrap_or("refused");
+            self.stop_refused_prompt(prompt_id, error);
             return;
         }
         self.prompt_rejections.insert(prompt_id.to_owned(), rejections);
@@ -465,13 +468,22 @@ impl Core {
         self.flush_outbox();
     }
 
+    /// The prompt of the turn that runs now.
+    fn is_running(&self, prompt_id: &str) -> bool {
+        self.folder.running().and_then(|turn| turn.prompt_id.as_deref()) == Some(prompt_id)
+    }
+
     fn timer(&mut self, key: &str) {
         if key == OUTBOX_TIMER {
             self.outbox_timer_at = None;
             self.flush_outbox();
         } else if let Some(prompt_id) = key.strip_prefix(PROMPT_TIMER_PREFIX) {
-            // Answered or dropped meanwhile: nothing to send.
-            self.send_prompt(prompt_id);
+            // Only a prompt still refused: one acpmux accepted (its rejections
+            // are cleared), whose turn runs, or that was answered or dropped
+            // meanwhile sends nothing.
+            if self.prompt_rejections.contains_key(prompt_id) && !self.is_running(prompt_id) {
+                self.send_prompt(prompt_id);
+            }
         } else if key == SESSIONS_TIMER && !self.pending_permissions.is_empty() && self.acpmux_up {
             self.emit(Effect::FetchSessions);
         }
