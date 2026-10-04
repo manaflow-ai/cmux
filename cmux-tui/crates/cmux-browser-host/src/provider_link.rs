@@ -109,6 +109,10 @@ impl TabTable {
         }
     }
 
+    fn engine(&self, target_id: &str) -> Option<String> {
+        self.engines.get(target_id).cloned()
+    }
+
     fn forget(&mut self, target_id: &str) {
         self.engines.remove(target_id);
         self.urls.remove(target_id);
@@ -437,7 +441,7 @@ impl ProviderDriver {
 
     /// The engine the app announced for a tab.
     pub fn tab_engine(&self, target_id: &str) -> Option<String> {
-        self.table().engines.get(target_id).cloned()
+        self.table().engine(target_id)
     }
 
     /// Why an agent call on `target_id` is refused (browser page, the
@@ -942,3 +946,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "provider_link_table_tests.rs"]
+mod table_tests;
