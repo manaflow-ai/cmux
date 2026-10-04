@@ -39,23 +39,42 @@ use self::mesh::MeshOverlay;
 use self::state::{DIRECT_MTU, LinkConfig, LinkState};
 use crate::localization::catalog;
 
-/// Start the session daemon's remote entry next to `session_socket`
-/// (`--link-entry`): only the link may connect, and every frame is denied
-/// until lane 10's conversation gate replaces [`DenyAllGate`].
+/// Start the session daemon's remote entry next to `session_socket` when
+/// `enabled` (`--link-entry`): only the link may connect, and every frame is
+/// denied until lane 10's conversation gate replaces [`DenyAllGate`].
 pub(crate) fn start_link_entry(
-    mux: Arc<cmux_tui_core::Mux>,
+    enabled: bool,
+    mux: &Arc<cmux_tui_core::Mux>,
     session_socket: &Path,
-) -> anyhow::Result<cmux_tui_core::server::RemoteEntryServer> {
+) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{DenyAllGate, LinkVerifier, serve_remote_entry};
+    if !enabled {
+        return Ok(None);
+    }
     let verifier: LinkVerifier = Arc::new(|stream: &std::os::unix::net::UnixStream| {
         cmux_link::caller::verify(stream).map_err(std::io::Error::from)
     });
     let path = cmux_link::entry_path::remote_entry_socket_path(session_socket);
-    serve_remote_entry(mux, &path, verifier, Arc::new(DenyAllGate))
+    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, Arc::new(DenyAllGate))?))
+}
+
+/// `cmux link ...` from `main`: the exit code, with any error on stderr.
+pub(crate) fn run(args: &[String]) -> i32 {
+    match run_link(args) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
+    }
+}
+
+fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+    Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?)
 }
 
 /// `cmux link <action> ...`.
-pub(super) fn run_link(args: &[String]) -> anyhow::Result<()> {
+fn run_link(args: &[String]) -> anyhow::Result<()> {
     let help = || anyhow!(catalog().remote_client.link_help);
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
@@ -199,7 +218,7 @@ fn change_peers(
     let changed = change(&mut pairings)?;
     pairings.save(&state.peers_path())?;
     let reloaded = match registration::read_live(&state.registration_dir()) {
-        Some(live) => super::tokio_runtime()?.block_on(reload(&live.socket)),
+        Some(live) => tokio_runtime()?.block_on(reload(&live.socket)),
         None => false,
     };
     print_json(&json!({"ok": true, "changed": changed, "reloaded": reloaded}));
@@ -219,7 +238,7 @@ async fn reload(socket: &Path) -> bool {
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
-    super::tokio_runtime()?.block_on(serve(state, session_socket))
+    tokio_runtime()?.block_on(serve(state, session_socket))
 }
 
 async fn serve(state: LinkState, session_socket: Option<PathBuf>) -> anyhow::Result<()> {
@@ -295,7 +314,7 @@ async fn shutdown_signal() -> anyhow::Result<()> {
 /// as one JSON line; the stream's bytes use stdin and stdout.
 fn run_dial(flags: &Flags) -> anyhow::Result<()> {
     let host = required(flags, "--host")?.to_string();
-    super::tokio_runtime()?.block_on(dial_bridge(host))
+    tokio_runtime()?.block_on(dial_bridge(host))
 }
 
 async fn dial_bridge(host: String) -> anyhow::Result<()> {
