@@ -27,7 +27,6 @@ rust-file	cmux-tui/crates/cmux-remote/src/bridge.rs	1057	43
 rust-file	cmux-tui/crates/cmux-remote/src/client.rs	1065	54
 rust-file	cmux-tui/crates/cmux-remote/src/connection.rs	2730	131
 rust-file	cmux-tui/crates/cmux-remote/src/daemon.rs	3289	165
-rust-file	cmux-tui/crates/cmux-remote/src/http.rs	1058	38
 rust-file	cmux-tui/crates/cmux-remote/src/identity.rs	4414	182
 rust-file	cmux-tui/crates/cmux-remote/src/link.rs	1882	108
 rust-file	cmux-tui/crates/cmux-remote/src/provider/iroh.rs	2060	82
