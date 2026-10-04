@@ -4,18 +4,25 @@
 // read. Make folder and save are ops with an idempotency key. Remove deletes data and push and pull
 // reach files of this Mac, so the page never calls them: the host runs them after its native
 // confirmation or file panel (`cmux.app.action.run`) and adds the local path the person picked.
-// A reply for another machine than the selected one is dropped.
-import type { PageClient } from "../shared/pageClient";
+// A push or pull answers at once with a running transfer (transfers.ts); its end is an event. A
+// bare 404 means the Cloud API has no file routes yet: the section shows "Not available yet" and keeps
+// no rows. A reply for another machine than the selected one is dropped.
+import { isPageError, type PageClient } from "../shared/pageClient";
 import type { MachineDetail } from "./detail";
 import {
   ACTION_RUN,
   CloudOps,
-  isUnsupported,
+  TRANSFER_BUSY,
+  isGone,
+  isNotServed,
   type ActionRunResult,
   type FsEntry,
   type FsListResult,
   type FsReadResult,
+  type TransferActionResult,
+  type TransferChanged,
 } from "./ops";
+import type { TransferWatch } from "./transfers";
 
 /** Where Browse starts: the home of user `cmux`, the user the Cloud API names for the machine. */
 export const FILES_HOME = "/home/cmux";
@@ -95,6 +102,7 @@ export class FilesReader {
   constructor(
     private readonly client: PageClient | null,
     private readonly host: FilesHost,
+    private readonly transfers: TransferWatch,
   ) {}
 
   /** Lists a folder of the selected machine (Browse, a folder row, Up). */
@@ -112,7 +120,9 @@ export class FilesReader {
       this.update(machine, { path: result.path ?? path, entries: result.entries, loading: false });
     } catch (error) {
       if (generation !== this.generation || epoch !== this.host.epoch()) return;
-      this.update(machine, { path, entries: kept ?? [], loading: false });
+      // A missing route keeps no rows: the section shows "Not available yet", never a stale folder.
+      const entries = isNotServed(CloudOps.fsList, error) ? [] : (kept ?? []);
+      this.update(machine, { path, entries, loading: false });
       this.reject(machine, CloudOps.fsList, error);
     }
   }
@@ -207,22 +217,63 @@ export class FilesReader {
 
   /**
    * Copies a local file into the current folder. The host shows its native file panel, adds the
-   * picked `localPath` and appends the file's name to `path` (README "Host gaps").
+   * picked `localPath` and appends the file's name to `path` (README "Host gaps"). The folder is
+   * read again when the copy ends (`transferEnded`).
    */
   async push(): Promise<void> {
     const machine = this.machine();
     const files = this.host.get()?.files;
-    if (!machine || !files) return;
-    if (await this.native(machine, CloudOps.filePush, { machine, path: files.path })) await this.refresh(machine);
+    if (machine && files) await this.transfer(machine, "push", files.path);
   }
-
-  /** Runs the push or pull that `transfer_busy` refused again. */
-  async retryTransfer(): Promise<void> {}
 
   /** Copies a file of the machine to this Mac; the host's save panel picks `localPath`. */
   async pull(path: string): Promise<void> {
     const machine = this.machine();
-    if (machine) await this.native(machine, CloudOps.filePull, { machine, path });
+    if (machine) await this.transfer(machine, "pull", path);
+  }
+
+  /** Runs the push or pull that `transfer_busy` refused again (the host asks for the file again). */
+  async retryTransfer(): Promise<void> {
+    const machine = this.machine();
+    const busy = this.host.get()?.files?.busy;
+    if (machine && busy) await this.transfer(machine, busy.direction, busy.path);
+  }
+
+  /** A transfer of this page ended: a finished push shows in its folder. */
+  transferEnded(event: TransferChanged): void {
+    if (event.direction === "push" && event.state === "done") void this.refresh(event.machine);
+  }
+
+  private async transfer(machine: string, direction: "push" | "pull", path: string): Promise<void> {
+    if (!this.host.canChange()) return;
+    const action = direction === "push" ? CloudOps.filePush : CloudOps.filePull;
+    this.setBusy(machine, undefined);
+    // Listen first: the end of a short copy can come right after the answer.
+    const watching = await this.transfers.watch();
+    this.transfers.begin();
+    try {
+      const result = await this.client!.call<TransferActionResult | null>(ACTION_RUN, {
+        action,
+        args: { machine, path, idempotency_key: this.host.key() },
+      });
+      if (result?.confirmed === false) return;
+      if (watching && result?.transfer)
+        this.transfers.started({ transfer: result.transfer, machine, direction, path: result.path ?? path });
+      // No event stream (or no transfer id): show what is there now.
+      else if (direction === "push") await this.refresh(machine);
+    } catch (error) {
+      // Nothing ran: more than 4 transfers are running. The person may try again.
+      if (isPageError(error) && error.code === TRANSFER_BUSY) this.setBusy(machine, { direction, path });
+      else this.reject(machine, action, error);
+    } finally {
+      this.transfers.end();
+    }
+  }
+
+  private setBusy(machine: string, busy: FilesView["busy"]): void {
+    const detail = this.host.get();
+    if (detail?.machine !== machine || !detail.files || detail.files.busy === busy) return;
+    this.host.set({ ...detail, files: { ...detail.files, busy } });
   }
 
   private machine(): string | undefined {
@@ -239,6 +290,8 @@ export class FilesReader {
       });
       return result?.confirmed !== false;
     } catch (error) {
+      // Already gone (the kind's own 404): the outcome the person asked for.
+      if (isGone(action, error)) return true;
       this.reject(machine, action, error);
       return false;
     }
@@ -259,12 +312,12 @@ export class FilesReader {
   private update(machine: string, view: Omit<FilesView, "preview">): void {
     const detail = this.host.get();
     if (detail?.machine !== machine) return;
-    this.host.set({ ...detail, files: { ...view, preview: detail.files?.preview } });
+    this.host.set({ ...detail, files: { ...view, preview: detail.files?.preview, busy: detail.files?.busy } });
   }
 
   private reject(machine: string, op: string, error: unknown): void {
     if (this.host.get()?.machine !== machine) return;
-    if (isUnsupported(error)) this.host.unsupported(op);
+    if (isNotServed(op, error)) this.host.unsupported(op);
     else this.host.fail(error);
   }
 }
