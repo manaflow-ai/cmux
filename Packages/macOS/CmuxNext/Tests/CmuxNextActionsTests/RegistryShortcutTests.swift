@@ -60,6 +60,31 @@ import Testing
         #expect(registry.shortcutDisplay(for: "selectWorkspaceByNumber") == "⌘1…9")
     }
 
+    @Test func paneResizeUsesControlCommandArrowsAndVimKeys() {
+        let registry = ActionRegistry.standard()
+        for id in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown"] {
+            registry.bind(id) {}
+        }
+
+        let expected: [(Shortcut, ActionID)] = [
+            (Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command]), "resizePaneLeft"),
+            (Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .command]), "resizePaneRight"),
+            (Shortcut(Shortcut.upArrowKey, modifiers: [.control, .command]), "resizePaneUp"),
+            (Shortcut(Shortcut.downArrowKey, modifiers: [.control, .command]), "resizePaneDown"),
+            (Shortcut("h", modifiers: [.control, .command]), "resizePaneLeft"),
+            (Shortcut("l", modifiers: [.control, .command]), "resizePaneRight"),
+            (Shortcut("k", modifiers: [.control, .command]), "resizePaneUp"),
+            (Shortcut("j", modifiers: [.control, .command]), "resizePaneDown"),
+        ]
+        for (shortcut, action) in expected {
+            #expect(registry.resolve(shortcut)?.id == action, "Expected \(shortcut.displayString) to resolve to \(action)")
+        }
+
+        for key in ["h", "j", "k", "l"] {
+            #expect(registry.resolve(Shortcut(key, modifiers: [.control, .shift])) == nil)
+        }
+    }
+
     @Test func overridesDriveResolutionAndDisplay() {
         let registry = ActionRegistry.standard()
         registry.bind("splitRight") {}
