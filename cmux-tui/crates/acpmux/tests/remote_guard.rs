@@ -263,7 +263,7 @@ async fn a_policy_that_skips_asking_comes_from_the_local_app_or_the_unix_socket_
     for (m, p) in [
         ("session/new", new_session(&cwd, json!({"policy": "ask"}))),
         ("_acpmux/set_policy", json!({"sessionId": id, "policy": "deny-all"})),
-        ("session/set_mode", json!({"sessionId": id, "modeId": "strict"})),
+        ("session/set_mode", json!({"sessionId": id, "modeId": "plan"})),
     ] {
         let r = web.call(m, p.clone()).await;
         assert!(!err(&r).contains(WEB_ONLY), "Web {m} {p}: {r}");
@@ -305,6 +305,54 @@ async fn directory_listings_are_for_the_local_app_and_the_unix_socket() {
         let mut c = Client::new(&hub, origin);
         let r = c.call("_acpmux/directories", p.clone()).await;
         assert!(r["result"]["directories"].is_array(), "{origin:?}: {r}");
+    }
+    let _ = std::fs::remove_dir_all(&d.base);
+}
+
+#[tokio::test]
+async fn web_modes_policies_and_rules_are_allow_lists() {
+    let d = dirs("allow");
+    let hub = hub();
+    let cwd = std::fs::canonicalize(&d.real).unwrap().to_string_lossy().into_owned();
+    let mut local = Client::new(&hub, Origin::Local);
+    let id = local.call("session/new", new_session(&cwd, json!({})))
+        .await["result"]["sessionId"].as_str().unwrap().to_owned();
+    let refused = [
+        ("session/set_mode", json!({"sessionId": id, "modeId": "totally-invented-mode"})),
+        ("session/set_mode", json!({"sessionId": id})),
+        ("session/set_config_option", json!({"sessionId": id, "configId": "mode", "value": "invented"})),
+        ("session/set_config_option", json!({"sessionId": id, "configId": "approval_policy", "value": "on-request"})),
+        ("session/set_config_option", json!({"sessionId": id, "configId": "invented_option", "value": "x"})),
+        ("_acpmux/set_policy", json!({"sessionId": id, "policy": "accept-edits"})),
+        ("_acpmux/set_policy", json!({"sessionId": id, "policy": "invented"})),
+        ("session/new", new_session(&cwd, json!({"policy": "invented"}))),
+        ("_acpmux/set_rules", json!({"sessionId": id, "rules": {"default": "invented"}})),
+        ("_acpmux/set_rules", json!({"sessionId": id, "rules": {"unknownKey": 1}})),
+        ("_acpmux/set_rules", json!({"sessionId": id, "rules": "approve"})),
+    ];
+    let mut web = Client::new(&hub, Origin::Web);
+    for (m, p) in &refused {
+        let r = web.call(m, p.clone()).await;
+        assert!(err(&r).contains(WEB_ONLY), "Web {m} {p}: {r}");
+    }
+    // LocalApp and the unix socket are unchanged: none of these is refused by the guard.
+    for origin in [Origin::LocalApp, Origin::Local] {
+        let mut c = Client::new(&hub, origin);
+        for (m, p) in &refused {
+            let r = c.call(m, p.clone()).await;
+            assert!(!err(&r).contains(WEB_ONLY), "{origin:?} {m} {p}: {r}");
+        }
+    }
+    for (m, p) in [
+        ("session/set_mode", json!({"sessionId": id, "modeId": "default"})),
+        ("session/set_config_option", json!({"sessionId": id, "configId": "mode", "value": "plan"})),
+        ("session/set_config_option", json!({"sessionId": id, "configId": "model", "value": "m2"})),
+        ("_acpmux/set_rules", json!({"sessionId": id, "rules": {"autoDeny": ["rm"], "ask": ["execute"], "default": "deny"}})),
+        ("_acpmux/set_rules", json!({"sessionId": id, "rules": null})),
+        ("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})),
+    ] {
+        let r = web.call(m, p.clone()).await;
+        assert!(!err(&r).contains(WEB_ONLY), "Web {m} {p} must be allowed: {r}");
     }
     let _ = std::fs::remove_dir_all(&d.base);
 }
