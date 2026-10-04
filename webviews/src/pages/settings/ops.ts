@@ -1,0 +1,120 @@
+// The Settings page's contract: the `cmux.settings/1` pane-protocol ops (plans/cmux-next/
+// settings-react.md, pane-protocol.md "Pages"). The daemon's config owner serves the data ops;
+// until the pane-protocol router reaches the daemon, the app's page bridge relays each one to
+// the daemon's v2 `settings.<verb>` operation unchanged (it moves `idempotency_key` into the v2
+// envelope, stamps origin `user`, and maps error codes `settings.X` to `cmux.settings.X`).
+// The native ops are served by the app (live preview, sound) or are catalog actions.
+//
+// These types are hand-written until the op set is declared with the cmux-pane-protocol
+// schemars macro; then they come from the generated client.
+
+export type ManagedInfo = { source: string; reason: string; team?: string | null };
+
+/** One `cmux.settings.list` row: the schema row plus what applies now. */
+export type ListRow = {
+  key: string;
+  value: unknown;
+  default: unknown;
+  customized: boolean;
+  managed: ManagedInfo | null;
+};
+
+export type Diagnostic = { path: string | string[]; message: string; kind?: string };
+
+export type Domains = { themes: string[]; font_families: string[]; sounds: string[] };
+
+/** Published value domains; `null` for a domain the app never published. */
+export type PublishedDomains = { [K in keyof Domains]: string[] | null };
+
+export type SnapshotResult = {
+  revision: number;
+  schema_hash: string;
+  effective: Record<string, unknown>;
+  managed: Record<string, ManagedInfo>;
+  diagnostics: Diagnostic[];
+  domains?: Partial<PublishedDomains> | null;
+};
+
+/** The v2 mutation result: `revision` is a decimal string. */
+export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
+
+type Mutation<P> = P & { idempotency_key: string; if_revision?: string };
+
+/** Every op the page calls: params and result. */
+export type SettingsOps = {
+  "cmux.settings.list": [{ section?: string }, ListRow[]];
+  "cmux.settings.snapshot": [Record<string, never>, SnapshotResult];
+  "cmux.settings.set": [Mutation<{ key: string; value: unknown }>, MutationResult];
+  "cmux.settings.reset": [Mutation<{ key: string }>, MutationResult];
+  "cmux.settings.reset_all": [Mutation<object>, MutationResult];
+  /** Native: show `value` live while a gesture runs; never written. */
+  "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
+  /** Native: drop the live preview of `key`. */
+  "cmux.settings.preview.end": [{ key: string }, unknown];
+  /** Native: play a notification sound. */
+  "cmux.settings.sound.play": [{ name: string }, unknown];
+  /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
+  "cmux.app.action.run": [{ action: string; args?: Record<string, unknown> }, unknown];
+};
+
+export type SettingsOpName = keyof SettingsOps;
+
+/** Streams the page subscribes to. */
+export type SettingsStreams = {
+  "cmux.settings.changed": { revision: number; keys: string[]; origin?: string };
+  /** The page bridge's link to the daemon (one stream for every page). */
+  "cmux.page.connection": { connected: boolean };
+  /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
+  "cmux.page.command": { command: "find" | "back" | "forward" | "reset" };
+};
+
+export type SettingsStreamName = keyof SettingsStreams;
+
+/**
+ * The page client (react-pages.md 1.1, `webviews/src/pages/shared/pageClient.ts`): a call
+ * rejects with an error that has `code`, `message` and optional `details` (the protocol's
+ * ProtocolError). Any object with this shape works, so the page does not import the adapter.
+ */
+export interface SettingsClient {
+  call<R>(op: string, params: unknown, opts?: { signal?: AbortSignal }): Promise<R>;
+  subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void>;
+}
+
+export type WireError = { code: string; message: string; details?: Record<string, unknown> };
+
+/** Codes the page acts on, without the namespace (`cmux.settings.managed` -> `managed`). */
+export type ErrorCode =
+  | "managed"
+  | "invalid"
+  | "invalid_params"
+  | "removed"
+  | "agent_refused"
+  | "revision_conflict"
+  | "unavailable"
+  | string;
+
+const unavailableCodes = new Set(["cmux.protocol.closed", "cmux.page.unavailable", "cmux.protocol.auth_refused"]);
+
+/** The error a call rejected with, as a plain record. */
+export function wireError(error: unknown): WireError {
+  if (typeof error === "object" && error !== null && typeof (error as WireError).code === "string") {
+    const { code, message, details } = error as WireError;
+    return { code, message: typeof message === "string" ? message : code, details };
+  }
+  return { code: "cmux.page.unavailable", message: String(error) };
+}
+
+/** `cmux.settings.managed` -> `managed`; transport loss -> `unavailable`. */
+export function errorCode(error: WireError): ErrorCode {
+  if (unavailableCodes.has(error.code)) return "unavailable";
+  if (error.code === "cmux.settings.revision_conflict" || error.code === "cmux.revision.conflict") {
+    return "revision_conflict";
+  }
+  const dot = error.code.lastIndexOf(".");
+  return dot === -1 ? error.code : error.code.slice(dot + 1);
+}
+
+/** A fresh idempotency key per user write (the v2 owner replays a retried key). */
+export function newIdempotencyKey(): string {
+  return `settings-page-${crypto.randomUUID()}`;
+}
