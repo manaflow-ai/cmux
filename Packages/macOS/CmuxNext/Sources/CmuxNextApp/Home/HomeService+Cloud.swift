@@ -36,6 +36,13 @@ extension HomeService {
                           displayName: auth.user?.displayName ?? auth.user?.primaryEmail ?? "")
             }) {
                 guard let self, link != last else { continue }
+                if let previous = last, previous.userID != nil, previous.userID != link.userID {
+                    // The previous account ends before the daemon holds the next
+                    // one's lease: an op submitted in between is refused here
+                    // instead of committing under the new account.
+                    cloudSource.configure(commands: previous.connection.map(CloudConversationClient.init),
+                                          link: previous.connection.map(ObjectIdentifier.init), identity: nil)
+                }
                 last = link
                 if let connection = link.connection { await lease.sync(connection) }
                 let identity = link.userID.map {

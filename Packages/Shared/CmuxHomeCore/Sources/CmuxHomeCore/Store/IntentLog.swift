@@ -85,6 +85,19 @@ public struct IntentLog: Hashable, Sendable {
         return dropped
     }
 
+    /// Drops intents the owner will never apply (`HomeEvent.intentsRevoked`),
+    /// whatever their state. Returns the ops that left.
+    @discardableResult
+    public mutating func revoke(_ keys: Set<IdempotencyKey>) -> [HomeOp] {
+        var revoked: [HomeOp] = []
+        entries.removeAll { entry in
+            guard keys.contains(entry.intent.key) else { return false }
+            revoked.append(entry.intent.op)
+            return true
+        }
+        return revoked
+    }
+
     /// On disconnect: everything still in flight becomes unconfirmed.
     public mutating func markDisconnected() {
         for index in entries.indices where entries[index].state == .sending {

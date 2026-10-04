@@ -39,6 +39,11 @@ public enum HomeEvent: Hashable, Sendable {
     /// reply after a failed one). The client resends its unconfirmed
     /// intents with their keys and refetches stale streams, as on reconnect.
     case ownerRecovered
+    /// The owner will never apply these intents: the account that made
+    /// them signed out or another account signed in. The client drops them
+    /// in every state (failed sends too) and never resends them, so no
+    /// intent goes out under an identity other than the one that made it.
+    case intentsRevoked(Set<IdempotencyKey>)
     /// Ephemeral, never stored.
     case typing(ConversationID, ParticipantID, on: Bool)
 }

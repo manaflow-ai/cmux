@@ -261,7 +261,7 @@ import Testing
     /// intent (a store resend) never reaches the owner, while B's own do.
     @Test func anAccountSwitchNeverSendsThePreviousAccountsUnconfirmedIntent() async throws {
         let opened = "conv_dm_01J0000000000000000000000B"
-        let (source, daemon, _) = await configured(.init(op: { _ in throw F.unavailable() }))
+        let (source, daemon, tape) = await configured(.init(op: { _ in throw F.unavailable() }))
         let start = HomeIntent(key: IdempotencyKey("cmk_a"),
                                op: .startConversation(contacts: [.email("x@y.com")], firstMessage: [.text("hello")]))
         await #expect(throws: HomeRejection.indeterminate) { try await source.submit(start) }
@@ -269,6 +269,10 @@ import Testing
         let before = daemon.opRequests.count
         let other = CloudIdentity(stackUserID: "stack-other", displayName: "Other", localID: F.localMe)
         source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: other)
+        // The store is told to drop it before any reply for the new account can recover it.
+        #expect(await tape.wait { $0.contains(.intentsRevoked([start.key])) })
+        let revoked = try #require(tape.all.firstIndex(of: .intentsRevoked([start.key])))
+        #expect(!tape.all[revoked...].contains(.ownerRecovered))
         await #expect(throws: HomeRejection.notAuthorized) { try await source.submit(start) }
         #expect(daemon.opRequests.count == before)
         _ = try await source.submit(HomeIntent(key: IdempotencyKey("cmk_b"), op: .invite(contact: .email("z@y.com"))))
@@ -277,7 +281,7 @@ import Testing
 
     /// A new display name is the same account: nothing it sent is refused.
     @Test func aNewDisplayNameIsNotAnAccountChange() async throws {
-        let (source, daemon, _) = await configured(.init(heads: [dm: F.head(dm)], op: { _ in throw F.unavailable() }))
+        let (source, daemon, tape) = await configured(.init(heads: [dm: F.head(dm)], op: { _ in throw F.unavailable() }))
         _ = try await source.snapshot(of: ConversationID(dm), tail: 10)
         let send = HomeIntent(key: IdempotencyKey("cmk_n"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
         await #expect(throws: HomeRejection.indeterminate) { try await source.submit(send) }
@@ -285,6 +289,7 @@ import Testing
         let renamed = CloudIdentity(stackUserID: "stack-me", displayName: "Me Renamed", localID: F.localMe)
         source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: renamed)
         #expect(try await source.submit(send).rev == 4)
+        #expect(!tape.all.contains { if case .intentsRevoked = $0 { true } else { false } })
     }
 
     /// An archived conversation stays out of the inbox when its stream moves

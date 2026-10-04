@@ -64,9 +64,11 @@ nonisolated final class HomeSourceRouter: HomeSource {
 
     func inbox() async throws -> InboxSnapshot {
         let localInbox = try await local.inbox()
-        // A cloud failure must not hide local conversations: use what the cloud source knows.
-        let cloudInbox = (try? await cloud.inbox()) ?? cloud.currentInbox()
-        return state.withLock { merged(local: localInbox, cloud: cloudInbox.conversations, &$0) }
+        // Refreshes what the cloud source knows; a cloud failure must not hide local conversations.
+        _ = try? await cloud.inbox()
+        // The cloud part is read under the lock that stamps the merged revision,
+        // so no cloud inbox event published in between carries a lower one.
+        return state.withLock { merged(local: localInbox, cloud: cloud.currentInbox().conversations, &$0) }
     }
 
     func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {

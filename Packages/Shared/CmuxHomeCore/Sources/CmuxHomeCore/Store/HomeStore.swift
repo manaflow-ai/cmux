@@ -223,6 +223,13 @@ public final class HomeStore {
             enqueueResends(log.takeResends())
             for stream in mirror.stale { scheduleRefetch(stream) }
             rebuildRows()
+        case .intentsRevoked(let keys):
+            // A resend already queued must not go either; one in flight is refused by its owner.
+            pendingResends.removeAll { keys.contains($0.key) }
+            for op in log.revoke(keys) {
+                if let id = op.conversation { bumpTranscript(id) }
+            }
+            rebuildRows()
         case .typing(let id, let who, let on):
             var set = typing[id] ?? []
             if on { set.insert(who) } else { set.remove(who) }

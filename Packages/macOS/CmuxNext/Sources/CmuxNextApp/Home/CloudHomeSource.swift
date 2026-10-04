@@ -44,7 +44,18 @@ nonisolated final class CloudHomeSource: HomeSource {
         var targets: [ConversationID: Target] = [:]
         /// Subscribed conversations, least recently used first.
         var recent: [ConversationID] = []
+        /// Conversations queued for or in a hydration read.
         var hydrating: Set<ConversationID> = []
+        /// Hydration reads waiting for a worker, oldest first; at most
+        /// `hydrationWidth` workers read at once for the whole source.
+        var hydrationQueue: [ConversationID] = []
+        var hydrationWorkers = 0
+        /// Keys of intents this account submitted that are not known to be
+        /// committed: the store may still resend them (or show a failed send).
+        var accepted: Set<String> = []
+        /// Keys of intents a previous account submitted. Refused for good, so
+        /// none goes out under another identity (the owner scopes keys per actor).
+        var revoked: Set<String> = []
         /// This source's inbox stream revision: one per inbox event it publishes.
         var inboxRev: Revision = 0
         /// A read or op failed in a way that leaves intents unconfirmed; the
@@ -66,14 +77,39 @@ nonisolated final class CloudHomeSource: HomeSource {
     // MARK: Fed by HomeService
 
     /// A daemon connection with the cloud transport (or none, `link` names
-    /// it) and the signed-in account (or none). A new account, or signing
-    /// out, empties the cloud part of the inbox; a lost connection only goes
-    /// offline and keeps what this source knew.
+    /// it) and the signed-in account (or none). Everything this source keeps
+    /// belongs to one account (its cloud id): a new account, or signing out,
+    /// revokes the previous account's intents (`.intentsRevoked`, before any
+    /// other event, and refused here for good) and empties the cloud part of
+    /// the inbox. A lost connection only goes offline and keeps what this
+    /// source knew; a new display name is the same account.
     func configure(commands: (any CloudConversationCommands)?, link: ObjectIdentifier?, identity: CloudIdentity?) {
+        let renamed = state.withLock { state -> Bool in
+            guard link == state.link, let identity, let current = state.identity, current.cloudID == identity.cloudID,
+                  current != identity else { return false }
+            state.identity = identity
+            return true
+        }
+        if renamed {
+            publishInbox()
+            return
+        }
         let change = state.withLock { state -> (generation: UInt64, cleared: Bool, ended: [ConversationID], kept: [ConversationID],
                                                 old: (any CloudConversationCommands)?)? in
             guard link != state.link || identity != state.identity else { return nil }
-            let cleared = identity != state.identity
+            let cleared = identity?.cloudID != state.identity?.cloudID
+            if cleared {
+                // Under the same lock as the identity change, so no reply for the
+                // new account can recover the store before it drops these.
+                let revoked = Set(state.accepted.map { IdempotencyKey($0) })
+                state.revoked.formUnion(state.accepted)
+                state.accepted = []
+                // Nothing of the new account waits to be resent.
+                state.degraded = false
+                if !revoked.isEmpty {
+                    for continuation in state.continuations.values { continuation.yield(.intentsRevoked(revoked)) }
+                }
+            }
             // The same connection keeps the old account's interests: end them.
             let ended = cleared && link == state.link ? Array(state.targets.keys) : []
             // The same account on a new connection: its open conversations subscribe again.
@@ -89,6 +125,8 @@ nonisolated final class CloudHomeSource: HomeSource {
                 state.recent = []
             }
             state.hydrating = []
+            state.hydrationQueue = []
+            state.hydrationWorkers = 0
             if cleared {
                 state.entries = [:]
                 state.created = []
@@ -109,8 +147,9 @@ nonisolated final class CloudHomeSource: HomeSource {
             return
         }
         publish(.connection(.online))
-        // Intents refused while there was no transport resend after the first reply.
-        state.withLock { $0.degraded = true }
+        // The same account on a new connection: intents refused while there
+        // was no transport resend after the first reply.
+        if !change.cleared { state.withLock { $0.degraded = true } }
         let generation = change.generation
         let kept = change.kept
         // task-owner: one inbox subscribe and list, then the kept conversations' subscribes; ends with their replies
@@ -210,8 +249,20 @@ nonisolated final class CloudHomeSource: HomeSource {
         return page.messages.map { CloudHomeMapping.message($0, identity: identity) }
     }
 
+    /// Binds the intent's key to the signed-in account first: a key a
+    /// previous account submitted is refused (`notAuthorized`, the store
+    /// drops it) and never reaches the daemon under this account's lease.
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
-        let (commands, identity, generation) = try requireEndpoint()
+        let key = intent.key.rawValue
+        let (commands, identity, generation) = try requireEndpoint(binding: key)
+        let result = try await run(intent, commands: commands, identity: identity, generation: generation)
+        // Committed: the store never sends this key again.
+        state.withLock { _ = $0.accepted.remove(key) }
+        return result
+    }
+
+    private func run(_ intent: HomeIntent, commands: any CloudConversationCommands, identity: CloudIdentity,
+                     generation: UInt64) async throws -> HomeOpResult {
         let key = intent.key.rawValue
         func send(_ op: CloudConversationOp, in conversation: ConversationID?, key: String = key) async throws -> CloudConversationOpResult {
             let request = CloudConversationOpRequest(conversation: conversation?.rawValue, idempotencyKey: key, origin: "user", op: op)
@@ -500,30 +551,42 @@ nonisolated final class CloudHomeSource: HomeSource {
         publish { state in .inbox(snapshot(&state)) }
     }
 
-    /// Reads a one-message snapshot for each listed conversation without a
-    /// current head, a few at a time, and publishes its summary.
+    /// Queues a one-message snapshot read for each listed conversation
+    /// without a current head and publishes its summary. One queue serves
+    /// the whole source, so at most `hydrationWidth` reads use the daemon's
+    /// request budget at once, and a conversation waits in it only once.
     private func hydrate(_ ids: [ConversationID], generation: UInt64) {
-        let (commands, identity, fresh) = state.withLock { state -> ((any CloudConversationCommands)?, CloudIdentity?, [ConversationID]) in
-            guard state.generation == generation else { return (nil, nil, []) }
+        let (commands, identity, workers) = state.withLock { state -> ((any CloudConversationCommands)?, CloudIdentity?, Int) in
+            guard state.generation == generation, let commands = state.commands, let identity = state.identity else { return (nil, nil, 0) }
             let fresh = ids.filter { !state.hydrating.contains($0) }
             state.hydrating.formUnion(fresh)
-            return (state.commands, state.identity, fresh)
+            state.hydrationQueue.append(contentsOf: fresh)
+            let workers = min(Self.hydrationWidth - state.hydrationWorkers, state.hydrationQueue.count)
+            guard workers > 0 else { return (nil, nil, 0) }
+            state.hydrationWorkers += workers
+            return (commands, identity, workers)
         }
-        guard let commands, let identity, !fresh.isEmpty else { return }
-        // task-owner: one bounded batch of snapshot reads; ends when the batch does
-        Task { [weak self] in
-            guard let self else { return }
-            await withTaskGroup(of: Void.self) { group in
-                var pending = fresh[...]
-                for _ in 0..<Self.hydrationWidth {
-                    guard let id = pending.popFirst() else { break }
-                    group.addTask { await self.hydrateOne(id, commands: commands, identity: identity, generation: generation) }
-                }
-                while await group.next() != nil {
-                    guard let id = pending.popFirst() else { continue }
-                    group.addTask { await self.hydrateOne(id, commands: commands, identity: identity, generation: generation) }
+        guard let commands, let identity else { return }
+        for _ in 0..<workers {
+            // task-owner: one hydration worker; ends when the queue is empty or the account or connection changes
+            Task { [weak self] in
+                while let id = self?.nextHydration(generation: generation) {
+                    await self?.hydrateOne(id, commands: commands, identity: identity, generation: generation)
                 }
             }
+        }
+    }
+
+    /// The next queued conversation for a worker, or nil when it ends.
+    private func nextHydration(generation: UInt64) -> ConversationID? {
+        state.withLock { state in
+            // A configure since reset the queue and the worker count.
+            guard state.generation == generation else { return nil }
+            guard !state.hydrationQueue.isEmpty else {
+                state.hydrationWorkers -= 1
+                return nil
+            }
+            return state.hydrationQueue.removeFirst()
         }
     }
 
@@ -575,12 +638,14 @@ nonisolated final class CloudHomeSource: HomeSource {
         return summary
     }
 
-    /// A listed conversation whose head is missing or older than its entry,
-    /// unless its socket keeps the head current.
+    /// A listed conversation whose head is missing, or behind its entry's
+    /// newest message (the preview), unless its socket keeps the head
+    /// current. Pin, mute and unread come from the entry itself
+    /// (`CloudHomeMapping.apply`), so those changes read nothing.
     private func needsHead(_ id: ConversationID, _ state: State) -> Bool {
         guard let entry = state.entries[id], state.targets[id] == nil else { return false }
         guard let head = state.heads[id] else { return true }
-        return entry.rev > head.rev
+        return entry.lastSeq > head.lastSeq
     }
 
     private func needsHead(_ state: State) -> [ConversationID] {
@@ -596,14 +661,23 @@ nonisolated final class CloudHomeSource: HomeSource {
                                        agentClass: isAgent ? (known?.agentClass == .chief ? "mux" : "agent") : nil)
     }
 
-    private func requireEndpoint() throws -> (any CloudConversationCommands, CloudIdentity, UInt64) {
-        let (commands, identity, generation) = state.withLock { ($0.commands, $0.identity, $0.generation) }
-        guard let identity else { throw HomeRejection.notAuthorized }
-        guard let commands else {
-            state.withLock { $0.degraded = true }
-            throw HomeRejection.ownerUnreachable
+    /// The transport and account for a read, or for an intent whose key
+    /// `binding` names: that key now belongs to this account, unless a
+    /// previous account submitted it.
+    private func requireEndpoint(binding key: String? = nil) throws -> (any CloudConversationCommands, CloudIdentity, UInt64) {
+        let endpoint = state.withLock { state -> Result<(any CloudConversationCommands, CloudIdentity, UInt64), HomeRejection> in
+            guard let identity = state.identity else { return .failure(.notAuthorized) }
+            if let key {
+                if state.revoked.contains(key) { return .failure(.notAuthorized) }
+                state.accepted.insert(key)
+            }
+            guard let commands = state.commands else {
+                state.degraded = true
+                return .failure(.ownerUnreachable)
+            }
+            return .success((commands, identity, state.generation))
         }
-        return (commands, identity, generation)
+        return try endpoint.get()
     }
 
     /// One daemon reply for the account signed in now. A reply that arrives
@@ -616,10 +690,13 @@ nonisolated final class CloudHomeSource: HomeSource {
         do {
             value = try await Self.mapped(body)
         } catch let rejection as HomeRejection {
-            if rejection == .indeterminate || rejection == .ownerUnreachable { state.withLock { $0.degraded = true } }
+            // Only the account that sent it waits for a recovery.
+            if rejection == .indeterminate || rejection == .ownerUnreachable {
+                state.withLock { if $0.identity?.cloudID == identity.cloudID { $0.degraded = true } }
+            }
             throw rejection
         }
-        guard state.withLock({ $0.identity }) == identity else { throw HomeRejection.notAuthorized }
+        guard state.withLock({ $0.identity?.cloudID }) == identity.cloudID else { throw HomeRejection.notAuthorized }
         recover()
         return value
     }
