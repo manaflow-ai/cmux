@@ -86,6 +86,40 @@ Ports: `cloud.port.forward {machine, port}` listens on 127.0.0.1 and a port the 
 
 `cloud.browser.open {machine, port, host?, path?}` answers `{proxy: {kind: "http", host: "127.0.0.1", port}, url}`. The route is an HTTP proxy for `CONNECT` and absolute-form HTTP/1.1 that reaches only the machine: `localhost`, a name under `.localhost` or a loopback literal, decided from the text without DNS. Other hosts get 403 (and `proxy_refused` at the op); origin-form requests get 400, so a page cannot use the route directly.
 
+## Test notes: rescue backend rules under mutation
+
+Each rule of the rescue backend (`server/src/rescue/backend.rs`, the local id and kind rules in `rescue/iface.rs`) was removed one at a time on a Testbox pinned to 097f7941743 (never committed; restored with `git checkout -- <file>`), and the rescue tests (`attach_rescue`, `rescue_conformance`, `rescue_rules`) ran. Every mutation fails at least one test on its assertion. The tests in `rescue_rules.rs` were added because no test failed under their mutation in the first run (bdc94453583); in that run the first R1 mutation failed only on an integer overflow panic in the backend, so R1 now accepts a stale seq silently instead.
+
+| Rule | Mutation | Fails (test, file:line) |
+| --- | --- | --- |
+| R1 each written seq once | a seq below the next one answers `Ok` | `write_order_is_kept_by_seq` attach_rescue.rs:50; `rescue_concurrent_writes_keep_seq_order` rescue_conformance.rs:185 |
+| R1b each held seq once | no check for a seq already held | `a_held_seq_is_written_once` rescue_rules.rs:48 |
+| R2 refusal after close | `close` does not mark the stream closed | `close_ends_the_terminal_at_once` attach_rescue.rs:103; `rescue_close_refuses_later_calls` rescue_conformance.rs:232 |
+| R2b refusal when not open | `open_stream` accepts any status | 6 tests, e.g. `rescue_far_exit_gives_exit_status` rescue_conformance.rs:210 |
+| R2c, R2d resize, signal refused when not open | no `open_stream` check | `rescue_close_refuses_later_calls` rescue_conformance.rs:233, 234 |
+| R3 lost on transport drop | a drop ends with `exit` | `transport_drop_gives_lost_and_no_input_queues` attach_rescue.rs:132; `rescue_transport_drop_gives_lost` rescue_conformance.rs:221 |
+| R4 output offsets contiguous | offset = chunk length, not the running total | `output_reaches_the_terminal` attach_rescue.rs:70; `rescue_output_offsets_are_contiguous` rescue_conformance.rs:96 |
+| R5 nothing after close | the pump delivers to any status | `close_ends_the_terminal_at_once` attach_rescue.rs:106 |
+| R5b one end event, then nothing | the pump delivers after `exit`/`lost` | `nothing_follows_the_end_event` rescue_rules.rs:62 |
+| R6 no empty output event | empty chunks become events | `empty_output_gives_no_event` rescue_rules.rs:72 |
+| R7 held seq at most 256 ahead | no distance check | `a_seq_too_far_ahead_is_refused` rescue_rules.rs:83 |
+| R8 held bytes at most 1 MiB | no byte check | `held_input_is_bounded` attach_rescue.rs:190 |
+| R9 one write at most `max_write_bytes` | no size check | `a_write_over_max_write_bytes_is_invalid` rescue_rules.rs:93 |
+| R10, R10b, R10c far-end text bounded | no cut of exit message, exit signal, lost reason | `far_end_text_is_bounded` attach_rescue.rs:122, 123; `a_lost_reason_from_the_far_end_is_bounded` rescue_rules.rs:109 |
+| R11 a failed write ends the terminal | the error returns, the stream stays open | `a_transport_failure_is_a_typed_error_and_ends_the_terminal` attach_rescue.rs:175 |
+| R12 a lost stream is closed once | close again on drop | the same test, attach_rescue.rs:178 |
+| R13 no close of a stream the far end freed | a far close does not mark it released | `a_stream_the_far_end_closed_is_never_closed_again` rescue_rules.rs:120 |
+| R14 drop closes the far shell | no close on drop | `dropping_an_open_terminal_closes_the_far_shell` rescue_rules.rs:128 |
+| R15 close closes the transport stream | no transport close | `close_ends_the_terminal_at_once` attach_rescue.rs:101 |
+| R16 close drops undelivered output | events kept at close | `close_drops_output_that_was_not_taken` rescue_rules.rs:137 |
+| R17 default deny of kinds | `allow_kind` accepts any kind | `the_backend_refuses_kind_ssh_and_resume` attach_rescue.rs:145; `rescue_other_kind_is_refused` rescue_conformance.rs:129 |
+| R18 login shell only | a command is accepted | `a_command_is_unsupported` rescue_rules.rs:147 |
+| R19 grid needs columns and rows | no zero check | `a_grid_without_columns_or_rows_is_invalid` rescue_rules.rs:155 |
+| R20 resume unsupported | resume answers `invalid` | `the_backend_refuses_kind_ssh_and_resume` attach_rescue.rs:156 |
+| R21 local ids up to 64 characters | 32-character limit | `local_ids_follow_the_interface_pattern` attach_rescue.rs:161 |
+
+Not a rule under test: `close` also clears held input, but held input never reaches the transport after close either way, so no test can see it (memory only).
+
 ## Gaps
 
 - CLI paths are app-relative (R73 S1). `cloud` is a reserved CLI word (built-in `cmux cloud`), so the manifest has no `cli.name` and the verbs run as `cmux apps run cmux/cloud <path>` until the CLI owner maps the reserved word to this first-party app.
