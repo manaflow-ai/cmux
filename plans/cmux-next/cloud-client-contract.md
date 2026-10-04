@@ -193,6 +193,18 @@ Cache rules for `cmux link`:
 3. On a handshake failure with a cached entry, fetch once more before reporting `unreachable`.
 4. `cloud.machine.removed` drops the entry at once and closes open links to that host.
 
+Host side, the daemon's offline limits (lane 10, 2026-10-04): when the host's token verifier
+accepts a `daemon` hello, the link stamps the stream for the remote entry with
+`"check":"link_token"` next to `link_peer`. The entry records that as the install's good
+control-plane check (`record_remote_check`) before it binds the stream, so the 24 h / 72 h
+offline limits count from the last accepted token. Only the link writes the field, only after
+the verifier accepted the token, and the entry reads it only from the stamp line (before any
+peer byte); a peer frame that looks like a stamp is a frame and is denied. Limits that remain:
+(1) the host uses `DenyAllTokens` until a token format ships, so no Cloud stream reaches the
+entry yet; (2) a paired Mac that is not a Cloud host has no control-plane check, so its streams
+stay refused (fail closed) until a recheck driver exists; (3) a revoke in the middle of a
+stream depends on `HostDO` closing the link, because nothing calls `revoke_remote_install` yet.
+
 Mapping to `link.dial` errors: `unknown_host` = `cloud.machine.not_found`; `not_authorized` =
 `auth.forbidden` or a refused token; `host_paused` = handshake failure with `state: paused`;
 `unreachable` = no path answered; `bad_request` = malformed op line.
