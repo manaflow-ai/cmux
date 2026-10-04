@@ -1,0 +1,29 @@
+<!doctype html><html><head><title>States Fixture</title></head><body>
+<main>
+<h1>States</h1>
+<form aria-label="Profile">
+<label>Name <input id="name" required></label>
+<label>Code <input id="code" aria-invalid="true" value="x1"></label>
+<label>Account <input id="account" readonly value="42"></label>
+<label>Secret <input id="secret" type="password" value="hunter2"></label>
+<label><input type="checkbox" id="mixed"> Some selected</label>
+<select id="size" aria-label="Size"><option>S</option><option selected>M</option><option>L</option></select>
+<select id="tags" multiple aria-label="Tags"><option selected>red</option><option>blue</option></select>
+</form>
+<button aria-pressed="mixed">Partial</button>
+<div role="combobox" aria-expanded="true" aria-label="City" tabindex="0" aria-controls="cities">Paris</div>
+<ul role="listbox" id="cities" aria-label="Cities"><li role="option" aria-selected="true">Paris</li><li role="option" aria-selected="false">Rome</li></ul>
+<table aria-label="Users"><tr><th>User</th><th>Action</th></tr><tr><td>Ada</td><td><button>Edit</button></td></tr><tr><td>Grace</td><td>none</td></tr></table>
+<p>Links: <a href="/aria.html?x=1#y">relative</a>, <a id="peer-link" href="#">peer</a>, <a href="javascript:void 0">script</a>.</p>
+<dl><dt>Term</dt><dd>Definition</dd></dl>
+<progress value="30" max="100" aria-label="Progress"></progress>
+<p>Spaces   <em>around</em>
+   inline <span>elements</span> stay single.</p>
+<div id="scroll" style="height:40px;overflow:auto" aria-label="Log"><p>line one</p><p>line two</p><p>line three</p><p>line four</p></div>
+</main>
+<script>
+document.getElementById("mixed").indeterminate = true;
+const peer = new URLSearchParams(location.search).get("peer");
+if (peer) document.getElementById("peer-link").href = peer + "/aria.html";
+</script>
+</body></html>

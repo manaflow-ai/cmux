@@ -397,8 +397,10 @@ extension RemoteTmuxController {
             let workspaces = sourceManager.tabs.filter { hostWorkspaceIds.contains($0.id) }
             // A window holding nothing but this host's mirrors has no reason to stay once they
             // leave. Emptied, it recovers by opening a fresh local shell, which leaves a blank
-            // window on screen that nobody asked for.
+            // window on screen that nobody asked for. Its Dock panels belong to no workspace
+            // and close with the window, so a window with any of those stays.
             let holdsOnlyTheseMirrors = workspaces.count == sourceManager.tabs.count
+                && (AppDelegate.shared?.existingWindowDock(for: sourceManager)?.panels.isEmpty ?? true)
             for workspace in workspaces {
                 guard let detached = sourceManager.detachWorkspace(tabId: workspace.id) else { continue }
                 targetManager.attachWorkspace(detached, select: false)
