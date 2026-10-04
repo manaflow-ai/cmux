@@ -34,7 +34,7 @@ async fn a_flood_of_unknown_initiators_leaves_no_state() {
         public_key: known,
         preshared_key: None,
         allowed_ips: vec![allowed],
-        endpoint: None,
+        route: None,
         persistent_keepalive: None,
     };
     driver.add_peer(peer).unwrap();

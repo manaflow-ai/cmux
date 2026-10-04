@@ -251,6 +251,16 @@ impl MeshDriver {
             MeshCommand::Listen { port, reply } => {
                 let _ = reply.send(self.stack.begin_listen(port));
             }
+            // Stubs: gateway routes are not implemented yet.
+            MeshCommand::AddGateway { reply, .. } => {
+                let _ = reply.send(Err(WgError::InvalidPeer("gateways are not implemented")));
+            }
+            MeshCommand::RemoveGateway { reply, .. } => {
+                let _ = reply.send(false);
+            }
+            MeshCommand::PeerRoute { reply, .. } => {
+                let _ = reply.send(None);
+            }
             MeshCommand::Shutdown => {}
         }
     }

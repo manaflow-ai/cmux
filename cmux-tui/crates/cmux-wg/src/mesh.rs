@@ -31,6 +31,8 @@ use zeroize::Zeroizing;
 
 use crate::config::InterfaceAddress;
 use crate::error::WgError;
+use crate::mesh_route::{GatewayId, PeerRoute};
+use crate::net::WgDatagramSocket;
 use crate::stream::WgStream;
 
 /// Commands in flight before callers wait.
@@ -68,9 +70,11 @@ pub struct WgPeer {
     /// Networks routed to this peer, usually its overlay `/128`. Also the
     /// filter for the source address of every packet it sends.
     pub allowed_ips: Vec<IpNetwork>,
-    /// Where the peer listens. `None` learns it from the peer's first
-    /// authenticated datagram; every later one moves it (roaming).
-    pub endpoint: Option<SocketAddr>,
+    /// Where the peer's datagrams go: a UDP endpoint or a gateway tunnel.
+    /// `None` learns it from the peer's first authenticated datagram; every
+    /// later one moves it (roaming), across UDP and gateways alike. A UDP
+    /// endpoint converts with `Some(address.into())`.
+    pub route: Option<PeerRoute>,
     /// Seconds between keepalives that hold NAT mappings open.
     pub persistent_keepalive: Option<u16>,
 }
@@ -83,7 +87,7 @@ impl fmt::Debug for WgPeer {
             .field("public_key", &base64::engine::general_purpose::STANDARD.encode(self.public_key))
             .field("preshared_key", &self.preshared_key.as_ref().map(|_| "<set>"))
             .field("allowed_ips", &self.allowed_ips)
-            .field("endpoint", &self.endpoint)
+            .field("route", &self.route)
             .field("persistent_keepalive", &self.persistent_keepalive)
             .finish()
     }
@@ -97,6 +101,9 @@ pub(crate) enum MeshCommand {
     RemovePeer { public_key: [u8; 32], reply: oneshot::Sender<bool> },
     Connect { remote: SocketAddr, reply: oneshot::Sender<Result<WgStream, WgError>> },
     Listen { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<MeshAccepted>, WgError>> },
+    AddGateway { socket: WgDatagramSocket, reply: oneshot::Sender<Result<GatewayId, WgError>> },
+    RemoveGateway { gateway: GatewayId, reply: oneshot::Sender<bool> },
+    PeerRoute { public_key: [u8; 32], reply: oneshot::Sender<Option<PeerRoute>> },
     Shutdown,
 }
 
@@ -166,6 +173,39 @@ impl WgMesh {
         self.send(MeshCommand::Listen { port, reply }).await?;
         let incoming = answer.await.map_err(|_| WgError::Shutdown)??;
         Ok(WgMeshListener { port, incoming })
+    }
+
+    /// Attach a gateway: a datagram socket inside a gateway tunnel (this
+    /// install's Freestyle tunnel). Datagrams the mesh sends on a
+    /// [`PeerRoute::Gateway`] route go out through `socket`, and datagrams
+    /// that arrive on it are handled like UDP datagrams: the same demux by
+    /// receiver index and by handshake key, and unknown keys get no state.
+    ///
+    /// Refused with [`WgError::DatagramTooLarge`] when the socket's
+    /// `max_datagram` cannot carry a full-size WireGuard data message of
+    /// this mesh (its MTU plus 32 bytes): a mesh that may use a gateway
+    /// runs with the nested inner MTU (1200 behind a 1280 tunnel).
+    pub async fn add_gateway(&self, socket: WgDatagramSocket) -> Result<GatewayId, WgError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(MeshCommand::AddGateway { socket, reply }).await?;
+        answer.await.map_err(|_| WgError::Shutdown)?
+    }
+
+    /// Detach a gateway and drop its socket. Peers whose route used it have
+    /// no route until their next authenticated datagram (their connections
+    /// stay open and retransmit). Returns whether the gateway existed.
+    pub async fn remove_gateway(&self, gateway: GatewayId) -> Result<bool, WgError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(MeshCommand::RemoveGateway { gateway, reply }).await?;
+        answer.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// The route a peer currently uses (configured, or learned by roaming),
+    /// or `None` for an unknown key or a peer with no route yet.
+    pub async fn peer_route(&self, public_key: [u8; 32]) -> Result<Option<PeerRoute>, WgError> {
+        let (reply, answer) = oneshot::channel();
+        self.send(MeshCommand::PeerRoute { public_key, reply }).await?;
+        answer.await.map_err(|_| WgError::Shutdown)
     }
 
     /// Stop the driver and wait for it to exit. Open connections are reset.
