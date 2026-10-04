@@ -128,7 +128,7 @@ already know it for this meaning. Checked against: macOS (Ctrl-Left/Right
 switch Spaces, Ctrl-Cmd-F full screen, Ctrl-Cmd-Q lock, Ctrl-Cmd-Space
 characters; Ctrl-Cmd-arrows are free), the standard browser chords (no
 Ctrl-Cmd-arrow chord; BrowserChordTable unchanged), cmux (free; Ctrl-Cmd-[ / ] stay
-Previous/Next Workspace, Ctrl-Shift-HJKL resize panes), Ghostty (macOS
+Previous/Next Workspace, Ctrl-Cmd arrows or H/J/K/L resize panes), Ghostty (macOS
 default `super+ctrl+left/right = resize_split`; tier 1 wins in a terminal,
 and cmux's own resize keys remain). Rejected: Cmd-[ / Cmd-] (now page history,
 the user's rule), Ctrl-Cmd-[ / ] (workspaces), Ctrl-- / Ctrl-Shift-- (Ctrl-Shift-- is Ctrl-_, undo in readline, zsh and Emacs, which tier 1 would
