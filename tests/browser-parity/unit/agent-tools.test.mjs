@@ -369,6 +369,40 @@ test("storage state: scoped to the current tab's site unless { all: true }", asy
   }
 });
 
+// An empty URL list is no scope at all: it means the current tab's site, as
+// an absent one does, never the whole profile (that needs { all: true }).
+// A URL that is not absolute http(s) is refused, not ignored.
+test("storage state: an empty urls list scopes to the current tab's site", async () => {
+  const servers = await startFixtureServers();
+  const { primary, peer } = servers.origins;
+  try {
+    await withRepl(async ({ run, dir }) => {
+      const r = await run(`
+        await page.goto("${primary}/set-cookie");
+        const other = await tabs.open("${peer}/set-cookie");
+        await other.close();
+        await page.goto("${primary}/agent-tools.html");
+        const view = (s) => s.cookies.map((c) => c.domain).sort();
+        const out = {};
+        out.empty = await session.storageState({ urls: [] }).then(view, (e) => e.message);
+        out.contextEmpty = await page.context().storageState({ urls: [] }).then(view, (e) => e.message);
+        out.blank = await session.storageState({ urls: [""] }).then(view, (e) => e.message);
+        out.relative = await session.storageState({ urls: ["/x"] }).then(view, (e) => e.message);
+        fs.writeFileSync("./empty-scope.json", JSON.stringify(out));
+      `);
+      assert.equal(r.error, null);
+      const out = JSON.parse(fs.readFileSync(path.join(dir, "empty-scope.json"), "utf8"));
+      const host = (o) => new URL(o).hostname;
+      assert.deepEqual(out.empty, [host(primary)], JSON.stringify(out));
+      assert.deepEqual(out.contextEmpty, [host(primary)], JSON.stringify(out));
+      assert.match(String(out.blank), /urls/, JSON.stringify(out));
+      assert.match(String(out.relative), /urls/, JSON.stringify(out));
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("clearCookies: scoped to the current tab's site unless { all: true }", async () => {
   const servers = await startFixtureServers();
   const { primary, peer } = servers.origins;
