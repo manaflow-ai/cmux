@@ -638,6 +638,33 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(fs.perform("readdir", arguments: ["path": "small"]).failureCode == "ok")
     }
 
+    /// A recursive `rm` runs on the session's thread and must not list a
+    /// large directory whole, or list it again for each subdirectory it
+    /// removes: work and memory stay proportional to the entries removed.
+    /// The fs asks `isCancelled` once per 1,024 entries it handles, so the
+    /// count of those checks measures the work done.
+    @Test("A recursive rm of many subdirectories handles each entry a bounded number of times")
+    func recursiveRemoveWorkIsLinear() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let wide = scratch.root + "/wide"
+        let subdirectories = 4096
+        for index in 0..<subdirectories {
+            try FileManager.default.createDirectory(atPath: wide + "/d\(index)", withIntermediateDirectories: true)
+        }
+        let checks = BrowserReplResponseCounter()
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: {
+            checks.increment()
+            return false
+        })
+
+        #expect(fs.perform("rm", arguments: ["path": "wide", "recursive": true]).failureCode == "ok")
+        #expect(!FileManager.default.fileExists(atPath: wide))
+        // Linear work is about 4 checks per 4,096 entries; listing the
+        // directory again per subdirectory is thousands.
+        #expect(checks.count <= 64, "\(checks.count) cancellation checks for \(subdirectories) entries")
+    }
+
     /// `readdir` hands its whole list to the session's JavaScript thread;
     /// a directory with more entries than the cap is refused once the read
     /// passes it, never collected, sorted and serialized whole.
