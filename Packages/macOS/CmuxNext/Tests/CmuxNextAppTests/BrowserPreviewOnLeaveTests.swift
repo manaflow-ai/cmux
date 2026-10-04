@@ -47,4 +47,30 @@ import Testing
         #expect(image == nil, "no cached capture: the card shows its placeholder")
         #expect(page.snapshotCount == 0, "the hover starts no capture")
     }
+
+    /// A window that resigns key captures the page it shows (a hover from
+    /// another window then has a thumbnail), once per deactivation, and
+    /// never a page that is not on screen.
+    @Test func aWindowResigningKeyCapturesItsShownPageOnce() async throws {
+        let cache = TabContentCache(daemon: DaemonService())
+        let shown = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration())
+        let hidden = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration())
+        cache.install(shown, for: "shown")
+        cache.install(hidden, for: "hidden")
+        let pane = Pane(), other = Pane()
+        cache.present("shown", by: pane, presence: .visible)
+        cache.present("hidden", by: other, presence: .hidden)
+
+        cache.windowDidResignKey(presenters: [pane, other])
+        try await eventually { cache.pageThumbnails.image(for: "shown") != nil }
+        #expect(shown.snapshotCount == 1, "one capture per deactivation")
+        #expect(cache.pageThumbnails.image(for: "shown") != nil)
+        #expect(hidden.snapshotCount == 0, "a page not on screen is not captured")
+
+        cache.windowDidResignKey(presenters: [pane, other])
+        try await eventually { shown.snapshotCount == 2 }
+        #expect(shown.snapshotCount == 2, "the next deactivation captures again")
+        _ = await cache.previewImage(for: "shown", maxPixelSize: CGSize(width: 480, height: 270))
+        #expect(shown.snapshotCount == 2, "the hover starts no capture")
+    }
 }

@@ -75,7 +75,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
     (
         "cloud.machine.link_token",
         LINK_TOKEN,
-        &["cloud.machine.not_bound", "cloud.machine.not_found"],
+        &["cloud.machine.not_bound", "cloud.machine.not_found", "cloud.rate_limited"],
     ),
     (
         "cloud.machine.upgrade",

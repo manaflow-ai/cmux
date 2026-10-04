@@ -22,6 +22,35 @@
       "src/spin/LICENSE"
     ]
   },
+  "extra_license_reasons": {
+    "r-efi": "AUTHORS holds the MIT text and the copyright holders; the README points there.",
+    "regex-syntax": "The Unicode tables are derived from Unicode data under the Unicode license.",
+    "ring": "Bundled code under its own terms: the once_cell polyfill (MIT and Apache-2.0 texts) and fiat-crypto output (Apache-2.0, the fiat-crypto authors).",
+    "rquickjs-sys": "Bundles the QuickJS C engine, which is compiled into the binary.",
+    "terminput": "The parser module carries its own MIT text (copyright 2019 Timon).",
+    "tracing-core": "The vendored spin module carries the spin crate's MIT text (copyright 2014 Mathijs van de Nes)."
+  },
+  "skipped_license_files": {
+    "libsqlite3-sys": {
+      "files": [
+        "sqlcipher/LICENSE"
+      ],
+      "reason": "SQLCipher is compiled only with the bundled-sqlcipher feature; cmux-tui enables `bundled` (plain SQLite, public domain)."
+    },
+    "rquickjs-sys": {
+      "files": [
+        "vendor/wasi-libc/NOTICE.md"
+      ],
+      "reason": "wasi-libc is used only for wasm targets; the macOS binaries do not link it."
+    },
+    "deltae": {
+      "files": [
+        "docs/doc/LICENSE-APACHE.txt",
+        "docs/doc/LICENSE-MIT.txt"
+      ],
+      "reason": "Copies of the crate's own top-level license texts inside its documentation."
+    }
+  },
   "license_texts": {
     "block2 0.6.2": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release",
@@ -83,6 +112,21 @@
         }
       ]
     },
+    "irpc-iroh 0.17.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-irpc-0ed2b235d5c7/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/irpc/0ed2b235d5c797b54d8263ecb3b0247272d055f9/LICENSE-MIT",
+          "sha256": "339060c99d5c80c2742cae417f765980afe6b0149a78f959bbf2a79f19ab3af5"
+        },
+        {
+          "file": "texts/n0-computer-irpc-0ed2b235d5c7/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/irpc/0ed2b235d5c797b54d8263ecb3b0247272d055f9/LICENSE-APACHE",
+          "sha256": "7953ad8cebf4e01199521a5faa221ef59bec5cee0a9856b179590613a8560cbc"
+        }
+      ]
+    },
     "jni 0.22.4": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
       "files": [
@@ -109,6 +153,21 @@
         {
           "file": "texts/n0-computer-net-tools-051ab8761006/LICENSE-APACHE",
           "source": "https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-APACHE",
+          "sha256": "7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888"
+        }
+      ]
+    },
+    "netwatch 0.19.3": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-net-tools-0030e57fc709/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-MIT",
+          "sha256": "33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae"
+        },
+        {
+          "file": "texts/n0-computer-net-tools-0030e57fc709/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-APACHE",
           "sha256": "7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888"
         }
       ]
@@ -208,6 +267,21 @@
         }
       ]
     },
+    "portmapper 0.19.3": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-net-tools-0030e57fc709/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-MIT",
+          "sha256": "33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae"
+        },
+        {
+          "file": "texts/n0-computer-net-tools-0030e57fc709/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-APACHE",
+          "sha256": "7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888"
+        }
+      ]
+    },
     "ratatui-termina 0.1.0": {
       "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
       "files": [
@@ -235,6 +309,86 @@
           "file": "texts/DelSkayn-rquickjs-d7ef5eeae702/LICENSE",
           "source": "https://raw.githubusercontent.com/DelSkayn/rquickjs/d7ef5eeae702fea24c03643064de454f1c1dd4b0/LICENSE",
           "sha256": "976ad3d07927343ab99b31510625acba89eac8e0e517c712925620ddeda91b70"
+        }
+      ]
+    },
+    "ts-rs 12.0.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/Aleph-Alpha-ts-rs-7182ad828959/LICENSE",
+          "source": "https://raw.githubusercontent.com/Aleph-Alpha/ts-rs/7182ad8289596097235406b715fa04506443b4ad/LICENSE",
+          "sha256": "db7f7f8e7236a2d0b41b855b2501b7b913caebbcda6ce498637a304ad1706ce1"
+        }
+      ]
+    },
+    "uniffi 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_bindgen 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_build 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_core 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_meta 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_pipeline 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_udl 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
         }
       ]
     },

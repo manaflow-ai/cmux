@@ -128,6 +128,17 @@ export class SettingsStore {
     return reply.ok && reply.value.accepts;
   }
 
+  /** The section's action buttons; empty when the host has none. */
+  async sectionActions(section: string): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
+    const reply = await this.request("cmux.settings.section.actions", { section });
+    return reply.ok ? reply.value : [];
+  }
+
+  /** Runs a section button (a registry action; the host allows only the sections' own). */
+  runSectionAction(id: string): void {
+    void this.request("cmux.app.action.run", { action: id });
+  }
+
   /** Opens the cmux picker for the folder list `key`; the host writes the chosen folders. */
   async addFolders(key: string): Promise<void> {
     const reply = await this.request("cmux.settings.folders.add", { key });
