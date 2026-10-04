@@ -25,6 +25,9 @@ public final class OverlayHostPanel: NSPanel {
     var onCancel: (() -> Void)?
     /// Tab (true) or Shift-Tab (false) inside a modal overlay: the host moves focus within it.
     var onCycleKeyView: ((Bool) -> Bool)?
+    /// A mouse event that reached the panel; true when the host handled it
+    /// (passed it on to the parent window).
+    var onMouseEvent: ((NSEvent) -> Bool)?
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -32,6 +35,8 @@ public final class OverlayHostPanel: NSPanel {
         backgroundColor = .clear
         hasShadow = false
         ignoresMouseEvents = true
+        // While it takes the mouse, moves reach it, so it can let go outside the interactive regions.
+        acceptsMouseMovedEvents = true
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
         animationBehavior = .none
@@ -50,6 +55,11 @@ public final class OverlayHostPanel: NSPanel {
     }
 
     override public var canBecomeKey: Bool { acceptsKey }
+
+    override public func sendEvent(_ event: NSEvent) {
+        if onMouseEvent?(event) == true { return }
+        super.sendEvent(event)
+    }
     override public var canBecomeMain: Bool { false }
 
     override public func selectNextKeyView(_ sender: Any?) {

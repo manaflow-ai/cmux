@@ -103,6 +103,14 @@ public final class OverlayHandle {
         options.anchor = anchor
         options.modalRegion = modalRegion
         host?.layout(self)
+        host?.onBlockingChange?()
+    }
+
+    /// A `.pane` overlay's pane moved or resized (window coordinates).
+    public func update(paneClip clip: NSRect) {
+        guard case .pane = options.effectiveLayer else { return }
+        options.layer = .pane(clip: clip)
+        host?.layout(self)
     }
 
     public func dismiss() {

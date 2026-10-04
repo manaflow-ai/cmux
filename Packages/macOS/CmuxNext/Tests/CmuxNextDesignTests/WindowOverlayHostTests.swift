@@ -246,5 +246,6 @@ private final class UnlistedPresenterPanel: NSPanel {}
 /// Counts the clicks that reach it.
 private final class ClickRecorder: NSView {
     var clicks = 0
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) { clicks += 1 }
 }

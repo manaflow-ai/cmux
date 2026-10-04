@@ -52,6 +52,8 @@ public final class WindowOverlayHost {
     var escapeMonitor: Any?
     /// Rects in window coordinates that sit above `.pane` overlays and pages (the sidebar), by id.
     var occluders: [String: NSRect] = [:]
+    /// `interactiveRegions()`, rebuilt on present, layout, dismiss and occluder changes.
+    var cachedRegions: [NSRect]?
     /// Called when an occluder changed (the window layer re-masks its pages).
     public var onOccludersChange: (() -> Void)?
 
@@ -64,6 +66,7 @@ public final class WindowOverlayHost {
         panel = OverlayHostPanel()
         panel.onCancel = { [weak self] in self?.escape() }
         panel.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
+        panel.onMouseEvent = { [weak self] event in self?.panelMouseEvent(event) ?? false }
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
@@ -119,6 +122,7 @@ public final class WindowOverlayHost {
         let rect = rect.flatMap { $0.isEmpty ? nil : $0 }
         guard occluders[id] != rect else { return }
         occluders[id] = rect
+        cachedRegions = nil
         for handle in handles where handle.clipView != nil { layout(handle) }
         updateMouseRouting()
         onOccludersChange?()

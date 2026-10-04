@@ -24,6 +24,7 @@ public extension WindowOverlayHost {
             container.addSubview(content)
         }
         handles.append(handle)
+        cachedRegions = nil
         syncPanel()
         layout(handle)
         if options.isModal { beginModal(handle) }
@@ -81,8 +82,15 @@ public extension WindowOverlayHost {
         interactiveRegions().contains { $0.contains(point) }
     }
 
-    /// Input-blocking rects, window coordinates.
+    /// Input-blocking rects, window coordinates (cached until something changes).
     func interactiveRegions() -> [NSRect] {
+        if let cachedRegions { return cachedRegions }
+        let regions = buildInteractiveRegions()
+        cachedRegions = regions
+        return regions
+    }
+
+    private func buildInteractiveRegions() -> [NSRect] {
         let bounds = panel.overlayContainer.bounds
         return handles.flatMap { handle -> [NSRect] in
             let options = handle.options
@@ -98,6 +106,7 @@ public extension WindowOverlayHost {
 extension WindowOverlayHost {
     func remove(_ handle: OverlayHandle) {
         handles.removeAll { $0 === handle }
+        cachedRegions = nil
         handle.content.removeFromSuperview()
         handle.clipView?.removeFromSuperview()
         handle.clipView = nil
@@ -115,6 +124,7 @@ extension WindowOverlayHost {
 
     /// Places `handle` in panel coordinates, which are the window's own.
     func layout(_ handle: OverlayHandle) {
+        cachedRegions = nil
         if isAppHost { return layoutAppPanel() }
         let bounds = panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
         guard case .pane(let clip) = handle.options.effectiveLayer, let clipView = handle.clipView else {
@@ -125,7 +135,8 @@ extension WindowOverlayHost {
         clipView.frame = clip
         let origin = Self.origin(for: handle.content.frame.size, options: handle.options, in: clip)
         handle.content.setFrameOrigin(NSPoint(x: origin.x - clip.minX, y: origin.y - clip.minY))
-        clipView.setHoles(occluderRects.map { $0.offsetBy(dx: -clip.minX, dy: -clip.minY) })
+        let visible = Self.subtract(occluderRects, from: clip).map { $0.offsetBy(dx: -clip.minX, dy: -clip.minY) }
+        clipView.setVisibleRects(visible, whole: occluderRects.allSatisfy { !$0.intersects(clip) })
         updateMouseRouting()
     }
 
@@ -186,7 +197,7 @@ extension WindowOverlayHost {
                                                                    .leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self else { return event }
             if event.type == .leftMouseDown || event.type == .rightMouseDown {
-                self.clickDidLand(in: event.window)
+                self.clickDidLand(in: event.window, at: event.window === self.panel ? event.locationInWindow : .zero)
             } else {
                 self.routeMouse(at: NSEvent.mouseLocation)
             }
@@ -202,15 +213,46 @@ extension WindowOverlayHost {
 
     /// A tab dialog takes the keyboard when a click lands on it; a click
     /// anywhere else leaves the keyboard where that click puts it.
-    func wantsKey(forClickIn clicked: NSWindow?) -> Bool {
-        clicked === panel && handles.contains { $0.options.isModal }
+    func wantsKey(forClickIn clicked: NSWindow?, at point: NSPoint) -> Bool {
+        guard clicked === panel else { return false }
+        let bounds = panel.overlayContainer.bounds
+        return handles.contains { $0.options.isModal && ($0.options.modalRegion ?? bounds).contains(point) }
     }
 
-    func clickDidLand(in clicked: NSWindow?) {
-        guard wantsKey(forClickIn: clicked), !panel.isKeyWindow else { return }
+    func clickDidLand(in clicked: NSWindow?, at point: NSPoint) {
+        guard wantsKey(forClickIn: clicked, at: point), !panel.isKeyWindow else { return }
         panel.makeKey()
         if let top = handles.last(where: { $0.options.isModal }), !(panel.firstResponder is NSText) {
             panel.makeFirstResponder(Self.keyViews(in: top.content).first ?? top.content)
+        }
+    }
+
+    /// A mouse event reached the panel. A move updates the routing; a click
+    /// outside every interactive region (the panel had not let go yet) goes
+    /// on to the parent window, and the panel lets go of the mouse.
+    func panelMouseEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .mouseMoved, .mouseEntered, .mouseExited, .leftMouseDragged, .rightMouseDragged:
+            routeMouse(at: NSEvent.mouseLocation)
+            return false
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            let point = event.locationInWindow
+            guard !isAppHost, !acceptsMouse(at: point), let window else { return false }
+            panel.ignoresMouseEvents = true
+            // The window under the click: a page window there, else the parent.
+            let screen = panel.convertPoint(toScreen: point)
+            let target = (window.childWindows ?? []).reversed().first {
+                Self.isPageWindow($0) && $0.isVisible && $0.frame.contains(screen)
+            } ?? window
+            if let forwarded = NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen),
+                                                  modifierFlags: event.modifierFlags, timestamp: event.timestamp,
+                                                  windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,
+                                                  clickCount: event.clickCount, pressure: event.pressure) {
+                target.sendEvent(forwarded)
+            }
+            return true
+        default:
+            return false
         }
     }
 
@@ -247,8 +289,11 @@ extension WindowOverlayHost {
             }
             return
         }
+        let panelWasKey = panel.isKeyWindow
         panel.acceptsKey = false
-        guard !isTearingDown else {
+        // Give the keyboard back only when the overlay still had it: after
+        // the person clicked into the window and moved on, focus stays there.
+        guard !isTearingDown, panelWasKey else {
             restoreWindow = nil
             restoreResponder = nil
             return
@@ -275,8 +320,9 @@ extension WindowOverlayHost {
         let wanted = handles.contains { $0.options.dismissOnEscape && !$0.options.isModal }
         if wanted, escapeMonitor == nil {
             escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.keyCode == 53, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-                      !self.panel.isKeyWindow,
+                guard let self, event.keyCode == 53, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty,
+                      !self.panel.isKeyWindow, let target = event.window,
+                      self.isAppHost || target === self.window || target.parent === self.window,
                       let handle = self.handles.last(where: { $0.options.dismissOnEscape && !$0.options.isModal }) else { return event }
                 handle.dismiss()
                 return nil

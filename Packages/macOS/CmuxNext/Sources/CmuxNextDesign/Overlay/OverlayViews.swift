@@ -16,20 +16,22 @@ final class OverlayClipView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// `holes` in this view's coordinates.
-    func setHoles(_ holes: [NSRect]) {
+    /// The parts of the clip that show (this view's coordinates); `whole`
+    /// when no occluder touches the clip (no mask).
+    func setVisibleRects(_ rects: [NSRect], whole: Bool) {
         guard let layer else { return }
-        let inside = holes.map { $0.intersection(bounds) }.filter { !$0.isEmpty }
-        guard !inside.isEmpty else {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard !whole else {
             layer.mask = nil
             return
         }
         let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
         let path = CGMutablePath()
-        path.addRect(bounds)
-        for hole in inside { path.addRect(hole) }
+        for rect in rects { path.addRect(rect) }
         mask.frame = bounds
-        mask.fillRule = .evenOdd
+        mask.fillRule = .nonZero
         mask.path = path
         layer.mask = mask
     }
