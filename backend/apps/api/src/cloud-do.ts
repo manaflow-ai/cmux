@@ -78,7 +78,7 @@ export class CloudDO extends OwnerDO<CloudState> {
     if (op === "cloud.machine.connect_info") {
       if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
       if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
-      const r = await connectInfo(entity, this.bind(entity).rows, principal, params, () => this.teamConnectServices(entity), this.audit)
+      const r = await connectInfo(entity, this.bind(entity).rows, principal, params, () => this.teamConnectServices(entity), () => this.audit)
       return r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r
     }
     // An object nobody created: answer from an empty head for this entity, without creating it.
@@ -225,13 +225,18 @@ export class CloudDO extends OwnerDO<CloudState> {
     const req = parseBindRequest(body)
     if (!req) return { ok: false, code: "validation.invalid", message: "invalid bind request" }
     if (req.team !== entity) return forbidden
-    const limit = this.env.CLOUD_MUTATION_LIMIT
-    if (limit && !(await limit.limit({ key: `cloud-bind:${entity}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many bind attempts; retry in a minute" }
+    // Review P2-2: check the token before anything costs the team (no limiter, no engine, no ledger
+    // row), so a caller who knows the team id can neither block the real agent nor fill the ledger.
+    // The reducer checks the same again inside the commit (single use under concurrency).
+    const token_sha256 = await sha256Hex(req.bind_token)
+    const m = this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, req.machine)?.row
+    const now = Date.now() + this.skewMs
+    if (!m?.bind || !m.host_id || m.bind.spent || m.bind.token_sha256 !== token_sha256 || now > m.bind.expires_at || m.status === "deleting" || m.status === "failed") return forbidden
     const keys = parseSigningKeys(this.env.CLOUD_LINK_SIGNING_KEYS)
     // Without the link signing keyset a bound VM could never check a link token: refuse, token unspent.
     if (!keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
     const keyset = await publicKeyset(keys)
-    const params = { machine: req.machine, token_sha256: await sha256Hex(req.bind_token), wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, now: Date.now() + this.skewMs }
+    const params = { machine: req.machine, token_sha256, wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, now }
     // A fresh key per attempt: a second bind with a spent token must reach the reducer and be refused, never replay.
     const reply = this.submitSystem("cloud.machine.bind", params, `bind:${crypto.randomUUID()}`).frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t === "reject") return { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" }
@@ -243,8 +248,11 @@ export class CloudDO extends OwnerDO<CloudState> {
   async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
     const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
+    // Review P3-6: a bound limit per install (the limiter keeps no storage in this object).
+    const limit = this.env.CLOUD_MUTATION_LIMIT
+    if (rows && principal.install && limit && !(await limit.limit({ key: `cloud-link:${principal.install}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many link tokens; retry in a minute" }
     const keys = parseSigningKeys(this.env.CLOUD_LINK_SIGNING_KEYS)
-    return mintLinkToken({ entity, rows, p: principal, params, request, environment: cloudEnvTag(this.env.ENVIRONMENT) ?? "unknown", keys }, () => this.teamConnectServices(entity), this.audit)
+    return mintLinkToken({ entity, rows, p: principal, params, request, environment: cloudEnvTag(this.env.ENVIRONMENT) ?? "unknown", keys }, () => this.teamConnectServices(entity), () => this.audit)
   }
 
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */

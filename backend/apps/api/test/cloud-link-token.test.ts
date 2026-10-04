@@ -86,6 +86,7 @@ describe("part 4 through the Worker", { timeout: 60_000 }, () => {
 
 interface VectorCase {
   readonly name: string
+  readonly make: string | null
   readonly kid: string
   readonly sign_with: string
   readonly claims: LinkClaims
@@ -96,7 +97,7 @@ const V = vectors as unknown as { test_keys: Record<string, JWK>; keysets: Recor
 
 describe("part 5: shared link-token vectors", () => {
   it("re-signing every case with the fixed test key gives the identical compact token (Ed25519 is deterministic)", async () => {
-    for (const c of V.cases) expect(await signLinkToken(c.claims, c.kid, V.test_keys[c.sign_with]!), c.name).toBe(c.token)
+    for (const c of V.cases.filter((x) => !x.make)) expect(await signLinkToken(c.claims, c.kid, V.test_keys[c.sign_with]!), c.name).toBe(c.token)
   })
 
   it("the reference verifier gives every expected result", async () => {

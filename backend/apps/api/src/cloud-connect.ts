@@ -72,7 +72,7 @@ export class AccessAudit {
 export const who = (p: Principal) => ({ by: p.identity, user: p.user ?? null, install: p.install ?? null, agent: p.agent ?? null })
 
 /** cloud.machine.connect_info: no credential in a read (contract 1.7). */
-export const connectInfo = async (entity: string, rows: Rows | undefined, p: Principal, params: unknown, policy: () => Promise<ReadonlyArray<string>>, audit: AccessAudit): Promise<ReadResult> => {
+export const connectInfo = async (entity: string, rows: Rows | undefined, p: Principal, params: unknown, policy: () => Promise<ReadonlyArray<string>>, audit: () => AccessAudit): Promise<ReadResult> => {
   const d = decodeParams<{ machine?: string; host?: string }>(CloudMachineConnectInfo, params)
   if (!d.ok) return d
   if ((d.value.machine === undefined) === (d.value.host === undefined)) return { ok: false, code: "validation.invalid", message: "give exactly one of machine and host" }
@@ -81,7 +81,7 @@ export const connectInfo = async (entity: string, rows: Rows | undefined, p: Pri
   if (!row.host || !row.wg_public_key) return { ok: false, code: "cloud.machine.not_bound", message: "the machine is still provisioning" }
   const allowed = allowedServices(entity, row, p, await policy())
   if (!allowed.ok) return allowed
-  audit.record({ op: "connect_info", machine: row.id, host: row.host, ...who(p), services: allowed.services, at: Date.now() })
+  audit().record({ op: "connect_info", machine: row.id, host: row.host, ...who(p), services: allowed.services, at: Date.now() })
   return {
     ok: true,
     value: {
@@ -111,7 +111,8 @@ export type MintReply = { readonly ok: true; readonly value: unknown } | { reado
 export const mintLinkToken = async (
   args: { entity: string; rows: Rows | undefined; p: Principal; params: unknown; request: string; environment: string; keys: SigningKeys | null },
   policy: () => Promise<ReadonlyArray<string>>,
-  audit: AccessAudit
+  /** Lazy: an object nobody created must not get the audit table (review P3-1). */
+  audit: () => AccessAudit
 ): Promise<MintReply> => {
   const { entity, p } = args
   if (p.kind !== "install" || !p.install || p.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "link tokens are minted only for an install's cmux link" }
@@ -121,6 +122,7 @@ export const mintLinkToken = async (
   const row = machineBySelector(args.rows, { host: d.value.host })
   if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
   if (!row.host || !row.wg_public_key) return { ok: false, code: "cloud.machine.not_bound", message: "the machine is still provisioning" }
+  if (row.status === "deleting" || row.status === "failed") return { ok: false, code: "cloud.machine.not_bound", message: `the machine is ${row.status === "deleting" ? "being deleted" : "failed"}` }
   const allowed = allowedServices(entity, row, p, await policy())
   if (!allowed.ok) return allowed
   if (!d.value.services.every((s) => allowed.services.includes(s))) return { ok: false, code: "auth.forbidden", message: "a service you asked for is not one you may dial on this machine" }
@@ -129,6 +131,6 @@ export const mintLinkToken = async (
   const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp: iat + LINK_TOKEN_MAX_TTL_S, jti: newJti(), team: entity }
   const kid = args.keys.active
   const token = await signLinkToken(claims, kid, args.keys.keys[kid]!)
-  audit.record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, at: Date.now() })
+  audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, at: Date.now() })
   return { ok: true, value: { token, expires_at: claims.exp * 1000, host: row.host, epoch: claims.epoch, services: claims.svc } }
 }

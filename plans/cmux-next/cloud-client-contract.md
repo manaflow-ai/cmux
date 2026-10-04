@@ -180,8 +180,9 @@ the token is never cached, logged or kept in a ledger row. Request `{host, servi
 what `connect_info` lists). Result `{token, expires_at, host, epoch, services}`: `token` is a
 secret for one `hello` (the VM daemon checks it; a link with no valid token is closed after
 `hello`), single host, single install, these services, this `epoch`; `expires_at` at most 5
-minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound`,
-`auth.forbidden`, plus the standard mutation and Worker gate codes.
+minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound` (also for a
+machine in `deleting` or `failed`), `auth.forbidden`, `cloud.rate_limited` (per install), plus the
+standard mutation and Worker gate codes.
 
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
