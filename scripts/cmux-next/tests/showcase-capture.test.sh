@@ -8,6 +8,9 @@ OUT=$TMP/out
 output=$($SCRIPT --dry-run --host mini --tag showcase-test --checkout /tmp/checkout --out-root "$OUT")
 grep -q 'dry run (no effects)' <<<"$output"
 test ! -e "$OUT"
+# Artifact bytes must be pulled on the capture host; Big Red never relays an app zip.
+grep -q -- "cmux-ci artifact" "$SCRIPT"
+! grep -q -- "scp \"\$RECEIPTS/cmux-\$TAG.zip" "$SCRIPT"
 # A live run must fail closed before mkdir, SSH, CUA, or cmux-ci without admission.
 touch "$TMP/lease.json"; set +e
 CMUX_CUA_SSH=$TMP/no-cua CMUX_SHOWCASE_WAIT_SECONDS=0 "$SCRIPT" --host mini --tag showcase-test --checkout /tmp/checkout --skip-build --app /tmp/cmux.app --out-root "$OUT" --lease-receipt "$TMP/lease.json" >"$TMP/fail.out" 2>&1
