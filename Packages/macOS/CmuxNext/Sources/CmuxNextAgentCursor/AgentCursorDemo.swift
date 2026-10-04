@@ -22,7 +22,38 @@ public struct AgentCursorDemo: Sendable {
     public mutating func step(
         action: String, session: String, target: String, x: Double?, y: Double?, zoom: Double? = nil, tMs: Double
     ) throws(Failure) -> Step {
-        _ = (action, session, target, x, y, zoom, tMs, nextSeq)
-        throw .unknownAction(action)
+        switch action {
+        case "pause":
+            return .lease(session: session, state: .paused)
+        case "takeover":
+            return .lease(session: session, state: .userDriving)
+        case "resume":
+            return .lease(session: session, state: .driving)
+        case "end":
+            nextSeq[session] = nil
+            return .lease(session: session, state: nil)
+        default:
+            break
+        }
+        let kinds: [String: AutomationInputEvent.Kind] = [
+            "move": .move, "click": .click, "double_click": .doubleClick, "right_click": .rightClick,
+            "type": .type, "key": .key,
+        ]
+        guard let kind = kinds[action] else { throw .unknownAction(action) }
+        let needsPoint = kind != .type && kind != .key
+        let point: AutomationInputEvent.Point?
+        if let x, let y {
+            point = .init(x: x, y: y)
+        } else if needsPoint {
+            throw .pointRequired(action)
+        } else {
+            point = nil
+        }
+        let seq = nextSeq[session] ?? 0
+        nextSeq[session] = seq + 1
+        return .input(AutomationInputEvent(
+            sessionID: session, targetID: target, seq: seq, kind: kind, space: .viewport,
+            point: point, zoom: zoom, tMs: tMs
+        ))
     }
 }

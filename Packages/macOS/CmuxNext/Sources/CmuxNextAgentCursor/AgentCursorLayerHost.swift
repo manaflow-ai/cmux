@@ -22,7 +22,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
 
     /// Sessions with a cursor layer, sorted (diagnostics).
     public var sessions: [String] {
-        []
+        cursors.keys.sorted()
     }
 
     /// The cursor layer of a session (tests and diagnostics).
