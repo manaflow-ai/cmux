@@ -70,6 +70,32 @@ struct BrowserReplOpaqueDocumentTests {
                 "a data: page the app loaded was refused")
     }
 
+    /// A frame keeps its id when it navigates. One that showed an allowed
+    /// page's `data:` document, then a blocked page that replaced itself
+    /// with a `data:` document of its own, shows a document of the same
+    /// origin and place: the gate must judge it by its makers now, not by
+    /// the verdict it gave the first one.
+    @Test("A frame that went through a blocked page to another data: document is judged again")
+    func aDataDocumentReachedThroughABlockedPageIsJudgedAgain() async throws {
+        let page = try await OpaquePage.load(recording: true)
+        let gate = Self.gate(locked: false)
+        let read = "return document.body.innerText"
+        let allowed = try #require(page.frame(showing: "allowed.test secret"))
+        let first = try await gate.callAsyncJavaScript(read, arguments: [:], in: page.webView, frame: allowed, contentWorld: .page)
+        #expect((first as? String)?.contains("allowed.test secret") == true)
+        _ = try await page.webView.callAsyncJavaScript(
+            "document.querySelectorAll('iframe')[1].src = 'cmux-test://blocked.test/pivot'; return true",
+            arguments: [:], in: nil, contentWorld: .page
+        )
+        _ = try await FramePage.settle(page.webView) { frames in
+            frames.dropFirst().filter { ($0.url.removingPercentEncoding ?? $0.url).contains("blocked.test secret") }.count == 2
+        }
+        let error = await Self.error {
+            try await gate.callAsyncJavaScript(read, arguments: [:], in: page.webView, frame: allowed, contentWorld: .page)
+        }
+        #expect(error?.code == "blocked", "the blocked page's data: document was read through the frame's earlier verdict: \(String(describing: error))")
+    }
+
     // MARK: Support
 
     static func gate(locked: Bool) -> BrowserReplFrameGate {
