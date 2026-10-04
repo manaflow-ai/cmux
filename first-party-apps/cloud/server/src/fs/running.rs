@@ -5,11 +5,16 @@
 //! one-shot route, publishes a pull, and queues a
 //! `cloud.file.transfer.changed` event. At most [`MAX_TRANSFERS`] run at
 //! once; more are refused (retryable), nothing queues.
+//! `cloud.file.transfer.cancel` kills the worker's children through the
+//! transfer's [`Cancel`]; the loop finishes it like any other end, with
+//! state `cancelled`, and removes a pull's partial file.
 
 use super::cancel::Cancel;
 use super::key::TransferKey;
-use super::transfer::{Direction, TRANSFER_FAILED, Transfer, TransferError, TransferJob};
-use crate::api::CloudError;
+use super::transfer::{
+    Direction, TRANSFER_CANCELLED, TRANSFER_FAILED, Transfer, TransferError, TransferJob,
+};
+use crate::api::{CloudError, codes};
 use crate::link::LinkWake;
 use crate::ports::listener::Listener;
 use std::collections::BTreeMap;
@@ -46,6 +51,17 @@ pub(crate) struct Running {
     pub(crate) landing: PathBuf,
     /// The one-shot listener to the guest's SSH port; closed at the end.
     pub(crate) route: Listener,
+    /// Shared with the worker: a cancel kills its children.
+    pub(crate) cancel: Cancel,
+}
+
+/// What `cloud.file.transfer.cancel` found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CancelAnswer {
+    /// It was running: it is being stopped; one `cancelled` event follows.
+    Cancelling,
+    /// It had already ended: nothing changes, no event follows.
+    Ended,
 }
 
 struct Done {
@@ -101,9 +117,10 @@ impl Transfers {
         let done = self.sender.clone();
         let wake = self.wake.clone();
         let worker_id = id.clone();
+        let cancel = running.cancel.clone();
         let spawned =
             std::thread::Builder::new().name("cmux-cloud-transfer".into()).spawn(move || {
-                let result = transfer.run(&job, &key, &Cancel::default());
+                let result = transfer.run(&job, &key, &cancel);
                 drop(key);
                 // A closed channel means the server is gone: nothing waits.
                 if done.send(Done { id: worker_id, result }).is_ok()
@@ -122,6 +139,33 @@ impl Transfers {
         }
         self.running.insert(id.clone(), running);
         Ok(id)
+    }
+
+    /// `cloud.file.transfer.cancel`: stops a running transfer (its children
+    /// are killed now; its one `cancelled` event comes when its worker has
+    /// returned, so a pull's partial file is removed after the copy is
+    /// dead). A transfer that already ended answers [`CancelAnswer::Ended`]
+    /// and changes nothing. Never blocks.
+    pub(crate) fn cancel(&mut self, id: &str) -> Result<CancelAnswer, CloudError> {
+        // A worker that already ended is finished first: its real outcome
+        // (a published pull, a done push) stands.
+        self.settle();
+        if let Some(running) = self.running.get(id) {
+            running.cancel.cancel();
+            return Ok(CancelAnswer::Cancelling);
+        }
+        let issued = id
+            .strip_prefix("transfer-")
+            .and_then(|n| n.parse::<u64>().ok())
+            .is_some_and(|n| n >= 1 && n <= self.next && id == format!("transfer-{n}"));
+        if issued {
+            Ok(CancelAnswer::Ended)
+        } else {
+            Err(CloudError::new(
+                codes::NOT_FOUND,
+                format!("{id} is not a transfer of this cmux Cloud app server"),
+            ))
+        }
     }
 
     /// Finishes every transfer whose worker has ended. Never blocks.
@@ -153,18 +197,32 @@ impl Transfers {
     fn finish(&mut self, done: Done) {
         let Some(mut running) = self.running.remove(&done.id) else { return };
         running.route.close();
-        // A pull is published with a hard link, which never overwrites and
-        // never follows a symlink put at the target meanwhile. A failed
-        // pull leaves nothing, so a retry can run.
-        let published = done.result.and_then(|bytes| match running.direction {
-            Direction::Push => Ok(bytes),
-            Direction::Pull => std::fs::hard_link(&running.landing, &running.local)
-                .map(|()| bytes)
-                .map_err(|e| TransferError {
-                    message: format!("{}: {e}", running.local.display()),
-                    retryable: false,
-                }),
-        });
+        // A cancel wins over the copy's own end, except for a push whose
+        // copy had already finished: its bytes are on the machine.
+        let cancelled = running.cancel.is_cancelled()
+            && !(running.direction == Direction::Push && done.result.is_ok());
+        let outcome = if cancelled {
+            Err(CloudError::new(TRANSFER_CANCELLED, "The transfer was cancelled"))
+        } else {
+            // A pull is published with a hard link, which never overwrites
+            // and never follows a symlink put at the target meanwhile.
+            done.result
+                .and_then(|bytes| match running.direction {
+                    Direction::Push => Ok(bytes),
+                    Direction::Pull => std::fs::hard_link(&running.landing, &running.local)
+                        .map(|()| bytes)
+                        .map_err(|e| TransferError {
+                            message: format!("{}: {e}", running.local.display()),
+                            retryable: false,
+                        }),
+                })
+                .map_err(|e| CloudError {
+                    retryable: e.retryable,
+                    ..CloudError::new(TRANSFER_FAILED, e.message)
+                })
+        };
+        // The worker has returned, so its copy is dead: a failed or
+        // cancelled pull leaves nothing, and a retry can run.
         if running.direction == Direction::Pull {
             let _ = std::fs::remove_file(&running.landing);
         }
@@ -174,10 +232,7 @@ impl Transfers {
             direction: running.direction,
             path: running.guest,
             local_path: running.local,
-            outcome: published.map_err(|e| CloudError {
-                retryable: e.retryable,
-                ..CloudError::new(TRANSFER_FAILED, e.message)
-            }),
+            outcome,
         });
     }
 }
