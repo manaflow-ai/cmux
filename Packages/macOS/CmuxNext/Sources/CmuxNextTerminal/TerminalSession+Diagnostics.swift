@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 /// A point-in-time view of one terminal surface's on-screen state, for the
 /// App's `debug.surfaces` report and its blank-pane invariant.
@@ -11,6 +12,8 @@ public struct TerminalSurfaceDiagnostics: Sendable, Equatable {
     public var renderingSuspended: Bool
     /// Last value passed to `ghostty_surface_set_occlusion` (true = drawing).
     public var drawing: Bool?
+    /// Why the surface does not draw (``WindowDrawPolicy``); nil while it draws.
+    public var pause: SurfacePause?
     /// Grid the surface renders now.
     public var grid: TerminalGridSize?
     /// The live surface view is installed in the session's host view.
@@ -44,6 +47,7 @@ extension TerminalSession {
             hasContent: surfaceHasContent,
             renderingSuspended: isRenderingSuspended,
             drawing: surface.lastOcclusionVisible,
+            pause: surface.pause,
             grid: surface.currentGrid,
             surfaceInHost: surface.superview === view,
             inWindow: surface.window != nil,

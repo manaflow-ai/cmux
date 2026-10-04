@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
 import CmuxNextTerminal
@@ -24,6 +25,11 @@ struct PaneSurfaceStatus {
     /// Visible page windows over the pane that are not the shown tab's own
     /// page (another tab's page left on screen).
     var foreignPages: Int = 0
+    /// The pane's window is not on screen (`occlusionState` lacks `.visible`).
+    var windowOccluded = false
+    /// Content in the pane's window may draw now (``WindowDrawPolicy``): it is
+    /// on screen, or `render.drawWhenOccluded` is on.
+    var windowDrawable = true
 
     /// The layout gave the pane no room below its tab strip (a split tree
     /// deeper than the window allows). A layout sizing problem, not a
@@ -68,6 +74,8 @@ struct PaneSurfaceStatus {
             "collapsed": .bool(isCollapsed),
             "content_visible": .bool(page?.isVisible ?? (terminal?.isPresentable ?? contentInstalled)),
             "foreign_pages": JSONValue(foreignPages),
+            "window_occluded": .bool(windowOccluded),
+            "window_drawable": .bool(windowDrawable),
         ]
         if let strip {
             object["strip"] = [
@@ -83,6 +91,7 @@ struct PaneSurfaceStatus {
                 "replay_applied": .bool(terminal.hasContent),
                 "rendering_suspended": .bool(terminal.renderingSuspended),
                 "drawing": terminal.drawing.map(JSONValue.bool) ?? .null,
+                "paused": terminal.pause.map { .string($0.rawValue) } ?? .null,
                 "grid": terminal.grid.map { .string("\($0.columns)x\($0.rows)") } ?? .null,
                 "in_host": .bool(terminal.surfaceInHost),
                 "in_window": .bool(terminal.inWindow),
@@ -147,7 +156,9 @@ extension PaneController {
             terminal: terminal,
             strip: self.view.stripView.hoverState,
             page: page,
-            foreignPages: isVisible ? max(0, visiblePageWindowsOverContent - ownPages) : 0
+            foreignPages: isVisible ? max(0, visiblePageWindowsOverContent - ownPages) : 0,
+            windowOccluded: self.view.window.map { !WindowDrawPolicy.isOnScreen($0) } ?? false,
+            windowDrawable: WindowDrawPolicy.isDrawable(self.view.window)
         )
     }
 }
