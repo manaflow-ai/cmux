@@ -22,6 +22,11 @@ public import CmuxNextWakeups
 /// only when the app is idle (no input, animation frame or terminal output for
 /// ``Policy/idleInput``, no menu tracking), one step per run-loop turn (``Building``). Memory
 /// pressure drops the spare.
+///
+/// Main-thread p95 per build step, cmux-lawrence-2 (react-pages.md 1.4): configure 0.2-0.4 ms,
+/// create 5.6-7.2 ms, park 0.4-0.5 ms, launch 6.4-6.9 ms, load 0.3-0.5 ms. Exception: the first
+/// build in a process pays WebKit's one-time cold start (30-48 ms in one step), which no split
+/// removes.
 @MainActor
 public final class PageHostPool {
     public struct Policy: Sendable {

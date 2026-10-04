@@ -76,6 +76,38 @@ with typed text, reveal) are served by Swift as catalog actions with origin `use
 user surface). The page calls them as `cmux.app.action.run {action, args}`; Swift runs
 `ActionRegistry.perform`, the same handler the palette and CLI use.
 
+### 1.4 Page shell host (R94, branch feat-cmux-next-pagehost)
+
+One prewarmed WKWebView for first-party shell pages (`PageHostPool` in CmuxNextPages,
+`webviews/shell-page.html`, page id `cmux.shell`). A claim takes the parked host in one main-actor
+turn with no navigation; the shell mounts the page (`page.claim`), or, when the spare already
+mounted it (`PageHostPool.prepare`, or the last claimed page), only hands it the session
+(`page.resume`). `page.reset` ends the page's calls and streams and clears Web Storage, IndexedDB,
+Cache Storage, globals, head nodes, title and lang. Used hosts are retired (each has its own
+non-persistent data store; all share the app's one `WKProcessPool`); an untouched host is reset and
+parked again. At most two hosts (two WebContent processes). Settings stays a navigating pooled page
+(its head loader does not run in the shell). Cache Storage is not available in a `cmux-page` origin.
+
+The spare is built only while a shell page is likely, after 750 ms with no input, animation frame
+or terminal output (`ExpectedActivity`), one step per run-loop turn. Main-thread time per step,
+cmux-lawrence-2 (Xcode 26.6, host load about 33), 40 builds per mode, p50 / p95 ms:
+
+| Step | Generic shell | Prepared | Prepared, final frame |
+| --- | --- | --- | --- |
+| `pool.makeSpare.configure` | 0.15 / 0.42 | 0.15 / 0.21 | 0.15 / 0.22 |
+| `pool.makeSpare.create` | 1.73 / 7.20 | 1.64 / 5.94 | 2.16 / 5.55 |
+| `pool.makeSpare.park` | 0.27 / 0.50 | 0.24 / 0.37 | 0.22 / 0.41 |
+| `pool.makeSpare.launch` (empty document, WebContent launch) | 2.49 / 6.92 | 2.59 / 6.84 | 2.79 / 6.39 |
+| `pool.makeSpare.load` (shell load) | 0.19 / 0.45 | 0.19 / 0.33 | 0.19 / 0.41 |
+
+Exception: the first build in a process pays WebKit's one-time cold start, 30-48 ms in one step
+(configure, create or launch). It cannot be split; it happens once per app run, at an idle moment.
+
+Claim to first frame of the icon picker (20 claims per window, p50 / p95 ms): generic shell 48-50 /
+68-97; prepared and parked at the claim's frame 8-22 / 34-36 (paint report 19-22 / 31-35). The claim
+itself is 0.6-0.9 ms on the main thread. WebContent footprint: 34 MB generic, 56-59 MB with the
+picker prepared (accepted by the coordinator).
+
 ## 2. History
 
 ### 2.1 Today (Swift)
