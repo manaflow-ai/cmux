@@ -961,7 +961,8 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   // Reads and input on a tab whose page the session's policy blocks are
   // refused, as the app's driver does.
-  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.)/;
+  // Of the cookie calls only cookies.clear takes its scope from the page.
+  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.clear$)/;
   // The session's own input, script and navigations (WebKitBrowserReplDriver.isActionOnPage).
   const ACTIONS = /^(input\.|frame\.evaluate$|tab\.navigate$|tab\.reload$|tab\.history$)/;
   const NAVIGATIONS = /^tab\.(navigate|reload|history)$/;

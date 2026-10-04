@@ -369,8 +369,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   by page or process.
 - Cookies: the domain policy applies by host, since a cookie belongs to a
   host and not an origin (a pattern's scheme and port do not narrow it).
-  `cookies.*` on a tab that shows a blocked page, and `cookies.get` or
-  `cookies.set` with a blocked URL, fail with `blocked`. A cookie is in
+  `cookies.clear` on a tab that shows a blocked page (its scope is that
+  tab's site), and `cookies.get` or `cookies.set` with a blocked URL, fail
+  with `blocked`. The runtime names the page's tab on every cookie call,
+  and `cookies.get` and `cookies.set` use it only to pick the tab's data
+  store, so a page showing a blocked site still sets and reads the
+  cookies the policy allows. A cookie is in
   reach when a host an allowed pattern names receives it (its own domain
   or a parent domain) and its domain is not one a prohibited pattern
   names or, under `blockIPs`, an IP address; other cookies are left out of

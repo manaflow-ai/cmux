@@ -138,11 +138,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// Methods that read or act on a page or its cookies; refused while the
-    /// page is one the policy blocks.
+    /// page is one the policy blocks. Of the cookie calls only
+    /// `cookies.clear` takes its scope (the tab's site) from the page;
+    /// `cookies.get` and `cookies.set` use the tab only to pick its data
+    /// store, and are judged by their URLs and each cookie's domain, so a
+    /// page that shows a blocked site does not stop an allowed cookie.
     private static func isGuarded(_ method: String) -> Bool {
         method == "frame.evaluate" || method.hasPrefix("input.") || method == "tab.screenshot"
             || method == "tab.pdf" || method.hasPrefix("clipboard.") || method == "filechooser.respond"
-            || method.hasPrefix("cookies.") || method == "auth.request"
+            || method == "cookies.clear" || method == "auth.request"
             || method == "frame.contentFrame" || method == "frame.contentFrames"
     }
 
