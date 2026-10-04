@@ -89,6 +89,10 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[path = "server/image_paste.rs"]
 mod image_paste;
+#[path = "server/window_title.rs"]
+mod window_title;
+use window_title::sanitize_window_title;
+pub use window_title::window_title_osc;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
 pub use loopback_forward::{
@@ -6817,21 +6821,6 @@ pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
     serve_websocket_with_access,
 };
-
-pub fn window_title_osc(title: &str) -> Vec<u8> {
-    let title = sanitize_window_title(title);
-    format!("\x1b]0;{title}\x07\x1b]2;{title}\x07").into_bytes()
-}
-
-fn sanitize_window_title(title: &str) -> String {
-    title
-        .chars()
-        .map(|ch| match ch {
-            '\u{00}'..='\u{1f}' | '\u{7f}' => ' ',
-            _ => ch,
-        })
-        .collect()
-}
 
 #[cfg(test)]
 fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
@@ -27613,12 +27602,6 @@ mod tests {
             events.recv_timeout(Duration::from_secs(1)),
             Ok(MuxEvent::WindowTitleRequested(title)) if title.is_empty()
         ));
-    }
-
-    #[test]
-    fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
-        assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
-        assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
     }
 
     #[test]
