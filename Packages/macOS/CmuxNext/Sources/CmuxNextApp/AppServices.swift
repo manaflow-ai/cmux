@@ -168,6 +168,8 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
+    /// The browser host's engine provider (idle until the daemon offers the endpoint).
+    private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
@@ -260,7 +262,10 @@ final class AppServices {
             self?.keyRouter.interceptKeyDown(event, in: window) ?? false
         }
         surfaceInvariant.services = self
-        cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
+        cache.onPresentationChange = { [weak self] in
+            self?.surfaceInvariant.noteChange()
+            self?.browserHost?.provider.refreshTabs()
+        }
         resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
         windows.incognitoHistoryReset = { [weak cache, weak self] in
@@ -289,6 +294,8 @@ final class AppServices {
         startInputVerification()
         startNoActivateGuard()
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
+        browserHost = AppBrowserHost(services: self)
+        browserHost?.start()
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in

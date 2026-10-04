@@ -5,10 +5,10 @@ import Foundation
 /// per browser. Raw sends use ids from 2^30 up to `Int32.max`; the shim
 /// assigns its own calls ids below 2^30. A reply with a raw id arrives as
 /// `CEFShimEvent.devToolsMessage`, never as `devToolsResult`.
-nonisolated enum CEFDevToolsRawMessage {
-    static let firstRawID = 1 << 30
+public nonisolated enum CEFDevToolsRawMessage {
+    public static let firstRawID = 1 << 30
 
-    static func isRawID(_ id: Int) -> Bool {
+    public static func isRawID(_ id: Int) -> Bool {
         id >= firstRawID && id <= Int(Int32.max)
     }
 
@@ -17,7 +17,7 @@ nonisolated enum CEFDevToolsRawMessage {
     /// full parse: protocol output may hold a lone UTF-16 surrogate escape
     /// or deep nesting that a JSON parser refuses (same rule as the shim's
     /// devtools_message_id.h). A repeated "id" gives nil.
-    static func replyID(in json: String) -> Int? {
+    public static func replyID(in json: String) -> Int? {
         guard let id = topLevelID(Array(json.utf8)), isRawID(id) else { return nil }
         return id
     }
@@ -69,13 +69,30 @@ nonisolated enum CEFDevToolsRawMessage {
         return j == i ? nil : j
     }
 
+    /// The top-level "id" of any message (raw or not), nil as `topLevelID`.
+    public static func topLevelID(in json: String) -> Int? { topLevelID(Array(json.utf8)) }
+
+    /// `json` with its top-level "id" replaced by `id` (the browser host
+    /// relay maps the host's ids into the raw range and back), nil when the
+    /// message has no single integer top-level "id". Every other byte,
+    /// "sessionId" included, stays as it was.
+    public static func replacingTopLevelID(in json: String, with id: Int) -> String? {
+        var bytes = Array(json.utf8)
+        guard let (_, span) = scanTopLevelID(bytes) else { return nil }
+        bytes.replaceSubrange(span, with: Array(String(id).utf8))
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
     /// The one integer top-level "id", nil for none, a malformed message,
     /// a non-integer or a repeated "id".
-    static func topLevelID(_ p: [UInt8]) -> Int? {
+    static func topLevelID(_ p: [UInt8]) -> Int? { scanTopLevelID(p)?.id }
+
+    /// The top-level "id" and the byte range of its number (sign included).
+    static func scanTopLevelID(_ p: [UInt8]) -> (id: Int, span: Range<Int>)? {
         var i = skipSpace(p, 0)
         guard i < p.count, p[i] == UInt8(ascii: "{") else { return nil }
         i = skipSpace(p, i + 1)
-        var found: Int?
+        var found: (id: Int, span: Range<Int>)?
         if i < p.count, p[i] == UInt8(ascii: "}") { return nil }
         // Every pass consumes at least one byte, so the loop ends within
         // p.count passes; `closed` is set at the object's closing brace.
@@ -88,6 +105,7 @@ nonisolated enum CEFDevToolsRawMessage {
             i = skipSpace(p, i + 1)
             if isID {
                 guard found == nil else { return nil }
+                let start = i
                 var negative = false
                 if i < p.count, p[i] == UInt8(ascii: "-") { negative = true; i += 1 }
                 var digits = 0
@@ -99,7 +117,7 @@ nonisolated enum CEFDevToolsRawMessage {
                     i += 1
                 }
                 guard digits > 0, i >= p.count || p[i] == UInt8(ascii: ",") || p[i] == UInt8(ascii: "}") || isSpace(p[i]) else { return nil }
-                found = negative ? -value : value
+                found = (negative ? -value : value, start..<i)
             } else {
                 guard let next = skipValue(p, i) else { return nil }
                 i = next

@@ -150,6 +150,8 @@ let package = Package(
                 "CmuxNextPalette",
                 "CmuxNextLayout",
                 "CmuxNextBrowser",
+                "CmuxNextBrowserAutomation",
+                "CmuxNextBrowserHost",
                 "CmuxNextRemoteLocalhost",
                 "CmuxNextBridge",
                 "CmuxNextControl",
@@ -810,6 +812,17 @@ let package = Package(
         .testTarget(
             name: "CmuxNextBrowserAutomationTests",
             dependencies: ["CmuxNextBrowserAutomation", "CmuxNextBrowser"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The app's provider bridge to the browser host (plans/cmux-next/browser-host.md, step c3).
+        .target(
+            name: "CmuxNextBrowserHost",
+            dependencies: ["CmuxNextBrowser", "CmuxNextBrowserAutomation", "CmuxNextWakeups"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBrowserHostTests",
+            dependencies: ["CmuxNextBrowserHost", "CmuxNextBrowserAutomation", "CmuxNextBrowser", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
