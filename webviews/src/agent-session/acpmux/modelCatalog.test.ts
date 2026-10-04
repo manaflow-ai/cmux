@@ -52,3 +52,29 @@ test("a model acpmux reports unavailable says so in the picker, with its reason"
     { id: "gpt-5.5", name: "GPT-5.5 · unavailable: Image web search is not supported." },
   ]);
 });
+
+// plans/cmux-next/acp-usability.md, blocker 8: Gemini's probe failed ("API key is missing"), the
+// picker still offered it, and a pick failed after 5.1 s.
+test("a harness acpmux cannot start carries its reason, from its launcher check or its model probe", () => {
+  const names = {
+    harnesses: {
+      codex: {},
+      gemini: { unavailable: "gemini: not found on PATH" },
+      opencode: {},
+    },
+  };
+  const probed = {
+    harnesses: [
+      { harness: "codex", models: [{ id: "gpt-6-astra" }] },
+      {
+        harness: "opencode",
+        unavailable: "API key is missing",
+        models: [{ id: "default", name: "default (agent's choice)" }],
+      },
+    ],
+  };
+  const catalog = mergeModelCatalog(names, probed);
+  expect(catalog.find((harness) => harness.id === "gemini")?.unavailable).toBe("gemini: not found on PATH");
+  expect(catalog.find((harness) => harness.id === "opencode")?.unavailable).toBe("API key is missing");
+  expect(catalog.find((harness) => harness.id === "codex")?.unavailable).toBeUndefined();
+});

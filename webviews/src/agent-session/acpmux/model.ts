@@ -117,8 +117,14 @@ export type AcpmuxSnapshot = {
   permissionGroups?: PermissionClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
-  /** `unavailable`: why acpmux will not run that model (its backend refused it). */
-  catalog: { id: string; name: string; models: { id: string; name?: string; unavailable?: string }[] }[];
+  /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
+   * (its launcher check or its model probe failed). */
+  catalog: {
+    id: string;
+    name: string;
+    models: { id: string; name?: string; unavailable?: string }[];
+    unavailable?: string;
+  }[];
   canLoadOlder: boolean;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];

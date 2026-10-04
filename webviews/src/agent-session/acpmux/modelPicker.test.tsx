@@ -241,6 +241,28 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       expect(menu()).toBeNull();
     });
 
+    // plans/cmux-next/acp-usability.md, blocker 8: a harness that cannot start was offered as a
+    // new chat and failed after 5.1 s.
+    test("a harness acpmux cannot start says why, and starts only on an explicit Try again", async () => {
+      const value = snapshot();
+      value.catalog = [
+        ...value.catalog,
+        { id: "gemini", name: "Gemini CLI", models: [{ id: "default" }], unavailable: "API key is missing" },
+      ];
+      await render(value);
+      await open();
+      if (layout === "cascade") await press(row("Claude Code")!);
+      const gemini = row("Gemini CLI")!;
+      expect(gemini.textContent).toContain("Unavailable");
+      expect(gemini.textContent).not.toContain("New chat");
+      await press(gemini);
+      expect(calls).toEqual([]);
+      expect(menu()).not.toBeNull();
+      expect(row("API key is missing")).toBeDefined();
+      await press(row("Try again")!);
+      expect(calls).toEqual(["harness gemini"]);
+    });
+
     test("typing filters this harness's models; Return picks the best match, Escape clears then closes", async () => {
       await render(snapshot());
       await act(async () => chip().click());
