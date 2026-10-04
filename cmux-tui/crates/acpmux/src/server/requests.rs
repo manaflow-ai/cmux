@@ -41,6 +41,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_WARM,
+    method::MUX_PREWARM,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
     method::MUX_HANDOFF_PREPARE,
@@ -130,7 +131,7 @@ pub(super) async fn handle_request(
                 },
                 "authMethods": [],
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
-                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM,
+                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
@@ -356,6 +357,17 @@ pub(super) async fn handle_request(
                 params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
             let warmed = hub.warm_sessions(&requested, limit).await;
             Ok(json!({"warmed": warmed}))
+        }
+        method::MUX_PREWARM => {
+            let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+            hub.prewarm(crate::hub::PrewarmRequest {
+                harness: s("harness"),
+                preset: s("preset"),
+                cwd: s("cwd").map(PathBuf::from),
+                wait: params.get("wait").and_then(Value::as_bool) == Some(true),
+                remote: conn.origin == Origin::Web,
+            })
+            .await
         }
         "_acpmux/set_default_policy" => {
             let policy: PermissionPolicy = str_param(&params, "policy")

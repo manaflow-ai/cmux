@@ -373,6 +373,7 @@ impl Started {
             }
         }
         remove_artifacts(&state.spec.hosts_dir, &state.record);
+        remove_promoted(&state.spec.hosts_dir, &state.record);
         Ok(())
     }
 }

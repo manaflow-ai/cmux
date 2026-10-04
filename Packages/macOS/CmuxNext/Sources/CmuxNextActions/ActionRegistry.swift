@@ -310,57 +310,6 @@ public final class ActionRegistry {
         descriptors.map(\.id).filter { !isBound($0) }
     }
 
-    /// Performs the best action for a key-down event. Called by the window
-    /// before the event reaches the terminal.
-    public func performShortcut(for event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
-        var keys: [String] = []
-        if let key = event.charactersIgnoringModifiers?.lowercased() { keys.append(key) }
-        // With shift held, charactersIgnoringModifiers can return the shifted
-        // character ("}" for Shift-]); also try the unmodified key.
-        if let base = event.characters(byApplyingModifiers: [])?.lowercased(), !keys.contains(base) {
-            keys.append(base)
-        }
-        for key in keys {
-            if let resolved = resolve(Shortcut(key, modifiers: flags)) {
-                return run(resolved)
-            }
-        }
-        return false
-    }
-
-    /// Runs whatever `shortcut` resolves to. Returns whether an action ran.
-    @discardableResult
-    public func performShortcut(_ shortcut: Shortcut) -> Bool {
-        guard let resolved = resolve(shortcut) else { return false }
-        return run(resolved)
-    }
-
-    /// The action `shortcut` triggers in the current context, plus the digit
-    /// for numbered families. Among several candidates the one with the most
-    /// specific required context wins, then catalog order.
-    public func resolve(_ shortcut: Shortcut) -> (id: ActionID, argument: String?)? {
-        let index = currentShortcutIndex()
-        if let id = bestCandidate(index.byShortcut[shortcut] ?? []) {
-            return (id, nil)
-        }
-        if shortcut.key.count == 1, let digit = shortcut.key.first, ("1"..."9").contains(digit) {
-            let familyKey = Shortcut("1", modifiers: shortcut.modifiers)
-            if let id = bestCandidate(index.digitFamilies[familyKey] ?? []) {
-                return (id, String(digit))
-            }
-        }
-        return nil
-    }
-
-    private func run(_ resolved: (id: ActionID, argument: String?)) -> Bool {
-        if let argument = resolved.argument {
-            return perform(resolved.id, argument: argument)
-        }
-        return perform(resolved.id)
-    }
-
     func bestCandidate(_ ids: [ActionID]) -> ActionID? {
         var best: (id: ActionID, specificity: Int)?
         for id in ids where canPerform(id) {

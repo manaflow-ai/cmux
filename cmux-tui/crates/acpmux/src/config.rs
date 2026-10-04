@@ -403,6 +403,10 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
+    /// `pool`: hidden pre-created sessions that make a harness switch
+    /// instant (`hub/pool/`).
+    #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
+    pub pool: PoolConfig,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -964,6 +968,8 @@ pub use codex_adapter::{
     CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
     resolve_adapter_package_bin,
 };
+mod pool;
+pub use pool::PoolConfig;
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,

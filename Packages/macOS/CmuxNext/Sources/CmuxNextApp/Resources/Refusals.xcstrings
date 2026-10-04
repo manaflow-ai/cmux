@@ -15328,6 +15328,137 @@
         }
       }
     },
+    "refusal.server.notReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server software is not ready in this build yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "برنامج الخادم غير جاهز في هذا الإصدار بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serverski softver u ovoj verziji još nije spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serversoftwaren er endnu ikke klar i denne version."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Serversoftware ist in diesem Build noch nicht bereit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El software del servidor aún no está listo en esta versión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le logiciel serveur n'est pas encore prêt dans cette version."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il software server non è ancora pronto in questa build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このビルドのサーバソフトウェアはまだ準備できていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីម៉ាស៊ីនមេមិនទាន់រួចរាល់នៅក្នុងកំណែនេះនៅឡើយទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드의 서버 소프트웨어는 아직 준비되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serverprogramvaren er ikke klar i denne versjonen ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oprogramowanie serwera nie jest jeszcze gotowe w tej wersji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O software do servidor ainda não está pronto nesta versão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Серверное ПО в этой сборке пока не готово."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซอฟต์แวร์เซิร์ฟเวอร์ในบิลด์นี้ยังไม่พร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu yazılımı bu sürümde henüz hazır değil."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Серверне ПЗ у цій збірці ще не готове."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phần mềm máy chủ trong bản dựng này chưa sẵn sàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的服务器软件尚未就绪。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的伺服器軟體尚未就緒。"
+          }
+        }
+      }
+    },
     "refusal.server.needsApproval": {
       "extractionState": "manual",
       "localizations": {
