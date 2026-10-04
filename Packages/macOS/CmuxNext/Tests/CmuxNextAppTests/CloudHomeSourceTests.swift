@@ -12,9 +12,9 @@ import Testing
     typealias F = CloudFixtures
     let dm = "conv_dm_01J0000000000000000000000A"
 
-    func configured(_ script: FakeCloudDaemon.Script) async -> (CloudHomeSource, FakeCloudDaemon, EventTape) {
+    func configured(_ script: FakeCloudDaemon.Script, clock: ManualClock = ManualClock()) async -> (CloudHomeSource, FakeCloudDaemon, EventTape) {
         let daemon = FakeCloudDaemon(script)
-        let source = CloudHomeSource(me: Participant(id: F.localMe, kind: .human, displayName: "Me"))
+        let source = CloudHomeSource(me: Participant(id: F.localMe, kind: .human, displayName: "Me"), clock: clock)
         let tape = await EventTape(source)
         source.configure(commands: daemon, link: ObjectIdentifier(daemon), identity: F.identity)
         return (source, daemon, tape)
@@ -712,10 +712,12 @@ import Testing
     }
 
     /// An edit made outside a transcript (mark read from the inbox, a
-    /// quick reply) subscribes its conversation so the edit can go out;
-    /// with no transcript showing it, the subscription ends after the op.
-    /// An open transcript keeps its own.
-    @Test func anEditOutsideATranscriptEndsTheSubscriptionItMade() async throws {
+    /// quick reply) subscribes its conversation so the edit can go out and
+    /// its echo can settle the intent. With no transcript showing it, the
+    /// subscription ends with that echo (round-6 review, finding 2), not
+    /// with the op's reply, which can come first. An open transcript keeps
+    /// its own.
+    @Test func anEditOutsideATranscriptEndsItsSubscriptionWithItsEcho() async throws {
         let other = "conv_dm_01J0000000000000000000000Q"
         let (source, daemon, tape) = await configured(.init(entries: [F.entry(dm), F.entry(other)],
                                                             heads: [dm: F.head(dm), other: F.head(other)]))
@@ -724,14 +726,77 @@ import Testing
         _ = try await source.submit(HomeIntent(key: IdempotencyKey("cmk_open_read"),
                                                op: .setReadCursor(conversation: ConversationID(other), seq: 1)))
 
-        let mark = tape.all.count
-        let read = HomeIntent(key: IdempotencyKey("cmk_inbox_read"), op: .setReadCursor(conversation: ConversationID(dm), seq: 1))
-        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(read) }
-        #expect(await tape.wait { $0.dropFirst(mark).contains(.ownerRecovered) })
-        _ = try await source.submit(read)
-        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) }, "the edit left a subscription no close ends")
+        let read = try await submitFromInbox(source, tape, key: "cmk_inbox_read")
+        #expect(read.rev == 2)
+        for _ in 0..<2_000 { await Task.yield() }
+        #expect(!daemon.calls.contains(.unsubscribe(dm)), "the subscription ended before the echo arrived")
+        source.handle(.changed(echo(dm, rev: 1)))
+        for _ in 0..<500 { await Task.yield() }
+        #expect(!daemon.calls.contains(.unsubscribe(dm)), "an older event ended the subscription")
+        source.handle(.changed(echo(dm, rev: 2)))
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) }, "the echo left a subscription no close ends")
         #expect(!daemon.calls.contains(.unsubscribe(other)), "an edit ended an open transcript's subscription")
         #expect(!daemon.subscribed.contains(dm))
+    }
+
+    /// The echo can come before the op's reply: the reply then ends the subscription.
+    @Test func anEchoBeforeTheReplyEndsTheSubscriptionWithTheReply() async throws {
+        let (source, daemon, tape) = await configured(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm)]))
+        #expect(await signedIn(tape))
+        let early = echo(dm, rev: 2)
+        daemon.script.withLock { script in
+            script.op = { [source] _ in
+                source.handle(.changed(early))
+                return CloudConversationOpResult(rev: 2)
+            }
+        }
+        _ = try await submitFromInbox(source, tape, key: "cmk_echo_first")
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) })
+    }
+
+    /// The echo never comes (lost on the socket): the subscription ends at the deadline.
+    @Test func withoutAnEchoTheEditSubscriptionEndsAtTheDeadline() async throws {
+        let clock = ManualClock()
+        let (source, daemon, tape) = await configured(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm)]), clock: clock)
+        #expect(await signedIn(tape))
+        _ = try await submitFromInbox(source, tape, key: "cmk_no_echo")
+        for _ in 0..<2_000 { await Task.yield() }
+        #expect(!daemon.calls.contains(.unsubscribe(dm)), "the subscription ended before the deadline")
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: CloudHomeSource.editEchoDeadline)
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) }, "a lost echo left a subscription no close ends")
+    }
+
+    /// A refusal the store may resend keeps the subscription for the
+    /// resend; when the store gives up instead (it never tells the source),
+    /// the subscription ends at the deadline.
+    @Test func aRefusalThatIsNeverResentEndsTheSubscriptionAtTheDeadline() async throws {
+        let clock = ManualClock()
+        let (source, daemon, tape) = await configured(.init(entries: [F.entry(dm)], heads: [dm: F.head(dm)]), clock: clock)
+        #expect(await signedIn(tape))
+        daemon.script.withLock { $0.op = { _ in throw F.unavailable() } }
+        await #expect(throws: HomeRejection.indeterminate) { _ = try await submitFromInbox(source, tape, key: "cmk_lost") }
+        for _ in 0..<2_000 { await Task.yield() }
+        #expect(!daemon.calls.contains(.unsubscribe(dm)), "a resendable edit lost its socket")
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: CloudHomeSource.editEchoDeadline)
+        #expect(await daemon.wait { $0.contains(.unsubscribe(dm)) }, "an edit the store gave up on left its subscription")
+    }
+
+    /// My read cursor's echo in conversation `id` at `rev`.
+    func echo(_ id: String, rev: UInt64) -> CloudConversationChanged {
+        CloudConversationChanged(conversation: id, rev: rev, seq: 1, change: .readCursor(participant: "user_stack-me", seq: 1),
+                                 account: "stack-me")
+    }
+
+    /// Marks `dm` read from the inbox: the first try subscribes and waits
+    /// for the live socket, and the store's resend after recovery goes out.
+    func submitFromInbox(_ source: CloudHomeSource, _ tape: EventTape, key: String) async throws -> HomeOpResult {
+        let mark = tape.all.count
+        let read = HomeIntent(key: IdempotencyKey(key), op: .setReadCursor(conversation: ConversationID(dm), seq: 1))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(read) }
+        #expect(await tape.wait { $0.dropFirst(mark).contains(.ownerRecovered) })
+        return try await source.submit(read)
     }
 
     /// Revoked keys are kept per account and pruned when that account

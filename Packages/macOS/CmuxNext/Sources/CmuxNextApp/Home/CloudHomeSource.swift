@@ -106,11 +106,18 @@ nonisolated final class CloudHomeSource: HomeSource {
     private static let eventBuffer = 1024
     static let inboxLimit = CloudInboxListRequest.maxLimit
     static let hydrationWidth = 4
+    /// How long an edit made outside a transcript keeps its conversation
+    /// subscribed for its echo after its op answered (or was refused and
+    /// may not be resent) before the subscription ends anyway.
+    static let editEchoDeadline: Duration = .seconds(30)
     /// The local user's participant in this store (`CloudIdentity.localID`).
     let me: Participant
+    /// Paces the edit echo deadline (tests pass a manual clock).
+    private let clock: any Clock<Duration>
 
-    init(me: Participant) {
+    init(me: Participant, clock: any Clock<Duration> = ContinuousClock()) {
         self.me = me
+        self.clock = clock
     }
 
     // MARK: Fed by HomeService
