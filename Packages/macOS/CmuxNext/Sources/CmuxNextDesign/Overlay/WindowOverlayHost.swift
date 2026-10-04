@@ -36,6 +36,8 @@ public final class WindowOverlayHost {
     /// The key window and first responder to give back when the last modal overlay goes.
     weak var restoreWindow: NSWindow?
     weak var restoreResponder: NSResponder?
+    /// The text selection of a restored text field (making it first responder again selects everything).
+    var restoreSelection: [NSValue]?
     var isReordering = false
     /// The window is closing: nothing takes key status back.
     var isTearingDown = false
@@ -56,6 +58,8 @@ public final class WindowOverlayHost {
     var cachedRegions: [NSRect]?
     /// The window that gets the rest of a click the panel passed on.
     weak var forwardTarget: NSWindow?
+    /// The button of that click (`NSEvent.buttonNumber`).
+    var forwardButton = 0
     /// Another window became key while a modal showed: dismissing it leaves the keyboard there.
     var focusMoved = false
     var keyObserver: (any NSObjectProtocol)?

@@ -26,6 +26,7 @@ public extension WindowOverlayHost {
         handles.append(handle)
         cachedRegions = nil
         // A content that grows or shrinks on its own (a SwiftUI popover) changes the regions.
+        handle.contentPostedFrameChanges = content.postsFrameChangedNotifications
         content.postsFrameChangedNotifications = true
         handle.frameObserver = NotificationCenter.default.addObserver(
             forName: NSView.frameDidChangeNotification, object: content, queue: nil
@@ -119,6 +120,7 @@ extension WindowOverlayHost {
         cachedRegions = nil
         if let observer = handle.frameObserver { NotificationCenter.default.removeObserver(observer) }
         handle.frameObserver = nil
+        handle.content.postsFrameChangedNotifications = handle.contentPostedFrameChanges
         handle.content.removeFromSuperview()
         handle.clipView?.removeFromSuperview()
         handle.clipView = nil

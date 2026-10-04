@@ -61,23 +61,27 @@ extension WindowOverlayHost {
     func panelMouseEvent(_ event: NSEvent) -> Bool {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            // A new click: an earlier forwarded click whose up never reached
+            // the panel (a drag session or a menu loop took it) is over.
+            forwardTarget = nil
             let point = event.locationInWindow
             guard !isAppHost, !acceptsMouse(at: point), let window else { return false }
             panel.ignoresMouseEvents = true
-            // The rest of this click (drags and the up) still comes to the
-            // panel, which got the down: it goes to the same target.
+            // The rest of this click (drags and the up of the same button)
+            // still comes to the panel, which got the down: it goes to the same target.
             forwardTarget = forwardingTarget(for: panel.convertPoint(toScreen: point), in: window)
+            forwardButton = event.buttonNumber
             forward(event)
             return true
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            guard forwardTarget != nil else {
-                routeMouse(at: NSEvent.mouseLocation)
+            guard forwardTarget != nil, event.buttonNumber == forwardButton else {
+                if forwardTarget == nil { routeMouse(at: NSEvent.mouseLocation) }
                 return false
             }
             forward(event)
             return true
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            guard forwardTarget != nil else { return false }
+            guard forwardTarget != nil, event.buttonNumber == forwardButton else { return false }
             forward(event)
             forwardTarget = nil
             return true
@@ -108,12 +112,25 @@ extension WindowOverlayHost {
     func forward(_ event: NSEvent) {
         guard let target = forwardTarget else { return }
         let screen = panel.convertPoint(toScreen: event.locationInWindow)
-        if let forwarded = NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen),
-                                              modifierFlags: event.modifierFlags, timestamp: event.timestamp,
-                                              windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,
-                                              clickCount: event.clickCount, pressure: event.pressure) {
-            target.sendEvent(forwarded)
+        // A copy of the real event keeps its drag deltas (pointer lock, page
+        // drags use them); only the window and location change.
+        if let copy = event.cgEvent?.copy() {
+            copy.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(target.windowNumber))
+            copy.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(target.windowNumber))
+            if let forwarded = NSEvent(cgEvent: copy) {
+                return target.sendEvent(Self.relocated(forwarded, to: target, screen: screen) ?? forwarded)
+            }
         }
+        if let forwarded = Self.relocated(event, to: target, screen: screen) { target.sendEvent(forwarded) }
+    }
+
+    /// `event` addressed to `target` at the screen point (deltas are lost: a fallback only).
+    static func relocated(_ event: NSEvent, to target: NSWindow, screen: NSPoint) -> NSEvent? {
+        guard event.window !== target else { return event }
+        return NSEvent.mouseEvent(with: event.type, location: target.convertPoint(fromScreen: screen),
+                                  modifierFlags: event.modifierFlags, timestamp: event.timestamp,
+                                  windowNumber: target.windowNumber, context: nil, eventNumber: event.eventNumber,
+                                  clickCount: event.clickCount, pressure: event.pressure)
     }
 
     func removeMouseMonitor() {

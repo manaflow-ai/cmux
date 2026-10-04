@@ -84,6 +84,8 @@ public final class OverlayHandle {
     var clipView: OverlayClipView?
     /// Clears the host's region cache when the content resizes on its own.
     var frameObserver: (any NSObjectProtocol)?
+    /// The content's own `postsFrameChangedNotifications`, set back on dismiss.
+    var contentPostedFrameChanges = false
     var options: OverlayOptions
     let content: NSView
 

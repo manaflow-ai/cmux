@@ -13,8 +13,10 @@ extension WindowOverlayHost {
             let responder = (NSApp.keyWindow ?? window)?.firstResponder
             if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate as? NSResponder {
                 restoreResponder = field
+                restoreSelection = editor.selectedRanges
             } else {
                 restoreResponder = responder
+                restoreSelection = nil
             }
             focusMoved = false
             keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil,
@@ -64,7 +66,12 @@ extension WindowOverlayHost {
             } else {
                 window.makeFirstResponder(responder)
             }
+            // The field selects all its text when it takes the keyboard; put the old selection back.
+            if let selection = restoreSelection, let editor = window.firstResponder as? NSTextView, editor.isFieldEditor {
+                editor.selectedRanges = selection
+            }
         }
+        restoreSelection = nil
         restoreWindow = nil
         restoreResponder = nil
     }
