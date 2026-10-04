@@ -54,4 +54,48 @@ import Testing
         #expect(c.scene.commitCount <= commits + 1, "progress steps lay nothing out (only the commit's delivery change)")
         #expect(await source.uploadCalls == [prepared.ref.hash])
     }
+
+    private func bound() async throws -> (HomeStore, MockHomeSource, HomeController, HomeStoreBinding) {
+        let source = MockHomeSource(options: .immediate)
+        let cache = FileManager.default.temporaryDirectory.appendingPathComponent("home-bound-\(UUID().uuidString)")
+        let store = HomeStore(source: source, blobCacheDirectory: cache)
+        store.start()
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        await store.open(conversation)
+        await waitUntil { !store.transcript(for: self.conversation).isEmpty }
+        let me = try #require(store.me?.id)
+        let c = HomeController(conversation: conversation, me: me, palette: Fixtures.palette, deadline: ManualDeadline())
+        c.resize(to: CGSize(width: 628, height: 900))
+        c.setHostedField(CGRect(x: 51, y: 859, width: 526, height: 30))
+        return (store, source, c, HomeStoreBinding(store: store, controller: c))
+    }
+
+    @Test func aBackgroundRefusalFromTheStoreReachesTheHost() async throws {
+        let (store, _, _, binding) = try await bound()
+        defer { binding.stop() }
+        var refused: [HomeRejection] = []
+        binding.onRefusal = { _, rejection in refused.append(rejection) }
+        let intent = HomeIntent(op: .sendMessage(conversation: conversation, parts: [.text("resumed")]))
+        let report = try #require(store.onRefusal, "the binding listens for refusals of resumed uploads and resends")
+        report(intent, .notAuthorized)
+        #expect(refused == [.notAuthorized])
+    }
+
+    @Test func anUploadingSendCanBeCancelledAndLeavesTheTranscript() async throws {
+        let (store, source, c, binding) = try await bound()
+        defer { binding.stop() }
+        let png = try AttachmentFixtures.png(width: 400, height: 300, gray: 0.5)
+        let prepared = try await store.prepareAttachment(fileURL: png)
+        await source.setUploadsPaused(true)
+        let intent = try #require(c.sendHosted(text: "", attachments: [HomeOutgoingAttachment(ref: prepared.ref, files: prepared.files)],
+                                                from: CGRect(x: 51, y: 859, width: 526, height: 30)))
+        await waitUntil { !(store.transcript(for: self.conversation).last?.attachmentProgress.isEmpty ?? true) }
+        let item = try #require(store.transcript(for: conversation).last)
+        #expect(item.key == intent.key)
+        #expect(c.cancellableSend(item.key) == true, "an uploading send offers Cancel")
+        #expect(binding.cancelSend(item.key))
+        await waitUntil { !store.transcript(for: self.conversation).contains { $0.key == intent.key } }
+        #expect(!store.transcript(for: conversation).contains { $0.key == intent.key }, "a cancelled send leaves the transcript")
+        await source.setUploadsPaused(false)
+    }
 }

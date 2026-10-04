@@ -186,6 +186,24 @@ import Testing
         #expect(restored == [AttachmentFixtures.pdf], "the draft gets its attachments back with its text")
     }
 
+    @Test func onlyAnUploadingOrFailedSendOffersCancel() throws {
+        let c = Fixtures.controller(height: 900)
+        let parts: [MessagePart] = [.attachment(AttachmentFixtures.photo)]
+        let start = Fixtures.start
+        let uploading = TranscriptItem(key: IdempotencyKey("up"), seq: nil, author: Fixtures.me, parts: parts, createdAt: start,
+                                       delivery: .sending, attachmentProgress: [AttachmentFixtures.photo.hash: 0.3])
+        let waiting = TranscriptItem(key: IdempotencyKey("wait"), seq: nil, author: Fixtures.me, parts: parts,
+                                     createdAt: start.addingTimeInterval(1), delivery: .sending)
+        let failed = TranscriptItem(key: IdempotencyKey("fail"), seq: nil, author: Fixtures.me, parts: parts,
+                                    createdAt: start.addingTimeInterval(2), delivery: .notDelivered(.indeterminate))
+        c.update(items: [uploading, waiting, failed], summary: Fixtures.summary(), typing: [], hasOlder: false)
+        #expect(c.cancellableSend(IdempotencyKey("up")) == true, "uploading: Cancel stops the upload")
+        #expect(c.cancellableSend(IdempotencyKey("wait")) == false,
+                "sent and unanswered: no Cancel that does nothing (the store retries until it fails)")
+        #expect(c.cancellableSend(IdempotencyKey("fail")) == true, "Not Delivered: Cancel discards it")
+        #expect(c.cancellableSend(IdempotencyKey("missing")) == nil, "not a pending send")
+    }
+
     @Test func inboxPreviewLabelsCountTheirKind() {
         #expect(HomeAttachmentSummary.label(AttachmentPreview(kind: .photo, count: 1)) == "Photo")
         #expect(HomeAttachmentSummary.label(AttachmentPreview(kind: .photo, count: 2)) == "2 photos")

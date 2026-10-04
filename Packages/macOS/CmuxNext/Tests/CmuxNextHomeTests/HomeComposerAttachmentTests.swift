@@ -157,6 +157,43 @@ import Testing
                            windowNumber: view.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
     }
 
+    @Test func everyRefusalHasItsOwnNotice() {
+        #expect(HomeStrings.attachmentRefusal(.locationNotRemoved(name: "a.jpg"))
+                == "Location data couldn’t be removed from “a.jpg”, so it was not attached.")
+        #expect(HomeStrings.rejection(.notAuthorized) == "You can’t send messages in this conversation.")
+        #expect(HomeStrings.rejection(.rateLimited(retryAfter: nil)) == "Too many messages. Try again in a moment.")
+        #expect(HomeStrings.rejection(.invalid("unknown_attachment")) == "A message couldn’t be sent.")
+        let (window, view, _) = host()
+        defer { window.close() }
+        view.showRefusal(.notAuthorized)
+        #expect(view.field.notice == "You can’t send messages in this conversation.", "a background refusal shows in the composer notice")
+    }
+
+    @Test func theMenuOffersCancelUploadOnlyWhenTheSendCanBeCancelled() throws {
+        let (window, view, _) = host()
+        defer { window.close() }
+        let photo = AttachmentRef(hash: "h-photo", name: "p.png", mimeType: "image/png", byteCount: 10, width: 400, height: 300)
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        let uploading = TranscriptItem(key: IdempotencyKey("up"), seq: nil, author: Self.me, parts: [.attachment(photo)],
+                                       createdAt: start, delivery: .sending, attachmentProgress: [photo.hash: 0.4])
+        let waiting = TranscriptItem(key: IdempotencyKey("wait"), seq: nil, author: Self.me, parts: [.attachment(photo)],
+                                     createdAt: start.addingTimeInterval(400), delivery: .sending)
+        view.controller.update(items: [uploading, waiting], summary: nil, typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        var cancelled: [IdempotencyKey] = []
+        view.onCancelSend = { cancelled.append($0); return true }
+        func menu(_ key: String) throws -> NSMenu? {
+            let frame = try #require(view.controller.contentFrame(for: IdempotencyKey(key)))
+            return view.rowHost.menu(at: CGPoint(x: frame.width - 60, y: frame.midY - view.controller.scrollGeometry.offset))
+        }
+        let up = try #require(try menu("up"))
+        let cancel = try #require(up.items.first { $0.title == "Cancel Upload" }, "an uploading attachment offers Cancel Upload")
+        _ = view.rowHost.perform(try #require(cancel.action), with: cancel)
+        #expect(cancelled == [IdempotencyKey("up")])
+        let wait = try menu("wait")
+        #expect(wait?.items.contains { $0.title == "Cancel Upload" } != true, "a sent, unanswered message offers no Cancel")
+    }
+
     @Test func noPreparerTakesNothing() {
         let (window, view, _) = host()
         defer { window.close() }
