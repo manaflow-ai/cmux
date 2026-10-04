@@ -148,14 +148,15 @@ pub enum Frame {
     },
     /// A person's lease action from the app's shared lease UI (origin
     /// `user`): `take_over`, `hand_back` or `stop` on `targetId`, or `allow`
-    /// for `session` (plans/cmux-next/automation-lease.md).
+    /// for `actor`, a stopped principal (`on_behalf_of` or actor of a lease;
+    /// plans/cmux-next/automation-lease.md, lease v2).
     #[serde(rename = "lease.user")]
     LeaseUser {
         op: String,
         #[serde(rename = "targetId", default, skip_serializing_if = "Option::is_none")]
         target_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        session: Option<String>,
+        actor: Option<String>,
     },
     /// A person used a leased tab; the host pauses the lease.
     #[serde(rename = "user.input")]
@@ -229,11 +230,11 @@ impl fmt::Debug for Frame {
             Frame::UserInput { target_id } => {
                 f.debug_struct("UserInput").field("target_id", target_id).finish()
             }
-            Frame::LeaseUser { op, target_id, session } => f
+            Frame::LeaseUser { op, target_id, actor } => f
                 .debug_struct("LeaseUser")
                 .field("op", op)
                 .field("target_id", target_id)
-                .field("session", session)
+                .field("actor", actor)
                 .finish(),
             Frame::TabAccess { target_id, extension_host_access, user_override, .. } => f
                 .debug_struct("TabAccess")

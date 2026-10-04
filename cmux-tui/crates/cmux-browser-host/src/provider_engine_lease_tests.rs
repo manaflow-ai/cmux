@@ -60,11 +60,7 @@ fn observe_after_hand_back_lets_the_session_act_again() {
     let first = session(&provider, "webkit", "s1");
     first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
     app.send(Frame::UserInput { target_id: "W".into() });
-    app.send(Frame::LeaseUser {
-        op: "hand_back".into(),
-        target_id: Some("W".into()),
-        session: None,
-    });
+    app.send(Frame::LeaseUser { op: "hand_back".into(), target_id: Some("W".into()), actor: None });
     provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
     let evaluations = calls(&app, "frame.evaluate");
     let refused = first
@@ -98,4 +94,36 @@ fn a_closed_session_late_drop_keeps_the_new_session_lease() {
     drop(new);
     provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
     assert_eq!(leases(&app, "W").last().unwrap(), &None, "the last drop still ends the session");
+}
+
+/// A tab that goes away takes its lease with it (host-local TargetGone).
+#[test]
+fn a_gone_tab_drops_its_lease() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("X", "webkit")]);
+    let first = session(&provider, "webkit", "s1");
+    first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
+    app.send(Frame::Event { name: "tab.gone".into(), payload: json!({"targetId": "W"}) });
+    provider.call("tab.info", &json!({"targetId": "X"})).unwrap();
+    assert_eq!(leases(&app, "W").last().unwrap(), &None);
+}
+
+/// lease v2: allow lifts a stop for the stopped principal (actor), so the
+/// same agent can act again under any session name.
+#[test]
+fn allow_from_the_app_lifts_a_stop_by_actor() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let first = session(&provider, "webkit", "s1");
+    first.call("tab.navigate", &json!({"targetId": "W", "url": "https://b.test/"})).unwrap();
+    app.send(Frame::LeaseUser { op: "stop".into(), target_id: Some("W".into()), actor: None });
+    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    let renamed = session(&provider, "webkit", "s2");
+    let stopped = renamed.call("input.key", &json!({"targetId": "W"})).unwrap_err();
+    assert_eq!(stopped.error_name.as_deref(), Some("stopped_by_user"), "{stopped}");
+    app.send(Frame::LeaseUser {
+        op: "allow".into(),
+        target_id: None,
+        actor: Some("uid:501".into()),
+    });
+    provider.call("tab.info", &json!({"targetId": "W"})).unwrap();
+    renamed.call("input.key", &json!({"targetId": "W"})).unwrap();
 }
