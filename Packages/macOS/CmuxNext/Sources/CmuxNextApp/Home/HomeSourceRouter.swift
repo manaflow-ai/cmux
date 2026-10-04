@@ -19,13 +19,18 @@ nonisolated final class HomeSourceRouter: HomeSource {
         /// The owner of every conversation either source reported. An owner
         /// is a property of the id: it stays when the conversation leaves
         /// the merged inbox, so a cloud id never routes to the local daemon
-        /// (the cloud refuses what this account may not do).
+        /// (the cloud refuses what this account may not do). A new cloud
+        /// account drops the previous one's cloud ids it does not list.
         var owners: [ConversationID: ConversationSummary.Owner] = [:]
         /// Cloud conversations in the merged inbox now: listed by the cloud
         /// inbox, or shown by a conversation stream event or page.
         var cloudListed: Set<ConversationID> = []
         var inboxRev: Revision = 0
         var started = false
+        /// The account the cloud source acted as at its last inbox, once one
+        /// arrived. A change prunes the cloud owners the new inbox does not list.
+        var cloudAccount: String?
+        var cloudAccountSeen = false
     }
 
     private let state = Mutex(State())
@@ -190,7 +195,17 @@ nonisolated final class HomeSourceRouter: HomeSource {
             return
         case .inbox(let snapshot):
             let listed = Set(snapshot.conversations.map(\.id))
-            let removed = state.withLock { $0.cloudListed.subtracting(listed) }
+            let account = cloud.accountID
+            let removed = state.withLock { state -> Set<ConversationID> in
+                if state.cloudAccountSeen, state.cloudAccount != account {
+                    // Another account: the previous one's cloud ids no longer
+                    // route anywhere it can reach; a lookup finds them again.
+                    state.owners = state.owners.filter { $0.value == .local || listed.contains($0.key) }
+                }
+                state.cloudAccount = account
+                state.cloudAccountSeen = true
+                return state.cloudListed.subtracting(listed)
+            }
             for id in removed.sorted(by: { $0.rawValue < $1.rawValue }) {
                 publish { state in
                     state.cloudListed.remove(id)

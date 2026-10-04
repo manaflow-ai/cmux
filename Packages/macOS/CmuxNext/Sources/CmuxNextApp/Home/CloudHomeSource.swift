@@ -76,9 +76,11 @@ nonisolated final class CloudHomeSource: HomeSource {
         /// Keys of intents this account submitted that are not known to be
         /// committed: the store may still resend them (or show a failed send).
         var accepted: Set<String> = []
-        /// Keys of intents a previous account submitted. Refused for good, so
-        /// none goes out under another identity (the owner scopes keys per actor).
-        var revoked: Set<String> = []
+        /// Keys of intents a previous account submitted, with that account's
+        /// cloud id. Refused for good under any other account, so none goes
+        /// out under another identity (the owner scopes keys per actor). An
+        /// account's own keys leave when it signs in again.
+        var revoked: [String: String] = [:]
         /// The unsubscribes sent so far, in order. A subscribe waits for them,
         /// so a late unsubscribe never ends a subscription made after it.
         var unsubscribing: Task<Void, Never>?
@@ -135,7 +137,10 @@ nonisolated final class CloudHomeSource: HomeSource {
                 // Under the same lock as the identity change, so no reply for the
                 // new account can recover the store before it drops these.
                 let revoked = Set(state.accepted.map { IdempotencyKey($0) })
-                state.revoked.formUnion(state.accepted)
+                if let ended = state.identity?.cloudID {
+                    for key in state.accepted { state.revoked[key] = ended }
+                }
+                if let next = identity?.cloudID { state.revoked = state.revoked.filter { $0.value != next } }
                 state.accepted = []
                 // Nothing of the new account waits to be resent.
                 state.degraded = false
@@ -879,7 +884,7 @@ nonisolated final class CloudHomeSource: HomeSource {
         let endpoint = state.withLock { state -> Result<(any CloudConversationCommands, CloudIdentity, UInt64), HomeRejection> in
             guard let identity = state.identity else { return .failure(.notAuthorized) }
             if let key {
-                if state.revoked.contains(key) { return .failure(.notAuthorized) }
+                if state.revoked[key] != nil { return .failure(.notAuthorized) }
                 state.accepted.insert(key)
             }
             guard let commands = state.commands else {
