@@ -342,8 +342,8 @@ native (`BrowserReplBoundary` in the session, and the driver):
   a mutation observer runs before the page's script returns control, so
   before WebKit handles the next event. From before the tree read until the
   guard comes off, no child frame of the tab loads a new document: the
-  navigation delegate decides a child frame's navigation only after the
-  input (`BrowserReplSubframeLoadHold`). A frame the page creates meanwhile
+  navigation delegate decides a child frame's navigation, and its response,
+  only after the input (`BrowserReplSubframeLoadHold`). A frame the page creates meanwhile
   shows its initial empty document, which takes its parent's origin, and an
   allowed frame cannot navigate to a blocked page; main-frame navigations
   and new windows are not held. Then the guard comes off (an element the
@@ -354,9 +354,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   page can take it off and move the focus into the blocked frame before the
   observer runs; the rest of that event (the key's text) may then reach the
   frame, and the call fails with `blocked` afterwards. A child-frame
-  navigation whose response WebKit had already accepted when the hold began
+  navigation whose response the app had already accepted when the hold began
   can still commit during the input (WebKit reports no child-frame commit to
-  the app). An allowed frame that holds the point or the focus keeps
+  the app, so the driver cannot wait for it). An allowed frame that holds the point or the focus keeps
   receiving input while blocked frames are inert.
   A page script's write to the tab's clipboard (`page-clipboard.js`) from
   a frame the creating session's policy blocks, judged by WebKit's record

@@ -63,8 +63,22 @@ public final class BrowserReplSubframeLoadHold {
     /// once the last hold comes off, and the caller must not decide the
     /// navigation now; otherwise `proceed` is dropped and the caller goes on.
     public func holdsBack(_ targetFrame: WKFrameInfo?, in webView: WKWebView, until proceed: @escaping @MainActor () -> Void) -> Bool {
+        guard let targetFrame, !targetFrame.isMainFrame else { return false }
+        return holdsBack(childFrameIn: webView, until: proceed)
+    }
+
+    /// ``holdsBack(_:in:until:)`` for a navigation's response: a child
+    /// frame's response (`isForMainFrame` false) waits too, so a navigation
+    /// WebKit allowed before the hold began does not commit during it unless
+    /// its response was also accepted before.
+    public func holdsBack(response isForMainFrame: Bool, in webView: WKWebView, until proceed: @escaping @MainActor () -> Void) -> Bool {
+        guard !isForMainFrame else { return false }
+        return holdsBack(childFrameIn: webView, until: proceed)
+    }
+
+    private func holdsBack(childFrameIn webView: WKWebView, until proceed: @escaping @MainActor () -> Void) -> Bool {
         let id = ObjectIdentifier(webView)
-        guard let targetFrame, !targetFrame.isMainFrame, holds[id] != nil else { return false }
+        guard holds[id] != nil else { return false }
         waiting[id, default: []].append(proceed)
         return true
     }

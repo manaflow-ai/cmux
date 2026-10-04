@@ -929,6 +929,16 @@ import WebKit
             label: "BrowserNavigationDelegate.navigationResponse"
         ).closure
 
+        // A child frame's document does not commit while a browser REPL
+        // session's guarded input or capture is in flight
+        // (BrowserReplSubframeLoadHold); its response is decided after.
+        if BrowserReplSubframeLoadHold.shared.holdsBack(response: navigationResponse.isForMainFrame, in: webView, until: { [weak self, weak webView] in
+            guard let self, let webView else { return }
+            self.webView(webView, decidePolicyFor: navigationResponse, decisionHandler: decisionHandler)
+        }) {
+            return
+        }
+
         if let url = navigationResponse.response.url {
             let isMainFrame = navigationResponse.isForMainFrame
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
