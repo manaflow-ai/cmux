@@ -53,7 +53,7 @@ impl Wire {
             let pane = state.pane_of(surface.id).unwrap();
             (surface.kind(), surface.browser_url(), pane, state.panes[&pane].tabs.clone())
         });
-        assert_eq!(kind, crate::surface::SurfaceKind::Browser, "{created}");
+        assert_eq!(kind, SurfaceKind::Browser, "{created}");
         assert_eq!(shown.as_deref(), Some(url));
         assert_ne!(pane, old_pane, "the browser must be in a new pane");
         assert_eq!(tabs, vec![surface], "the new pane holds only the browser");
@@ -105,7 +105,7 @@ fn pty_kind_and_no_kind_still_create_a_terminal() {
         let created = wire.ok(request);
         let surface: SurfaceId = serde_json::from_value(created["surface"].clone()).unwrap();
         let kind = wire.mux.with_state(|state| state.surfaces[&surface].kind());
-        assert_eq!(kind, crate::surface::SurfaceKind::Pty);
+        assert_eq!(kind, SurfaceKind::Pty);
     }
 }
 
@@ -177,13 +177,13 @@ fn public_pane_split_refuses_browser_fields() {
             &writer,
             &scheduler
         ));
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(10);
         let response: Value = loop {
             if let Some(text) = outbound.try_pop() {
                 break serde_json::from_str(&text).unwrap();
             }
-            assert!(std::time::Instant::now() < deadline, "no pane.split response");
-            std::thread::sleep(std::time::Duration::from_millis(2));
+            assert!(Instant::now() < deadline, "no pane.split response");
+            std::thread::sleep(Duration::from_millis(2));
         };
         assert_eq!(response["ok"], false, "{extra} must be refused: {response}");
         assert_eq!(wire.pane_count(), 1, "{extra} must create nothing");

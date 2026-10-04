@@ -58,13 +58,16 @@ pub(super) fn validate_pane_browser_fields(fields: &Map<String, Value>) -> anyho
 pub(super) enum SpawnedPaneSurface<'a> {
     Terminal(Arc<Surface>),
     /// The guard keeps the surface's workspace known until it is attached.
-    Browser(Arc<Surface>, PendingWorkspaceSurface<'a>),
+    Browser {
+        surface: Arc<Surface>,
+        _pending: PendingWorkspaceSurface<'a>,
+    },
 }
 
 impl SpawnedPaneSurface<'_> {
     pub(super) fn surface(&self) -> &Arc<Surface> {
         match self {
-            Self::Terminal(surface) | Self::Browser(surface, _) => surface,
+            Self::Terminal(surface) | Self::Browser { surface, .. } => surface,
         }
     }
 }
@@ -139,7 +142,7 @@ impl Mux {
                 Some(identity),
             )?;
             let pending = self.pending_workspace_surface(surface.id);
-            return Ok(SpawnedPaneSurface::Browser(surface, pending));
+            return Ok(SpawnedPaneSurface::Browser { surface, _pending: pending });
         }
         let cwd = cwd.or_else(|| self.pane_cwd(target));
         let reservation = self.effect_terminal_reservation(
@@ -167,7 +170,7 @@ impl Mux {
                 "resource-terminal-pane-attach-failed",
                 "pane-disappeared-before-attach",
             ),
-            SpawnedPaneSurface::Browser(surface, _) => {
+            SpawnedPaneSurface::Browser { surface, .. } => {
                 self.state.lock().unwrap().surfaces.remove(&surface.id);
                 surface.kill();
                 Ok(())
