@@ -75,6 +75,26 @@ export function sampleSnapshots(): Array<CloudSnapshot & { machine: string }> {
   ];
 }
 
+/** A small guest tree per machine (fixtures fs-dir.json, fs-stat.json, fs-read.json, fs-stat-large.json). */
+export interface SampleFile {
+  kind: "file" | "directory" | "symlink";
+  /** File content; a file without one is large (`size` only). */
+  text?: string;
+  size?: number;
+  mode?: number;
+  modifiedAt?: number;
+}
+
+export function sampleFiles(): Map<string, SampleFile> {
+  return new Map<string, SampleFile>([
+    ["/home/cmux", { kind: "directory" }],
+    ["/home/cmux/notes.txt", { kind: "file", text: "hello cloud\n", mode: 420, modifiedAt: 1_791_100_000_000 }],
+    ["/home/cmux/src", { kind: "directory" }],
+    ["/home/cmux/src/main.rs", { kind: "file", text: "fn main() {}\n", mode: 420 }],
+    ["/home/cmux/big.bin", { kind: "file", size: 20_971_520 }],
+  ]);
+}
+
 /** `GET /api/vm/:id/stats`: sleeping machines answer `asleep` with no numbers. */
 export function sampleStats(machine: CloudMachine, memoryMb = 8192): MachineStats {
   if (machine.status !== "running") return { state: "asleep" };
@@ -120,26 +140,63 @@ export function sampleAccount(): SampleAccount {
       freeAccessWindowDays: 0,
     },
     usage: { vmHoursUsed: 12.5, vmHoursIncluded: 40, activeVmCount: 2, savedVmLimit: 5 },
+    // The server's answers (first-party-apps/cloud/server/tests/fixtures/{domain,publication,network,
+    // firewall}-list.json), with the sample machine ids.
     domains: [
-      { name: "dev.example.com", status: "verified" },
-      { name: "preview.example.org", status: "pending" },
+      {
+        id: "dom-test01",
+        hostname: "example.test",
+        verificationState: "pending",
+        certificateState: "pending",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        dnsInstructions: [
+          { purpose: "verification", recordTypes: ["TXT"], name: "_cmux.example.test", value: "cmux-verify=test" },
+        ],
+        publications: [{ id: "00000000-0000-4000-8000-000000000001", hostname: "app.example.test", state: "pending" }],
+      },
     ],
     publications: [
-      { id: "pub-1", machine: "vm-a1", hostname: "3000-api-dev.example.dev", port: 3000, status: "active" },
+      {
+        id: "00000000-0000-4000-8000-000000000001",
+        hostname: "app.example.test",
+        url: "https://app.example.test",
+        domainKind: "custom",
+        vmId: "vm-a1",
+        port: 3000,
+        accessMode: "personal",
+        teamId: null,
+        state: "pending",
+        routingRevision: 1,
+        verification: null,
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000002",
+        hostname: "quiet-test-label.cmux.sh",
+        url: "https://quiet-test-label.cmux.sh",
+        domainKind: "generated",
+        vmId: "vm-b2",
+        port: 8080,
+        accessMode: "team",
+        teamId: "team-personal",
+        state: "active",
+        routingRevision: 3,
+        verification: null,
+      },
     ],
-    networks: [{ id: "vpc-1", cidr: "10.42.0.0/16", scope: "team" }],
+    networks: [{ id: "vpc-test01", cidr: "10.64.0.0/16", cidrV6: "fd00:64::/48", scope: "user" }],
     firewall: [
       {
-        id: "fw-1",
+        id: "fw-test01",
         action: "allow",
         source: { public: true },
         destination: { vmId: "vm-a1", port: 443, protocol: "tcp" },
-        description: "HTTPS",
+        description: "https",
+        createdAt: "2026-10-01T00:00:00.000Z",
       },
       {
-        id: "fw-2",
+        id: "fw-test03",
         action: "allow",
-        source: { cidr: "10.42.0.0/16" },
+        source: { cidr: "10.64.0.0/16" },
         destination: { vmId: "vm-a1", port: 5432, protocol: "tcp" },
       },
     ],

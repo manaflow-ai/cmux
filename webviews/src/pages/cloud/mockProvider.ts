@@ -4,13 +4,17 @@
 // real resource.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { sampleAccount, sampleMachines, sampleSnapshots, sampleStats } from "./mockData";
+import { MockEdge, MockFiles, only } from "./mockEdge";
 import {
   ACTION_RUN,
   CloudOps,
+  HostActions,
   NATIVE_ACTIONS,
+  type AccessMode,
   type CloudMachine,
   type CloudPublication,
   type CloudSnapshot,
+  type FirewallEndpoint,
   type MachineEvent,
   type MachineMutationResult,
 } from "./ops";
@@ -18,9 +22,10 @@ import {
 export { sampleMachines } from "./mockData";
 
 /**
- * Ops the Cloud app server does not serve yet (first-party-apps/cloud/README.md "Gaps"). The mock
- * answers them like the server: `cmux.cloud.unsupported` for the idle policy, an unknown-op error
- * for the rest. Pass `unsupported: []` to drive the page's full design.
+ * Ops the Cloud app server does not serve yet (first-party-apps/cloud/README.md "Gaps"), and host
+ * actions the host does not serve yet. The mock answers them like the server: `cmux.cloud.unsupported`
+ * for the idle policy, an unknown-op error for the rest. Pass `unsupported: []` to drive the page's
+ * full design.
  */
 export const SERVER_GAPS: readonly string[] = [
   CloudOps.machineIdlePolicySet,
@@ -28,19 +33,9 @@ export const SERVER_GAPS: readonly string[] = [
   CloudOps.authSignOut,
   CloudOps.teamList,
   CloudOps.teamSelect,
-  CloudOps.domainList,
-  CloudOps.domainVerify,
-  CloudOps.publicationList,
-  CloudOps.publicationCreate,
-  CloudOps.publicationUpdate,
-  CloudOps.publicationDelete,
-  CloudOps.publicationVerify,
-  CloudOps.networkList,
-  CloudOps.firewallList,
-  CloudOps.firewallGet,
-  CloudOps.firewallCreate,
-  CloudOps.firewallDelete,
   CloudOps.billingOpen,
+  // A host action, not a Cloud op: the browser host cannot open a tab through a proxy yet.
+  HostActions.browserTabOpen,
 ];
 
 export interface MockCall {
@@ -78,6 +73,9 @@ export class MockCloudProvider implements PageClient {
   notFoundOnDelete = false;
   /** The owner's normalization of a new name (the echo then differs from the intent). */
   renameTransform?: (name: string) => string;
+  /** Files of each machine and this Mac's port forwards and browser routes. */
+  readonly fs = new MockFiles();
+  readonly edge = new MockEdge();
   /** The projection revision: one step per change, shared by the events of that change. */
   revision = 10;
   private nextId = 1;
@@ -127,6 +125,10 @@ export class MockCloudProvider implements PageClient {
   /** Host to page call (the dispatcher's page command in the dev loop). */
   invoke(op: string, params: unknown): unknown {
     return this.handlers.get(op)?.(params);
+  }
+
+  get forwards() {
+    return this.edge.forwards;
   }
 
   get watchers(): number {
@@ -206,6 +208,31 @@ export class MockCloudProvider implements PageClient {
     return { ...machine, revision: this.revision };
   }
 
+  /** `cloud.publication.create`: the Cloud API refuses public access without `confirmPublic`. */
+  private publish(p: Params): CloudPublication {
+    only(p, ["machine", "port", "accessMode", "hostname", "teamId", "confirmPublic"]);
+    const machine = this.machine(p);
+    const accessMode = (p.accessMode ?? "personal") as AccessMode;
+    if (accessMode === "public" && p.confirmPublic !== true)
+      throw pageError("cmux.cloud.invalid_args", "public access needs confirmPublic: true");
+    const hostname = typeof p.hostname === "string" ? p.hostname : `test-label-${this.nextId++}.cmux.sh`;
+    const publication: CloudPublication = {
+      id: `00000000-0000-4000-8000-${String(this.nextId++).padStart(12, "0")}`,
+      hostname,
+      url: `https://${hostname}`,
+      domainKind: typeof p.hostname === "string" ? "custom" : "generated",
+      vmId: machine.id,
+      port: Number(p.port),
+      accessMode,
+      teamId: typeof p.teamId === "string" ? p.teamId : null,
+      state: "active",
+      routingRevision: 1,
+      verification: null,
+    };
+    this.account.publications = [...this.account.publications, publication];
+    return publication;
+  }
+
   /** The server's ledger: a mutation key replays its recorded result and changes nothing. */
   private keyed(op: string, p: Params): unknown {
     const key = typeof p.idempotency_key === "string" ? p.idempotency_key : undefined;
@@ -218,7 +245,7 @@ export class MockCloudProvider implements PageClient {
       return recorded.result;
     }
     const result = this.serve(op, args);
-    if (key) this.ledger.set(key, { op, args: JSON.stringify(args), result });
+    if (key && !RERUN.has(op)) this.ledger.set(key, { op, args: JSON.stringify(args), result });
     return result;
   }
 
@@ -305,57 +332,63 @@ export class MockCloudProvider implements PageClient {
         this.snapshots = this.snapshots.filter((s) => s.id !== p.snapshot);
         return { ok: true };
       case CloudOps.domainList:
-        return a.domains;
-      case CloudOps.domainVerify:
-        a.domains = a.domains.map((d) => (d.name === p.domain ? { ...d, status: "verified" as const } : d));
-        return { ok: true };
-      case CloudOps.publicationList:
-        return a.publications.filter((pub) => pub.machine === p.machine);
-      case CloudOps.publicationCreate: {
-        const port = Number(p.port);
-        const publication: CloudPublication = {
-          id: `pub-${this.nextId++}`,
-          machine: String(p.machine),
-          hostname: `${port}-${String(p.machine)}.example.dev`,
-          port,
-          status: "pending",
-        };
-        a.publications = [...a.publications, publication];
-        return publication;
+        only(p, []);
+        return { domains: a.domains };
+      case CloudOps.domainVerify: {
+        only(p, ["domain"]);
+        const domain = a.domains.find((d) => d.hostname === p.domain);
+        if (!domain) throw pageError("cmux.cloud.not_found", `no domain ${String(p.domain)}`);
+        const verified = { ...domain, verificationState: "verified", certificateState: "active", dnsInstructions: null };
+        a.domains = a.domains.map((d) => (d.id === domain.id ? verified : d));
+        return { domain: verified };
       }
-      case CloudOps.publicationVerify:
-        a.publications = a.publications.map((pub) =>
-          pub.id === p.publication ? { ...pub, status: "active" as const } : pub,
-        );
-        return { ok: true };
+      case CloudOps.publicationList:
+        only(p, ["machine"]);
+        return { publications: a.publications.filter((pub) => p.machine === undefined || pub.vmId === p.machine) };
+      case CloudOps.publicationCreate:
+        return { publication: this.publish(p) };
+      case CloudOps.publicationVerify: {
+        only(p, ["publication"]);
+        const publication = a.publications.find((pub) => pub.id === p.publication);
+        if (!publication) throw pageError("cmux.cloud.not_found", `no publication ${String(p.publication)}`);
+        const live = { ...publication, state: "active" };
+        a.publications = a.publications.map((pub) => (pub.id === live.id ? live : pub));
+        return { publication: live };
+      }
       case CloudOps.publicationDelete:
+        only(p, ["publication"]);
         a.publications = a.publications.filter((pub) => pub.id !== p.publication);
         return { ok: true };
       case CloudOps.networkList:
-        return a.networks;
+        only(p, []);
+        return { networks: a.networks };
+      case CloudOps.tunnelAttach:
+        only(p, ["deviceFingerprint", "network", "tunnelPurpose"]);
+        return { tunnelId: "tun-test01", networkId: String(p.network), addressV4: "10.64.0.9" };
+      case CloudOps.tunnelRotateKey:
+        only(p, ["deviceFingerprint", "clientPublicKey", "tunnelPurpose"]);
+        return { tunnelId: "tun-test01", networkId: "vpc-test01", clientPublicKey: String(p.clientPublicKey) };
       case CloudOps.firewallList:
-        return a.firewall.filter((rule) => rule.destination.vmId === p.machine || rule.source.vmId === p.machine);
-      case CloudOps.firewallCreate: {
-        const rule = p.rule as {
-          action: string;
-          port?: number;
-          protocol?: string;
-          cidr?: string;
-          description?: string;
+        only(p, ["machine", "network", "tunnel"]);
+        return {
+          rules: a.firewall.filter(
+            (rule) => p.machine === undefined || rule.destination.vmId === p.machine || rule.source.vmId === p.machine,
+          ),
         };
-        a.firewall = [
-          ...a.firewall,
-          {
-            id: `fw-${this.nextId++}`,
-            action: rule.action,
-            source: rule.cidr ? { cidr: rule.cidr } : { public: true },
-            destination: { vmId: String(p.machine), port: rule.port, protocol: rule.protocol },
-            description: rule.description,
-          },
-        ];
-        return { ok: true };
+      case CloudOps.firewallCreate: {
+        only(p, ["source", "destination", "description"]);
+        const rule = {
+          id: `fw-new${this.nextId++}`,
+          action: "allow" as const,
+          source: endpoint(p.source),
+          destination: endpoint(p.destination),
+          ...(typeof p.description === "string" ? { description: p.description } : {}),
+        };
+        a.firewall = [...a.firewall, rule];
+        return rule;
       }
       case CloudOps.firewallDelete:
+        only(p, ["rule"]);
         a.firewall = a.firewall.filter((rule) => rule.id !== p.rule);
         return { ok: true };
       case CloudOps.planGet:
@@ -363,6 +396,8 @@ export class MockCloudProvider implements PageClient {
       case CloudOps.usageGet:
         return a.usage;
       default:
+        if (MockFiles.serves(op)) return this.fs.serve(op, p, this.machine(p).id);
+        if (MockEdge.serves(op)) return this.edge.serve(op, p, (params) => this.machine(params).id);
         throw pageError("cmux.protocol.unknown_op", op);
     }
   }
@@ -370,12 +405,49 @@ export class MockCloudProvider implements PageClient {
   /** The host's native confirmation: on yes it runs the op as origin user. */
   private runAction(p: Params): unknown {
     const action = String(p.action);
+    if (action === HostActions.browserTabOpen) {
+      if (this.unsupported.has(action)) throw pageError("cmux.app.unknown_action", action);
+      return { confirmed: true };
+    }
     if (!NATIVE_ACTIONS.has(action)) throw pageError("cmux.app.unknown_action", action);
     if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
     if (action === CloudOps.machineConnect || action === CloudOps.billingOpen) return { confirmed: true };
     if (!this.confirm) return { confirmed: false };
     if (action === CloudOps.authSignIn) return ((this.signedIn = true), { confirmed: true });
-    this.keyed(action, (p.args ?? {}) as Params);
+    this.keyed(action, hostFields(action, (p.args ?? {}) as Params));
     return { confirmed: true };
+  }
+}
+
+/** Live ops the server never replays from its ledger (verify reads fresh state; forwards are live). */
+const RERUN = new Set<string>([
+  CloudOps.domainVerify,
+  CloudOps.publicationVerify,
+  CloudOps.portForward,
+  CloudOps.browserOpen,
+]);
+
+function endpoint(value: unknown): FirewallEndpoint {
+  if (!value || typeof value !== "object") throw pageError("cmux.cloud.invalid_args", "an endpoint must be an object");
+  return value as FirewallEndpoint;
+}
+
+/**
+ * What the host adds after its native confirmation, before it runs the op as origin user: the
+ * device fingerprint and public key of this install (cmux link owns them) and the local path the
+ * person picked in the file panel. The page never sends these.
+ */
+function hostFields(action: string, args: Params): Params {
+  switch (action) {
+    case CloudOps.tunnelAttach:
+      return { deviceFingerprint: "mock-device", ...args };
+    case CloudOps.tunnelRotateKey:
+      return { deviceFingerprint: "mock-device", clientPublicKey: `${"A".repeat(43)}=`, ...args };
+    case CloudOps.filePush:
+      return { ...args, localPath: "/Users/dev/upload.txt", path: `${String(args.path)}/upload.txt` };
+    case CloudOps.filePull:
+      return { ...args, localPath: "/Users/dev/Downloads/pulled" };
+    default:
+      return args;
   }
 }
