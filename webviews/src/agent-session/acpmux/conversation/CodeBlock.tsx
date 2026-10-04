@@ -130,7 +130,7 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
           </button>
         </span>
       </div>
-      <DiffsHost ref={host} className="cv-codeblock__body" />
+      <DiffsHost ref={host} className="cv-codeblock__body selectable" />
     </div>
   );
 }

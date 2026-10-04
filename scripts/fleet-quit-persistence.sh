@@ -15,7 +15,6 @@
 # expected; 1 when a check fails that is not on the expected-fail list.
 #
 # EXPECTED FAILURES (remove a line when its fix lands; an XPASS is reported):
-#   agent-tab-restored         durable-sessions owner + tabs owner (G4, plan Q6): agent tabs are app-session only
 #   quit-ends-agents           durable-sessions owner (G3, plan Q5): no End choice stops acpmux or cancels a turn
 #   prompt-counts-agents       dialogs lead + app lifecycle (G5, plan Q3): QuitFacts has no agents
 #   prompt-is-cmux-dialog      dialogs lead (G1/G6, plan Q2): the prompt is an NSAlert, not a CmuxDialog (no debug.dialog)
@@ -26,7 +25,7 @@
 # must pass (the home_not_closable fix).
 set -euo pipefail
 
-XFAIL=(agent-tab-restored quit-ends-agents prompt-counts-agents prompt-is-cmux-dialog
+XFAIL=(quit-ends-agents prompt-counts-agents prompt-is-cmux-dialog
        second-quit-keeps dock-quit-inactive update-relaunch-no-prompt)
 
 app="" zip="" tag="" out=""
