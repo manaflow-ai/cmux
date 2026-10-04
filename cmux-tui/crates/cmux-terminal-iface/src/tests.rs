@@ -162,3 +162,72 @@ fn signals_round_trip_by_name() {
     }
     assert_eq!(Signal::from_name("SIGINT"), Err(BackendError::Unsupported));
 }
+
+/// A terminal for the close rule: `end_after_close` breaks it the way a
+/// backend would that queues an `end` when the session host closes it.
+struct RuleTerminal {
+    open: bool,
+    frames: Vec<FrameBody>,
+    end_after_close: bool,
+}
+
+impl RuleTerminal {
+    fn new(end_after_close: bool) -> Self {
+        let output = FrameBody::Data { offset: 2, bytes: b"hi".to_vec() };
+        Self { open: true, frames: vec![output], end_after_close }
+    }
+
+    fn check_open(&self) -> Result<(), BackendError> {
+        if self.open { Ok(()) } else { Err(BackendError::not_open()) }
+    }
+}
+
+impl ByteTerminal for RuleTerminal {
+    fn window_bytes(&self) -> u32 {
+        DEFAULT_WINDOW_BYTES
+    }
+    fn push(&mut self, _frame: FrameBody) -> Result<(), BackendError> {
+        self.check_open()
+    }
+    fn take_frames(&mut self) -> Vec<FrameBody> {
+        std::mem::take(&mut self.frames)
+    }
+    fn resize(&mut self, _grid: Grid) -> Result<(), BackendError> {
+        self.check_open()
+    }
+    fn signal(&mut self, _signal: Signal) -> Result<(), BackendError> {
+        self.check_open()
+    }
+    fn close(&mut self, _how: Close) -> Result<(), BackendError> {
+        self.check_open()?;
+        self.open = false;
+        self.frames.clear();
+        if self.end_after_close {
+            self.frames.push(FrameBody::End(End::Lost(Lost::new("closed", true))));
+        }
+        Ok(())
+    }
+    fn resume_token(&self) -> Option<ResumeToken> {
+        None
+    }
+}
+
+#[test]
+fn no_end_follows_a_terminal_close() {
+    let mut quiet = RuleTerminal::new(false);
+    quiet.close(Close::Graceful).unwrap();
+    assert_eq!(check_closed(&mut quiet), Ok(()));
+
+    let mut noisy = RuleTerminal::new(true);
+    noisy.close(Close::Graceful).unwrap();
+    let broken = check_closed(&mut noisy).unwrap_err();
+    assert!(broken.starts_with("frames after close"), "{broken}");
+}
+
+#[test]
+fn a_closed_terminal_refuses_every_later_frame() {
+    let mut open = RuleTerminal::new(false);
+    open.frames.clear();
+    let broken = check_closed(&mut open).unwrap_err();
+    assert!(broken.starts_with("data after close"), "{broken}");
+}
