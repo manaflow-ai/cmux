@@ -6,7 +6,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let lookPath = ["sidebar", "sectionLook"]
     public static let topSharePath = ["sidebar", "topBandMaxShare"]
     public static let bottomSharePath = ["sidebar", "bottomBandMaxShare"]
-    public static let scrollPath = ["sidebar", "stickyBandsScroll"]
+    public static let scrollPath = ["sidebar", "pinnedBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
 
@@ -59,9 +59,9 @@ public nonisolated enum SidebarSectionsSetting {
         }
         if let value = root.value(at: scrollPath) {
             if let flag = value.boolValue {
-                result.stickyBandsScroll = flag
+                result.pinnedBandsScroll = flag
             } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.stickyBandsScroll", message: "expected true or false"))
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.pinnedBandsScroll", message: "expected true or false"))
             }
         }
         if let value = root.value(at: minimalModePath) {

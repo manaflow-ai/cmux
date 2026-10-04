@@ -2,11 +2,11 @@ public import CmuxNextDesign
 public import CoreGraphics
 
 /// A dock placed at its viewport edge, in view coordinates (the scroll never
-/// moves it). Left and right docks are sticky columns; top and bottom docks
+/// moves it). Left and right docks are docked columns; top and bottom docks
 /// are bands.
-public nonisolated struct StickyColumnFrame: Hashable, Sendable {
+public nonisolated struct DockColumnFrame: Hashable, Sendable {
     public var column: ColumnID
-    public var sticky: StickyColumn
+    public var dock: DockColumn
     public var frame: CGRect
     /// What the dock hides of the strip below it, in view coordinates: the
     /// band from the viewport edge to the dock's inner edge (docked) or to
@@ -18,9 +18,9 @@ public nonisolated struct StickyColumnFrame: Hashable, Sendable {
 }
 
 /// Splits a columns screen into its docks and the scrolling strip, and places
-/// them (plans/cmux-next/sticky-column.md S1 to S6 for left and right;
+/// them (plans/cmux-next/dock-column.md S1 to S6 for left and right;
 /// plans/cmux-next/layout-model.md F1 to F5 for four edges and orientation).
-public nonisolated enum StickyStripGeometry {
+public nonisolated enum DockStripGeometry {
     /// The largest share of the viewport width one side dock takes; with a
     /// dock on each side, each takes at most `maxShareBoth`.
     public static let maxShare: CGFloat = 0.75
@@ -42,7 +42,7 @@ public nonisolated enum StickyStripGeometry {
         public var bottom: LayoutColumn?
         public var scrolling: [LayoutColumn]
 
-        public func dock(_ edge: StickyEdge) -> LayoutColumn? {
+        public func dock(_ edge: DockEdge) -> LayoutColumn? {
             switch edge {
             case .left: left
             case .right: right
@@ -64,7 +64,7 @@ public nonisolated enum StickyStripGeometry {
     public static func docks(_ columns: [LayoutColumn]) -> Parts {
         var parts = Parts(scrolling: [])
         for column in columns {
-            switch column.sticky?.edge {
+            switch column.dock?.edge {
             case .left? where parts.left == nil: parts.left = column
             case .right? where parts.right == nil: parts.right = column
             case .top? where parts.top == nil: parts.top = column
@@ -92,7 +92,7 @@ public nonisolated enum StickyStripGeometry {
         /// so a column can scroll out from under an overlay side dock (S4).
         public var leadingInset: CGFloat
         public var trailingInset: CGFloat
-        public var sticky: [StickyColumnFrame]
+        public var dock: [DockColumnFrame]
 
         /// The part of the strip that nothing covers (view coordinates).
         public var uncoveredMinX: CGFloat
@@ -111,7 +111,7 @@ public nonisolated enum StickyStripGeometry {
     /// for a side dock, height for a band).
     public typealias Dock = (column: LayoutColumn, minimumExtent: CGFloat)
 
-    /// Left and right only (sticky-column.md S3, S4).
+    /// Left and right only (dock-column.md S3, S4).
     public static func place(left: Dock?, right: Dock?, viewport: CGSize, gap: CGFloat, scale: CGFloat = 2) -> Placement {
         place(left: left, right: right, top: nil, bottom: nil, viewport: viewport, gap: gap, orientation: .columnMajor, scale: scale)
     }
@@ -133,11 +133,11 @@ public nonisolated enum StickyStripGeometry {
     public static func place(left: Dock?, right: Dock?, top: Dock?, bottom: Dock?, viewport: CGSize, gap: CGFloat,
                              orientation: FrameOrientation, scale: CGFloat = 2) -> Placement {
         let size = CGRect(origin: .zero, size: viewport)
-        // A dock without a sticky value is not a dock.
-        let left = left?.column.sticky == nil ? nil : left
-        let right = right?.column.sticky == nil ? nil : right
-        let top = top?.column.sticky == nil ? nil : top
-        let bottom = bottom?.column.sticky == nil ? nil : bottom
+        // A dock without a docked value is not a dock.
+        let left = left?.column.dock == nil ? nil : left
+        let right = right?.column.dock == nil ? nil : right
+        let top = top?.column.dock == nil ? nil : top
+        let bottom = bottom?.column.dock == nil ? nil : bottom
         let sideShare = left != nil && right != nil ? maxShareBoth : maxShare
         let bandShare = top != nil && bottom != nil ? maxBandShareBoth : maxBandShare
         func extent(_ dock: Dock, along length: CGFloat, share: CGFloat) -> CGFloat {
@@ -149,7 +149,7 @@ public nonisolated enum StickyStripGeometry {
         var rightWidth = right.map { extent($0, along: viewport.width, share: sideShare) }
         let topHeight = top.map { extent($0, along: viewport.height, share: bandShare) }
         let bottomHeight = bottom.map { extent($0, along: viewport.height, share: bandShare) }
-        func docked(_ dock: Dock?) -> Bool { dock?.column.sticky?.mode == .docked }
+        func docked(_ dock: Dock?) -> Bool { dock?.column.dock?.mode == .docked }
         // Docked side docks shrink in proportion so the strip keeps
         // `minimumStripWidth` (at most half the viewport).
         let dockedLeft = docked(left) ? leftWidth : nil
@@ -164,7 +164,7 @@ public nonisolated enum StickyStripGeometry {
         }
 
         // The strip: docked docks take space, overlay docks inset (S4, F2).
-        var placement = Placement(stripMinX: 0, stripWidth: viewport.width, leadingInset: 0, trailingInset: 0, sticky: [],
+        var placement = Placement(stripMinX: 0, stripWidth: viewport.width, leadingInset: 0, trailingInset: 0, dock: [],
                                   uncoveredMinX: 0, uncoveredMaxX: viewport.width, clipMinX: 0, clipMaxX: viewport.width)
         var stripMaxX = viewport.width
         var stripMinY: CGFloat = 0
@@ -225,12 +225,12 @@ public nonisolated enum StickyStripGeometry {
         let sideMaxY = orientation == .rowMajor ? bottomHeight.map { viewport.height - $0 - gap } ?? viewport.height : viewport.height
         let bandMinX = orientation == .columnMajor ? leftWidth.map { gap + $0 + gap } ?? gap : gap
         let bandMaxX = orientation == .columnMajor ? rightWidth.map { viewport.width - gap - $0 - gap } ?? viewport.width - gap : viewport.width - gap
-        func entry(_ dock: Dock, frame: CGRect, cover: CGRect) -> StickyColumnFrame? {
-            guard let sticky = dock.column.sticky else { return nil }
+        func entry(_ dock: Dock, frame: CGRect, cover: CGRect) -> DockColumnFrame? {
+            guard let pin = dock.column.dock else { return nil }
             let glass = frame.insetBy(dx: -gap / 2, dy: -gap / 2).intersection(size)
-            return StickyColumnFrame(column: dock.column.id, sticky: sticky, frame: frame, cover: cover, glass: glass)
+            return DockColumnFrame(column: dock.column.id, dock: pin, frame: frame, cover: cover, glass: glass)
         }
-        var frames: [StickyColumnFrame?] = []
+        var frames: [DockColumnFrame?] = []
         let sideHeight = max(0, sideMaxY - sideMinY)
         let bandWidth = max(0, bandMaxX - bandMinX)
         if let left, let leftWidth {
@@ -253,12 +253,12 @@ public nonisolated enum StickyStripGeometry {
             frames.append(entry(bottom, frame: frame, cover: CGRect(x: bandCoverMinX, y: uncoveredMaxY, width: bandCoverMaxX - bandCoverMinX,
                                                                     height: viewport.height - uncoveredMaxY)))
         }
-        placement.sticky = frames.compactMap { $0 }
+        placement.dock = frames.compactMap { $0 }
         return placement
     }
 
     /// The docks that own the frame's corners and draw above the others (F4).
-    public static func ownsCorners(_ edge: StickyEdge, orientation: FrameOrientation) -> Bool {
+    public static func ownsCorners(_ edge: DockEdge, orientation: FrameOrientation) -> Bool {
         orientation == .columnMajor ? !edge.isBand : edge.isBand
     }
 }

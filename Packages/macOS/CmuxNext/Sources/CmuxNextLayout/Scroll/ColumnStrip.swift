@@ -43,7 +43,7 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
     /// Builds the strip of a columns screen; nil for a split screen.
     public init?(layout: ScreenLayout, geometry: ScreenGeometry, gap: CGFloat) {
         guard geometry.isColumns else { return nil }
-        // Sticky columns never scroll: the strip is the scrolling columns only.
+        // Docked columns never scroll: the strip is the scrolling columns only.
         let scrolling = Set(geometry.columnOrder)
         let columns = layout.columns.compactMap { column -> Column? in
             guard scrolling.contains(column.id), let frame = geometry.columns[column.id] else { return nil }

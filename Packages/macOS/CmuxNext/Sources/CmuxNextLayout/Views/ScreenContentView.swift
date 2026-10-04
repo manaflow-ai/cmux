@@ -36,8 +36,8 @@ final class ScreenContentView: NSView {
     var lastFocused: PaneID?
 
     var activeDrag: ActiveDrag?
-    /// Overlay sticky columns' glass rims, keyed by column.
-    var backdrops: [ColumnID: StickyBackdropView] = [:]
+    /// Overlay docked columns' glass rims, keyed by column.
+    var backdrops: [ColumnID: DockBackdropView] = [:]
     /// The strip scrollbar; created on first use.
     var scrollbar: StripScrollbarView?
     /// The offset the scrollbar last showed, and whether the next change
@@ -166,7 +166,7 @@ final class ScreenContentView: NSView {
             dividerFrames[kind] = nil
         }
 
-        reconcileSticky()
+        reconcileDock()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
@@ -225,8 +225,8 @@ final class ScreenContentView: NSView {
             let scrolls = self.scrolls(kind)
             view.frame = frame.rect.offsetBy(dx: scrolls ? strip : 0, dy: -rowOffset(of: kind))
             view.alphaValue = frame.alpha.value
-            // A strip divider under a sticky column must not take its clicks.
-            let hidden = scrolls && !geometry.sticky.isEmpty && view.frame.intersection(uncovered).width < 0.5
+            // A strip divider under a docked column must not take its clicks.
+            let hidden = scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5
             if view.isHidden != hidden { view.isHidden = hidden }
         }
         updateScrollbar()
@@ -303,7 +303,7 @@ final class ScreenContentView: NSView {
         var result: Set<PaneID> = []
         let uncovered = uncoveredRect
         for (pane, frame) in paneFrames {
-            // A strip pane wholly under a sticky column is hidden.
+            // A strip pane wholly under a docked column is hidden.
             let scrolls = geometry.scrolls(pane: pane)
             let displayed = displayedRect(frame.rect, pane: pane)
             let overlap = displayed.intersection(scrolls ? uncovered : bounds)
@@ -323,9 +323,9 @@ final class ScreenContentView: NSView {
                             viewport: bounds)
     }
 
-    /// The pane under `localPoint`: a sticky column's pane above the strip.
+    /// The pane under `localPoint`: a docked column's pane above the strip.
     func pane(at localPoint: NSPoint) -> PaneID? {
-        if geometry.sticky.contains(where: { $0.cover.contains(localPoint) }) {
+        if geometry.dock.contains(where: { $0.cover.contains(localPoint) }) {
             return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) }?.key
         }
         let content = CGPoint(x: localPoint.x - stripShift, y: localPoint.y)
@@ -349,7 +349,7 @@ final class ScreenContentView: NSView {
         let target = roomAdjusted(hit)
         guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }
-        // A strip target's highlight never draws over a sticky column.
+        // A strip target's highlight never draws over a docked column.
         if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) {} else { rect = rect.intersection(uncoveredRect) }
         guard !rect.isNull else { return nil }
         let region = DropZoneGeometry.regionRectInView(for: target, offset: scroll.value, geometry: geometry, style: context.style) ?? rect
@@ -369,7 +369,7 @@ final class ScreenContentView: NSView {
         case .split:
             return target
         case .newColumn:
-            // A sticky column never grows a neighbor column: join it instead.
+            // A docked column never grows a neighbor column: join it instead.
             guard geometry.scrolls(pane: pane), let column = layout.column(containing: pane),
                   let index = geometry.columnOrder.firstIndex(of: column.id) else {
                 return .pane(pane, .center)

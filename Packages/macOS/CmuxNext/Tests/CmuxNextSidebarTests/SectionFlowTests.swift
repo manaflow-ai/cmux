@@ -5,7 +5,7 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// Per-section arrangement (list | inline | grid, alignment, gap) and the
-/// sticky band height rules (plans/cmux-next/sidebar-sections.md 4, 7).
+/// pinned band height rules (plans/cmux-next/sidebar-sections.md 4, 7).
 @Suite struct SectionFlowTests {
     private let m = SidebarRegionMetrics(rowHeight: 28, headerHeight: 22, inset: 8, sectionGap: 8, padding: 4,
                                          cardPadding: 4, tileMinWidth: 42, tileHeight: 36, tileGap: 8, iconButtonWidth: 30)
@@ -147,7 +147,7 @@ import Testing
     }
 
     @Test func neverScrollGivesFullHeightUntilTheListMinimum() {
-        let off = SidebarSectionsPreferences(stickyBandsScroll: false)
+        let off = SidebarSectionsPreferences(pinnedBandsScroll: false)
         let full = SidebarBandHeights.resolve(above: band(height: 250), below: band(height: 100), available: 600, preferences: off, minimumList: 84)
         #expect(full.above == 250 && full.below == 100)
         let squeezed = SidebarBandHeights.resolve(above: band(height: 400), below: band(height: 400), available: 600, preferences: off, minimumList: 84)

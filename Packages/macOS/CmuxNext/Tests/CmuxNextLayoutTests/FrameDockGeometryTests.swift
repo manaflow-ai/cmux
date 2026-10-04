@@ -5,16 +5,16 @@ import Testing
 
 /// Four-edge docks and frame orientation (plans/cmux-next/layout-model.md,
 /// F1 to F4). Default style: gap 6, no pane padding, 1000 x 600 viewport,
-/// scale 2. Left and right alone are pinned by StickyColumnGeometryTests.
+/// scale 2. Left and right alone are pinned by DockColumnGeometryTests.
 @Suite struct FrameDockGeometryTests {
     let viewport = CGSize(width: 1000, height: 600)
 
-    private func layout(left: StickyMode? = .docked, band: StickyEdge = .bottom, bandMode: StickyMode = .docked) -> ScreenLayout {
+    private func layout(left: DockMode? = .docked, band: DockEdge = .bottom, bandMode: DockMode = .docked) -> ScreenLayout {
         var columns: [LayoutColumn] = []
-        if let left { columns.append(LayoutColumn(id: "l", width: 0.25, root: .leaf("pl"), sticky: StickyColumn(edge: .left, mode: left))) }
+        if let left { columns.append(LayoutColumn(id: "l", width: 0.25, root: .leaf("pl"), dock: DockColumn(edge: .left, mode: left))) }
         columns.append(LayoutColumn(id: "a", width: 0.5, root: .leaf("pa")))
         columns.append(LayoutColumn(id: "b", width: 0.5, root: .leaf("pb")))
-        columns.append(LayoutColumn(id: "d", width: 0.3, root: .leaf("pd"), sticky: StickyColumn(edge: band, mode: bandMode)))
+        columns.append(LayoutColumn(id: "d", width: 0.3, root: .leaf("pd"), dock: DockColumn(edge: band, mode: bandMode)))
         return .columns(columns)
     }
 
@@ -35,7 +35,7 @@ import Testing
         #expect(g.columnOrder == ["a", "b"])
         #expect(g.uncoveredMaxY == 422)
         // The strip scrolls only horizontally; the band never moves.
-        #expect(g.sticky.first { $0.column == "d" }?.cover == CGRect(x: 248.5, y: 422, width: 751.5, height: 178))
+        #expect(g.dock.first { $0.column == "d" }?.cover == CGRect(x: 248.5, y: 422, width: 751.5, height: 178))
     }
 
     @Test func rowMajorBandRunsFullWidthAndTheSideDockSitsBetween() {
@@ -60,15 +60,15 @@ import Testing
         #expect(g.stripHeight == 422)
         #expect(g.uncoveredMaxY == 425)
         #expect(g.clipMaxY == 600)
-        let band = try! #require(g.sticky.first { $0.column == "d" })
+        let band = try! #require(g.dock.first { $0.column == "d" })
         #expect(band.glass == band.frame.insetBy(dx: -3, dy: -3).intersection(CGRect(origin: .zero, size: viewport)))
     }
 
     @Test func bandsCapAtAThirdEachWithBothAndAHalfAlone() {
         let tall: ScreenLayout = .columns([
             LayoutColumn(id: "a", width: 0.5, root: .leaf("pa")),
-            LayoutColumn(id: "t", width: 0.9, root: .leaf("pt"), sticky: StickyColumn(edge: .top, mode: .docked)),
-            LayoutColumn(id: "u", width: 0.9, root: .leaf("pu"), sticky: StickyColumn(edge: .bottom, mode: .docked)),
+            LayoutColumn(id: "t", width: 0.9, root: .leaf("pt"), dock: DockColumn(edge: .top, mode: .docked)),
+            LayoutColumn(id: "u", width: 0.9, root: .leaf("pu"), dock: DockColumn(edge: .bottom, mode: .docked)),
         ])
         let both = geometry(tall)
         #expect(both.panes["pt"]?.height == 200 && both.panes["pu"]?.height == 200)
@@ -88,7 +88,7 @@ import Testing
     @Test func aBandHasAVerticalHandleOnItsInnerEdge() {
         let bottom = geometry(layout())
         let handle = try! #require(bottom.columnEdges.first { $0.column == "d" })
-        #expect(handle.axis == .vertical && handle.stickyEdge == .bottom)
+        #expect(handle.axis == .vertical && handle.dockEdge == .bottom)
         #expect(handle.hitFrame.minY == 427 && handle.hitFrame.width == bottom.panes["pd"]!.width)
         let top = geometry(layout(band: .top))
         let topHandle = try! #require(top.columnEdges.first { $0.column == "d" })
@@ -96,10 +96,10 @@ import Testing
     }
 
     @Test func cornersBelongToSideDocksColumnMajorAndToBandsRowMajor() {
-        #expect(StickyStripGeometry.ownsCorners(.left, orientation: .columnMajor))
-        #expect(!StickyStripGeometry.ownsCorners(.bottom, orientation: .columnMajor))
-        #expect(StickyStripGeometry.ownsCorners(.top, orientation: .rowMajor))
-        #expect(!StickyStripGeometry.ownsCorners(.right, orientation: .rowMajor))
+        #expect(DockStripGeometry.ownsCorners(.left, orientation: .columnMajor))
+        #expect(!DockStripGeometry.ownsCorners(.bottom, orientation: .columnMajor))
+        #expect(DockStripGeometry.ownsCorners(.top, orientation: .rowMajor))
+        #expect(!DockStripGeometry.ownsCorners(.right, orientation: .rowMajor))
     }
 
     @Test func visualOrderKeepsEveryDockReachable() {
@@ -110,23 +110,23 @@ import Testing
 
     @Test func aTinyViewportNeverGivesANegativeSize() {
         let both: ScreenLayout = .columns([
-            LayoutColumn(id: "l", width: 0.4, root: .leaf("pl"), sticky: StickyColumn(edge: .left, mode: .docked)),
-            LayoutColumn(id: "r", width: 0.4, root: .leaf("pr"), sticky: StickyColumn(edge: .right, mode: .docked)),
+            LayoutColumn(id: "l", width: 0.4, root: .leaf("pl"), dock: DockColumn(edge: .left, mode: .docked)),
+            LayoutColumn(id: "r", width: 0.4, root: .leaf("pr"), dock: DockColumn(edge: .right, mode: .docked)),
             LayoutColumn(id: "a", width: 0.5, root: .leaf("pa")),
-            LayoutColumn(id: "t", width: 0.4, root: .leaf("pt"), sticky: StickyColumn(edge: .top, mode: .docked)),
-            LayoutColumn(id: "u", width: 0.4, root: .leaf("pu"), sticky: StickyColumn(edge: .bottom, mode: .docked)),
+            LayoutColumn(id: "t", width: 0.4, root: .leaf("pt"), dock: DockColumn(edge: .top, mode: .docked)),
+            LayoutColumn(id: "u", width: 0.4, root: .leaf("pu"), dock: DockColumn(edge: .bottom, mode: .docked)),
         ])
         for orientation in FrameOrientation.allCases {
             var style = LayoutStyle()
             style.frameOrientation = orientation
             let g = ScreenGeometry.compute(both, viewport: CGSize(width: 40, height: 30), style: style, scale: 2)
-            #expect(g.sticky.allSatisfy { $0.frame.width >= 0 && $0.frame.height >= 0 })
+            #expect(g.dock.allSatisfy { $0.frame.width >= 0 && $0.frame.height >= 0 })
         }
     }
 
     @Test func aScreenOfOnlyDocksShowsThemInTheStrip() {
-        let only: ScreenLayout = .columns([LayoutColumn(id: "t", width: 0.3, root: .leaf("pt"), sticky: StickyColumn(edge: .top, mode: .docked))])
+        let only: ScreenLayout = .columns([LayoutColumn(id: "t", width: 0.3, root: .leaf("pt"), dock: DockColumn(edge: .top, mode: .docked))])
         let g = geometry(only)
-        #expect(g.sticky.isEmpty && g.columnOrder == ["t"])
+        #expect(g.dock.isEmpty && g.columnOrder == ["t"])
     }
 }

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Sticky columns in the view (sticky-column.md, V1 to V4): sticky panes
+/// Docked columns in the view (dock-column.md, V1 to V4): docked panes
 /// and dividers sit at fixed frames above the strip, strip content shifts by
 /// the strip origin minus the scroll, docked columns clip the strip, and
 /// overlay columns float on a glass backdrop.
@@ -12,21 +12,21 @@ extension ScreenContentView {
 
     /// The part of the view where strip content shows (local coordinates).
     var uncoveredRect: CGRect {
-        guard !geometry.sticky.isEmpty else { return bounds }
+        guard !geometry.dock.isEmpty else { return bounds }
         return CGRect(x: geometry.uncoveredMinX, y: geometry.uncoveredMinY,
                       width: max(0, geometry.uncoveredMaxX - geometry.uncoveredMinX),
                       height: max(0, geometry.uncoveredMaxY - geometry.uncoveredMinY))
     }
 
-    /// What sticky columns hide of the strip (local coordinates): strip
+    /// What docked columns hide of the strip (local coordinates): strip
     /// rings and highlights are clipped out of these.
-    var coverRects: [CGRect] { geometry.sticky.map(\.cover) }
+    var coverRects: [CGRect] { geometry.dock.map(\.cover) }
 
     /// True when the scroll moves this divider or column edge.
     func scrolls(_ kind: DividerHandleView.Kind) -> Bool {
         switch kind {
         case let .split(id): !geometry.fixedSplits.contains(id)
-        case let .columnEdge(id), let .rowEdge(id, _): !geometry.sticky.contains { $0.column == id }
+        case let .columnEdge(id), let .rowEdge(id, _): !geometry.dock.contains { $0.column == id }
         }
     }
 
@@ -38,13 +38,13 @@ extension ScreenContentView {
     /// True when `host` belongs to the scrolling strip.
     func isStripHost(_ host: PaneHostView) -> Bool { geometry.scrolls(pane: host.pane) }
 
-    /// Strip panes that slide under a sticky column are clipped (V1): a
+    /// Strip panes that slide under a docked column are clipped (V1): a
     /// layer mask keeps the part of the host inside the strip's clip range,
     /// the uncovered range beside a docked column and up to the glass rim's
     /// outer edge beside an overlay (under the rim and the column the strip
     /// stays, so the glass has content to refract).
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, uncovered: CGRect) {
-        guard scrolls, !geometry.sticky.isEmpty else { return host.setStripClip(nil) }
+        guard scrolls, !geometry.dock.isEmpty else { return host.setStripClip(nil) }
         let range = CGRect(x: geometry.clipMinX, y: geometry.clipMinY, width: max(0, geometry.clipMaxX - geometry.clipMinX),
                            height: max(0, geometry.clipMaxY - geometry.clipMinY))
         let visible = host.frame.intersection(range)
@@ -53,10 +53,10 @@ extension ScreenContentView {
     }
 
     /// Glass backdrops for overlay columns and the stacking order: strip
-    /// hosts, strip dividers, backdrops, sticky hosts, sticky dividers,
+    /// hosts, strip dividers, backdrops, docked hosts, docked dividers,
     /// then the scrollbar.
-    func reconcileSticky() {
-        let overlays = geometry.sticky.filter { $0.sticky.mode == .overlay }
+    func reconcileDock() {
+        let overlays = geometry.dock.filter { $0.dock.mode == .overlay }
         let live = Set(overlays.map(\.column))
         for (column, view) in backdrops where !live.contains(column) {
             view.removeFromSuperview()
@@ -64,7 +64,7 @@ extension ScreenContentView {
         }
         for entry in overlays {
             let view = backdrops[entry.column] ?? {
-                let view = StickyBackdropView()
+                let view = DockBackdropView()
                 addSubview(view)
                 backdrops[entry.column] = view
                 return view
@@ -81,26 +81,26 @@ extension ScreenContentView {
     private func rank(_ view: NSView) -> Int {
         switch view {
         case let host as PaneHostView:
-            return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.stickyFrame(containing: host.pane))
+            return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.dockFrame(containing: host.pane))
         case let divider as DividerHandleView:
             guard !scrolls(divider.kind) else { return 1 }
-            if case let .columnEdge(id) = divider.kind { return 4 + cornerRank(geometry.sticky.first { $0.column == id }) }
+            if case let .columnEdge(id) = divider.kind { return 4 + cornerRank(geometry.dock.first { $0.column == id }) }
             return 4 + cornerRank(dock(containing: divider.frame))
-        case let backdrop as StickyBackdropView:
-            return 2 + cornerRank(backdrops.first { $0.value === backdrop }.flatMap { entry in geometry.sticky.first { $0.column == entry.key } })
+        case let backdrop as DockBackdropView:
+            return 2 + cornerRank(backdrops.first { $0.value === backdrop }.flatMap { entry in geometry.dock.first { $0.column == entry.key } })
         case is StripScrollbarView: return 9
         default: return 0
         }
     }
 
     /// 3 for a dock that owns the frame's corners, else 0.
-    private func cornerRank(_ entry: StickyColumnFrame?) -> Int {
+    private func cornerRank(_ entry: DockColumnFrame?) -> Int {
         guard let entry else { return 0 }
-        return StickyStripGeometry.ownsCorners(entry.sticky.edge, orientation: geometry.frameOrientation) ? 3 : 0
+        return DockStripGeometry.ownsCorners(entry.dock.edge, orientation: geometry.frameOrientation) ? 3 : 0
     }
 
-    private func dock(containing rect: CGRect) -> StickyColumnFrame? {
-        geometry.sticky.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
+    private func dock(containing rect: CGRect) -> DockColumnFrame? {
+        geometry.dock.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 
     /// Reorders subviews only when the order is wrong. `sortSubviews`
@@ -115,12 +115,12 @@ extension ScreenContentView {
         }
     }
 
-    /// Clicks inside what a sticky column covers go to the sticky column
+    /// Clicks inside what a docked column covers go to the docked column
     /// (its panes, dividers, handle) or to this view, never to a strip pane
     /// hidden under it: a layer mask does not change hit testing.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        guard !isHidden, geometry.sticky.contains(where: { $0.cover.contains(local) }) else { return super.hitTest(point) }
+        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else { return super.hitTest(point) }
         for view in subviews.reversed() where !view.isHidden {
             if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) { continue }
             if let divider = view as? DividerHandleView, scrolls(divider.kind) { continue }
@@ -130,19 +130,19 @@ extension ScreenContentView {
     }
 
     /// Pane frames for directional focus in one logical line: the left
-    /// sticky column before the strip, the strip in its own space, the right
-    /// sticky column after the strip's end, so every strip column stays
-    /// reachable and nothing ties with a sticky column by screen position.
+    /// docked column before the strip, the strip in its own space, the right
+    /// docked column after the strip's end, so every strip column stays
+    /// reachable and nothing ties with a docked column by screen position.
     /// Top and bottom docks keep their height and stretch across the strip.
     var navigationFrames: [PaneID: CGRect] {
         let gap = context.style.stripGap
         var result: [PaneID: CGRect] = [:]
         for (pane, rect) in geometry.panes {
-            guard let entry = geometry.stickyFrame(containing: pane) else {
+            guard let entry = geometry.dockFrame(containing: pane) else {
                 result[pane] = rect
                 continue
             }
-            switch entry.sticky.edge {
+            switch entry.dock.edge {
             case .left: result[pane] = rect.offsetBy(dx: -entry.frame.maxX - gap, dy: 0)
             case .right: result[pane] = rect.offsetBy(dx: geometry.contentWidth + gap - entry.frame.minX, dy: 0)
             case .top, .bottom:

@@ -50,8 +50,8 @@ public final class MockLayoutSource {
             mutateLayouts { $0.settingRatio(ratio, for: split) }
         case let .setColumnWidth(column, _, width, _, _):
             mutateLayouts { $0.settingWidth(width, for: column) }
-        case let .setColumnSticky(column, _, sticky, transaction):
-            mutateLayouts { $0.settingSticky(sticky, for: column) }
+        case let .setColumnDock(column, _, dock, transaction):
+            mutateLayouts { $0.settingDock(dock, for: column) }
             push()
             model.settleTransaction(transaction)
             return
@@ -82,7 +82,7 @@ public final class MockLayoutSource {
                 insertColumn(LayoutColumn(id: ColumnID(makeID("c")), root: .leaf(new)), inScreen: screen, after: after)
             case let .newDock(screen, edge):
                 insertColumn(LayoutColumn(id: ColumnID(makeID("c")), width: 0.3, root: .leaf(new),
-                                          sticky: StickyColumn(edge: edge, mode: .docked)), inScreen: screen, after: nil)
+                                          dock: DockColumn(edge: edge, mode: .docked)), inScreen: screen, after: nil)
             }
             push()
             model.focus(new)

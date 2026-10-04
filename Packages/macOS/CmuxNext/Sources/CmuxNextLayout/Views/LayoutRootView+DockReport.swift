@@ -1,12 +1,12 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// What the active screen shows of sticky columns and the strip scrollbar,
-/// in window coordinates (`debug.sticky`).
-public struct StickyLayoutReport: Sendable {
+/// What the active screen shows of docked columns and the strip scrollbar,
+/// in window coordinates (`debug.dock`).
+public struct DockLayoutReport: Sendable {
     public struct Column: Sendable {
         public var column: ColumnID
-        public var sticky: StickyColumn
+        public var dock: DockColumn
         public var frameInWindow: CGRect
         public var coverInWindow: CGRect
         public var panes: [PaneID]
@@ -29,19 +29,19 @@ public struct StickyLayoutReport: Sendable {
 }
 
 extension LayoutRootView {
-    public var stickyReport: StickyLayoutReport? {
+    public var dockReport: DockLayoutReport? {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return nil }
         let geometry = screen.geometry
         func inWindow(_ rect: CGRect) -> CGRect { screen.convert(rect, to: nil) }
-        let columns = geometry.sticky.map { entry in
-            StickyLayoutReport.Column(
-                column: entry.column, sticky: entry.sticky, frameInWindow: inWindow(entry.frame), coverInWindow: inWindow(entry.cover),
+        let columns = geometry.dock.map { entry in
+            DockLayoutReport.Column(
+                column: entry.column, dock: entry.dock, frameInWindow: inWindow(entry.frame), coverInWindow: inWindow(entry.cover),
                 panes: model.activeScreen?.layout.columns.first { $0.id == entry.column }?.root.panes ?? [],
                 hasBackdrop: screen.backdrops[entry.column] != nil
             )
         }
         let bar = screen.scrollbarReport
-        return StickyLayoutReport(
+        return DockLayoutReport(
             columns: columns, stripMinX: geometry.stripMinX, stripWidth: geometry.stripWidth,
             uncoveredInWindow: inWindow(screen.uncoveredRect), offset: screen.scroll.value, maxOffset: geometry.maxOffset,
             contentWidth: geometry.contentWidth, scrollbarMode: model.stripScrollbar, scrollbarShown: bar?.shown ?? false,

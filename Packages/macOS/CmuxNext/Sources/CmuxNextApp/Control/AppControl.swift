@@ -105,11 +105,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugPaneChrome.report(services: services))
             },
-            // Sticky columns, the strip range and its scrollbar; `pane` +
-            // `sticky` changes a column (plans/cmux-next/sticky-column.md).
-            .mainActor("debug.sticky") { [weak services] call in
+            // Docked columns, the strip range and its scrollbar; `pane` +
+            // `dock` changes a column (plans/cmux-next/dock-column.md).
+            .mainActor("debug.dock") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugStickyColumns.handle(call.params, services: services))
+                return .value(DebugDockColumns.handle(call.params, services: services))
             },
             .mainActor("debug.screens") { [weak services] _ in
                 guard let services else { return .value(.null) }

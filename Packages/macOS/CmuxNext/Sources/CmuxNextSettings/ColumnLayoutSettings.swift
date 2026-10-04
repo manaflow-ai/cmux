@@ -2,15 +2,15 @@ public import CmuxNextDesign
 public import CoreGraphics
 
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):
-/// `layout.splitSizing`, `layout.newColumnWidth`, `layout.stickyColumnEdge`,
-/// `layout.stickyColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
+/// `layout.splitSizing`, `layout.newColumnWidth`, `layout.dockColumnEdge`,
+/// `layout.dockColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
 /// `layout.minimumPaneHeight`, `layout.rows`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
     public static let splitSizingPath = ["layout", "splitSizing"]
     public static let newColumnWidthPath = ["layout", "newColumnWidth"]
-    public static let stickyEdgePath = ["layout", "stickyColumnEdge"]
-    public static let stickyModePath = ["layout", "stickyColumnMode"]
+    public static let dockEdgePath = ["layout", "dockColumnEdge"]
+    public static let dockModePath = ["layout", "dockColumnMode"]
     public static let frameOrientationPath = ["layout", "frameOrientation"]
     public static let minimumPaneWidthPath = ["layout", "minimumPaneWidth"]
     public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
@@ -18,8 +18,8 @@ public nonisolated enum ColumnLayoutSettings {
 
     public static let splitSizingFallback: SplitSizing = .even
     public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
-    public static let stickyEdgeFallback: StickyDefaultEdge = .nearest
-    public static let stickyModeFallback: StickyDefaultMode = .docked
+    public static let dockEdgeFallback: DockDefaultEdge = .nearest
+    public static let dockModeFallback: DockDefaultMode = .docked
     public static let frameOrientationFallback: FrameOrientation = .columnMajor
     /// `layout.rows` defaults on for dogfood (rows.md O1).
     public static let rowsFallback = true
@@ -71,12 +71,12 @@ public nonisolated enum ColumnLayoutSettings {
         let (mode, fixed) = newColumnWidth(root, diagnostics: &diagnostics)
         snapshot.newColumnWidth = mode
         if let fixed { snapshot.defaultColumnWidth = fixed }
-        snapshot.stickyColumnEdge = choice(root, stickyEdgePath, fallback: stickyEdgeFallback, diagnostics: &diagnostics)
+        snapshot.dockColumnEdge = choice(root, dockEdgePath, fallback: dockEdgeFallback, diagnostics: &diagnostics)
         // "floating" is the UI name of `overlay`; both are accepted.
-        if root.value(at: stickyModePath)?.stringValue == "floating" {
-            snapshot.stickyColumnMode = .overlay
+        if root.value(at: dockModePath)?.stringValue == "floating" {
+            snapshot.dockColumnMode = .overlay
         } else {
-            snapshot.stickyColumnMode = choice(root, stickyModePath, fallback: stickyModeFallback, diagnostics: &diagnostics)
+            snapshot.dockColumnMode = choice(root, dockModePath, fallback: dockModeFallback, diagnostics: &diagnostics)
         }
         snapshot.frameOrientation = choice(root, frameOrientationPath, fallback: frameOrientationFallback, diagnostics: &diagnostics)
         let width = number(root, minimumPaneWidthPath, fallback: minimumPaneWidthFallback, range: minimumPaneWidthRange, diagnostics: &diagnostics)

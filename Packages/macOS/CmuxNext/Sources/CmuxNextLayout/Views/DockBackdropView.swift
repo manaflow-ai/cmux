@@ -2,13 +2,13 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The layer under an overlay sticky column (sticky-column.md, V2): a
+/// The layer under an overlay docked column (dock-column.md, V2): a
 /// Liquid Glass rim (`OverlaySurfaceView`, so Reduce Transparency gets the
 /// opaque fill) around the column, a subtle shadow on the strip below,
 /// and an opaque Ghostty-background fill behind the panes so glass never
 /// sits behind terminal text and strip content never shows through a
 /// translucent pane. Takes no mouse.
-final class StickyBackdropView: NSView {
+final class DockBackdropView: NSView {
     private let shadowView = NSView()
     private let surface = OverlaySurfaceView()
     private let fill = CALayer()
@@ -36,7 +36,7 @@ final class StickyBackdropView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// `cover` is the backdrop's frame in the superview; `column` the
-    /// sticky column inside it (superview coordinates).
+    /// docked column inside it (superview coordinates).
     func place(cover: CGRect, column: CGRect, paneCornerRadius: CGFloat) {
         if frame != cover { frame = cover }
         let inner = column.offsetBy(dx: -cover.minX, dy: -cover.minY)

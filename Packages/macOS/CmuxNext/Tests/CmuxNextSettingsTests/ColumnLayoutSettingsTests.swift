@@ -23,16 +23,16 @@ import Testing
         // Documented in plans/cmux-next/column-sizing.md.
         #expect(snapshot.splitSizing == .even && design.splitSizing == .even)
         #expect(snapshot.newColumnWidth == .matchCurrent && design.newColumnWidth == .matchCurrent)
-        #expect(snapshot.stickyColumnEdge == .nearest && design.stickyColumnEdge == .nearest)
-        #expect(snapshot.stickyColumnMode == .docked && design.stickyColumnMode == .docked)
+        #expect(snapshot.dockColumnEdge == .nearest && design.dockColumnEdge == .nearest)
+        #expect(snapshot.dockColumnMode == .docked && design.dockColumnMode == .docked)
         // Documented in plans/cmux-next/layout-model.md (decision 2).
         #expect(snapshot.frameOrientation == .columnMajor && design.frameOrientation == .columnMajor)
         #expect(snapshot.minimumPaneContentSize == CGSize(width: 200, height: 64))
         #expect(design.minimumPaneContentSize == CGSize(width: 200, height: 64))
         #expect(schemaDefault(ColumnLayoutSettings.splitSizingPath) == .string("even"))
         #expect(schemaDefault(ColumnLayoutSettings.newColumnWidthPath) == .string("matchCurrent"))
-        #expect(schemaDefault(ColumnLayoutSettings.stickyEdgePath) == .string("nearest"))
-        #expect(schemaDefault(ColumnLayoutSettings.stickyModePath) == .string("docked"))
+        #expect(schemaDefault(ColumnLayoutSettings.dockEdgePath) == .string("nearest"))
+        #expect(schemaDefault(ColumnLayoutSettings.dockModePath) == .string("docked"))
         #expect(schemaDefault(ColumnLayoutSettings.frameOrientationPath) == .string("columnMajor"))
         #expect(schemaDefault(ColumnLayoutSettings.minimumPaneWidthPath) == .number(200))
         #expect(schemaDefault(ColumnLayoutSettings.minimumPaneHeightPath) == .number(64))
@@ -43,19 +43,19 @@ import Testing
     }
 
     @Test func readsEveryValue() throws {
-        let snapshot = try parse(#"{"layout": {"splitSizing": "halve", "newColumnWidth": "fitScreen", "stickyColumnEdge": "left","#
-                                 + #""stickyColumnMode": "overlay", "frameOrientation": "rowMajor", "minimumPaneWidth": 320, "minimumPaneHeight": 100}}"#)
+        let snapshot = try parse(#"{"layout": {"splitSizing": "halve", "newColumnWidth": "fitScreen", "dockColumnEdge": "left","#
+                                 + #""dockColumnMode": "overlay", "frameOrientation": "rowMajor", "minimumPaneWidth": 320, "minimumPaneHeight": 100}}"#)
         #expect(snapshot.splitSizing == .halve)
         #expect(snapshot.newColumnWidth == .fitScreen)
-        #expect(snapshot.stickyColumnEdge == .left)
-        #expect(snapshot.stickyColumnMode == .overlay)
+        #expect(snapshot.dockColumnEdge == .left)
+        #expect(snapshot.dockColumnMode == .overlay)
         #expect(snapshot.frameOrientation == .rowMajor)
         #expect(snapshot.minimumPaneContentSize == CGSize(width: 320, height: 100))
     }
 
     @Test func floatingIsAnAliasOfOverlay() throws {
-        let snapshot = try parse(#"{"layout": {"stickyColumnMode": "floating"}}"#)
-        #expect(snapshot.stickyColumnMode == .overlay && snapshot.diagnostics.isEmpty)
+        let snapshot = try parse(#"{"layout": {"dockColumnMode": "floating"}}"#)
+        #expect(snapshot.dockColumnMode == .overlay && snapshot.diagnostics.isEmpty)
     }
 
     @Test func aNumberIsAFixedShare() throws {
