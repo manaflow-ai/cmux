@@ -104,6 +104,11 @@ export const PAGES = {
     out: "webviews/src/pages/markdown/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/markdown/Localizable.xcstrings" }],
   },
+  // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
+  viewerEmpty: {
+    out: "webviews/src/viewer-empty/generated/strings.json",
+    catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
+  },
 };
 
 export function generate(page) {

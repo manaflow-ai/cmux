@@ -7,6 +7,7 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
+import { MARKDOWN_OPEN_OP, markdownConfigNeedsPick } from "../../viewer-empty/ops";
 import {
   MARKDOWN_CHANGES,
   MARKDOWN_LOOK,
@@ -25,7 +26,8 @@ export type MarkdownMode = "rich" | "source";
 export type SaveStatus = "saved" | "edited" | "saving" | "failed";
 
 export interface MarkdownState {
-  phase: "loading" | "ready" | "failed" | "disconnected";
+  /** `empty`: the host has no file for the page yet; the empty state picks one (openFile). */
+  phase: "loading" | "ready" | "failed" | "disconnected" | "empty";
   config: MarkdownConfig | null;
   mode: MarkdownMode;
   status: SaveStatus;
@@ -106,6 +108,14 @@ export class MarkdownStore {
     let config: MarkdownConfig;
     try {
       const value = await client.call<unknown>(MARKDOWN_CONFIG_OP, {});
+      if (markdownConfigNeedsPick(value)) {
+        // The empty state still follows the look (terminal appearance) the host sends with it.
+        const look = value as Partial<MarkdownLook>;
+        return this.set({
+          phase: "empty",
+          look: { settings: look.settings, themeCSS: look.themeCSS, appearance: look.appearance },
+        });
+      }
       if (!isMarkdownConfig(value)) throw new Error("markdown config is malformed");
       config = value;
     } catch (error) {
@@ -114,6 +124,22 @@ export class MarkdownStore {
         phase: isPageError(error) && error.code === "cmux.protocol.closed" ? "disconnected" : "failed",
       });
     }
+    await this.loadConfig(client, config);
+  }
+
+  /**
+   * Opens `path` from the empty state: `cmux.markdown.open` answers its config, which loads as
+   * the page's file. Rejects with the host's error (the empty state shows it).
+   */
+  async openFile(path: string): Promise<void> {
+    const client = this.client;
+    if (!client) throw new Error("markdown page has no host");
+    const value = await client.call<unknown>(MARKDOWN_OPEN_OP, { path });
+    if (!isMarkdownConfig(value)) throw new Error("markdown config is malformed");
+    await this.loadConfig(client, value);
+  }
+
+  private async loadConfig(client: PageClient, config: MarkdownConfig): Promise<void> {
     this.savedText = config.text;
     this.baseHash = config.hash;
     const readOnly = config.readOnly === true;

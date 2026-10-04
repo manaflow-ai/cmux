@@ -1,10 +1,11 @@
 /** Home attachments: the backend lead's review and re-check fixes, presigned large uploads. Helpers: home-attachments-support.ts. */
 import { describe, expect, it } from "vitest"
-import { runDurableObjectAlarm } from "cloudflare:test"
+
 import { createHash } from "node:crypto"
 import type { Principal } from "@cmux/ownership"
 import type { Env } from "../src/env.ts"
 import { type Stub, attachmentPart, bytesOf, convId, group, intent, objectIdOf, op, post, put, result, runInDurableObject, sha, signIn, stub, testEnv, text, upload, urlFor, worker } from "./home-attachments-support.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
   it("message.send needs the author to be an uploader or see a referencing message; 'not yours' and 'unknown' look the same", async () => {
@@ -88,7 +89,7 @@ describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
     expect(await stored()).toBe(kept.byteLength + orphan.byteLength)
     // Age both records past the grace period and fire the alarm.
     await runInDurableObject(doStub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_objects SET created_at = ?", Date.now() - 25 * 3_600_000))
-    await runDurableObjectAlarm(doStub)
+    await fireAlarm(doStub)
     const left = async () => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${g.id}/` })).objects.length
     expect(await left()).toBe(1)
     expect(await stored()).toBe(kept.byteLength)
@@ -237,7 +238,7 @@ describe("Home attachments: re-check blockers (sweep cursor, orphan slots, requi
     for (; n < max; n++) {
       const due = await runInDurableObject(stub, async (i: Inst) => i.nextWakeAt(null, Date.now()))
       if (due === null || due > Date.now()) break
-      await runDurableObjectAlarm(stub)
+      await fireAlarm(stub)
     }
     return n
   }

@@ -1,11 +1,12 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import { conversation, invites } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 const testEnv = env as unknown as Env & { STACK_TEST_PRIVATE_JWK: string }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -41,7 +42,7 @@ describe("Home objects: ConversationDO fan-out to the UserDO inbox stream (E2, E
     expect(sent.frames.find((f) => f.t === "result" || f.t === "reject")).toMatchObject({ t: "result" })
 
     // The alarm drains the outbox: projection rows fail (no database in tests) without blocking the UserDO channel.
-    await runDurableObjectAlarm(conv)
+    await fireAlarm(conv)
     const userDO = stub(testEnv.USER_DO, user)
     const list = (await userDO.readInbox(user, me, "inbox.list", { limit: 10 })) as { ok: boolean; value: { entries: Array<{ conversation: string; preview?: string }> } }
     expect(list.ok).toBe(true)
@@ -54,7 +55,7 @@ describe("Home objects: ConversationDO fan-out to the UserDO inbox stream (E2, E
     expect(history.value.messages.at(-1)!.parts[0]!.text).toBe("hello inbox")
 
     // A second drain does not deliver again (the inbox ledger and max-merge make redelivery a no-op).
-    await runDurableObjectAlarm(conv)
+    await fireAlarm(conv)
     await runInDurableObject(userDO, async (_i, state) => {
       const seq = state.storage.sql.exec("SELECT MAX(seq) AS s FROM inbox_events").toArray()[0]!.s
       expect(seq).toBe(1)
@@ -96,7 +97,7 @@ describe("Home objects: ConversationDO fan-out to the UserDO inbox stream (E2, E
     const conv = stub(testEnv.CONVERSATION_DO, id)
     await conv.submit(id, session(user), { t: "op", op: "conversation.create", params: { id, kind: "group", title: "Wire", participants: [{ id: user, kind: "human", display_name: "Alice Example" }] }, idempotency_key: "c" })
     await conv.submit(id, session(user), { t: "op", op: "message.send", params: { client_msg_id: "w1", parts: [{ type: "text", text: "over the wire" }] }, idempotency_key: "w1" })
-    await runDurableObjectAlarm(conv)
+    await fireAlarm(conv)
     await until(() => frames.some((f) => f.t === "event" && f.stream === `inbox:${user}` && f.op === "inbox.bump"))
     // The primary stream's events never leak into the inbox subscription and vice versa.
     expect(frames.filter((f) => f.t === "event").every((f) => f.stream === `inbox:${user}`)).toBe(true)

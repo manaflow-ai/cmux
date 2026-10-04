@@ -1,11 +1,12 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
+import { runInDurableObject } from "cloudflare:test"
 import { conversation as homeConversation, invites } from "@cmux/home-core"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
 import { conversationMutate } from "../src/home-routes.ts"
 import { recordingEnv } from "./reach-recorder.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * Human reach through the public API (home-messaging.md sections 4.1 and 16): dm.open by user
@@ -68,7 +69,7 @@ const waitPeer = async (who: Person, peer: Person, dm: string) => {
   const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm))
   for (let attempt = 0; attempt < 100; attempt++) {
     if ((await read(who.token, "inbox.dm_peer", { peer: peer.user })).value?.conversation === dm) return
-    await runDurableObjectAlarm(conv)
+    await fireAlarm(conv)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   throw new Error("the DM never reached the inbox")
@@ -85,7 +86,7 @@ const becomeContacts = async (inviter: Person, invitee: Person, email: string) =
   const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(dm))
   for (let attempt = 0; attempt < 100; attempt++) {
     if ((await read(inviter.token, "inbox.dm_peer", { peer: invitee.user })).value?.conversation === dm) return dm
-    await runDurableObjectAlarm(conv)
+    await fireAlarm(conv)
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
   throw new Error("the accepted DM never reached the inviter's inbox")

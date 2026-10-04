@@ -1,8 +1,9 @@
 import { env, exports } from "cloudflare:workers"
-import { runDurableObjectAlarm, runInDurableObject as runIn } from "cloudflare:test"
+import { runInDurableObject as runIn } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userIdFor } from "../src/domains/user.ts"
+import { fireAlarm } from "./setup/alarm.ts"
 
 /**
  * P0 (coordinator 2026-10-03): a listen-only socket must stop receiving events once its token
@@ -129,7 +130,7 @@ describe("listen-only sockets end with their token (P0)", { timeout: 60_000 }, (
       const s = await c.setup()
       const sock = await listen(s.stub, s.entity, { ...s.principal, expires_at: Date.now() + 300 })
       await sleep(400)
-      await runDurableObjectAlarm(s.stub)
+      await fireAlarm(s.stub)
       await sleep(50)
       expect(sock.state.closed).toBe(4401)
     })
