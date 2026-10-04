@@ -1,8 +1,9 @@
-# Per-surface background overrides (Lawrence R55): proposal
+# Per-surface background overrides (Lawrence R55)
 
-Status: PROPOSAL from lane 20 v2 for the coordinator and the Settings lead.
-Nothing here is built yet. R48 (one background everywhere by default) is
-built: see windows.md, "Pane fill and cards".
+Status: BUILT (lane 20 v3). R48 (one background everywhere by default)
+stays the default: see windows.md, "Pane fill and cards". The row shape
+below is the one the Settings lead and the coordinator agreed; it replaces
+the first proposal (one object per surface, theme token names).
 
 ## Rule
 
@@ -12,52 +13,59 @@ An override is a color with its own opacity; it is painted by the same
 owner that paints the default today, from one resolver, never by a view
 on its own.
 
-## Schema rows (cmux.json, `appearance.surfaces.<surface>`)
+## Schema rows (cmux.json)
 
-One object per surface, every field optional; an absent object is the
-default (the shared backdrop):
+18 leaf rows, `appearance.surfaces.<surface>.color` and
+`appearance.surfaces.<surface>.opacity`, for `sidebar`, `tabBar`,
+`terminal`, `agentPane`, `settings`, `newTabPage`, `home`,
+`browserChrome`, `docks` (`SettingsSchema+Surfaces.swift`). An absent key
+is the default. Section appearance, group `settings.group.surfaces`
+("Surfaces"), titles `settings.appearance.surfaces.<surface>.color|opacity`,
+agent-settable, not kept on Reset All.
 
-```json
-"appearance": {
-  "surfaces": {
-    "sidebar":     { "color": "#1e1e2e", "opacity": 0.9 },
-    "tabBar":      { "color": "#181825" },
-    "terminal":    { "opacity": 0.7 },
-    "agentPane":   {},
-    "settings":    {},
-    "newTabPage":  {},
-    "home":        {},
-    "browserChrome": {},
-    "docks":       {}
-  }
-}
-```
+- `color`: kind `color` (`#RRGGBB[AA]`), default null, label
+  `settings.default.sameAsWindow` ("Same as window"). No theme token names.
+- `opacity`: kind `number`, 0...1 step 0.05, unit fraction, default null,
+  label `settings.default.windowOpacity` ("Window opacity": follows
+  `appearance.backgroundOpacity`).
 
-- `color`: CSS hex or a theme token name (`surface`, `chrome`, `elevated`);
-  default the surface token.
-- `opacity`: 0...1; default the window's `appearance.backgroundOpacity`.
-- Surfaces: `sidebar`, `tabBar`, `terminal`, `agentPane`, `settings`,
-  `newTabPage`, `home`, `browserChrome`, `docks`. (Chromium page content is
-  not a surface: a page paints itself.)
-
-Settings UI: Appearance > Surfaces, one row per surface with "Same as
-window" (default), a color well and an opacity slider; en + ja + every
-check-l10n language. Palette, CLI, MCP and socket get it through the
-normal settings path (`app settings set appearance.surfaces.sidebar.color
-...`), no new verbs.
+The CLI, MCP and palette need no new code:
+`cmux settings set appearance.surfaces.sidebar.opacity 0.9`.
 
 ## Mechanism
 
-- `SurfaceKind` enum (CmuxNextDesign) and `ThemeTokens.fill(for:
-  SurfaceKind) -> ThemeRGB?`: nil means "show the backdrop" (today's
-  behavior); a value is painted over the backdrop by the surface's owner.
-- Owners: sidebar (WindowSidebarPanelView), tab bar (strip), terminal
-  (PaneContentView content host for terminal tabs plus the Ghostty
-  default background), agent pane and new tab page (`AgentPaneTheme`
-  `pageBackground`), Settings (SettingsStyle/WindowSurfaceView), Home
-  (`Palette.paneFill` for Home), browser chrome (BrowserChromeView), docks.
-- `Palette.paneFill` becomes `Palette.fill(.surface)`; `cardFill` stays a
-  tint over whatever the surface shows.
+- `SurfaceKind` and `SurfaceBackgrounds` (CmuxNextDesign) hold the
+  overrides; `CmuxConfigSnapshot.surfaceBackgrounds` parses them
+  (diagnostics for bad values, unknown surfaces and fields).
+  `TerminalThemeSetting` sets them on `ThemeScope.app`
+  (`setSurfaceBackgrounds`), which repaints every scope, so owners update
+  live in their theme hooks.
+- One resolver, `SurfaceBackgrounds.fill(for:tokens:)`: nil without an
+  override (the owner keeps its R48 paint). With a color: that color at the
+  override's opacity (else the window's) times its own alpha, painted over
+  the window's backdrop. With only an opacity: the theme background at the
+  alpha that makes the surface cover the backdrop exactly that much. The
+  window's tint is under every surface, so a surface can be more opaque
+  than the window, never less (an opacity at or below the window's paints
+  nothing). `Palette.surfaceOverride(_:)`, `Palette.fill(for:default:)` and
+  `Palette.opaqueFill(for:base:)` are the only readers.
+- Owners: sidebar (`SidebarContainerView` clip layer), tab bar
+  (`PaneContentView` paints its strip), terminal (`TerminalHostView`; the
+  surfaces then draw a transparent default background in every window,
+  `GhosttyRuntimeSurfacePolicy`), agent pane and new tab page
+  (`WebTheme(surface:)` paints the document root once; the bridge's page
+  colors are clear so nothing stacks), Settings (`SettingsPaneHostingView`),
+  Home (`HomeThemePalette`), browser chrome (`BrowserChromeView` toolbar),
+  docks (sticky column panes, `PaneHostView.isDocked`, and the overlay
+  backdrop's opaque fill).
+
+## Limits
+
+- A surface can not be more see-through than the window (see above).
+- Docks: in an opaque window a docked pane's content paints the window
+  color over the dock fill, so the override shows only where the pane is
+  clear (its tab strip, a see-through window).
+- The Settings window (not the page tab) keeps the window's backdrop.
 
 ## Tests
 
@@ -67,11 +75,8 @@ normal settings path (`app settings set appearance.surfaces.sidebar.color
 - Live: `background-match-e2e.py --overrides` sets each override and checks
   the overridden region alone changed.
 
-## Decisions needed
+## Decisions
 
-1. DECISION: the sidebar inset panel (Leo's `stripStep`, 2026-10-03) stays
-   a designed step or follows R48? RECOMMEND: make it the `sidebar`
-   override's shipped default ("step") so R48 holds for every other surface
-   and the user can set "Same as window".
-2. DECISION: the key name `appearance.surfaces`. RECOMMEND it: it groups
-   with `appearance.backgroundOpacity` and `backgroundBlur`.
+1. Sidebar default: null, the same as the window (R48). The old inset step
+   is only a user choice (`appearance.surfaces.sidebar.color`).
+2. Key name `appearance.surfaces` (agreed).

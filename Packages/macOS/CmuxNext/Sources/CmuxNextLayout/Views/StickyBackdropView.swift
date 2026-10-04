@@ -78,7 +78,8 @@ final class StickyBackdropView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            fill.backgroundColor = Palette.windowBackground.withAlphaComponent(1).cgColor
+            // Opaque: the user's docks background laid over it (R55).
+            fill.backgroundColor = Palette.opaqueFill(for: .docks, base: Palette.windowBackground.withAlphaComponent(1)).cgColor
             shadowView.layer?.shadowColor = Palette.shadow.cgColor
         }
         surface.applyTheme()

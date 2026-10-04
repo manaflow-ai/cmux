@@ -88,6 +88,22 @@ public final class SidebarContainerView: NSView {
         observation?.cancel()
     }
 
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applySurfaceFill()
+    }
+
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applySurfaceFill()
+    }
+
+    /// Clear over the window's backdrop, or the user's sidebar background
+    /// (`appearance.surfaces.sidebar`, `Palette.surfaceOverride`).
+    private func applySurfaceFill() {
+        clip.layer?.backgroundColor = performWithTheme { Palette.surfaceOverride(.sidebar)?.cgColor }
+    }
+
     // MARK: Public API
 
     /// Restores saved state without animating (window creation, relaunch).

@@ -30,6 +30,19 @@ public final class ThemeScope {
     public var appearanceTuning: AppearanceTuning { selectedAppearanceTuning ?? parent?.appearanceTuning ?? .identity }
     private var selectedBackdropSelection: BackdropSelection?
     private var selectedAppearanceTuning: AppearanceTuning?
+    /// The user's per-surface backgrounds (`appearance.surfaces`), inherited
+    /// like art: one app-wide setting, read by every surface's owner through
+    /// `Palette.fill(for:)`.
+    public var surfaceBackgrounds: SurfaceBackgrounds { selectedSurfaceBackgrounds ?? parent?.surfaceBackgrounds ?? .none }
+    private var selectedSurfaceBackgrounds: SurfaceBackgrounds?
+
+    /// Changes the per-surface backgrounds and repaints this scope and its
+    /// descendants (every owner re-reads its fill in its theme hook).
+    public func setSurfaceBackgrounds(_ backgrounds: SurfaceBackgrounds) {
+        guard selectedSurfaceBackgrounds != backgrounds else { return }
+        selectedSurfaceBackgrounds = backgrounds
+        repaintBackdropArt()
+    }
 
     /// Changes art and repaints this scope and its descendants without a
     /// Ghostty reload or changing any terminal colors.

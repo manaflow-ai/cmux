@@ -14,8 +14,11 @@ extension SettingsSchema {
         /// The key can end terminals or other work.
         case destructive
     }
-    /// Keys an agent may set and reset.
-    public static let agentSettableKeys: Set<String> = [
+    /// Keys an agent may set and reset: the table below plus every
+    /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
+    public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys)
+
+    private static let agentSettableTable: Set<String> = [
         "window.titlebar",
         "sidebar.minimalMode",
         "tabs.newTabKind",

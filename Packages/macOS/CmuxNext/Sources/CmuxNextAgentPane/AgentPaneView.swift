@@ -376,6 +376,9 @@ public final class AgentPaneView: NSView {
         applyCustomization()
     }
 
+    /// The page's surface for overrides (R55): new tab page until a chat starts.
+    var surfaceKind: SurfaceKind { model.newTab != nil ? .newTabPage : .agentPane }
+
     /// Pushes ``shortcuts`` to the page.
     func applyShortcuts() {
         guard let script = shortcuts.script() else { return }
@@ -383,12 +386,13 @@ public final class AgentPaneView: NSView {
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit
-    /// shows before the page paints).
-    func applyTheme() {
+    /// shows before the page paints); again when `surfaceKind` changes.
+    public func applyTheme() {
         let tokens = themeTokens
-        webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens).nsColor
+        let surface = surfaceKind
+        webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
-        guard let script = AgentPaneTheme.script(tokens) else { return }
+        guard let script = AgentPaneTheme.script(tokens, surface: surface) else { return }
         evaluateScript(script)
     }
 }
