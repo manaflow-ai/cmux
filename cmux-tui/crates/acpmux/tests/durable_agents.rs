@@ -508,6 +508,45 @@ async fn a_recovered_permission_prompt_is_not_idle() {
     .await;
     let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
     assert_eq!(result["msg"]["status"], "completed", "{result}");
+
+/// A live host whose link this daemon lost (another owner took the host over
+/// and left) must not lock its session: the next prompt reattaches to the
+/// same agent instead of failing with "cannot be reached".
+#[tokio::test]
+async fn a_live_host_with_a_lost_link_is_reattached_not_locked() {
+    let daemon = Daemon::new("lost", "approve-all");
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]});
+    assert_eq!(rpc.call("session/prompt", prompt.clone()).await["stopReason"], "end_turn");
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid.expect("harness pid") as i64;
+
+    // Another owner takes the host over, which closes the daemon's link.
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    // Let the daemon's reader see the closed link (a test-only fixed wait).
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(alive(harness_pid), "the takeover ended the agent");
+
+    let mut rpc = daemon.rpc().await;
+    let id = rpc.send("session/prompt", prompt).await;
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), rpc.lines.next_line())
+            .await
+            .expect("daemon answered in time")
+            .unwrap()
+            .expect("daemon closed the socket");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(id)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "the session is locked: {reply}");
+    assert!(alive(harness_pid), "a second agent replaced the live one");
 }
 
 /// An idle hosted session whose link this daemon lost (another owner took

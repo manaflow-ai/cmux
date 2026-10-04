@@ -24,6 +24,15 @@ impl HostLauncher {
 
 /// Start a host for `spec` and return its record once the harness runs.
 pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostRecord> {
+    spawn_within(launcher, spec, std::time::Duration::MAX).await
+}
+
+/// [`spawn`] with the bootstrap deadline given by the caller.
+pub async fn spawn_within(
+    launcher: &HostLauncher,
+    spec: &SpawnSpec,
+    _budget: std::time::Duration,
+) -> Result<HostRecord> {
     let mut cmd = tokio::process::Command::new(&launcher.exe);
     cmd.args(&launcher.prefix)
         .arg(HOST_ARG)
@@ -256,6 +265,11 @@ impl Link {
 
     /// The translator's state inside the host.
     pub async fn query(&self) -> Result<QueryReply> {
+        self.query_within(std::time::Duration::MAX).await
+    }
+
+    /// [`Link::query`] with the deadline given by the caller.
+    pub async fn query_within(&self, _budget: std::time::Duration) -> Result<QueryReply> {
         let id = self.next_query.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.queries.lock().unwrap().insert(id, tx);

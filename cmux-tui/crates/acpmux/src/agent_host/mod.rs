@@ -19,6 +19,8 @@
 
 pub mod host;
 pub mod link;
+mod wait;
+pub use wait::{HostTimeout, death_watches, wait_dead_within};
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
