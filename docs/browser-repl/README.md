@@ -301,10 +301,22 @@ rest. Measurements: [performance.md](performance.md).
 - **Every other page read has the same budget.** What a helper reads
   from the page and returns crosses to the session before any output
   limit, so `page.markdown()`, `page.extract()`,
-  `page.dropdownOptions()`, `tabs.content()` and the composer check
-  before a site's Send or Post read at most 250,000 nodes and 2,000,000
-  characters, for 8 s, with one budget in the page agent
-  (`A.budget()`), and say where they stopped. Markdown ends with
+  `page.dropdownOptions()`, `page.searchText()`, `tabs.content()`,
+  `page.content()`, the locator reads (`textContent`, `innerText`,
+  `innerHTML`, `getAttribute`, `inputValue`, `allTextContents`,
+  `allInnerTexts`) and the composer check before a site's Send or Post
+  read at most 250,000 nodes and 2,000,000 characters, for 8 s, with one
+  budget in the page agent (`A.budget()`), and say where they stopped.
+  A DOM getter (`textContent`, `innerText`, `outerHTML`) builds its whole
+  string before anything can cut it, so the page agent first counts the
+  nodes and the lengths it would join, within what the budget has left,
+  and calls the getter only when its string fits (the getter's own
+  text); past the budget it builds the string node by node and stops
+  there (HTML serialized as the browser does, `innerText` approximated:
+  no hidden, script or style content, a line break around blocks). A
+  locator read past it returns the cut value (ending with `…`) and prints
+  `# locator.textContent: the page is too large to read whole: it stopped
+  after …`. Markdown ends with
   `<!-- the page is too large to read whole: Markdown stopped after
   2,000,000 characters; … -->` (or `nodes`, `8 s`, and `100 frames`:
   it reads at most 100 iframes, one after another, each with what the

@@ -1115,12 +1115,12 @@
     async evaluateHandle(fn, arg) {
       return this.evaluate(fn, arg);
     }
+    // The document's HTML, read within the page-read budget in the page
+    // agent (see Locator._read).
     async content() {
-      return this.evaluate(() => {
-        let doctype = "";
-        if (document.doctype) doctype = new XMLSerializer().serializeToString(document.doctype);
-        return doctype + (document.documentElement ? document.documentElement.outerHTML : "");
-      });
+      const r = await this._agent("documentHTML");
+      if (r.cut) this._page._printReadCut("page.content", r.cut, "the HTML ends where it stopped");
+      return r.value;
     }
     async title() {
       return this.evaluate(() => document.title);
@@ -1655,8 +1655,15 @@
       });
       return this._page.screenshot({ ...options, clip: box, fullPage: false });
     }
+    // String reads (textContent, innerText, innerHTML, getAttribute,
+    // inputValue) run within the page-read budget in the page agent: a
+    // value past it is cut there, ends with "…", and a note says where it
+    // stopped.
     async _read(what, arg, options, title) {
-      return this._withElement(options || {}, title, [], (frame, handle) => frame._agent("read", handle, what, arg));
+      if (!BOUNDED_READS.has(what)) return this._withElement(options || {}, title, [], (frame, handle) => frame._agent("read", handle, what, arg));
+      const r = await this._withElement(options || {}, title, [], (frame, handle) => frame._agent("readBounded", handle, what, arg));
+      if (r.cut) this._page._printReadCut(title, r.cut, "the value ends where it stopped");
+      return r.value;
     }
     textContent(options) {
       return this._read("textContent", undefined, options, "locator.textContent");
@@ -1735,11 +1742,20 @@
       const handles = r ? r.handles : [];
       return frame._evalPage(`(...xs) => (${functionSource(fn)})(xs.slice(0, ${handles.length}), xs[${handles.length}])`, [arg], handles);
     }
+    // Read in the page agent within one page-read budget for all the
+    // elements, as _read.
+    async _readAll(what, title) {
+      const r = await this._resolveAll();
+      if (!r || !r.handles.length) return [];
+      const out = await r.frame._agent("readAllBounded", r.handles, what);
+      if (out.cut) this._page._printReadCut(title, out.cut, "the values after it are cut or empty");
+      return out.values;
+    }
     async allTextContents() {
-      return this.evaluateAll((els) => els.map((e) => e.textContent || ""));
+      return this._readAll("textContent", "locator.allTextContents");
     }
     async allInnerTexts() {
-      return this.evaluateAll((els) => els.map((e) => e.innerText));
+      return this._readAll("innerText", "locator.allInnerTexts");
     }
     async count() {
       const r = await this._resolveAll();
@@ -2580,6 +2596,12 @@
       const why = at.log || (at.x !== target.x || at.y !== target.y ? "the frame's <iframe> moved" : null);
       if (why) throw new Error(`${title}: no press was sent: ${why} when the pointer reached the element, so the press could reach another frame`);
     }
+    // A note for a page read the page-read budget cut.
+    _printReadCut(title, cut, rest) {
+      try {
+        this._session.host.print("warn", `# ${title}: ${readCutNote("it", cut)}; ${rest}`);
+      } catch {}
+    }
     async _clickAt(target, options, title) {
       const button = options.button || "left";
       const count = options.clickCount || 1;
@@ -3216,6 +3238,7 @@
   // "frames", maxNodes, maxSize, frames }. Every read that stops there says
   // so in these words.
   const groupDigits = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const BOUNDED_READS = new Set(["textContent", "innerText", "innerHTML", "getAttribute", "inputValue"]);
   function readCutNote(what, cut) {
     const why =
       cut.truncated === "time" ? "after 8 s of reading"
