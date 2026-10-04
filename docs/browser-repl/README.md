@@ -323,10 +323,16 @@ rest. Measurements: [performance.md](performance.md).
   lines and `# output truncated: X of Y characters shown; full output:
   <path>`. The file is written as output arrives, so a call that times out
   still has it.
-- **Control characters** in printed text (page titles and text can hold
-  terminal escape sequences) print visibly: newline and tab stay, other C0
-  controls print as their control pictures (ESC as `␛`), DEL as `␡` and C1
-  controls as `\u{9B}`. `--json` keeps the exact text.
+- **Control characters** in printed text (page titles, text, option
+  labels, URLs and error messages can hold terminal escape sequences)
+  print visibly, whatever printed them (`console.log`, the auto-printed
+  value, a snapshot, a page tool, an error): the session escapes them
+  before output leaves it, so `--json`, `mcp` and the output file get the
+  same text. Newline and tab stay, a CRLF is a newline, and every other C0
+  control, DEL and C1 control prints as its JSON escape (`\r`, `\b`, `\f`,
+  else `\u001b`). The terminal client also shows any control that reaches
+  it another way as its control picture (ESC as `␛`, DEL as `␡`) or, for
+  C1, as `\u{9B}`.
 
 ## Sessions and tabs
 
