@@ -352,8 +352,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// frame with the page over the focus ring; the notifications that
     /// follow the page would come a frame late.
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
+        ChildWindowPolicy.check(childWin, parent: self)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
+        WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
     // MARK: OverlayPlaneHosting
