@@ -51,8 +51,10 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         "cloud.machine.create",
         MUTATION,
         &[
+            "cloud.no_snapshot_configured",
             "cloud.plan.required",
             "cloud.quota.exceeded",
+            "cloud.rate_limited",
             "cloud.size.locked",
             "cloud.snapshot.not_found",
         ],
@@ -65,7 +67,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         MUTATION,
         &["cloud.machine.not_found", "cloud.quota.exceeded", "cloud.size.locked"],
     ),
-    ("cloud.machine.delete", MUTATION, &["cloud.machine.not_found"]),
+    ("cloud.machine.delete", MUTATION, &["cloud.machine.not_found", "cloud.rate_limited"]),
     ("cloud.machine.idle_policy.set", MUTATION, &["cloud.machine.not_found"]),
     ("cloud.machine.connect_info", READ, &["cloud.machine.not_bound", "cloud.machine.not_found"]),
     // Only `cmux link` calls it; this server never does (listed so the table
@@ -86,6 +88,7 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         "cloud.snapshot.restore",
         MUTATION,
         &[
+            "cloud.no_snapshot_configured",
             "cloud.plan.required",
             "cloud.quota.exceeded",
             "cloud.size.locked",

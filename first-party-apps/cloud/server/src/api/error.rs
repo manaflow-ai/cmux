@@ -33,6 +33,7 @@ pub mod codes {
     /// `mutation.indeterminate`: the backend cannot tell whether the call
     /// acted. Retry with the SAME key; never make a new one.
     pub const INDETERMINATE: &str = "cmux.cloud.indeterminate";
+    /// `cloud.rate_limited`: the team's create or delete budget is spent.
     pub const RATE_LIMITED: &str = "cmux.cloud.rate_limited";
     pub const UNSUPPORTED: &str = "cmux.cloud.unsupported";
     pub const UPSTREAM: &str = "cmux.cloud.upstream_error";
@@ -77,6 +78,7 @@ const WIRE_CODES: &[(&str, &str)] = &[
     ("cloud.migration.unavailable", codes::MIGRATION_UNAVAILABLE),
     ("cloud.machine.not_classic", codes::NOT_CLASSIC),
     ("cloud.upgrade.failed", codes::UPGRADE_FAILED),
+    ("cloud.rate_limited", codes::RATE_LIMITED),
 ];
 
 /// A typed op failure.
