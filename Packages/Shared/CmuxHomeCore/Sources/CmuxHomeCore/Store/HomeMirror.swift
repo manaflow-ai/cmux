@@ -93,7 +93,7 @@ public struct HomeMirror: Hashable, Sendable {
     @discardableResult
     public mutating func apply(_ event: HomeEvent) -> MirrorOutcome {
         switch event {
-        case .connection, .typing:
+        case .connection, .typing, .ownerRecovered:
             return .applied
         case .inbox(let snapshot):
             return apply(inbox: snapshot).first.map(MirrorOutcome.gap) ?? .applied

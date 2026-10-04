@@ -217,6 +217,12 @@ public final class HomeStore {
                 for stream in mirror.stale { scheduleRefetch(stream) }
             }
             rebuildRows()
+        case .ownerRecovered:
+            // Offline intents wait for the reconnect, which resends them anyway.
+            guard isOnline else { return }
+            enqueueResends(log.takeResends())
+            for stream in mirror.stale { scheduleRefetch(stream) }
+            rebuildRows()
         case .typing(let id, let who, let on):
             var set = typing[id] ?? []
             if on { set.insert(who) } else { set.remove(who) }

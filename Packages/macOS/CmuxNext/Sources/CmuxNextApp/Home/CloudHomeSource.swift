@@ -33,6 +33,13 @@ nonisolated final class CloudHomeSource: HomeSource {
         /// Bumps on every configure; work started under an older one is dropped.
         var generation: UInt64 = 0
         var entries: [ConversationID: CloudInboxEntry] = [:]
+        /// Conversations this source created (`dm.open`, `conversation.create`)
+        /// whose UserDO entry has not arrived yet. Listed until it does.
+        var created: Set<ConversationID> = []
+        /// Conversations UserDO took out of the inbox (archived, left). Their
+        /// stream events are dropped, so a late cursor, title or resync never
+        /// lists them again; the user opening one again clears it.
+        var removed: Set<ConversationID> = []
         var heads: [ConversationID: CmuxHomeCore.ConversationSummary] = [:]
         var targets: [ConversationID: Target] = [:]
         /// Subscribed conversations, least recently used first.
@@ -40,6 +47,9 @@ nonisolated final class CloudHomeSource: HomeSource {
         var hydrating: Set<ConversationID> = []
         /// This source's inbox stream revision: one per inbox event it publishes.
         var inboxRev: Revision = 0
+        /// A read or op failed in a way that leaves intents unconfirmed; the
+        /// next sign that the cloud is reachable publishes `.ownerRecovered`.
+        var degraded = false
     }
 
     private let state = Mutex(State())
@@ -81,6 +91,8 @@ nonisolated final class CloudHomeSource: HomeSource {
             state.hydrating = []
             if cleared {
                 state.entries = [:]
+                state.created = []
+                state.removed = []
                 state.heads = [:]
             }
             return (state.generation, cleared, ended, kept, old)
@@ -97,6 +109,8 @@ nonisolated final class CloudHomeSource: HomeSource {
             return
         }
         publish(.connection(.online))
+        // Intents refused while there was no transport resend after the first reply.
+        state.withLock { $0.degraded = true }
         let generation = change.generation
         let kept = change.kept
         // task-owner: one inbox subscribe and list, then the kept conversations' subscribes; ends with their replies
@@ -121,7 +135,14 @@ nonisolated final class CloudHomeSource: HomeSource {
         case .sessionNeeded:
             break
         }
+        // An owner event proves the cloud reachable again.
+        if case .changed = event { recover() }
+        if case .resynced = event { recover() }
+        if case .inboxChanged = event { recover() }
     }
+
+    /// The daemon took a new lease: refused ops can go through again.
+    func leaseRenewed() { recover() }
 
     // MARK: HomeSource
 
@@ -133,7 +154,10 @@ nonisolated final class CloudHomeSource: HomeSource {
             for event in state.lastEvent.isEmpty ? [.connection(.connecting)] : state.lastEvent { continuation.yield(event) }
         }
         continuation.onTermination = { [weak self] _ in
-            self?.state.withLock { _ = $0.continuations.removeValue(forKey: id) }
+            // Never take the state lock here: the stream may run this under its
+            // own lock while `publish` yields under the state lock (a deadlock).
+            // task-owner: one removal; ends at once
+            Task { [weak self] in self?.state.withLock { _ = $0.continuations.removeValue(forKey: id) } }
         }
         return stream
     }
@@ -141,14 +165,22 @@ nonisolated final class CloudHomeSource: HomeSource {
     /// The cloud inbox; empty while signed out or without the transport.
     func inbox() async throws -> InboxSnapshot {
         let (commands, identity, generation) = state.withLock { ($0.commands, $0.identity, $0.generation) }
-        guard let commands, identity != nil else { return state.withLock { snapshot(&$0) } }
-        let list = try await Self.mapped { try await commands.inboxList(limit: Self.inboxLimit) }
-        let (inbox, missing) = state.withLock { state -> (InboxSnapshot, [ConversationID]) in
-            guard state.generation == generation else { return (snapshot(&state), []) }
-            state.entries = Dictionary(list.entries.filter(\.isListed).map { (ConversationID($0.conversation), $0) },
-                                       uniquingKeysWith: { $1 })
-            return (snapshot(&state), needsHead(state))
+        guard let commands, let identity else { return state.withLock { snapshot(&$0) } }
+        let list = try await reply(for: identity) { try await commands.inboxList(limit: Self.inboxLimit) }
+        let (inbox, missing, unlisted, current) = state.withLock { state -> (InboxSnapshot, [ConversationID], [ConversationID],
+                                                                             (any CloudConversationCommands)?) in
+            guard state.generation == generation else { return (snapshot(&state), [], [], nil) }
+            let entries = Dictionary(list.entries.filter(\.isListed).map { (ConversationID($0.conversation), $0) },
+                                     uniquingKeysWith: { $1 })
+            state.created.subtract(entries.keys)
+            state.removed.subtract(entries.keys)
+            let gone = state.entries.keys.filter { entries[$0] == nil && !state.created.contains($0) }
+            state.removed.formUnion(gone)
+            state.entries = entries
+            let unlisted = gone.filter { forget($0, &state) }
+            return (snapshot(&state), needsHead(state), unlisted, state.commands)
         }
+        unsubscribe(unlisted, commands: current)
         hydrate(missing, generation: generation)
         return inbox
     }
@@ -159,10 +191,14 @@ nonisolated final class CloudHomeSource: HomeSource {
     func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
         let (commands, identity, generation) = try requireEndpoint()
         await subscribe(conversation, commands: commands, generation: generation)
-        let page = try await Self.mapped { try await commands.snapshot(conversation.rawValue, tail: tail) }
+        let page = try await reply(for: identity) { try await commands.snapshot(conversation.rawValue, tail: tail) }
         let summary = CloudHomeMapping.summary(page.conversation, identity: identity)
         return state.withLock { state in
-            if state.generation == generation { state.heads[conversation] = summary }
+            if state.generation == generation {
+                state.heads[conversation] = summary
+                // The user opened it: its stream may show it again.
+                state.removed.remove(conversation)
+            }
             return ConversationPage(conversation: joined(conversation, state) ?? summary,
                                     messages: page.messages.map { CloudHomeMapping.message($0, identity: identity) })
         }
@@ -170,7 +206,7 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     func history(of conversation: ConversationID, before beforeSeq: Seq, limit: Int) async throws -> [Message] {
         let (commands, identity, _) = try requireEndpoint()
-        let page = try await Self.mapped { try await commands.history(conversation.rawValue, before: beforeSeq, limit: limit) }
+        let page = try await reply(for: identity) { try await commands.history(conversation.rawValue, before: beforeSeq, limit: limit) }
         return page.messages.map { CloudHomeMapping.message($0, identity: identity) }
     }
 
@@ -179,7 +215,7 @@ nonisolated final class CloudHomeSource: HomeSource {
         let key = intent.key.rawValue
         func send(_ op: CloudConversationOp, in conversation: ConversationID?, key: String = key) async throws -> CloudConversationOpResult {
             let request = CloudConversationOpRequest(conversation: conversation?.rawValue, idempotencyKey: key, origin: "user", op: op)
-            return try await Self.mapped { try await commands.op(request) }
+            return try await reply(for: identity) { try await commands.op(request) }
         }
         func edit(_ op: CloudConversationOp, in conversation: ConversationID) async throws -> HomeOpResult {
             try requireEditable(conversation, commands: commands, generation: generation)
@@ -266,6 +302,7 @@ nonisolated final class CloudHomeSource: HomeSource {
         let summary = CloudHomeMapping.summary(wire, identity: identity)
         publish(generation: generation) { state in
             state.heads[summary.id] = summary
+            if state.entries[summary.id] == nil { state.created.insert(summary.id) }
             state.inboxRev += 1
             return .conversationChanged(joined(summary.id, state) ?? summary, stream: .inbox, rev: state.inboxRev)
         }
@@ -280,7 +317,10 @@ nonisolated final class CloudHomeSource: HomeSource {
             guard pieces.count == 2 else { return "***" }
             return "\(pieces[0].prefix(1))***@\(pieces[1])"
         case .phone(let value):
+            // E.164 with a country code and ten national digits at least, so
+            // the last four never show most of the number; anything else shows nothing.
             let digits = value.dropFirst()
+            guard value.hasPrefix("+"), (11...15).contains(digits.count), digits.allSatisfy({ ("0"..."9").contains($0) }) else { return "***" }
             return "+\(digits.dropLast(10)) *** *** \(value.suffix(4))"
         }
     }
@@ -305,16 +345,17 @@ nonisolated final class CloudHomeSource: HomeSource {
                 }
                 return .message(message, rev: changed.rev)
             case .readCursor(let participant, let seq):
-                guard var head = state.heads[id] else { return nil }
+                guard mayShow(id, state), var head = state.heads[id] else { return nil }
                 let reader = identity.toHome(participant)
                 head.readCursors[reader] = max(head.readCursors[reader] ?? 0, seq)
                 head.rev = max(head.rev, changed.rev)
                 state.heads[id] = head
             case .conversation(let wire):
+                guard mayShow(id, state) else { return nil }
                 state.heads[id] = CloudHomeMapping.summary(wire, identity: identity)
             case .unknown:
                 // An invite delivery report: no Home field changes, but the revision moves.
-                guard var head = state.heads[id] else { return nil }
+                guard mayShow(id, state), var head = state.heads[id] else { return nil }
                 head.rev = max(head.rev, changed.rev)
                 state.heads[id] = head
             }
@@ -326,7 +367,8 @@ nonisolated final class CloudHomeSource: HomeSource {
     private func apply(_ resynced: CloudConversationResynced) {
         let id = ConversationID(resynced.conversation)
         publish { state in
-            guard let identity = state.identity else { return nil }
+            // UserDO owns inbox membership: a stream never lists a removed conversation again.
+            guard let identity = state.identity, mayShow(id, state) else { return nil }
             let summary = CloudHomeMapping.summary(resynced.summary, identity: identity)
             state.heads[id] = summary
             return .conversationPage(ConversationPage(conversation: joined(id, state) ?? summary,
@@ -336,27 +378,37 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     private func apply(_ changed: CloudInboxChanged) {
         var missing: [ConversationID] = []
+        var unlisted: [ConversationID] = []
+        var commands: (any CloudConversationCommands)?
         var generation: UInt64 = 0
         for entry in changed.entries {
             let id = ConversationID(entry.conversation)
             publish { state in
                 guard state.identity != nil else { return nil }
                 generation = state.generation
+                commands = state.commands
                 state.inboxRev += 1
+                state.created.remove(id)
                 guard entry.isListed else {
                     state.entries[id] = nil
-                    if state.targets[id] == nil { state.heads[id] = nil }
+                    state.removed.insert(id)
+                    if forget(id, &state) { unlisted.append(id) }
                     return .conversationRemoved(id, inboxRev: state.inboxRev)
                 }
                 state.entries[id] = entry
+                state.removed.remove(id)
                 if needsHead(id, state) { missing.append(id) }
                 return joined(id, state).map { .conversationChanged($0, stream: .inbox, rev: state.inboxRev) }
             }
         }
+        unsubscribe(unlisted, commands: commands)
         hydrate(missing, generation: generation)
     }
 
     private func apply(_ report: CloudSubscriptionState) {
+        // Any socket live again proves the cloud reachable; a disconnect leaves intents waiting for that.
+        if report.state == "disconnected" { state.withLock { $0.degraded = true } }
+        if report.state == "live" { recover() }
         guard report.scope == "conversation", let conversation = report.conversation else { return }
         let id = ConversationID(conversation)
         state.withLock { state in
@@ -414,9 +466,11 @@ nonisolated final class CloudHomeSource: HomeSource {
         }
     }
 
-    /// Refuses an edit while the conversation's socket reports it disconnected
-    /// or closed (home-cloud-proxy.md section 5). A conversation without a
-    /// subscription is subscribed so its echo can settle the intent.
+    /// Holds an edit while the conversation's socket reports it disconnected
+    /// (`ownerUnreachable`: nothing was sent, the store resends it after
+    /// `.ownerRecovered`), and refuses it once the socket is closed (the user
+    /// is not a participant). A conversation without a subscription is
+    /// subscribed so its echo can settle the intent (home-cloud-proxy.md section 5).
     private func requireEditable(_ conversation: ConversationID, commands: any CloudConversationCommands, generation: UInt64) throws {
         let target = state.withLock { $0.targets[conversation] }
         guard let target else {
@@ -424,7 +478,15 @@ nonisolated final class CloudHomeSource: HomeSource {
             Task { [weak self] in await self?.subscribe(conversation, commands: commands, generation: generation) }
             return
         }
-        if target.state == "disconnected" || target.state == "closed" { throw HomeRejection.invalid("cloud_not_live") }
+        switch target.state {
+        case "disconnected":
+            state.withLock { $0.degraded = true }
+            throw HomeRejection.ownerUnreachable
+        case "closed":
+            throw HomeRejection.notAuthorized
+        default:
+            break
+        }
     }
 
     // MARK: Inbox
@@ -484,7 +546,24 @@ nonisolated final class CloudHomeSource: HomeSource {
     private func snapshot(_ state: inout State) -> InboxSnapshot {
         state.inboxRev += 1
         let conversations = state.entries.keys.compactMap { joined($0, state) }
+            + state.created.subtracting(state.entries.keys).compactMap { joined($0, state) }
         return InboxSnapshot(me: me, conversations: conversations, rev: state.inboxRev)
+    }
+
+    /// Whether a conversation stream event may change what the store shows:
+    /// not while UserDO has taken the conversation out of the inbox
+    /// (UserDO owns inbox membership, home-messaging.md 4.2).
+    private func mayShow(_ id: ConversationID, _ state: State) -> Bool {
+        !state.removed.contains(id)
+    }
+
+    /// Drops what this source kept for a conversation the inbox no longer
+    /// lists: its head, and its subscription, so its stream cannot list it
+    /// again. Returns whether a subscription must end.
+    private func forget(_ id: ConversationID, _ state: inout State) -> Bool {
+        state.heads[id] = nil
+        state.recent.removeAll { $0 == id }
+        return state.targets.removeValue(forKey: id) != nil
     }
 
     /// The head with the inbox's pin and mute, or the entry alone.
@@ -520,8 +599,45 @@ nonisolated final class CloudHomeSource: HomeSource {
     private func requireEndpoint() throws -> (any CloudConversationCommands, CloudIdentity, UInt64) {
         let (commands, identity, generation) = state.withLock { ($0.commands, $0.identity, $0.generation) }
         guard let identity else { throw HomeRejection.notAuthorized }
-        guard let commands else { throw HomeRejection.ownerUnreachable }
+        guard let commands else {
+            state.withLock { $0.degraded = true }
+            throw HomeRejection.ownerUnreachable
+        }
         return (commands, identity, generation)
+    }
+
+    /// One daemon reply for the account signed in now. A reply that arrives
+    /// after sign-out or an account switch is refused (`notAuthorized`), so
+    /// no page of the previous account reaches the store. A failure that
+    /// leaves intents unconfirmed marks the source degraded; a good reply
+    /// recovers it.
+    private func reply<T>(for identity: CloudIdentity, _ body: () async throws -> T) async throws -> T {
+        let value: T
+        do {
+            value = try await Self.mapped(body)
+        } catch let rejection as HomeRejection {
+            if rejection == .indeterminate || rejection == .ownerUnreachable { state.withLock { $0.degraded = true } }
+            throw rejection
+        }
+        guard state.withLock({ $0.identity }) == identity else { throw HomeRejection.notAuthorized }
+        recover()
+        return value
+    }
+
+    /// Ends subscriptions of conversations the inbox no longer lists.
+    private func unsubscribe(_ ids: [ConversationID], commands: (any CloudConversationCommands)?) {
+        guard let commands, !ids.isEmpty else { return }
+        // task-owner: one unsubscribe per unlisted conversation; ends with the replies
+        Task { for id in ids { _ = try? await commands.unsubscribe(id.rawValue) } }
+    }
+
+    /// The cloud is reachable again after a failure: the store resends.
+    private func recover() {
+        publish { state in
+            guard state.degraded, state.identity != nil, state.commands != nil else { return nil }
+            state.degraded = false
+            return .ownerRecovered
+        }
     }
 
     // MARK: Publishing

@@ -88,6 +88,27 @@ import Testing
         #expect(daemon.opRequests.count == 1)
     }
 
+    /// An op refused for an expired token waits; the renewed lease tells the
+    /// store to resend it, once per failure.
+    @Test func aRenewedLeaseAfterARefusedOpTellsTheStoreToResend() async throws {
+        let (source, _, tape) = await configured(.init(heads: [dm: F.head(dm)], op: { _ in
+            throw DaemonError.command(cmd: "cloud-conversation-op", message: "expired", code: "cloud_session_expired",
+                                      details: .object(["reason": .string("expired")]), retryable: true)
+        }))
+        func recoveries(_ events: [HomeEvent]) -> Int { events.filter { $0 == .ownerRecovered }.count }
+        #expect(await tape.wait { $0.contains { if case .inbox = $0 { true } else { false } } })
+        let before = recoveries(tape.all)
+        let send = HomeIntent(key: IdempotencyKey("cmk_l"), op: .sendMessage(conversation: ConversationID(dm), parts: [.text("x")]))
+        await #expect(throws: HomeRejection.ownerUnreachable) { try await source.submit(send) }
+        source.leaseRenewed()
+        #expect(await tape.wait { recoveries($0) == before + 1 })
+        // Nothing failed since: a second renewal is not a recovery.
+        source.leaseRenewed()
+        source.handle(.inboxChanged(CloudInboxChanged(seq: 4, entries: [F.entry(dm)])))
+        #expect(await tape.wait { !summaries($0, dm).isEmpty })
+        #expect(recoveries(tape.all) == before + 1)
+    }
+
     @Test func ownerEventsBecomeHomeEventsWithTheOwnersRevisions() async throws {
         let (source, _, tape) = await configured(.init(heads: [dm: F.head(dm)]))
         _ = try await source.snapshot(of: ConversationID(dm), tail: 10)

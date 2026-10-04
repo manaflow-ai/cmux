@@ -34,6 +34,11 @@ public enum HomeEvent: Hashable, Sendable {
     /// a fetched `snapshot(of:tail:)` page; a conversation that is not open
     /// takes only the summary.
     case conversationPage(ConversationPage)
+    /// An owner's transport came back while the merged connection stayed
+    /// online (a renewed lease, a socket live again after a disconnect, a
+    /// reply after a failed one). The client resends its unconfirmed
+    /// intents with their keys and refetches stale streams, as on reconnect.
+    case ownerRecovered
     /// Ephemeral, never stored.
     case typing(ConversationID, ParticipantID, on: Bool)
 }

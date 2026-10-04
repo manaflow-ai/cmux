@@ -50,7 +50,7 @@ extension HomeService {
     func handleCloud(_ event: CloudConversationsEvent) {
         if case .sessionNeeded(let needed) = event {
             guard let connection = services.machines.local.connection else { return }
-            cloudLease?.renew(connection, reason: needed.reason)
+            cloudLease?.renew(connection, reason: needed.reason) { [weak self] in self?.cloudSource.leaseRenewed() }
             return
         }
         cloudSource.handle(event)

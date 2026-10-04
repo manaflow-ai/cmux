@@ -53,7 +53,10 @@ nonisolated final class HomeSourceRouter: HomeSource {
             return !state.started
         }
         continuation.onTermination = { [weak self] _ in
-            self?.state.withLock { _ = $0.continuations.removeValue(forKey: id) }
+            // Never take the state lock here: the stream may run this under its
+            // own lock while `publish` yields under the state lock (a deadlock).
+            // task-owner: one removal; ends at once
+            Task { [weak self] in self?.state.withLock { _ = $0.continuations.removeValue(forKey: id) } }
         }
         if start { await startConsuming() }
         return stream
@@ -84,7 +87,8 @@ nonisolated final class HomeSourceRouter: HomeSource {
         switch intent.op {
         case .createGroup, .startConversation, .invite: toCloud = true
         case .createChief: toCloud = false
-        default: toCloud = intent.op.conversation.map(isCloud) ?? false
+        default:
+            if let conversation = intent.op.conversation { toCloud = await owner(of: conversation) == .cloud } else { toCloud = false }
         }
         guard toCloud else { return try await local.submit(intent) }
         let result = try await cloud.submit(intent)
@@ -103,13 +107,24 @@ nonisolated final class HomeSourceRouter: HomeSource {
 
     // MARK: Routing
 
-    /// The owner that reported `conversation`; an unknown one is local, as before the cloud existed.
-    func source(for conversation: ConversationID) -> any HomeSource {
-        isCloud(conversation) ? cloud : local
+    /// The owner that reported `conversation`.
+    func source(for conversation: ConversationID) async -> any HomeSource {
+        await owner(of: conversation) == .cloud ? cloud : local
     }
 
-    func isCloud(_ conversation: ConversationID) -> Bool {
-        state.withLock { $0.owners[conversation] } == .cloud
+    /// The owner of `conversation`. One that no owner reported yet (a deep
+    /// link or a notification before the merged inbox loads) is looked up
+    /// in the cloud inbox first, so a cloud id never reaches the local
+    /// daemon; one the cloud does not list is local, as before the cloud
+    /// existed. The lookup records owners only: the merged inbox keeps its
+    /// revisions, which only events the store receives may move.
+    func owner(of conversation: ConversationID) async -> ConversationSummary.Owner {
+        if let known = state.withLock({ $0.owners[conversation] }) { return known }
+        let listed = (try? await cloud.inbox()) ?? cloud.currentInbox()
+        return state.withLock { state in
+            for summary in listed.conversations where state.owners[summary.id] == nil { state.owners[summary.id] = .cloud }
+            return state.owners[conversation] ?? .local
+        }
     }
 
     private func startConsuming() async {
@@ -155,7 +170,8 @@ nonisolated final class HomeSourceRouter: HomeSource {
     private func forwardCloud(_ event: HomeEvent) {
         switch event {
         case .connection:
-            // The local daemon's connection is the merged one; the cloud's sockets report per target.
+            // The local daemon's connection is the merged one. The cloud side
+            // reports its own recovery as `.ownerRecovered`, which passes through.
             return
         case .inbox(let snapshot):
             let listed = Set(snapshot.conversations.map(\.id))
