@@ -6,5 +6,5 @@ GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" scripts/download-prebuilt-ghosttykit
 scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
 root="$(pwd)"
 cd Packages/macOS/CmuxNext
-"$root/scripts/cmux-next/swift-test-with-hang-sampler.sh" -j 4 \
+"$root/scripts/cmux-next/swift-test-with-hang-sampler.sh" -j 4 -Xlinker -lc++ \
   --filter 'ModifierHoldHintsTests|ModifierHoldHintsSettingTests|SettingsSchemaExportTests'

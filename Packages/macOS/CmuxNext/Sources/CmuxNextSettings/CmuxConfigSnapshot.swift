@@ -48,7 +48,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
     /// direct `shortcuts.<id>` keys (direct keys win, as in the old loader).
     /// The classic 0.30 second modifier-hold hint preference.
-    public var showModifierHoldHints = ModifierHoldHintsSetting.fallback
+    public var showModifierHoldHints = ModifierHoldHintsSetting().fallback
     public var shortcuts: [String: ShortcutBinding]
     /// Key routing tiers by action ID (`shortcuts.tiers.<id>`: `system`,
     /// `navigation` or `content`), plans/cmux-next/focus.md section 5.
@@ -179,7 +179,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
         snapshot.diagnostics += tabBar.diagnostics
-        let (hints, hintsDiagnostic) = ModifierHoldHintsSetting.parse(root)
+        let (hints, hintsDiagnostic) = ModifierHoldHintsSetting().parse(root)
         snapshot.showModifierHoldHints = hints
         if let hintsDiagnostic { snapshot.diagnostics.append(hintsDiagnostic) }
         let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)

@@ -53,6 +53,7 @@ final class WindowScopedShortcutHintModifierMonitor {
         let modifiers = flags.intersection([.command, .control, .shift, .option])
         guard eligible, modifiers == .command || modifiers == .control else { return }
         pending = Task { [weak self, clock] in
+            // wakeup-allow: one cancellable, injected-clock 0.30s intentional hold deadline; never polling.
             do { try await clock.sleep(for: ShortcutHintModifierPolicy.intentionalHoldDelay) } catch { return }
             guard !Task.isCancelled, let self else { return }
             pending = nil

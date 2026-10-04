@@ -1,10 +1,14 @@
 /// Controls the intentional Command/Control shortcut hint overlay.
 public struct ModifierHoldHintsSetting: Sendable {
     /// The same key as classic cmux, enabled by default.
-    public static let configPath = ["shortcuts", "showModifierHoldHints"]
-    public static let fallback = true
+    public let configPath = ["shortcuts", "showModifierHoldHints"]
+    /// Shows hints when the configuration does not specify a preference.
+    public let fallback = true
 
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
+    /// Creates the modifier-hold preference parser with classic cmux defaults.
+    public init() {}
+
+    func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }
         guard let enabled = value.boolValue else {
             return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "shortcuts.showModifierHoldHints", message: "expected true or false"))

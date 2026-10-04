@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDesign
+import CmuxNextTabs
 import Observation
 
 /// Composes hint snapshots from this window and its actual binding table.
@@ -66,7 +67,7 @@ final class WindowShortcutHints {
         if let pane = controller.content?.panes.values.first(where: { $0.paneKey == controller.focus.state.pane }) {
             let strip = pane.view.stripView
             let order = strip.presentedTabIDs
-            for (id, rect) in strip.shortcutHintFrames {
+            for (id, rect) in TabShortcutHintGeometry().frames(in: strip) {
                 guard let index = order.firstIndex(of: id) else { continue }
                 guard index < 8 || index == order.count - 1 else { continue }
                 let digit = index == order.count - 1 && index >= 8 ? 9 : index + 1

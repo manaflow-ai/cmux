@@ -26,6 +26,6 @@ import Foundation
         let bad = snapshot(["shortcuts": ["showModifierHoldHints": "true"]])
         #expect(bad.showModifierHoldHints)
         #expect(bad.diagnostics.contains { $0.path == "shortcuts.showModifierHoldHints" && $0.kind == .invalidValue })
-        #expect(SettingsSchema.descriptor(for: ModifierHoldHintsSetting.configPath)?.section == .keyboard)
+        #expect(SettingsSchema.descriptor(for: ModifierHoldHintsSetting().configPath)?.section == .keyboard)
     }
 }
