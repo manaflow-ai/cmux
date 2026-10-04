@@ -346,3 +346,33 @@ fn policy_ops_answer_get_check_set_and_site() {
     }
     assert!(policy(&gate, "nope", json!({})).is_err());
 }
+
+/// frame.observe reads a tab another session holds, so a secret one
+/// session typed into a tab is masked for every session of the host, and
+/// the record ends when the tab closes.
+#[test]
+fn a_secret_typed_into_a_tab_is_masked_for_every_session() {
+    let shared = Arc::new(TabSecrets::default());
+    let (typer, _) = make_gate(json!("https://example.com/login"), false);
+    let typer = typer.with_tab_secrets(shared.clone());
+    let (reader, _) = make_gate(Value::Null, false);
+    let reader = reader.with_tab_secrets(shared);
+    agent_secret(&typer, "example.com");
+    let before = reader.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
+    assert_eq!(before["title"], "token s3cret-value here", "nothing typed into T yet");
+    typer
+        .driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
+        .unwrap();
+    let info = reader.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
+    assert_eq!(info["title"], "token <secret:pw> here");
+    let other_tab = reader.driver_call("tab.info", json!({"targetId": "U"})).unwrap();
+    assert_eq!(other_tab["title"], "token s3cret-value here", "only the typed tab");
+    let error = reader
+        .driver_call("tab.navigate", json!({"targetId": "T", "url": "https://example.com/"}))
+        .unwrap_err();
+    assert_eq!(error.message, "failed: token <secret:pw> here");
+    let event = reader.mask_event("tab.gone", &json!({"targetId": "T", "t": "s3cret-value"}));
+    assert_eq!(event["t"], "<secret:pw>");
+    let after = reader.driver_call("tab.info", json!({"targetId": "T"})).unwrap();
+    assert_eq!(after["title"], "token s3cret-value here", "the record ends with the tab");
+}

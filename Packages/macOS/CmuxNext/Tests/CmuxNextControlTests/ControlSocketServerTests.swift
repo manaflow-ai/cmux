@@ -174,3 +174,47 @@ import Testing
         #expect(calls.load(ordering: .relaxed) <= 10)
     }
 }
+
+/// `start` used to set the PROCESS-WIDE umask to 0177 around bind(2), so a
+/// file another thread created in that window got mode 0600 (it broke a
+/// watcher test and could hit the app at launch). The socket must get its
+/// mode without process-wide state.
+@Suite(.serialized) struct ControlSocketUmaskTests {
+    private static func createdMode(_ path: String) -> mode_t? {
+        let file = open(path, O_CREAT | O_WRONLY | O_EXCL, 0o644)
+        guard file >= 0 else { return nil }
+        close(file)
+        defer { unlink(path) }
+        var info = stat()
+        return lstat(path, &info) == 0 ? info.st_mode & 0o777 : nil
+    }
+
+    @Test(arguments: [ControlAccessMode.cmuxOnly, .allowAll])
+    func aFileCreatedWhileTheSocketBindsKeepsItsNormalMode(_ mode: ControlAccessMode) throws {
+        let probe = "/tmp/cnc-probe-\(UUID().uuidString.prefix(8).lowercased())"
+        let expected = try #require(Self.createdMode(probe), "the reference file could not be created")
+        let seen = Mutex<[mode_t?]>([])
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
+        let server = ControlSocketServer(
+            configuration: .init(path: temporarySocketPath(), accessMode: mode),
+            router: router,
+            accept: { Darwin.accept($0, nil, nil) },
+            bind: { descriptor, address, length in
+                // Another thread's file create, landing while the socket file is created.
+                let mode = Self.createdMode(probe)
+                seen.withLock { $0.append(mode) }
+                return Darwin.bind(descriptor, address, length)
+            }
+        )
+        try server.start()
+        defer { server.stop() }
+
+        let modes = seen.withLock { $0 }
+        #expect(!modes.isEmpty)
+        #expect(modes.allSatisfy { $0 == expected }, "a concurrent create got \(modes), expected \(expected)")
+        var info = stat()
+        #expect(lstat(server.configuration.path, &info) == 0)
+        #expect(info.st_mode & 0o777 == mode.filePermissions, "the socket still gets its own mode")
+        #expect(info.st_mode & S_IFMT == S_IFSOCK)
+    }
+}

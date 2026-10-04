@@ -141,18 +141,67 @@ impl Vault {
 
     /// A masker for the current secrets (rebuild after every change).
     pub fn masker(&self) -> Masker {
+        Masker::for_secrets(
+            self.entries
+                .iter()
+                .filter(|(_, entry)| !entry.totp)
+                .map(|(name, entry)| (name.as_str(), entry.value.as_str())),
+        )
+    }
+
+    /// The value of a non-TOTP secret, for the per-tab record of typed
+    /// secrets ([`TabSecrets`]); `None` for a TOTP or unknown secret.
+    pub fn typed_value(&self, name: &str) -> Option<&str> {
+        self.entries.get(name).filter(|entry| !entry.totp).map(|entry| entry.value.as_str())
+    }
+}
+
+/// Secrets typed into tabs, shared by every session of one host: once any
+/// session types a secret into a tab, every session's results and events
+/// from that tab mask it (frame.observe reads a tab another session holds).
+/// The record of a tab ends when the tab closes.
+/// No `Debug`: it holds secret values.
+#[derive(Default)]
+pub struct TabSecrets {
+    typed: std::sync::Mutex<BTreeMap<String, BTreeMap<String, String>>>,
+}
+
+impl TabSecrets {
+    fn typed(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, BTreeMap<String, String>>> {
+        self.typed.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    pub fn record(&self, target: &str, name: &str, value: &str) {
+        self.typed()
+            .entry(target.to_owned())
+            .or_default()
+            .insert(name.to_owned(), value.to_owned());
+    }
+
+    pub fn forget(&self, target: &str) {
+        self.typed().remove(target);
+    }
+
+    /// The masker for one tab's typed secrets, `None` when it has none.
+    pub fn masker(&self, target: &str) -> Option<Masker> {
+        let typed = self.typed();
+        let secrets = typed.get(target)?;
+        Some(Masker::for_secrets(secrets.iter().map(|(n, v)| (n.as_str(), v.as_str()))))
+    }
+}
+
+impl Masker {
+    /// Masks each `(name, value)` secret's variants as `<secret:name>`.
+    pub fn for_secrets<'a>(secrets: impl Iterator<Item = (&'a str, &'a str)>) -> Masker {
         let mut pairs: Vec<(String, String)> = Vec::new();
-        for (name, entry) in &self.entries {
-            if entry.totp {
-                continue;
-            }
+        for (name, value) in secrets {
             let mask = format!("<secret:{name}>");
             let mut variants = vec![
-                entry.value.clone(),
-                uri_component(&entry.value),
-                uri_component(&entry.value).replace("%20", "+"),
-                json_escaped(&entry.value),
-                html_escaped(&entry.value),
+                value.to_owned(),
+                uri_component(value),
+                uri_component(value).replace("%20", "+"),
+                json_escaped(value),
+                html_escaped(value),
             ];
             variants.sort();
             variants.dedup();
