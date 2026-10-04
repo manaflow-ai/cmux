@@ -13,8 +13,10 @@ export const HOME_RATE_LIMITS = { "conversation.create": 60, "participants.add":
 export type HomeRateOp = keyof typeof HOME_RATE_LIMITS
 export const HOME_RATE_WINDOW_MS = 3_600_000
 export const HOME_RATE_LIMITED = "home.rate_limited"
+/** The caller's UserDO never served them (no user.ensure yet): not retryable as is. */
+export const HOME_USER_NOT_READY = "home.user_not_ready"
 
-export type HomeRateGate = { readonly ok: true } | { readonly ok: false; readonly retry_after_ms: number }
+export type HomeRateGate = { readonly ok: true } | { readonly ok: false; readonly retry_after_ms: number } | { readonly ok: false; readonly not_ready: true }
 
 export const isHomeRateOp = (op: string): op is HomeRateOp => Object.hasOwn(HOME_RATE_LIMITS, op)
 
@@ -54,7 +56,7 @@ export const homeRateTakeSql = (sql: SqlStore, actor: string, op: HomeRateOp, no
   // A chief's attempt needs room in its own budget and in the owner's chief total; it counts in both.
   const counted = isChiefActor(actor) ? [actor, CHIEF_TOTAL_ACTOR] : [actor]
   const gates = counted.map((who) => decide(who, who === CHIEF_TOTAL_ACTOR ? HOME_RATE_LIMITS[op] * CHIEF_TOTAL_FACTOR : HOME_RATE_LIMITS[op]))
-  const refused = gates.filter((g): g is Extract<HomeRateGate, { ok: false }> => !g.ok)
+  const refused = gates.filter((g): g is { ok: false; retry_after_ms: number } => !g.ok && "retry_after_ms" in g)
   if (refused.length > 0) return { ok: false, retry_after_ms: Math.max(...refused.map((g) => g.retry_after_ms)) }
   for (const who of counted) sql.exec(`INSERT INTO home_rate (actor, op, at) VALUES (?, ?, ?)`, who, op, now)
   return { ok: true }

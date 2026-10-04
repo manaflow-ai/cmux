@@ -4,7 +4,7 @@ import type { OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
 import { humanTargets, isParticipant, resolveHumanReach } from "./home-reach.ts"
-import { HOME_RATE_LIMITED, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
+import { HOME_RATE_LIMITED, HOME_USER_NOT_READY, isHomeRateOp, takeHomeRate } from "./home-rate.ts"
 
 /**
  * Worker side of the Home ops (home-messaging.md section 4.1). Clients name a conversation in
@@ -164,6 +164,7 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
   const rateOp = isHomeRateOp(frame.op) ? frame.op : frame.op === "dm.open" && typeof params.peer === "string" && !params.peer.startsWith("agent_") ? "conversation.create" : null
   if (rateOp) {
     const gate = await takeHomeRate(env, principal, actorOf(principal), rateOp)
+    if (!gate.ok && "not_ready" in gate) return reject(key, HOME_USER_NOT_READY, "call user.ensure once before Home conversation ops")
     if (!gate.ok) {
       const replayed = await replayDecided(env, principal, frame)
       if (replayed) return replayed
