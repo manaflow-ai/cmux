@@ -234,6 +234,9 @@ public enum HomeAttachmentError: Error, Hashable, Sendable {
     case empty(name: String)
     /// More than `HomeAttachmentPolicy.maxParts` parts in one message.
     case tooManyParts(limit: Int)
+    /// The file holds location metadata and `keepLocation` is off, but
+    /// the client could not write a copy without it (an export failure).
+    case locationNotRemoved(name: String)
 }
 
 /// The inbox preview of a message's attachments ("2 photos"); clients

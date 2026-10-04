@@ -318,17 +318,31 @@ enum AttachmentMedia {
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
         if !keepLocation {
             if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-               let clean = try imageWithoutLocation(source) {
-                return try await prepare(data: clean, typeIdentifier: UTType(mimeType: mime)?.identifier ?? UTType.image.identifier,
-                                         root: root, name: name, keepLocation: true)
+               let clean = try imageWithoutLocation(source, name: name) {
+                return try await prepare(data: clean.data, typeIdentifier: clean.type.identifier, root: root,
+                                         name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
             }
-            if mime.hasPrefix("video/"), let clean = try await movieWithoutLocation(fileURL, mimeType: mime, root: root) {
+            if hasMovieMetadata(mime), let clean = try await movieWithoutLocation(fileURL, mimeType: mime, name: name, root: root) {
                 defer { try? FileManager.default.removeItem(at: clean) }
                 return try await prepare(fileURL: clean, root: root, name: name, keepLocation: true)
             }
         }
         let (hash, cached, byteCount) = try ingest(fileURL: fileURL, root: root)
         return try await describe(cached: cached, hash: hash, byteCount: byteCount, name: name, mimeType: mime, root: root)
+    }
+
+    /// Types whose location lives in movie metadata: video, and M4A audio
+    /// (the same container, the same ISO 6709 items).
+    static func hasMovieMetadata(_ mimeType: String) -> Bool {
+        mimeType.hasPrefix("video/") || mimeType == "audio/mp4"
+    }
+
+    /// `name` with the extension of `type` when stripping converted the
+    /// image to another type (a WebP sent as PNG).
+    static func renamed(_ name: String, mimeType: String, as type: UTType) -> String {
+        guard HomeAttachmentPolicy.canonicalMimeType(type.preferredMIMEType ?? "") != mimeType,
+              let fileExtension = type.preferredFilenameExtension else { return name }
+        return "\((name as NSString).deletingPathExtension).\(fileExtension == "jpeg" ? "jpg" : fileExtension)"
     }
 
     /// `name` defaults to `attachment.<ext>`. Removes location metadata
@@ -355,13 +369,21 @@ enum AttachmentMedia {
         try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
         if !keepLocation {
             if mime.hasPrefix("image/"), let source = CGImageSourceCreateWithData(data as CFData, nil),
-               let clean = try imageWithoutLocation(source) {
-                return try await prepare(data: clean, typeIdentifier: typeIdentifier, root: root, name: name, keepLocation: true)
+               let clean = try imageWithoutLocation(source, name: name) {
+                let typeIdentifier = clean.type.identifier == UTType(mimeType: mime)?.identifier ? typeIdentifier : clean.type.identifier
+                return try await prepare(data: clean.data, typeIdentifier: typeIdentifier, root: root,
+                                         name: renamed(name, mimeType: mime, as: clean.type), keepLocation: true)
             }
-            if mime.hasPrefix("video/") {
+            if hasMovieMetadata(mime) {
                 // AVFoundation reads files: inspect the bytes through a temp file.
                 try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-                let temp = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(fileExtension.isEmpty ? "mp4" : fileExtension)")
+                // The temp file's extension decides its type on the file path.
+                let tempExtension = switch mime {
+                case "audio/mp4": "m4a"
+                case "video/quicktime": "mov"
+                default: "mp4"
+                }
+                let temp = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(tempExtension)")
                 try data.write(to: temp)
                 defer { try? FileManager.default.removeItem(at: temp) }
                 return try await prepare(fileURL: temp, root: root, name: name, keepLocation: false)
@@ -373,77 +395,175 @@ enum AttachmentMedia {
 
     // MARK: Location
 
-    /// The image with its location metadata (EXIF GPS and its XMP copy)
-    /// removed, orientation and all other metadata kept, copied without
-    /// re-encoding when ImageIO can (JPEG, PNG, HEIC, TIFF). Nil when the
-    /// image has no location. Throws rather than send a location it could
-    /// not remove.
-    static func imageWithoutLocation(_ source: CGImageSource) throws -> Data? {
+    /// IPTC keys that hold a place as text.
+    static var iptcLocationKeys: [CFString] {
+        [kCGImagePropertyIPTCCity, kCGImagePropertyIPTCSubLocation, kCGImagePropertyIPTCProvinceState,
+         kCGImagePropertyIPTCCountryPrimaryLocationName, kCGImagePropertyIPTCCountryPrimaryLocationCode,
+         kCGImagePropertyIPTCContentLocationName, kCGImagePropertyIPTCContentLocationCode]
+    }
+
+    /// An XMP tag that holds a position or a place: EXIF GPS tags, the
+    /// Photoshop and IPTC Core place names, and the IPTC Extension
+    /// location structures.
+    static func isLocationTag(_ tag: CGImageMetadataTag) -> Bool {
+        let prefix = CGImageMetadataTagCopyPrefix(tag) as String? ?? ""
+        let name = CGImageMetadataTagCopyName(tag) as String? ?? ""
+        switch prefix {
+        case "exif": return name.hasPrefix("GPS")
+        case "photoshop": return ["City", "State", "Country"].contains(name)
+        case "Iptc4xmpCore": return ["Location", "CountryCode"].contains(name)
+        case "Iptc4xmpExt": return ["LocationShown", "LocationCreated"].contains(name)
+        default: return false
+        }
+    }
+
+    /// Image `index`'s XMP view (which ImageIO also fills from EXIF and
+    /// IPTC) without location tags, and whether it had any.
+    static func metadataWithoutLocation(_ source: CGImageSource, at index: Int) -> (metadata: CGImageMetadata?, hadLocation: Bool) {
+        guard let metadata = CGImageSourceCopyMetadataAtIndex(source, index, nil) else { return (nil, false) }
+        var paths: [String] = []
+        CGImageMetadataEnumerateTagsUsingBlock(metadata, nil, nil) { path, tag in
+            if isLocationTag(tag) { paths.append(path as String) }
+            return true
+        }
+        guard !paths.isEmpty, let cleaned = CGImageMetadataCreateMutableCopy(metadata) else { return (metadata, false) }
+        for path in paths { CGImageMetadataRemoveTagWithPath(cleaned, nil, path as CFString) }
+        return (cleaned, true)
+    }
+
+    /// True when image `index` holds a position or a place anywhere: the
+    /// GPS dictionary, IPTC place text, or an XMP location tag.
+    static func hasLocation(_ source: CGImageSource, at index: Int) -> Bool {
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] ?? [:]
+        if properties[kCGImagePropertyGPSDictionary] != nil { return true }
+        let iptc = properties[kCGImagePropertyIPTCDictionary] as? [CFString: Any] ?? [:]
+        if iptcLocationKeys.contains(where: { iptc[$0] != nil }) { return true }
+        return metadataWithoutLocation(source, at: index).hadLocation
+    }
+
+    /// The image without location metadata (EXIF GPS, IPTC place text,
+    /// XMP location tags), orientation and all other metadata kept. It is
+    /// copied without re-encoding when ImageIO can, else re-encoded in its
+    /// own type, else (a type ImageIO cannot write, such as WebP, or a
+    /// HEIC encode that fails) converted to PNG when it has alpha, else
+    /// JPEG. Nil when the image has no location. Throws
+    /// `HomeAttachmentError.locationNotRemoved` rather than send a
+    /// location it could not remove.
+    static func imageWithoutLocation(_ source: CGImageSource, name: String) throws -> (data: Data, type: UTType)? {
         let count = CGImageSourceGetCount(source)
-        let properties = (0..<count).map { CGImageSourceCopyPropertiesAtIndex(source, $0, nil) as? [CFString: Any] ?? [:] }
-        guard properties.contains(where: { $0[kCGImagePropertyGPSDictionary] != nil }),
-              let type = CGImageSourceGetType(source) else { return nil }
-        let orientation = (properties.first?[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
-        // The result must have no GPS and the same orientation; else the next way.
-        func verified(_ data: NSMutableData) -> Data? {
-            guard let result = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(result) == count else { return nil }
-            for index in 0..<count {
+        guard count > 0, (0..<count).contains(where: { hasLocation(source, at: $0) }) else { return nil }
+        let orientations = (0..<count).map { index -> Int in
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+            return (properties?[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
+        }
+        // The result must have no location and the same orientations.
+        func verified(_ data: NSMutableData, frames: Int) -> Data? {
+            guard let result = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(result) == frames else { return nil }
+            for index in 0..<frames {
                 let after = CGImageSourceCopyPropertiesAtIndex(result, index, nil) as? [CFString: Any] ?? [:]
                 let kept = (after[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
-                let wanted = (properties[index][kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1
-                guard after[kCGImagePropertyGPSDictionary] == nil, kept == wanted else { return nil }
+                guard !hasLocation(result, at: index), kept == orientations[index] else { return nil }
             }
             return data as Data
         }
-        let copied = NSMutableData()
-        if let destination = CGImageDestinationCreateWithData(copied as CFMutableData, type, count, nil) {
-            let options: [CFString: Any] = [kCGImageMetadataShouldExcludeGPS: true, kCGImageDestinationOrientation: orientation]
-            if CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, nil), let data = verified(copied) {
-                return data
+        let writable = Set((CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? [])
+        if let type = CGImageSourceGetType(source), writable.contains(type as String), let utType = UTType(type as String) {
+            // A lossless copy with the cleaned metadata replacing the old.
+            let copied = NSMutableData()
+            if let destination = CGImageDestinationCreateWithData(copied as CFMutableData, type, count, nil) {
+                var options: [CFString: Any] = [kCGImageMetadataShouldExcludeGPS: true,
+                                                kCGImageDestinationOrientation: orientations[0],
+                                                kCGImageDestinationMergeMetadata: false]
+                if let metadata = metadataWithoutLocation(source, at: 0).metadata { options[kCGImageDestinationMetadata] = metadata }
+                if CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, nil),
+                   let data = verified(copied, frames: count) {
+                    return (data, utType)
+                }
             }
+            if let data = reencoded(source, as: type, frames: count, verified: verified) { return (data, utType) }
         }
-        // No lossless copy for this format: re-encode each image without GPS.
+        let hasAlpha = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyHasAlpha] as? Bool ?? false
+        let target: UTType = hasAlpha ? .png : .jpeg
+        if let data = reencoded(source, as: target.identifier as CFString, frames: 1, verified: verified) { return (data, target) }
+        throw HomeAttachmentError.locationNotRemoved(name: name)
+    }
+
+    /// The first `frames` images encoded as `type` with their metadata
+    /// minus location; nil when encoding or verification fails.
+    private static func reencoded(_ source: CGImageSource, as type: CFString, frames: Int,
+                                  verified: (NSMutableData, Int) -> Data?) -> Data? {
         let encoded = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(encoded as CFMutableData, type, count, nil) else {
-            throw HomeRejection.invalid("location_not_removed")
-        }
-        for index in 0..<count {
-            var frame = properties[index]
-            frame[kCGImagePropertyGPSDictionary] = nil
-            frame[kCGImageDestinationLossyCompressionQuality] = 0.95
-            frame[kCGImageMetadataShouldExcludeGPS] = true
-            if let image = CGImageSourceCreateImageAtIndex(source, index, nil) {
-                CGImageDestinationAddImage(destination, image, frame as CFDictionary)
+        guard let destination = CGImageDestinationCreateWithData(encoded as CFMutableData, type, frames, nil) else { return nil }
+        for index in 0..<frames {
+            guard let image = CGImageSourceCreateImageAtIndex(source, index, nil) else { return nil }
+            let options: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.95]
+            if let metadata = metadataWithoutLocation(source, at: index).metadata {
+                CGImageDestinationAddImageAndMetadata(destination, image, metadata, options as CFDictionary)
+            } else {
+                CGImageDestinationAddImage(destination, image, options as CFDictionary)
             }
         }
-        guard CGImageDestinationFinalize(destination), let data = verified(encoded) else {
-            throw HomeRejection.invalid("location_not_removed")
-        }
-        return data
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return verified(encoded, frames)
     }
 
+    /// A position or place in movie metadata: ISO 6709 (QuickTime metadata
+    /// or user data), the common location key, every
+    /// `com.apple.quicktime.location.*` key (name, body, note, role, date)
+    /// and the 3GPP location box.
     static func isLocation(_ item: AVMetadataItem) -> Bool {
-        item.identifier == .quickTimeMetadataLocationISO6709 || item.identifier == .quickTimeUserDataLocationISO6709
-            || item.identifier == .commonIdentifierLocation
+        if item.commonKey == .commonKeyLocation { return true }
+        guard let raw = item.identifier?.rawValue else { return false }
+        return raw.hasPrefix("mdta/com.apple.quicktime.location.") || raw == AVMetadataIdentifier.commonIdentifierLocation.rawValue
+            || raw == AVMetadataIdentifier.quickTimeUserDataLocationISO6709.rawValue || raw == "udta/loci"
     }
 
-    /// A copy of the movie without location metadata, written to a temp
-    /// file under `root` by a passthrough export (no re-encode; tracks,
-    /// transform and other metadata kept, as `AVMetadataItemFilter.forSharing`
-    /// allows). Nil when the movie has no location. The caller deletes it.
-    @concurrent
-    static func movieWithoutLocation(_ url: URL, mimeType: String, root: URL) async throws -> URL? {
-        let asset = AVURLAsset(url: url)
-        let items = (try? await asset.load(.metadata)) ?? []
-        guard items.contains(where: isLocation) else { return nil }
-        guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
-            throw HomeRejection.invalid("location_not_removed")
+    /// Location anywhere in a movie or M4A: asset or track metadata items,
+    /// or a timed metadata track (a GoPro or drone GPS track).
+    static func movieHasLocation(_ asset: AVAsset) async -> Bool {
+        if ((try? await asset.load(.metadata)) ?? []).contains(where: isLocation) { return true }
+        for track in (try? await asset.load(.tracks)) ?? [] {
+            if track.mediaType == .metadata { return true }
+            if ((try? await track.load(.metadata)) ?? []).contains(where: isLocation) { return true }
         }
+        return false
+    }
+
+    /// A copy of the movie (or M4A) without location, written to a temp
+    /// file under `root` by a passthrough export (no re-encode) of every
+    /// track except timed metadata tracks, with each track's transform and
+    /// the asset metadata that is not location (as
+    /// `AVMetadataItemFilter.forSharing` allows); track metadata is not
+    /// copied. Nil when the file has no location. The caller deletes it.
+    /// Throws `HomeAttachmentError.locationNotRemoved` when the export
+    /// fails or its result still holds a location.
+    @concurrent
+    static func movieWithoutLocation(_ url: URL, mimeType: String, name: String, root: URL) async throws -> URL? {
+        let asset = AVURLAsset(url: url)
+        guard await movieHasLocation(asset) else { return nil }
+        let refused = HomeAttachmentError.locationNotRemoved(name: name)
+        let composition = AVMutableComposition()
+        do {
+            for track in try await asset.load(.tracks) where track.mediaType != .metadata {
+                let (range, transform) = try await track.load(.timeRange, .preferredTransform)
+                guard let copy = composition.addMutableTrack(withMediaType: track.mediaType,
+                                                             preferredTrackID: kCMPersistentTrackID_Invalid) else { throw refused }
+                try copy.insertTimeRange(range, of: track, at: range.start)
+                copy.preferredTransform = transform
+            }
+        } catch {
+            throw refused
+        }
+        guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else { throw refused }
+        session.metadata = ((try? await asset.load(.metadata)) ?? []).filter { !isLocation($0) }
         session.metadataItemFilter = .forSharing()
-        let quickTime = mimeType == "video/quicktime"
-        let fileType: AVFileType = quickTime ? .mov : .mp4
+        let (fileType, fileExtension): (AVFileType, String) = switch mimeType {
+        case "video/quicktime": (.mov, "mov")
+        case "audio/mp4": (.m4a, "m4a")
+        default: (.mp4, "mp4")
+        }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let output = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(quickTime ? "mov" : "mp4")")
+        let output = root.appendingPathComponent(".incoming-\(UUID().uuidString).\(fileExtension)")
         do {
             if #available(macOS 15, iOS 18, *) {
                 try await session.export(to: output, as: fileType)
@@ -451,11 +571,12 @@ enum AttachmentMedia {
                 session.outputURL = output
                 session.outputFileType = fileType
                 await session.export()
-                guard session.status == .completed else { throw session.error ?? HomeRejection.invalid("location_not_removed") }
+                guard session.status == .completed else { throw refused }
             }
+            guard await !movieHasLocation(AVURLAsset(url: output)) else { throw refused }
         } catch {
             try? FileManager.default.removeItem(at: output)
-            throw error
+            throw refused
         }
         return output
     }
