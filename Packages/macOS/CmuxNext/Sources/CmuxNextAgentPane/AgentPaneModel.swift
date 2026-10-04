@@ -106,6 +106,7 @@ public final class AgentPaneModel {
                     handshake.cwd = seed.cwd
                     handshake.draft = seed.draft
                     handshake.prompt = seed.prompt
+                    handshake.harness = seed.harness
                     handshake.adopt = seed.adopt
                 }
                 // The surface holds after the chat has a session (a reload
