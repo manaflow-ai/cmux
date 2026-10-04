@@ -213,8 +213,10 @@ Daemon (cmux-tui) under capability `rows-v1`:
 
 ## Geometry
 
-- G1. A row's height is a share of the column's viewport height, gaps included as for column widths:
-  `(view - gap) * p - gap`.
+- G1. A row's height is a share of the column's viewport height, with gaps only between rows:
+  `(height + gap) * p - gap`, so a row of 1000 is exactly today's column and two rows of 500 plus
+  their gap fill it (decision, coordinator, 2026-10-04; it replaces `(view - gap) * p - gap`, which
+  counted gaps above and below the column).
 - G2. Fill under, scroll over: when a column's heights sum to at most 1000, its rows fill the
   column in proportion (as stacked panes fill a column today); above 1000 the rows keep their
   heights and the column scrolls vertically. One full-height row is today's column.
