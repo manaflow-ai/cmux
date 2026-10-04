@@ -1079,7 +1079,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         let timeout = Self.timeout(params)
         let started = ContinuousClock.now
-        attachment(panel).rememberCredentials(in: url)
+        attachment(panel).rememberCredentials(in: url, sessionID: sessionID)
         _ = attachment(panel).takeAuthenticationFailure()
         // Until the navigation commits, a dialog the page opens (beforeunload)
         // is this session's doing; while the new page loads, it is not.

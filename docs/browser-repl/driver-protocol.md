@@ -59,6 +59,19 @@ another session, and the same name in another workspace is another session
 too. Ownership ends with the creating session; the tab is the user's from
 then on.
 
+HTTP authentication: a driven tab answers a Basic, Digest or other HTTP
+challenge from the user name and password a session gave in a `tab.navigate`
+URL (`http://user:password@host/`), by host and port, instead of a prompt
+nobody can answer. Those credentials are the giving session's alone: they
+answer a challenge only while the page handles that session's own
+navigation or input (a call of exactly one session in flight), or any
+request of a tab that session created, never another session's request on
+a tab both drive, and they are forgotten when the session leaves the tab.
+WebKit gets them without persistence, so it does not keep them for the data
+store that the profile's other tabs share. Without an answer, a tab a session
+created fails the navigation with the challenge named; a user's tab keeps its
+sign-in prompt.
+
 A tab the session created (`tabs.open`, and popups of such a tab) gets the
 session's behaviors while the session is attached: `dialog.opened`,
 `filechooser.opened` and `download.*` for every dialog, file chooser and

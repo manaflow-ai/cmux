@@ -193,9 +193,10 @@ final class BrowserReplTabAttachment {
     /// Target id of the tab that opened this one, for popups.
     var openerTargetID: String?
     /// Credentials from `user:password@` in URLs a session navigated to, by
-    /// `host:port`. HTTP auth challenges in a driven tab answer from these
-    /// instead of showing a prompt nobody can answer.
-    private var httpCredentials: [String: URLCredential] = [:]
+    /// session and `host:port`. HTTP auth challenges in a driven tab answer
+    /// from the acting session's or the creator's own, instead of showing a
+    /// prompt nobody can answer (``BrowserReplHTTPCredentials``).
+    private var httpCredentials = BrowserReplHTTPCredentials()
 
     private var authenticationFailure: String?
 
@@ -205,19 +206,17 @@ final class BrowserReplTabAttachment {
         return authenticationFailure
     }
 
-    func rememberCredentials(in url: URL) {
-        guard let user = url.user, !user.isEmpty, let host = url.host else { return }
-        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
-        httpCredentials["\(host.lowercased()):\(port)"] = URLCredential(
-            user: user.removingPercentEncoding ?? user,
-            password: (url.password ?? "").removingPercentEncoding ?? url.password ?? "",
-            persistence: .forSession
-        )
+    /// Remembers the credentials in `url`, which `sessionID` navigates to,
+    /// as that session's alone.
+    func rememberCredentials(in url: URL, sessionID: String) {
+        httpCredentials.remember(url, sessionID: sessionID)
     }
 
     /// The answer to an HTTP authentication challenge in a driven tab: the
-    /// URL's credentials once, then the unauthenticated response (a 401
-    /// page the session sees) instead of a prompt.
+    /// acting session's (or, in a tab a session created, the creator's)
+    /// URL credentials once, then the unauthenticated response (a 401 page
+    /// the session sees) instead of a prompt. Another session's credentials
+    /// never answer it.
     func answerAuthenticationChallenge(_ challenge: URLAuthenticationChallenge) -> (URLSession.AuthChallengeDisposition, URLCredential?)? {
         let space = challenge.protectionSpace
         let httpMethods: Set<String> = [
@@ -228,8 +227,13 @@ final class BrowserReplTabAttachment {
             NSURLAuthenticationMethodNegotiate,
         ]
         guard httpMethods.contains(space.authenticationMethod), !space.isProxy() else { return nil }
-        let key = "\(space.host.lowercased()):\(space.port)"
-        if challenge.previousFailureCount == 0, let credential = httpCredentials[key] {
+        if challenge.previousFailureCount == 0,
+           let credential = httpCredentials.credential(
+               host: space.host,
+               port: space.port,
+               actingSession: inputSessionID,
+               creator: creatorSessionID
+           ) {
             return (.useCredential, credential)
         }
         // A user's tab keeps its sign-in prompt.
@@ -538,6 +542,7 @@ final class BrowserReplTabAttachment {
         for respond in dialogs.removeAll(ownedBy: sessionID) { respond(false, nil) }
         for chooser in fileChoosers.removeAll(ownedBy: sessionID) { chooser.respond(nil) }
         sinks.removeValue(forKey: sessionID)
+        httpCredentials.sessionLeft(sessionID)
         // What the creating session copied or wrote is its own; a session
         // that drives the kept tab later never reads it, and a Copy still
         // running for it never lands.
@@ -647,6 +652,7 @@ final class BrowserReplTabAttachment {
         sinks.removeAll()
         ownership = BrowserReplTabOwnership()
         syncClipboardOwner()
+        httpCredentials = BrowserReplHTTPCredentials()
         // Playwright dismisses dialogs nobody handles; do the same so a page
         // is never left blocked on a dialog after its session goes away.
         for respond in dialogs.removeAll() { respond(false, nil) }
