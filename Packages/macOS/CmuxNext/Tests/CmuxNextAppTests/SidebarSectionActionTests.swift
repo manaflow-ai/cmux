@@ -25,18 +25,6 @@ import Testing
         return (registry, services.sidebarLayout)
     }
 
-    /// Home's item is selected while the window shows the home workspace,
-    /// and Notifications carries the unread count (the rail dots it).
-    @Test func homeIsActiveAndNotificationsCarryTheUnreadCount() {
-        let home = LayoutItemID("itm_home"), notifications = LayoutItemID("itm_notifications")
-        let live = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, homeShown: true, unread: 4)
-        #expect(live[home]?.isActive == true)
-        #expect(live[notifications]?.badge == 4)
-        let quiet = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, homeShown: false, unread: 0)
-        #expect(quiet[home]?.isActive == false)
-        #expect(quiet[notifications]?.badge == nil)
-    }
-
     @Test func editsAreRefusedWithoutTheStoreCapability() {
         withPrototype(false) {
             let (registry, layout) = make()

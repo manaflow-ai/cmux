@@ -27,6 +27,14 @@ final class SidebarItemRowView: NSView {
     /// and unread items as a dot on the glyph (the Codex rail).
     var isRailButton = false
     var onPress: (() -> Void)?
+    /// The trailing control was pressed (`SidebarItemInfo.accessory`).
+    var onAccessory: (() -> Void)?
+    /// The accessory draws (tests).
+    var isAccessoryShown: Bool { !accessoryView.isHidden }
+    /// The accessory's frame while it draws (tests).
+    var accessoryFrame: CGRect? { accessoryView.isHidden ? nil : accessoryView.frame }
+    /// The trailing control (`SidebarItemInfo.accessory`): the update badge.
+    private let accessoryView = NSImageView()
     /// Modifier-aware activation for controls whose action has a one-shot
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
@@ -55,7 +63,9 @@ final class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [icon, title, badge].forEach(addSubview)
+        accessoryView.imageScaling = .scaleProportionallyDown
+        accessoryView.isHidden = true
+        [icon, title, badge, accessoryView].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
@@ -115,6 +125,7 @@ final class SidebarItemRowView: NSView {
             unread = info.badge.map(UnreadState.count) ?? UnreadState.none
         }
         badge.configure(unread)
+        configureAccessory(info.accessory)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.badge.map { String($0) })
         toolTip = style.isIconOnly ? info.title : nil
@@ -179,11 +190,17 @@ final class SidebarItemRowView: NSView {
             title.frame = .zero
             return
         }
+        // The accessory sits at the trailing edge, before any count badge.
+        let accessorySide = Metrics.smallIconSize
+        let accessoryX = b.width - Metrics.space2 - accessorySide
+        accessoryView.frame = accessoryView.isHidden ? .zero
+            : NSRect(x: accessoryX, y: (b.height - accessorySide) / 2, width: accessorySide, height: accessorySide)
+        let trailing = accessoryView.isHidden ? b.width : accessoryX - Metrics.space1
         let bh = SidebarStyle.badgeHeight
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         let badgeX = style == .chip
-            ? (badge.isHidden ? b.width : b.width - Metrics.space2 - badgeWidth)
-            : b.width - inset * 2 - badgeWidth
+            ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
+            : (accessoryView.isHidden ? b.width - inset * 2 : trailing) - badgeWidth
         badge.frame = NSRect(x: badgeX, y: (b.height - bh) / 2, width: badgeWidth, height: bh)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
@@ -209,9 +226,36 @@ final class SidebarItemRowView: NSView {
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.
     override func mouseDown(with event: NSEvent) {
-        guard pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
+        if hitsAccessory(point) { return onAccessory?() ?? () }
         isPressed = true
         if let onPressWithModifiers { onPressWithModifiers(event.modifierFlags) } else { onPress?() }
+    }
+
+    /// The accessory takes a click a little outside its glyph.
+    private func hitsAccessory(_ point: NSPoint) -> Bool {
+        !accessoryView.isHidden && accessoryView.frame.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(point)
+    }
+
+    private func configureAccessory(_ accessory: SidebarItemAccessory?) {
+        guard let accessory else {
+            accessoryView.isHidden = true
+            setAccessibilityCustomActions(nil)
+            return
+        }
+        switch accessory {
+        case .update:
+            accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: Strings.updateAvailable)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
+            accessoryView.contentTintColor = performWithTheme { Palette.accent }
+            accessoryView.toolTip = Strings.updateAvailable
+            accessoryView.isHidden = false
+            setAccessibilityCustomActions([NSAccessibilityCustomAction(name: Strings.updateAvailable) { [weak self] in
+                self?.onAccessory?()
+                return true
+            }])
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -222,6 +266,12 @@ final class SidebarItemRowView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         guard let onContextMenu else { return super.rightMouseDown(with: event) }
         onContextMenu(event, self)
+    }
+
+    /// A press at `point` (this view's coordinates), as a click there (tests).
+    func press(at point: NSPoint) {
+        if hitsAccessory(point) { return onAccessory?() ?? () }
+        if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
     }
 
     override func accessibilityPerformPress() -> Bool {

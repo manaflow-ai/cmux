@@ -2093,10 +2093,31 @@ jobs:
             --feed nightly-out/appcast-universal.xml \
             --feed nightly-out/appcast.xml
 
+      - name: Mint release tag app token
+        id: release-tag-token
+        if: needs.decide.outputs.should_publish == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          # The release App (Contents + Workflows write only); its id and key
+          # live only in the release and release-next environments.
+          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      # nightly-next commits change .github/workflows relative to main, and
+      # GitHub refuses the Actions token any release create/update that targets
+      # such a commit. nightly-next therefore publishes its release metadata
+      # with the release App token; other channels keep the Actions token.
       - name: Publish verified nightly release metadata
         if: needs.decide.outputs.should_publish == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
+          token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           tag_name: ${{ needs.decide.outputs.release_tag }}
           target_commitish: ${{ needs.decide.outputs.head_sha }}
           name: ${{ needs.decide.outputs.release_name }}
@@ -2170,6 +2191,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true'
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
+          token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           tag_name: ${{ needs.decide.outputs.release_tag }}
           target_commitish: ${{ needs.decide.outputs.head_sha }}
           name: ${{ needs.decide.outputs.release_name }}
@@ -2185,28 +2207,13 @@ jobs:
             - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
             - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
 
-      - name: Mint release tag app token
-        id: release-tag-token
-        if: needs.decide.outputs.should_publish == 'true'
-        continue-on-error: true
-        timeout-minutes: 2
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          # The release App (Contents + Workflows write only); its id and key
-          # live only in the release and release-next environments.
-          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
-          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-          permission-workflows: write
-
       # The channel's release tag is the fast completion marker used by the
       # decide job. Move it to the fixed candidate selected at dispatch only
       # after every publication step succeeds. A newer commit becomes the next
       # run's candidate. The tag is deliberately the only operation using the
-      # elevated app token; all assets, feeds, and metadata above use the normal
-      # Actions token and remain the publication record if this marker is stale.
+      # elevated app token on classic channels (nightly-next also needs it for
+      # release metadata, see above); assets and feeds use the Actions token and
+      # remain the publication record if this marker is stale.
       - name: Move channel release tag to built commit
         id: move-channel-release-tag
         if: needs.decide.outputs.should_publish == 'true'

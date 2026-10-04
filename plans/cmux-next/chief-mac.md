@@ -117,7 +117,8 @@ the TypeScript core must agree, and the generator records the full effects).
 ```
 {"format": "cmux-chief-corpus/1",
  "cases": [{"name", "state": <durable state before>,
-            "steps": [{"now": <ms since the epoch>, "input": <Input>, "effects": [<Effect>]}],
+            "steps": [{"now": <ms since the epoch>, "input": <Input> | "input_text": <wire text>,
+                       "effects": [<Effect>]}],
             "state_after": <durable state>}],
  "memory": [{"name", "fn": "to_lines"|"decompose"|"wake_cover"|"wake"|"zoom", "args", "result"}]}
 ```
@@ -127,6 +128,11 @@ permission's `rawInput`, the `turn_error` fallback) uses sorted keys in both lan
 still differs for integer-valued floats (TypeScript `1`, Rust `1.0`). This gap is accepted: corpus
 cases carry no floats in that JSON, one unit test per language pins the current text, and no code
 compares that text across the cores (compare parsed values only).
+
+Wire counts (P1 v2, 2026-10-03): JSON has one number type, so a seq, at or log id written as an
+integer-valued float (`1.0`, `3e0`) is that integer in both cores (JavaScript `JSON.parse` reads it
+so; the Rust reader accepts it). A step with `input_text` carries its input as wire text that each
+core parses with its own JSON reader, so the corpus can pin number text a JSON value cannot carry.
 
 Rules: effects compare as exact JSON values in order (`log` effects are not compared); `persist` compares the whole state; times come only
 from `now`. Case groups: wake rule (1:1, group, DM, mention, reply to the Chief, retracted, own

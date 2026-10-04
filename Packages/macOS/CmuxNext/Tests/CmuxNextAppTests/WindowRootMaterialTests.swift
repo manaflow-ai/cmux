@@ -23,7 +23,6 @@ struct WindowRootMaterialTests {
     private func makeRoot(_ input: ThemeInput, reduceTransparency: Flag = Flag(false)) -> (WindowRootView, ThemeScope) {
         let model = SidebarModel()
         let root = WindowRootView(sidebar: SidebarContainerView(model: model),
-                                  rail: WindowRailView(model: model, registry: ActionBindingCoverageTests.boundServices().registry),
                                   reduceTransparency: { reduceTransparency.on },
                                   applyWindowBlur: { _, _ in })
         let room = ThemeScope(level: .room)

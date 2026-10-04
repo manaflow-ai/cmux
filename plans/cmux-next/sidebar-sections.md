@@ -261,6 +261,8 @@ switch (descriptor titles are built once at launch).
 
 ## 9a. Decisions (Lawrence, 2026-10-02)
 
+- R52 (Lawrence, 2026-10-03): no window rail. The sections sidebar is the one place for destinations: Home, App Store and CodeRouter on top, Settings and the account at the bottom. The rail (#16915, #17153), its inset sidebar panel, its update circle and `window.rail` are removed; a stored layout equal to the rail default moves back (`sectionsMigrationOps`).
+
 - Tab drags (coordinator, 2026-10-03): a workspace made from a moved tab takes the tab's name; from a workspace's last tab it keeps the old workspace's name when the user set one (a `workspace-N` name counts as the daemon default). The name rides on `move-tab-to-new-workspace` (`name` field, sidebar store window); a daemon without it gets a rename after the move. A dragged agent tab snaps back for now: agent tabs are app-local, so the daemon has no slot for them. The real fix is the daemon owning agent tabs (ownership-v2).
 - Section collapse state is per window (`WindowState.collapsedSections`, saved with the window), not synced per user. The space bar stays as its own control; sections do not subsume it (batch item 2, s9).
 

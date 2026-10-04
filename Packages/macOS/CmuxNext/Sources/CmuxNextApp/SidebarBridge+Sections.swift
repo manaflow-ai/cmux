@@ -63,21 +63,24 @@ extension SidebarBridge {
         let apps = services.apps.registry
         let home = services.home, store = services.machines.local.store
         let window = state
+        let updater = services.updater
         sectionsObservation = Task { [weak self] in
             // The app registry is observed too: hiding or installing an app
             // changes its item at once.
             // So are the shown workspace (Home's selected tile) and the
-            // unread count (Notifications' dot).
-            for await (layout, homeShown, unread) in Observations({ () -> (SidebarLayoutDocument, Bool, Int) in
+            // unread count (Notifications' dot), and an available update
+            // (the badge on Settings).
+            for await (layout, homeShown, unread, update) in Observations({ () -> (SidebarLayoutDocument, Bool, Int, Bool) in
                 _ = apps.apps
                 let shown = window?.workspaceID
-                return (service.document, shown != nil && shown == home.homeWorkspace?.id, NotificationCenterService.unreadCount(store))
+                return (service.document, shown != nil && shown == home.homeWorkspace?.id, NotificationCenterService.unreadCount(store),
+                        updater.indicatorPhase.isUpdateAvailable)
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
                                           homeShown: homeShown, unread: unread,
-                                          app: { Self.appInfo($0, registry: apps) })
+                                          app: { Self.appInfo($0, registry: apps) }, updateAvailable: update)
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -87,10 +90,12 @@ extension SidebarBridge {
 
     /// Presentation of every built-in item in `layout`; `registered` says
     /// whether an action exists. Home is active while `homeShown`, and
-    /// Notifications carries `unread`.
+    /// Notifications carries `unread`. Settings carries the update badge
+    /// while `updateAvailable` (the window rail's update circle is gone, R52).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          homeShown: Bool = false, unread: Int = 0,
-                         app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) }) -> [LayoutItemID: SidebarItemInfo] {
+                         app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
+                         updateAvailable: Bool = false) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
@@ -104,6 +109,7 @@ extension SidebarBridge {
                 switch builtIn {
                 case .home: info.isActive = homeShown
                 case .notifications: info.badge = unread > 0 ? unread : nil
+                case .settings: info.accessory = updateAvailable ? .update : nil
                 default: break
                 }
                 infos[item.id] = info

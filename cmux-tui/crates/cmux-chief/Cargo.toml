@@ -13,4 +13,7 @@ workspace = true
 [dependencies]
 cmux-conversation.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# float_roundtrip: exact float text parsing, so a count written as `9007199254740991.0` reads as
+# that integer (JSON.parse is exact; the default parser reads it as 9007199254740990). Cargo
+# unifies features, so every serde_json user in a build with cmux-chief parses floats exactly.
+serde_json = { workspace = true, features = ["float_roundtrip"] }

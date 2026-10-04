@@ -48,9 +48,8 @@ struct AppearanceStudioTests {
         withExtendedLifetime(services) {}
     }
 
-    /// Customize Appearance is a sidebar item (it runs the same action);
-    /// the default bottom band leaves it out. The rail default lists it
-    /// under More (S11 is superseded by the rail, sidebar-sections.md).
+    /// Customize Appearance is a sidebar item users can add (it runs the
+    /// same action); the default bottom band leaves it out (decision S11).
     @Test func theSidebarItemOpensTheStudioAndIsNotInTheDefaultBand() throws {
         #expect(SidebarBridge.builtInActions[.customize] == "appearance.customize")
         let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))

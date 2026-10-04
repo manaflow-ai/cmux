@@ -56,6 +56,9 @@
     },
     "staging": {
       "name": "cmux-api-staging",
+      // Logs also go to Axiom (dataset cmux-api-staging-logs, monitor cmux-api-staging-kms-fallback); query strings
+      // (SSO codes, emails) are removed first. Workers Logs stay on (persist).
+      "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": true, "persist": true, "destinations": ["axiom-cmux-api-staging"] } },
       "triggers": { "crons": ["23 * * * *"] },
       "workers_dev": true,
       "vars": { "ENVIRONMENT": "staging", "WORKER_NAME": "cmux-api-staging", "TEAM_VM_SLUG_PREFIX": "cmuxnp-dev-tvm-", "AUTOMATION_CAP_CEILING_USD": "25", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
@@ -83,6 +86,8 @@
     },
     "production": {
       "name": "cmux-api",
+      // Logs also go to Axiom (dataset cmux-api-prod-logs, monitor cmux-api-production-kms-fallback); query strings removed first.
+      "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": true, "persist": true, "destinations": ["axiom-cmux-api-production"] } },
       "triggers": { "crons": ["23 */6 * * *"] },
       "workers_dev": true,
       "vars": { "ENVIRONMENT": "production", "WORKER_NAME": "cmux-api", "TEAM_VM_SLUG_PREFIX": "cmux-tvm-", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },

@@ -74,5 +74,6 @@ export const deliverInvite = async (deps: SenderDeps, request: DeliveryRequest):
 const providerError = (body: unknown): string => {
   const b = body as { name?: unknown; message?: unknown; error_message?: unknown; error_code?: unknown } | null
   const parts = [b?.name, b?.error_code, b?.message ?? b?.error_message].filter((x) => typeof x === "string" || typeof x === "number")
-  return parts.length ? parts.join(": ").slice(0, 200) : "provider refused"
+  // Provider messages can quote the recipient ("+1415... is not a valid number"): addresses and long digit runs go.
+  return parts.length ? parts.join(": ").replace(/[^\s@]+@[^\s@]+/g, "[address]").replace(/\+?\d[\d\s().-]{5,}\d/g, "[number]").slice(0, 200) : "provider refused"
 }

@@ -245,3 +245,24 @@ describe("fan-out", () => {
     expect(search?.op === "upsert" && utf8Bytes(search.row.body)).toBe(SEARCH_BODY_BYTES)
   })
 })
+
+describe("cloud unread counts (home-scale review P1)", () => {
+  const bumpFor = (host: ReturnType<typeof newGroup>, user: string) =>
+    host.outbox.filter((item) => item.kind === "inbox.bump" && item.target?.name === user).at(-1)?.payload as { unread?: number; mentions?: number } | undefined
+  it("every bump carries the recipient's unread and mention counts, kept by the owner", () => {
+    const host = newGroup()
+    host.run(session(BOB, "Bob"), "message.send", { client_msg_id: "u1", parts: [text("one")] }, "u1")
+    expect(bumpFor(host, ALICE)).toMatchObject({ unread: 1, mentions: 0 })
+    expect(bumpFor(host, BOB)).toMatchObject({ unread: 0, mentions: 0 })
+    host.run(session(BOB, "Bob"), "message.send", { client_msg_id: "u2", parts: [{ type: "text", text: "@alice two", runs: [{ start: 0, length: 6, mention: ALICE }] }] }, "u2")
+    host.run(session(BOB, "Bob"), "message.send", { client_msg_id: "u3", parts: [text("three")] }, "u3")
+    expect(bumpFor(host, ALICE)).toMatchObject({ unread: 3, mentions: 1 })
+    // Reading up to seq 1 leaves 2 unread, 1 mention (counted from the message rows).
+    host.run(session(ALICE, "Alice"), "read_cursor.set", { seq: 1 }, "r1")
+    expect(bumpFor(host, ALICE)).toMatchObject({ unread: 2, mentions: 1 })
+    host.run(session(ALICE, "Alice"), "read_cursor.set", { seq: 3 }, "r3")
+    expect(bumpFor(host, ALICE)).toMatchObject({ unread: 0, mentions: 0 })
+    host.run(session(BOB, "Bob"), "message.send", { client_msg_id: "u4", parts: [text("four")] }, "u4")
+    expect(bumpFor(host, ALICE)).toMatchObject({ unread: 1, mentions: 0 })
+  })
+})

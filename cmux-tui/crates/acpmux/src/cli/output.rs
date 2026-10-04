@@ -753,6 +753,13 @@ mod prompt_tests {
 
     /// A hub with the fake agent behind a real Unix socket, and a client.
     async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, std::path::PathBuf) {
+        daemon_with_env(BTreeMap::new()).await
+    }
+
+    /// `daemon` with extra environment for the fake agent.
+    async fn daemon_with_env(
+        env: BTreeMap<String, String>,
+    ) -> (Arc<crate::hub::Hub>, Arc<Client>, std::path::PathBuf) {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         let mut harnesses = BTreeMap::new();
         harnesses.insert(
@@ -760,7 +767,7 @@ mod prompt_tests {
             HarnessProfile {
                 kind: Default::default(),
                 argv: vec!["python3".into(), fake.into()],
-                env: BTreeMap::new(),
+                env,
                 description: None,
                 fallback: None,
                 family: None,
@@ -835,6 +842,49 @@ mod prompt_tests {
         let user_messages =
             hub.events(&id, 0, 1000).unwrap().iter().filter(|e| e.kind == "user_message").count();
         assert_eq!(user_messages, 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A prompt to a session whose agent must start again (it died, or the daemon restarted)
+    /// is acknowledged when acpmux records it, before the agent has started (P1 v2).
+    #[tokio::test]
+    async fn a_prompt_is_accepted_when_recorded_before_the_agent_starts() {
+        let gate = std::path::PathBuf::from("/tmp")
+            .join(format!("acpmux-gate-{}", &uuid::Uuid::now_v7().simple().to_string()[20..]));
+        std::fs::write(&gate, b"").unwrap();
+        let env =
+            BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.to_string_lossy().into_owned())]);
+        let (hub, client, dir) = daemon_with_env(env).await;
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let session = hub.resolve(&id).unwrap();
+        // The agent is gone; its next start waits on the gate.
+        hub.detach_child(&session).await;
+        std::fs::remove_file(&gate).unwrap();
+        let prompt = PromptId::new(None);
+        let accepted = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            queue_prompt(client.clone(), &id, "hello", false, &prompt),
+        )
+        .await
+        .expect("accepted while the agent is still starting")
+        .unwrap();
+        assert_eq!(accepted["promptId"], prompt.id.as_str());
+        let kinds: Vec<String> =
+            hub.events(&id, 0, 1000).unwrap().iter().map(|e| e.kind.clone()).collect();
+        assert!(kinds.iter().any(|k| k == "user_message"), "recorded: {kinds:?}");
+        // Let the agent start; the turn completes.
+        std::fs::write(&gate, b"").unwrap();
+        for _ in 0..200 {
+            if hub.events(&id, 0, 1000).unwrap().iter().any(|e| e.kind == "turn_result") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let _ = std::fs::remove_file(&gate);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

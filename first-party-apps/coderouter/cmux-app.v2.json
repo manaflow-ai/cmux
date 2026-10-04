@@ -71,6 +71,11 @@
       "symbol": "arrow.triangle.branch"
     }
   },
+  "presentation": {
+    "sidebarItem": { "section": "top", "order": 20 },
+    "screen": "app",
+    "tab": true
+  },
   "scopes": {
     "coderouter:read": "See CodeRouter status, your connected accounts, API key names, usage and failover order. Never a key or token.",
     "coderouter:write": "Ask cmux to connect, share or remove an account and to route your agents through CodeRouter. cmux asks you and handles the secret.",

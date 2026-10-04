@@ -2,6 +2,19 @@
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
 /// `sidebar.stickyBandsScroll` and `sidebar.showWorkspaceTabs`;
 /// plans/cmux-next/sidebar-sections.md 7).
+/// `sidebar.minimalMode`: which sticky bands hide until the pointer is over
+/// the sidebar (R54).
+public nonisolated enum SidebarMinimalMode: String, Hashable, Sendable, CaseIterable {
+    case off
+    /// The bottom band: the Settings and account row.
+    case bottom
+    case top
+    case both
+
+    public var hidesTop: Bool { self == .top || self == .both }
+    public var hidesBottom: Bool { self == .bottom || self == .both }
+}
+
 public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// A `SectionsLookVariant` raw value (CmuxNextSidebar); unknown = quiet.
     public var look: String
@@ -15,6 +28,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var stickyBandsScroll: Bool
     /// Whether the workspace list expands each workspace into its tab rows.
     public var showWorkspaceTabs: Bool
+    /// Sticky bands that hide until the pointer is over the sidebar (R54).
+    public var minimalMode: SidebarMinimalMode = .off
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 stickyBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {
