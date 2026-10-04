@@ -19,9 +19,50 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use std::collections::BTreeMap;
+
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::HarnessKind;
+use super::{HarnessKind, PermissionPolicy};
+
+/// A named bundle: one harness plus the model, effort, policy and env to
+/// start it with. `acpmux run -p NAME`. Explicit flags still win.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Preset {
+    /// A family or a profile name.
+    pub harness: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PermissionPolicy>,
+    /// Wins over the profile's and the family's env. `${cwd}`, `${home}`,
+    /// `${model}` and a leading `~/` expand.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+    /// Words appended to the harness command line, one argv word each, never
+    /// through a shell; expanded like `env` (`config/preset_args.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    /// The sha256 of the preset's system prompt file, which acpmux wrote into
+    /// its own preset directory when `systemPrompt` was set
+    /// (`config/preset_args.rs`); checked at every session start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl Preset {
+    /// Whether the preset changes the harness command line (args or a system
+    /// prompt): never for a remote-origin session.
+    pub fn shapes_command(&self) -> bool {
+        !self.args.is_empty() || self.system_prompt_sha256.is_some()
+    }
+}
 
 /// The Claude Code flags a preset may pass.
 const CLAUDE_ALLOWED: [&str; 3] = ["--tools", "--strict-mcp-config", "--no-session-persistence"];

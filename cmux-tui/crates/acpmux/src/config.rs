@@ -135,44 +135,6 @@ impl DeclaredModel {
     }
 }
 
-/// A named bundle: one harness plus the model, effort, policy and env to
-/// start it with. `acpmux run -p NAME`. Explicit flags still win.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Preset {
-    /// A family or a profile name.
-    pub harness: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PermissionPolicy>,
-    /// Wins over the profile's and the family's env. `${cwd}`, `${home}`,
-    /// `${model}` and a leading `~/` expand.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    /// Words appended to the harness command line, one argv word each, never
-    /// through a shell; expanded like `env` (`config/preset_args.rs`).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub args: Vec<String>,
-    /// The sha256 of the preset's system prompt file, which acpmux wrote into
-    /// its own preset directory when `systemPrompt` was set
-    /// (`config/preset_args.rs`); checked at every session start.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub system_prompt_sha256: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-impl Preset {
-    /// Whether the preset changes the harness command line (args or a system
-    /// prompt): never for a remote-origin session.
-    pub fn shapes_command(&self) -> bool {
-        !self.args.is_empty() || self.system_prompt_sha256.is_some()
-    }
-}
-
 /// Session defaults for a family or a single profile (`defaults` in
 /// config.json). Precedence at `session/new`: explicit request, then the
 /// profile's own entry, then its family's entry, then the daemon defaults.
@@ -1001,7 +963,7 @@ mod codex_adapter;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, codex_through_adapter_package};
 mod preset_args;
 pub use preset_args::{
-    SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
+    Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,
     parse_preset_args, remove_preset_dir, write_system_prompt,
 };
 
