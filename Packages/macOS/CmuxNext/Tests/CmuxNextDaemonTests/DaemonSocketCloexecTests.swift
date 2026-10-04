@@ -9,7 +9,7 @@ import Testing
     /// Exit status of `/bin/sh -c 'true <&FD'` spawned with plain posix_spawn (no
     /// POSIX_SPAWN_CLOEXEC_DEFAULT): 0 only when the child inherited `fd`.
     static func childInherits(_ fd: Int32) -> Bool {
-        let arguments = ["/bin/sh", "-c", "true <&\(fd)"].map { strdup($0) } + [nil]
+        let arguments = ["/bin/sh", "-c", "true <&\(fd)"].map { $0.withCString { strdup($0) } } + [nil]
         defer { arguments.forEach { free($0) } }
         var pid: pid_t = 0
         guard posix_spawn(&pid, "/bin/sh", nil, nil, arguments, nil) == 0 else { return false }
