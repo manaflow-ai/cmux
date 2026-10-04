@@ -59,13 +59,52 @@ const SELECTOR_METHODS: &[&str] = &["queryAll", "strictError", "splitFrames"];
 /// observe refuses it. Other attribute tests (`role=button[name="x"]`,
 /// `[data-test=a]`) stay allowed.
 fn tests_a_value(selector: &str) -> bool {
-    let lower = selector.to_ascii_lowercase();
-    lower.split('[').skip(1).any(|part| {
-        let part = part.trim_start();
-        part.strip_prefix("value").is_some_and(|rest| {
-            matches!(rest.trim_start().chars().next(), Some('=' | '^' | '$' | '*' | '~' | '|'))
-        })
+    let text = decode_css_escapes(selector).to_lowercase();
+    if text.contains("@value") {
+        return true; // XPath: //input[@value="a"], starts-with(@value, "a")
+    }
+    text.match_indices("value").any(|(at, _)| {
+        // `[value^=`, `[*|value^=`, `[ns|value=`: the name ends the word.
+        let before = text[..at].chars().next_back();
+        let name_start = matches!(before, Some('[' | '|' | ' ' | '\t'));
+        let rest = text[at + "value".len()..].trim_start();
+        name_start && matches!(rest.chars().next(), Some('=' | '^' | '$' | '*' | '~' | '|'))
     })
+}
+
+/// Decodes CSS escapes (`\76 alue` is `value`) so they cannot hide a name.
+fn decode_css_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let mut hex = String::new();
+        while hex.len() < 6 && chars.peek().is_some_and(char::is_ascii_hexdigit) {
+            hex.extend(chars.next());
+        }
+        if hex.is_empty() {
+            out.extend(chars.next());
+        } else {
+            if chars.peek().is_some_and(|c| c.is_whitespace()) {
+                chars.next();
+            }
+            out.extend(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32));
+        }
+    }
+    out
+}
+
+/// Every string inside the arguments (nested arrays and objects included).
+fn any_string(value: &Value, test: &dyn Fn(&str) -> bool) -> bool {
+    match value {
+        Value::String(text) => test(text),
+        Value::Array(items) => items.iter().any(|item| any_string(item, test)),
+        Value::Object(map) => map.values().any(|item| any_string(item, test)),
+        _ => false,
+    }
 }
 
 fn numbers_in_range(value: &Value) -> bool {
@@ -179,8 +218,7 @@ pub fn evaluate_params(params: &Value) -> Result<Value, DriverError> {
     if !args.iter().all(numbers_in_range) {
         return Err(DriverError::invalid("frame.observe: numbers must be at most 1e9"));
     }
-    if SELECTOR_METHODS.contains(&method)
-        && args.iter().filter_map(Value::as_str).any(tests_a_value)
+    if SELECTOR_METHODS.contains(&method) && args.iter().any(|arg| any_string(arg, &tests_a_value))
     {
         let mut refusal = DriverError::new(
             ErrorCode::Forbidden,
@@ -243,6 +281,9 @@ mod tests {
             "input[type=password][value^=\"a\"]",
             "internal:attr=[value=\"x\"i]",
             "css=input[value='a']",
+            "xpath=//input[@value=\"a\"]",
+            "input[*|value^=a]",
+            "input[\\76 alue^=a]",
         ] {
             let error =
                 evaluate_params(&json!({"method": "queryAll", "args": [selector]})).unwrap_err();
