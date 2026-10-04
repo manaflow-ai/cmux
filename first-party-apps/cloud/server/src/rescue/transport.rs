@@ -41,7 +41,9 @@ pub trait RescueTransport: Send {
     fn resize(&mut self, stream: StreamId, grid: Grid) -> Result<(), BackendError>;
     fn signal(&mut self, stream: StreamId, signal: Signal) -> Result<(), BackendError>;
     fn close(&mut self, stream: StreamId) -> Result<(), BackendError>;
-    /// Events since the last call, in order, for every stream.
+    /// Events since the last call, in order, for every stream. After a
+    /// `Closed` or `Dropped` event the transport has freed that stream; the
+    /// backend never calls `close` for it.
     fn take_events(&mut self) -> Vec<(StreamId, TransportEvent)>;
 }
 
