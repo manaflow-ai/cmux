@@ -2082,8 +2082,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let fullPage = params["fullPage"] as? Bool ?? false
         let clip = params["clip"] as? [String: Any]
         let masks = typedSecretMasks(params)
+        let policy = currentPolicy
         let image: CGImage = try await withWindow(panel) { webView, _ in
-            try await Self.withSecretMasks(masks, webView: webView) {
+            try await Self.withSecretMasks(masks, policy: policy, webView: webView) {
                 try await BrowserReplCapture.snapshot(webView: webView, clip: clip, fullPage: fullPage)
             }
         }
@@ -2095,22 +2096,26 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
         let masks = typedSecretMasks(params)
+        let policy = currentPolicy
         let data: Data = try await withWindow(panel) { [self] webView, _ in
-            try await Self.withSecretMasks(masks, webView: webView) {
+            try await Self.withSecretMasks(masks, policy: policy, webView: webView) {
                 try await self.printPDF(webView: webView, params: params)
             }
         }
         return ["base64": data.base64EncodedString()]
     }
 
-    /// Runs `capture` with registered secrets masked in frames on their domains.
+    /// Runs `capture` with registered secrets masked in frames on their
+    /// domains, bound to the documents the frames show, and refuses it when
+    /// a frame shows a page the policy blocks (BrowserReplCaptureMask).
     @MainActor
     private static func withSecretMasks<T>(
         _ masks: [[String: Any]],
+        policy: BrowserReplDomainPolicy,
         webView: WKWebView,
         _ capture: () async throws -> T
     ) async throws -> T {
-        try await BrowserReplCaptureMask(secretMasks: masks).run(
+        try await BrowserReplCaptureMask(secretMasks: masks, policy: policy).run(
             in: webView,
             frames: { await BrowserReplFrameTree.frames(of: webView).map(\.info) },
             capture

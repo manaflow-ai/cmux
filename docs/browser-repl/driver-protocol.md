@@ -177,9 +177,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   window remains. Captures get `secretMasks
   [{ value, domains }]` (plain values, and the codes of a TOTP secret a
   server still accepts: the current window and one on each side); the
-  driver masks only in frames on those domains, and refuses the capture
-  (`invalid`) when masking fails in one of them or a scan after the
-  capture finds a value rendered unmasked.
+  driver masks only in frames whose document's origin is on those
+  domains, and refuses the capture (`invalid`) when masking fails in one
+  of them or a scan after the capture finds a value rendered unmasked.
+  A frame keeps its id when it navigates, so the mask goes by documents:
+  before the capture the driver marks every frame's document in its own
+  content world and reads the origin there, masks only in a document
+  that still holds the mark, and refuses the capture when, after it, any
+  frame shows a document without the mark (it showed another page
+  meanwhile).
   Results, events, fetch responses, output, errors, written files and
   files read back are redacted by the session. Another session that drives the same tab
   (`tabs.use`) does not hold the secret, so the driver remembers each value
@@ -214,7 +220,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   every point), `input.key` and `input.insertText` while a blocked frame
   holds the focus (its document has it or holds a focused element, or its
   parent's focused element is its frame; a frame that cannot answer counts
-  as focused), captures while any frame shows a blocked page, and file
+  as focused), captures while any frame shows a blocked page (judged
+  again, on each frame's document, when the capture is prepared, and
+  refused when a frame shows another document after it), and file
   chooser answers other than `cancel` then too, since the chooser's frame
   is not recorded. In tabs the session created the content rules keep a
   blocked frame from loading at all; its empty frame belongs to the parent

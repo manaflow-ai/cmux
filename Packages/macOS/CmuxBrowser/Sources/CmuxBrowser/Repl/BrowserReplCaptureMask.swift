@@ -40,24 +40,36 @@ extension WKContentWorld {
     }
 }
 
-/// Hides secret values in one screenshot or PDF of a tab.
+/// Hides secret values in one screenshot or PDF of a tab, and refuses a
+/// capture that could show a page the domain policy blocks.
 ///
 /// The session sends a capture its `secretMasks` (`[{ value, domains }]`).
-/// In every frame whose origin is on a secret's domains (the only frames it
-/// can be typed into), fields and text holding a value render as password
-/// dots (`-webkit-text-security`) for the length of the capture. Other
-/// frames never get a value. The scan runs in a content world of its own,
-/// which page scripts and agent code cannot reach, and which sees closed
-/// shadow roots as the agent's world does, so a value the agent can read
-/// there is masked there too.
+/// In every frame whose document's origin is on a secret's domains (the
+/// only frames it can be typed into), fields and text holding a value
+/// render as password dots (`-webkit-text-security`) for the length of the
+/// capture. Other frames never get a value. The scan runs in a content
+/// world of its own, which page scripts and agent code cannot reach, and
+/// which sees closed shadow roots as the agent's world does, so a value the
+/// agent can read there is masked there too.
 ///
-/// It fails closed. The capture is refused when the mask step fails in any
-/// of those frames, or when, after the capture, a fresh scan of the tab's
-/// frames finds an element holding a value that does not render masked
-/// (the page dropped the mask or added the value while the capture ran).
-/// The page owns its DOM, so a value it changes and restores within the
-/// capture, or draws in a form the scan does not read (a canvas, an image,
-/// split across elements, transformed), is not caught.
+/// A frame keeps its id when it navigates, so the frame list WebKit gives
+/// can name a document the frame no longer shows. The mask therefore goes
+/// by documents, not by that list: before the capture it marks every
+/// frame's document with the capture's token and reads its origin there,
+/// picks the values from that origin, and masks only in a document that
+/// still holds the mark. After the capture every frame must still show a
+/// marked document, so none showed another page meanwhile (a navigation
+/// gives the frame a new global object, without the mark).
+///
+/// It fails closed. The capture is refused when a frame does not answer,
+/// shows a page the domain policy blocks, shows a document it did not
+/// show when the capture was prepared, or when the mask step fails, or
+/// when, after the capture, a scan finds an element holding a value that
+/// does not render masked (the page dropped the mask or added the value
+/// while the capture ran). The page owns its DOM, so a value it changes
+/// and restores within the capture, or draws in a form the scan does not
+/// read (a canvas, an image, split across elements, transformed), is not
+/// caught.
 ///
 /// Each capture records the elements it masked under its own token and
 /// restores only those, so concurrent captures do not unmask each other.
@@ -77,7 +89,8 @@ public struct BrowserReplCaptureMask {
 
     /// - Parameters:
     ///   - secretMasks: The `secretMasks` the session added to the call.
-    ///   - policy: The session's domain policy.
+    ///   - policy: The session's domain policy; a capture while a frame
+    ///     shows a page it blocks is refused.
     public init(secretMasks: [[String: Any]], policy: BrowserReplDomainPolicy = BrowserReplDomainPolicy()) {
         self.policy = policy
         masks = secretMasks.compactMap { mask in
@@ -90,7 +103,8 @@ public struct BrowserReplCaptureMask {
     public var isEmpty: Bool { masks.isEmpty }
 
     /// Runs `capture` with the values masked in `webView`, or throws
-    /// `invalid` without returning the capture when masking fails.
+    /// without returning the capture when masking fails or a frame shows a
+    /// page the policy blocks.
     ///
     /// - Parameters:
     ///   - frames: Reads the tab's frames as they are now; `nil` stands for
@@ -100,33 +114,43 @@ public struct BrowserReplCaptureMask {
         frames: () async -> [WKFrameInfo?],
         _ capture: () async throws -> T
     ) async throws -> T {
-        guard !isEmpty else { return try await capture() }
-        var masked: [(frame: WKFrameInfo?, values: [String])] = []
+        guard !isEmpty || policy.isActive else { return try await capture() }
+        var marked: [WKFrameInfo?] = []
         do {
-            for target in targets(await frames(), in: webView) {
-                masked.append(target)
-                try await mask(target, mode: "on", in: webView)
+            for frame in await frames() {
+                marked.append(frame)
+                let document = try await mark(frame, in: webView)
+                if let reason = policy.blockReason(document: document.policyDocument) {
+                    throw BrowserReplDriverError(
+                        code: "blocked",
+                        message: "The tab shows frame \(document.shown), which the domain policy blocks: \(reason); a capture would show it"
+                    )
+                }
+                let values = values(forOrigin: document.origin)
+                if !values.isEmpty {
+                    try await step(frame, mode: "on", values: values, shown: document.shown, in: webView)
+                }
             }
         } catch {
-            await unmask(masked, in: webView)
+            await unmark(marked, in: webView)
             throw error
         }
         let value: T
         do {
             value = try await capture()
         } catch {
-            await unmask(masked, in: webView)
+            await unmark(marked, in: webView)
             throw error
         }
         do {
-            for target in targets(await frames(), in: webView) {
-                try await mask(target, mode: "verify", in: webView)
+            for frame in await frames() {
+                try await step(frame, mode: "verify", values: [], shown: nil, in: webView)
             }
         } catch {
-            await unmask(masked, in: webView)
+            await unmark(marked, in: webView)
             throw error
         }
-        await unmask(masked, in: webView)
+        await unmark(marked, in: webView)
         return value
     }
 
@@ -135,32 +159,57 @@ public struct BrowserReplCaptureMask {
         masks.filter { $0.domains.contains { $0.matches(origin: origin, secure: true) } }.map(\.value)
     }
 
-    /// The frames on a secret's domains, with the values each may show.
-    private func targets(_ frames: [WKFrameInfo?], in webView: WKWebView) -> [(frame: WKFrameInfo?, values: [String])] {
-        frames.compactMap { frame in
-            guard let origin = origin(of: frame, in: webView) else { return nil }
-            let values = values(forOrigin: origin)
-            return values.isEmpty ? nil : (frame, values)
-        }
+    /// A frame's document as the mark step read it, in the mask's world.
+    private struct MarkedDocument {
+        /// The document's origin (`self.origin`; `"null"` when opaque), the
+        /// one secrets are typed by.
+        let origin: String
+        /// `location.origin` and the URL's scheme and host, as the domain
+        /// policy judges frames (`BrowserReplFrameDocument`).
+        let policyDocument: BrowserReplFrameDocument
+
+        var shown: String { origin == "null" ? policyDocument.place : origin }
     }
 
-    private func origin(of info: WKFrameInfo?, in webView: WKWebView) -> String? {
-        if let info { return info.browserReplOrigin }
-        guard let url = webView.url, let scheme = url.scheme, let host = url.host, !host.isEmpty else { return nil }
-        let isDefault = url.port == nil || (scheme == "https" && url.port == 443) || (scheme == "http" && url.port == 80)
-        return isDefault ? "\(scheme)://\(host)" : "\(scheme)://\(host):\(url.port ?? 0)"
-    }
-
-    /// Masks (`on`) or checks (`verify`) one frame; throws when the step
-    /// fails or an element holding a value renders unmasked.
-    private func mask(_ target: (frame: WKFrameInfo?, values: [String]), mode: String, in webView: WKWebView) async throws {
-        let place = origin(of: target.frame, in: webView) ?? "a frame"
-        let unmasked: Any?
+    /// Marks the document `frame` shows now with this capture's token and
+    /// reads its origin there.
+    private func mark(_ frame: WKFrameInfo?, in webView: WKWebView) async throws -> MarkedDocument {
+        let reply: Any?
         do {
-            unmasked = try await webView.callAsyncJavaScript(
+            reply = try await webView.callAsyncJavaScript(
                 Self.maskSource,
-                arguments: ["values": target.values, "mode": mode, "token": token],
-                in: target.frame,
+                arguments: ["values": [String](), "mode": "mark", "token": token],
+                in: frame,
+                contentWorld: Self.world
+            )
+        } catch {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: "the capture was refused: a frame did not answer (\(error.localizedDescription)); try again"
+            )
+        }
+        guard let document = reply as? [String: Any], let origin = document["origin"] as? String,
+              let place = document["place"] as? String else {
+            throw BrowserReplDriverError(code: "invalid", message: "the capture was refused: a frame did not answer; try again")
+        }
+        return MarkedDocument(
+            origin: origin,
+            policyDocument: BrowserReplFrameDocument(origin: document["locationOrigin"] as? String, place: place)
+        )
+    }
+
+    /// Masks (`on`) or checks (`verify`) one frame, in the document the
+    /// mark step marked only; throws when it shows another document, the
+    /// step fails, or an element holding a value renders unmasked. `verify`
+    /// uses the values `on` left with the mark.
+    private func step(_ frame: WKFrameInfo?, mode: String, values: [String], shown: String?, in webView: WKWebView) async throws {
+        let place = shown ?? "a frame"
+        let reply: Any?
+        do {
+            reply = try await webView.callAsyncJavaScript(
+                Self.maskSource,
+                arguments: ["values": values, "mode": mode, "token": token],
+                in: frame,
                 contentWorld: Self.world
             )
         } catch {
@@ -169,7 +218,13 @@ public struct BrowserReplCaptureMask {
                 message: "the capture was refused: secrets could not be masked in \(place) (\(error.localizedDescription)); try again"
             )
         }
-        guard let count = unmasked as? NSNumber, count.intValue == 0 else {
+        if reply as? String == Self.movedMarker {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: "the capture was refused: a frame showed another page while it was taken; try again"
+            )
+        }
+        guard let count = reply as? NSNumber, count.intValue == 0 else {
             throw BrowserReplDriverError(
                 code: "invalid",
                 message: mode == "verify"
@@ -179,25 +234,37 @@ public struct BrowserReplCaptureMask {
         }
     }
 
-    private func unmask(_ targets: [(frame: WKFrameInfo?, values: [String])], in webView: WKWebView) async {
-        for target in targets {
+    /// Restores what this capture masked and removes its mark.
+    private func unmark(_ frames: [WKFrameInfo?], in webView: WKWebView) async {
+        for frame in frames {
             // A frame that is gone holds nothing to restore.
             _ = try? await webView.callAsyncJavaScript(
                 Self.maskSource,
                 arguments: ["values": [String](), "mode": "off", "token": token],
-                in: target.frame,
+                in: frame,
                 contentWorld: Self.world
             )
         }
     }
 
-    /// `mode` is `on` (mask the elements holding `values` under `token`),
-    /// `off` (restore what `token` masked) or `verify`. `on` and `verify`
-    /// return how many elements holding a value render unmasked.
+    private static let movedMarker = "__cmuxCaptureDocumentMoved__"
+
+    /// `mode` is `mark` (mark this document for `token` and return its
+    /// origin), `on` (mask the elements holding `values` under `token`),
+    /// `off` (restore what `token` masked and drop the mark) or `verify`.
+    /// `on` and `verify` return how many elements holding a value render
+    /// unmasked, or the moved marker when the document holds no mark for
+    /// `token` (another document than the one marked). The state lives in
+    /// the world's global object, which belongs to one document.
     private static let maskSource = """
-    const state = globalThis.__cmuxSecretMasks || (globalThis.__cmuxSecretMasks = { counts: new Map(), captures: new Map() });
+    const state = globalThis.__cmuxSecretMasks || (globalThis.__cmuxSecretMasks = { counts: new Map(), captures: new Map(), marks: new Map() });
     const prop = "-webkit-text-security";
+    if (mode === "mark") {
+      state.marks.set(token, []);
+      return { origin: String(self.origin), locationOrigin: location.origin, place: location.protocol + "//" + location.host };
+    }
     if (mode === "off") {
+      state.marks.delete(token);
       const masked = state.captures.get(token) || [];
       state.captures.delete(token);
       for (const el of masked) {
@@ -209,6 +276,9 @@ public struct BrowserReplCaptureMask {
       }
       return 0;
     }
+    if (!state.marks.has(token)) return "\(movedMarker)";
+    if (mode === "on") state.marks.set(token, values);
+    else values = state.marks.get(token);
     const hits = new Set();
     const has = (t) => typeof t === "string" && values.some((v) => t.includes(v));
     const visit = (root) => {
