@@ -53,8 +53,18 @@ fn age_file(path: &Path, age: Duration) {
     file.set_modified(SystemTime::now() - age).unwrap();
 }
 
-fn chunk(mux: &Arc<Mux>, client: u64, upload: &Value, offset: usize, data: &[u8]) -> anyhow::Result<Value> {
-    run(mux, client, json!({"cmd":"blob-upload-chunk","upload":upload,"offset":offset,"data":base64(data)}))
+fn chunk(
+    mux: &Arc<Mux>,
+    client: u64,
+    upload: &Value,
+    offset: usize,
+    data: &[u8],
+) -> anyhow::Result<Value> {
+    run(
+        mux,
+        client,
+        json!({"cmd":"blob-upload-chunk","upload":upload,"offset":offset,"data":base64(data)}),
+    )
 }
 
 /// A unique fake digest; begin never needs the bytes.
@@ -94,7 +104,8 @@ fn the_daemon_empties_the_staging_directory_at_start() {
     assert!(!staged_files(&mux).is_empty());
     drop(mux);
 
-    let mux = Mux::open_persistent("staging-start", crate::SurfaceOptions::default(), &root).unwrap();
+    let mux =
+        Mux::open_persistent("staging-start", crate::SurfaceOptions::default(), &root).unwrap();
     let client = mux.control_clients.register(ClientTransport::Unix, writer());
     assert!(staged_files(&mux).is_empty(), "start empties staging: {:?}", staged_files(&mux));
     let stale = chunk(&mux, client, &begun["upload"], MIB, &data[MIB..]);
@@ -199,12 +210,15 @@ fn an_icon_upgraded_to_an_attachment_keeps_its_icon_life() {
     let (mux, client, _root) = persistent_mux("upgrade");
     let named = png(43);
     let loose = png(44);
-    let icon = run(&mux, client, json!({"cmd":"put-blob","media_type":"image/png","data":base64(&named)}))
-        .unwrap()["icon"]
-        .clone();
-    run(&mux, client, json!({"cmd":"put-blob","media_type":"image/png","data":base64(&loose)})).unwrap();
+    let icon =
+        run(&mux, client, json!({"cmd":"put-blob","media_type":"image/png","data":base64(&named)}))
+            .unwrap()["icon"]
+            .clone();
+    run(&mux, client, json!({"cmd":"put-blob","media_type":"image/png","data":base64(&loose)}))
+        .unwrap();
     let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-    run(&mux, client, json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":icon})).unwrap();
+    run(&mux, client, json!({"cmd":"set-workspace-metadata","key":workspace.key,"icon":icon}))
+        .unwrap();
 
     for data in [&named, &loose] {
         let digest = sha256_hex(data);
@@ -232,8 +246,9 @@ fn an_icon_upgraded_to_an_attachment_keeps_its_icon_life() {
 fn upload_and_get_blob_are_forbidden_off_a_trusted_local_connection() {
     let (mux, client) = attachment_mux();
     let icon = png(45);
-    let stored = run(&mux, client, json!({"cmd":"put-blob","media_type":"image/png","data":base64(&icon)}))
-        .unwrap();
+    let stored =
+        run(&mux, client, json!({"cmd":"put-blob","media_type":"image/png","data":base64(&icon)}))
+            .unwrap();
     let data = zip(46, 1000);
     for transport in [ClientTransport::WebSocket, ClientTransport::Remote] {
         let outsider = mux.control_clients.register(transport, writer());
@@ -263,18 +278,18 @@ fn an_upload_never_names_a_path() {
     let sha = sha256_hex(&data);
     let base = json!({"cmd":"blob-upload-begin","purpose":"attachment",
                       "media_type":"application/zip","sha256":sha,"byte_count":data.len()});
-    for (field, value) in [
-        ("mode", json!("staged")),
-        ("path", json!("/etc/hosts")),
-        ("staged_path", json!("/tmp/x")),
-    ] {
+    for (field, value) in
+        [("mode", json!("staged")), ("path", json!("/etc/hosts")), ("staged_path", json!("/tmp/x"))]
+    {
         let mut request = base.clone();
         request[field] = value;
         assert_eq!(error_code(run(&mux, client, request)), "invalid_params", "{field}");
     }
-    let begun = run(&mux, client, base).expect("RED today: blob-upload-begin is not a daemon command");
+    let begun =
+        run(&mux, client, base).expect("RED today: blob-upload-begin is not a daemon command");
     let sent = chunk(&mux, client, &begun["upload"], 0, &data).unwrap();
-    let stored = run(&mux, client, json!({"cmd":"blob-upload-commit","upload":begun["upload"]})).unwrap();
+    let stored =
+        run(&mux, client, json!({"cmd":"blob-upload-commit","upload":begun["upload"]})).unwrap();
     let read = run(&mux, client, json!({"cmd":"get-blob","blob":stored["ref"]})).unwrap();
     for reply in [&begun, &sent, &stored, &read] {
         assert!(reply.get("staged_path").is_none() && reply.get("path").is_none(), "{reply}");
