@@ -43,6 +43,9 @@ import Testing
         panel.suggestion.performClick(nil)
         #expect(view.field.text == panel.suggestion.title, "the suggestion fills the field")
         #expect(view.controller.conversationSummary != nil)
+        // Text on glass, never a control that dims to gray when the window is not key.
+        #expect(panel.suggestion.label.textColor == panel.title.textColor)
+        #expect(panel.suggestion.accessibilityRole() == .button)
     }
 
     @Test func theFirstMessageHidesThePanel() {
