@@ -17,7 +17,7 @@ public enum SystemScrollers {
     public static var pageValue: String { preferredStyle == .legacy ? "legacy" : "overlay" }
 
     private static var followed: [WeakScrollView] = []
-    private static var observer: (any NSObjectProtocol)?
+    private static var observer: Task<Void, Never>?
 
     /// Gives `scrollView` the system's scroller style now and on every change.
     public static func follow(_ scrollView: NSScrollView) {
@@ -26,9 +26,11 @@ public enum SystemScrollers {
         followed.removeAll { $0.value == nil || $0.value === scrollView }
         followed.append(WeakScrollView(scrollView))
         guard observer == nil else { return }
-        observer = NotificationCenter.default.addObserver(forName: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil,
-                                                          queue: .main) { _ in
-            MainActor.assumeIsolated { systemStyleDidChange() }
+        // task-owner: process lifetime (one observer for every scroll view); event-driven.
+        observer = Task { @MainActor in
+            for await _ in NotificationCenter.default.notifications(named: NSScroller.preferredScrollerStyleDidChangeNotification) {
+                systemStyleDidChange()
+            }
         }
     }
 

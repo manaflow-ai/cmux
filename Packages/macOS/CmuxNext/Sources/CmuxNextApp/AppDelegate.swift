@@ -139,7 +139,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.settings = settings
         services.settings = settings
         // Every palette-exposed schema setting in the palette (R93).
-        services.palette.sources.settings = SettingsPaletteSource(settings: settings)
+        services.palette.sources.settings = SettingsPaletteSource(settings: settings) { [weak services] in
+            services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
+        }
         services.history.commands.start(settings: settings)
         services.locationTrail.watchScope(settings: settings)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)

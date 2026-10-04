@@ -104,37 +104,11 @@ public final class TabStripView: NSView {
     /// Trailing button under the mouse-down, while the press lasts.
     var pendingTrailingPress: Int?
     /// Whether the trailing buttons and the plus show (pointer, open menu,
-    /// VoiceOver): the strip's inputs to `buttonsReveal`.
+    /// VoiceOver): the strip's inputs to `reveal` (HoverReveal, R120).
     var buttonReveal = TabStripButtonReveal() {
-        didSet { syncButtonsReveal(from: oldValue) }
+        didSet { reveal.sync(buttonReveal, from: oldValue) }
     }
-    /// The one hover-reveal mechanism (R120): the trailing buttons and the
-    /// plus fade in place while the strip is hovered. The strip tracks the
-    /// pointer itself, so the reveal does not.
-    private(set) lazy var buttonsReveal = HoverReveal(region: self, tracksPointer: false)
-    /// The hold an open strip menu or VoiceOver focus keeps.
-    private var buttonsRevealHold: HoverReveal.Hold?
-
-    /// `tabs.plusButton`: hover reveals the plus with the trailing buttons;
-    /// always keeps it shown.
-    func applyPlusButtonMode() {
-        if DesignSettings.shared.plusButton == .hover {
-            if HoverReveal.owner(of: newTabButton) == nil { buttonsReveal.add(newTabButton) }
-        } else {
-            buttonsReveal.remove(newTabButton)
-        }
-    }
-
-    private func syncButtonsReveal(from old: TabStripButtonReveal) {
-        if buttonReveal.pointerInStrip != old.pointerInStrip { buttonsReveal.setPointerInside(buttonReveal.pointerInStrip) }
-        let holds = buttonReveal.menuOpen || buttonReveal.accessibilityFocused
-        if holds, buttonsRevealHold == nil {
-            buttonsRevealHold = buttonsReveal.hold()
-        } else if !holds, let hold = buttonsRevealHold {
-            buttonsRevealHold = nil
-            hold.release()
-        }
-    }
+    private(set) lazy var reveal = TabStripRevealController(strip: self)
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
@@ -198,8 +172,7 @@ public final class TabStripView: NSView {
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
         contentView.addSubview(buttonGroup)
-        buttonsReveal.add(buttonGroup)
-        applyPlusButtonMode()
+        reveal.install()
         buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
         buttonGroup.onAccessibilityFocus = { [weak self] focused in self?.buttonReveal.accessibilityFocused = focused }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
@@ -321,10 +294,9 @@ public final class TabStripView: NSView {
     func startObservingTokens() {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
-            let changes = Observations { (TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize), DesignSettings.shared.plusButton) }
-            for await (snapshot, _) in changes {
+            let changes = Observations { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
+            for await snapshot in changes {
                 guard let self else { return }
-                self.applyPlusButtonMode()
                 if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize {
                     self.applyTokens(animated: true)
                 }

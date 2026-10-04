@@ -139,7 +139,7 @@ import Testing
         #expect(h.plusVisible)
         #expect(!h.buttonsVisible)
         DesignSettings.shared.plusButton = .hover
-        h.strip.applyPlusButtonMode()
+        h.strip.reveal.applyPlusButtonMode()
         #expect(!h.plusVisible)
     }
 }

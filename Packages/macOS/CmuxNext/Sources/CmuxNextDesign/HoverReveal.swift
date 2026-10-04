@@ -205,7 +205,7 @@ private final class HoverRevealProbe: NSView {
     private let trackingOptions: NSTrackingArea.Options
     private let tracksPointer: Bool
     private var focusObservation: NSKeyValueObservation?
-    private var closeObserver: (any NSObjectProtocol)?
+    private var closeObserver: Task<Void, Never>?
 
     init(tracking: NSTrackingArea.Options, tracksPointer: Bool) {
         trackingOptions = tracking
@@ -218,7 +218,7 @@ private final class HoverRevealProbe: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     isolated deinit {
-        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver?.cancel()
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -241,7 +241,7 @@ private final class HoverRevealProbe: NSView {
         super.viewWillMove(toWindow: newWindow)
         guard newWindow !== window else { return }
         focusObservation = nil
-        if let closeObserver { NotificationCenter.default.removeObserver(closeObserver) }
+        closeObserver?.cancel()
         closeObserver = nil
         owner?.windowWillChange()
     }
@@ -250,10 +250,15 @@ private final class HoverRevealProbe: NSView {
         super.viewDidMoveToWindow()
         guard let window else { return }
         focusObservation = window.observe(\.firstResponder, options: [.initial, .new]) { [weak self] window, _ in
+            // crash-allow: AppKit changes firstResponder only on the main thread, and KVO calls back synchronously on the changing thread; a hop would reveal a focused button a turn late.
             MainActor.assumeIsolated { self?.owner?.focusDidChange(window.firstResponder) }
         }
-        closeObserver = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.owner?.windowWillChange() }
+        // task-owner: the probe (cancelled when it leaves the window or deinits); event-driven.
+        closeObserver = Task { @MainActor [weak self, weak window] in
+            guard let window else { return }
+            for await _ in NotificationCenter.default.notifications(named: NSWindow.willCloseNotification, object: window) {
+                self?.owner?.windowWillChange()
+            }
         }
         // A pointer already over the region when it joins the window reveals
         // at once, before any click (no mouseEntered arrives for it).

@@ -14,15 +14,18 @@ import os
 @MainActor
 final class SettingsPaletteSource: PaletteSettingsSource {
     private let settings: SettingsController
+    /// The theme colors of the window the palette serves (its theme scope).
+    private let themeColors: @MainActor () -> [ThemeRGB]
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
 
-    init(settings: SettingsController) {
+    init(settings: SettingsController, themeColors: @escaping @MainActor () -> [ThemeRGB]) {
         self.settings = settings
+        self.themeColors = themeColors
     }
 
     var rows: [PaletteSettingRow] {
         let root = settings.snapshot.root
-        let colors = Self.themeColors()
+        let colors = themeColors()
         return SettingsSchema.all.filter(\.isPaletteExposed).map { descriptor in
             row(descriptor, current: descriptor.effectiveValue(in: root), colors: colors)
         }
@@ -44,15 +47,15 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         case "off": .bool(false)
         default: Self.value(option)
         }
-        write(descriptor, value)
+        commitValue(descriptor, value)
     }
 
     func commit(row: String, text: String) {
         guard let descriptor = descriptor(row), let value = Self.parse(text, for: descriptor) else { return }
-        write(descriptor, value)
+        commitValue(descriptor, value)
     }
 
-    private func write(_ descriptor: SettingDescriptor, _ value: JSONValue?) {
+    private func commitValue(_ descriptor: SettingDescriptor, _ value: JSONValue?) {
         let settings = settings
         Task {
             do {
@@ -119,10 +122,9 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         return (try? JSONValue.parse(Data(option.utf8))) ?? .string(option)
     }
 
-    /// The current theme's colors for a color setting's swatches: the
-    /// foreground, the background, then ANSI 0 to 15.
-    static func themeColors() -> [ThemeRGB] {
-        let tokens = ThemeStore.shared.tokens
-        return [tokens.textPrimary, tokens.windowBackground] + tokens.ansi
+    /// A color setting's swatches from `tokens`: the foreground, the
+    /// background, then ANSI 0 to 15.
+    static func themeColors(_ tokens: ThemeTokens) -> [ThemeRGB] {
+        [tokens.textPrimary, tokens.windowBackground] + tokens.ansi
     }
 }
