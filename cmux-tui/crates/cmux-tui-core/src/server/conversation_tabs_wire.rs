@@ -155,3 +155,9 @@ pub(super) fn set_resource_capabilities(
 #[cfg(test)]
 #[path = "conversation_tabs_tests.rs"]
 mod tests;
+
+// `app-screens-v1` wire tests, declared here until server/app_screens_wire.rs
+// exists (they need only the wire).
+#[cfg(test)]
+#[path = "app_screens_tests.rs"]
+mod app_screens_tests;
