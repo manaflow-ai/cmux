@@ -18,11 +18,13 @@ extension CMUXCLI {
                     print(jsonString(payload))
                 } else {
                     let everyWorkspace = params["all_workspaces"] as? Bool == true
+                    // Fields come from whoever made the session (a cwd can
+                    // hold escape sequences): they print visibly, as output does.
                     for session in payload["sessions"] as? [[String: Any]] ?? [] {
-                        let name = session["session"] as? String ?? ""
+                        let name = Self.browserReplTerminalText(session["session"] as? String ?? "")
                         let idle = session["idle_seconds"] as? Int ?? 0
-                        let cwd = session["cwd"] as? String ?? ""
-                        let workspace = session["workspace_id"] as? String ?? ""
+                        let cwd = Self.browserReplTerminalText(session["cwd"] as? String ?? "")
+                        let workspace = Self.browserReplTerminalText(session["workspace_id"] as? String ?? "")
                         print(everyWorkspace ? "\(name)\t\(workspace)\t\(idle)s\t\(cwd)" : "\(name)\t\(idle)s\t\(cwd)")
                     }
                 }
