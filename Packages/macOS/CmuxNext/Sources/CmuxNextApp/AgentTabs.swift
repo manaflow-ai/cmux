@@ -76,29 +76,7 @@ final class AgentTabStore {
         actionRegistry = registry
         self.linkScheme = linkScheme
         self.git = git
-        // Release loads only the bundled page; the dev server is for Debug
-        // and tagged builds (webviews/src/agent-session/acpmux/README.md).
-        #if DEBUG
-        let allowsDevServer = true
-        #else
-        let allowsDevServer = false
-        #endif
-        let resolvedSource = AgentPaneSource.resolve(
-            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
-        )
-        let resolvedHost: any AgentPaneHostProviding
-        if showcase || environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
-            resolvedHost = MockAgentPaneHost()
-        } else {
-            let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-            // A dev server page has its own origin, which acpmux accepts only
-            // when this (Debug) app starts it with `--allow-dev-origin`.
-            let devOrigin = resolvedSource?.devServerOrigin
-            resolvedHost = AcpmuxHost {
-                AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment)?
-                    .allowingDevOrigin(devOrigin)
-            }
-        }
+        let (resolvedSource, resolvedHost) = Self.resolvePane(tag: tag, environment: environment, showcase: showcase)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection.
