@@ -932,6 +932,98 @@ describe("acpmux host handshake", () => {
     }
   }
 
+  /// plans/cmux-next/acp-switch.md: the pick draws in its own frame, a prompt sent before the
+  /// harness has started waits on the new chat with "Starting Codex…", and goes to its session.
+  test("a harness pick draws the new harness at once and the first prompt waits for its session", async () => {
+    const sent: { method: string; params: any }[] = [];
+    const heldNew: (() => void)[] = [];
+    class SwitchSocket extends FakeSocket {
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as { id: number; method: string; params: any };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [{ sessionId: "s", harness: "claude" }] }
+            : method === "_acpmux/attach"
+              ? params.sessionId === "s"
+                ? { session: { sessionId: "s", harness: "claude", model: "opus" }, events: [] }
+                : { session: { sessionId: params.sessionId, harness: "codex", model: "gpt-6-astra" }, events: [] }
+              : method === "_acpmux/harnesses"
+                ? {
+                    harnesses: [
+                      { id: "claude", name: "Claude Code", models: [{ id: "opus" }] },
+                      { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra" }] },
+                    ],
+                  }
+                : method === "session/new"
+                  ? { sessionId: "n" }
+                  : {};
+        const reply = () => this.onmessage?.({ data: JSON.stringify({ id, result }) });
+        if (method === "session/new") heldNew.push(reply);
+        else if (method !== "session/prompt") queueMicrotask(reply);
+      }
+    }
+    FakeSocket.made = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = SwitchSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                sessionId: "s",
+              },
+            });
+          },
+        },
+      },
+    };
+    const doc = dom.window.document;
+    const title = () => doc.querySelector(".acpmux-title")?.textContent;
+    const waitFor = async (done: () => boolean) => {
+      for (let tries = 0; tries < 100 && !done(); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    };
+    const actions = () => (dom.window as unknown as Window).cmuxAcpmuxActions!;
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await waitFor(() => title() === "Claude Code" && Boolean(actions()?.["chat.new"]));
+      expect(title()).toBe("Claude Code");
+      // No timer or reply runs between the pick and this read.
+      act(() => {
+        void actions()["chat.new"]!({ harness: "codex" });
+      });
+      expect(title()).toBe("Codex");
+      expect(sent.some((request) => request.method === "session/new")).toBe(true);
+      act(() => {
+        void actions()["chat.send"]!({ text: "which harness?" }).catch(() => undefined);
+      });
+      expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
+      expect(doc.querySelector(".cv-user__status")?.textContent).toBe("Starting Codex…");
+      expect(sent.some((request) => request.method === "session/prompt")).toBe(false);
+      await act(async () => heldNew.splice(0).forEach((reply) => reply()));
+      await waitFor(() => sent.some((request) => request.method === "session/prompt"));
+      expect(sent.find((request) => request.method === "session/prompt")?.params.sessionId).toBe("n");
+      await waitFor(() => doc.querySelector(".cv-user__status") === null);
+      expect(doc.querySelector(".cv-user__bubble")?.textContent).toBe("which harness?");
+      expect(title()).toBe("Codex");
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+    }
+  });
+
   /// The model picker reads the catalog through TanStack Query and keeps the old one across a reconnect.
   test("the model picker loads each daemon's catalog and keeps the last one while reconnecting", async () => {
     class CatalogSocket extends FakeSocket {
