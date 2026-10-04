@@ -86,6 +86,9 @@ public final class SidebarView: NSView {
         set { list.inlineRename.onEnded = newValue }
     }
 
+    /// The update and announcement cards above the spaces dots (R114; the updates lead fills it).
+    public var footerCards: NSView?
+
     /// A small view in the titlebar row, after the traffic lights (an
     /// incognito window's badge). Nil removes it.
     public var titlebarAccessory: NSView? {
