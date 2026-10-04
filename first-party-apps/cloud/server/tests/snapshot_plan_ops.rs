@@ -82,3 +82,19 @@ fn auth_status_comes_from_the_host() {
     assert_eq!(status, json!({ "signedIn": true, "team": "team-test" }));
     assert!(s.control_plane().calls.is_empty(), "no Cloud API call");
 }
+
+/// The Cloud API has no dedup for snapshot create yet (web route gap). The
+/// server must still send the derived key on every attempt, and the same key
+/// again after a lost answer, so the route can dedup once it supports keys.
+#[test]
+fn snapshot_create_sends_the_same_derived_key_after_a_lost_answer() {
+    let mut s = server(&["vm-snapshot-create"]);
+    let args = json!({ "machine": "vm-alpha01", "name": "nightly" });
+    let request = Request::new("cloud.snapshot.create", args.clone()).key("s-lost");
+    s.control_plane_mut().fail_next = 1;
+    assert!(s.handle(&request).is_err());
+    s.handle(&request).expect("retry");
+    let expected = cmux_cloud::api::upstream_key("cloud.snapshot.create", &args, "s-lost");
+    let keys: Vec<_> = s.control_plane().calls.iter().map(|c| c.idempotency_key.clone()).collect();
+    assert_eq!(keys, vec![Some(expected.clone()), Some(expected)]);
+}
