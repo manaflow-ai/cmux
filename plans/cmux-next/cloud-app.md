@@ -88,29 +88,38 @@ State owners inside the app (OWNERSHIP-PRINCIPLES):
     "binaries": { "darwin-arm64": "cmux-cloud", "darwin-x64": "cmux-cloud", "linux-x64": "cmux-cloud", "linux-arm64": "cmux-cloud" },
     "instances": "machine",
     "hosts": ["local", "cmux-server"],
-    "data": [{ "name": "projection", "class": "cache" }],
+    "data": [{ "name": "projection", "class": "ephemeral" }],
     "lifecycle": { "start": "onDemand" },
-    "scopes": ["op:cmux.terminal.connector.register", "op:cmux.terminal.backend.register", "op:cmux.link.connect"]
+    "scopes": {
+      "op:cmux.terminal.connector.register": "Gives the daemon a link to each Cloud machine.",
+      "op:cmux.terminal.backend.register": "Serves the rescue shell.",
+      "op:cmux.link.connect": "Opens the private link to a machine."
+    }
   },
   "implements": {
-    "cmux.pane/1": { "web": "web/index.html", "title": { "en": "Cloud", "ja": "クラウド" } },
-    "cmux.terminal.connector/1": { "kinds": ["cloud-vm"] },
-    "cmux.terminal.backend/1": { "kinds": ["cloud-vm-rescue"] },
-    "cmux.fs.provider/1": { "roots": "cloud-vm" }
+    "cmux.pane/1": { "native": "cloud", "title": { "en": "Cloud", "ja": "クラウド" } },
+    "cmux.terminal.connector/1": { "server": true, "options": { "kinds": ["cloud-vm"] } },
+    "cmux.terminal.backend/1": { "server": true, "options": { "kinds": ["cloud-vm-rescue"] } },
+    "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] }
   },
   "handles": {
     "credential": { "reason": "Calls the cmux Cloud API as you.", "kinds": ["cmux-cloud-session"] },
     "connection": { "reason": "Connects to your Cloud machines.", "kinds": ["cloud-vm"] }
   },
   "scopes": ["cloud:read", "cloud:write", "terminal:read", "terminal:input", "net:cmux.com"],
-  "files": ["assets/", "catalog/", "web/"]
+  "files": ["assets/", "catalog/"]
 }
 ```
 
-Points to check with the app platform lead before code: the `darwin-*` binary keys (the
-remote-desktop sample lists Linux only), `data.class: cache`, the `kinds` field on the two new
-interfaces, and an order of 30 in the reserved first-party band (Home 0, App Store 10, CodeRouter
-20).
+Manifest fields (checked against the v2 schema, 2026-10-04): `darwin-*` binaries already exist in
+the schema. The projection uses the existing class `ephemeral` (it is rebuilt from L1), so no `cache`
+class is needed. `cmux.pane/1` follows the App Store pattern (`native: "cloud"`, a view that hosts
+`cmux-page://cmux.cloud/`). Two items wait for approval (sent to the coordinator): (A) manifest
+schema `implements.<interface>.server: true` (the app server implements the interface; exactly one of
+export, web, native, server; needs a top-level `server` block); (B) interface option `options.kinds`
+(array of localId, 1 to 16) on `cmux.terminal.connector/1` and `cmux.terminal.backend/1`, owned by
+the ghostty-next lead. C1 does not use A or B before approval; the three `server: true` entries above
+are the target shape.
 
 Catalog fragment: family `cloud`, owner `app:cmux/cloud`, canonical names `cmux.cloud.<noun>.<verb>`,
 the old relay names (`vm.list`, `vm.create`, ...) as `aliases`, HTTP binding from
