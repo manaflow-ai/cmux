@@ -616,6 +616,46 @@ test("frames: a click in a nested frame never lands on another element: a transf
   }
 });
 
+test("pointer: a page that moves another frame over the target when the click's pointer arrives gets no press in that frame", async () => {
+  // The click checks the hit target after the pointer moves there, then
+  // moves it once more and presses. A page that puts another frame (or
+  // element) over the point on that last move would get the trusted press:
+  // the target is checked again right before the press, and the click fails.
+  const server = await startFixtureServers();
+  try {
+    const out = await runDevRepl(`
+      await page.goto(${JSON.stringify(server.origins.primary + "/")});
+      await page.evaluate(() => {
+        window.clicked = [];
+        document.body.style.margin = "0";
+        document.body.innerHTML = '<button id="t" style="position:absolute;left:100px;top:100px;width:120px;height:40px">Target</button>' +
+          '<iframe id="f" style="position:absolute;left:-1000px;top:0;width:400px;height:300px;border:0;z-index:5" srcdoc="<body style=margin:0;height:300px onmousedown=parent.clicked.push(&quot;frame-down&quot;) onclick=parent.clicked.push(&quot;frame-click&quot;)></body>"></iframe>';
+        const t = document.getElementById("t");
+        t.onclick = () => window.clicked.push("target");
+        let moves = 0;
+        t.addEventListener("mousemove", () => {
+          if (++moves === 2) document.getElementById("f").style.left = "0px";
+        });
+      });
+      await page.waitForFunction(() => { const d = document.getElementById("f").contentDocument; return !!(d && d.body); });
+      let error = null;
+      try {
+        await page.locator("#t").click({ timeout: 1500 });
+      } catch (e) {
+        error = String(e.message || e).split("\\n")[0];
+      }
+      console.log("@@" + JSON.stringify({ clicked: await page.evaluate(() => window.clicked), error }));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.deepEqual(r.clicked, [], `the press landed on ${JSON.stringify(r.clicked)}`);
+    assert.match(r.error || "", /intercepts pointer events|frame/, r.error);
+  } finally {
+    await server.close();
+  }
+});
+
 test("frames: finding a frame's <iframe> for an action walks at most the node budget of the parent frame", async () => {
   // The parent frame is the page's: it can hold millions of elements, and a
   // walk of all of them before every action in a child frame would let it
