@@ -191,13 +191,27 @@ const recount = (rows: RowReader, user: string, cursor: number): UnreadCounts =>
  * Counts per human before this commit, for fanOut: the stored row, or a recount from the read
  * cursor when there is none (a conversation older than the table). A cursor moved back recounts.
  */
+/**
+ * Where a user's unread count starts: the read cursor, and with history_visible since_join never
+ * below the user's join (the same floor reads, search and snapshots use).
+ */
+const unreadFloor = (head: ConversationHead, user: string): number => {
+  const cursor = head.read_cursors[user] ?? 0
+  if (head.settings?.history_visible !== "since_join") return cursor
+  const joined = head.participants.find((p) => p.id === user && p.left_at === undefined)?.joined_seq ?? 0
+  return Math.max(cursor, joined)
+}
+
 const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op, rows: RowReader): Record<string, UnreadCounts> => {
   const counts: Record<string, UnreadCounts> = {}
+  const wasMember = (user: string) => before.participants.some((p) => p.id === user && p.left_at === undefined)
   const humans = new Set([...before.participants, ...after.participants].filter((p) => p.kind === "human").map((p) => p.id))
   for (const user of humans) {
-    counts[user] = rows.get<UnreadCounts>(TABLE_UNREAD, user)?.row ?? recount(rows, user, before.read_cursors[user] ?? 0)
+    // A (re)joining member starts from the floor of the head after the join, never from a stored row of an earlier membership.
+    const stored = wasMember(user) ? rows.get<UnreadCounts>(TABLE_UNREAD, user)?.row : undefined
+    counts[user] = stored ?? recount(rows, user, unreadFloor(wasMember(user) ? before : after, user))
   }
-  if (op.kind === "read_cursor.set") for (const user of humans) if (after.read_cursors[user] !== before.read_cursors[user]) counts[user] = recount(rows, user, after.read_cursors[user] ?? 0)
+  if (op.kind === "read_cursor.set") for (const user of humans) if (after.read_cursors[user] !== before.read_cursors[user]) counts[user] = recount(rows, user, unreadFloor(after, user))
   return counts
 }
 
