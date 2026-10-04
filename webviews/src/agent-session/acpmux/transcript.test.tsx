@@ -667,6 +667,50 @@ describe("acpmux measured rows", () => {
     }
   });
 
+  /// R104: at the latest row, growth glides in instead of stepping a line per frame; the
+  /// reader's own scroll ends the glide at once.
+  test("at the latest row, content that grows glides in, and a user scroll finishes the glide", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const prototype = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>;
+    const glides: { frames: Keyframe[]; options: KeyframeAnimationOptions; finished: boolean }[] = [];
+    prototype.animate = function (frames: Keyframe[], options: KeyframeAnimationOptions) {
+      const glide = { frames, options, finished: false };
+      glides.push(glide);
+      return { finish: () => (glide.finished = true), cancel() {} };
+    };
+    prototype.getAnimations = () =>
+      glides.filter((glide) => !glide.finished).map((glide) => ({ finish: () => (glide.finished = true) }));
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const draw = (list: AcpmuxRow[]) =>
+      act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: list, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+    try {
+      await draw(rows);
+      const before = glides.length;
+      const grown = [
+        ...rows,
+        { id: "reply", version: 1, at: 1_000, kind: "assistant", text: "a new reply" } as AcpmuxRow,
+      ];
+      await draw(grown);
+      const glide = glides.at(-1)!;
+      expect(glides.length).toBe(before + 1);
+      expect(String(glide.frames[0]!.transform)).toMatch(/^translateY\(\d+(\.\d+)?px\)$/);
+      expect(glide.frames[1]!.transform).toBe("translateY(0px)");
+      expect(glide.options.composite).toBe("add");
+      const scroller = dom.window.document.querySelector(".acpmux-scroll") as HTMLElement;
+      await act(async () => scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40 })));
+      expect(glide.finished).toBe(true);
+    } finally {
+      delete prototype.animate;
+      delete prototype.getAnimations;
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   test("scrolled up, rows appended below leave the view where the reader is", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
