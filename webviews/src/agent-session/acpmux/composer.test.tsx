@@ -8,10 +8,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
-    key,
-    globals[key],
-  ]),
+  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
 );
 Object.assign(globals, {
   window: dom.window,
@@ -63,14 +60,11 @@ describe("acpmux composer slash menu", () => {
     [...dom.window.document.querySelectorAll(".acpmux-slash-row")].map(
       (row) => row.querySelector(".acpmux-slash-name")!.textContent,
     );
-  const active = () =>
-    dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
+  const active = () => dom.window.document.querySelector(".acpmux-slash-active .acpmux-slash-name")?.textContent;
   const menu = () => dom.window.document.querySelector(".acpmux-slash-menu");
   const type = async (value: string) => act(async () => typeInto(textarea(), value));
   const plusButton = () =>
-    dom.window.document.querySelector(
-      ".acpmux-composer-plus .acpmux-picker-button",
-    ) as HTMLButtonElement;
+    dom.window.document.querySelector(".acpmux-composer-plus .acpmux-picker-button") as HTMLButtonElement;
   /// Opens + and picks one of its rows, as a click does.
   const pickPlus = async (id: string) => {
     await act(async () => plusButton().click());
@@ -101,9 +95,7 @@ describe("acpmux composer slash menu", () => {
           chips: () => null,
           onSend: (text: string, attachments = []) => {
             sent.push(text);
-            sentAttachments.push(
-              attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })),
-            );
+            sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
           },
           onStop: () => {},
         }),
@@ -128,11 +120,9 @@ describe("acpmux composer slash menu", () => {
     expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
     await type("/com");
     expect(rows()).toEqual(["/compact", "/pr-comments"]);
-    expect(
-      [...dom.window.document.querySelectorAll(".acpmux-slash-row mark")].map(
-        (mark) => mark.textContent,
-      ),
-    ).toEqual(["com", "com"]);
+    expect([...dom.window.document.querySelectorAll(".acpmux-slash-row mark")].map((mark) => mark.textContent)).toEqual(
+      ["com", "com"],
+    );
     await type("/review ");
     expect(menu()).toBeNull();
     await type("say /com");
@@ -229,9 +219,9 @@ describe("acpmux composer slash menu", () => {
   test("+ opens an add menu: Mention puts an @ at the caret, and Commands opens the command menu ahead of a draft", async () => {
     const items = async () => {
       await act(async () => plusButton().click());
-      const names = [
-        ...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]"),
-      ].map((item) => item.getAttribute("data-value"));
+      const names = [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) =>
+        item.getAttribute("data-value"),
+      );
       await act(async () => plusButton().click());
       return names;
     };
@@ -280,9 +270,7 @@ describe("acpmux composer slash menu", () => {
     expect(dom.window.document.querySelector(".acpmux-plan")).toBeNull();
     await act(async () => plusButton().click());
     expect(
-      [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map(
-        (item) => item.textContent,
-      ),
+      [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
     ).toEqual(["Ask for approval", "Full access", "Plan", "Mention a file or folder@"]);
     await act(async () =>
       dom.window.document
@@ -332,14 +320,9 @@ describe("acpmux composer slash menu", () => {
     // Called directly for the same reason as typeInto: react-dom may load before the DOM exists.
     const form = dom.window.document.querySelector("form")!;
     const props = (
-      form as unknown as Record<
-        string,
-        { onBlur(event: { currentTarget: Element; relatedTarget: Element }): void }
-      >
+      form as unknown as Record<string, { onBlur(event: { currentTarget: Element; relatedTarget: Element }): void }>
     )[Object.keys(form).find((key) => key.startsWith("__reactProps$"))!]!;
-    await act(async () =>
-      props.onBlur({ currentTarget: form, relatedTarget: dom.window.document.body }),
-    );
+    await act(async () => props.onBlur({ currentTarget: form, relatedTarget: dom.window.document.body }));
     expect(textarea().value).toBe("look again");
     expect(menu()).toBeNull();
     await type("/comp");
@@ -423,29 +406,20 @@ describe("acpmux composer slash menu", () => {
             chips: () => null,
             onSend: (text: string, attachments = []) => {
               sent.push(text);
-              sentAttachments.push(
-                attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })),
-              );
+              sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
             },
             onStop: () => {},
           }),
         ),
       );
       await ready();
-      const event = await paste([
-        png(),
-        new dom.window.File(["hello\n"], "notes.md", { type: "text/markdown" }),
-      ]);
+      const event = await paste([png(), new dom.window.File(["hello\n"], "notes.md", { type: "text/markdown" })]);
       expect(event.defaultPrevented).toBe(true);
       expect(
-        [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) =>
-          chip.getAttribute("title"),
-        ),
+        [...dom.window.document.querySelectorAll(".acpmux-attachment")].map((chip) => chip.getAttribute("title")),
       ).toEqual(["shot.png", "notes.md"]);
       await act(async () =>
-        dom.window.document
-          .querySelector<HTMLButtonElement>('[aria-label="Remove notes.md"]')!
-          .click(),
+        dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Remove notes.md"]')!.click(),
       );
       await act(async () =>
         dom.window.document
@@ -468,9 +442,7 @@ describe("acpmux composer slash menu", () => {
             chips: () => null,
             onSend: (text: string, attachments = []) => {
               sent.push(text);
-              sentAttachments.push(
-                attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })),
-              );
+              sentAttachments.push(attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })));
             },
             onStop: () => {},
           }),

@@ -36,10 +36,7 @@ describe("direct acpmux event helpers", () => {
 
   test("removes an optimistic prompt when mux records it", () => {
     const rows = new Map<string, AcpmuxRow>([
-      [
-        "local-p1",
-        { id: "local-p1", version: 1, at: 1, kind: "user", text: "hello", pending: true },
-      ],
+      ["local-p1", { id: "local-p1", version: 1, at: 1, kind: "user", text: "hello", pending: true }],
     ]);
     const promptRows = new Map([["p1", "local-p1"]]);
     settleOptimisticPrompt(rows, promptRows, { promptId: "p1" });
@@ -56,17 +53,12 @@ describe("direct acpmux event helpers", () => {
       kind: "status",
       msg: { status: "ready" },
     });
-    expect(
-      mergeEventRecords([event(1), event(2)], [event(2), event(3)]).map((item) => item.seq),
-    ).toEqual([1, 2, 3]);
+    expect(mergeEventRecords([event(1), event(2)], [event(2), event(3)]).map((item) => item.seq)).toEqual([1, 2, 3]);
   });
 
   test("reconciles older user messages by text when promptId is absent", () => {
     const rows = new Map<string, AcpmuxRow>([
-      [
-        "local-p1",
-        { id: "local-p1", version: 1, at: 1, kind: "user", text: "hello", pending: true },
-      ],
+      ["local-p1", { id: "local-p1", version: 1, at: 1, kind: "user", text: "hello", pending: true }],
     ]);
     const promptRows = new Map([["p1", "local-p1"]]);
     const promptTexts = new Map([["p1", "hello"]]);
@@ -90,8 +82,7 @@ describe("direct acpmux event helpers", () => {
 describe("initial session", () => {
   const sessions = [{ sessionId: "recent" }, { sessionId: "older" }];
   test("keeps the host's session", () => expect(initialSession("older", sessions)).toBe("older"));
-  test("falls back to the most recent session", () =>
-    expect(initialSession(undefined, sessions)).toBe("recent"));
+  test("falls back to the most recent session", () => expect(initialSession(undefined, sessions)).toBe("recent"));
   test("a new chat attaches nothing until its first prompt", () =>
     expect(initialSession(undefined, sessions, true)).toBeUndefined());
 });
@@ -139,10 +130,7 @@ class ScriptedSocket {
     this.reply(request!, result);
   }
   /// Answers a held request with a JSON-RPC error.
-  fail(
-    method: string,
-    error: { code?: number; message?: string; data?: unknown } = { message: `${method} failed` },
-  ) {
+  fail(method: string, error: { code?: number; message?: string; data?: unknown } = { message: `${method} failed` }) {
     const index = this.waiting.findIndex((request) => request.method === method);
     if (index < 0) throw new Error(`no ${method} request is waiting`);
     const [request] = this.waiting.splice(index, 1);
@@ -230,8 +218,7 @@ describe("direct client session state", () => {
             { sessionId: "c", cwd: "/work/other", updatedAt: 10 },
           ],
         };
-      if (method === "_acpmux/attach")
-        return { session: { sessionId: params.sessionId }, events: [] };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId }, events: [] };
       return {};
     };
     const client = await connect();
@@ -444,8 +431,7 @@ describe("direct client session state", () => {
 
   test("a linked session the daemon lacks is refused, not replaced by the latest chat, and marks nothing seen", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
-      if (method === "_acpmux/watch")
-        return { sessions: [{ sessionId: "a", unread: true }, { sessionId: "b" }] };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a", unread: true }, { sessionId: "b" }] };
       if (method === "_acpmux/attach") return attachReply(params.sessionId);
       return {};
     };
@@ -457,9 +443,7 @@ describe("direct client session state", () => {
     expect(latest().sessionId).toBeUndefined();
     expect(latest().missingSession).toBe("bogus");
     expect(latest().rows).toEqual([]);
-    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain(
-      "_acpmux/attach",
-    );
+    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain("_acpmux/attach");
     expect(latest().sessions.find((session) => session.sessionId === "a")?.unread).toBe(true);
     // Choosing a chat afterwards clears the notice.
     await client.select("b");
@@ -482,13 +466,8 @@ describe("direct client session state", () => {
     const client = await connect();
     await client.create("codex", "/Users/me/code/notes");
     await client.create();
-    const created = ScriptedSocket.current.sent.filter(
-      (request) => request.method === "session/new",
-    );
-    expect(created.map((request) => request.params.cwd)).toEqual([
-      "/Users/me/code/notes",
-      undefined,
-    ]);
+    const created = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(created.map((request) => request.params.cwd)).toEqual(["/Users/me/code/notes", undefined]);
     expect(created.map((request) => "cwd" in request.params)).toEqual([true, false]);
     expect(created[0]!.params._meta).toEqual({ acpmux: { harness: "codex" } });
     client.close();
@@ -497,18 +476,14 @@ describe("direct client session state", () => {
   test("connect attaches without waiting on the harness catalog, which the pane queries itself", async () => {
     ScriptedSocket.held = new Set(["_acpmux/harnesses"]);
     const client = await connect();
-    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain(
-      "_acpmux/harnesses",
-    );
+    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain("_acpmux/harnesses");
     expect(latest().catalog).toEqual([]);
     const catalog = client.harnesses();
     await settle();
     ScriptedSocket.current.release("_acpmux/harnesses", {
       harnesses: { codex: { name: "Codex", models: [{ modelId: "gpt-6-astra" }] } },
     });
-    expect(await catalog).toEqual([
-      { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: undefined }] },
-    ]);
+    expect(await catalog).toEqual([{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: undefined }] }]);
   });
 
   test("only the first new chat starts in the inherited cwd", async () => {
@@ -516,8 +491,7 @@ describe("direct client session state", () => {
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "_acpmux/watch") return { sessions: [] };
       if (method === "session/new") return { sessionId: `n${(created += 1)}` };
-      if (method === "_acpmux/attach")
-        return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
       return {};
     };
     const client = await AcpmuxDirectClient.connect(
@@ -539,8 +513,7 @@ describe("direct client session state", () => {
           sessionId: "adopted",
           _meta: { acpmux: { agentSessionId: params._meta.acpmux.adopt?.agentSessionId } },
         };
-      if (method === "_acpmux/attach")
-        return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
       return {};
     };
     const client = await AcpmuxDirectClient.connect(
@@ -554,16 +527,13 @@ describe("direct client session state", () => {
     expect(snapshots.at(-1)?.summary?.sessionId).toBe("adopted");
     expect(client.adopted).toBe("adopted");
     expect(await client.ensureSession()).toBe("adopted");
-    expect(
-      ScriptedSocket.current.sent.filter((request) => request.method === "session/new"),
-    ).toHaveLength(1);
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "session/new")).toHaveLength(1);
   });
 
   test("a daemon that can't adopt gets its fresh session removed and the pane says so", async () => {
     ScriptedSocket.respond = ({ method }) => {
       if (method === "_acpmux/watch") return { sessions: [] };
-      if (method === "session/new")
-        return { sessionId: "fresh", _meta: { acpmux: { agentSessionId: "its-own" } } };
+      if (method === "session/new") return { sessionId: "fresh", _meta: { acpmux: { agentSessionId: "its-own" } } };
       return {};
     };
     const client = await AcpmuxDirectClient.connect(
@@ -576,13 +546,9 @@ describe("direct client session state", () => {
       (snapshot) => snapshots.push(snapshot),
     );
     expect(client.adopted).toBeUndefined();
-    const kills = ScriptedSocket.current.sent.filter(
-      (request) => request.method === "_acpmux/kill",
-    );
+    const kills = ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/kill");
     expect(kills.map((request) => request.params)).toEqual([{ sessionId: "fresh", purge: true }]);
-    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/attach")).toBe(
-      false,
-    );
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/attach")).toBe(false);
     const last = snapshots.at(-1);
     expect(last?.connection).toBe("connected");
     expect(last?.rows.at(-1)).toMatchObject({
@@ -603,8 +569,7 @@ describe("direct client session state", () => {
       },
       (snapshot) => snapshots.push(snapshot),
     );
-    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1)
-      await settle();
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
     ScriptedSocket.current.drop();
     expect(
       await connecting.then(
@@ -612,9 +577,7 @@ describe("direct client session state", () => {
         () => "rejected",
       ),
     ).toBe("rejected");
-    expect(
-      snapshots.flatMap((snapshot) => snapshot.rows).some((row) => row.kind === "notice"),
-    ).toBe(false);
+    expect(snapshots.flatMap((snapshot) => snapshot.rows).some((row) => row.kind === "notice")).toBe(false);
   });
 
   test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {
@@ -622,8 +585,7 @@ describe("direct client session state", () => {
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "_acpmux/watch") return { sessions: [] };
       if (method === "session/new") return { sessionId: `n${(created += 1)}` };
-      if (method === "_acpmux/attach")
-        return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
       return {};
     };
     const client = await AcpmuxDirectClient.connect(
@@ -634,20 +596,14 @@ describe("direct client session state", () => {
     await client.create("claude");
     await client.create("codex");
     const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
-    expect(news.map((request) => request.params.cwd)).toEqual([
-      "/work/notes",
-      "/work/app",
-      undefined,
-    ]);
+    expect(news.map((request) => request.params.cwd)).toEqual(["/work/notes", "/work/app", undefined]);
     expect(news[0]?.params._meta.acpmux.peer).toBe("devbox");
   });
 
   test("a turn that ends in the background is unread until its session is selected, and survives a reread", async () => {
     const client = await connect();
     const unread = () =>
-      Object.fromEntries(
-        latest().sessions.map((session) => [session.sessionId, session.unread === true]),
-      );
+      Object.fromEntries(latest().sessions.map((session) => [session.sessionId, session.unread === true]));
     const change = (session: Record<string, unknown>) =>
       ScriptedSocket.current.notify("_acpmux/session_changed", { kind: "updated", session });
     change({ sessionId: "b", status: "running" });
@@ -660,9 +616,7 @@ describe("direct client session state", () => {
     ScriptedSocket.current.notify("_acpmux/lagged", { sessionIds: [], watch: true, dropped: 1 });
     await settle();
     await settle();
-    expect(
-      ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/watch"),
-    ).toHaveLength(2);
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/watch")).toHaveLength(2);
     expect(unread()).toEqual({ a: false, b: true });
     // The selected session's own turn ending is seen as it happens.
     change({ sessionId: "a", status: "running" });
@@ -677,17 +631,14 @@ describe("direct client session state", () => {
   test("a turn whose end only a reread shows is unread; a fallback selection is seen", async () => {
     const client = await connect();
     const unread = () =>
-      Object.fromEntries(
-        latest().sessions.map((session) => [session.sessionId, session.unread === true]),
-      );
+      Object.fromEntries(latest().sessions.map((session) => [session.sessionId, session.unread === true]));
     ScriptedSocket.current.notify("_acpmux/session_changed", {
       kind: "updated",
       session: { sessionId: "b", status: "running" },
     });
     // The notice that b finished was dropped; the reread after the lag shows it idle.
     ScriptedSocket.respond = ({ method, params }) => {
-      if (method === "_acpmux/watch")
-        return { sessions: [{ sessionId: "a" }, { sessionId: "b", status: "idle" }] };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b", status: "idle" }] };
       if (method === "_acpmux/attach") return attachReply(params.sessionId);
       return {};
     };
@@ -722,12 +673,7 @@ describe("direct client session state", () => {
     });
     const requests = wire.entries().filter((entry) => entry.kind === "request");
     const methods = requests.map((entry) => entry.method);
-    expect(methods.slice(0, 4)).toEqual([
-      "initialize",
-      "_acpmux/status",
-      "_acpmux/watch",
-      "_acpmux/attach",
-    ]);
+    expect(methods.slice(0, 4)).toEqual(["initialize", "_acpmux/status", "_acpmux/watch", "_acpmux/attach"]);
     // Every request that was answered pairs with its reply and its latency.
     const replies = wire.entries().filter((entry) => entry.kind === "response");
     expect(replies.length).toBeGreaterThanOrEqual(3);
@@ -783,10 +729,9 @@ describe("direct client session state", () => {
     await client.loadOlder();
     const methods = ScriptedSocket.current.sent.map((request) => request.method);
     expect(methods.filter((method) => method === "_acpmux/attach").length).toBe(1);
-    expect(
-      ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/events")?.params
-        .beforeSeq,
-    ).toBe(5);
+    expect(ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/events")?.params.beforeSeq).toBe(
+      5,
+    );
     expect(texts()).toEqual(["a three", "a four", "a five", "a six"]);
     expect(latest().queue).toEqual([{ id: "q1", prompt: "queued" }]);
     expect(latest().summary?.status).toBe("idle");
@@ -839,9 +784,7 @@ describe("direct client session state", () => {
     void client.send("still sending").catch(() => undefined);
     await settle();
     ScriptedSocket.respond = ({ method, params }) =>
-      method === "_acpmux/events" && params.afterSeq === 6
-        ? { events: [userEvent("a", 7, "a seven")] }
-        : {};
+      method === "_acpmux/events" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
     ScriptedSocket.current.notify("_acpmux/lagged", {
       sessionIds: ["a"],
       watch: false,
@@ -908,25 +851,15 @@ describe("direct client session state", () => {
       more: true,
     });
     await settle();
-    expect(
-      ScriptedSocket.current.waiting.find((request) => request.method === "_acpmux/events")?.params
-        .afterSeq,
-    ).toBe(8);
+    expect(ScriptedSocket.current.waiting.find((request) => request.method === "_acpmux/events")?.params.afterSeq).toBe(
+      8,
+    );
     ScriptedSocket.current.release("_acpmux/events", {
       events: [9, 10, 11].map((seq) => userEvent("a", seq, `a ${seq}`)),
       more: false,
     });
     await settle();
-    expect(texts()).toEqual([
-      "a five",
-      "a six",
-      "a seven",
-      "a eight",
-      "a 9",
-      "a 10",
-      "a 11",
-      "a twelve",
-    ]);
+    expect(texts()).toEqual(["a five", "a six", "a seven", "a eight", "a 9", "a 10", "a 11", "a twelve"]);
   });
 
   test("a lag notice before the selected session's attach returns waits for the attach", async () => {
@@ -936,9 +869,7 @@ describe("direct client session state", () => {
     await settle();
     ScriptedSocket.current.notify("_acpmux/lagged", { dropped: 1 });
     await settle();
-    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(
-      false,
-    );
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     ScriptedSocket.current.release("_acpmux/attach", {
       session: { sessionId: "b", status: "idle" },
       events: [userEvent("b", 1, "b one")],
@@ -1013,9 +944,7 @@ describe("direct client session state", () => {
       request: { toolCall: { title: "Run" }, options: [] },
     });
     ScriptedSocket.respond = ({ method, params }) =>
-      method === "_acpmux/events" && params.afterSeq === 6
-        ? { events: [userEvent("a", 7, "a seven")] }
-        : {};
+      method === "_acpmux/events" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
     ScriptedSocket.current.notify("_acpmux/lagged", {
       sessionIds: ["a"],
       watch: false,
@@ -1085,14 +1014,11 @@ describe("direct client session state", () => {
     ScriptedSocket.held.add("_acpmux/attach");
     await dropAndReconnect();
     expect(
-      ScriptedSocket.current.waiting.find((request) => request.method === "_acpmux/attach")?.params
-        .sessionId,
+      ScriptedSocket.current.waiting.find((request) => request.method === "_acpmux/attach")?.params.sessionId,
     ).toBe("b");
     ScriptedSocket.current.notify("_acpmux/lagged", { dropped: 1 });
     await settle();
-    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(
-      false,
-    );
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     ScriptedSocket.current.release("_acpmux/attach", attachReply("b"));
     await settle();
     expect(latest().sessionId).toBe("b");
@@ -1115,15 +1041,7 @@ describe("direct client session state", () => {
       return {};
     };
     await dropAndReconnect();
-    expect(texts()).toEqual([
-      "a five",
-      "a six",
-      "a seven",
-      "a eight",
-      "a nine",
-      "a ten",
-      "a eleven",
-    ]);
+    expect(texts()).toEqual(["a five", "a six", "a seven", "a eight", "a nine", "a ten", "a eleven"]);
   });
 
   test("a watch lag that drops the selected session selects the most recent remaining one", async () => {
@@ -1185,21 +1103,11 @@ describe("direct client session state", () => {
           ? { sessions: [{ sessionId: "a" }] }
           : {};
     await connect();
-    const attach = ScriptedSocket.current.sent.find(
-      (request) => request.method === "_acpmux/attach",
-    )!;
-    expect(attach.params.kinds).toEqual([
-      "transcript",
-      "available_commands_update",
-      "usage_update",
-    ]);
-    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(
-      false,
-    );
+    const attach = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/attach")!;
+    expect(attach.params.kinds).toEqual(["transcript", "available_commands_update", "usage_update"]);
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/events")).toBe(false);
     expect(texts()).toEqual(["a five"]);
-    expect(latest().commands).toEqual([
-      { name: "review", description: "review help", hint: undefined },
-    ]);
+    expect(latest().commands).toEqual([{ name: "review", description: "review help", hint: undefined }]);
     ScriptedSocket.current.notify("session/update", {
       sessionId: "a",
       update: {
@@ -1227,8 +1135,7 @@ describe("direct client session state", () => {
       method === "_acpmux/attach"
         ? {
             ...attachReply(params.sessionId),
-            events:
-              params.sessionId === "a" ? [userEvent("a", 5, "a five"), usage("a", 6, 33551)] : [],
+            events: params.sessionId === "a" ? [userEvent("a", 5, "a five"), usage("a", 6, 33551)] : [],
             lastSeq: 6,
           }
         : method === "_acpmux/watch"
@@ -1252,15 +1159,12 @@ describe("direct client session state", () => {
       if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
       if (method === "_acpmux/attach")
         return { ...attachReply(params.sessionId), lastSeq: params.sessionId === "a" ? 900 : 0 };
-      if (method === "_acpmux/events")
-        return { events: [commandsEvent("a", 2, ["init", "review"])] };
+      if (method === "_acpmux/events") return { events: [commandsEvent("a", 2, ["init", "review"])] };
       return {};
     };
     const client = await connect();
     await settle();
-    const fetch = ScriptedSocket.current.sent.find(
-      (request) => request.method === "_acpmux/events",
-    )!;
+    const fetch = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/events")!;
     expect(fetch.params).toEqual({
       sessionId: "a",
       beforeSeq: 901,
@@ -1305,9 +1209,7 @@ describe("direct client session state", () => {
       },
       { id: "t", kind: "text", name: "a.txt", mimeType: "text/plain", size: 1, text: "x" },
     ]);
-    const prompt = ScriptedSocket.current.sent.find(
-      (request) => request.method === "session/prompt",
-    )!;
+    const prompt = ScriptedSocket.current.sent.find((request) => request.method === "session/prompt")!;
     expect(prompt.params.prompt).toEqual([
       { type: "text", text: "Compare\n\na.txt\n```txt\nx\n```" },
       { type: "image", mimeType: "image/png", data: "iVBORw==" },
@@ -1340,9 +1242,7 @@ describe("direct client session state", () => {
     ScriptedSocket.current.fail("session/prompt");
     expect(await sending).toBe("failed");
     ScriptedSocket.respond = ({ method, params }) =>
-      method === "_acpmux/events" && params.afterSeq === 6
-        ? { events: [userEvent("a", 7, "a seven")] }
-        : {};
+      method === "_acpmux/events" && params.afterSeq === 6 ? { events: [userEvent("a", 7, "a seven")] } : {};
     ScriptedSocket.current.notify("_acpmux/lagged", {
       sessionIds: ["a"],
       watch: false,
@@ -1529,9 +1429,7 @@ describe("direct client session state", () => {
           : {};
     await connect();
     await settle();
-    expect(
-      latest().rows.map((row) => [row.kind, row.kind === "activity" ? row.toolCount : row.text]),
-    ).toEqual([
+    expect(latest().rows.map((row) => [row.kind, row.kind === "activity" ? row.toolCount : row.text])).toEqual([
       ["user", "run it"],
       ["assistant", "I'll inspect total.py."],
       ["activity", 1],
@@ -1642,8 +1540,7 @@ describe("direct client git reads", () => {
     answer = (method) => ({ ok: true, value: { method } });
     ScriptedSocket.held = new Set();
     ScriptedSocket.respond = ({ method, params }) => {
-      if (method === "_acpmux/watch")
-        return { sessions: [{ sessionId: "a" }, { sessionId: "b", cwd: folders.b }] };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b", cwd: folders.b }] };
       if (method === "_acpmux/attach")
         return {
           session: { sessionId: params.sessionId, status: "idle", cwd: folders[params.sessionId] },
@@ -1671,8 +1568,7 @@ describe("direct client git reads", () => {
   });
 
   const connect = () => AcpmuxDirectClient.connect(host, () => {});
-  const gitSent = () =>
-    ScriptedSocket.current.sent.filter((request) => request.method.startsWith("git."));
+  const gitSent = () => ScriptedSocket.current.sent.filter((request) => request.method.startsWith("git."));
 
   test("a scope and the status go to the native host with the selected session's folder", async () => {
     const client = await connect();
@@ -1749,8 +1645,7 @@ describe("direct client git reads", () => {
 
   test("a cloud session's folder is not read on this Mac", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
-      if (method === "_acpmux/watch")
-        return { sessions: [{ sessionId: "a", hostKind: "cloud", cwd: "/workspace" }] };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a", hostKind: "cloud", cwd: "/workspace" }] };
       if (method === "_acpmux/attach")
         return {
           session: {

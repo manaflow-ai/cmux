@@ -66,26 +66,21 @@ const en = {
   "project.browse": "Browse…",
   "newtab.importAndSync": "Import and sync",
   "link.copyChat": "Copy chat link",
-  "link.sessionMissing":
-    "This chat isn't available. It was deleted, or it's on a machine that isn't connected.",
+  "link.sessionMissing": "This chat isn't available. It was deleted, or it's on a machine that isn't connected.",
   "permission.required": "Permission required",
   "permission.title": "Tool permissions",
   "permission.toolRequest": "Tool request",
   "permission.noInput": "No additional input was provided.",
-  "permission.coverageDetail":
-    "Only actions the agent requests through ACP are covered. Host isolation is unverified.",
+  "permission.coverageDetail": "Only actions the agent requests through ACP are covered. Host isolation is unverified.",
   "permission.coverage": "ACP requests only · Isolation unverified",
-  "permission.chatAllowed":
-    "Future eligible tool requests are allowed in this chat. Deny rules still apply.",
+  "permission.chatAllowed": "Future eligible tool requests are allowed in this chat. Deny rules still apply.",
   "permission.revoke": "Revoke",
   "permission.count.one": "{n} request from this turn",
   "permission.count.other": "{n} requests from this turn",
   "permission.expand": "Expand details",
   "permission.collecting": "Collecting requests…",
-  "permission.chatScope":
-    "Allow for this chat also approves future eligible requests until this chat stops.",
-  "permission.denyOnly":
-    "An item has no single-use approval option. This group can only be denied.",
+  "permission.chatScope": "Allow for this chat also approves future eligible requests until this chat stops.",
+  "permission.denyOnly": "An item has no single-use approval option. This group can only be denied.",
   "permission.allowOnce": "Allow once",
   "permission.allowChat": "Allow for this chat",
   "permission.deny": "Deny",
@@ -102,18 +97,14 @@ const en = {
   "permission.error.awaitingRetry": "Another permission decision is awaiting retry.",
   "permission.error.busy": "A permission decision is already being sent.",
   "permission.error.readRequired": "Read the current permission groups before answering.",
-  "permission.error.selectionChanged":
-    "The selected session changed. Read its permissions before answering.",
-  "permission.error.answerUncertain":
-    "The permission answer may have been applied. Read before retrying.",
-  "permission.error.wrongGroup":
-    "The permission answer returned a different group. Read before retrying.",
+  "permission.error.selectionChanged": "The selected session changed. Read its permissions before answering.",
+  "permission.error.answerUncertain": "The permission answer may have been applied. Read before retrying.",
+  "permission.error.wrongGroup": "The permission answer returned a different group. Read before retrying.",
   "permission.error.readResult": "Read the current result before retrying this permission answer.",
   "permission.error.invalidRevision": "Invalid group revision.",
   "permission.error.notFound": "Permission group was not found.",
   "permission.error.noRetry": "There is no permission decision to retry.",
-  "permission.error.noLongerAvailable":
-    "Permission group is no longer available. Review the current groups.",
+  "permission.error.noLongerAvailable": "Permission group is no longer available. Review the current groups.",
   "permission.error.groupChanged": "The permission group changed. Review it again before retrying.",
   "permission.error.disconnected": "Permission groups are disconnected. Refresh before answering.",
   "quick.keys": "Keyboard shortcuts",
@@ -268,14 +259,12 @@ const ja: Record<StringKey, string> = {
   "project.browse": "参照…",
   "newtab.importAndSync": "インポートして同期",
   "link.copyChat": "チャットのリンクをコピー",
-  "link.sessionMissing":
-    "このチャットは利用できません。削除されたか、接続されていないマシン上にあります。",
+  "link.sessionMissing": "このチャットは利用できません。削除されたか、接続されていないマシン上にあります。",
   "permission.required": "許可が必要です",
   "permission.title": "ツールの権限",
   "permission.toolRequest": "ツールのリクエスト",
   "permission.noInput": "追加の入力はありません。",
-  "permission.coverageDetail":
-    "対象はエージェントが ACP 経由で要求する操作のみです。ホストの隔離は未検証です。",
+  "permission.coverageDetail": "対象はエージェントが ACP 経由で要求する操作のみです。ホストの隔離は未検証です。",
   "permission.coverage": "ACP リクエストのみ · 隔離は未検証",
   "permission.chatAllowed":
     "このチャットでは今後の対象ツールリクエストを許可します。拒否ルールは引き続き適用されます。",
@@ -284,8 +273,7 @@ const ja: Record<StringKey, string> = {
   "permission.count.other": "このターンのリクエスト {n} 件",
   "permission.expand": "詳細を表示",
   "permission.collecting": "リクエストを収集中…",
-  "permission.chatScope":
-    "「このチャットで許可」は、チャットが停止するまで今後の対象リクエストも承認します。",
+  "permission.chatScope": "「このチャットで許可」は、チャットが停止するまで今後の対象リクエストも承認します。",
   "permission.denyOnly": "1 回限りの承認ができない項目があります。このグループは拒否のみ可能です。",
   "permission.allowOnce": "1 回だけ許可",
   "permission.allowChat": "このチャットで許可",
@@ -303,22 +291,16 @@ const ja: Record<StringKey, string> = {
   "permission.error.awaitingRetry": "別の権限回答が再試行を待っています。",
   "permission.error.busy": "権限回答を送信中です。",
   "permission.error.readRequired": "回答する前に現在の権限グループを取得してください。",
-  "permission.error.selectionChanged":
-    "選択中のセッションが変わりました。回答する前に権限を取得してください。",
-  "permission.error.answerUncertain":
-    "権限回答が適用された可能性があります。再試行する前に結果を取得してください。",
-  "permission.error.wrongGroup":
-    "権限回答が別のグループを返しました。再試行する前に結果を取得してください。",
+  "permission.error.selectionChanged": "選択中のセッションが変わりました。回答する前に権限を取得してください。",
+  "permission.error.answerUncertain": "権限回答が適用された可能性があります。再試行する前に結果を取得してください。",
+  "permission.error.wrongGroup": "権限回答が別のグループを返しました。再試行する前に結果を取得してください。",
   "permission.error.readResult": "この権限回答を再試行する前に現在の結果を取得してください。",
   "permission.error.invalidRevision": "グループのリビジョンが無効です。",
   "permission.error.notFound": "権限グループが見つかりません。",
   "permission.error.noRetry": "再試行する権限回答はありません。",
-  "permission.error.noLongerAvailable":
-    "権限グループは利用できなくなりました。現在のグループを確認してください。",
-  "permission.error.groupChanged":
-    "権限グループが変わりました。再試行する前にもう一度確認してください。",
-  "permission.error.disconnected":
-    "権限グループとの接続が切れています。回答する前に更新してください。",
+  "permission.error.noLongerAvailable": "権限グループは利用できなくなりました。現在のグループを確認してください。",
+  "permission.error.groupChanged": "権限グループが変わりました。再試行する前にもう一度確認してください。",
+  "permission.error.disconnected": "権限グループとの接続が切れています。回答する前に更新してください。",
   "quick.keys": "キーボードショートカット",
   "quick.send": "送信",
   "quick.openInWindow": "ウィンドウで開く",
@@ -356,24 +338,19 @@ const ja: Record<StringKey, string> = {
   "summary.sources": "ソース",
   "summary.viewAll": "{n} 件すべて表示",
   "summary.showFewer": "折りたたむ",
-  "summary.empty":
-    "このチャットのプルリクエスト、ファイル、サブエージェント、ソースがここに表示されます。",
+  "summary.empty": "このチャットのプルリクエスト、ファイル、サブエージェント、ソースがここに表示されます。",
   "summary.subagents.done": "{n} 件完了",
   "summary.subagents.running": "{n} 件実行中",
   "summary.subagents.failed": "{n} 件失敗",
   "summary.pr.merged": "マージ済み",
   "summary.pr.closed": "クローズ済み",
-  "turn.checkpoint.missing":
-    "このターンのチェックポイントはありません。エージェントの編集を表示しています。",
-  "turn.checkpoint.failed":
-    "このターンのチェックポイントを読み込めませんでした。エージェントの編集を表示しています。",
+  "turn.checkpoint.missing": "このターンのチェックポイントはありません。エージェントの編集を表示しています。",
+  "turn.checkpoint.failed": "このターンのチェックポイントを読み込めませんでした。エージェントの編集を表示しています。",
   "turn.checkpoint.incomplete":
     "このターンのチェックポイントには含まれないファイルがあります。エージェントの編集を表示しています。",
-  "turn.checkpoint.pending":
-    "保持と取り消しの選択を送信するまで、エージェントの編集を表示しています。",
+  "turn.checkpoint.pending": "保持と取り消しの選択を送信するまで、エージェントの編集を表示しています。",
   "turn.outside": "ツール呼び出し以外",
-  "turn.outside.title":
-    "ターン中に変更されましたが、エージェントの編集によるものではありません。読み取り専用です。",
+  "turn.outside.title": "ターン中に変更されましたが、エージェントの編集によるものではありません。読み取り専用です。",
   "turn.outside.card": "ツール呼び出し以外の変更を含みます",
   "diff.keys": "変更ビューのキー",
   "diff.keys.files": "ファイル",
@@ -414,9 +391,7 @@ const ja: Record<StringKey, string> = {
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
 
 /** The pane's language: the first of the app's languages the pane has strings for. */
-export function paneLanguage(
-  languages: readonly string[] = globalThis.navigator?.languages ?? [],
-): "en" | "ja" {
+export function paneLanguage(languages: readonly string[] = globalThis.navigator?.languages ?? []): "en" | "ja" {
   for (const language of languages) {
     const base = language.toLowerCase().split("-")[0];
     if (base === "ja") return "ja";
@@ -426,15 +401,9 @@ export function paneLanguage(
 }
 
 /** A pane string, with `{name}` placeholders filled. */
-export function t(
-  key: StringKey,
-  values: Record<string, string | number> = {},
-  language = paneLanguage(),
-): string {
+export function t(key: StringKey, values: Record<string, string | number> = {}, language = paneLanguage()): string {
   const text = tables[language]?.[key] ?? en[key];
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) =>
-    name in values ? String(values[name]) : whole,
-  );
+  return text.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
 }
 
 /** Every key of every language, for tests that keep the tables complete. */

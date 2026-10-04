@@ -44,8 +44,7 @@ const CHECK_STATES = new Set(["passing", "failing", "pending"]);
 /** A non-empty string, else undefined. */
 export const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
 /** "local" or "cloud", else undefined. */
-export const hostKind = (value: unknown) =>
-  value === "local" || value === "cloud" ? value : undefined;
+export const hostKind = (value: unknown) => (value === "local" || value === "cloud" ? value : undefined);
 
 export type SessionGroup = {
   key: string;
@@ -65,9 +64,7 @@ export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 export const GROUP_ROWS = 6;
 
 /** Cuts acpmux's session summary down to the fields the pane uses. */
-export function sessionEntry(
-  session: Record<string, any> & { sessionId: string },
-): AcpmuxSessionEntry {
+export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
   const pending = Number(session.pendingPermissions ?? 0);
   return {
     sessionId: session.sessionId,
@@ -86,8 +83,7 @@ export function sessionEntry(
     hostKind: hostKind(session.hostKind),
     branch: text(session.branch),
     worktree: text(session.worktree),
-    pinned:
-      session.pinned === true || (Array.isArray(session.tags) && session.tags.includes(PINNED_TAG)),
+    pinned: session.pinned === true || (Array.isArray(session.tags) && session.tags.includes(PINNED_TAG)),
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
   };
@@ -95,12 +91,7 @@ export function sessionEntry(
 
 function pullRequest(value: any): SessionPullRequest | undefined {
   // A pull request the pane can't name or place is left out rather than guessed at.
-  if (
-    !Number.isInteger(value?.number) ||
-    value.number <= 0 ||
-    !text(value.title) ||
-    !PR_STATES.has(value.state)
-  )
+  if (!Number.isInteger(value?.number) || value.number <= 0 || !text(value.title) || !PR_STATES.has(value.state))
     return undefined;
   return {
     number: value.number,
@@ -112,20 +103,14 @@ function pullRequest(value: any): SessionPullRequest | undefined {
 }
 
 /** The title (the first prompt) when the name was generated (`codex`, `codex-3`), else the name the user gave. */
-export function sessionTitle(session: {
-  title?: string;
-  name?: string;
-  harness?: string;
-  sessionId: string;
-}): string {
+export function sessionTitle(session: { title?: string; name?: string; harness?: string; sessionId: string }): string {
   const name = session.name ?? "";
   const harness = session.harness ?? "";
   const bare = name.split("/").pop() ?? name;
   const generated =
     !name ||
     (harness !== "" &&
-      (bare === harness ||
-        (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
+      (bare === harness || (bare.startsWith(`${harness}-`) && /^\d+$/.test(bare.slice(harness.length + 1)))));
   const title = session.title?.trim();
   if (generated) return title || name || session.sessionId.slice(0, 8);
   return name;
@@ -198,17 +183,13 @@ export type SessionPlace =
 export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): SessionPlace {
   const host = cloudHost(session);
   if (host && host !== groupHost) return { kind: "cloud", label: host, branch: session.branch };
-  if (session.worktree)
-    return { kind: "worktree", label: session.branch ?? projectLabel(session.worktree) };
+  if (session.worktree) return { kind: "worktree", label: session.branch ?? projectLabel(session.worktree) };
   if (session.branch) return { kind: "branch", label: session.branch };
   return undefined;
 }
 
 /** Sessions whose title, name, folder, branch, worktree or cloud machine contains every word of the query, ignoring case. */
-export function filterSessions(
-  sessions: AcpmuxSessionEntry[],
-  query: string,
-): AcpmuxSessionEntry[] {
+export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return sessions;
   return sessions.filter((session) => {

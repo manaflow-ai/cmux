@@ -31,10 +31,7 @@ export function ComposerContext({
   started?: boolean;
   onProject?(cwd: string, peer?: string): void;
 }) {
-  const computers = useMemo(
-    () => availableComputers(summary, sessions, peers),
-    [summary, sessions, peers],
-  );
+  const computers = useMemo(() => availableComputers(summary, sessions, peers), [summary, sessions, peers]);
   const initialComputer = computerId(summary);
   const [selectedComputer, setSelectedComputer] = useState(initialComputer);
   useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
@@ -42,10 +39,8 @@ export function ComposerContext({
     () => availableFolders(summary, sessions, selectedComputer),
     [summary, sessions, selectedComputer],
   );
-  const currentFolder =
-    summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : folders[0]?.id;
-  const currentComputer =
-    computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
+  const currentFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : folders[0]?.id;
+  const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder) return null;
   const readOnly = started || onProject === undefined;
   return (
@@ -75,8 +70,7 @@ export function ComposerContext({
         disabled={readOnly}
         allowPath
         onPick={(cwd) => {
-          if (!readOnly)
-            onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+          if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
         }}
       />
     </div>
@@ -84,18 +78,11 @@ export function ComposerContext({
 }
 
 function computerId(summary?: Summary): string {
-  return summary?.hostKind === "cloud" && (summary.peer || summary.host)
-    ? (summary.peer ?? summary.host)!
-    : "local";
+  return summary?.hostKind === "cloud" && (summary.peer || summary.host) ? (summary.peer ?? summary.host)! : "local";
 }
 
-function availableComputers(
-  summary: Summary | undefined,
-  sessions: Session[],
-  peers: string[],
-): Location[] {
-  const localLabel =
-    summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local);
+function availableComputers(summary: Summary | undefined, sessions: Session[], peers: string[]): Location[] {
+  const localLabel = summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local);
   const computers: Location[] = [{ id: "local", label: localLabel }];
   const seen = new Set<string>();
   for (const peer of peers) {
@@ -120,11 +107,7 @@ function availableComputers(
   return computers;
 }
 
-function availableFolders(
-  summary: Summary | undefined,
-  sessions: Session[],
-  computer: string,
-): Location[] {
+function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
   const seen = new Set<string>();
   const folders: Location[] = [];
   const add = (cwd?: string) => {
@@ -167,9 +150,7 @@ function LocationPicker({
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return options.filter((option) =>
-      words.every((word) =>
-        (option.label + " " + (option.detail ?? "")).toLowerCase().includes(word),
-      ),
+      words.every((word) => (option.label + " " + (option.detail ?? "")).toLowerCase().includes(word)),
     );
   }, [options, query]);
   const typedPath = allowPath && /^(?:\/|~\/)/.test(query.trim()) ? query.trim() : undefined;
@@ -204,10 +185,7 @@ function LocationPicker({
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (shown.length > 0)
-        setActive(
-          (current) =>
-            (current + (event.key === "ArrowDown" ? 1 : -1) + shown.length) % shown.length,
-        );
+        setActive((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + shown.length) % shown.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
       const option = shown[active];
@@ -219,11 +197,7 @@ function LocationPicker({
   return (
     <span ref={root} className="acpmux-location-picker">
       {disabled ? (
-        <span
-          className="acpmux-location-readonly"
-          aria-label={label + ": " + value}
-          title={label + ": " + value}
-        >
+        <span className="acpmux-location-readonly" aria-label={label + ": " + value} title={label + ": " + value}>
           {value}
         </span>
       ) : (
@@ -276,9 +250,7 @@ function LocationPicker({
                   >
                     <span className="acpmux-menu-text">
                       <span className="acpmux-menu-label">{option.label}</span>
-                      {option.detail && (
-                        <span className="acpmux-menu-description">{option.detail}</span>
-                      )}
+                      {option.detail && <span className="acpmux-menu-description">{option.detail}</span>}
                     </span>
                   </button>
                 ))}

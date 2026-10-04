@@ -8,10 +8,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [
-    key,
-    globals[key],
-  ]),
+  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
 );
 const { proseMirrorGlobals, promptField, typeInto } = await import("./promptFieldTesting");
 Object.assign(globals, {
@@ -28,8 +25,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
-const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } =
-  await import("./ComposerPickers");
+const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
 const { openPicker, pickerLabels } = await import("./pickerOpeners");
 
 const doc = dom.window.document;
@@ -117,8 +113,7 @@ describe("acpmux composer pickers", () => {
     doc.querySelector<HTMLButtonElement>(`[aria-label="${label}"].acpmux-picker-button`);
   const options = () =>
     [...doc.querySelectorAll("[role=option]")].map(
-      (option) =>
-        `${option.textContent}${option.getAttribute("aria-checked") === "true" ? " *" : ""}`,
+      (option) => `${option.textContent}${option.getAttribute("aria-checked") === "true" ? " *" : ""}`,
     );
   /// The model picker's rows by label, the checked one starred.
   const rowLabels = () =>
@@ -128,9 +123,7 @@ describe("acpmux composer pickers", () => {
     );
   const key = async (target: Element, name: string) =>
     act(async () => {
-      target.dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
-      );
+      target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
     });
 
   beforeEach(() => {
@@ -168,9 +161,9 @@ describe("acpmux composer pickers", () => {
     // Through React's change handler: react-dom may load before the DOM exists (see typeInto).
     await act(async () => {
       range.value = "0";
-      const props = (
-        range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>
-      )[Object.keys(range).find((key) => key.startsWith("__reactProps$"))!]!;
+      const props = (range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
+        Object.keys(range).find((key) => key.startsWith("__reactProps$"))!
+      ]!;
       props.onChange({ target: range });
     });
     expect(calls).toEqual(["model sol", "effort reasoning_effort medium"]);
@@ -184,13 +177,9 @@ describe("acpmux composer pickers", () => {
     const mode = button("Mode")!;
     await key(mode, "ArrowDown");
     expect(mode.getAttribute("aria-expanded")).toBe("true");
-    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain(
-      "Ask for approval",
-    );
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Ask for approval");
     await key(mode, "ArrowUp");
-    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain(
-      "Full access",
-    );
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Full access");
     await key(mode, "Enter");
     expect(calls).toEqual(["mode bypassPermissions"]);
     await key(mode, "ArrowDown");
@@ -206,14 +195,10 @@ describe("acpmux composer pickers", () => {
     const mode = button("Mode")!;
     // The highlight opens on the current mode, the last one.
     await key(mode, "ArrowDown");
-    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain(
-      "Full access",
-    );
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Full access");
     // A live update drops that option while it is highlighted.
     await render(snapshot({ modes: { ...full, availableModes: [full.availableModes[0]!] } }));
-    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain(
-      "Ask for approval",
-    );
+    expect(doc.getElementById(mode.getAttribute("aria-activedescendant")!)!.textContent).toContain("Ask for approval");
     await key(mode, " ");
     expect(mode.getAttribute("aria-expanded")).toBe("true");
     const up = new dom.window.KeyboardEvent("keyup", { key: " ", bubbles: true, cancelable: true });
@@ -230,9 +215,7 @@ describe("acpmux composer pickers", () => {
     await act(async () => button("Mode")!.click());
     const menu = doc.querySelector("[role=listbox]")!;
     expect(menu.getAttribute("aria-label")).toBe("How should the agent's actions be approved?");
-    expect(menu.querySelector(".acpmux-menu-heading")!.textContent).toBe(
-      "How should the agent's actions be approved?",
-    );
+    expect(menu.querySelector(".acpmux-menu-heading")!.textContent).toBe("How should the agent's actions be approved?");
     expect(menu.textContent).toContain("Always ask");
   });
 
@@ -263,9 +246,7 @@ describe("acpmux composer pickers", () => {
     const recentRows = () =>
       [...doc.querySelectorAll(".acpmux-mp-row")]
         .filter((row) => row.querySelector(".acpmux-menu-hint"))
-        .map(
-          (row) => `${row.textContent}${row.getAttribute("aria-checked") === "true" ? " *" : ""}`,
-        );
+        .map((row) => `${row.textContent}${row.getAttribute("aria-checked") === "true" ? " *" : ""}`);
     await act(async () => model.click());
     expect(recentRows()).toEqual(["26 AstraHigh", "16.1 SolMedium *"]);
     // One key switches the model, then the effort once the agent reports that model offering it.
@@ -280,9 +261,7 @@ describe("acpmux composer pickers", () => {
     // A model that doesn't offer the stored effort keeps its own.
     await render(long({ model: "sol", configOptions: [medium] }));
     await pickRecent("2");
-    await render(
-      long({ model: "astra", configOptions: [{ ...medium, options: [effort.options[0]!] }] }),
-    );
+    await render(long({ model: "astra", configOptions: [{ ...medium, options: [effort.options[0]!] }] }));
     await render(long({ model: "sol", configOptions: [medium] }));
     await render(long({ model: "astra", configOptions: [medium] }));
     expect(calls).toEqual(["model astra", "effort reasoning_effort high", "model astra"]);
@@ -298,16 +277,14 @@ describe("acpmux composer pickers", () => {
     await pickRecent("2");
     // Astra arrives offering Low and Medium, not yet High; the user slides to Low.
     const low = { value: "low", name: "Low" };
-    await render(
-      long({ model: "astra", configOptions: [{ ...medium, options: [low, effort.options[0]!] }] }),
-    );
+    await render(long({ model: "astra", configOptions: [{ ...medium, options: [low, effort.options[0]!] }] }));
     await act(async () => button("Effort")!.click());
     await act(async () => {
       const range = doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
       range.value = "0";
-      const props = (
-        range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>
-      )[Object.keys(range).find((key) => key.startsWith("__reactProps$"))!]!;
+      const props = (range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
+        Object.keys(range).find((key) => key.startsWith("__reactProps$"))!
+      ]!;
       props.onChange({ target: range });
     });
     await key(doc.querySelector(".acpmux-effort-range")!, "Escape");
@@ -345,10 +322,7 @@ describe("acpmux composer pickers", () => {
       ]);
       store.set("cmux.acpmux.recentModels", "{not json");
       expect(loadRecents()).toEqual([]);
-      store.set(
-        "cmux.acpmux.recentModels",
-        JSON.stringify([{ harness: "codex" }, { harness: "codex", model: "sol" }]),
-      );
+      store.set("cmux.acpmux.recentModels", JSON.stringify([{ harness: "codex" }, { harness: "codex", model: "sol" }]));
       expect(loadRecents()).toEqual([{ harness: "codex", model: "sol" }]);
       globals.localStorage = {
         getItem: () => {
@@ -359,9 +333,7 @@ describe("acpmux composer pickers", () => {
         },
       };
       expect(loadRecents()).toEqual([]);
-      expect(rememberCombo([], { harness: "codex", model: "sol" })).toEqual([
-        { harness: "codex", model: "sol" },
-      ]);
+      expect(rememberCombo([], { harness: "codex", model: "sol" })).toEqual([{ harness: "codex", model: "sol" }]);
       // Another pane's newer combo, already stored, survives this pane's older list.
       globals.localStorage = {
         getItem: (name: string) => store.get(name) ?? null,
@@ -394,9 +366,7 @@ describe("acpmux composer pickers", () => {
     expect(rowLabels()).toContain("6 Astra *");
     // Keys reach the menu as after a click: the chip has focus and names the highlighted row.
     expect(doc.activeElement).toBe(button("Model"));
-    expect(
-      doc.getElementById(button("Model")!.getAttribute("aria-activedescendant")!),
-    ).not.toBeNull();
+    expect(doc.getElementById(button("Model")!.getAttribute("aria-activedescendant")!)).not.toBeNull();
     for (const char of "sol") await key(button("Model")!, char);
     await key(button("Model")!, "Enter");
     expect(calls).toEqual(["model sol"]);
@@ -489,12 +459,11 @@ describe("acpmux composer pickers", () => {
     expect(button("Mode")!.textContent).toBe("Ask for approval");
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).toBeNull();
     await act(async () => button("Mode")!.click());
-    expect(
-      [...doc.querySelectorAll(".acpmux-menu-description")].map((node) => node.textContent),
-    ).toEqual(["Always ask", "Unrestricted"]);
-    expect(doc.querySelector(".acpmux-menu-item.acpmux-unrestricted")!.textContent).toBe(
-      "Full accessUnrestricted",
-    );
+    expect([...doc.querySelectorAll(".acpmux-menu-description")].map((node) => node.textContent)).toEqual([
+      "Always ask",
+      "Unrestricted",
+    ]);
+    expect(doc.querySelector(".acpmux-menu-item.acpmux-unrestricted")!.textContent).toBe("Full accessUnrestricted");
     await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }));
     expect(doc.querySelector(".acpmux-mode.acpmux-unrestricted")).not.toBeNull();
     expect(unrestricted("default")).toBe(false);
@@ -622,9 +591,7 @@ describe("acpmux composer send button", () => {
     await act(async () => typeInto(textarea(), "go"));
     (send() as HTMLButtonElement).focus();
     await act(async () => {
-      doc
-        .querySelector("form")!
-        .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      doc.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     });
     await render(snapshot({}, true));
     expect(send().getAttribute("aria-label")).toBe("Stop");
@@ -635,9 +602,7 @@ describe("acpmux composer send button", () => {
     await render(snapshot());
     await act(async () => typeInto(textarea(), "go"));
     await act(async () => {
-      doc
-        .querySelector("form")!
-        .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      doc.querySelector("form")!.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     });
     await render(snapshot({}, true));
     expect(send().getAttribute("aria-label")).toBe("Stop");
@@ -669,15 +634,14 @@ describe("acpmux composer context", () => {
     try {
       await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" });
       expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
-      expect(
-        [...doc.querySelectorAll(".acpmux-location-readonly")].map((node) => node.textContent),
-      ).toEqual(["hearty-beige-elk", "cmux"]);
+      expect([...doc.querySelectorAll(".acpmux-location-readonly")].map((node) => node.textContent)).toEqual([
+        "hearty-beige-elk",
+        "cmux",
+      ]);
       await render({ cwd: "/Users/me/code/cmux", host: "hearty-beige-elk", hostKind: "cloud" }, [
         { id: "u", version: 1, at: 0, kind: "user", text: "hello" },
       ]);
-      expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe(
-        "true",
-      );
+      expect(doc.querySelector(".acpmux-composer-context")?.getAttribute("data-readonly")).toBe("true");
       expect(doc.querySelectorAll(".acpmux-location-button")).toHaveLength(0);
     } finally {
       await act(async () => root.unmount());
@@ -708,9 +672,10 @@ describe("acpmux composer queue", () => {
       ]);
       const list = doc.querySelector("ol.acpmux-composer-queue")!;
       expect(list.getAttribute("aria-label")).toBe("Queued prompts");
-      expect(
-        [...list.querySelectorAll(".acpmux-queued-text")].map((node) => node.textContent),
-      ).toEqual(["first", "second\nline"]);
+      expect([...list.querySelectorAll(".acpmux-queued-text")].map((node) => node.textContent)).toEqual([
+        "first",
+        "second\nline",
+      ]);
       expect(list.nextElementSibling!.classList.contains("acpmux-composer-context")).toBe(true);
       // The slash menu anchors to the field, so the queue never pushes it up.
       await act(async () => typeInto(promptField(doc), "/"));
@@ -730,10 +695,7 @@ describe("acpmux composer queue", () => {
         root.render(
           createElement(Composer, {
             snapshot: {
-              ...snapshot(
-                { cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", branch: "main" },
-                true,
-              ),
+              ...snapshot({ cwd: "/Users/me/code/cmux", host: "This Mac", hostKind: "local", branch: "main" }, true),
               queue: [{ id: "p1", prompt: "next" }],
             },
             chips: () => null,
