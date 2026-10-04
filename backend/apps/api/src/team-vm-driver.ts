@@ -113,12 +113,13 @@ export class FreestyleDriver implements TeamVmDriver {
 
 /**
  * Test driver (ENVIRONMENT=test only): VMs live in the DO's own SQLite, so tests see exactly what
- * the object did. `fake_ctl.fail_next` makes the next calls fail (retryable) to test backoff; deleting a `fake_vm` row stands for a VM deleted outside cmux.
+ * the object did. `fake_ctl.fail_next` makes the next calls fail (retryable) to test backoff; `lose_next_create`
+ * makes the next create happen but answer with a retryable failure (a lost answer); deleting a `fake_vm` row stands for a VM deleted outside cmux.
  */
 export class FakeDriver implements TeamVmDriver {
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS fake_vm (slug TEXT PRIMARY KEY, id TEXT NOT NULL UNIQUE, state TEXT NOT NULL)`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS fake_ctl (id INTEGER PRIMARY KEY CHECK (id = 1), fail_next INTEGER NOT NULL DEFAULT 0, creates INTEGER NOT NULL DEFAULT 0, starts INTEGER NOT NULL DEFAULT 0, slug_prefix TEXT, lose_next_create INTEGER NOT NULL DEFAULT 0)`)
     sql.exec(`INSERT OR IGNORE INTO fake_ctl (id) VALUES (1)`)
   }
 
@@ -142,6 +143,10 @@ export class FakeDriver implements TeamVmDriver {
     const id = `fakevm-${slug}`
     this.sql.exec(`INSERT INTO fake_vm (slug, id, state) VALUES (?, ?, 'running')`, slug, id)
     this.sql.exec(`UPDATE fake_ctl SET creates = creates + 1 WHERE id = 1`)
+    if (this.sql.exec<{ n: number }>(`SELECT lose_next_create AS n FROM fake_ctl WHERE id = 1`)[0]!.n > 0) {
+      this.sql.exec(`UPDATE fake_ctl SET lose_next_create = lose_next_create - 1 WHERE id = 1`)
+      throw new DriverError("team_vm.provider_failed", "create VM: no answer TIMEOUT", false)
+    }
     return { id, state: "running" as const }
   }
 

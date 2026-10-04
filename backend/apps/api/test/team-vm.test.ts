@@ -10,7 +10,7 @@ import { FreestyleDriver, PRODUCTION_PLAN_GATE_LANDED, providerRefusal, teamVmDr
 interface TeamVmStub {
   ensureAwake(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "cli" }): Promise<SubmitResult>
   readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<unknown>
-  fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean; slug_prefix?: string }): Promise<{ creates: number; starts: number }>
+  fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean; slug_prefix?: string; lose_next_create?: number }): Promise<{ creates: number; starts: number }>
   fakeAlarm(aheadMs: number): Promise<void>
   bindInstall(entity: string, install: string, epoch: number): Promise<SubmitResult>
   journalAppend(entity: string, principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "cli" }): Promise<SubmitResult>
@@ -235,6 +235,24 @@ describe("TeamVmDO with the fake provider", { timeout: 30_000 }, () => {
     await stub.fakeControl({ delete_all: true })
     const fresh = result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
     expect(fresh.value).toMatchObject({ status: "running", epoch: 2, vm: `fakevm-${teamVmSlug("cmuxnp-stg-tvm-", T, 2)}` })
+  })
+
+  it("a create whose answer was lost across a prefix change retries under the slug it first tried", async () => {
+    const T = "team_00000000000000000080"
+    const stub = ns.get(ns.idFromName(T))
+    const p = { ...alice, team: T }
+    // Old config: the create happens at the provider, but its answer is lost (timeout); the call stays pending.
+    await stub.fakeControl({ slug_prefix: "cmuxnp-dev-tvm-", lose_next_create: 1 })
+    const r = result((await stub.ensureAwake(T, p, op("team_vm.ensure_awake", { reason: "ssh" }))).frames)
+    expect(r.value).toMatchObject({ status: "provisioning", vm: null })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
+    // A deploy changes the prefix before the retry: the retry must find the VM under the slug it first tried.
+    await stub.fakeControl({ slug_prefix: "cmuxnp-stg-tvm-" })
+    await stub.fakeAlarm(10 * 60_000)
+    const done = (await stub.readOp(T, p, "team_vm.status", {})) as { value: { status: string; epoch: number; vm: string } }
+    expect(done.value).toMatchObject({ status: "running", epoch: 1, vm: `fakevm-${teamVmSlug("cmuxnp-dev-tvm-", T, 1)}` })
+    // No second VM: the provider saw one create.
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
   })
 
   it("refuses a principal of another team", async () => {

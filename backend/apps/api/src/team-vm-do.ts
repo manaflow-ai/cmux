@@ -200,10 +200,11 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider. */
-  async fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean; slug_prefix?: string }): Promise<{ creates: number; starts: number }> {
+  async fakeControl(cmd: { fail_next?: number; pause_all?: boolean; delete_all?: boolean; slug_prefix?: string; lose_next_create?: number }): Promise<{ creates: number; starts: number }> {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     teamVmDriver(this.env, this.sqlStore)
     if (cmd.slug_prefix !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET slug_prefix = ? WHERE id = 1`, cmd.slug_prefix)
+    if (cmd.lose_next_create !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET lose_next_create = ? WHERE id = 1`, cmd.lose_next_create)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.pause_all) this.sqlStore.exec(`UPDATE fake_vm SET state = 'paused'`)
     if (cmd.delete_all) this.sqlStore.exec(`DELETE FROM fake_vm`)
