@@ -28,14 +28,100 @@ use serde_json::Value;
 /// owner to accept clients. Matches the lifecycle CLI exchange deadline.
 pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
 
+/// Probe interval while an owner this process did not start is still
+/// starting. That owner's readiness is announced only to its own parent
+/// (`OWNER_READY_FD_ARG`); the socket has no readiness event, so a second
+/// client re-asks. An owner this process spawns is awaited on its pipe.
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 
-/// The reaper's only job is clearing a zombie when the owner exits early
-/// (a lost bind race or a crash), and `terminate` reaps synchronously
-/// without it, so it can tick slowly instead of waking a long-lived
-/// interactive client 40 times a second for nothing.
+/// Windows has no readiness pipe or `waitid`: the spawned owner is probed
+/// like a foreign one and the reaper ticks.
+#[cfg(not(unix))]
 const REAP_INTERVAL: Duration = Duration::from_secs(1);
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
+
+/// Private startup option: the detached owner writes one byte to this
+/// inherited descriptor once it accepts clients, then closes it. End of
+/// file first means the owner exited (a lost bind race or a crash).
+pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
+
+/// Private startup option (P8 3b-2): the app's install key arrives on this
+/// inherited pipe (`cmuxik1 <install_id> <hex key>`), never in argv or the
+/// environment. The owner reads it once, closes the descriptor and keeps
+/// the key in memory only.
+pub(crate) const OWNER_INSTALL_KEY_FD_ARG: &str = "--owner-install-key-fd";
+
+/// Takes an inherited descriptor (`option` names it) from argv and keeps it
+/// out of every process the owner starts (terminal hosts): only this owner
+/// holds the readiness pipe's write end and the install key pipe.
+pub(crate) fn claim_inherited_fd(option: &str, value: &str) -> Result<i32, String> {
+    let fd: i32 = value
+        .parse()
+        .ok()
+        .filter(|fd| *fd > 2)
+        .ok_or_else(|| format!("{option} needs a descriptor number above 2"))?;
+    #[cfg(unix)]
+    {
+        // SAFETY: fcntl on a descriptor number only changes its flags; an
+        // invalid descriptor reports EBADF.
+        if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+            return Err(format!("{option} {fd}: {}", io::Error::last_os_error()));
+        }
+    }
+    Ok(fd)
+}
+
+/// Parses `OWNER_READY_FD_ARG` or `OWNER_INSTALL_KEY_FD_ARG` (each once).
+pub(crate) fn claim_fd_arg(
+    arg: &str,
+    value: Option<String>,
+    args: &mut crate::Args,
+) -> Result<(), String> {
+    let value = value.ok_or_else(|| format!("{arg} needs a value"))?;
+    let fd = claim_inherited_fd(arg, &value)?;
+    let slot = if arg == OWNER_READY_FD_ARG {
+        &mut args.owner_ready_fd
+    } else {
+        &mut args.owner_install_key_fd
+    };
+    if slot.replace(fd).is_some() {
+        return Err(format!("{arg} may be supplied only once"));
+    }
+    Ok(())
+}
+
+/// Reads the app's install key from the inherited pipe `fd`, closes it and
+/// gives the key to the session (`client-hello`). A bad or missing payload
+/// leaves the daemon without a key: no connection proves itself with one.
+pub(crate) fn install_key_from_fd(mux: &cmux_tui_core::Mux, fd: Option<i32>) {
+    let Some(fd) = fd else { return };
+    #[cfg(unix)]
+    {
+        use std::os::fd::FromRawFd;
+        // SAFETY: `claim_inherited_fd` validated this inherited descriptor,
+        // and this is its only use; the File closes it on drop.
+        let pipe = unsafe { std::fs::File::from_raw_fd(fd) };
+        if let Ok(key) = cmux_tui_core::server::read_frontend_key(pipe) {
+            cmux_tui_core::server::install_frontend_key(mux, key);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (mux, fd);
+}
+
+/// Tells the parent that spawned this owner that it accepts clients.
+pub(crate) fn signal_ready(fd: i32) {
+    #[cfg(unix)]
+    {
+        use std::os::fd::FromRawFd;
+        // SAFETY: `claim_inherited_fd` validated this inherited descriptor, and
+        // this is its only use; the File closes it.
+        let mut pipe = unsafe { std::fs::File::from_raw_fd(fd) };
+        let _ = pipe.write_all(b"1");
+    }
+    #[cfg(not(unix))]
+    let _ = fd;
+}
 
 /// How the owner process is launched.
 pub(crate) struct OwnerSpec {
@@ -51,6 +137,9 @@ pub(crate) struct OwnerSpec {
     /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
     /// `None` starts an owner that never reaps unplaced terminals.
     pub terminal_reap_grace: Option<Duration>,
+    /// The app's install key for an owner this call spawns (`server ensure
+    /// --install-key-stdin`); a running owner never receives it.
+    pub install_key: Option<cmux_tui_core::server::FrontendKey>,
 }
 
 /// A validated, client-ready owner.
@@ -124,7 +213,13 @@ pub(crate) fn ensure_owner(
         // and every caller converges on the winner through the probe below.
         spawn_detached_owner(spec).map_err(EnsureError::Spawn)?
     };
-    match wait_until_ready(&spec.socket, spec.socket_is_derived, Some(&spec.session), deadline) {
+    let ready = match owner.ready.as_ref() {
+        Some(pipe) => wait_for_spawned_owner(pipe, spec, deadline),
+        None => {
+            wait_until_ready(&spec.socket, spec.socket_is_derived, Some(&spec.session), deadline)
+        }
+    };
+    match ready {
         Ok(Some(ready)) => Ok(Ensured::Started(ready)),
         Ok(None) => {
             owner.terminate();
@@ -177,6 +272,51 @@ fn wait_until_ready(
         }
         std::thread::sleep(POLL_INTERVAL);
     }
+}
+
+/// Waits on the spawned owner's readiness pipe, not on a timer. A byte means
+/// the owner accepts clients; end of file means it exited, and whoever won
+/// the bind (another ensure's owner) is found by probing.
+#[cfg(unix)]
+fn wait_for_spawned_owner(
+    pipe: &std::fs::File,
+    spec: &OwnerSpec,
+    deadline: Instant,
+) -> Result<Option<ReadyOwner>, EnsureError> {
+    use std::os::fd::AsRawFd;
+    let expected = Some(spec.session.as_str());
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let timeout = i32::try_from(remaining.as_millis()).unwrap_or(i32::MAX);
+        let mut poll = libc::pollfd { fd: pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd for the lifetime of the call.
+        match unsafe { libc::poll(&mut poll, 1, timeout) } {
+            0 => return Ok(None),
+            result if result > 0 => break,
+            _ if io::Error::last_os_error().kind() == io::ErrorKind::Interrupted => {}
+            _ => break,
+        }
+    }
+    let mut byte = [0_u8; 1];
+    let signaled = matches!((&*pipe).read(&mut byte), Ok(1));
+    if signaled
+        && let Attempt::Ready(ready) =
+            attempt(&spec.socket, spec.socket_is_derived, expected, deadline)?
+    {
+        return Ok(Some(ready));
+    }
+    // End of file: this owner lost the bind to a racing ensure's owner (or
+    // crashed). That owner announces readiness only to its own parent.
+    wait_until_ready(&spec.socket, spec.socket_is_derived, expected, deadline)
+}
+
+#[cfg(not(unix))]
+fn wait_for_spawned_owner(
+    _pipe: &std::convert::Infallible,
+    spec: &OwnerSpec,
+    deadline: Instant,
+) -> Result<Option<ReadyOwner>, EnsureError> {
+    wait_until_ready(&spec.socket, spec.socket_is_derived, Some(&spec.session), deadline)
 }
 
 fn attempt(
@@ -285,12 +425,19 @@ fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Val
 /// Spawn the headless owner detached from this process's terminal.
 struct OwnerProcessState {
     child: std::sync::Mutex<Option<std::process::Child>>,
+    #[cfg(not(unix))]
     wake: std::sync::Condvar,
+    #[cfg(not(unix))]
     terminate: std::sync::atomic::AtomicBool,
 }
 
 struct SpawnedOwner {
     state: std::sync::Arc<OwnerProcessState>,
+    /// Read end of the owner's readiness pipe (`OWNER_READY_FD_ARG`).
+    #[cfg(unix)]
+    ready: Option<std::fs::File>,
+    #[cfg(not(unix))]
+    ready: Option<std::convert::Infallible>,
 }
 
 const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
@@ -306,17 +453,70 @@ fn configure_detached_owner_environment(command: &mut Command) {
 
 impl SpawnedOwner {
     fn terminate(self) {
+        #[cfg(not(unix))]
         self.state.terminate.store(true, std::sync::atomic::Ordering::Release);
         // Reap synchronously instead of waiting for the reaper thread: this
         // must terminate the owner even when that thread could not be
-        // created. The reaper wakes to an empty slot and exits.
+        // created. The owner is still unreaped here (the reaper takes the
+        // child out of the slot before reaping), so its pid is still its own.
         let mut child = self.state.child.lock().expect("owner mutex poisoned");
         if let Some(mut process) = child.take() {
             let _ = process.kill();
             let _ = process.wait();
         }
+        #[cfg(not(unix))]
         self.state.wake.notify_all();
     }
+}
+
+/// The readiness pipe: the read end stays here, the write end goes to the
+/// owner only (both are close-on-exec; `pre_exec` clears the flag on the
+/// owner's copy).
+#[cfg(unix)]
+fn ready_pipe(command: &mut Command) -> io::Result<(std::fs::File, io::PipeWriter)> {
+    use std::os::fd::{AsRawFd, OwnedFd};
+    use std::os::unix::process::CommandExt;
+    let (reader, writer) = io::pipe()?;
+    let write_fd = writer.as_raw_fd();
+    command.arg(OWNER_READY_FD_ARG).arg(write_fd.to_string());
+    // SAFETY: fcntl is async-signal-safe and touches only this descriptor.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fcntl(write_fd, libc::F_SETFD, 0) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    Ok((std::fs::File::from(OwnedFd::from(reader)), writer))
+}
+
+/// The install key pipe: the whole payload is written now (it fits the
+/// pipe buffer) and the write end closes, so the owner reads to end of
+/// file. Only the owner gets the read end (`pre_exec` clears close-on-exec
+/// on its copy); the returned reader closes in this process after spawn.
+#[cfg(unix)]
+fn install_key_pipe(
+    command: &mut Command,
+    key: &cmux_tui_core::server::FrontendKey,
+) -> io::Result<io::PipeReader> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    let (reader, mut writer) = io::pipe()?;
+    writer.write_all(key.to_payload().as_bytes())?;
+    drop(writer);
+    let read_fd = reader.as_raw_fd();
+    command.arg(OWNER_INSTALL_KEY_FD_ARG).arg(read_fd.to_string());
+    // SAFETY: fcntl is async-signal-safe and touches only this descriptor.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::fcntl(read_fd, libc::F_SETFD, 0) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    Ok(reader)
 }
 
 fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
@@ -347,6 +547,15 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     configure_detached_owner_environment(&mut command);
+    #[cfg(unix)]
+    let (ready, ready_writer) = ready_pipe(&mut command)?;
+    #[cfg(unix)]
+    let _install_key_pipe = match &spec.install_key {
+        Some(key) => Some(install_key_pipe(&mut command, key)?),
+        None => None,
+    };
+    #[cfg(not(unix))]
+    let ready = None;
     // The owner reports through the bounded client log at its state root;
     // terminal teardown must never reach it, so it gets no stdio and (on
     // Unix) its own session, free of the controlling terminal.
@@ -371,47 +580,79 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     let child = command.spawn()?;
+    // Only the owner holds the write end now, so end of file means it exited.
+    #[cfg(unix)]
+    drop(ready_writer);
+    #[cfg(unix)]
+    let pid = child.id();
     // The owner outlives this process. Reap it in the background so an
     // owner that exits early (for example after losing the bind race) never
     // lingers as a zombie of a long-lived interactive client.
     let state = std::sync::Arc::new(OwnerProcessState {
         child: std::sync::Mutex::new(Some(child)),
+        #[cfg(not(unix))]
         wake: std::sync::Condvar::new(),
+        #[cfg(not(unix))]
         terminate: std::sync::atomic::AtomicBool::new(false),
     });
     let reaper_state = std::sync::Arc::clone(&state);
+    #[cfg(unix)]
+    let reaper = move || reap_on_exit(&reaper_state, pid);
+    #[cfg(not(unix))]
+    let reaper = move || reap_on_tick(&reaper_state);
     if let Err(_error) =
-        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(move || {
-            let mut child = reaper_state.child.lock().expect("owner mutex poisoned");
-            while let Some(process) = child.as_mut() {
-                if reaper_state.terminate.load(std::sync::atomic::Ordering::Acquire) {
-                    let _ = process.kill();
-                }
-                let exited = match process.try_wait() {
-                    Ok(Some(_)) | Err(_) => true,
-                    Ok(None) => false,
-                };
-                if exited {
-                    child.take();
-                    reaper_state.wake.notify_all();
-                    break;
-                }
-                child = reaper_state
-                    .wake
-                    .wait_timeout(child, REAP_INTERVAL)
-                    .expect("owner condvar poisoned")
-                    .0;
-            }
-        })
+        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(reaper)
     {
         // If the helper thread cannot be created, reap synchronously before
         // returning. This preserves the no-zombie guarantee even under
         // thread exhaustion; the owner has already been detached from the
         // caller's terminal and cannot report through its stdio.
-        SpawnedOwner { state: std::sync::Arc::clone(&state) }.terminate();
+        SpawnedOwner { state: std::sync::Arc::clone(&state), ready: None }.terminate();
         return Err(io::Error::other("local owner reaper unavailable"));
     }
-    Ok(SpawnedOwner { state })
+    #[cfg(unix)]
+    let ready = Some(ready);
+    Ok(SpawnedOwner { state, ready })
+}
+
+/// Blocks until the owner exits, without reaping it (`WNOWAIT`), so a
+/// concurrent `terminate` can still signal the pid safely; then reaps it
+/// unless `terminate` already did. No timer wakes this thread.
+#[cfg(unix)]
+fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
+    let pid = libc::id_t::from(pid);
+    loop {
+        // SAFETY: waitid writes only into the zeroed siginfo it is given.
+        let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        let result =
+            unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
+        if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            break;
+        }
+    }
+    if let Some(mut process) = state.child.lock().expect("owner mutex poisoned").take() {
+        let _ = process.wait();
+    }
+}
+
+#[cfg(not(unix))]
+fn reap_on_tick(state: &OwnerProcessState) {
+    let mut child = state.child.lock().expect("owner mutex poisoned");
+    while let Some(process) = child.as_mut() {
+        if state.terminate.load(std::sync::atomic::Ordering::Acquire) {
+            let _ = process.kill();
+        }
+        let exited = match process.try_wait() {
+            Ok(Some(_)) | Err(_) => true,
+            Ok(None) => false,
+        };
+        if exited {
+            child.take();
+            state.wake.notify_all();
+            break;
+        }
+        child = state.wake.wait_timeout(child, REAP_INTERVAL).expect("owner condvar poisoned").0;
+    }
 }
 
 #[cfg(test)]
@@ -420,6 +661,105 @@ mod tests {
     use std::process::Command;
 
     use super::configure_detached_owner_environment;
+
+    #[cfg(unix)]
+    mod event_driven {
+        use std::os::fd::IntoRawFd;
+        use std::sync::Arc;
+        use std::time::{Duration, Instant};
+
+        use super::super::*;
+
+        fn spec(socket: PathBuf) -> OwnerSpec {
+            OwnerSpec {
+                session: "ready-pipe-test".into(),
+                socket,
+                socket_is_derived: false,
+                state: None,
+                term: None,
+                initial_host_colors: None,
+                terminal_reap_grace: None,
+                install_key: None,
+            }
+        }
+
+        #[test]
+        fn ready_descriptor_is_claimed_close_on_exec_and_signaled_once() {
+            let (mut reader, writer) = io::pipe().unwrap();
+            let fd = writer.into_raw_fd();
+            assert_eq!(claim_inherited_fd(OWNER_READY_FD_ARG, &fd.to_string()), Ok(fd));
+            // SAFETY: querying flags of a descriptor this test owns.
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+            assert_ne!(flags & libc::FD_CLOEXEC, 0);
+            signal_ready(fd);
+            let mut bytes = Vec::new();
+            reader.read_to_end(&mut bytes).unwrap();
+            assert_eq!(bytes, b"1");
+            for invalid in ["0", "2", "-1", "x"] {
+                assert!(claim_inherited_fd(OWNER_READY_FD_ARG, invalid).is_err(), "{invalid}");
+            }
+        }
+
+        #[test]
+        fn an_owner_that_never_signals_is_awaited_only_until_the_deadline() {
+            let dir = std::env::temp_dir().join(format!(
+                "cmux-owner-wait-{}-{}",
+                std::process::id(),
+                line!()
+            ));
+            let socket = dir.join("absent.sock");
+            // Writer held open: no byte and no end of file.
+            let (reader, _writer) = io::pipe().unwrap();
+            let pipe = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
+            let started = Instant::now();
+            let deadline = started + Duration::from_millis(200);
+            assert!(matches!(
+                wait_for_spawned_owner(&pipe, &spec(socket.clone()), deadline),
+                Ok(None)
+            ));
+            assert!(started.elapsed() >= Duration::from_millis(150));
+            // A byte with nothing serving the socket is not readiness either.
+            let (reader, mut writer) = io::pipe().unwrap();
+            writer.write_all(b"1").unwrap();
+            drop(writer);
+            let pipe = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
+            let deadline = Instant::now() + Duration::from_millis(200);
+            assert!(matches!(wait_for_spawned_owner(&pipe, &spec(socket), deadline), Ok(None)));
+        }
+
+        fn owner_state(command: &mut Command) -> (Arc<OwnerProcessState>, u32) {
+            let child = command.spawn().unwrap();
+            let pid = child.id();
+            (Arc::new(OwnerProcessState { child: std::sync::Mutex::new(Some(child)) }), pid)
+        }
+
+        #[test]
+        fn the_reaper_wakes_on_exit_and_leaves_no_zombie() {
+            let (state, pid) = owner_state(&mut Command::new("true"));
+            let reaper = {
+                let state = Arc::clone(&state);
+                std::thread::spawn(move || reap_on_exit(&state, pid))
+            };
+            reaper.join().unwrap();
+            assert!(state.child.lock().unwrap().is_none());
+            // SAFETY: probing a pid this test spawned and the reaper reaped.
+            assert_eq!(unsafe { libc::kill(pid as libc::pid_t, 0) }, -1);
+        }
+
+        #[test]
+        fn terminate_ends_a_blocked_reaper_and_the_owner() {
+            let (state, pid) = owner_state(Command::new("sleep").arg("60"));
+            let reaper = {
+                let state = Arc::clone(&state);
+                std::thread::spawn(move || reap_on_exit(&state, pid))
+            };
+            let started = Instant::now();
+            SpawnedOwner { state: Arc::clone(&state), ready: None }.terminate();
+            reaper.join().unwrap();
+            assert!(started.elapsed() < Duration::from_secs(5));
+            assert!(state.child.lock().unwrap().is_none());
+        }
+    }
 
     #[test]
     fn detached_owner_removes_terminal_identity_but_keeps_configuration() {

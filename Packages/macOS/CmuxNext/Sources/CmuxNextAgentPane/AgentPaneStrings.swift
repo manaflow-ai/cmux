@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDictation
 import Foundation
 
 // User-facing text of the agent pane host. The page's own text is in the
@@ -8,6 +9,21 @@ extension AgentPaneModel {
     /// Tab strip title of an agent tab before the page reports a session title.
     public static var tabTitle: String {
         String(localized: "agentPane.tab.title", defaultValue: "Agent", bundle: .module)
+    }
+
+    /// The page's file.open was refused or failed.
+    static var openFileFailedMessage: String {
+        String(localized: "agentPane.error.openFile", defaultValue: "The file could not be opened.", bundle: .module)
+    }
+
+    /// The page's browser.open (a turn's local web page) was refused or failed.
+    static var openPreviewFailedMessage: String {
+        String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .module)
+    }
+
+    /// A git read of the changes view failed or has no session host.
+    static var gitFailedMessage: String {
+        String(localized: "agentPane.error.git", defaultValue: "The changes could not be read.", bundle: .module)
     }
 }
 
@@ -28,13 +44,44 @@ extension AgentPaneHostError {
     static func userMessage(for error: any Error) -> String {
         switch error as? AgentPaneHostError {
         case .acpmuxNotFound:
-            String(localized: "agentPane.error.notFound", defaultValue: "acpmux was not found. Install acpmux or use a build that bundles it.", bundle: .module)
+            String(
+                format: String(localized: "agentPane.error.notInstalled", defaultValue: "acpmux was not found. Install it on your PATH or in one of these folders: %@.", bundle: .module),
+                AcpmuxEnvironment.installDirectories.joined(separator: ", ")
+            )
         case .daemonFailed(let logPath):
             String(format: String(localized: "agentPane.error.daemonFailed", defaultValue: "acpmux did not start. Its log is at %@.", bundle: .module), logPath)
         case .daemonStopped:
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
+        }
+    }
+}
+
+extension AgentPaneDictation {
+    static func deniedMessage(_ permission: DictationPermission) -> String {
+        switch permission {
+        case .microphone:
+            String(localized: "agentPane.dictation.microphoneDenied", defaultValue: "Dictation needs microphone access. Turn it on for cmux in System Settings.", bundle: .module)
+        case .speechRecognition:
+            String(localized: "agentPane.dictation.speechDenied", defaultValue: "Dictation in this language needs speech recognition. Turn it on for cmux in System Settings.", bundle: .module)
+        }
+    }
+
+    static var openSettingsTitle: String {
+        String(localized: "agentPane.dictation.openSettings", defaultValue: "Open System Settings", bundle: .module)
+    }
+
+    static func failureMessage(_ failure: DictationFailure) -> String {
+        switch failure {
+        case .onDeviceRecognitionUnavailable:
+            String(localized: "agentPane.dictation.languageUnavailable", defaultValue: "On-device dictation is not available for this language.", bundle: .module)
+        case .modelDownloadFailed:
+            String(localized: "agentPane.dictation.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .module)
+        case .audioCaptureFailed:
+            String(localized: "agentPane.dictation.noMicrophone", defaultValue: "No microphone is available.", bundle: .module)
+        case .microphoneAccessDenied, .speechRecognitionAccessDenied, .transcriptionFailed:
+            String(localized: "agentPane.dictation.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .module)
         }
     }
 }

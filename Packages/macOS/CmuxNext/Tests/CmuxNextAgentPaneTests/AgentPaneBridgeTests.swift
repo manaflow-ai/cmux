@@ -57,4 +57,19 @@ private actor GatedHost: AgentPaneHostProviding {
         await host.open()
         #expect(await transport.value == "mock")
     }
+
+    /// The page installs its bridge in a React effect, which can run after
+    /// the load finishes, so the theme pushed at didFinish was dropped and
+    /// the pane kept its built-in dark colors and blue accent whatever the
+    /// terminal theme. The page asks for the handshake once its bridge
+    /// exists; the theme is pushed again then.
+    @Test func askingForTheHandshakeAppliesTheTheme() async throws {
+        let page = FileManager.default.temporaryDirectory.appendingPathComponent("agent-pane-bridge-test.html")
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { view.close() }
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        _ = await AgentPaneBridge(view: view).reply(to: .ready)
+        #expect(scripts.contains { $0.contains("cmuxAcpmuxBridge?.applyTheme(") })
+    }
 }

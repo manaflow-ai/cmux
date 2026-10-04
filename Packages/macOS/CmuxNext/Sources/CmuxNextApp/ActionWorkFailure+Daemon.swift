@@ -6,7 +6,10 @@ extension ActionWorkFailure {
     /// missed its deadline says the terminal may still appear, so the
     /// control socket answers a typed timeout instead of a plain error.
     init(_ label: String, _ error: any Error) {
-        self.init("\(label): \(error)", terminalMayAppear: (error as? DaemonError)?.isTerminalStartTimeout == true)
+        let daemonError = error as? DaemonError
+        var timedOut = false
+        if case .timedOut = daemonError { timedOut = true }
+        self.init("\(label): \(error)", mayHaveApplied: timedOut, terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
     }
 }
 

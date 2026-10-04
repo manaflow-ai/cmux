@@ -5,8 +5,10 @@ import Foundation
 /// Presence only: files are parsed for structure and plain identity fields
 /// (an email, a plan, a profile name); Keychain items are checked by
 /// attributes, never read; environment variables are checked for being
-/// set. No secret value is returned, logged or kept. Runs off the main
-/// actor: file and Keychain reads are synchronous IO.
+/// set. No secret value is returned, logged or kept. An email or login is
+/// read only inside one detect function, turned into an ``AccountLabel``
+/// there and dropped. Runs off the main actor: file and Keychain reads are
+/// synchronous IO.
 public struct ProviderDetector: Sendable {
     public let environment: DetectionEnvironment
 
@@ -60,7 +62,13 @@ public struct ProviderDetector: Sendable {
         let address = [base.host, base.port.map(String.init)].compactMap { $0 }.joined(separator: ":")
         let reachable = await environment.servers.isReachable(base.appendingPathComponent(path))
         return ProviderDetection(provider: provider, status: reachable ? .signedIn : .missing,
-                                 identity: reachable ? address : nil, sources: reachable ? [.server(address)] : [])
+                                 detail: reachable ? address : nil, sources: reachable ? [.server(address)] : [])
+    }
+
+    /// The account label of a raw identity, or nil when there is none.
+    func account(_ provider: AIProvider, _ identity: String?, plan: String? = nil) -> AccountLabel? {
+        guard let identity = identity?.trimmingCharacters(in: .whitespacesAndNewlines), !identity.isEmpty else { return nil }
+        return environment.labeler.local(provider, identity: identity, plan: plan)
     }
 
     /// `OLLAMA_HOST` may be `host`, `host:port` or a URL.

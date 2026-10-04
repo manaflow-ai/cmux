@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 import os
 import Synchronization
 
@@ -21,7 +21,8 @@ public final class GhosttyRuntime {
 
     /// The finalized configuration currently applied to the app.
     private(set) var config: ghostty_config_t?
-    /// `background-opacity` from the user's config (not the surface override).
+    /// `background-opacity` from the user's config with cmux.json's
+    /// `appearance.backgroundOpacity` over it (not the surface override).
     private var configuredBackgroundOpacity: Double = 1
 
     /// The user's config with one theme applied, per theme name, built on
@@ -29,6 +30,13 @@ public final class GhosttyRuntime {
     var themeConfigs: [String: GhosttyThemeConfig] = [:]
     /// Bumps on every config change (reload, conditional theme switch).
     public private(set) var configGeneration = 0
+
+    /// The light/dark scheme last given to Ghostty (the app's appearance).
+    public private(set) var isDark = false
+    /// Live surfaces, which get every scheme change.
+    let colorSchemeSurfaces = NSHashTable<TerminalSurfaceView>.weakObjects()
+    /// Set while `reloadConfig` waits for Ghostty to apply the new config.
+    var adoptedDuringReload = false
 
     /// Messages from the last config load (unknown keys, bad values).
     public private(set) var configDiagnostics: [String] = []
@@ -84,7 +92,6 @@ public final class GhosttyRuntime {
         runtime.confirm_read_clipboard_cb = ghosttyConfirmReadClipboard
         runtime.write_clipboard_cb = ghosttyWriteClipboard
         runtime.close_surface_cb = ghosttyCloseSurface
-        runtime.tmux_control_cb = ghosttyTmuxControl
         app = ghostty_app_new(&runtime, config)
         guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
@@ -104,13 +111,18 @@ public final class GhosttyRuntime {
         var opacity: Double = 1
         guard let fresh = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity) else { return }
         configuredBackgroundOpacity = opacity
+        adoptedDuringReload = false
         ghostty_app_update_config(app, fresh)
-        replaceConfig(fresh)
+        // Ghostty answers with CONFIG_CHANGE on this thread: the config it
+        // applied carries the light/dark variant, `fresh` does not (it
+        // would put a dark app's chrome back on the light variant).
+        if adoptedDuringReload { ghostty_config_free(fresh) } else { replaceConfig(fresh) }
         configDiagnostics = diagnostics
     }
 
     /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
     func adoptAppliedConfig(_ applied: ghostty_config_t) {
+        adoptedDuringReload = true
         replaceConfig(ghostty_config_clone(applied))
     }
 
@@ -150,6 +162,11 @@ public final class GhosttyRuntime {
     /// workspace or terminal theme; see `themeConfig(named:)`).
     static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
+        // cmux's terminal padding, theme and keybinds, before the user's
+        // files so theirs win.
+        loadPaddingDefault(into: config)
+        loadThemeDefault(into: config)
+        loadKeybindDefaults(into: config)
         if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
@@ -159,16 +176,28 @@ public final class GhosttyRuntime {
         if let line = themeOverrideLine(theme ?? themeOverride) {
             ghostty_config_load_string(config, line, UInt(line.utf8.count), "cmux.json")
         }
-        // In a translucent window the root view paints the one translucent
-        // sheet; the surfaces draw cells over it with a transparent default
-        // background (`GhosttyRuntimeSurfacePolicy`). The configured
-        // opacity is kept for the window, theme and blur.
+        for line in fontOverrideLines(fontOverride) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
+        }
+        // cmux.json's window background replaces the files' opacity and
+        // blur, so the surfaces, the window and the theme read one value.
         var configured: Double = 1
+        _ = configGet(config, &configured, key: "background-opacity")
+        var configuredBlur: Int16 = 0
+        _ = configGet(config, &configuredBlur, key: "background-blur")
+        for line in backgroundOverrideLines(backgroundOverride, configuredOpacity: configured, configuredBlur: Int(configuredBlur)) {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
+        }
+        // In a translucent window the root view's material and tint are the
+        // one translucent sheet; the surfaces draw cells over it with a
+        // transparent default background (`GhosttyRuntimeSurfacePolicy`).
+        // The resolved opacity is kept for the window and theme.
         _ = configGet(config, &configured, key: "background-opacity")
         var opacityCells = false
         _ = configGet(config, &opacityCells, key: "background-opacity-cells")
         opacity = min(max(configured, 0), 1)
-        if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells) {
+        if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
+                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
@@ -196,18 +225,20 @@ public final class GhosttyRuntime {
         return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
     }
 
-    /// `background-opacity` as configured, 0...1. The config applied to the
+    /// The copy-mode cursor box color: `cursor-color` when set, else the
+    /// configured foreground (Ghostty colors, never a fixed accent).
+    var copyCursorColor: NSColor {
+        var color = ghostty_config_color_s()
+        guard let config,
+              Self.configGet(config, &color, key: "cursor-color") || Self.configGet(config, &color, key: "foreground")
+        else { return .textColor }
+        return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
+    }
+
+    /// `background-opacity` as configured and resolved with cmux.json's
+    /// override (`backgroundOverride`), 0...1. The config applied to the
     /// surfaces may carry 0 instead (`GhosttyRuntimeSurfacePolicy`).
     public var backgroundOpacity: Double { configuredBackgroundOpacity }
-
-    /// Sets the config's `background-blur` radius behind `window`
-    /// (`ghostty_set_window_background_blur`), as Ghostty does for its
-    /// translucent windows. libghostty does nothing while
-    /// `background-opacity` is 1.
-    public func applyBackgroundBlur(to window: NSWindow) {
-        guard let app else { return }
-        ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
-    }
 
     /// `ghostty_config_get` (ghostty.h:1321) for one key.
     static func configGet<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
@@ -262,8 +293,12 @@ public final class GhosttyRuntime {
     /// (`ghostty_app_set_color_scheme`, ghostty.h:1347).
     private func applyColorScheme(_ appearance: NSAppearance) {
         guard let app else { return }
-        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+        // A surface copies the app's scheme only when it is created; live
+        // ones need it too (as Ghostty.app does per surface view), or open
+        // terminals keep the old variant while the chrome switches.
+        for view in colorSchemeSurfaces.allObjects { view.applyColorScheme(dark: isDark) }
     }
 
     // MARK: Environment
@@ -320,9 +355,12 @@ nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
 /// root's sheet (`background` at `background-opacity`) is the only layer
 /// behind the cells, as the single surface layer is in Ghostty.app. With
 /// `background-opacity-cells` explicit cell colors take the opacity, and a
-/// 0 would erase them, so the config stays as it is.
+/// 0 would erase them, so the config stays as it is. A terminal background
+/// override (`appearance.surfaces.terminal`) makes the surfaces transparent
+/// in an opaque window too: the terminal host paints the override behind
+/// the cells (`ownerPaintsBackground`).
 nonisolated enum GhosttyRuntimeSurfacePolicy {
-    static func override(configuredOpacity: Double, opacityCells: Bool) -> String? {
-        configuredOpacity < 1 && !opacityCells ? "background-opacity = 0" : nil
+    static func override(configuredOpacity: Double, opacityCells: Bool, ownerPaintsBackground: Bool = false) -> String? {
+        (configuredOpacity < 1 || ownerPaintsBackground) && !opacityCells ? "background-opacity = 0" : nil
     }
 }

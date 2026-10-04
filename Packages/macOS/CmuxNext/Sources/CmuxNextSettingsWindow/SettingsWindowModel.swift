@@ -1,9 +1,10 @@
 public import CmuxNextActions
+public import CmuxNextDesign
 public import CmuxNextSettings
 public import Observation
 
 /// The Settings window's state. Values come from `SettingsController`
-/// (cmux.json, reloaded by the file watcher, so an edit in another editor
+/// (cmux-next.json, reloaded by the file watcher, so an edit in another editor
 /// shows here at once); an edit writes the file and shows the new value
 /// optimistically until the watcher's reload confirms it.
 @MainActor
@@ -21,6 +22,16 @@ public final class SettingsWindowModel {
     public internal(set) var recorder: ShortcutRecorderState?
     /// The recorder's last result, on the row it edited.
     public internal(set) var notice: SettingsNotice?
+    /// The last request to scroll to a row, card, button or header (a
+    /// search result, Return in search, a deep link, a one-page sidebar
+    /// click). The detail view scrolls when its serial changes.
+    public internal(set) var jump: SettingsJump?
+    /// The anchor id lit up after a jump, until its highlight ends.
+    public internal(set) var highlighted: String?
+    /// Pins speed and Reduce Motion for the highlight (tests); nil reads
+    /// the live `Motion.policy`.
+    @ObservationIgnored public var motionPolicyOverride: MotionPolicy?
+    @ObservationIgnored var jumpSerial = 0
 
     /// Values written but not yet read back from the file, by key.
     private var pending: [String: JSONValue?] = [:]
@@ -50,21 +61,40 @@ public final class SettingsWindowModel {
         return descriptor.effectiveValue(in: root)
     }
 
-    /// Whether the key is set in the file (pending edits included).
+    /// Whether the key is set in the user's file (pending edits included).
+    /// MDM recommended and team default values are not customizations.
     public func isCustomized(_ descriptor: SettingDescriptor) -> Bool {
+        if isManaged(descriptor) { return false }
         if let edit = pending[descriptor.id] { return edit != nil && edit != descriptor.defaultValue }
-        return descriptor.isCustomized(in: root)
+        return descriptor.isCustomized(in: settings.fileRoot)
+    }
+
+    /// Whether an MDM profile or the team policy manages the key; its control is disabled.
+    public func isManaged(_ descriptor: SettingDescriptor) -> Bool {
+        settings.managedSource(for: descriptor) != nil
+    }
+
+    /// "Managed by your organization" or "Managed by <team>", nil when the user decides.
+    public func managedNote(_ descriptor: SettingDescriptor) -> String? {
+        switch settings.managedSource(for: descriptor) {
+        case nil: nil
+        case .device?: SettingsWindowStrings.managedByOrganization
+        case .team(let name)?: name.isEmpty ? SettingsWindowStrings.managedByOrganization : SettingsWindowStrings.managedByTeam(name)
+        }
     }
 
     /// The load diagnostic for this key, when the file holds a bad value.
+    /// A managed key shows its managed note instead.
     public func diagnostic(_ descriptor: SettingDescriptor) -> String? {
-        settings.diagnostics.first { $0.path == descriptor.id || $0.path.hasPrefix(descriptor.id + ".") }?.message
+        if isManaged(descriptor) { return nil }
+        return settings.diagnostics.first { $0.path == descriptor.id || $0.path.hasPrefix(descriptor.id + ".") }?.message
     }
 
     /// Writes `value` (nil resets the key). Bursts (a slider drag, the color
     /// panel) coalesce: one write runs at a time per key and the next one
     /// takes the latest value, so the file sees at most one stale write.
     public func set(_ descriptor: SettingDescriptor, _ value: JSONValue?) {
+        guard !isManaged(descriptor) else { return }
         pending[descriptor.id] = .some(value)
         latest[descriptor.id] = .some(value)
         guard !writing.contains(descriptor.id) else { return }
@@ -90,7 +120,7 @@ public final class SettingsWindowModel {
     private func drain(_ descriptor: SettingDescriptor) async {
         while let next = latest.removeValue(forKey: descriptor.id) {
             do {
-                try await settings.setSetting(descriptor, to: next)
+                try await settings.setSetting(descriptor, to: next, by: .user)
                 writeError = nil
             } catch {
                 writeError = SettingsWindowStrings.writeFailed(String(describing: error))
@@ -107,7 +137,7 @@ public final class SettingsWindowModel {
     public func resetAll() {
         Task {
             do {
-                try await settings.resetAllSettings()
+                try await settings.resetAllSettings(by: .user)
                 writeError = nil
             } catch {
                 writeError = SettingsWindowStrings.writeFailed(String(describing: error))
@@ -123,32 +153,22 @@ public final class SettingsWindowModel {
         Self.grouped(SettingsSchema.settings(in: section))
     }
 
-    /// Settings matching `query` in every section (empty without a query).
-    public func searchResults() -> [SettingsGroup] {
-        let words = Self.words(query)
-        guard !words.isEmpty else { return [] }
-        let matches = SettingsSchema.all.filter { descriptor in
-            let haystack = ([descriptor.title, descriptor.help ?? "", descriptor.group, descriptor.section.title, descriptor.id]
-                + descriptor.keywords).joined(separator: " ")
-            return words.allSatisfy { haystack.localizedStandardContains($0) }
-        }
-        return SettingsSection.allCases.flatMap { section in
-            Self.grouped(matches.filter { $0.section == section }).map {
-                SettingsGroup(title: "\(section.title) › \($0.title)", settings: $0.settings)
-            }
-        }
-    }
-
     static func words(_ text: String) -> [String] {
         text.split(whereSeparator: \.isWhitespace).map(String.init)
     }
 
-    private static func grouped(_ settings: [SettingDescriptor]) -> [SettingsGroup] {
+    /// One group per heading, in the order each heading first appears.
+    /// A group's title is its view identity (`SettingsGroup.id`), so a
+    /// heading whose settings are not contiguous in the schema (another
+    /// group's rows were added between them) still makes one group.
+    static func grouped(_ settings: [SettingDescriptor]) -> [SettingsGroup] {
         var groups: [SettingsGroup] = []
+        var index: [String: Int] = [:]
         for descriptor in settings {
-            if groups.last?.title == descriptor.group {
-                groups[groups.count - 1].settings.append(descriptor)
+            if let at = index[descriptor.group] {
+                groups[at].settings.append(descriptor)
             } else {
+                index[descriptor.group] = groups.count
                 groups.append(SettingsGroup(title: descriptor.group, settings: [descriptor]))
             }
         }

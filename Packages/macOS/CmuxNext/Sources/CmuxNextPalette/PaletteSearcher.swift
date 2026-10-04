@@ -29,7 +29,9 @@ public actor PaletteSearcher {
         sectionOrders: [Int],
         frecency: FrecencyStore,
         now: Date,
-        showsRecent: Bool
+        showsRecent: Bool,
+        keepsSectionOrder: Bool = false,
+        ranksPrefixFirst: Bool = false
     ) -> (generation: Int, sections: [PaletteRankedSection]) {
         let sections = PaletteRanker.rank(
             index: &index,
@@ -37,7 +39,9 @@ public actor PaletteSearcher {
             sectionOrders: sectionOrders,
             frecency: frecency,
             now: now,
-            showsRecent: showsRecent
+            showsRecent: showsRecent,
+            keepsSectionOrder: keepsSectionOrder,
+            ranksPrefixFirst: ranksPrefixFirst
         )
         return (generation, sections)
     }

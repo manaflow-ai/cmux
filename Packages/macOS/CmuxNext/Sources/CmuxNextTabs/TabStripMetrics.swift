@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// (`Metrics`, 2 pt grid). Plain data so layout math is testable with fixed
 /// numbers; `standard` reads the tokens for the current density.
 public struct TabStripMetrics: Equatable, Sendable {
-    /// Widest an unpinned tab gets (Chrome's standard width).
+    /// Widest an unpinned tab gets (the standard width).
     public var maxTabWidth: CGFloat
     /// Narrowest an inactive tab gets before the strip starts to scroll.
     public var minInactiveTabWidth: CGFloat
@@ -82,46 +82,65 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Vertical inset of tabs inside the strip.
     public var stripVerticalPadding: CGFloat { max(0, (stripHeight - tabHeight) / 2) }
 
+    /// Space above the strip that counts toward the gap above its tabs (the
+    /// pane padding): tabs sit with equal gaps above (from the pane cell's
+    /// top) and below (to the content border), `PaneChromeMetrics`.
+    public var stripTopOutset: CGFloat = 0
+
+    /// The tabs' top in a strip `height` points tall, on `scale`'s pixel grid.
+    public func tabTop(stripHeight height: CGFloat, scale: CGFloat) -> CGFloat {
+        PaneChromeMetrics(stripHeight: height, tabHeight: min(tabHeight, height), panePadding: stripTopOutset).pillTop(scale: scale)
+    }
+
+    /// A tab pill (its rounded background) inside a slot `width` wide: the
+    /// gap to the next pill is all on the trailing side, so the first pill
+    /// starts on the strip's leading edge.
+    public func pillFrame(slotWidth width: CGFloat, height: CGFloat) -> CGRect {
+        CGRect(x: 0, y: 0, width: max(0, width - 2 * tabBackgroundInset), height: height)
+    }
+
     /// Reads the design tokens for the current density.
     public init() {
         maxTabWidth = Metrics.tabMaxWidth
         minInactiveTabWidth = Metrics.tabMinWidth
         pinnedTabWidth = Metrics.tabMinWidth
-        compactTabWidth = (Metrics.tabMaxWidth * 3 / 4).rounded()
-        pinnedGroupGap = Metrics.space2
+        compactTabWidth = TabTunables.compactTabWidth.value
+        pinnedGroupGap = TabTunables.pinnedGroupGap.value
         contentLeadingInset = Metrics.tabContentLeadingInset
-        contentTrailingInset = Metrics.space2
+        contentTrailingInset = TabTunables.contentTrailingInset.value
         iconSize = Metrics.iconSize
-        closeButtonSize = Metrics.space6
-        closeGlyphSize = Metrics.space4 - Metrics.space1 / 2
-        iconTitleSpacing = Metrics.space3
-        titleCloseSpacing = Metrics.space2
-        titleFadeWidth = Metrics.space6 + Metrics.space2
-        badgeSize = Metrics.space3
+        closeButtonSize = TabTunables.closeButtonSize.value
+        closeGlyphSize = TabTunables.closeGlyphSize.value
+        iconTitleSpacing = TabTunables.iconTitleSpacing.value
+        titleCloseSpacing = TabTunables.titleCloseSpacing.value
+        titleFadeWidth = TabTunables.titleFadeWidth.value
+        badgeSize = TabTunables.badgeSize.value
         minActiveTabWidth = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
-        closeMinContentsWidth = 4 * Metrics.space6 + Metrics.space2
-        titleMinVisibleWidth = Metrics.space5
+        closeMinContentsWidth = TabTunables.closeMinContentsWidth.value
+        titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        stripHorizontalPadding = Metrics.tabStripEdgeInset
+        // The strip's edges are the content border's edges (the chrome line).
+        stripHorizontalPadding = PaneChromeMetrics.pillLeading
+        stripTopOutset = Metrics.panePadding
         newTabButtonWidth = Metrics.tabHeight
         trailingButtonSize = Metrics.tabHeight - Metrics.space2
-        trailingButtonSpacing = Metrics.space1
-        trailingGroupGap = Metrics.space2
+        trailingButtonSpacing = TabTunables.trailingButtonSpacing.value
+        trailingGroupGap = TabTunables.trailingGroupGap.value
         trailingIconSize = Metrics.iconSize
         trailingIconPointSize = Metrics.smallIconSize
-        scrollFadeWidth = Metrics.space6 + Metrics.space4
+        scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
-        separatorHeight = Metrics.tabHeight / 2
-        tearOffDistance = Metrics.space6 + Metrics.space4
+        separatorHeight = TabTunables.separatorHeight.value
+        tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.itemCornerRadius
         groupChipOuterInset = Metrics.space1
-        groupChipPadding = Metrics.space3
+        groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
         groupChipDotSize = Metrics.space5 - Metrics.space1
         groupChipMaxNameWidth = (Metrics.tabMaxWidth / 2).rounded()
         groupChipCountSpacing = Metrics.space2
-        groupUnderlineHeight = Metrics.space1
+        groupUnderlineHeight = TabTunables.groupUnderlineHeight.value
     }
 
     /// Token-derived metrics for the current density.

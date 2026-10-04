@@ -6,6 +6,8 @@ SRC_DIR="$ROOT/webviews"
 OUT_DIR="$ROOT/Resources/markdown-viewer/webviews-app"
 MARKED_JS="$ROOT/Resources/markdown-viewer/marked.min.js"
 
+"$ROOT/scripts/check-webviews-bun-version.sh"
+
 write_agent_session_html() {
   out_dir="$1"
   if [ ! -f "$MARKED_JS" ]; then
@@ -14,13 +16,13 @@ write_agent_session_html() {
   fi
   {
     printf '<!doctype html>\n'
-    printf '<html lang="en" data-cmux-webview-kind="agent-session" data-codex-window-type="electron" data-window-type="electron" data-codex-os="darwin">\n'
+    printf '<html lang="en" data-cmux-webview-kind="agent-session" data-agent-window-type="electron" data-window-type="electron" data-agent-os="darwin">\n'
     printf '  <head>\n'
     printf '    <meta charset="UTF-8" />\n'
     printf '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n'
     printf '    <title>cmux Agent Session</title>\n'
     printf '  </head>\n'
-    printf '  <body data-cmux-webview-kind="agent-session" data-codex-window-type="electron">\n'
+    printf '  <body data-cmux-webview-kind="agent-session" data-agent-window-type="electron">\n'
     printf '    <main id="root"></main>\n'
     printf '    <script>\n'
     /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$MARKED_JS"
@@ -37,7 +39,7 @@ strip_trailing_line_whitespace() {
 
 normalize_webviews_output() {
   out_dir="$1"
-  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html"
+  strip_trailing_line_whitespace "$out_dir/main.mjs" "$out_dir/agent-session.html" "$out_dir/diff-page.html" "$out_dir/markdown-page.html" "$out_dir/editor-page.html"
 }
 
 if [ "${1:-}" = "--check" ]; then

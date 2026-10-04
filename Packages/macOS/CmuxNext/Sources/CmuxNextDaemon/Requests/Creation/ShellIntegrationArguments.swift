@@ -47,6 +47,14 @@ extension NewPaneRequest: ShellIntegrationArgumentCarrying {
     }
 }
 
+extension NewRowRequest: ShellIntegrationArgumentCarrying {
+    func addingShellIntegrationArguments() -> Self {
+        var request = self
+        request.options = options.addingShellIntegrationArguments()
+        return request
+    }
+}
+
 extension NewColumnRequest: ShellIntegrationArgumentCarrying {
     func addingShellIntegrationArguments() -> Self {
         var request = self
@@ -60,6 +68,24 @@ extension CreateTerminalRequest: ShellIntegrationArgumentCarrying {
         guard argv == nil, command == nil, shellArgs == nil, let env else { return self }
         var request = self
         request.shellArgs = GhosttyShellIntegration.shellArguments(for: env)
+        return request
+    }
+}
+
+extension MoveTabToColumnRespawnRequest: ShellIntegrationArgumentCarrying {
+    func addingShellIntegrationArguments() -> Self {
+        guard case .terminal(let options) = respawn else { return self }
+        var request = self
+        request.respawn = .terminal(options.addingShellIntegrationArguments())
+        return request
+    }
+}
+
+extension MoveTabToSplitRespawnRequest: ShellIntegrationArgumentCarrying {
+    func addingShellIntegrationArguments() -> Self {
+        guard case .terminal(let options) = respawn else { return self }
+        var request = self
+        request.respawn = .terminal(options.addingShellIntegrationArguments())
         return request
     }
 }

@@ -10,10 +10,10 @@ import CmuxNextDesign
 }
 
 /// Inline rename: an editor over the tab's title. Return and focus loss
-/// commit, Escape cancels, as in Finder.
+/// commit, Escape cancels.
 extension TabStripView {
     /// Double-clicking a tab starts inline rename (the screen bar). Off by
-    /// default: pane tab strips keep Chrome's behavior.
+    /// default, so pane tab strips do not rename on double-click.
     public var renamesOnDoubleClick: Bool {
         get { inlineRename.enabledOnDoubleClick }
         set { inlineRename.enabledOnDoubleClick = newValue }
@@ -27,7 +27,7 @@ extension TabStripView {
     public func beginInlineRename(_ id: TabID) {
         guard let item = model.tab(id), let cell = cells[id] else { return }
         cancelInlineRename()
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         // Follows theme changes while open (ThemedTextField).
         let field = ThemedTextField(string: item.title)
         field.font = Typography.body

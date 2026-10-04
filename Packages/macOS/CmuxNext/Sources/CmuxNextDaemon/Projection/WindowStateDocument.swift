@@ -6,21 +6,28 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
     public var windows: [WindowRecord]
     /// Sidebar group collapse state (group key -> collapsed).
     public var collapsedGroups: [String: Bool]
+    /// The agent chat tabs each pane lists (pane key -> tabs, in strip order). cmux-tui has no agent
+    /// tab kind yet, so the app records them here; acpmux keeps their sessions (R138).
+    public var agentTabs: [String: [AgentTabRecord]]
 
-    public init(windows: [WindowRecord] = [], collapsedGroups: [String: Bool] = [:]) {
+    public init(windows: [WindowRecord] = [], collapsedGroups: [String: Bool] = [:],
+                agentTabs: [String: [AgentTabRecord]] = [:]) {
         self.windows = windows
         self.collapsedGroups = collapsedGroups
+        self.agentTabs = agentTabs
     }
 
     enum CodingKeys: String, CodingKey {
         case windows
         case collapsedGroups = "collapsed_groups"
+        case agentTabs = "agent_tabs"
     }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         windows = try c.decodeIfPresent([WindowRecord].self, forKey: .windows) ?? []
         collapsedGroups = try c.decodeIfPresent([String: Bool].self, forKey: .collapsedGroups) ?? [:]
+        agentTabs = try c.decodeIfPresent([String: [AgentTabRecord]].self, forKey: .agentTabs) ?? [:]
     }
 
     /// Replaces or appends one window by id.
@@ -55,5 +62,17 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
 
     init(jsonValue: JSONValue) throws {
         self = try JSONDecoder().decode(WindowStateDocument.self, from: JSONEncoder().encode(jsonValue))
+    }
+}
+
+/// One agent chat tab in a pane's strip: its tab id and the acpmux session it shows (nil for a
+/// new chat that has none yet).
+public struct AgentTabRecord: Codable, Sendable, Hashable {
+    public var id: String
+    public var session: String?
+
+    public init(id: String, session: String?) {
+        self.id = id
+        self.session = session
     }
 }

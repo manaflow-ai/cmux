@@ -29,8 +29,9 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
         window.model = model
         super.init(window: window)
         window.delegate = self
-        window.contentView = SettingsContentView(rootView: SettingsRootView(model: model))
-        setThemeScope(SettingsTheme.shared.scope)
+        SettingsTheme.shared.follow(SettingsTheme.shared.scope)
+        window.install(kind: .settings, content: NSHostingView(rootView: SettingsRootView(model: model)),
+                       scope: SettingsTheme.shared.scope)
     }
 
     /// Draws the window in `scope`: the App passes the scope of the main
@@ -45,11 +46,13 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows the window on `section` (nil keeps the last one).
-    public func present(section: SettingsSection? = nil) {
-        if let section {
-            model.query = ""
-            model.selection = section
+    /// Shows the window on `section` (nil keeps the last one), or scrolled
+    /// to `anchor` with its highlight (`openSettings setting:`).
+    public func present(section: SettingsSection? = nil, anchor: SettingsAnchor? = nil) {
+        if let anchor {
+            model.open(anchor)
+        } else if let section {
+            model.select(section, layout: SettingsWindowLayout.tunable.value)
         }
         guard let window else { return }
         SettingsTheme.shared.scope.adopt(window)
@@ -60,23 +63,11 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
         model.cancelRecording()
         onClose?()
     }
-}
 
-/// The hosting view; it repaints the window background with the scope's
-/// colors on every theme change.
-final class SettingsContentView: NSHostingView<SettingsRootView> {
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme { window?.backgroundColor = Palette.windowBackground }
+    /// Recording stops when the window loses the keys, so the system-wide
+    /// hot keys it suspended do not stay off behind another window or app.
+    public func windowDidResignKey(_ notification: Notification) {
+        model.cancelRecording()
     }
 }
 

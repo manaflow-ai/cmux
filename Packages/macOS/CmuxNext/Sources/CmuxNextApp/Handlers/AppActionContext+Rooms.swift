@@ -16,7 +16,7 @@ extension AppActionContext {
     /// window's room.
     func room(_ invocation: ActionInvocation) throws -> ProfileModel {
         if let target = invocation.target, target.kind == .profile { return try room(named: target.id) }
-        if let room = try optionalRoom(invocation["room"]) { return room }
+        if let room = try optionalRoom(invocation["space"]) { return room }
         let current = activeWindow?.state.profileID ?? .defaultProfile
         guard let room = roomStore.profile(current) else { throw ActionFailure.invalidTarget(RoomStrings.noRoom(current.rawValue)) }
         return room
@@ -37,11 +37,11 @@ extension AppActionContext {
         if let room = roomStore.profiles.first(where: {
             $0.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) == folded
         }) { return room }
-        throw ActionFailure.invalidTarget(RoomStrings.noRoom(text))
+        throw ActionFailure.notFound(RoomStrings.noRoom(text))
     }
 }
 
-/// `room.setDefaults` arguments: `cwd` (a directory, `~` expanded) and
+/// `space.setDefaults` arguments: `cwd` (a directory, `~` expanded) and
 /// `env` (a JSON object of strings). Both empty clears the defaults.
 enum RoomDefaultsArguments {
     static func parse(_ invocation: ActionInvocation) throws -> ProfileDefaults {

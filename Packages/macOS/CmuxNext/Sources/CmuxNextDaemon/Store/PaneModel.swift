@@ -60,6 +60,18 @@ public final class PaneModel: Identifiable {
         return tab
     }
 
+    /// Moves the tab `surface` to `index` (clamped) inside this pane.
+    func moveTab(surface: SurfaceID, to index: Int) {
+        guard let from = tabs.firstIndex(where: { $0.surface == surface }) else { return recomputeSpans() }
+        let final = min(max(index, 0), tabs.count - 1)
+        if final != from {
+            var reordered = tabs
+            reordered.insert(reordered.remove(at: from), at: final)
+            tabs = reordered
+        }
+        recomputeSpans()
+    }
+
     func recomputeSpans() {
         var spans: [TabGroupSpan] = []
         var start = 0

@@ -40,14 +40,14 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The renderer stopped handling input (hang monitor, 15 s).
     case renderUnresponsive(browser: Int32)
     case renderResponsive(browser: Int32)
-    /// A Chrome command that would open a Chromium window; the shim blocked
+    /// A Chromium command that would open a Chromium window; the shim blocked
     /// it (`IDC_*` id).
     case chromeCommand(browser: Int32, command: Int32)
     /// The navigation guard cancelled a main-frame navigation to `url`.
     case navigationReroute(browser: Int32, url: String, isRedirect: Bool)
-    /// The page did not handle a key down (Windows key code; the shim
-    /// reports only a plain Escape).
-    case keyUnhandled(browser: Int32, keyCode: Int)
+    /// The page did not handle a key down (Windows key code): a plain
+    /// Escape, or a letter outside editable fields with `shift`.
+    case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
     /// An extension install or permission prompt (fork API 12); prompt 0
     /// is the "installed" notice.
     case installPrompt(browser: Int32, promptID: Int32, json: String)
@@ -55,6 +55,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case omniboxSuggestions(requestID: Int32, extensionID: String, json: String)
     /// Focus left the page past its last (`forward`) or first element.
     case takeFocus(browser: Int32, forward: Bool)
+    /// A raw DevTools protocol message (`cmux_shim_devtools_send` replies,
+    /// events of a watched browser): the JSON as Chromium sent it.
+    case devToolsMessage(browser: Int32, json: String)
+    /// A watched profile preference changed (`cmux_shim_pref_watch`).
+    case preferenceChanged(name: String, profilePath: String)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -94,10 +99,12 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 25: self = .renderResponsive(browser: browser)
         case 26: self = .chromeCommand(browser: browser, command: request)
         case 27: self = .navigationReroute(browser: browser, url: s1, isRedirect: a != 0)
-        case 28: self = .keyUnhandled(browser: browser, keyCode: Int(a))
+        case 28: self = .keyUnhandled(browser: browser, keyCode: Int(a), shift: b & 1 != 0)
         case 29: self = .installPrompt(browser: browser, promptID: request, json: s1)
         case 30: self = .omniboxSuggestions(requestID: request, extensionID: s1, json: s2)
         case 31: self = .takeFocus(browser: browser, forward: a != 0)
+        case 32: self = .devToolsMessage(browser: browser, json: s1)
+        case 33: self = .preferenceChanged(name: s1, profilePath: s2)
         default: self = .unknown(kind: kind)
         }
     }

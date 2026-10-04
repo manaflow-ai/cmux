@@ -3,13 +3,22 @@ mod handles;
 mod id;
 mod journal_plugin;
 mod model;
+mod operation_class;
 mod ops;
 mod options;
 mod stream;
 mod typed_stream;
 mod wire;
 
+pub(crate) use client::decode_protocol_error;
 pub use client::{Client, Config};
+pub use handles::state_ops::{
+    CONVERSATION_TABS_CAPABILITY, ColumnEdge, ColumnMode, TAB_HISTORY_MAX_URLS, TabUpdateOptions,
+    WINDOW_RECORD_MAX_BYTES, WindowRecordDeleteResult, WindowRecordSnapshot,
+    WorkspaceGroupCreateOptions, WorkspaceGroupDeleteResult, WorkspaceGroupSnapshot,
+    WorkspaceGroupUpdateOptions, WorkspacePlaceOptions, WorkspacePlacementSnapshot, WorkspaceRef,
+    WorkspaceUpdateOptions,
+};
 pub use handles::{
     Agent, Browser, ConnectedClient, FrontendProjection, Machine, Notification, PairingRequest,
     Pane, Screen, Session, SessionCreation, SidebarView, Tab, Terminal, Workspace,
@@ -29,31 +38,32 @@ pub use model::{
     BrowserViewerResizeResult, CellPixelsResult, ClientSnapshot, ClientTerminalSize,
     ClientTransport, ConfirmationRequiredDetails, ConnectedClientSnapshot, Created, CreatedPath,
     CreationRecovery, CreationResolution, CreationState, Cursor, Document,
-    FrontendProjectionSnapshot, LayoutColumn, LayoutDirection, LayoutDocument, LayoutLeaf,
-    LayoutNode, LayoutSplit, LayoutStack, LayoutViewport, MachineOrigin, MachineSnapshot,
-    MachineStatus, MutationReceipt, MutationResult, NotificationSnapshot, PairingCode,
-    PairingRequestSnapshot, PairingResolutionResult, PairingStatus, PaneNeighborResult,
-    PaneSnapshot, PingResult, ProcessInfoResult, ProtocolFailure, ReloadConfigResult,
-    RendererGrant, ResourceEntitySnapshot, ResourceSnapshot, ScreenSnapshot, SessionSnapshot,
-    ShutdownResult, SidebarViewSnapshot, StreamEnd, StreamEndReason, StreamPoll, TabContentId,
-    TabContentKind, TabSnapshot, TerminalCopyResult, TerminalDefaultsSnapshot, TerminalExit,
-    TerminalExitOutcome, TerminalExitedLifecycle, TerminalHistoryResult, TerminalLifecycle,
-    TerminalPendingLifecycle, TerminalScreenResult, TerminalSnapshot, TerminalStateResult,
-    TerminalWaitExitExited, TerminalWaitExitPending, TerminalWaitExitResult, TerminalWaitResult,
-    TypedStreamItem, ViewAttachmentOutcome, ViewerReleaseResult, ViewerResizeResult,
-    WorkspaceSnapshot,
+    FrontendProjectionSnapshot, LayoutColumn, LayoutColumnDock, LayoutDirection, LayoutDocument,
+    LayoutLeaf, LayoutNode, LayoutSplit, LayoutStack, LayoutViewport, MachineOrigin,
+    MachineSnapshot, MachineStatus, MutationReceipt, MutationResult, NotificationSnapshot,
+    PairingCode, PairingRequestSnapshot, PairingResolutionResult, PairingStatus,
+    PaneNeighborResult, PaneSnapshot, PingResult, ProcessInfoResult, ProtocolFailure,
+    ReloadConfigResult, RendererGrant, ResourceEntitySnapshot, ResourceSnapshot, ScreenSnapshot,
+    SessionSnapshot, ShutdownResult, SidebarViewSnapshot, StreamEnd, StreamEndReason, StreamPoll,
+    TabContentId, TabContentKind, TabSnapshot, TerminalCopyResult, TerminalDefaultsSnapshot,
+    TerminalExit, TerminalExitOutcome, TerminalExitedLifecycle, TerminalHistoryResult,
+    TerminalLifecycle, TerminalPendingLifecycle, TerminalScreenResult, TerminalSnapshot,
+    TerminalStateResult, TerminalWaitExitExited, TerminalWaitExitPending, TerminalWaitExitResult,
+    TerminalWaitResult, TypedStreamItem, ViewAttachmentOutcome, ViewerReleaseResult,
+    ViewerResizeResult, WorkspaceSnapshot,
 };
+pub(crate) use options::validate_idempotency_key;
 pub use options::{
     AgentListOptions, AgentReportOptions, AgentSource, AgentState, BrowserAttachOptions,
     BrowserCreateOptions, BrowserKeyKind, BrowserKeyOptions, BrowserMouseButton, BrowserMouseKind,
     BrowserMouseOptions, CancellationToken, CellPixelsOptions, ClientMetadataOptions,
-    ClientSizingOptions, CopyMode, CopyOptions, CreatePaneOptions, CreateScreenOptions,
-    CreateWorkspaceOptions, CursorStyle, Direction, EventStreamOptions, FocusInputOptions,
-    InitialContent, InputModifier, JournalStart, JournalSubjectFilter, LabelOptions, LayoutOptions,
-    MouseButton, MoveDestination, MutationOptions, NavigateOptions, NotificationLevel,
-    NotificationListOptions, NotificationOptions, PairingDecision, PairingResolveOptions,
-    PaneSwapOptions, PixelSize, ProjectionOptions, ReadHistoryOptions, ReadScreenOptions,
-    RendererGrantOptions, RequestOptions, RunCommand, RunOptions, ScrollOptions,
+    ClientSizingOptions, ColumnUpdateOptions, CopyMode, CopyOptions, CreatePaneOptions,
+    CreateScreenOptions, CreateWorkspaceOptions, CursorStyle, Direction, EventStreamOptions,
+    FocusInputOptions, InitialContent, InputModifier, JournalStart, JournalSubjectFilter,
+    LabelOptions, LayoutOptions, MouseButton, MoveDestination, MutationOptions, NavigateOptions,
+    NotificationLevel, NotificationListOptions, NotificationOptions, PairingDecision,
+    PairingResolveOptions, PaneSwapOptions, PixelSize, ProjectionOptions, ReadHistoryOptions,
+    ReadScreenOptions, RendererGrantOptions, RequestOptions, RunCommand, RunOptions, ScrollOptions,
     SessionJournalOptions, SessionOpenOptions, ShutdownOptions, SidebarEnsureOptions,
     SidebarInputOptions, Size, SplitOptions, SplitRatioOptions, TerminalAttachOptions,
     TerminalCreateOptions, TerminalDefaultsOptions, TerminalKeysOptions, TerminalMouseKind,

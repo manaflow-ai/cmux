@@ -1,15 +1,15 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextTerminalFind
+import Observation
 
 /// Container the App embeds. Holds the current surface view (swapped on
 /// replay) and paints the terminal's background (its theme's, else the
 /// config's) behind an announced grid that is smaller than the view.
 ///
-/// The surface sits inset horizontally so the first text column lands on
-/// the pane's content line (`Metrics.paneContentInset`), level with the tab
-/// icons above it. Ghostty's own `window-padding-x` (read from the config,
-/// `GhosttyRuntime.terminalPadding`) is inside the surface, so the host adds
-/// only the rest, on each side from that side's padding.
+/// The surface fills the host, which fills the pane's content border, so
+/// the first cell sits exactly Ghostty's padding inside the border
+/// (`TerminalPadding.cmuxDefault` unless the user set their own).
 public final class TerminalHostView: NSView {
     private weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
@@ -19,22 +19,20 @@ public final class TerminalHostView: NSView {
     /// Shown over the last screen while the link is down (click-through).
     private let banner = TerminalStatusBanner()
     private var shownStatus: TerminalConnectionStatus = .connected
+    private var hostLoss: TerminalHostLoss?
 
-    /// The surface frame in a host of `bounds` (pure): inset so the first
-    /// column (after Ghostty's leading padding) starts at `contentInset`,
-    /// and the last one ends as far from the trailing edge; a host too
-    /// narrow for the insets keeps its width. With `window-padding-balance`
-    /// Ghostty centers the grid in leftover space, so the column can sit up
-    /// to half a cell further in.
-    static func surfaceFrame(in bounds: CGRect, contentInset: CGFloat, padding: TerminalPadding = .ghosttyDefault) -> CGRect {
-        let leading = max(0, contentInset - padding.leading)
-        let trailing = max(0, contentInset - padding.trailing)
-        guard bounds.width > (leading + trailing) * 2 else { return bounds }
-        return CGRect(x: bounds.minX + leading, y: bounds.minY, width: bounds.width - leading - trailing, height: bounds.height)
-    }
-
-    private var surfaceFrame: CGRect {
-        Self.surfaceFrame(in: bounds, contentInset: Metrics.paneContentInset, padding: GhosttyRuntime.shared.terminalPadding)
+    /// The first cell's top-left in this view's coordinates (top-left
+    /// origin): Ghostty's leading and top padding, or with
+    /// `window-padding-balance` half the grid's leftover (for `debug.pane_chrome`).
+    public var firstCellOrigin: CGPoint {
+        let padding = GhosttyRuntime.shared.terminalPadding
+        guard padding.balanced, let model = current?.session?.model, let grid = model.grid, grid.columns > 0, grid.rows > 0 else {
+            return CGPoint(x: padding.leading, y: padding.top)
+        }
+        let scale = window?.backingScaleFactor ?? 2
+        let gridWidth = CGFloat(grid.columns) * model.cellPixelSize.width / scale
+        let gridHeight = CGFloat(grid.rows) * model.cellPixelSize.height / scale
+        return CGPoint(x: max(padding.leading, (bounds.width - gridWidth) / 2), y: max(padding.top, (bounds.height - gridHeight) / 2))
     }
 
     private var configObserver: (any NSObjectProtocol)?
@@ -56,12 +54,45 @@ public final class TerminalHostView: NSView {
         }
     }
 
+    /// Pins the session's find bar to the top-trailing corner, above the
+    /// surface and the status banner.
+    /// The find bar is built the first time find opens, not with the
+    /// terminal: its glass panel, stack and buttons cost about 5 ms of main
+    /// thread per new terminal (R81 trace), most of a 120 Hz frame.
+    func attachFind(_ find: TerminalFindController) {
+        if find.isPresented { return installFindBar(find) }
+        withObservationTracking {
+            _ = find.isPresented
+        } onChange: { [weak self, weak find] in
+            Task { @MainActor in
+                guard let self, let find else { return }
+                self.attachFind(find)
+            }
+        }
+    }
+
+    private func installFindBar(_ find: TerminalFindController) {
+        guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
+        let bar = TerminalFindBarView(find: find)
+        addSubview(bar, positioned: .above, relativeTo: banner)
+        NSLayoutConstraint.activate([
+            bar.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.panelInset),
+            bar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.panelInset),
+            bar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.panelInset),
+        ])
+    }
+
     /// The link status label over the terminal (hidden while connected).
-    var statusText: String? { banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus) }
+    var statusText: String? { banner.isHidden ? nil : TerminalStatusBanner.text(for: shownStatus, hostLoss: hostLoss) }
 
     func showStatus(_ status: TerminalConnectionStatus) {
         shownStatus = status
-        banner.show(status)
+        banner.show(status, hostLoss: hostLoss)
+    }
+
+    func showHostLoss(_ loss: TerminalHostLoss?) {
+        hostLoss = loss
+        banner.show(shownStatus, hostLoss: loss)
     }
 
     isolated deinit {
@@ -76,22 +107,19 @@ public final class TerminalHostView: NSView {
     func install(_ surfaceView: TerminalSurfaceView) {
         let old = current
         surfaceView.autoresizingMask = []
-        surfaceView.frame = surfaceFrame
+        surfaceView.frame = bounds
         // Below the status banner, which stays over every swapped-in surface.
         addSubview(surfaceView, positioned: .below, relativeTo: banner)
         current = surfaceView
         old?.removeFromSuperview()
     }
 
-    /// Reads the token in layout, so a density change re-lays out.
     public override func layout() {
         super.layout()
-        let frame = surfaceFrame
-        if let current, current.frame != frame { current.frame = frame }
+        if let current, current.frame != bounds { current.frame = bounds }
     }
 
-    /// The side gutters belong to the terminal: a click or drag there goes
-    /// to the surface (Ghostty clamps it to the first or last column).
+    /// Anything that lands on the host itself goes to the surface.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
         guard hit === self, let current else { return hit }
@@ -104,8 +132,15 @@ public final class TerminalHostView: NSView {
     }
 
     /// Opaque windows only, like `GhosttyRuntime.backgroundColor`: in a
-    /// translucent window the window root paints the one sheet.
+    /// translucent window the window root paints the one sheet. The user's
+    /// terminal background (`appearance.surfaces.terminal`) replaces both;
+    /// the surfaces then draw a transparent default background.
     private func paintBackground() {
+        let fill = performWithTheme { Palette.surfaceOverride(.terminal) }
+        if let fill {
+            layer?.backgroundColor = fill.cgColor
+            return
+        }
         let runtime = GhosttyRuntime.shared
         guard let rgb = theme?.colors?.background, runtime.backgroundOpacity >= 1 else {
             layer?.backgroundColor = runtime.backgroundColor.cgColor

@@ -25,20 +25,24 @@ enum QuitFactsReader {
             }
         }
         let remote = !services.machines.remoteDaemons.isEmpty
+        // The agent census runs beside the terminal reads, under the same deadline.
+        async let agents = QuitAgents.facts(QuitAgents.environment(services))
         guard let connection = local.connection, !(kept.isEmpty && incognito.isEmpty) else {
-            return QuitFacts(terminals: kept.count, programs: [], incognitoPrograms: [], remoteSessions: remote)
+            return QuitFacts(terminals: kept.count, programs: [], incognitoPrograms: [], remoteSessions: remote,
+                             agents: await agents)
         }
         let readsCPU = local.supports(TerminalResourcesRequest.capability)
         async let programs = foregroundPrograms(kept + incognito, on: connection)
         async let cpu = readsCPU ? cpuTimes(kept, on: connection) : [:]
-        let (names, times) = await (programs, cpu)
+        let (names, times, agentFacts) = await (programs, cpu, agents)
         return QuitFacts(
             terminals: kept.count,
             programs: kept.compactMap { surface in
                 names[surface].map { QuitProgram(name: $0, cpuNanos: times[surface] ?? 0) }
             },
             incognitoPrograms: Array(Set(incognito.compactMap { names[$0] })).sorted(),
-            remoteSessions: remote
+            remoteSessions: remote,
+            agents: agentFacts
         )
     }
 

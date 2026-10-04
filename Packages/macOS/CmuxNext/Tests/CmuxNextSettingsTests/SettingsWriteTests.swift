@@ -22,9 +22,9 @@ import Testing
     @Test func writesValidValuesAndRemovesEmptiedObjects() async throws {
         let (settings, url) = try controller("{\n  // mine\n  \"actions\": {}\n}\n")
         let padding = try #require(SettingsSchema.descriptor(for: ["layout", "panePadding"]))
-        try await settings.setSetting(padding, to: 8)
+        try await settings.setSetting(padding, to: 8, by: .user)
         #expect(try document(url).value(at: ["layout", "panePadding"]) == 8)
-        try await settings.setSetting(padding, to: nil)
+        try await settings.setSetting(padding, to: nil, by: .user)
         #expect(try document(url)["layout"] == nil)
         #expect(try String(contentsOf: url, encoding: .utf8).contains("// mine"))
     }
@@ -32,7 +32,7 @@ import Testing
     @Test func refusesValuesTheSchemaRefuses() async throws {
         let (settings, url) = try controller("{}")
         let speed = try #require(SettingsSchema.descriptor(for: ["ui", "animationSpeed"]))
-        await #expect(throws: SettingRefused.self) { try await settings.setSetting(speed, to: "warp") }
+        await #expect(throws: SettingRefused.self) { try await settings.setSetting(speed, to: "warp", by: .user) }
         #expect(try document(url)["ui"] == nil)
     }
 
@@ -45,7 +45,7 @@ import Testing
           "actions": { "hello": { "command": "echo hi" } }
         }
         """)
-        try await settings.resetAllSettings()
+        try await settings.resetAllSettings(by: .user)
         let root = try document(url)
         #expect(root.value(at: ["ui", "animationSpeed"]) == nil)
         #expect(root.value(at: ["ui", "surfaceTabBar"]) != nil)
@@ -54,5 +54,27 @@ import Testing
         #expect(root.value(at: ["shortcuts", "splitRight"]) == nil)
         #expect(root.value(at: ["shortcuts", "showModifierHoldHints"]) == false)
         #expect(root["actions"] != nil)
+    }
+
+    @Test func keymapImportExportUsesTheShortcutsObjectAndPreservesOtherKeys() async throws {
+        let (settings, url) = try controller("""
+        {
+          // Keep this comment while a keymap is imported.
+          "shortcuts": { "bindings": { "newTab": "cmd+t" } },
+          "actions": { "hello": { "command": "echo hi" } }
+        }
+        """)
+        #expect(try await settings.shortcutKeymap() == ["bindings": ["newTab": "cmd+t"]])
+
+        try await settings.importShortcutKeymap(["shortcuts": [
+            "bindings": ["newTab": "cmd+n", "closeTab": "cmd+w"],
+            "tiers": ["newTab": "global"],
+        ]])
+        let root = try document(url)
+        #expect(root.value(at: ["shortcuts", "bindings", "newTab"]) == "cmd+n")
+        #expect(root.value(at: ["shortcuts", "bindings", "closeTab"]) == "cmd+w")
+        #expect(root.value(at: ["shortcuts", "tiers", "newTab"]) == "global")
+        #expect(root.value(at: ["actions", "hello", "command"]) == "echo hi")
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("Keep this comment"))
     }
 }

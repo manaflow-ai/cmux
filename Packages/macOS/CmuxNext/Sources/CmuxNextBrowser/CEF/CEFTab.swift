@@ -27,6 +27,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
+    /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
+    @ObservationIgnored public internal(set) var isAgentDriven = false
+    @ObservationIgnored var passwordFill = PasswordFillState()
+    /// The browser host's raw DevTools relay of this page.
+    @ObservationIgnored public private(set) lazy var agentRelay = CEFAgentRelay(tab: self)
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -35,20 +40,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
-    @ObservationIgnored var devToolsLayout: CEFDevToolsLayout
-    @ObservationIgnored var devToolsBrowserID: Int32?
-    /// Between `DEVTOOLS_WILL_OPEN` and `OPENED`: the layout keeps room.
-    @ObservationIgnored var devToolsOpening = false
-    /// Runs once DevTools closed (a move into or out of a window reopens).
-    @ObservationIgnored var devToolsAfterClose: BrowserDevToolsCommand?
-    /// The docked DevTools' parent view and the divider, while docked.
-    @ObservationIgnored var devToolsViews: (host: CEFHostView, divider: CEFDevToolsDivider)?
-    /// The window that holds `devToolsViews.host` while DevTools is not docked.
-    @ObservationIgnored var devToolsWindow: CEFDevToolsWindow?
+    /// DevTools placement (layout, docked views, window); writes `devTools`.
+    @ObservationIgnored let devToolsController: CEFDevToolsController
     /// cmux's header over Chromium's side panel, while it is open.
     @ObservationIgnored var sidePanelHeader: SidePanelHeaderView?
     @ObservationIgnored var sidePanelState: CEFSidePanelState?
     @ObservationIgnored var sidePanelRefreshPending = false
+    /// A toolbar click that came before the browser existed.
+    @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
 
     var machine = BrowserTabStateMachine()
@@ -63,14 +62,26 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
     /// The renderer ended while the tab was hidden: reload when shown
-    /// (Chrome reloads a crashed background tab when it is selected).
+    /// (a crashed background tab reloads when it is selected).
     @ObservationIgnored var reloadWhenShown = false
     /// The tab showed a real page (or a page opened it): its page
-    /// background is Chrome's white from now on (`PageBackground`).
+    /// background is Chromium's white from now on (`PageBackground`).
     @ObservationIgnored private(set) var pastFirstRealPage = false
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    /// Chromium's own Back/Forward state; the tab also offers the entries
+    /// saved before a relaunch (`restored`).
+    @ObservationIgnored var nativeHistory = (back: false, forward: false)
+    @ObservationIgnored lazy var restored = CEFRestoredSession(tab: self)
+    /// A title Chromium reported before its own navigation (Back, Forward,
+    /// a page-initiated load) committed. Back and Forward report the entry's
+    /// title first, and a page restored from the back/forward cache never
+    /// sets it again, so commit keeps it. Only navigations Chromium started
+    /// capture one (`capturesTitleBeforeCommit`); every new navigation id
+    /// and every navigation that ends without committing clears it.
+    @ObservationIgnored var titleBeforeCommit: String?
+    @ObservationIgnored var capturesTitleBeforeCommit = false
     @ObservationIgnored var findContinuation: CheckedContinuation<BrowserFindResult, Never>?
     @ObservationIgnored var nextFindID: Int32 = 1
     @ObservationIgnored var faviconTask: Task<Void, Never>?
@@ -101,8 +112,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         self.host = host
         self.runtime = runtime
         let layout = CEFDevToolsLayout.remembered
-        devToolsLayout = layout
+        devToolsController = CEFDevToolsController(layout: layout)
         devTools = BrowserDevToolsState(dock: layout.dock)
+        devToolsController.tab = self
     }
 
     public var contentView: NSView { container }
@@ -110,7 +122,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     var initialURLString: String {
         // An empty URL creates the browser without navigating, which
         // `cmux_tab_restore_navigation` needs.
-        pendingRestore != nil ? "" : pendingURL?.absoluteString ?? "about:blank"
+        pendingRestore != nil ? "" : CEFAgentURLGuard.creationURL(pendingURL, agentDriven: isAgentDriven)
     }
 
     // MARK: Lifetime (called by CEFPaneHost / CEFRuntime)
@@ -118,7 +130,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func attach(browser: Int32) {
         browserID = browser
         isCreationPending = false
+        CEFAgentURLGuard.applyShimGuard(self)
         applyPageBackground()
+        applyPasswordFill()
+        agentRelay.browserAttached()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -128,6 +143,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         let shown = host.visibleTab === self && !isOccluded
         host.lifecycleTrace.record(id, "attach pendingFocus=\(pendingFocus) shown=\(shown)")
         if pendingFocus, shown { grantFocus(browser) }
+        if let action = pendingExtensionAction {
+            pendingExtensionAction = nil
+            runExtensionAction(action.id, anchor: action.anchor)
+        }
         if let state = pendingRestore {
             pendingRestore = nil
             // 1 = restored; fork API 10 reports why not (-1 committed entries,
@@ -136,18 +155,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }
-        if let state = pendingRestore {
-            pendingRestore = nil
-            let restored = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } == 1
-            host.lifecycleTrace.record(id, "restore-navigation \(restored ? "ok" : "failed")")
-            if !restored, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
-        }
-        if navigationGuard != .none { runtime.shim?.setNavigationGuard(browser, navigationGuard.rawValue) }
         refreshExtensionActions()
     }
 
     /// A real page committed, or a page opened this tab (a popup,
-    /// target=_blank): Chrome's white default from now on, kept across tab
+    /// target=_blank): Chromium's white default from now on, kept across tab
     /// moves and popups (fork API 12).
     func reachedFirstRealPage() {
         guard !pastFirstRealPage else { return }
@@ -168,25 +180,31 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     private func applyPageBackground() {
         guard let browser = browserID, let shim = runtime.shim else { return }
         _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
-                                                                                 theme: PageBackground.themeARGB(in: container)))
+                                                                                 theme: PageBackground.themeARGB(in: container,
+                                                                                                                 surface: pastFirstRealPage ? nil : .newTabPage)))
     }
 
     func creationFailed() {
         isCreationPending = false
+        agentRelay.resumeWaiters(false)
         let error = BrowserLoadError(domain: "CEF", code: -1, message: Strings.cefUnavailable, failingURL: pendingURL)
         let id = makeNavigationID()
         machine.apply(.started(id, url: pendingURL))
         machine.apply(.failed(id, error))
     }
 
-    func browserDidClose() {
+    /// Chromium destroyed the browser. `closesTab` is false when quit
+    /// closed it (`CEFRuntime.shutdown`): the engine ends, the tab stays in
+    /// the daemon and reopens at relaunch.
+    func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        agentRelay.browserEnded()
         findContinuation?.resume(returning: .none)
         findContinuation = nil
         host.removed(self)
         if !isClosed {
             isClosed = true
-            emit(.close)
+            if closesTab { emit(.close) }
         }
     }
 
@@ -226,6 +244,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     func makeNavigationID() -> BrowserNavigationID {
+        clearTitleBeforeCommit()
         nextNavigation += 1
         return BrowserNavigationID(rawValue: nextNavigation)
     }
@@ -244,8 +263,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
     }
 
-    public func goBack() { browserID.map { runtime.shim?.goBack($0) } }
-    public func goForward() { browserID.map { runtime.shim?.goForward($0) } }
+    public func goBack() {
+        if !nativeHistory.back, restored.step(by: -1) { return }
+        browserID.map { runtime.shim?.goBack($0) }
+    }
+
+    /// Saved forward entries sit right after Chromium's first entry
+    /// (`BrowserRestoredHistory`), so they come first from there.
+    public func goForward() {
+        if !nativeHistory.back, restored.step(by: 1) { return }
+        browserID.map { runtime.shim?.goForward($0) }
+    }
 
     public func reload() {
         reloadWhenShown = false
@@ -290,6 +318,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func stop() {
+        clearTitleBeforeCommit()
         browserID.map { runtime.shim?.stop($0) }
         machine.apply(.stopped)
     }
@@ -313,7 +342,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard visible == isOccluded else { return }
         isOccluded = !visible
         if host.visibleTab === self { host.hostView.isHidden = !visible }
-        devToolsViews?.host.isHidden = !visible
+        devToolsController.views?.host.isHidden = !visible
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host
@@ -341,6 +370,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        agentRelay.resumeWaiters(false)
         faviconTask?.cancel()
         if let browserID {
             runtime.shim?.close(browserID)

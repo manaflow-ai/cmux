@@ -1,0 +1,173 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/codemirror",
+  "name": {
+    "en": "CodeMirror",
+    "ja": "CodeMirror"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "A light code editor (CodeMirror 6) for files and documents in cmux, with your terminal's font and colors, save, conflict handling, read-only mode and a diff view.",
+    "ja": "cmuxのファイルとドキュメント向けの軽いコードエディタ(CodeMirror 6)。ターミナルのフォントと色、保存、競合の処理、読み取り専用モード、差分表示に対応します。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "developer-tools",
+    "productivity"
+  ],
+  "keywords": [
+    "editor",
+    "code",
+    "text",
+    "codemirror"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js",
+    "web": {
+      "root": "web/",
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "catalog": "catalog/codemirror-catalog.json",
+  "cli": { "name": "codemirror" },
+  "implements": {
+    "cmux.editor/1": {
+      "web": "web/index.html",
+      "title": {
+        "en": "CodeMirror",
+        "ja": "CodeMirror"
+      },
+      "symbol": "doc.text",
+      "types": [
+        "public.source-code",
+        "public.plain-text",
+        "public.json",
+        "net.daringfireball.markdown"
+      ],
+      "options": {
+        "capabilities": [
+          "diff",
+          "readOnly",
+          "multiCursor"
+        ],
+        "paneCommands": [
+          "save",
+          "revert",
+          "toggleReadOnly",
+          "focus"
+        ]
+      }
+    }
+  },
+  "scopes": {
+    "document:write": "Edit and save the files and documents you open with this editor.",
+    "workspace:write": "Open an editor pane when you run Open File."
+  },
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "statusLine",
+        "header",
+        "bare"
+      ],
+      "default": "statusLine"
+    }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "fontFamily": {
+        "type": "string",
+        "default": "",
+        "title": "Font family",
+        "description": "Empty: the terminal font."
+      },
+      "fontSize": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 72,
+        "default": 0,
+        "title": "Font size",
+        "description": "0: the terminal font size."
+      },
+      "wordWrap": {
+        "type": "boolean",
+        "default": false,
+        "title": "Wrap long lines"
+      },
+      "lineNumbers": {
+        "type": "boolean",
+        "default": true,
+        "title": "Show line numbers"
+      },
+      "tabSize": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 16,
+        "default": 2,
+        "title": "Tab size"
+      }
+    }
+  },
+  "activation": [
+    "onInterface:cmux.editor/1",
+    "onOp:codemirror.open",
+    "onOp:codemirror.save",
+    "onOp:codemirror.revert",
+    "onOp:codemirror.toggle_read_only"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/",
+    "web/",
+    "THIRD_PARTY_NOTICES"
+  ],
+  "openWith": [
+    {
+      "interface": "cmux.editor/1",
+      "types": [
+        "public.source-code",
+        "public.plain-text",
+        "public.json",
+        "net.daringfireball.markdown"
+      ],
+      "default": "ask"
+    }
+  ],
+  "handles": {
+    "document": {
+      "reason": "Edit the file you open with this editor.",
+      "rights": [
+        "read",
+        "write"
+      ],
+      "max": 64
+    }
+  },
+  "consumes": {
+    "ops": [
+      "document.open",
+      "document.edit",
+      "document.save",
+      "document.revert"
+    ],
+    "handles": [
+      "document"
+    ]
+  }
+}

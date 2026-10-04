@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import CmuxNextDesign
 import SwiftUI
 
@@ -8,7 +9,7 @@ struct HistoryPageRow: View {
 
     var body: some View {
         HStack(spacing: Metrics.panelInset * 1.5) {
-            Image(systemName: Self.symbol(entry.kind))
+            icon
                 .frame(width: Metrics.iconSize, height: Metrics.iconSize)
                 .foregroundStyle(colors.secondary)
             VStack(alignment: .leading, spacing: 1) {
@@ -39,6 +40,15 @@ struct HistoryPageRow: View {
         case .location(_, let isCurrent) where isCurrent: return HistoryStrings.current
         case .agent(let session) where session.endedAt == nil: return HistoryStrings.running
         default: return nil
+        }
+    }
+
+    /// An agent session wears its agent's brand mark (design/agent-icons); other kinds a symbol.
+    @ViewBuilder private var icon: some View {
+        if case .agent(let session) = entry.payload {
+            AgentBrandMark(agent: session.provider, size: Metrics.iconSize)
+        } else {
+            Image(systemName: Self.symbol(entry.kind))
         }
     }
 
@@ -75,7 +85,10 @@ struct HistoryPageMenu: View {
             Button(HistoryStrings.resume) { model.open(entry) }
             Button(HistoryStrings.copySessionID) { model.copy(session.sessionID) }
         case .command(let command):
-            if let text = command.command { Button(HistoryStrings.copyCommand) { model.copy(text) } }
+            if let text = command.command {
+                Button(HistoryStrings.runAgain) { model.open(entry) }
+                Button(HistoryStrings.copyCommand) { model.copy(text) }
+            }
         }
         Button(HistoryStrings.remove, role: .destructive) { model.remove(entry) }
     }

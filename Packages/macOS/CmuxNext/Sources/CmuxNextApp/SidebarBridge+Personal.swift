@@ -23,42 +23,61 @@ extension SidebarBridge {
         case .move(let ids, let group):
             model.apply(intent)
             let id = WorkspaceGroupID(rawValue: group.rawValue)
-            for workspace in qualified(ids) {
+            for workspace in placements(ids) {
                 personal("set-personal-workspace") {
-                    try await $0.setPersonalWorkspace(SetPersonalWorkspaceRequest(
-                        sessionID: workspace.session, workspaceKey: WorkspaceKey(rawValue: workspace.key), group: .set(id)))
+                    try await $0.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                                                        group: .set(id))
                 }
             }
         case .createGroup(let group, let name, let color, let ids):
             model.apply(intent)
-            let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = qualified(ids)
+            let id = WorkspaceGroupID(rawValue: group.rawValue), room = state.profileID, members = placements(ids), v2 = statePersonal
             personal("create-personal-group") { connection in
-                _ = try await connection.createPersonalGroup(name: name, id: id, room: room, color: color.rawValue)
+                // The v2 operation names the group itself.
+                let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(
+                    name: name, room: room.rawValue, color: color.rawValue).id)
+                    : try await connection.createPersonalGroup(name: name, id: id, room: room, color: color.rawValue).id
                 for workspace in members {
-                    try await connection.setPersonalWorkspace(SetPersonalWorkspaceRequest(
-                        sessionID: workspace.session, workspaceKey: WorkspaceKey(rawValue: workspace.key), group: .set(id)))
+                    try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                                                                group: .set(created))
                 }
             }
         case .renameGroup(let group, let name):
             model.apply(intent)
-            personal("update-personal-group") { try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), name: name) }
+            let v2 = statePersonal
+            personal("update-personal-group") {
+                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, name: name) }
+                try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), name: name)
+            }
         case .setGroupColor(let group, let color):
             model.apply(intent)
+            let v2 = statePersonal
             personal("update-personal-group") {
+                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, color: .set(color.rawValue)) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), color: .set(color.rawValue))
             }
         case .toggleCollapse(.group(let group)):
             model.apply(intent)
             guard let collapsed = model.group(group)?.isCollapsed else { return true }
+            let v2 = statePersonal
             personal("update-personal-group") {
+                if v2 { return try await $0.state.updateWorkspaceGroup(group.rawValue, collapsed: collapsed) }
                 try await $0.updatePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), collapsed: collapsed)
             }
         case .ungroup(let group):
             model.apply(intent)
-            personal("delete-personal-group") { try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue)) }
+            let v2 = statePersonal
+            personal("delete-personal-group") {
+                if v2 { return try await $0.state.deleteWorkspaceGroup(group.rawValue) }
+                try await $0.deletePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue))
+            }
         case .reorderGroup(let group, let index):
             model.apply(intent)
-            personal("move-personal-group") { try await $0.movePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), to: index) }
+            let v2 = statePersonal
+            personal("move-personal-group") {
+                if v2 { return try await $0.state.moveWorkspaceGroup(group.rawValue, to: index) }
+                try await $0.movePersonalGroup(WorkspaceGroupID(rawValue: group.rawValue), to: index)
+            }
         default:
             return false
         }
@@ -71,12 +90,32 @@ extension SidebarBridge {
     func placePersonal(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
         let group = position.group.map { WorkspaceGroupID(rawValue: $0.rawValue) }
         guard let index = personalIndex(for: position, moving: ids, in: sections) else { return resync() }
-        for (offset, workspace) in qualified(ids).enumerated() {
+        for (offset, workspace) in placements(ids).enumerated() {
             personal("set-personal-workspace") {
-                try await $0.setPersonalWorkspace(SetPersonalWorkspaceRequest(
-                    sessionID: workspace.session, workspaceKey: WorkspaceKey(rawValue: workspace.key), index: index + offset,
-                    group: group.map { .set($0) } ?? .clear))
+                try await $0.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
+                                                    group: group.map { .set($0) } ?? .clear, index: index + offset)
             }
+        }
+    }
+
+    /// The home session serves its personal groups as v2 state resources
+    /// (`workspace_group.*`, `workspace.place`).
+    var statePersonal: Bool { services.machines.local.store.servesStateResources }
+
+    /// One sidebar workspace as the home session places it: its session and
+    /// key, and its public id when the home daemon owns it and takes
+    /// `workspace.place` (other sessions' workspaces keep the raw command).
+    struct PersonalPlacement: Sendable {
+        var session: String
+        var key: WorkspaceKey
+        var resource: ResourceID?
+    }
+
+    func placements(_ ids: [SidebarWorkspaceID]) -> [PersonalPlacement] {
+        let home = services.machines.local.store
+        return qualified(ids).map { workspace in
+            let key = WorkspaceKey(rawValue: workspace.key)
+            return PersonalPlacement(session: workspace.session, key: key, resource: home.personalStateID(session: workspace.session, key: key))
         }
     }
 
@@ -103,7 +142,7 @@ extension SidebarBridge {
     private func personal(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         let home = services.machines.local
         Task {
-            if !(await home.perform(label, patch: .custom { _ in }) { connection, _ in try await body(connection) }) { resync() }
+            if await home.request(label, body) == nil { resync() }
         }
     }
 }

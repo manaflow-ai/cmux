@@ -27,7 +27,14 @@ extension WorkspaceContentController {
                 ?? (tabs.isEmpty ? nil : tabs[min(max(model.defaultTabIndex, 0), tabs.count - 1)].id)
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
         }
-        return FocusTopology(workspace: workspace.id, panes: panes)
+        let screens = layoutModel.screens.map { screen -> [FocusTopology.Column] in
+            switch screen.layout {
+            case .splits(let root): [FocusTopology.Column(id: screen.id.rawValue, panes: root.panes.map(\.rawValue))]
+            case .columns:
+                screen.layout.visualColumns.map { FocusTopology.Column(id: $0.id.rawValue, panes: $0.root.panes.map(\.rawValue)) }
+            }
+        }
+        return FocusTopology(workspace: workspace.id, panes: panes, screens: screens)
     }
 
     /// The shown workspace's focus history, newest first (focus.md 4a).
@@ -57,9 +64,14 @@ extension WorkspaceContentController {
 
 extension FocusTopology.Kind {
     static func of(_ tab: TabModel) -> FocusTopology.Kind {
-        switch tab.kind {
+        of(tab.kind, isFrontendOwned: tab.isFrontendOwned)
+    }
+
+    static func of(_ kind: TabKind, isFrontendOwned: Bool) -> FocusTopology.Kind {
+        switch kind {
         case .pty, .remoteTerminal: .terminal
-        case .browser where tab.isFrontendOwned: .browser
+        case .browser where isFrontendOwned: .browser
+        case .conversation: .conversation
         default: .other
         }
     }
@@ -73,6 +85,7 @@ extension PaneController {
             let id = item.id.rawValue
             if id.hasPrefix(LocalBrowserTab.prefix) { return FocusTopology.Tab(id: id, kind: .browser) }
             if id.hasPrefix(LocalAgentTab.prefix) { return FocusTopology.Tab(id: id, kind: .agent) }
+            if id.hasPrefix(LocalPageTab.prefix) { return FocusTopology.Tab(id: id, kind: .page) }
             guard let tab = pane.tabs.first(where: { $0.id == id }) else { return FocusTopology.Tab(id: id, kind: .other) }
             return FocusTopology.Tab(id: id, surface: String(tab.surface.rawValue), kind: .of(tab))
         }

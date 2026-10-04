@@ -166,6 +166,20 @@ extension Motion {
         return animation
     }
 
+    /// A movement (scale, position) timed with a fade token, as a panel's
+    /// shrink while it fades out. Unlike `set(_:_:to:fade:)` it applies at
+    /// once when movement does not animate (Reduce Motion, speed "off"), so
+    /// only the opacity crossfade remains (motion.md rule 7).
+    @discardableResult
+    public static func set(_ layer: CALayer, _ keyPath: String, to value: Any, movementFade token: MotionFade, from: Any? = nil) -> CAAnimation? {
+        guard animatesMovement else {
+            setModel(layer, keyPath, value)
+            layer.removeAnimation(forKey: keyPath)
+            return nil
+        }
+        return set(layer, keyPath, to: value, fade: token, from: from)
+    }
+
     private static func setModel(_ layer: CALayer, _ keyPath: String, _ value: Any) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -185,6 +199,34 @@ extension Motion {
         spin.repeatCount = .infinity
         spin.isRemovedOnCompletion = false
         return spin
+    }
+
+    /// A rotation in `steps` discrete jumps per turn (the native spinner's
+    /// spoke-to-spoke motion), one turn per `spinner` period, or nil when
+    /// loops are off. Runs in the render server like `spinAnimation`.
+    public static func stepAnimation(steps: Int) -> CAAnimation? {
+        guard let period = period(.spinner), steps >= 2 else { return nil }
+        let step = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        step.values = (0..<steps).map { -2 * CGFloat.pi * CGFloat($0) / CGFloat(steps) }
+        step.calculationMode = .discrete
+        step.duration = period
+        step.repeatCount = .infinity
+        step.isRemovedOnCompletion = false
+        return step
+    }
+
+    /// Steps a layer's `contents` through `frames`, one cycle per `spinner`
+    /// period, or nil when loops are off (the layer keeps its first frame).
+    /// Runs in the render server like `spinAnimation`.
+    public static func framesAnimation(_ frames: [CGImage]) -> CAAnimation? {
+        guard let period = period(.spinner), frames.count >= 2 else { return nil }
+        let step = CAKeyframeAnimation(keyPath: "contents")
+        step.values = frames
+        step.calculationMode = .discrete
+        step.duration = period
+        step.repeatCount = .infinity
+        step.isRemovedOnCompletion = false
+        return step
     }
 
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.

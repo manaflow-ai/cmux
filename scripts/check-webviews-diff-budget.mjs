@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Budgets the JavaScript the `cmux diff` viewer evaluates on every open.
+// Budgets the JavaScript the `cmux diff` viewer evaluates on every open, and the first load of the
+// diff, markdown and code editor pages (Monaco must stay lazy everywhere).
 //
 // The diff surface is `main.mjs` -> `chunks/diffSurface.mjs` plus every chunk
 // those two reach through static imports. The highlight worker entry
@@ -27,7 +28,10 @@ function budgetFromEnvironment(name, fallback) {
   return value;
 }
 
-const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-)/;
+const lazyOnlyChunkPattern = /^chunks\/(shiki-lang-|shiki-theme-|shiki-wasm|pierre-theme-|monaco-lang-|monaco-nls-)/;
+// Monaco (the code editor page's `view` chunk and its worker) loads only after the editor opens a
+// file; no page reaches it through static imports, the editor page's own entry included.
+const monacoChunks = ["chunks/view.mjs", "chunks/editor-worker.mjs", "chunks/editorWorkerHost.mjs"];
 const surfaces = [
   {
     name: "diff surface",
@@ -40,6 +44,24 @@ const surfaces = [
     entries: ["chunks/diff-worker.mjs"],
     budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_WORKER_EAGER_BUDGET_BYTES", 400_000),
     forbidden: ["chunks/diff-vendor.mjs", "chunks/vendor.mjs"],
+  },
+  {
+    name: "diff page",
+    entries: ["chunks/diff-page.mjs", "chunks/diffSurface.mjs"],
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_DIFF_PAGE_EAGER_BUDGET_BYTES", 1_500_000),
+    forbidden: monacoChunks,
+  },
+  {
+    name: "markdown page",
+    entries: ["chunks/markdown-page.mjs"],
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_MARKDOWN_PAGE_EAGER_BUDGET_BYTES", 1_200_000),
+    forbidden: monacoChunks,
+  },
+  {
+    name: "editor page",
+    entries: ["chunks/editor-page.mjs"],
+    budgetBytes: budgetFromEnvironment("CMUX_WEBVIEWS_EDITOR_PAGE_EAGER_BUDGET_BYTES", 500_000),
+    forbidden: monacoChunks,
   },
 ];
 const staticImportPattern = /(?:^|[;}\s])(?:import|export)\s*(?:[^;'"()]*?from\s*)?["']([^"']+)["']/g;
@@ -97,7 +119,7 @@ for (const surface of surfaces) {
       failures.push(`${surface.name}: ${relativePath} is reachable through static imports; it must stay a dynamic import`);
     }
     if (surface.forbidden.includes(relativePath)) {
-      failures.push(`${surface.name}: ${relativePath} is reachable through static imports; the worker must not evaluate it`);
+      failures.push(`${surface.name}: ${relativePath} is reachable through static imports but must stay out of its eager set`);
     }
   }
   if (totalBytes > surface.budgetBytes) {

@@ -59,6 +59,21 @@ import Testing
         #expect(identity.socketPath == "/tmp/cmux-debug-my-tag.sock")
     }
 
+    @Test func stagedTaggedAppNameSurvivesDirectLaunchWithoutPlistEnvironment() {
+        // A capture mini launches the unpacked .app executable directly. The
+        // staged name is still authoritative if that path lost LSEnvironment.
+        let identity = LaunchIdentity.resolve(
+            bundleID: "com.cmuxterm.app.debug",
+            bundledEnvironment: [:],
+            processEnvironment: userCmuxShell,
+            isDebugBuild: true,
+            bundleName: "cmux DEV acpmux16898c",
+            home: home
+        )
+        #expect(identity.tag == "acpmux16898c")
+        #expect(identity.socketPath == "/tmp/cmux-debug-acpmux16898c.sock")
+    }
+
     @Test func explicitOverrideIsTheOnlyEnvironmentPath() {
         var environment = userCmuxShell
         environment[LaunchIdentity.socketOverrideKey] = "/tmp/next-override.sock"

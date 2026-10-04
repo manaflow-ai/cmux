@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 
 /// The App's `ActionRegistry.confirmationPresenter`: the sheet a keyboard,
 /// menu, palette, or context-menu run of a destructive action shows
@@ -32,6 +33,13 @@ enum DestructiveConfirmation {
         switch id {
         case "cloudKillMachine":
             return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)
+        case "palette.cloud.deleteSnapshot":
+            return Prompt(title: CloudStrings.deleteSnapshotTitle, body: CloudStrings.deleteSnapshotBody, button: CloudStrings.deleteSnapshot)
+        case "cloudFileRemove":
+            return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile)
+        case "cloudFirewallDelete":
+            return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
+                          button: CloudStrings.deleteFirewallRule)
         case "workspaceGroup.delete", "workspaceGroup.closeWorkspaces":
             guard let group = try? context.group(invocation) else { return nil }
             let daemon = services.machines.daemons.first { $0.store.group(group.id) === group }
@@ -41,7 +49,11 @@ enum DestructiveConfirmation {
                 ? Prompt(title: ConfirmationStrings.deleteGroupTitle(name), body: ConfirmationStrings.groupBody(count), button: ConfirmationStrings.delete)
                 : Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name), body: ConfirmationStrings.groupBody(count),
                          button: ConfirmationStrings.close)
-        case "room.delete":
+        case "browserProfile.delete":
+            return await BrowserProfileDeletePrompt.prompt(invocation, context)
+        case "browser.allowAgentWithExtensions":
+            return AgentExtensionHandlers.prompt(invocation, context)
+        case "space.delete":
             return RoomConfirmation.prompt(invocation, context)
         case "remote.install", "remote.forget":
             return await RemoteConfirmation.prompt(for: id, invocation, context)
@@ -96,16 +108,18 @@ enum DestructiveConfirmation {
         return nil
     }
 
-    /// A critical sheet on `window`. With no window there is nobody to ask,
-    /// so the action does not run.
+    /// A cmux dialog on `window` (Return confirms, Escape cancels). With no
+    /// window there is nobody to ask, so the action does not run.
     static func present(_ prompt: Prompt, in window: NSWindow?, done: @escaping (Bool) -> Void) {
         guard let window else { return done(false) }
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = prompt.title
-        alert.informativeText = prompt.body
-        alert.addButton(withTitle: prompt.button)
-        alert.addButton(withTitle: ConfirmationStrings.cancel)
-        alert.beginSheetModal(for: window) { done($0 == .alertFirstButtonReturn) }
+        CmuxDialogCenter.shared.present(spec(prompt), in: .window(window)) { done($0.button == confirmID) }
+    }
+
+    static let confirmID = "confirm"
+
+    static func spec(_ prompt: Prompt) -> CmuxDialogSpec {
+        CmuxDialogSpec(title: prompt.title, lines: [prompt.body],
+                       buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: .default)],
+                       identifier: "cmux.dialog.confirmation")
     }
 }

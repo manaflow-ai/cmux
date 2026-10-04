@@ -1,9 +1,12 @@
 public import CoreGraphics
-import GhosttyKit
+import CmuxNextDesign
+import GhosttyNextKit
 
-/// The terminal's own padding from the user's Ghostty config
-/// (`window-padding-x`, `window-padding-y`, `window-padding-balance`), which
-/// the pane chrome needs to line tab icons up with the first text column.
+/// The terminal's padding inside its pane's content border
+/// (`window-padding-x`, `window-padding-y`, `window-padding-balance`).
+/// cmux loads `cmuxDefault` before the user's Ghostty files, so the first
+/// cell sits `PaneChromeMetrics.terminalTextInset` inside the border unless
+/// the user set their own padding, which then applies as written.
 public struct TerminalPadding: Equatable, Sendable {
     public var leading: CGFloat
     public var trailing: CGFloat
@@ -14,12 +17,26 @@ public struct TerminalPadding: Equatable, Sendable {
 
     /// Ghostty's defaults (2 pt on every side, no balance).
     public static let ghosttyDefault = TerminalPadding(leading: 2, trailing: 2, top: 2, bottom: 2, balanced: false)
+
+    /// cmux's default: `PaneChromeMetrics.terminalTextInset` on every side,
+    /// no balance, so the grid's leftover goes to the right and bottom and
+    /// the left and top insets are exact.
+    public static let cmuxDefault: TerminalPadding = {
+        let inset = PaneChromeMetrics.terminalTextInset
+        return TerminalPadding(leading: inset, trailing: inset, top: inset, bottom: inset, balanced: false)
+    }()
+
+    /// Config lines for `cmuxDefault`, loaded before the user's files.
+    static var cmuxDefaultConfigLines: [String] {
+        let inset = Int(PaneChromeMetrics.terminalTextInset)
+        return ["window-padding-x = \(inset)", "window-padding-y = \(inset)", "window-padding-balance = false"]
+    }
 }
 
 extension GhosttyRuntime {
     /// The padding in the config the surfaces use now.
     public var terminalPadding: TerminalPadding {
-        guard let config else { return .ghosttyDefault }
+        guard let config else { return .cmuxDefault }
         return Self.terminalPadding(of: config)
     }
 
@@ -43,11 +60,20 @@ extension GhosttyRuntime {
         return padding
     }
 
-    /// The padding a config made of `text` (Ghostty config lines) resolves
-    /// to, for tests.
+    /// Loads cmux's padding default into `config`; call before the user's
+    /// files so their `window-padding-*` lines win.
+    static func loadPaddingDefault(into config: ghostty_config_t) {
+        for line in TerminalPadding.cmuxDefaultConfigLines {
+            line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
+        }
+    }
+
+    /// The padding a user config made of `text` (Ghostty config lines)
+    /// resolves to, loaded the way `loadConfig` loads it, for tests.
     static func terminalPadding(configText text: String) -> TerminalPadding? {
         guard let config = ghostty_config_new() else { return nil }
         defer { ghostty_config_free(config) }
+        loadPaddingDefault(into: config)
         text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
         ghostty_config_finalize(config)
         return terminalPadding(of: config)

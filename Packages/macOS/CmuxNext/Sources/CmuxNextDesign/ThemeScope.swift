@@ -20,14 +20,91 @@ public final class ThemeScope {
     /// The root scope: the Ghostty config theme.
     public static let app = ThemeScope()
 
+    /// Art is inherited independently of color themes, so every window
+    /// follows the app's one selection even with room or terminal themes.
+    public var backdropSelection: BackdropSelection? { selectedBackdropSelection ?? parent?.backdropSelection }
+    public var backdropArt: BackdropArt? {
+        if case .art(let art) = backdropSelection { return art }
+        return nil
+    }
+    public var appearanceTuning: AppearanceTuning { selectedAppearanceTuning ?? parent?.appearanceTuning ?? .identity }
+    private var selectedBackdropSelection: BackdropSelection?
+    private var selectedAppearanceTuning: AppearanceTuning?
+    /// The user's per-surface backgrounds (`appearance.surfaces`), inherited
+    /// like art: one app-wide setting, read by every surface's owner through
+    /// `Palette.fill(for:)`.
+    public var surfaceBackgrounds: SurfaceBackgrounds { selectedSurfaceBackgrounds ?? parent?.surfaceBackgrounds ?? .none }
+    private var selectedSurfaceBackgrounds: SurfaceBackgrounds?
+
+    /// Changes the per-surface backgrounds and repaints this scope and its
+    /// descendants (every owner re-reads its fill in its theme hook).
+    public func setSurfaceBackgrounds(_ backgrounds: SurfaceBackgrounds) {
+        guard selectedSurfaceBackgrounds != backgrounds else { return }
+        selectedSurfaceBackgrounds = backgrounds
+        repaintBackdropArt()
+    }
+
+    /// Changes art and repaints this scope and its descendants without a
+    /// Ghostty reload or changing any terminal colors.
+    /// - Parameter art: The painting to show; nil restores inherited art.
+    public func setBackdropArt(_ art: BackdropArt?) {
+        setBackdropSelection(art.map(BackdropSelection.art))
+    }
+
+    /// Changes the selected bundled or system image and repaints descendants.
+    public func setBackdropSelection(_ selection: BackdropSelection?) {
+        guard selectedBackdropSelection != selection else { return }
+        selectedBackdropSelection = selection
+        repaintBackdropArt()
+    }
+
+    /// Changes live tuning without changing theme colors or persisted settings.
+    public func setAppearanceTuning(_ tuning: AppearanceTuning) {
+        let clamped = AppearanceTuning(glassTransparency: tuning.glassTransparency,
+                                       hue: tuning.hue,
+                                       saturation: tuning.saturation)
+        guard selectedAppearanceTuning != clamped else { return }
+        selectedAppearanceTuning = clamped
+        repaintBackdropArt()
+    }
+
+    private func repaintBackdropArt() {
+        repaint(animated: false)
+        for responder in responders.allObjects {
+            (responder as? any ThemeResponsive)?.themeDidChange()
+        }
+        for child in children.allObjects { child.repaintBackdropArt() }
+    }
+
     public let level: ThemeLevel
     public private(set) var parent: ThemeScope?
     /// This scope's own theme; nil inherits the parent's.
     public private(set) var spec: ThemeSpec?
     public private(set) var input: ThemeInput
-    public private(set) var tokens: ThemeTokens
+    /// This scope's own colors (its theme, else its parent's). Children
+    /// inherit these.
+    public private(set) var ownTokens: ThemeTokens
+    /// The colors the views and windows this scope roots draw in: those of
+    /// the scope it shows (`show(_:)`) when they are as light or dark as its
+    /// own, else its own. A light workspace in a dark room never turns the
+    /// window's chrome light.
+    public var tokens: ThemeTokens {
+        guard let shown else { return ownTokens.emphasized(emphasis) }
+        let candidate = shown.tokens
+        return (candidate.isDark == ownTokens.isDark ? candidate : ownTokens).emphasized(emphasis)
+    }
+    /// How strongly this scope's own views draw (a pane's tab strip in an
+    /// unfocused pane: `ChromeEmphasis`). Children keep the plain colors.
+    public private(set) var emphasis: ChromeEmphasis = .full
     /// Bumps on every change of `tokens` (tests, diagnostics).
     public private(set) var generation = 0
+    /// The scope whose colors this scope's own views draw in: a window's
+    /// room scope shows its current workspace's, so the sidebar and
+    /// titlebar always match the content beside them.
+    public private(set) weak var shown: ThemeScope?
+    private let viewers = NSHashTable<ThemeScope>.weakObjects()
+    /// `tokens` as last painted, so a change is noticed whichever way it came.
+    private var displayed: ThemeTokens
 
     private var overrideInput: ThemeInput?
     private let children = NSHashTable<ThemeScope>.weakObjects()
@@ -38,7 +115,8 @@ public final class ThemeScope {
     private init() {
         level = .config
         input = ThemeStore.shared.input
-        tokens = ThemeStore.shared.tokens
+        ownTokens = ThemeStore.shared.tokens
+        displayed = ownTokens
     }
 
     /// A scope at `level` that inherits `parent` until it gets its own theme.
@@ -46,7 +124,8 @@ public final class ThemeScope {
         self.level = level == .config ? .room : level
         self.parent = parent
         input = parent.input
-        tokens = parent.tokens
+        ownTokens = parent.ownTokens
+        displayed = ownTokens
         parent.children.add(self)
     }
 
@@ -79,6 +158,21 @@ public final class ThemeScope {
         update(animated: animated, repaint: true)
     }
 
+    /// The nearest scope (this one or an ancestor) without a chrome
+    /// emphasis: panels and hover cards draw there at full strength.
+    public var fullStrength: ThemeScope {
+        var scope = self
+        while scope.emphasis != .full, let parent = scope.parent { scope = parent }
+        return scope
+    }
+
+    /// Sets `emphasis` and repaints what this scope roots when it changed.
+    public func setEmphasis(_ emphasis: ChromeEmphasis, animated: Bool = true) {
+        guard emphasis != self.emphasis else { return }
+        self.emphasis = emphasis
+        refreshDisplay(animated: animated, repaint: true)
+    }
+
     /// Moves this scope under another parent (a workspace shown in another
     /// window, a terminal moved to another workspace).
     public func setParent(_ newParent: ThemeScope, animated: Bool = false) {
@@ -88,6 +182,42 @@ public final class ThemeScope {
         newParent.children.add(self)
         for view in roots.allObjects { applyAppearance(to: view) }
         update(animated: animated, repaint: true)
+    }
+
+    /// Draws this scope's own views and windows in `scope`'s colors (nil:
+    /// its own). Children keep inheriting this scope's own theme, so a
+    /// parked workspace never takes the shown one's colors.
+    public func show(_ scope: ThemeScope?, animated: Bool = false) {
+        guard scope !== shown else { return }
+        // A chain that leads back here would never resolve its colors.
+        var next = scope
+        while let candidate = next {
+            if candidate === self { return }
+            next = candidate.shown
+        }
+        shown?.viewers.remove(self)
+        shown = scope
+        scope?.viewers.add(self)
+        refreshDisplay(animated: animated, repaint: true)
+    }
+
+    /// Repaints and notifies when `tokens` moved away from what was last
+    /// painted: this scope's own colors, the shown scope's, or which of the
+    /// two applies changed.
+    private func refreshDisplay(animated: Bool, repaint: Bool) {
+        // A child root's explicit appearance compares with these colors.
+        for child in children.allObjects { for view in child.roots.allObjects { child.applyAppearance(to: view) } }
+        let now = tokens
+        guard now != displayed else { return }
+        displayed = now
+        generation += 1
+        if repaint { self.repaint(animated: animated) }
+        for responder in responders.allObjects {
+            (responder as? any ThemeResponsive)?.themeDidChange()
+        }
+        for viewer in viewers.allObjects where viewer.shown === self {
+            viewer.refreshDisplay(animated: animated, repaint: true)
+        }
     }
 
     /// Called by `ThemeStore.shared` after a Ghostty config change. The
@@ -104,15 +234,9 @@ public final class ThemeScope {
         guard next != input else { return }
         input = next
         let derived = level == .config ? ThemeStore.shared.tokens : ThemeTokens.derive(from: next)
-        let changed = derived != tokens
-        tokens = derived
-        if changed { generation += 1 }
+        ownTokens = derived
         for child in children.allObjects { child.update(animated: animated, repaint: false) }
-        guard changed else { return }
-        if repaint { self.repaint(animated: animated) }
-        for responder in responders.allObjects {
-            (responder as? any ThemeResponsive)?.themeDidChange()
-        }
+        refreshDisplay(animated: animated, repaint: repaint)
     }
 
     // MARK: Views and windows

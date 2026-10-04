@@ -1,6 +1,6 @@
 # Test Determinism
 
-Scope: test files only — `cmuxCLITests/**`, `ios/cmuxUITests/**`, `Packages/**/Tests/**`, `tests/**`, `tests_v2/**`, `web/tests/**`, `webviews/test/**`. Non-test runtime code is covered by `runtime-no-hacky-sleeps.md` and `swift-blocking-runtime.md`; this is their test-code sibling.
+Scope: test files only — `Packages/**/Tests/**`, `tests/**`, `tests_v2/**`, `web/tests/**`, `webviews/test/**`. Non-test runtime code is covered by `runtime-no-hacky-sleeps.md` and `swift-blocking-runtime.md`; this is their test-code sibling.
 
 This gate enforces two principles:
 

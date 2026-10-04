@@ -1,5 +1,5 @@
 import Foundation
-import GhosttyKit
+import GhosttyNextKit
 
 /// Per-surface userdata handed to Ghostty as both `userdata` and
 /// `io_write_userdata` (ghostty.h:607, :629).
@@ -12,6 +12,9 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
     /// Main-actor only. Weak so a late callback after the view deinitializes
     /// is a no-op.
     @MainActor weak var view: TerminalSurfaceView?
+    /// The font scale after each font size change (nil: the configured
+    /// size), `TerminalFontScale.observe`.
+    @MainActor var onFontScaleChange: ((Double?) -> Void)?
 
     init(input: TerminalInputSink) {
         self.input = input

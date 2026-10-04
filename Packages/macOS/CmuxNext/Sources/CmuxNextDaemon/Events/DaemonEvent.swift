@@ -44,11 +44,19 @@ public enum DaemonEvent: Sendable, Hashable {
     case notification(DaemonNotification)
     case agentChanged(AgentStatus)
 
+    /// A `session.events` item: the state resources the daemon owns
+    /// (state-ownership.md 2), which `DaemonStore.session` mirrors.
+    case sessionState(SessionStreamItem)
+
     // Registries and clients.
     case frontendProjectionChanged(ProjectionChange)
     case terminalRegistryChanged(revision: UInt64)
     /// A browser profile's bookmarks changed (`bookmarks-v1`): refetch them.
     case bookmarksChanged(browserProfileID: String, revision: UInt64)
+    /// One committed op on a local conversation (`local-conversations-v1`).
+    case conversationChanged(ConversationEvent)
+    /// A participant started or stopped typing (ephemeral).
+    case conversationTyping(ConversationTyping)
     /// `client-attached/changed/detached/list-invalidated`.
     case client(name: String, payload: JSONValue)
     /// The subscription ended because this client fell behind. The connection
@@ -56,4 +64,16 @@ public enum DaemonEvent: Sendable, Hashable {
     case overflow(String)
     case daemonShutdown
     case unknown(name: String, payload: JSONValue)
+}
+
+extension DaemonEvent {
+    /// Applies even when a tree snapshot covers its sequence: connection
+    /// lifecycle, and `session.events` items, which `list-workspaces` does
+    /// not carry.
+    var outlivesSnapshot: Bool {
+        switch self {
+        case .connected, .disconnected, .daemonShutdown, .sessionState: true
+        default: false
+        }
+    }
 }

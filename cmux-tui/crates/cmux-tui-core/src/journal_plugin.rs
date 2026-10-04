@@ -237,6 +237,10 @@ impl JournalPluginOptions {
             self.id != crate::AGENT_HOOK_PRODUCER_ID,
             "journal plugin id is reserved for the built-in agent hook producer"
         );
+        anyhow::ensure!(
+            self.id != crate::shell_history::SHELL_PRODUCER_ID,
+            "journal plugin id is reserved for the built-in shell producer"
+        );
         let Some(executable) = self.command.first() else {
             anyhow::bail!("journal plugin command must not be empty");
         };

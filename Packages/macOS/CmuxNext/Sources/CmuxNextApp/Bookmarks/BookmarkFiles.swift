@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextBookmarks
 import Foundation
@@ -15,16 +16,20 @@ struct BookmarkFiles {
         panel.allowedContentTypes = [.html]
         panel.allowsMultipleSelection = false
         panel.message = BookmarkAppStrings.importPrompt
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        importFile(url, profile: profile)
+        panel.beginForCmux { url in
+            guard let url else { return }
+            importFile(url, profile: profile)
+        }
     }
 
     func chooseExport(profile: String) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.html]
         panel.nameFieldStringValue = BookmarkAppStrings.exportFileName
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        exportFile(url, profile: profile)
+        panel.beginForCmux { url in
+            guard let url else { return }
+            exportFile(url, profile: profile)
+        }
     }
 
     /// Reads an HTML file into one "Imported" folder at the end of the bar.

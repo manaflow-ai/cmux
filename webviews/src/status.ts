@@ -16,10 +16,7 @@ export type DiffViewerStatusOptions = {
   statusOnly?: boolean;
 };
 
-export function createDiffViewerStatus(
-  message: string,
-  options: DiffViewerStatusOptions = {},
-): DiffViewerStatus {
+export function createDiffViewerStatus(message: string, options: DiffViewerStatusOptions = {}): DiffViewerStatus {
   const pending = options.pending === true;
   return {
     error: options.error === true,
@@ -30,10 +27,7 @@ export function createDiffViewerStatus(
   };
 }
 
-export function initialDiffViewerStatus(
-  config: DiffViewerConfig,
-  label: DiffViewerLabelResolver,
-): DiffViewerStatus {
+export function initialDiffViewerStatus(config: DiffViewerConfig, label: DiffViewerLabelResolver): DiffViewerStatus {
   const payload = config.payload;
   if (payload?.pendingReplacement === true) {
     return createDiffViewerStatus(payload.statusMessage ?? label("loadingDiff"), {
@@ -54,6 +48,9 @@ export function initialDiffViewerStatus(
 }
 
 export function applyDiffViewerStatusToDocument(status: DiffViewerStatus): void {
-  document.body.dataset.loading = status.loading ? "true" : "false";
-  document.body.dataset.statusOnly = status.statusOnly ? "true" : "false";
+  // Unchanged values are not written again: a <body> attribute write invalidates the whole page's style.
+  const loading = status.loading ? "true" : "false";
+  const statusOnly = status.statusOnly ? "true" : "false";
+  if (document.body.dataset.loading !== loading) document.body.dataset.loading = loading;
+  if (document.body.dataset.statusOnly !== statusOnly) document.body.dataset.statusOnly = statusOnly;
 }

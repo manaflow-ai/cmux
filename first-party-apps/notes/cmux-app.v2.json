@@ -1,0 +1,148 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/notes",
+  "name": {
+    "en": "Notes",
+    "ja": "メモ"
+  },
+  "version": "0.2.0",
+  "description": {
+    "en": "Markdown notes in cmux, kept by the notes server and synced to your devices: a scratchpad per workspace, quick capture, pins, search, Markdown import and export, and tools so agents can keep notes for you.",
+    "ja": "cmux の Markdown メモ。メモのサーバーが保存し、各デバイスに同期します。ワークスペースごとのスクラッチパッド、クイックキャプチャ、ピン留め、検索、Markdown の読み込みと書き出し、エージェントがメモを残せるツール。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "sidebar",
+    "productivity",
+    "agents"
+  ],
+  "keywords": [
+    "notes",
+    "markdown",
+    "scratchpad",
+    "todo"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "catalog": "catalog/notes-catalog.json",
+  "cli": { "name": "notes" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderNotes",
+      "title": {
+        "en": "Notes",
+        "ja": "メモ"
+      },
+      "symbol": "note.text",
+      "options": {
+        "defaultRegion": "middle"
+      }
+    }
+  },
+  "scopes": {
+    "workspace:read": "Show the scratchpad of the workspace you are in and label notes with workspace names.",
+    "mcp:expose": "Let agents you run list, read, search, create, capture and append to your notes."
+  },
+  "optionalScopes": {
+    "fs:read": "Import the Markdown files you pick.",
+    "fs:write": "Export notes as Markdown files into a folder you pick."
+  },
+  "handles": {
+    "root": "Markdown files you import, and the folder you export notes to."
+  },
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "scratchpad",
+        "list",
+        "editor"
+      ],
+      "default": "scratchpad"
+    }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "sort": {
+        "type": "string",
+        "enum": [
+          "updated",
+          "created",
+          "title"
+        ],
+        "default": "updated",
+        "title": "Sort notes by"
+      },
+      "bodyLines": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 400,
+        "default": 12,
+        "title": "Lines shown before Show More"
+      }
+    }
+  },
+  "activation": [
+    "onInterface:cmux.section/1",
+    "onOp:notes.new_note",
+    "onOp:notes.capture",
+    "onOp:notes.list",
+    "onOp:notes.read",
+    "onOp:notes.create",
+    "onOp:notes.append",
+    "onOp:notes.search",
+    "onOp:notes.export",
+    "onOp:notes.import",
+    "onOp:notes.open"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/"
+  ],
+  "documents": [
+    {
+      "id": "note",
+      "title": {
+        "en": "Note",
+        "ja": "ノート"
+      },
+      "types": [
+        "net.daringfireball.markdown"
+      ],
+      "extensions": [
+        "md",
+        "markdown"
+      ],
+      "symbol": "note.text"
+    }
+  ],
+  "consumes": {
+    "ops": [
+      "document.open",
+      "document.edit",
+      "fs.pick",
+      "fs.read",
+      "fs.write"
+    ],
+    "handles": [
+      "root",
+      "document"
+    ]
+  }
+}

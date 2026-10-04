@@ -243,22 +243,15 @@ if ! awk '
   in_verify && /Contents\/MacOS\/cmux"/ { saw_app=1 }
   in_verify && /Contents\/Resources\/bin\/cmux"/ { saw_cli=1 }
   in_verify && /Contents\/Resources\/bin\/ghostty"/ { saw_helper=1 }
-  in_verify && /Contents\/Resources\/bin\/cmux-tui"/ { saw_tui=1 }
+  # bin/cmux-tui and bin/acpmux are symlinks to bin/cmux, checked with readlink.
+  in_verify && /for alias in cmux-tui acpmux; do/ { saw_aliases=1 }
+  in_verify && /readlink "\$APP\/Contents\/Resources\/bin\/\$alias"\)" = cmux/ { saw_tui=saw_aliases }
   in_verify && /\[\[ "\$archs" == \*arm64\* && "\$archs" == \*x86_64\* \]\]/ { saw_universal_assert=1 }
   in_verify && /\[ "\$archs" = "\$NIGHTLY_VARIANT" \]/ { saw_thin_assert=1 }
   in_verify && /Mach-O universal/ { saw_fat_scan=1 }
   END { exit !(saw_matrix && saw_variant_env && saw_thin_gate && saw_thin && saw_app && saw_cli && saw_helper && saw_tui && saw_universal_assert && saw_thin_assert && saw_fat_scan) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must thin each variant from the universal build and verify every bundled binary matches the variant architecture"
-  exit 1
-fi
-
-if ! awk '
-  /^      - name: Run CLI version memory guard regression/ { guard_line=NR }
-  /^      - name: Thin bundle to the variant architecture/ { thin_line=NR }
-  END { exit !(guard_line && thin_line && guard_line < thin_line) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: the CLI memory guard must run on the universal bundle before thinning, so x86_64 variants never need Rosetta on the runner"
   exit 1
 fi
 
@@ -342,12 +335,17 @@ if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Us
   exit 1
 fi
 
+# A release ships the pinned commit; the nightly ships the commit that
+# published its own cmux-tui tree (pin-cmux-tui.sh resolve-commit).
+if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release.yml must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
+  exit 1
+fi
+if ! grep -Fq 'cmux_tui_commit="$(scripts/cmux-next/pin-cmux-tui.sh resolve-commit)"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly.yml must install the cmux-tui commit that published its own cmux-tui tree"
+  exit 1
+fi
 for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
-  # The app ships the cmux-tui it was built against: the pinned commit.
-  if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$workflow"; then
-    echo "FAIL: $(basename "$workflow") must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
-    exit 1
-  fi
   if grep -Fq 'git log -1 --format=%H -- cmux-tui' "$workflow"; then
     echo "FAIL: $(basename "$workflow") must not pick the cmux-tui commit with a bare git log: actions/checkout is depth 1 there, so it always answers HEAD"
     exit 1
@@ -370,7 +368,7 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
   job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
   job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
-  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/cmux-tui\.pin/ { resolver=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-commit/ { resolver=1 }
   job == "build-sign-notarize-nightly:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
   job == "build-sign-notarize-nightly:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
   job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
@@ -397,11 +395,11 @@ for expected in '--expected-commit' '--require-capability' 'required cmux-tui ca
   fi
 done
 
-# Tagged reloads bundle only the pinned hosted cmux-tui (or an explicit
-# CMUX_NEXT_TUI_BIN override); any other source fails the reload.
+# Tagged reloads bundle only the same-tree hosted cmux-tui (or the pin, or an
+# explicit CMUX_NEXT_TUI_BIN override); any other source fails the reload.
 if ! grep -A3 -F 'case "$cmux_next_tui_source" in' "$ROOT_DIR/scripts/reload.sh" |
-   grep -Fq -- 'pinned-hosted|override)'; then
-  echo "FAIL: tagged reloads must reject a cmux-tui that is not the pinned hosted build"
+   grep -Fq -- 'tree-hosted|tree-local-build|pinned-hosted|override)'; then
+  echo "FAIL: tagged reloads must reject a cmux-tui that is not the same-tree hosted build"
   exit 1
 fi
 
@@ -495,7 +493,7 @@ if ! awk '
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
-  job == "report" && /\$\{channel\}-failure/ { saw_report_label=1 }
+  job == "report" && /\$\{process\.env\.CHANNEL_RELEASE_TAG\}-failure/ { saw_report_label=1 }
   job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
   END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
@@ -504,9 +502,9 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
+if ! grep -Fq "const shouldPublish = !seedOnly && (isTrackRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
   || ! grep -Fq "core.setOutput('should_publish', shouldPublish ? 'true' : 'false');" "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly decide step must expose should_publish only for main and rc/ refs that are not measurement or fast runs"
+  echo "FAIL: nightly decide step must expose should_publish only for main, nightly-next and rc/ refs that are not measurement or fast runs"
   exit 1
 fi
 
@@ -631,8 +629,8 @@ fi
 # Match the expression, not its declaration keyword, so that rebinding
 # shouldBuild later in `decide` does not read as a change to this contract.
 for expected in \
-  "const alreadyPublished = !buildOnly && !forceBuild && (isMainRef || isRcRef) && publishedSha === headSha;" \
-  "shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
+  "const alreadyPublished = !buildOnly && !forceBuild && (isTrackRef || isRcRef) && publishedSha === headSha;" \
+  "shouldBuild = !seedOnly && !alreadyPublished && (buildOnly || !isTrackRef || forceBuild || nightlySha !== headSha);" \
   "fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"

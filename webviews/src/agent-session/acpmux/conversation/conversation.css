@@ -1,0 +1,951 @@
+/* Transcript Markdown, ported from the agent-pane reference prototype
+   (src/conversation/conversation.css).
+
+   No literal colors: the dark palette is a foreground over a background at fixed
+   strengths, so each color here is the theme's foreground at that strength over
+   transparent (fills and rules) or one of the theme's text tokens. Other themes keep
+   their own cast. Percentages are measured against #f8f8f3 on #272823. */
+
+:root {
+  --cv-text: var(--agent-text);
+  --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
+  --cv-text-dim: var(--agent-soft); /* progress rows */
+  --cv-fg: var(--agent-text);
+  --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
+  --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
+  --cv-code-bg: color-mix(in srgb, var(--cv-fg) 11%, transparent); /* #3e3f39 inline code */
+  --cv-codeblock-bg: color-mix(in srgb, var(--cv-fg) 7.5%, transparent); /* #373833 */
+  --cv-codeblock-ring: color-mix(in srgb, var(--cv-fg) 11.5%, transparent); /* #3f403b */
+  --cv-codeblock-text: color-mix(in srgb, var(--cv-fg) 90%, transparent); /* #e5e5df */
+  --cv-codeblock-actions: color-mix(in srgb, var(--cv-fg) 78%, transparent); /* #c8c8c3 */
+  --cv-strong-rule: color-mix(in srgb, var(--cv-fg) 16%, transparent); /* #484943: quote bar, table head */
+  --cv-faint-rule: color-mix(in srgb, var(--cv-fg) 4.5%, transparent); /* #30312b: table rows */
+  --cv-check-fill: color-mix(in srgb, var(--cv-fg) 9%, transparent); /* #3a3b34 */
+  --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
+  --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
+  /* Type and column: system-ui at 14px on 22.75px lines, 13px code (reference
+     shell/tokens.css and conversation.css), in the taste bar's 720px column. */
+  --cv-font-size: 14px;
+  --cv-line-height: 22.75px;
+  --cv-column: 720px;
+  --cv-gutter: 26.5px;
+  --cv-font: system-ui;
+  --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* ---------- User bubble ---------- */
+
+/* The date over the first prompt of a day (DateLine.tsx). */
+.cv-date-line {
+  display: block;
+  padding-top: 8px;
+  text-align: center;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: 20px;
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.cv-user {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cv-user__bubble {
+  box-sizing: border-box;
+  max-width: 70%;
+  padding: var(--cv-bubble-padding, 10.5px 16px 9.5px);
+  border-radius: 16px;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text);
+  background: var(--cv-bubble);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
+.cv-user__status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--cv-text-muted);
+}
+.cv-user__cancel {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-user__cancel:hover {
+  color: var(--cv-text);
+}
+
+/* ---------- Markdown ---------- */
+
+.cv-md {
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text);
+  -webkit-font-smoothing: antialiased;
+}
+.cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-p {
+  margin: 0 0 var(--cv-para-after, 14px);
+}
+.cv-p:has(+ .cv-list) {
+  margin-bottom: 0;
+}
+.cv-p + .cv-list {
+  margin-top: var(--cv-list-before, 3.5px);
+}
+.cv-md > :last-child {
+  margin-bottom: 0;
+}
+.cv-h {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--cv-text);
+}
+.cv-h1 {
+  font-size: 21px;
+  line-height: 28px;
+  margin: 20px 0 12px;
+}
+.cv-h2 {
+  font-size: 17.5px;
+  line-height: 24px;
+  margin: 15px 0 3.5px;
+}
+.cv-h3 {
+  font-size: 15.75px;
+  line-height: 22px;
+  margin: 15px 0 5px;
+}
+.cv-h4 {
+  font-size: 14px;
+  margin: 16px 0 4px;
+}
+.cv-md strong {
+  font-weight: 600;
+  letter-spacing: var(--cv-strong-tracking, 0px);
+}
+.cv-md del {
+  text-decoration-thickness: 1px;
+}
+.cv-code {
+  font-family: var(--cv-code-font, var(--cv-mono));
+  font-size: var(--cv-code-size, 13px);
+  line-height: var(--cv-code-line-height, inherit);
+  letter-spacing: var(--cv-code-tracking, 0px);
+  padding: var(--cv-code-padding, 0.75px 5px);
+  border-radius: var(--cv-code-radius, 5px);
+  background: var(--cv-code-bg);
+}
+.cv-link {
+  color: var(--cv-link);
+  text-decoration: none;
+}
+.cv-link:hover {
+  text-decoration: underline;
+}
+.cv-link__icon {
+  vertical-align: var(--cv-link-icon-align, -3px);
+  margin: var(--cv-link-icon-margin, 0 4px 0 0);
+}
+.cv-link.is-citation {
+  white-space: nowrap;
+}
+.cv-link__icon--gh {
+  vertical-align: var(--cv-gh-icon-align, -1.5px);
+  margin: var(--cv-gh-icon-margin, 0 4px 0 0.5px);
+}
+.cv-hr {
+  border: 0;
+  height: 1px;
+  background: var(--cv-rule);
+  margin: 24.5px 0 25px;
+}
+
+.cv-list {
+  margin: 0 0 var(--cv-list-after, 6.5px);
+  padding: 0;
+  list-style: none;
+}
+.cv-list .cv-list {
+  margin: 0;
+}
+.cv-list > li {
+  position: relative;
+  padding-left: var(--cv-list-indent, 28px);
+}
+.cv-li__num {
+  position: absolute;
+  left: 7px;
+  font-weight: 600;
+}
+.cv-li__bullet {
+  position: absolute;
+  left: var(--cv-bullet-left, 10px);
+  top: var(--cv-bullet-top, 9px);
+  width: var(--cv-bullet-size, 5px);
+  height: var(--cv-bullet-size, 5px);
+}
+.cv-li__bullet--0 {
+  border-radius: 50%;
+  background: currentColor;
+}
+.cv-li__bullet--1 {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.cv-li__bullet--2 {
+  background: currentColor;
+}
+.cv-list > li.cv-task {
+  padding-left: 20px;
+}
+/* Adjacent lists (a task list after a numbered list) read as one list: no gap between. */
+.cv-list:has(+ .cv-list) {
+  margin-bottom: 0;
+}
+/* A top-level task list keeps the list indent: its checkboxes line up with nested items. */
+.cv-list.cv-tasks[data-depth="0"] {
+  padding-left: var(--cv-list-indent, 28px);
+}
+.cv-checkbox {
+  position: absolute;
+  left: 0.5px;
+  top: 5.5px;
+  width: 13.5px;
+  height: 14px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-text);
+}
+.cv-checkbox.is-checked {
+  background: var(--cv-check-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-check-ring);
+}
+/* appearance.borders none: the box is a fill instead of a ring, so an open task still shows. */
+:root[data-borders="none"] .cv-checkbox {
+  box-shadow: none;
+  background: var(--cv-check-fill);
+}
+
+.cv-quote {
+  margin: 0 0 21.5px;
+  padding-left: 21px;
+  position: relative;
+}
+.cv-quote::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3.5px;
+  border-radius: 2px;
+  background: var(--cv-strong-rule);
+}
+.cv-quote > :last-child {
+  margin-bottom: 0;
+}
+/* A quote's paragraphs draw as consecutive lines ("“…”" then "— Design notebook"). */
+.cv-quote > .cv-p {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* The table may be wider than the column; it scrolls instead of widening the row. */
+.cv-table-wrap {
+  margin: var(--cv-table-before, 6.5px) 0 14px;
+  overflow-x: auto;
+}
+/* Short columns are at least 128px and long-text columns 256px. */
+.cv-table {
+  border-collapse: collapse;
+  font-size: var(--cv-table-size, 12.25px);
+  letter-spacing: var(--cv-table-tracking, 0px);
+  line-height: var(--cv-table-line-height, 23px);
+  width: max-content;
+  min-width: 100%;
+}
+.cv-table th,
+.cv-table td {
+  box-sizing: border-box;
+  padding: var(--cv-td-pad-y, 8.5px) 22px var(--cv-td-pad-y, 8.5px) 0;
+  vertical-align: top;
+}
+.cv-table th {
+  font-weight: 600;
+  padding-top: var(--cv-th-pad-top, 11px);
+  padding-bottom: var(--cv-th-pad-bottom, 1.75px);
+  border-bottom: 1px solid var(--cv-strong-rule);
+  white-space: nowrap;
+}
+.cv-table td {
+  border-bottom: 1px solid var(--cv-faint-rule);
+}
+.cv-table th:last-child,
+.cv-table td:last-child {
+  padding-right: 0;
+}
+
+/* Fenced code card. */
+.cv-codeblock {
+  position: relative;
+  margin: 0 0 19px;
+  box-sizing: border-box;
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--cv-codeblock-bg);
+  box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
+}
+.cv-codeblock__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  height: 45.5px;
+  padding: 0 18px 0 21px;
+  color: var(--cv-codeblock-text);
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: 0;
+}
+.cv-codeblock__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  color: var(--cv-codeblock-actions);
+}
+.cv-codeblock__action {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.cv-codeblock__action:hover,
+.cv-codeblock__action[aria-pressed="true"] {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
+}
+.cv-codeblock__action:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+}
+.cv-codeblock__body {
+  display: block;
+  margin: 0 1px 13px 13px;
+}
+/* An opened edit (EditDiff.tsx): the file's name and line counts over its diff. */
+.cv-edit-diff {
+  margin: 4px 0 6px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--cv-codeblock-bg);
+  box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
+}
+.cv-edit-diff__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--cv-codeblock-ring);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--cv-codeblock-text);
+}
+.cv-edit-diff__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-edit-diff__add {
+  color: var(--acpmux-add);
+}
+.cv-edit-diff__del {
+  color: var(--acpmux-del);
+}
+.cv-edit-diff__copy {
+  margin-left: auto;
+  color: var(--cv-codeblock-actions);
+}
+.cv-edit-diff__body {
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cv-edit-diff__empty {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--cv-text-muted);
+}
+.cv-link.is-file {
+  color: var(--cv-text);
+}
+
+/* Math (Math.tsx): identifiers italic, operators spaced, in the STIX face. */
+.cv-math,
+.cv-math-display {
+  font-family: "STIXGeneral", serif;
+  letter-spacing: 0;
+}
+.cv-math {
+  font-size: 17.6px;
+  line-height: 1;
+}
+/* Display equations: 12px below a paragraph, 12.5px between stacked equations, 13.5px
+   above the next paragraph. */
+.cv-math-display {
+  margin: 0 0 13.5px;
+  text-align: center;
+  font-size: 18px;
+  line-height: 24px;
+  white-space: nowrap;
+}
+.cv-p + .cv-math-display {
+  margin-top: calc(12px - var(--cv-para-after, 14px));
+}
+.cv-math-display + .cv-math-display {
+  margin-top: -1px;
+}
+.cv-mi {
+  font-style: italic;
+  margin-right: 0.08em;
+}
+.cv-mo {
+  margin: 0 0.24em;
+}
+
+/* ---------- Column ---------- */
+
+/* The transcript column and what lines up with it (styles.css keeps the older 760px). */
+.acpmux-scroll {
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  -webkit-font-smoothing: antialiased;
+}
+.acpmux-row {
+  left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+  right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+}
+.acpmux-permission {
+  padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+  padding-right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+}
+
+/* ---------- Turn rows (TurnRows.tsx) ---------- */
+
+:root {
+  --cv-tool-strong: color-mix(in srgb, var(--cv-fg) 60%, transparent); /* #a5a5a0 settled tool rows */
+  --cv-card-ring: color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  --cv-card-fill: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+}
+/* appearance.borders none (data-borders on the root, applyAgentTheme): code and tool cards keep
+   their fill and lose the ring. */
+:root[data-borders="none"] {
+  --cv-codeblock-ring: transparent;
+  --cv-card-ring: transparent;
+}
+
+/* "Worked for 15s ›": one muted disclosure line over a hairline. */
+.cv-worked {
+  all: unset;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--cv-worked-height, 27px);
+  padding-top: var(--cv-worked-pad-top, 2.5px);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cv-worked-gap, 2px);
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: 20px;
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text-muted);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+.cv-worked.is-toggle {
+  cursor: pointer;
+}
+.cv-worked.has-divider::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--cv-rule);
+}
+.cv-worked__chevron {
+  margin-top: 3px;
+  margin-left: 2px;
+}
+/* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
+@keyframes cv-thinking-sweep {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-thinking {
+    color: transparent;
+    background: linear-gradient(
+        90deg,
+        var(--cv-text-muted) 40%,
+        var(--cv-text) 50%,
+        var(--cv-text-muted) 60%
+      )
+      0 0 / 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: cv-thinking-sweep 2s linear infinite;
+  }
+}
+
+.cv-tools {
+  margin: 2px 0 0;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  -webkit-font-smoothing: antialiased;
+}
+/* An opened run's calls; past nine 26px rows the list scrolls. */
+.cv-tool-run {
+  max-height: 234px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cv-tool {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 26px;
+  line-height: 20px;
+  color: var(--cv-text-dim);
+}
+.cv-tool.is-strong {
+  color: var(--cv-tool-strong);
+}
+.cv-tool__icon {
+  display: flex;
+  flex: none;
+  margin-right: -1.5px;
+}
+.cv-tool__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-tool__detail {
+  color: var(--cv-text-dim);
+}
+.cv-tool__chevron {
+  margin-left: -4px;
+}
+.cv-thought .cv-tool__text {
+  white-space: normal;
+}
+.cv-worked.is-toggle:hover,
+.cv-tool.is-toggle:hover {
+  color: var(--cv-text);
+}
+.cv-tool.is-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+.cv-worked:focus-visible,
+.cv-tool.is-toggle:focus-visible,
+.cv-iconbtn:focus-visible {
+  /* Inset: the transcript row clips paint (`contain: paint`), so an outset ring would be cut. */
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+  border-radius: 4px;
+}
+/* One right chevron, turned a quarter when open; on settled rows it shows on hover. */
+.cv-rotor {
+  flex: none;
+}
+/* With Reduce Motion on, the chevron snaps to its new angle. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-rotor {
+    transition: transform 150ms ease-out;
+  }
+}
+.cv-rotor.is-open {
+  transform: rotate(90deg);
+}
+.cv-rotor.is-hover {
+  visibility: hidden;
+}
+.cv-tool.is-toggle:hover .cv-rotor.is-hover,
+.cv-tool.is-toggle:focus-visible .cv-rotor.is-hover {
+  visibility: visible;
+}
+/* A shell call's card: "Shell", then the command and its output in mono, then a failed exit code. */
+.cv-shell {
+  margin: 4px 0 8px;
+  padding: 8px 12px 10px;
+  border-radius: 12px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+}
+.cv-shell__label,
+.cv-shell__exit {
+  font: 13px/20px var(--cv-font);
+}
+.cv-shell__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  font: 12px/18px var(--cv-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-shell__exit {
+  margin-top: 6px;
+  text-align: right;
+}
+.cv-tool-output {
+  margin: 4px 0 8px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+  font: 12px/18px var(--cv-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* An opened group's calls hang off a hairline under the group's glyph (ToolGroupRow.tsx). */
+.cv-tool-group {
+  margin-left: 7.5px;
+  padding-left: 14.5px;
+  border-left: 1px solid var(--cv-rule);
+}
+.cv-tool__counts {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.cv-tool__failed,
+.cv-command__failed {
+  color: var(--agent-danger);
+}
+/* "npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
+.cv-command__line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12.5px/20px var(--cv-mono);
+}
+.cv-command__meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--cv-text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cv-command__ok {
+  color: var(--acpmux-add);
+}
+/* A message to another agent: sender to recipient over the message's first line (MessageCard.tsx). */
+.cv-message {
+  margin: 4px 0;
+  border-radius: 10px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-tool-strong);
+}
+.cv-message.is-failed {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-danger) 40%, transparent);
+}
+.cv-message__head {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 10px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.cv-message__head:hover {
+  background: color-mix(in srgb, var(--cv-fg) 3%, transparent);
+}
+.cv-message__head:hover .cv-rotor.is-hover,
+.cv-message__head:focus-visible .cv-rotor.is-hover {
+  visibility: visible;
+}
+.cv-message__head:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+}
+.cv-message__route {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  line-height: 20px;
+}
+.cv-message__party {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text);
+  font-weight: 500;
+}
+.cv-message__arrow {
+  flex: none;
+  color: var(--cv-text-dim);
+}
+.cv-message__via {
+  flex: none;
+  margin-left: auto;
+  color: var(--cv-text-dim);
+  font-size: 12px;
+}
+/* The message, two lines until opened (the Codex app's "Sent by … / Show more" bubble). */
+.cv-message__body {
+  /* A margin, not padding: a clamped box clips at its padding edge, so padding would show a
+     sliver of the third line. */
+  margin: 0 10px 7px 32.5px;
+  max-height: 240px;
+  overflow: auto;
+  color: var(--cv-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.cv-message__body.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.cv-message__more {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: -6px 0 7px 32.5px;
+  color: var(--cv-text-dim);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.cv-message__more:hover {
+  color: var(--cv-text);
+}
+.cv-message__more:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+}
+.cv-rotor.is-flipped {
+  transform: rotate(180deg);
+}
+.cv-message .cv-tool-output {
+  margin: 0 10px 8px 32.5px;
+}
+
+/* Copy under an answer; the row's height is reserved. */
+.cv-turn-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  margin-left: -4.5px;
+  color: var(--cv-text-muted);
+  font-family: var(--cv-font);
+  font-size: 13px;
+}
+.cv-iconbtn {
+  all: unset;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-iconbtn:hover {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
+}
+.cv-turn-summary,
+.cv-turn-note,
+.cv-turn-time {
+  color: var(--cv-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.cv-turn-summary {
+  margin-left: 4.5px;
+}
+
+/* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
+ * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
+ * `opacity` never move layout, so nothing below shifts. Off under Reduce Motion and when
+ * ui.animationSpeed is off (the token is 0). */
+@keyframes cv-enter {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-enter,
+  .acpmux-row--enter {
+    animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
+/* R104: an open fence draws plain lines in Pierre's metrics (12px on 20px lines, no wrap), so its
+ * height is final as it grows; Pierre highlights it once when it closes (StreamingCode.tsx). */
+.cv-code-plain {
+  margin: 0;
+  padding: 0 12px 0 8px;
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--cv-codeblock-text);
+  white-space: pre;
+}
+.cv-code-plain__line {
+  min-height: 20px;
+}
+/* The highlighted card waits underneath the plain one until Pierre has painted, then fades in
+ * over it; the plain card leaves when that fade ends. */
+.cv-code-handoff {
+  position: relative;
+}
+.cv-code-handoff.is-plain .cv-code-handoff__real,
+.cv-code-handoff.is-fading .cv-code-handoff__real {
+  position: absolute;
+  inset: 0 0 auto 0;
+  pointer-events: none;
+}
+.cv-code-handoff.is-plain .cv-code-handoff__real {
+  opacity: 0;
+}
+@keyframes cv-enter-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-code-handoff.is-fading .cv-code-handoff__real {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
+/* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
+ * compositor. The text holds its final layout while transparent, so no line ever reflows. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-fresh {
+    animation: cv-enter-fade 160ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+}
+
+/* R104: the live edge, a soft bar after the newest character while a reply streams. It takes no
+ * width (the bar is absolutely placed), so the text never reflows when it leaves. It pulses only
+ * while the reveal has caught up and waits for more. */
+.cv-caret {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  vertical-align: -0.12em;
+}
+.cv-caret::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.05em;
+  width: 0.5em;
+  height: 0.9em;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cv-text) 55%, transparent);
+}
+@keyframes cv-caret-wait {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-md.is-waiting .cv-caret::after {
+    animation: cv-caret-wait 1s ease-in-out infinite;
+  }
+}

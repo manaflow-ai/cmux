@@ -93,6 +93,13 @@ object{
   layout:Layout,
   viewport_base_width?:float32,
   viewport_splits?:array<object{split:Id,width:float32}>,
+  columns?:array<object{
+    id:Id,
+    width:float32,
+    layout:Layout,
+    dock?:object{edge:"left"|"right"|"top"|"bottom",mode:"docked"|"overlay"},
+    rows?:array<object{id:Id,height:uint16,layout:Layout}>
+  }>,
   panes:array<Pane>
 }
 ```
@@ -100,6 +107,14 @@ object{
 Servers advertising `viewport-splits-v1` include `viewport_splits` when a screen uses horizontal viewport columns. Each entry marks a right split whose second child is appended to a horizontal virtual canvas. `width` is the second child's width as a fraction of each frontend's viewport. Ordinary screens omit the field. Clients that do not implement the capability may ignore it and render the split's fallback ratio.
 
 Servers advertising `viewport-column-resize-v1` include `viewport_base_width` when horizontal viewport layout is active. It is the width of the first column as a fraction of the frontend viewport. A missing value defaults to `1.0`.
+
+`columns` lists the horizontal viewport columns in order while viewport layout is active and is omitted otherwise. `id` is the column's stable id (also `after_column` in `move-tab-to-column`), `width` its fraction of the frontend viewport, and `layout` the split tree inside it.
+
+Servers advertising `dock-columns-v1` add `dock` to a column pinned with `set-column-dock` and omit it for a scrolling column. `edge` is the viewport edge the frontend keeps the column at while the other columns scroll. With `mode:"docked"` the column's width is taken out of the scrolling area; with `mode:"overlay"` it floats above the scrolling columns. A screen has at most one docked column per edge and always at least one scrolling column. `columns` keeps the stored order, so a client without the capability renders a docked column in place. The flag moves with the column, persists across daemon restarts, is restored by `undo-layout`, and disappears with the column. A new column is never docked unless `move-tab-to-column` names `dock`. When removing columns would leave only docked columns, the server clears their flags; when the screen collapses to one column, `columns` is omitted.
+
+Servers advertising `edge-docks-v1` also pin columns to the `top` or `bottom` edge: a screen-wide band the frontend draws above or below the scrolling columns. Such a column carries `dock` (same shape as `dock`) instead of `dock`, so a client without the capability renders it as an ordinary column. The per-edge, at-least-one-scrolling and normalization rules cover all four edges. A top or bottom pin persists outside the screen's stored viewport record, so a daemon without the capability reads the column as an ordinary one.
+
+Servers advertising `rows-v1` add `rows` to a column with two or more rows and omit it for a column with one row. Each column is a vertical strip of rows, top to bottom: `id` is the row's stable id, `height` its height in permille of the column's viewport height (100 to 1000; the sum is not fixed, at most 1000 fills the column and more scrolls it), and `layout` the split tree inside the row. The column's `layout` stays the compatibility chain: the rows folded into `down` splits whose `split` ids are the ids of rows 2..n and whose ratios follow the heights, so a client without the capability still sees every pane. `set-split-ratio` and `set-ratio` refuse such a synthetic split with `row-split-compat-readonly`; resize rows with `set-row-heights`. One column with two or more rows keeps `columns`; a removal that leaves one column with one row collapses the screen to its split tree. An emptied row is removed in the same commit. Rows persist across daemon restarts outside the screen's stored viewport record and are restored by `undo-layout`. `workspace.layout.apply` on a screen with rows is refused (`operation.failed`, `reason_code: "rows-layout-replace-unsupported"`) and changes nothing, because layout documents do not carry rows yet. A column keeps its `id` when it is left as the only column of rows and when a second column joins it, across daemon restarts too; the only column fills the screen width (`width` 1.0). A row keeps its `id` for its lifetime, and no row or column id is ever reused.
 
 `Layout`:
 
@@ -161,14 +176,16 @@ every tab: `"daemon"` for a CDP browser, `"frontend"` for a browser whose page
 the frontend renders, and null for a PTY. Frontend browsers also report
 `browser_engine` (`"webkit"` or `"cef"`), `favicon_url`, and
 `browser_profile_id`, and report null `browser_status`/`browser_error`. Their
-`url` and `title` are the values the frontend last recorded.
+`url` and `title` are the values the frontend last recorded. Servers advertising
+`frontend-browser-owner-v1` also report `browser_owner`, the install id of the
+app that hosts the page (null when no app has claimed it).
 
 Servers advertising `tab-groups-v1` add `tab_groups` to every pane, in strip
 order: `array<object{id:string, name:string, color:string, collapsed:bool,
 saved_id:string|null, start:usize, count:usize, surfaces:array<Id>}>`, and
 `group:string|null` to every tab. `start` is the strip index of the group's
 first tab. Group members are contiguous; a tab another path moved away from
-its group's run is reported ungrouped. Colors are Chrome's nine: `grey`,
+its group's run is reported ungrouped. Colors are nine: `grey`,
 `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan`, `orange`.
 
 The `dead` pane variant is serialized only if the tree references a pane missing from state. That should not occur in normal operation, but clients must tolerate it.
@@ -293,11 +310,14 @@ Result:
 object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:string|null,protocol:uint32,capabilities:array<string>,session:string,pid:uint32,session_id?:string,machine_name?:string,registry_id:string,generation:string,workspace_revision:uint64}
 ```
 
-With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the session's launch snapshot, or `null` when the session has no durable registry. The daemon keeps that owner-only JSON file next to its registry: `{schema_version:1, app:"cmux-tui", version, session, registry_id, generation, written_at_ms, tree, frontend_projections}`, where `tree` is the `list-workspaces` result and `frontend_projections` lists every native frontend projection (`{frontend, scope, subject_key, schema_version, projection_revision, projection}`; omitted as `[]` when the file would exceed 8 MiB). It is rewritten atomically (temporary file and rename) once changes to the tree, layout or projections settle (a title change alone does not rewrite it, so titles are those of the last write) (500 ms after the last change, at most 3 s after the first), once at daemon start, and never while nothing changes. A frontend may read it before it connects, to draw the last known layout, and must replace it with live state after `identify`; the daemon never reads it, so it is never a second source of truth.
+With `launch-snapshot-v1`, `launch_snapshot_path` is the absolute path of the session's launch snapshot, or `null` when the session has no durable registry. The daemon keeps that owner-only JSON file next to its registry: `{schema_version:1, app:"cmux-tui", version, session, registry_id, generation, written_at_ms, tree, personal, frontend_projections}`, where `tree` is the `list-workspaces` result, `personal` is the `list-personal` result without room `defaults.env` (or `null` when it cannot be read), and `frontend_projections` lists every native frontend projection (`{frontend, scope, subject_key, schema_version, projection_revision, projection}`; omitted as `[]` when the file would exceed 8 MiB). It is rewritten atomically (temporary file and rename) once changes to the tree, layout, personal state or projections settle (a title change alone does not rewrite it, so titles are those of the last write) (500 ms after the last change, at most 3 s after the first), once at daemon start, and never while nothing changes. A frontend may read it before it connects, to draw the last known layout, and must replace it with live state after `identify`; the daemon never reads it, so it is never a second source of truth.
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises Chrome-style screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `pane-browser-kind-v1` advertises `kind` and `url` on `split` and `new-pane-right`: `kind:"browser"` with a non-empty `url` puts a browser tab at that URL in the new pane, through the same `pane.split` commit and restart recovery as a terminal pane; public `pane.split` stays terminal-only. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `dock-columns-v1` advertises `set-column-dock` and the optional `Screen.columns[].dock` field for every edge; the resource API operation `column.update` (resource-operations-v2.json) sets the same flag and the column width. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises Chrome-style tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `tab-workspace-name-v1` advertises the optional `name` field on `move-tab-to-new-workspace`: the new workspace takes that name in the same commit. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `fs-v1` advertises the `fs.*` file ops and their byte streams (see "File system (fs-v1)"); only cmux Cloud hosts serve it. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises Chrome-style screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `terminal-frontend-shell-integration-v1` lets a frontend that resolves Ghostty's shell integration itself (from the user's `shell-integration` and `shell-integration-features`, into the terminal's `env` and `shell_args`) echo it in `set-client-info`; the terminals that connection creates with a `SHELL` in `env` then run that shell exactly as given (stored as `argv`), with no host-added integration, on `new-tab`, `split`, `new-pane`, `new-pane-right`, `new-row`, `create-terminal`, and a terminal `respawn`; without a `SHELL` the host integrates as before. `new-workspace`, `new-screen` and the reopen-saved-group commands take no `env` and keep the host integration. `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `state-resources-v1` advertises the `cmux.protocol/2` state resources (workspace metadata, tab pins and tab groups, personal workspace groups, rooms and saved tab groups, screen metadata, order and screen groups, closed history, ephemeral workspaces, and workspace status, progress and log; see `resource-api-v2.md`), `extra.state` on session snapshots, and `state_upsert`/`state_delete` changes on `session.events`. `window-records-v1` advertises `window_record.list`, `window_record.put` and `window_record.delete` (see `resource-api-v2.md`). `frontend-browser-owner-v1` advertises `owner` on `new-frontend-browser-tab` and `update-frontend-browser-tab`, `Tab.browser_owner`, `tab.update {owner}` and the tab's `extra.owner`. `frontend-browser-tab-keys-v1` advertises `idempotency_key` on `new-frontend-browser-tab` and `replayed` in its result: a retry with the same key returns the tab the first request created. The raw screen commands of `screen-metadata-v1` and `screen-groups-v1` and the v2 `screen.*` and `screen_group.*` operations read and write one storage and publish the same changes. `workspace-kind-v1` advertises `workspace.ensure_home` and `extra.kind` on workspace snapshots (see `resource-api-v2.md`). `conversation-tabs-v1` advertises `new-conversation-tab`, the canonical `conversation` tab kind, and `capabilities` on `client.metadata.update`; a client that echoes it in `set-client-info` or `client.metadata.update` reads conversation tabs in their canonical form. `bookmarks-v1` advertises one bookmark tree per browser profile: `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, the `bookmarks-changed` event, and `deleted_bookmarks` in the `delete-browser-profile` result. `origin-claim-v1` advertises `client-hello` step 1, the optional `origin` claim on `cmux.protocol/2` requests, and `origin.confirmation.issue` (see "client-hello" and `resource-api-v2.md`, "Request origin").
+.
+
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `pane-browser-kind-v1` advertises `kind` and `url` on `split` and `new-pane-right`: `kind:"browser"` with a non-empty `url` puts a browser tab at that URL in the new pane, through the same `pane.split` commit and restart recovery as a terminal pane; public `pane.split` stays terminal-only. `dock-columns-v1` advertises `set-column-dock` and the optional `Screen.columns[].dock` field for every edge. `edge-docks-v1` advertises the edges `top` and `bottom` on `set-column-dock` and on `dock` in `move-tab-to-column` (the `dock` field itself needs `dock-columns-v1`). `rows-v1` advertises `new-row`, `set-row-heights`, and the optional `Screen.columns[].rows` field. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits. `terminal-idle-close-v1` advertises `set-terminal-idle-policy` and the owner-side reaper that closes a terminal after its policy elapses with no attached view. `terminal-pending-sequence-v1` advertises the separate `pending` field on byte-attach `vt-state` and `resized` events; a client that echoes it in `set-client-info` receives it (see `events.md`). `terminal-placement-env-v1` advertises a caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and `new-pane-right`, `cwd` and `env` on `new-pane` and `new-pane-right`, and `terminal_id`/`terminal_incarnation` in all four results. `terminal-resources-v1` advertises `terminal-resources`, which reads the CPU time and memory of each terminal's shell, descendants, and terminal host at request time. `batch-close-v1` advertises `close-tabs` and the optional `end_terminals` field on `close-pane`, `close-screen`, `close-workspace`, and `close-tab-group`: many placements and the terminals they end close in one durable commit. `end-terminals-keep-layout-v1` advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`, placed terminals keep their tabs across the handoff. `terminal-reap-v1` advertises the owner-side reaper that ends a terminal after it has had no tab placement for the reap grace period (active only when the daemon was started with `--terminal-reap-grace-seconds`), `set-terminal-keep`, the `keep` field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped` event, and `end_terminals` on `shutdown-daemon`. `terminal-env-v1` advertises the per-terminal `env` object on `new-tab`, `split`, and `create-terminal`, and `cwd` on `split`. `tab-groups-v1` advertises tab groups: the `*-tab-group` commands, `Pane.tab_groups`, and `Tab.group`. `saved-tab-groups-v1` advertises saved groups: `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `list-saved-tab-groups`, and `reopen-saved-tab-group`. `notification-ack-v1` advertises `ack-tab-notifications`, `list-notifications`, durable notification acknowledgement, and `Workspace.unread_count`. `tab-drag-v1` advertises the single-command tab drag outcomes `move-tab-to-split`, `move-tab-to-column`, and `move-tab-to-new-workspace`, layout undo for same-screen tab drags and cross-pane `move-tab`, and the optional `transaction` field on every drag command, echoed in the resulting `tab-changed` delta. `tab-workspace-name-v1` advertises the optional `name` field on `move-tab-to-new-workspace`: the new workspace takes that name in the same commit. `tab-split-respawn-v1` advertises `respawn` on `move-tab-to-split`: a pane's only tab dropped on its own pane's edge splits that pane and leaves a fresh tab of the same kind behind. `tab-column-respawn-v1` advertises `respawn` on `move-tab-to-column`: a pane's only tab moves into the new column and leaves a fresh tab of the same kind in its pane. `frontend-browser-tabs-v1` advertises `new-frontend-browser-tab`, `update-frontend-browser-tab`, and the frontend browser tab fields. `frontend-browser-history-v1` advertises `set-frontend-browser-history` and `get-frontend-browser-history`: an opaque per-tab session history object for frontend-rendered browsers, stored durably outside the tree. `tab-metadata-v1` advertises `set-tab-pinned`, pinned-first tab order, the `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, and `Tab.git_detached` fields, and the `tab-changed` delta. `workspace-metadata-v1` advertises `set-workspace-metadata`, the `Workspace.color`, `Workspace.icon`, and `Workspace.title` fields, and the `workspace-changed` delta. `workspace-pin-v1` advertises the `pinned` field on `set-workspace-metadata` and `Workspace.pinned`. `notification-mark-unread-v1` advertises the `marked_unread` field on `set-workspace-metadata` and `Workspace.marked_unread`. `workspace-groups-v1` advertises durable sidebar groups: the `*-workspace-group` commands, `move-workspace-to-group`, `Tree.groups`, and `Workspace.group`. `loopback-forward-v1` advertises multiplexed TCP streams to the daemon machine's own loopback services (see "Loopback forwarding"); a Unix client echoes it in `set-client-info` before its first `loopback-open`. `fs-v1` advertises the `fs.*` file ops and their byte streams (see "File system (fs-v1)"); only cmux Cloud hosts serve it. `session-identity-v1` advertises `identify.session_id` (the durable `registry_id`, stable across restarts and upgrades) and `identify.machine_name` (the host name, at most 255 bytes, no control characters). `profiles-v1` advertises the home session's personal state: `list-personal`, the `*-profile` room commands, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `import-session-organization`, the `*-personal-group` commands, `set-personal-workspace`, and the `personal-changed` event. `personal-terminals-v1` advertises `set-personal-terminal` and `list-personal.terminals`. `screen-metadata-v1` advertises `set-screen-metadata`, `set-screen-pinned`, `move-screen`, the `screen_name`, `color`, `icon`, `pinned`, `index`, `group`, and `cwd` fields on `new-screen` (whose result then also carries `screen`), the `Screen.color`, `Screen.icon`, `Screen.pinned`, and `Screen.group` fields, and the `screen-changed` delta. `screen-groups-v1` advertises screen groups: the `*-screen-group` commands, saved screen groups, and `Workspace.screen_groups`. `browser-profiles-v1` advertises browser profile records in personal state: `browser_profiles` in `list-personal` and `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, and `delete-browser-profile`. `conversation-search-v1` advertises `conversation-search` on the local conversation owner. `local-conversations-v1` advertises the local conversation owner on trusted local connections: `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-op`, `conversation-typing`, `conversation-bind`, `conversation-agent-token`, and the `conversation-changed` and `conversation-typing` events. `notification-source-v1` advertises `source` on `notify`, the `notification` event, the tab `notification` marker, and `list-notifications` rows (`extra.source` in resource notification snapshots), and daemon-side desktop notifications from terminal output (OSC 9, OSC 777 `notify`, kitty OSC 99) with source `terminal`. `terminal-shell-args-v1` advertises `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and `create-terminal`: the terminal runs its `SHELL` from `env` (else the daemon's default shell) with those arguments, so a frontend can apply Ghostty's argv-based shell integration (bash `--posix` with `ENV`, nushell `--execute`). `terminal-frontend-shell-integration-v1` lets a frontend that resolves Ghostty's shell integration itself (from the user's `shell-integration` and `shell-integration-features`, into the terminal's `env` and `shell_args`) echo it in `set-client-info`; the terminals that connection creates with a `SHELL` in `env` then run that shell exactly as given (stored as `argv`), with no host-added integration, on `new-tab`, `split`, `new-pane`, `new-pane-right`, `new-row`, `create-terminal`, and a terminal `respawn`; without a `SHELL` the host integrates as before. `new-workspace`, `new-screen` and the reopen-saved-group commands take no `env` and keep the host integration. `launch-snapshot-v1` advertises `launch_snapshot_path` in `identify` and the launch snapshot file described there. `bookmarks-v1` advertises one bookmark tree per browser profile: `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, the `bookmarks-changed` event, and `deleted_bookmarks` in the `delete-browser-profile` result. `origin-claim-v1` advertises `client-hello` step 1, the optional `origin` claim on `cmux.protocol/2` requests, and `origin.confirmation.issue` (see "client-hello" and `resource-api-v2.md`, "Request origin").
 
 Errors:
 
@@ -343,10 +363,13 @@ Params:
 | `generation` | `string` | required | Exact daemon boot generation from `identify` |
 | `force` | `boolean` | `false` | Requires `daemon-handoff-force-v1`; bypasses native-browser ownership only |
 | `end_terminals` | `boolean` | `false` | Requires `terminal-reap-v1`; ends every terminal and removes its tabs before the handoff |
+| `keep_layout` | `boolean` | `false` | Requires `end-terminals-keep-layout-v1` and `end_terminals`; placed terminals keep their tabs |
 
 Result: `object{accepted:true,pid:uint32,generation:string,ended_terminals?:uint64|null}`.
 
 A normal shutdown keeps terminal hosts alive for the next owner. With `end_terminals`, the daemon ends every terminal through the `close-terminal` path, waits for their hosts to exit, and reports the count in `ended_terminals`. A host still running after its close deadline (it ignored termination) is killed, and the call succeeds only once every terminal host of the session is provably dead; otherwise it fails and the daemon keeps serving. Test harnesses use it so a run leaves no terminal host or PTY behind. A failure to end a terminal cancels the handoff and the daemon keeps serving.
+
+With `keep_layout` as well, every terminal still ends, but a terminal shown in a tab keeps its tabs. Before any terminal ends, the workspace store records each kept tab with the directory its shell is in (`kept_tabs`, keyed by tab resource id; the session host supplies the directory: the foreground process's, else the OSC 7 or launch directory). A tab in `kept_tabs` is never removed by its terminal's exit, now or at the next owner's startup reconciliation. Each terminal's own exit records its outcome as usual; no layout decision reads it. If the handoff fails, the records of terminals that did not end are removed. The next owner shows the same workspaces, screens, split layout, ratios, panes and tab resource ids; each kept tab is `dead`, has no terminal behind it, and carries `relaunch: {cwd}` in `list-workspaces` (only while its terminal has ended). A frontend starts a new shell there (cmux opens a new tab in the same pane, in `cwd`, and closes the dead one); a closed kept tab's record is inert and pruned on the next write. Terminals without a tab end as with `end_terminals` alone. `keep_layout` without `end_terminals` is refused with `bad request: keep_layout requires end_terminals`.
 
 Until the response is sent the handoff can still fail, so the daemon keeps every connection open. A request that arrives meanwhile, on the requester's own connection (for example a subscriber's snapshot refresh triggered by the ended terminals) or another one, gets an error response (`daemon shutdown is in progress; request was not executed`, or `operation.failed` with reason `daemon_handoff_pending` on the resource protocol) and is not executed. After the successful response, further messages close the connection.
 
@@ -391,6 +414,43 @@ Example:
 {"id":2,"cmd":"ping"}
 {"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12}}
 ```
+
+### set-terminal-command-history
+
+| Field | Value |
+| --- | --- |
+| name | `set-terminal-command-history` |
+| status | implemented |
+| since | protocol 12, capability `terminal-command-journal-v1` |
+
+Turns terminal command history on or off for this daemon. Off by default, and
+off again after every daemon start (the setting is never persisted), so a
+client that wants history turns it on after each connect. Trusted local
+(Unix-classified) connections only.
+
+While on, the daemon tracks OSC 133 shell-integration marks in each terminal's
+output (`A` prompt start, `B` input start, `C` command start, `D[;exit]`
+command end) and appends one `shell.command.finished` journal record per
+finished command, from the reserved producer `cmux_shell` (class observation,
+sensitivity sensitive, subject the terminal and its ancestors):
+`{command, cwd, exit_code, started_at_ms, duration_ms}`. `command` is the text
+of the newest block of cells Ghostty marks as input (after `B`, until `C`),
+read at `C`: the semantics are assigned byte by byte while the output is
+parsed, so typeahead, prompt redraws and reflow do not change it. It is
+trimmed, without control characters and cut at 1 KiB; null on the alternate
+screen or when no input cell is found. `cwd` is the local path of the OSC 7
+directory at `C` (null when it names another host); times are decimal
+strings. A `D` without a `C` (an empty Enter) records nothing; an `A` while a
+command runs ends it with a null `exit_code`. A terminal records at most 10
+commands a second; one daemon worker appends them in order from a queue of
+256 (more drop with a diagnostic). While off, marks are dropped and the
+screen is never read. Only the daemon writes `cmux_shell` records:
+`session.journal.append` refuses that producer and it cannot be installed
+or replaced as a plugin. The switch is one daemon-wide value that any
+trusted local client sets (not per client), and turning it off keeps the
+records already written.
+
+Params: `{enabled: bool}`. Result: `{enabled: bool}`.
 
 ### server-stats
 
@@ -448,6 +508,51 @@ stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
 
+### client-hello
+
+| Field | Value |
+| --- | --- |
+| name | `client-hello` |
+| status | implemented (step 1) |
+| since | capability `origin-claim-v1` |
+
+Fixes the role of a local control connection for request origin
+(`resource-api-v2.md`, "Request origin"). It is accepted only as the
+connection's first line, or as its second line right after exactly one
+`identify`; any other line first (a second `identify` included) closes the
+hello window. The role is fixed for the life of the connection;
+`set-client-info` never sets it. A connection that sends no `client-hello` has
+the legacy client role: it is never `page_relay` and never `user`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `role` | `string` | required | `main` (the app's own connection) or `page_relay` (relays a page's requests) |
+| `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; validated now, proven by peer verification later |
+
+Result: `object{connection_id:string}`, the daemon's id for this connection
+(the `relay_connection_id` of `origin.confirmation.issue`). Step 1 returns no
+nonce.
+
+Errors (`error_code`; none changes state, and each closes the hello window):
+
+| Code | When |
+| --- | --- |
+| `client_hello.local_only` | the connection is not a local Unix socket connection |
+| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed |
+| `client_hello.window_closed` | after any other line, after two `identify` lines, or a second `client-hello` |
+
+A `page_relay` connection derives origin `page` on every request and may not
+`subscribe` (`origin.forbidden`, `error_details {derived: "page"}`).
+
+Example:
+
+```json
+{"id":1,"cmd":"client-hello","role":"page_relay"}
+{"id":1,"ok":true,"data":{"connection_id":"42"}}
+```
+
 ### set-client-info
 
 | Field | Value |
@@ -471,7 +576,8 @@ Params:
 | `device_name` | `string` | default unchanged | Shared sizing identity |
 | `device_id` | `string` | default unchanged | Stable per-install device id; tells two devices of one user apart and extends the priority key |
 
-Identity fields are clamped like `name`. A connection that sends
+`set-client-info` labels a connection; it never sets the `client-hello` role
+or the request origin. Identity fields are clamped like `name`. A connection that sends
 `shared-sizing-v1` in `capabilities` receives `size-state` events on its
 subscribe and attach streams and `participant`/`size_state` in terminal
 `attach-surface` responses.
@@ -1450,6 +1556,40 @@ Example:
 {"id":7,"ok":true,"data":{"surface":8}}
 ```
 
+### new-conversation-tab
+
+| Field | Value |
+| --- | --- |
+| name | `new-conversation-tab` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-tabs-v1` |
+
+Creates a tab that shows one conversation (`conversation`, a `conv_` id) of
+the `local` or `cloud` conversation owner, in `pane`, in `workspace` (its
+active pane, or a first pane when the workspace is empty, as the home
+workspace is), or in the focused pane. The
+store records the conversation and the owner with the tab's frontend record
+in one commit and never reads conversation content. With `origin` and
+`mutation_id` (sent together) a retry returns the tab the first request
+created with `replayed:true`; a retry after a crash creates the tab under the
+recorded content id; a retry after that tab was closed fails with
+`error_code:"frontend_browser_key_closed"` and creates nothing (send a new key
+for a new tab). The CLI has no verb for it.
+
+On the wire the tab's canonical kind is `conversation`: raw tree tabs carry
+`kind:"conversation"` and `conversation:{conversation, owner}`, and resource
+API tab snapshots carry `content_kind:"conversation"` and
+`extra.conversation`. A connection that did not declare
+`conversation-tabs-v1` (raw `set-client-info` or `client.metadata.update
+{capabilities}`) reads `browser` in both places, in responses and in
+`session.events` and `session.journal.subscribe` stream items alike. Every
+browser command and browser operation refuses the tab.
+
+Params: `conversation`, `owner` (required); `pane` or `workspace`, `origin`, `mutation_id`,
+`cols`, `rows` (optional).
+
+Result: `object{surface, tab_resource_id, content_resource_id, conversation:{conversation, owner}, replayed}`
+
 ### new-frontend-browser-tab
 
 | Field | Value |
@@ -1480,13 +1620,31 @@ Params:
 | `title` | string | optional | At most 2048 characters |
 | `favicon_url` | string | optional | As `url` |
 | `profile_id` | string | optional | 1-128 printable ASCII characters; frontend profile (cookies, extensions) |
+| `owner` | string | optional | Install id of the hosting app, 1-128 ASCII letters, digits, `-`, `_`, `.`, `:`; capability `frontend-browser-owner-v1` |
+| `idempotency_key` | string | optional | 1-128 bytes, not blank, no control characters; capability `frontend-browser-tab-keys-v1` |
 | `cols`, `rows` | uint16 | optional, together | Initial size hint |
 
 Result:
 
 ```text
-object{surface:Id, tab_resource_id:string, content_resource_id:string}
+object{surface:Id, tab_resource_id:string, content_resource_id:string, replayed:bool}
 ```
+
+With `idempotency_key`, the key commits with the browser record before the
+tab commits, and keyed creations run one at a time, so a retry that arrives
+while the first request still runs waits for it. A retry with the same key
+and the same request returns the tab the first request created with
+`replayed:true`; after a crash between the two commits it creates the tab
+under the recorded browser id; after that tab was closed it fails with
+`error_code:"frontend_browser_key_closed"` and creates nothing (send a new key
+for a new tab). A browser id belongs to at most one tab, ever: a closed tab
+keeps its id as a tombstone, and the daemon refuses any creation that would
+bind a committed browser id to another tab
+(`error_code:"frontend_browser_bound"`) before it records a receipt. The same key with a different
+request (`url`, `engine`, `pane`, `title`, `favicon_url`, `profile_id`,
+`owner`; the size hint does not count) fails with an `idempotency.conflict`
+error and creates nothing. Without a key every request creates a tab and
+`replayed` is false.
 
 ### update-frontend-browser-tab
 
@@ -1509,11 +1667,66 @@ Params:
 | `url` | string | optional | As in `new-frontend-browser-tab` |
 | `title` | string | optional | As in `new-frontend-browser-tab` |
 | `favicon_url` | string or null | optional | As `url`; null clears |
+| `owner` | string | optional | As in `new-frontend-browser-tab` |
 
 Result:
 
 ```text
-object{surface:Id, url:string, title:string|null, favicon_url:string|null, changed:bool}
+object{surface:Id, url:string, title:string|null, favicon_url:string|null, owner:string|null, changed:bool}
+```
+
+### set-frontend-browser-history
+
+| Field | Value |
+| --- | --- |
+| name | `set-frontend-browser-history` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `frontend-browser-history-v1` |
+
+Stores the session history a frontend keeps for a frontend-rendered browser
+tab (back/forward entries, scroll) so it can restore them after a relaunch.
+The daemon treats the object as opaque: it checks only that it is a JSON
+object and that its compact serialization is at most 64 KiB, then replaces
+any stored history. `history:null` clears it. The history is not
+presentation state: it is not journaled, emits no event, and never appears
+in tab JSON, tree snapshots, or deltas. It lives as long as the browser's
+frontend record. Fails for a tab that is not frontend-rendered.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Frontend browser tab |
+| `history` | object or null | required | At most 64 KiB serialized; null clears |
+
+Result:
+
+```text
+object{surface:Id}
+```
+
+### get-frontend-browser-history
+
+| Field | Value |
+| --- | --- |
+| name | `get-frontend-browser-history` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `frontend-browser-history-v1` |
+
+Reads the session history last stored with `set-frontend-browser-history`.
+`history` is null when none is stored. Fails for a tab that is not
+frontend-rendered.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Frontend browser tab |
+
+Result:
+
+```text
+object{surface:Id, history:object|null}
 ```
 
 ### new-workspace
@@ -1798,6 +2011,8 @@ Params:
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
+| `kind` | `string` | default `"pty"` | With `pane-browser-kind-v1`: `"pty"` or `"browser"` |
+| `url` | `string` | default null | With `pane-browser-kind-v1`: required and non-empty with `kind:"browser"`, refused otherwise |
 
 Result:
 
@@ -1812,6 +2027,7 @@ Errors:
 | `pane <id> has no workspace` | Target pane is not in a screen |
 | `viewport pane width must be between 0.1 and 1.0` | `width` is outside the supported range |
 | `pane creation failed` | PTY creation or child spawn fails; raw runtime details are logged internally only |
+| `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -1845,7 +2061,7 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `pane` | `Id` | required | Must belong to a screen with viewport columns |
+| `pane` | `Id` | required | Any pane; a screen without `columns` is one implicit column |
 | `width` | `float32` | required | Finite value from 0.1 through 1.0 |
 | `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
@@ -1876,6 +2092,148 @@ Example:
 ```json
 {"id":12,"cmd":"set-viewport-pane-width","pane":15,"width":0.5}
 {"id":12,"ok":true,"data":{}}
+```
+
+### set-column-dock
+
+| Field | Value |
+| --- | --- |
+| name | `set-column-dock` |
+| status | implemented |
+| since | protocol 12 additive capability `dock-columns-v1` |
+
+Pins the horizontal viewport column containing `pane` to a viewport edge, or unpins it. Pinning an edge that another column holds unpins that column in the same commit. Pinning a column that holds the other edge moves it. Unpinning a column that is not docked succeeds and changes nothing; so does any request that matches the current flags. Width, column order, the splits and tabs inside the column, and focus are unchanged. A change is a structural layout change: it advances the screen's layout revision, records one `undo-layout` entry, persists, and emits `screen-changed` and then `layout-changed`. See `Screen.columns[].dock`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Must belong to a screen with viewport columns |
+| `dock` | boolean | required | `false` unpins |
+| `edge` | string | default `"right"` | `"left"` or `"right"`, and `"top"` or `"bottom"` with `edge-docks-v1`; validated even when `dock` is false |
+| `mode` | string | default `"docked"` | `"docked"` or `"overlay"`; validated even when `dock` is false |
+| `transaction` | `uint64` | default null | Changes with the same connection and transaction coalesce into one undo entry |
+
+Result:
+
+```text
+object{column:Id,dock:object{edge:"left"|"right",mode:"docked"|"overlay"}|null,transaction?:uint64}
+```
+
+`column` is the column's `Screen.columns[].id` and `dock` its flag after the request. A screen without `columns` is one implicit column: pinning it fails with `dock-column-last-scrolling` (at least one column must scroll) and unpinning succeeds with `column: 0` and no change. `transaction` echoes the request's value and is omitted when the request had none. The `screen-changed` delta of a change carries the same transaction as a decimal string (the delta's `transaction` field is a string).
+
+Errors:
+
+| Error | `error_code` | Condition |
+| --- | --- | --- |
+| `pane <id> has no viewport column` | `viewport-column-not-found` | Pane is unknown |
+| `at least one column must scroll` | `dock-column-last-scrolling` | The change would leave no scrolling column |
+| `bad edge ...` / `bad mode ...` | `invalid-argument` | `edge` or `mode` is not one of the listed strings |
+| `bad request: ...` | none | Missing fields or wrong JSON type |
+
+CLI mapping: none. The resource CLI has no verb for this command; frontends send it directly.
+
+Example:
+
+```json
+{"id":13,"cmd":"set-column-dock","pane":15,"dock":true,"edge":"left","mode":"overlay","transaction":7}
+{"id":13,"ok":true,"data":{"column":14,"dock":{"edge":"left","mode":"overlay"},"transaction":7}}
+{"id":14,"cmd":"set-column-dock","pane":15,"dock":false}
+{"id":14,"ok":true,"data":{"column":14,"dock":null}}
+```
+
+### new-row
+
+| Field | Value |
+| --- | --- |
+| name | `new-row` |
+| status | implemented |
+| since | protocol 12 additive capability `rows-v1` |
+
+Opens a new row of `height_permille` below the row of `pane`, in that pane's column, holding one new pane with one new terminal. On a screen without `columns` the screen's split tree first becomes the only row (height 1000) of one column. A column without `rows` first gets its one row (height 1000). The new pane is focused. The change records one `undo-layout` entry that closes the new pane, persists, and emits `screen-changed`. See `Screen.columns[].rows`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Live pane |
+| `height_permille` | `uint64` | required | 100 to 1000 |
+| `cols` | `uint16` | default null | Sizing hint; used only with `rows` |
+| `rows` | `uint16` | default null | Sizing hint; used only with `cols` |
+| `cwd` | string | default null | Working directory of the new terminal |
+| `env` | object<string> | default null | Extra environment for the new terminal's child |
+| `keep` | boolean | default false | Mark the new terminal `keep` |
+| `terminal_id` | string | default null | Caller-chosen terminal host id, as on `new-pane-right` |
+| `shell_args` | array<string> | default null | Arguments for the terminal's shell, as on `new-pane-right` |
+| `transaction` | string | default null | 1-128 printable ASCII characters; echoed in the result and in the commit's `screen-changed` delta |
+
+Result:
+
+```text
+object{surface:Id,pane:Id,terminal_id?:string|null,terminal_incarnation?:string|null,transaction?:string}
+```
+
+Errors:
+
+| Error | `error_code` | Condition |
+| --- | --- | --- |
+| `row height <h> must be between 100 and 1000 permille` | `row-height-out-of-range` | `height_permille` is out of range |
+| `unknown pane <id>` | none | Pane is unknown |
+| `bad request: ...` | none | Missing fields or wrong JSON type |
+
+CLI mapping: none yet.
+
+Example:
+
+```json
+{"id":15,"cmd":"new-row","pane":15,"height_permille":500}
+{"id":15,"ok":true,"data":{"surface":31,"pane":32,"terminal_id":"...","terminal_incarnation":"..."}}
+```
+
+### set-row-heights
+
+| Field | Value |
+| --- | --- |
+| name | `set-row-heights` |
+| status | implemented |
+| since | protocol 12 additive capability `rows-v1` |
+
+Sets every row height of one column at once (a divider release, Equalize Rows). `heights` must name exactly the column's rows (`Screen.columns[].rows[].id`), in any order. With `fit`, the heights must sum to 1000. A refused request changes nothing. A request that matches the current heights succeeds and changes nothing. A change is a structural layout change: it advances the screen's layout revision, records one `undo-layout` entry, persists, and emits `screen-changed` and then `layout-changed`. The layout reducer validates the request on the model of the live state before it commits.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `column` | `Id` | required | `Screen.columns[].id` of a column with `rows` |
+| `heights` | array<object{row:Id,height:uint64}> | required | Every row of the column exactly once; each height 100 to 1000 |
+| `fit` | boolean | default false | Requires a sum of exactly 1000 |
+| `transaction` | `uint64` | default null | Changes with the same connection and transaction coalesce into one undo entry, as viewport resizes do |
+
+Result:
+
+```text
+object{screen:Id,column:Id,changed:boolean,transaction?:uint64}
+```
+
+`transaction` echoes the request's value and is omitted when the request had none. The `screen-changed` delta of a change carries it as a decimal string.
+
+Errors:
+
+| Error | `error_code` | Condition |
+| --- | --- | --- |
+| `unknown column <id>` | `row-column-missing` | No screen has this column |
+| `the heights do not name exactly the rows of column <id>` | `row-set-stale` | The row set differs from the column's rows, or the column has no `rows` |
+| `row height <h> must be between 100 and 1000 permille` | `row-height-out-of-range` | A height is out of range |
+| `fitted heights sum to <s>, not 1000` | `row-fit-sum` | `fit` with a sum other than 1000 |
+| `bad request: ...` | none | Missing fields or wrong JSON type |
+
+CLI mapping: none yet.
+
+Example:
+
+```json
+{"id":16,"cmd":"set-row-heights","column":14,"heights":[{"row":40,"height":600},{"row":41,"height":400}],"fit":true}
+{"id":16,"ok":true,"data":{"screen":3,"column":14,"changed":true}}
 ```
 
 ### undo-layout
@@ -1962,6 +2320,8 @@ Params:
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
 | `shell_args` | `string[]` | default null | With `terminal-shell-args-v1`: arguments for the terminal's shell, its `SHELL` in `env` or else the daemon's default shell; none or empty keeps the bare shell |
+| `kind` | `string` | default `"pty"` | With `pane-browser-kind-v1`: `"pty"` or `"browser"` |
+| `url` | `string` | default null | With `pane-browser-kind-v1`: required and non-empty with `kind:"browser"`, refused otherwise |
 
 Result:
 
@@ -1976,6 +2336,7 @@ Errors:
 | `bad dir "<value>" (want "right" or "down")` | `dir` is not allowed |
 | `pane <id> not found` | Target pane is not in any screen split tree |
 | spawn or PTY error string | PTY creation or child spawn fails |
+| `bad request: <cmd> kind ...` | Unknown `kind`, `kind:"browser"` without `url`, `url` without `kind:"browser"`, or `cwd`, `env`, `keep`, `terminal_id` or `shell_args` with `kind:"browser"`; nothing is created |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
 CLI mapping:
@@ -2073,9 +2434,10 @@ Errors:
 | --- | --- |
 | `unknown split <id>` | No live split node has the id |
 | `split <id> ratio ... width must be between 0.1 and 1` | The live viewport split would require an unsupported column width; layout remains unchanged |
+| `split <id> joins two rows; resize rows with set-row-heights` | `rows-v1`: the split is a synthetic split of a column's row chain; layout remains unchanged |
 | `bad request: ...` | Missing fields or wrong JSON type |
 
-Missing targets return `error_code:"layout-ratio-target-missing"`. Unsupported viewport widths return `error_code:"layout-ratio-out-of-range"`.
+Missing targets return `error_code:"layout-ratio-target-missing"`. Unsupported viewport widths return `error_code:"layout-ratio-out-of-range"`. A synthetic row split returns `error_code:"row-split-compat-readonly"`.
 
 CLI mapping:
 
@@ -2330,11 +2692,14 @@ removes the tab from its pane, collapses an emptied pane and screen, keeps an
 emptied canonical workspace, and may emit `tree-changed`. Only explicit
 `close-workspace` can remove the workspace and produce `empty`.
 
+A tab whose terminal ended with `shutdown-daemon` `keep_layout` has no runtime
+surface after the restart (`dead: true`); it still closes by its `surface` id.
+
 Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Must identify a live surface |
+| `surface` | `Id` | required | Must identify a live surface or a placed tab |
 
 Result:
 
@@ -2556,7 +2921,7 @@ object{screen:Id,workspace:Id,key:string,index:uint}
 | status | implemented |
 | since | protocol 12 additive extension; capability `screen-groups-v1` |
 
-Creates a Chrome-style group from screens of one workspace. Members become contiguous at the position of the first; screens leave any group they were in. Pinned screens cannot be grouped. Emits `tree-changed` and a `screen-changed` per member.
+Creates a group from screens of one workspace. Members become contiguous at the position of the first; screens leave any group they were in. Pinned screens cannot be grouped. Emits `tree-changed` and a `screen-changed` per member.
 
 Params:
 
@@ -3993,8 +4358,7 @@ Params: `group` (string, required), `surfaces` (array of `Id`, required),
 | status | implemented |
 | since | protocol 12 additive extension; capability `tab-groups-v1` |
 
-Removes tabs from their groups; each lands just after its former group, as in
-Chrome. A group left without members disappears.
+Removes tabs from their groups; each lands just after its former group. A group left without members disappears.
 
 Params: `surfaces` (array of `Id`, required), `transaction` (string).
 
@@ -4037,7 +4401,7 @@ Params: `group`, `pane`, `edge` (`left`/`right`/`top`/`bottom`), `ratio`,
 | status | implemented |
 | since | protocol 12 additive extension; capability `tab-groups-v1` |
 
-Moves a whole group into a new niri column, in one commit.
+Moves a whole group into a new strip column, in one commit.
 
 Params: `group`, then `pane` or `screen`, `after_column`, `width`,
 `transaction`, as in `move-tab-to-column`.
@@ -4134,8 +4498,16 @@ Deletes a saved record by id; a linked live group stays, unlinked. Result:
 Result:
 
 ```text
-object{saved_groups:array<object{id:string, name:string, color:string, updated_at_ms:uint64, members:array<object{kind:"terminal", terminal_id:string|null, cwd:string|null, title:string|null} | object{kind:"browser", url:string, engine:string|null, profile_id:string|null, title:string|null}>}>}
+object{saved_groups:array<object{id:string, room:string, name:string, color:string, updated_at_ms:uint64, members:array<object{kind:"terminal", terminal_id:string|null, cwd:string|null, title:string|null} | object{kind:"browser", url:string, engine:string|null, profile_id:string|null, title:string|null}>}>}
 ```
+
+Saved tab groups are personal state of the home session
+(plans/cmux-next/state-ownership.md) and belong to one room (`room`, the
+`profiles-v1` room id; `default` for groups saved through these commands).
+The first open of a registry copies every shared `saved_tab_groups` row into
+the personal table in the `default` room; the shared table is read only by
+that migration. The `cmux.protocol/2` operations `saved_tab_group.*` address
+the same records.
 
 ### reopen-saved-tab-group
 
@@ -4265,7 +4637,23 @@ the moved tab's `tab-changed` delta, and returns
 Drops a tab on a pane edge: creates a pane beside `pane` on `edge` and moves
 the tab into it, in one atomic commit. The tab keeps its terminal or browser;
 nothing restarts. The source pane collapses when it loses its last tab. A tab
-cannot be split out of a pane where it is the only tab.
+cannot be split out of a pane where it is the only tab, unless the request
+carries `respawn`.
+
+With `tab-split-respawn-v1`, `respawn` splits the tab's own pane when the tab
+is that pane's only tab: the daemon first creates a fresh tab of the given
+kind in the pane, then moves the dragged tab into the new pane. The fresh tab
+is a new terminal (spawned like `new-tab` with `cwd`, `env`, `terminal_id`,
+and `shell_args`) or a new frontend browser tab (`url` and `engine` required,
+`profile_id`, as in `new-frontend-browser-tab`); it never copies the dragged
+tab's state. The layout reducer validates the whole operation, the created
+tab included, before either step runs. `respawn` on any other drop (another
+pane, or a pane with more tabs) is a bad request. The move commits only while
+the pane holds exactly the dragged and the fresh tab; if another client
+changed the pane in between, or the move fails after the fresh tab exists,
+the daemon closes the fresh tab again. A daemon that stops between the two
+steps keeps the fresh tab beside the dragged one. `undo-layout` of a
+respawn split moves the dragged tab back beside the fresh tab.
 
 When the source pane survives on the destination screen, the drag records one
 layout-undo entry: `undo-layout` on that screen moves the tab back to its
@@ -4284,6 +4672,7 @@ Params:
 | `pane` | `Id` | required | Pane whose edge received the drop |
 | `edge` | string | required | `"left"`, `"right"`, `"top"`, or `"bottom"` |
 | `ratio` | float | default 0.5 | The new pane's share, 0.05 through 0.95 |
+| `respawn` | `SplitRespawn` | optional; `tab-split-respawn-v1` | `{kind:"terminal", cwd?, env?, terminal_id?, shell_args?}` or `{kind:"browser", url, engine, profile_id?}`; only for the pane's only tab |
 | `transaction` | string | optional | Client id echoed in `tab-changed`; 1-128 printable ASCII |
 
 Result:
@@ -4300,7 +4689,7 @@ object{surface:Id, pane:Id, screen:Id, workspace:Id, undoable:bool}
 | status | implemented |
 | since | protocol 12 additive extension; capability `tab-drag-v1` |
 
-Drops a tab between niri columns: creates a horizontal viewport column on the
+Drops a tab between strip columns: creates a horizontal viewport column on the
 screen and moves the tab into it, in one atomic commit, with the same undo,
 event, and transaction rules as `move-tab-to-split`. A screen without columns
 becomes a two-column screen.
@@ -4314,6 +4703,8 @@ Params:
 | `screen` | `Id` | exactly one of `pane`/`screen` | Destination screen |
 | `after_column` | `Id` | default: after the last column | Column (`Screen.columns[].id`) to insert after |
 | `width` | float | default 2/3 | Column width as a fraction of the viewport, 0.1 through 1.0 |
+| `dock` | `ColumnPin` | optional; `edge-docks-v1` | `{edge:"left"\|"right"\|"top"\|"bottom", mode:"docked"\|"overlay"}`: pins the new column to that edge in the same commit, with the rules of `set-column-dock` (the column that held the edge scrolls again) |
+| `respawn` | `SplitRespawn` | optional; `tab-column-respawn-v1` | As in `move-tab-to-split`; only for the pane's only tab: the pane keeps a fresh tab of that kind, created before the move, so the column the tab leaves stays |
 | `transaction` | string | optional | As in `move-tab-to-split` |
 
 Result: as `move-tab-to-split`.
@@ -4341,6 +4732,7 @@ Params:
 | `surface` | `Id` | required | Tab to move |
 | `group` | string | optional | Existing group id |
 | `index` | usize | optional | Final index among the section's members |
+| `name` | string | optional | The new workspace's name, at most 1024 bytes (else the default `workspace-N`); capability `tab-workspace-name-v1` |
 | `transaction` | string | optional | As in `move-tab-to-split` |
 
 Result:
@@ -4690,12 +5082,374 @@ Result: `object{browser_profile:BrowserProfile, changed:bool}`
 
 Deletes a browser profile record; `default` is refused. Every
 `personal_workspaces.browser_profile_id` and room `browser_profile_id` naming
-it is cleared in the same commit. The app moves its tabs and removes its
-engine data.
+it is cleared in the same commit. With `bookmarks-v1` the same commit deletes
+the profile's bookmarks, reports their number in `deleted_bookmarks`, and,
+when there were any, emits `bookmarks-changed`. The app moves its tabs and
+removes its engine data.
 
 Params: `browser_profile` (required).
 
-Result: `object{browser_profile:string, cleared_workspaces:[object{session_id:string, workspace_key:string}], cleared_rooms:[string]}`
+Result: `object{browser_profile:string, cleared_workspaces:[object{session_id:string, workspace_key:string}], cleared_rooms:[string], deleted_bookmarks?:usize}`
+
+### list-bookmarks
+
+| Field | Value |
+| --- | --- |
+| name | `list-bookmarks` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Bookmark commands (plans/cmux-next/bookmarks.md sections 1 and 2.1) store
+one bookmark tree per browser profile in the home session. Every
+daemon serves them; the app writes them only on its home session. The two
+roots, the Bookmarks Bar (`bar`) and Other Bookmarks (`other`), are reserved
+`parent` values, not nodes. Each change bumps the session's
+`bookmarks_revision` (separate from `personal_revision`) and emits
+`bookmarks-changed`; an unchanged retry emits nothing.
+
+Shapes:
+
+```text
+Bookmark = object{id:string, browser_profile_id:string, parent:string, kind:"url"|"folder", index:usize, title:string, url?:string, favicon_key?:string, source_key?:string, created_ms:uint64, last_used_ms?:uint64}
+ImportNode = object{kind:"url"|"folder", title:string, url?:string, created_ms?:uint64, children?:[ImportNode]}
+```
+
+A null optional field is omitted. A bookmark id is `bm_` and 32 lowercase hex
+digits; the request field that names one is `bookmark`, because the request
+envelope owns `id`. `parent` is `bar`, `other`, or a folder of the same
+profile. `index` is a dense 0-based position among the node's siblings.
+`title` is at most 4096 UTF-8 bytes without NUL and may be empty. `url` is
+required for a `url` node and refused for a folder: an absolute URL (it has a
+scheme), at most 65536 bytes, without control characters. `favicon_key` and
+`source_key` are at most 4096 bytes without control characters; only a folder
+carries `source_key`. Times are
+milliseconds since the Unix epoch, at most `i64::MAX`. A node one level under
+a root has depth 1; no node is deeper than 64, and a profile holds at most
+100,000 nodes. Nodes never move between profiles. The browser profile must
+exist (`list-personal.browser_profiles`).
+
+Errors carry `error_code`: `invalid_params` for a bad id, parent, kind, URL,
+size, cycle, limit or idempotency key, and `not_found` for an unknown bookmark
+or browser profile. A rejected command changes nothing.
+
+Every mutation (`create-bookmark`, `update-bookmark`, `move-bookmark`,
+`delete-bookmark`, `import-bookmarks`) is one typed op and takes an optional
+idempotency key: `origin` and `mutation_id`, both or neither, following the
+durable mutation envelope's identifier rules. The daemon looks the key up
+before anything else and stores it with the op's result in the op's
+transaction. A retry with the same key and request returns the original
+result with `replayed:true`, writes nothing and emits nothing; the same key
+with another request is refused with `invalid_params`. The daemon keeps the
+replay records of the last 10,000 keyed ops; a key older than that, or a
+key whose op was refused, runs as a new op. Every mutation result carries
+`replayed:bool`.
+
+Params: `browser_profile_id` (required).
+
+Result: `object{bookmarks_revision:uint64, bookmarks:[Bookmark]}`
+
+`bookmarks` is the profile's whole tree in depth-first pre-order: the `bar`
+tree, then the `other` tree; each folder is followed by its subtree, and
+siblings follow `index`.
+
+### create-bookmark
+
+| Field | Value |
+| --- | --- |
+| name | `create-bookmark` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Creates a URL or folder node. `index` is the insertion position among the
+parent's children, clamped; absent appends. `created_ms` defaults to now.
+`bookmark` is the new node's id (generated when absent); an existing id
+returns the stored node unchanged with `changed:false`, so a retry is
+idempotent.
+
+Params: `browser_profile_id`, `parent`, `kind`, `title` (required); `index`,
+`url`, `favicon_key`, `source_key`, `created_ms`, `bookmark`, `origin`,
+`mutation_id`.
+
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
+
+### update-bookmark
+
+| Field | Value |
+| --- | --- |
+| name | `update-bookmark` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Changes a node's title, URL (`url` nodes only), favicon key or last use. An
+absent field (or a null `title` or `url`) is unchanged; JSON null clears
+`favicon_key` or `last_used_ms`.
+
+Params: `bookmark` (required), `title`, `url`, `favicon_key`, `last_used_ms`,
+`origin`, `mutation_id`.
+
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
+
+### move-bookmark
+
+| Field | Value |
+| --- | --- |
+| name | `move-bookmark` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Moves a node and its subtree under `parent` in the same profile. `index` is
+the node's final position among the destination's children after the move,
+clamped, in the same parent too. A folder cannot move into itself or a
+descendant, and the move must keep every node within depth 64.
+
+Params: `bookmark`, `parent`, `index` (required); `origin`, `mutation_id`.
+
+Result: `object{bookmark:Bookmark, changed:bool, replayed:bool}`
+
+### delete-bookmark
+
+| Field | Value |
+| --- | --- |
+| name | `delete-bookmark` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Deletes a node and its whole subtree; the node's later siblings close the gap.
+
+Params: `bookmark` (required); `origin`, `mutation_id`.
+
+Result: `object{deleted:[string], replayed:bool}`, the deleted node's id
+first, then its descendants.
+
+### import-bookmarks
+
+| Field | Value |
+| --- | --- |
+| name | `import-bookmarks` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Writes an imported tree in one transaction, so a rejected node writes
+nothing. `nodes` become new nodes at `parent`, starting at the insertion
+position `index` (clamped; absent appends); `created_ms` defaults to now.
+`nodes[0]` carries `source_key` when it is a folder.
+
+With `replace:true`, `source_key` is required and `nodes[0]` must be a folder.
+When the profile has a folder carrying that `source_key`, the folder keeps its
+id, parent and position, takes `nodes[0]`'s title and children (its old
+subtree is deleted), and `nodes[1..]` are inserted right after it. Otherwise
+the import proceeds as without `replace`. When several folders carry the
+`source_key`, the oldest by `created_ms` is refilled. The HTML import and the onboarding
+import use this so a re-import replaces its folder.
+
+The request line is subject to the JSON nesting limit (128), which bounds one
+import to about 60 nested levels; import a deeper tree in parts.
+
+Params: `browser_profile_id`, `parent`, `nodes` (required); `index`,
+`source_key`, `replace` (default false), `origin`, `mutation_id`.
+
+Result: `object{root_ids:[string], count:usize, replayed:bool}`: the ids of the top-level
+nodes written (in replace mode the kept folder first), and the number of
+nodes in `nodes`, descendants included.
+
+
+### conversation-list
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Lists the local conversations (plans/cmux-next/home.md sections 1 and 2),
+newest `updated_at` first. The local conversation owner is its own store,
+`conversations.sqlite3` in the session state directory (in memory for an
+in-memory session), next to the workspace registry. Every `conversation-*`
+command is accepted on trusted local (Unix-classified) connections only.
+
+```text
+Participant = object{id:string, kind:"human"|"agent", display_name:string, agent_class?:"mux"|"agent", acp_session?:string}
+PartRef = object{message_id:string, part_index:uint32}
+TextRun = object{start:uint32, length:uint32, mention?:string, link?:string}
+Part = object{type:"text", text:string, runs?:[TextRun]} | object{type:"work", session:string, host?:string, status:"running"|"done"|"failed"|"waiting", preview?:string}
+Reaction = object{author:string, part_index:uint32, kind:object{tapback:"love"|"like"|"dislike"|"laugh"|"emphasize"|"question"}|object{emoji:string}, at:string}
+Message = object{id:string, conversation:string, seq:uint64, client_msg_id:string, author:string, parts:[Part], reply_to?:PartRef, created_at:string, edited_at?:string, retracted_at?:string, reactions:[Reaction]}
+Summary = object{id:string, owner:"local", title:string, participants:[Participant], last_seq:uint64, rev:uint64, created_at:string, updated_at:string, last_message?:Message, read_cursors:map<string,uint64>}
+```
+
+Ids are `conv_` or `msg_` plus 26 Crockford base32 characters, assigned by
+the owner. Participant ids are `user_<id>` (humans) or `agent_<name>`
+(agents). Times are RFC 3339 UTC with milliseconds. Text run offsets are
+UTF-16 code units. `seq` is 1-based and dense per conversation; `rev`
+increases by exactly one per committed op (a new conversation has `rev` 1).
+
+Params: none.
+
+Result: `object{conversations:[Summary]}`
+
+### conversation-create
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-create` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Creates a conversation. The actor (the connection's principal; an `actor` param, when given, must equal it) must be one of the 1-64 `participants`;
+`title` has 1-200 characters. A retry with the same `idempotency_key` and the
+same request returns the conversation it created with `replayed:true`; the
+same key with a different request is rejected with `idempotency_conflict`. A
+new conversation publishes `conversation-changed` with change kind
+`conversation`.
+
+Params: `idempotency_key`, `actor`, `title`, `participants` (all required).
+
+Result: `object{conversation:Summary, replayed:bool}`
+
+### conversation-snapshot
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-snapshot` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Returns the summary and the last `tail` (1-500) messages in ascending seq.
+
+Params: `conversation`, `tail` (both required).
+
+Result: `object{conversation:Summary, messages:[Message]}`
+
+### conversation-history
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-history` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Returns up to `limit` (1-500) messages with seq below `before_seq`, the
+newest of them, in ascending seq.
+
+Params: `conversation`, `before_seq`, `limit` (all required).
+
+Result: `object{messages:[Message]}`
+
+### conversation-search
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-search` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `conversation-search-v1` |
+
+Home-only search with the read model the cloud owner shares
+(`backend/packages/home-core/conformance/conversation-search-cases.json`):
+a case-insensitive substring (lower case per code point) of the text parts
+of every message that is not retracted, in the conversations where the
+caller's principal is a participant. Work cards are not searched. `query`
+is trimmed, 1-200 characters, no control characters; `limit` is 1-100.
+Hits are ordered newest `created_at` first, then conversation id, then seq
+descending. An edit or a retraction changes the results with its own commit.
+
+Params: `query`, `limit` (both required).
+
+Result: `object{hits:[{conversation, title, seq, message_id, author,
+created_at, snippet}]}`. `snippet` is the message text (text parts joined by
+one space, whitespace collapsed), or 120 characters of it centered on the
+match with `…` where it is cut.
+
+Errors: `error_code` `conversation_rejected` with `reason` `invalid_query` or
+`invalid_limit`.
+
+### conversation-op
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-op` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Applies one op, validated by the pure `cmux-conversation` reducer. The write,
+the new `rev` and the idempotency ledger row commit in one SQLite
+transaction; `conversation-changed` is published only after the commit and
+carries the request's `transaction`. A replay with the same
+`idempotency_key` and the same `actor` and `op` returns the stored result
+with `replayed:true` and publishes nothing. `op` is tagged by `kind`:
+
+| kind | fields | rule |
+| --- | --- | --- |
+| `message.send` | `client_msg_id, parts, reply_to?` | `idempotency_key` equals `client_msg_id`; 1-16 parts, at most 64 KiB of text; `reply_to` names an existing part |
+| `message.edit` | `message_id, parts` | author only; not retracted |
+| `message.retract` | `message_id` | author only; parts and reactions become empty |
+| `reaction.add` / `reaction.remove` | `message_id, part_index, reaction` | `reaction` is a reaction `kind` object; one per (author, part, kind) |
+| `read_cursor.set` | `seq` | the actor's own cursor; monotonic; at most `last_seq` |
+| `participants.add` | `participant` | id unique; at most 64 participants |
+| `title.set` | `title` | 1-200 characters |
+
+Rejects use `error_code` `conversation_rejected` with the reason as the
+error text: `not_participant`, `not_author`, `unknown_message`,
+`invalid_parts`, `idempotency_conflict`, `cursor_regression`,
+`unknown_conversation`, `cursor_out_of_range`, `retracted`,
+`invalid_client_msg_id`, `invalid_part_index`, `duplicate_reaction`,
+`unknown_reaction`, `invalid_reaction`, `duplicate_participant`,
+`invalid_participant`, `invalid_title`. A malformed request (an unknown op
+kind, a bad `transaction` or idempotency key) is a plain bad request.
+
+Params: `conversation`, `idempotency_key`, `op` (required), `actor` (optional; the owner stamps the connection's principal and refuses a different value with `actor_mismatch`),
+`transaction`.
+
+Result: `object{transaction?:string, rev:uint64, seq?:uint64, replayed:bool, change:Change}`, where `seq` is the seq of the message the op created or changed and `Change` is the `change` object of `conversation-changed` (events.md).
+
+### conversation-typing
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-typing` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Publishes `conversation-typing` for a participant. Typing is never stored and
+does not change `rev`.
+
+Params: `conversation`, `on` (required), `actor` (optional, as for `conversation-op`).
+
+
+### conversation-bind
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-bind` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Binds the connection to agent `participant` for its lifetime, proven by the
+token `conversation-agent-token` minted. Writes on the connection then carry
+that principal as their actor. An unbound trusted local connection is
+`user_local`.
+
+Params: `participant`, `token` (required).
+
+Result: `object{participant:string}`
+
+
+### conversation-agent-token
+
+| Field | Value |
+| --- | --- |
+| name | `conversation-agent-token` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Mints the credential of agent `participant` (an `agent_` id). Only a
+connection whose principal is `user_local` may call it. The owner stores the
+token's SHA-256; a new token replaces the old one.
+
+Params: `participant` (required).
+
+Result: `object{participant:string, token:string}`
+
+Result: `object{}`
 
 
 ### create-profile
@@ -4977,6 +5731,86 @@ Params: `session_id`, `terminal_key` (required), `theme`.
 
 Result: `object{terminal:PersonalTerminal|null, changed:bool}`
 
+### snapshot-request
+
+| Field | Value |
+| --- | --- |
+| name | `snapshot-request` |
+| status | implemented |
+| since | protocol 12, capability `terminal-snapshot-v1` |
+
+Asks the host for one READY `snapshot` on this connection's snapshot attach of
+`surface`. It is the raw form of the terminal channel message
+`snapshot_request` (sync-and-transport.md). A request while a snapshot is
+pending for that viewer collapses into it. A viewer gets at most one requested
+snapshot per 500 ms; an earlier request answers `snapshot_throttled`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | A PTY surface this connection attached with `snapshot:"ghostsnp"` |
+| `reason` | `string` | optional | `digest_mismatch`, `gap`, `generation_mismatch` or `attach`; any other value is `invalid` |
+| `have` | `{generation?, offset?, snapshot_version?}` | optional | A `snapshot_version` other than the host's is `unsupported_version` |
+| `request_id` | `string` | optional | At most 128 bytes; echoed; repeats while a snapshot is pending collapse |
+
+Result:
+
+```text
+object{status: "accepted" | "collapsed" | "snapshot_throttled", surface, retry_after_ms?, request_id?, reason?}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `not_attached` | This connection has no snapshot attach of `surface` |
+| `unsupported_version` | `have.snapshot_version` differs from the host's |
+| `unknown surface <id>` | Surface id does not exist |
+
+### terminal-history
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-history` |
+| status | implemented |
+| since | protocol 12, capability `terminal-snapshot-v1` |
+
+Returns GHOSTSNP HISTORY pages of a PTY surface's primary screen, newest
+first, that start above the row marker `before` (absent: the top of the
+active area). Row markers stay on their row while output scrolls; rows
+that left scrollback, or markers of another `marker_epoch`, answer
+`range_evicted`. A reflow starts a new epoch. Each call encodes the whole
+scrollback once under the terminal lock.
+
+Params: `surface` (Id, required), `marker_epoch` (uint64, required),
+`before` (uint64, optional), `max_bytes` (default 1048576, 1..=8388608;
+at least one page is returned when any exists).
+
+Result: `{surface, marker_epoch, snapshot_version, pages: [{marker, rows,
+data}], next_before, done}`. `data` is one base64 GHOSTSNP PAGE record;
+`marker` is the page's first row. Pass `next_before` as `before` until
+`done`.
+
+### terminal-read-range
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-read-range` |
+| status | implemented |
+| since | protocol 12, capability `terminal-snapshot-v1` |
+
+Reads the primary screen range `from..=to`, each `{row_marker, col}`, as
+`text` (default; unwrapped lines joined with a newline) or `vt`.
+
+Params: `surface` (Id, required), `marker_epoch` (uint64, required),
+`from`, `to` (required), `format` (`text` or `vt`), `max_bytes` (default
+1048576, 1..=8388608).
+
+Result: `{surface, text, truncated}`; a longer range is cut at a
+character boundary and answers `truncated: true`. Errors: `range_evicted`,
+`invalid: ...`, `unknown surface <id>`.
+
 ### scroll-surface
 
 | Field | Value |
@@ -5119,6 +5953,56 @@ this exact connection-local attach stream. Use it with
 `resize-attached-view` and `release-attached-view-size`. When both peers also
 negotiate `view-attachment-detach-v1`, use `detach-attached-view` to close the
 stream without disconnecting or affecting another view of the terminal.
+
+Servers advertising `terminal-snapshot-v1` accept `snapshot:"ghostsnp"` with
+`snapshot_version` on a `mode:"bytes"` PTY attach. When the version equals the
+host's GHOSTSNP version, the stream is `snapshot -> (output | snapshot |
+colors-changed | digest)* -> detached` instead of the replay stream:
+
+- `snapshot {surface, phase:"ready", generation, offset, version, cols, rows,
+  colors, data}`: `data` is the base64 GHOSTSNP READY prefix (envelope through
+  the READY record). The viewer restores it atomically into a fresh terminal.
+- `output` carries `generation` and `offset` (the host's published byte offset
+  after this frame). A viewer drops output whose generation is older than the
+  last snapshot it restored.
+- A grid change, a viewer backlog over `viewer_backlog_bytes`
+  (default 8388608 = 8 MiB, set per attach by the viewer, no daemon setting,
+  clamped to 65536..8388608)
+  and `snapshot-request` reach the viewer as a new `snapshot`; a slow viewer
+  is never disconnected for its backlog. `resized` is never sent.
+- `snapshot` also carries `marker_epoch` and `active_top_marker` (the row
+  marker of the active area's top row), so `terminal-history` pages line up
+  with the restored READY.
+- Servers that also advertise `terminal-snapshot-history-v1` follow every
+  READY with `snapshot {surface, phase:"history", generation, offset,
+  version, compression:"deflate", raw_bytes, data, done}` chunks at that
+  READY's `generation` and `offset`. Each chunk holds at most 1048576 bytes
+  of history (`raw_bytes`), compressed alone as raw DEFLATE (RFC 1951, no
+  zlib or gzip framing); `data` is its base64. The inflated chunks
+  concatenated are the rest of the same COMPLETE encode after the READY record (HISTORY
+  manifests, scrollback PAGE records, FINISH), so READY plus history is one
+  complete GHOSTSNP snapshot taken at one cut. `done` is true on the last
+  chunk. History is lower priority than live output: `output` events may
+  arrive between chunks and keep their own `generation` and `offset`. A newer
+  READY ends the older READY's history; no further chunk of it is sent. A
+  viewer feeds the chunks to its restore after the READY they follow and
+  drops history whose `generation` and `offset` differ from its last READY.
+- `digest {surface, generation, offset, version, sha256}` follows 2 s after
+  output goes idle, only when the viewer has every byte up to that offset.
+  `sha256` (hex) covers, for each SCREEN, PAGE and CONTINUATION record of the
+  host's READY encoding in order, the `u16` tag, `u32` payload length and
+  payload, with the SCREEN history extent (payload bytes 4..12) zeroed; the
+  TERMINAL record is excluded because it carries per-device scrollback and
+  pixel sizes. A viewer with the same version hashes its own READY the same
+  way and sends `snapshot-request` on a mismatch.
+- `generation` is the host's grid generation for this terminal: it starts a
+  new value at every resize, host replay replacement and Kitty-limit resync.
+  It is not the `size-state` generation.
+- When the host cannot encode a snapshot (an unfinished escape sequence over
+  1 MiB), it retries at the next output; the viewer stays attached.
+
+Snapshot format version 1 carries no Kitty images. Another `snapshot_version`
+gets the replay stream above (capability fallback).
 
 Browser attach requires `browser-pointer-frame-guard-v1` in both the server's `identify` response and the client's earlier `set-client-info` request. This prevents an older client from rendering browser frames that it cannot address with an authoritative sequence. PTY attach does not require this capability.
 
@@ -5770,6 +6654,8 @@ Protocol v9 adds `new-pane`; its implemented result is `{surface}`. A future res
 
 `viewport-column-resize-v1` is additive within protocol v9. Clients must require the capability before sending `set-viewport-pane-width` or interpreting `Screen.viewport_base_width`.
 
+`dock-columns-v1` is additive within protocol v12. Clients must require the capability before sending `set-column-dock`. Clients without it ignore `Screen.columns[].dock` and render every column in order. The flag is stored in the screen's durable viewport record only while set; a daemon that predates the capability cannot open a registry that holds a docked column, so roll back only before any column was pinned.
+
 `layout-undo-v1` is additive within protocol v9. Clients must require the capability before sending `undo-layout`. A binding must preserve both result variants and must not set `confirm_close` without the exact revision returned by the confirmation preview.
 
 ## Temporary terminal image paste
@@ -5868,6 +6754,69 @@ client_streams, opened, refused, limits, audit}`. `audit` holds the last 256
 finished or refused connections (`client`, `stream`, `host`, `port`,
 `outcome`, byte counts, duration). The daemon also writes one log line per
 record.
+
+## File system (fs-v1)
+
+Servers advertising `fs-v1` serve file ops on their machine. In this
+version only a daemon on a cmux Cloud host serves them (a Linux host whose
+daemon carries the Cloud model-plane identity, `CMUX_CODEROUTER_URL` and
+`CMUX_VM_ID`); its only root is the daemon user's home. Every other daemon
+does not advertise `fs-v1` and answers every `fs.*` op with
+`error_code:"fs.unavailable"`. The ops are accepted on the local socket and
+on the link's remote entry, whose gate admits exactly these seven commands
+and denies every other frame with `remote_denied`; WebSocket clients get
+`fs.permission_denied`.
+Access is granted only through the link's `daemon` service, and on a Cloud
+host it covers the whole home of the daemon user. The team policy must
+therefore never grant `daemon` to a principal that is not also allowed
+`shell`/`ssh` on that machine. A remote dial must send its first line
+within 10 seconds or it is closed. A byte stream is a registered remote
+client bound to its stamped peer: a kick, the link closing the dial, a
+revocation of the install, and the daemon's shutdown each end it at once
+(a revoked install gets no new stream), and an unfinished write leaves no file. At start, the owner
+removes its own leftover temporary files (`.<name>.cmux-<16 hex>.tmp`) that
+are older than one hour, in a bounded walk of the root that follows no
+symlink and stays on the root's file system.
+
+Params are flat, next to `id` and `cmd`. Answers use the normal envelope;
+a failure carries `error_code` and, where noted, `error_details`. Paths are
+absolute. A path with a `.` or `..` component, a path outside the roots, and
+a symlink whose target leaves the roots (in any component) are refused with
+`fs.permission_denied`; a symlink that stays inside the roots is followed.
+`revision` is `s<size>-m<mtime ms>`; entries are `{name, kind:
+"file"|"dir"|"symlink"|"other", size (null for a folder), mtime (epoch ms
+or null), hidden?, target_kind?}`.
+
+| Command | Params | Data | Error codes |
+| --- | --- | --- | --- |
+| `fs.stat` | `{path}` | entry + `{mode_display, owner_display, revision}` | `fs.not_found` |
+| `fs.list` | `{path, sort?, filter?, limit (1..1000, default 200), cursor?, listing?}` | `{entries, listing, cursor, total, revision}` | `fs.not_a_directory`, `fs.too_large`, `cursor.expired` |
+| `fs.read` | `{path, offset?, max_bytes}` | `{text \| bytes_base64, truncated, size, encoding: "utf-8"\|"base64"}` | `fs.not_a_file` |
+| `fs.write` | `{path, text \| bytes_base64, mode: "create"\|"overwrite"\|"replace", expected?}` | `{entry}` (with `revision`) | `fs.exists`, `fs.revision_mismatch` (`error_details.current`), `fs.too_large`, `fs.no_space`, `fs.read_only` |
+| `fs.mkdir` | `{path, name}` | `{entry}` | `fs.exists` |
+| `fs.rename` | `{path, name}` (same folder; never replaces) | `{entry}` | `fs.exists`, `fs.not_found` |
+| `fs.delete` | `{paths, permanent: true}` | `{}` | `fs.not_found` |
+
+`fs.list` hides dotfiles unless `filter.hidden` is true; a listing is a
+snapshot kept 5 minutes after its last use and paged with `listing` and
+`cursor`. `fs.read` returns at most 16 MiB (`truncated:true` when more
+remains). A single `fs.write` takes at most 12 MiB; it writes a temporary
+file in the same folder, fsyncs it, and renames it over the target, so the
+target is either the old or the new file. `expected` is valid only with
+`replace`. `fs.delete` removes folders with everything in them and never
+follows a symlink.
+
+Byte streams need a link dial of their own; on the line path a request with
+`"stream":true` is `params.invalid`. A dial whose first line is
+`{"id","cmd":"fs.read","path","offset"?,"stream":true}` answers a header
+`{"size","length","revision"}`, then exactly `length` raw bytes, then an end
+line `{"size","revision"}` (or `fs.revision_mismatch` when the file changed
+while it was sent). A dial whose first line is
+`{"id","cmd":"fs.write","path","mode","expected"?,"stream":true,"size"}`
+answers `{"ready":true}` after the path, mode and free space are checked,
+then reads exactly `size` raw bytes (at most 64 GiB) and answers `{entry}`.
+A write stream that closes or stays idle for 60 seconds before `size` bytes
+leaves no file at `path`.
 
 ## Guest browser opening
 

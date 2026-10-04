@@ -18,6 +18,15 @@ import Testing
         #expect(state.header == CGRect(x: 700, y: 80, width: 320, height: 40))
     }
 
+    /// Fork API 14: Chromium's own header buttons leave the focus order
+    /// once cmux draws the header; the state counts those still in it.
+    @Test func chromiumFocusableControlsDecode() throws {
+        let json = #"{"open":true,"focusable_controls":0,"header":{"x":0,"y":0,"width":300,"height":40}}"#
+        #expect(try #require(CEFSidePanelState(json: json)).chromiumFocusableControls == 0)
+        let old = #"{"open":true,"header":{"x":0,"y":0,"width":300,"height":40}}"#
+        #expect(try #require(CEFSidePanelState(json: old)).chromiumFocusableControls == nil)
+    }
+
     @Test func closedPanelHasNoHeader() {
         #expect(CEFSidePanelState(json: #"{"open":false}"#) == nil)
         #expect(CEFSidePanelState(json: #"{"open":true,"header":{"x":0,"y":0,"width":0,"height":0}}"#) == nil)

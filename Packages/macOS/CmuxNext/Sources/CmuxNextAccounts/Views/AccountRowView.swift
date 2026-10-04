@@ -1,8 +1,9 @@
+import CmuxAgentBrands
 import CmuxNextCodeRouter
 import CmuxNextDesign
 import SwiftUI
 
-/// One provider: name, status, non-secret identity and source, the
+/// One provider: name, status, redacted account label and source, the
 /// buttons its state allows, CodeRouter's linked accounts, and the inline
 /// paste field when it is the paste target.
 struct AccountRowView: View {
@@ -10,10 +11,20 @@ struct AccountRowView: View {
     let row: AccountRowState
     let palette: AccountsPalette
 
+    /// The provider's brand mark (design/agent-icons), or its symbol when it has none.
+    @ViewBuilder private var providerIcon: some View {
+        if AgentBrandCatalog.brand(for: row.provider.rawValue) != nil {
+            AgentBrandMark(agent: row.provider.rawValue, size: Metrics.iconSize)
+        } else {
+            Image(systemName: row.provider.symbol)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space2) {
             HStack(alignment: .firstTextBaseline, spacing: Metrics.space4) {
-                Image(systemName: row.provider.symbol).foregroundStyle(palette.secondary).frame(width: Metrics.iconSize + Metrics.space2)
+                providerIcon
+                    .foregroundStyle(palette.secondary).frame(width: Metrics.iconSize + Metrics.space2)
                 VStack(alignment: .leading, spacing: Metrics.space1) {
                     Text(row.provider.displayName).font(palette.emphasized).foregroundStyle(palette.text)
                     if let detail { Text(detail).font(palette.caption).foregroundStyle(palette.secondary).lineLimit(1).truncationMode(.middle) }
@@ -53,13 +64,8 @@ struct AccountRowView: View {
         .accessibilityIdentifier("cmux.accounts.row.\(row.provider.rawValue)")
     }
 
-    /// `email · plan · From ~/.codex/auth.json`: all non-secret.
-    private var detail: String? {
-        guard let detection = row.detection else { return nil }
-        let parts = [detection.identity, detection.plan, detection.sources.first.map { AccountsStrings.source($0.label) }]
-        let text = parts.compactMap { $0 }.joined(separator: " · ")
-        return text.isEmpty ? nil : text
-    }
+    /// A redacted account label, never an email or a secret (shared with the Settings page).
+    private var detail: String? { AccountsModel.detail(row) }
 
     @ViewBuilder private var buttons: some View {
         HStack(spacing: Metrics.space3) {
@@ -88,10 +94,7 @@ struct AccountRowView: View {
         .buttonStyle(AccountsButtonStyle(palette: palette))
     }
 
-    private var reauthTitle: String {
-        if case .page = row.provider.reauthPlan { return AccountsStrings.getKey }
-        return row.status == .missing ? AccountsStrings.signIn : AccountsStrings.reauthenticate
-    }
+    private var reauthTitle: String { AccountsStrings.reauthTitle(row) }
 
     private var outcome: Text? {
         switch row.outcome {
@@ -125,7 +128,7 @@ private struct LinkedAccountLine: View {
 }
 
 /// Connect confirmation with the Codex refresh-token note.
-private struct ConnectConfirmation: View {
+struct ConnectConfirmation: View {
     let model: AccountsModel
     let provider: AIProvider
     let palette: AccountsPalette

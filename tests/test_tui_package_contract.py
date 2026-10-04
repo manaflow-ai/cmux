@@ -251,6 +251,15 @@ def make_npm_packages(root: Path) -> None:
         + "\n"
     )
     write_relay_launcher_fixture(relay_launcher / "bin/cmux-relay.js")
+    write_license_files(root)
+
+
+def write_license_files(packages: Path) -> None:
+    """Every generated npm package ships the GPL text as LICENSE."""
+
+    for package in packages.iterdir():
+        if package.is_dir():
+            (package / "LICENSE").write_text("GPL-3.0-or-later\n")
 
 
 def make_pypi_wheels(tmp_path: Path) -> Path:

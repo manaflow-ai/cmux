@@ -81,6 +81,7 @@ pub const Operation = enum {
     screen_close,
     screen_layout_export,
     screen_layout_undo,
+    screen_column_update,
     pane_list,
     pane_get,
     pane_create,
@@ -201,6 +202,7 @@ pub const Operation = enum {
             .screen_close => "screen.close",
             .screen_layout_export => "screen.layout.export",
             .screen_layout_undo => "screen.layout.undo",
+            .screen_column_update => "column.update",
             .pane_list => "pane.list",
             .pane_get => "pane.get",
             .pane_create => "pane.create",
@@ -412,6 +414,7 @@ pub const Operation = enum {
             .screen_close => .{ .owner = .screen, .method = "close" },
             .screen_layout_export => .{ .owner = .screen, .method = "exportLayout" },
             .screen_layout_undo => .{ .owner = .screen, .method = "undoLayout" },
+            .screen_column_update => .{ .owner = .screen, .method = "updateColumn" },
             .pane_list => .{ .owner = .screen, .method = "listPanes" },
             .pane_get => .{ .owner = .pane, .method = "refresh" },
             .pane_create => .{ .owner = .screen, .method = "createPane" },
@@ -5947,6 +5950,16 @@ pub const UndoLayoutOptions = struct {
     confirmation_token: ?[]const u8 = null,
 };
 
+/// `column.update`: set `dock`, `width`, or both. `edge` ("left",
+/// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
+/// when `dock` is true.
+pub const ColumnUpdateOptions = struct {
+    dock: ?bool = null,
+    edge: ?[]const u8 = null,
+    mode: ?[]const u8 = null,
+    width: ?f64 = null,
+};
+
 pub const CreatePaneOptions = struct {
     cwd: ?[]const u8 = null,
     cols: ?u16 = null,
@@ -6760,6 +6773,12 @@ fn encodeLayoutNode(
                     "root",
                     try encodeLayoutNode(allocator, column.root),
                 );
+                if (column.dock) |dock| {
+                    var flag = raw.wire.Object.init(allocator);
+                    try flag.put("edge", .{ .string = @tagName(dock.edge) });
+                    try flag.put("mode", .{ .string = @tagName(dock.mode) });
+                    try encoded.put("dock", .{ .object = flag });
+                }
                 try columns.append(.{ .object = encoded });
             }
             try object.put("columns", .{ .array = columns });
@@ -7260,10 +7279,21 @@ pub const LayoutStack = struct {
     expanded_pane_id: PaneId,
 };
 
+pub const LayoutColumnEdge = enum { left, right, top, bottom };
+pub const LayoutColumnMode = enum { docked, overlay };
+
+/// A pinned column's edge and presentation (catalog `LayoutColumnDock`).
+pub const LayoutColumnDock = struct {
+    edge: LayoutColumnEdge,
+    mode: LayoutColumnMode,
+};
+
 pub const LayoutColumn = struct {
     column_id: SplitId,
     width: f64,
     root: *const LayoutNode,
+    /// The column's dock flag (`dock-columns-v1`); null while it scrolls.
+    dock: ?LayoutColumnDock = null,
 };
 
 pub const LayoutViewport = struct {
@@ -8416,7 +8446,7 @@ fn decodeLayoutNode(
             const column = try detailObject(raw_column);
             try ensureOnlyFields(
                 column,
-                &.{ "column_id", "width", "root" },
+                &.{ "column_id", "width", "root", "dock", "sticky" },
             );
             const width = try floatValue(
                 column.get("width") orelse return error.MissingField,
@@ -8436,6 +8466,9 @@ fn decodeLayoutNode(
                     column.get("root") orelse
                         return error.MissingField,
                 ),
+                // `sticky` is the pre-R87 name of `dock`: a replayed or
+                // older result still decodes; `dock` wins.
+                .dock = try decodeLayoutColumnDock(column.get("dock") orelse column.get("sticky")),
             };
         }
         node.* = .{ .viewport = .{
@@ -8449,6 +8482,24 @@ fn decodeLayoutNode(
         .raw_object = value,
     } };
     return node;
+}
+
+/// An omitted or null flag is null (the column scrolls).
+fn decodeLayoutColumnDock(value: ?raw.wire.Value) !?LayoutColumnDock {
+    const present = value orelse return null;
+    if (present == .null) return null;
+    const object = try detailObject(present);
+    try ensureOnlyFields(object, &.{ "edge", "mode" });
+    return .{
+        .edge = std.meta.stringToEnum(
+            LayoutColumnEdge,
+            try objectString(object, "edge"),
+        ) orelse return error.InvalidEnum,
+        .mode = std.meta.stringToEnum(
+            LayoutColumnMode,
+            try objectString(object, "mode"),
+        ) orelse return error.InvalidEnum,
+    };
 }
 
 fn decodeLayoutDocument(
@@ -11511,6 +11562,50 @@ fn HandleImpl(
             );
         }
 
+        pub fn updateColumn(
+            self: Self,
+            column: SplitId,
+            options: ColumnUpdateOptions,
+            mutation: MutationOptions,
+        ) !ScreenMutationResult {
+            if (comptime !std.mem.eql(u8, scope, "screen")) {
+                return error.UnsupportedHandleOperation;
+            }
+            if (options.dock == null and options.width == null) {
+                return error.InvalidColumnUpdate;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try params.putString("column", column.slice());
+            if (options.dock) |dock| {
+                try params.putValue("dock", .{ .bool = dock });
+            }
+            if (options.edge) |edge| {
+                try params.putString("edge", edge);
+            }
+            if (options.mode) |mode| {
+                try params.putString("mode", mode);
+            }
+            if (options.width) |width| {
+                if (!std.math.isFinite(width)) return error.InvalidColumnUpdate;
+                try params.putValue("width", .{ .float = width });
+            }
+            return decodeTypedAllocatedMutation(
+                ScreenSnapshot,
+                self.client.allocator,
+                try self.client.mutate(
+                    .screen_column_update,
+                    params.asValue(),
+                    mutation,
+                ),
+            );
+        }
+
         pub fn createPane(
             self: Self,
             create: CreatePaneOptions,
@@ -13774,6 +13869,15 @@ pub const Screen = struct {
         mutation: MutationOptions,
     ) !ScreenMutationResult {
         return self.impl().undoLayout(options, mutation);
+    }
+
+    pub fn updateColumn(
+        self: Self,
+        column: SplitId,
+        options: ColumnUpdateOptions,
+        mutation: MutationOptions,
+    ) !ScreenMutationResult {
+        return self.impl().updateColumn(column, options, mutation);
     }
 
     pub fn createPane(
@@ -16578,6 +16682,51 @@ test "operation inventory includes capability corrections" {
     );
 }
 
+test "viewport columns decode their dock flag and refuse an unknown edge" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const prefix =
+        "{\"version\":1," ++
+        "\"screen_id\":\"screen_55555555555555555555555555555555\"," ++
+        "\"active_pane_id\":\"pane_66666666666666666666666666666666\"," ++
+        "\"zoomed_pane_id\":null,\"root\":{\"kind\":\"viewport\"," ++
+        "\"base_width\":0.5,\"columns\":[" ++
+        "{\"column_id\":\"split_88888888888888888888888888888888\"," ++
+        "\"width\":0.5,\"root\":{\"kind\":\"leaf\"," ++
+        "\"pane_id\":\"pane_66666666666666666666666666666666\"," ++
+        "\"tab_ids\":[]}";
+    const suffix =
+        "},{\"column_id\":\"split_99999999999999999999999999999999\"," ++
+        "\"width\":0.5,\"root\":{\"kind\":\"leaf\"," ++
+        "\"pane_id\":\"pane_77777777777777777777777777777777\"," ++
+        "\"tab_ids\":[]}}]}}";
+    const pinned = try raw.wire.parse(
+        allocator,
+        prefix ++ ",\"dock\":{\"edge\":\"top\",\"mode\":\"docked\"}" ++ suffix,
+        .{},
+    );
+    const document = try decodeLayoutDocument(allocator, pinned.value);
+    const columns = switch (document.root.*) {
+        .viewport => |viewport| viewport.columns,
+        else => return error.ExpectedViewport,
+    };
+    try std.testing.expectEqual(
+        @as(?LayoutColumnDock, .{ .edge = .top, .mode = .docked }),
+        columns[0].dock,
+    );
+    try std.testing.expectEqual(@as(?LayoutColumnDock, null), columns[1].dock);
+    const unknown = try raw.wire.parse(
+        allocator,
+        prefix ++ ",\"dock\":{\"edge\":\"diagonal\",\"mode\":\"docked\"}" ++ suffix,
+        .{},
+    );
+    try std.testing.expectError(
+        error.InvalidEnum,
+        decodeLayoutDocument(allocator, unknown.value),
+    );
+}
+
 test "layout undo requires and forwards confirmation capability" {
     var shared = FakeShared{
         .allocator = std.testing.allocator,
@@ -16649,7 +16798,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 117), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 118), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
@@ -16742,6 +16891,7 @@ test "public facades expose only valid resource and stream capabilities" {
         "focusScreen",
         "exportLayout",
         "undoLayout",
+        "updateColumn",
         "createPane",
     });
     try expectHandleCapabilities(Pane, &.{

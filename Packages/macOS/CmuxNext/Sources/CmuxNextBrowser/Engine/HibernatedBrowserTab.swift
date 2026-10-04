@@ -22,9 +22,17 @@ public final class HibernatedBrowserTab: BrowserTab {
     /// The last page pixels, for the hover preview and the pane until the
     /// page is back.
     public let snapshotImage: CGImage?
-    /// Called when the user asks for the page (reload, navigate): the host
-    /// restores it, then loads `url` when given.
-    @ObservationIgnored public var onWake: ((URL?) -> Void)?
+    /// What woke the page, for the host to apply once it is restored.
+    public enum Wake: Sendable, Hashable {
+        case load(URL)
+        case reload
+        case goBack
+        case goForward
+    }
+
+    /// Called when the user asks for the page (reload, navigate, history):
+    /// the host restores it, then applies the request.
+    @ObservationIgnored public var onWake: ((Wake) -> Void)?
     @ObservationIgnored public let contentView: NSView
 
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, state: BrowserTabState,
@@ -47,10 +55,10 @@ public final class HibernatedBrowserTab: BrowserTab {
         contentView = view
     }
 
-    public func load(_ url: URL) { onWake?(url) }
-    public func reload() { onWake?(nil) }
-    public func goBack() { onWake?(nil) }
-    public func goForward() { onWake?(nil) }
+    public func load(_ url: URL) { onWake?(.load(url)) }
+    public func reload() { onWake?(.reload) }
+    public func goBack() { onWake?(.goBack) }
+    public func goForward() { onWake?(.goForward) }
     public func stop() {}
     public func setFocused(_ focused: Bool) {}
     public func setContentVisible(_ visible: Bool) {}

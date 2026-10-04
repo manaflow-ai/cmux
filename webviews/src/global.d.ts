@@ -13,10 +13,7 @@ declare global {
       getScroller: () => HTMLElement;
       shortcuts: Record<string, unknown>;
     }): () => void;
-    installManualInputReset(options: {
-      target: Document | HTMLElement;
-      getScroller: () => HTMLElement;
-    }): () => void;
+    installManualInputReset(options: { target: Document | HTMLElement; getScroller: () => HTMLElement }): () => void;
     performAction(action: string, scroller: HTMLElement): boolean;
     resetSmoothTarget(scroller: HTMLElement): void;
   };

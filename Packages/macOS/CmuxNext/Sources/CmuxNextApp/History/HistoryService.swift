@@ -13,7 +13,9 @@ final class HistoryService {
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
+    let hidden: HiddenHistoryStore
     let agents: AgentHistory
+    let commands: CommandHistory
     /// Tabs this process made a page for (a later page for the same tab is
     /// a reload, not a visit).
     var installedPageKeys: Set<String> = []
@@ -22,7 +24,9 @@ final class HistoryService {
 
     init(services: AppServices) {
         self.services = services
-        agents = AgentHistory(services: services)
+        hidden = HiddenHistoryStore(services: services)
+        agents = AgentHistory(services: services, hidden: hidden)
+        commands = CommandHistory(services: services, hidden: hidden)
     }
 
     /// Launch: page history becomes durable in `supportDirectory`.
@@ -85,6 +89,10 @@ final class HistoryService {
             await agents.refresh()
             all += agents.entries()
         }
+        if wants(.command) {
+            await commands.refresh()
+            all += commands.entries()
+        }
         if wants(.page) {
             let since = query.range.start(now: Date())
             let limit = query.limit ?? 500
@@ -99,6 +107,11 @@ final class HistoryService {
         return query.apply(to: all)
     }
 
+    /// The entry with `id` among every owner's current entries, or nil when it is gone.
+    func entry(id: String) async -> HistoryEntry? {
+        await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
+    }
+
     func locationEntries() -> [HistoryEntry] {
         let trail = services.locationTrail
         return trail.trail.entries.enumerated().map { index, entry in
@@ -111,7 +124,28 @@ final class HistoryService {
     }
 
     func closedEntries() -> [HistoryEntry] {
-        closedTabEntries() + closedScreenEntries() + closedWorkspaceEntries()
+        closedTabEntries() + closedScreenEntries() + closedWorkspaceEntries() + daemonClosedEntries()
+    }
+
+    /// Closed tabs, screens and workspaces a daemon records
+    /// (`closed-history-v1`); the app's own trackers skip those daemons.
+    private func daemonClosedEntries() -> [HistoryEntry] {
+        DaemonClosedHistory.entries([.tab, .screen, .workspace], in: services).map { entry in
+            let item = entry.item, tab = item.tabs.first
+            let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
+            case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
+            case .screen: .screen
+            case .workspace: .workspace
+            }
+            let title = item.name ?? tab?.name ?? tab?.url ?? tab?.cwd ?? Strings.untitledTerminal
+            let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
+                                                    machine: entry.daemon.machineID, cwd: tab?.cwd, url: tab?.url)
+            let local = entry.daemon.machineID == MachineRegistry.localID
+            return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
+                                time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
+                                detail: tab?.url ?? tab?.cwd, machineName: local ? nil : entry.daemon.machineID,
+                                payload: .closed(closed))
+        }
     }
 
     private func closedScreenEntries() -> [HistoryEntry] {
@@ -169,6 +203,7 @@ final class HistoryService {
             services.closedWorkspaces.clear(since: since)
         }
         if wants(.agent) { agents.hide(since: since) }
+        if wants(.command) { commands.hide(since: since) }
         onChange?()
     }
 
@@ -189,6 +224,8 @@ final class HistoryService {
         case .location(let location, _):
             services.locationTrail.remove(location.key)
         case .closed(let item):
+            // The daemon owns its closed history; the entry ages out there.
+            guard DaemonClosedHistory.daemonID(fromHistoryID: item.id) == nil else { break }
             switch item.kind {
             case .terminalTab, .browserTab: _ = services.closedTabs?.take(item.id)
             case .screen: _ = services.closedScreens.take(id: item.id)
@@ -196,8 +233,8 @@ final class HistoryService {
             }
         case .agent(let session):
             agents.hide(session)
-        case .command:
-            break
+        case .command(let command):
+            commands.hide(command)
         }
         onChange?()
     }

@@ -42,6 +42,11 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     public var progress: Double
     public var canGoBack: Bool
     public var canGoForward: Bool
+    /// The session history around the current entry: back URLs oldest
+    /// first, forward URLs nearest first. Nil when the engine does not
+    /// report them.
+    public var backURLs: [String]?
+    public var forwardURLs: [String]?
     /// Page zoom factor, 1.0 = 100 %.
     public var zoom: Double
     /// True while page content is "fullscreen" inside the pane.
@@ -52,7 +57,7 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     /// Set when the page's content process ended (the "sad tab"). Cleared
     /// when a navigation starts (Reload).
     public var processExit: BrowserProcessExit?
-    /// The page stopped handling input (Chrome's "Page unresponsive").
+    /// The page stopped handling input ("Page unresponsive").
     public var isUnresponsive: Bool
 
     public init(

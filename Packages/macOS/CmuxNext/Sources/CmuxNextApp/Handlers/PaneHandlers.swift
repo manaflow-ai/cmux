@@ -21,13 +21,11 @@ enum PaneHandlers {
 
     /// The pane next to `pane` in `direction` on its screen, by displayed
     /// frames and the window's focus history (the most recently focused of
-    /// several adjacent panes, and of a niri column; focus.md section 4a).
+    /// several adjacent panes, and of a strip column; focus.md section 4a).
     static func neighbor(of pane: LayoutPaneID, direction: LayoutDirection, in content: WorkspaceContentController) -> LayoutPaneID? {
         guard let screen = content.layoutModel.screen(containing: pane) else { return nil }
-        var frames: [LayoutPaneID: CGRect] = [:]
-        for id in screen.layout.panes {
-            if let frame = content.layoutView.frame(of: id) { frames[id] = frame }
-        }
+        // One logical line: docked columns before and after the strip.
+        let frames = content.layoutView.navigationFrames
         return FocusNavigation.neighbor(of: pane, direction: direction, frames: frames,
                                         recency: content.recentPanes,
                                         columns: screen.layout.columns.map(\.root.panes))
@@ -50,7 +48,7 @@ enum PaneHandlers {
             let preferred: PaneDirection = frame.width >= frame.height ? .right : .down
             let other: PaneDirection = preferred == .right ? .down : .right
             // The longer side first; the other axis when only it has room.
-            let fitsPreferred = if case .refused = ctx.services.splitRoom(for: pane.pane, edge: edge(preferred)) { false } else { true }
+            let fitsPreferred = if case .split = ctx.services.splitRoom(for: pane.pane, edge: edge(preferred)) { true } else { false }
             split(ctx, invocation, direction: fitsPreferred ? preferred : other)
         })
     }
@@ -68,29 +66,20 @@ enum PaneHandlers {
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let logger = ctx.services.daemon.logger
+        // A split always stays in its pane's column: it never opens a column
+        // and never scrolls the strip (user decision, column-sizing.md).
         switch ctx.services.splitRoom(for: pane, edge: edge(direction)) {
         case .split:
             break
         case .refused(let reason):
             return ctx.refuse(reason)
-        case .newColumn(_, let anchor):
-            let intent = content?.beginFocusIntent()
-            let spawn = ctx.services.newColumnWidth(nextTo: pane)
-            let width = spawn.width
-            ctx.registry.track(Task {
-                do {
-                    let created = try await connection.newColumn(rightOf: anchor, width: width,
-                                                                 options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
-                    content?.expectFocus(on: created.surface, generation: intent)
-                    spawn.commit()
-                    return nil
-                } catch {
-                    logger.error("new-pane-right failed: \(String(describing: error), privacy: .public)")
-                    return "new-pane-right: \(error)"
-                }
-            })
-            return
+        case .newColumn:
+            return ctx.refuse(RefusalStrings.columnTooNarrowToSplit)
         }
+        let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
+        let sizing = controller.flatMap { controller in
+            content?.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: axis)
+        } ?? []
         let daemonDirection: SplitDirection = direction == .left || direction == .right ? .right : .down
         let swapTowards: PaneDirection? = switch direction {
         case .left: .right
@@ -103,6 +92,7 @@ enum PaneHandlers {
                 let created = try await connection.split(handle, direction: daemonDirection, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
                 if let swapTowards { try await connection.swapPane(handle, with: .direction(swapTowards)) }
                 content?.expectFocus(on: created.surface, generation: intent)
+                content?.layoutModel.applySplitSizing(sizing)
                 return nil
             } catch {
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
@@ -128,7 +118,7 @@ enum PaneHandlers {
             registry.bind(id, invoke: { invocation in
                 guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
-                    return ctx.refuse(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
+                    return ctx.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
                 }
                 focus(next, in: content)
             })
@@ -142,7 +132,7 @@ enum PaneHandlers {
               let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
         let order = screen.layout.panes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
-            return ctx.refuse(RefusalStrings.screenHasOnePane)
+            return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
         focus(order[(index + offset + order.count) % order.count], in: content)
     }
@@ -163,7 +153,7 @@ enum PaneHandlers {
                 case .columnWidth(let column, let width):
                     content.layoutModel.setColumnWidth(column, width: width, transaction: .make(), phase: .ended)
                 case nil:
-                    ctx.refuse(RefusalStrings.noDividerToMove(RefusalStrings.direction(direction)))
+                    ctx.refuseQuietly(RefusalStrings.noDividerToMove(RefusalStrings.direction(direction)))
                 }
             })
         }
@@ -171,10 +161,10 @@ enum PaneHandlers {
             guard let content = ctx.content(invocation), let screen = content.layoutModel.activeScreen else { return }
             let trees: [SplitNode] = switch screen.layout {
             case .splits(let root): [root]
-            case .columns(let columns): columns.map(\.root)
+            case .columns(let columns): columns.flatMap(\.trees)
             }
             let splits = trees.flatMap(\.splits)
-            guard !splits.isEmpty else { return ctx.refuse(RefusalStrings.screenHasNoSplits) }
+            guard !splits.isEmpty else { return ctx.refuseQuietly(RefusalStrings.screenHasNoSplits) }
             for split in splits { content.layoutModel.equalizeSplit(split) }
         })
         registry.bind("toggleSplitZoom", invoke: { invocation in

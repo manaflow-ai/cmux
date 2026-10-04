@@ -5,7 +5,7 @@ import Foundation
 /// controls Chromium's own header shows and where that header is. cmux draws
 /// the header in theme colors over Chromium's header area and runs each
 /// control through Chromium's button (`cmux_shim_side_panel_press`), so
-/// pinning, the more-info menu and closing behave as in Chrome.
+/// pinning, the more-info menu and closing keep Chromium's behavior.
 nonisolated struct CEFSidePanelState: Equatable, Sendable {
     enum Control: String, Sendable {
         case close
@@ -21,6 +21,9 @@ nonisolated struct CEFSidePanelState: Equatable, Sendable {
     var isPinned: Bool
     var showsOpenInNewTab: Bool
     var showsMoreInfo: Bool
+    /// Chromium's own header buttons still in the keyboard focus order
+    /// (fork API 14 reports it; 0 once cmux draws the header). nil on older forks.
+    var chromiumFocusableControls: Int?
     /// Chromium's header in the page window: DIPs from its top-left.
     var header: CGRect
 
@@ -39,6 +42,7 @@ nonisolated struct CEFSidePanelState: Equatable, Sendable {
         isPinned = object["pinned"] as? Bool ?? false
         showsOpenInNewTab = object["open_in_new_tab"] as? Bool ?? false
         showsMoreInfo = object["more_info"] as? Bool ?? false
+        chromiumFocusableControls = object["focusable_controls"] as? Int
         header = CGRect(x: rect["x"] as? Double ?? 0, y: rect["y"] as? Double ?? 0, width: width, height: height)
     }
 

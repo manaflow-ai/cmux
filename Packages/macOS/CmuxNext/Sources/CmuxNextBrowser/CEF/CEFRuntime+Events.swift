@@ -63,6 +63,8 @@ extension CEFRuntime {
             logger.info("CEF context initialized")
         case .afterCreated(let browser, let request, let window, let created):
             browserCreated(browser, request: request, window: window, created: created)
+        case .popup(let opener, let url, let disposition):
+            windowRequests.linkClicks.notePopup(opener: opener, disposition: CEFDisposition(raw: disposition), url: url)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
@@ -80,13 +82,13 @@ extension CEFRuntime {
         case .contextMenu(let browser, let token, let x, let y, let items, let params):
             showContextMenu(browser: browser, token: token, x: x, y: y, itemsJSON: items, paramsJSON: params)
         case .devToolsWillOpen(let browser):
-            tabsByBrowser[browser]?.devToolsWillOpen()
+            tabsByBrowser[browser]?.devToolsController.willOpen()
         case .devToolsOpened(let browser, let devTools, let docked):
-            tabsByBrowser[browser]?.devToolsOpened(browser: devTools, docked: docked)
+            tabsByBrowser[browser]?.devToolsController.opened(browser: devTools, docked: docked)
         case .devToolsClosed(let browser, let devTools):
-            tabsByBrowser[browser]?.devToolsClosed(browser: devTools)
+            tabsByBrowser[browser]?.devToolsController.closed(browser: devTools)
         case .installPrompt(let browser, let promptID, let json):
-            extensionPromptArrived(promptID: promptID, browser: browser, json: json)
+            extensionPrompts.arrived(promptID: promptID, browser: browser, json: json)
         case .omniboxSuggestions(let requestID, let extensionID, let json):
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
         case .unknown:
@@ -101,7 +103,7 @@ extension CEFRuntime {
     /// App content shortcuts first (through the host's key router, which
     /// also runs extension shortcuts), then, for Option chords the router
     /// does not see, the profile's extension shortcuts (`chrome.commands`),
-    /// which Chromium would dispatch from the Chrome toolbar cmux hides.
+    /// which Chromium would dispatch from the Chromium toolbar cmux hides.
     func routeKey(_ event: NSEvent, browser: Int32) -> Bool {
         guard event.type == .keyDown, let tab = tabsByBrowser[browser] else { return false }
         if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router = tab.keyRouter,
@@ -110,7 +112,7 @@ extension CEFRuntime {
         }
         guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
               tab.keyRouter?.pageOwnsAllKeys(tab) != true else { return false }
-        let store = extensionStore(for: tab.profileID)
+        let store = extensionStores.store(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)
     }
@@ -135,21 +137,22 @@ extension CEFRuntime {
             return
         }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
-        adoptOrphan(browser: browser, window: window, created: created)
+        orphans.adopt(browser: browser, window: window, created: created)
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
+        windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
     }
 
     private func browserClosed(_ browser: Int32) {
+        windowRequests.linkClicks.forget(opener: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
-            tab.browserDidClose()
+            tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
             // Never registered: drop a pending adoption of it.
-            adoptions.closedUnregistered(browser)
-            unplaced[browser] = nil
+            orphans.closedUnregistered(browser)
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
@@ -161,13 +164,13 @@ extension CEFRuntime {
     private func forkTabEvent(_ kind: CEFForkTabEvent, browser: Int32, window: Int32, value: Int) {
         switch kind {
         case .extensionActionsChanged, .inserted, .removed:
-            if kind == .inserted { placeUnplaced(browser: browser, window: window) }
+            if kind == .inserted { orphans.placeUnplaced(browser: browser, window: window) }
             for host in hosts.values where host.owns(window: window) {
                 host.refreshExtensionActions()
             }
-            if kind == .extensionActionsChanged { refreshExtensionStores(window: window, browser: browser) }
+            if kind == .extensionActionsChanged { extensionStores.refresh(window: window, browser: browser) }
         case .extensionsChanged:
-            refreshExtensionStores(window: window, browser: browser)
+            extensionStores.refresh(window: window, browser: browser)
         case .extensionPopupClosed:
             // `browser` is the window's active tab; the popup may have
             // opened from another tab of the same window.
@@ -198,7 +201,7 @@ extension CEFRuntime {
                 }
             }
         case .devToolsDockSide:
-            tabsByBrowser[browser]?.devToolsDockSideChosen(value)
+            tabsByBrowser[browser]?.devToolsController.dockSideChosen(value)
         case .foreignBrowserBlocked:
             logger.error("Chromium created a window outside cmux (type \(value)); the fork hid it")
         case .popupWindowCreated:
@@ -300,9 +303,10 @@ extension CEFShimEvent {
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .keyUnhandled(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _):
+             .navigationReroute(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
+             .devToolsMessage(let b, _):
             b
-        case .contextInitialized, .omniboxSuggestions, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .unknown:
             nil
         }
     }

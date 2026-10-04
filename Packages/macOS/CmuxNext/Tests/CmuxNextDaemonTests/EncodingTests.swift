@@ -112,6 +112,19 @@ import Testing
         #expect(undo["confirm_close"] == .bool(true))
     }
 
+    /// DOCK-WIRE (R87): `set-column-dock {pane, dock, edge?, mode?}`; no `sticky`.
+    @Test func setColumnDockEncodesDock() throws {
+        let pin = try object(SetColumnDockRequest(pane: 4, dock: DockSnapshot(edge: .left, mode: .overlay), transaction: 9))
+        #expect(pin["cmd"] == .string("set-column-dock"))
+        #expect(pin["dock"] == .bool(true))
+        #expect(pin["edge"] == .string("left"))
+        #expect(pin["mode"] == .string("overlay"))
+        #expect(pin["sticky"] == nil)
+        let unpin = try object(SetColumnDockRequest(pane: 4, dock: nil))
+        #expect(unpin["dock"] == .bool(false))
+        #expect(unpin["sticky"] == nil)
+    }
+
     @Test func tabDragCommandsCarryTransaction() throws {
         let split = try object(MoveTabToSplitRequest(surface: 3, pane: 4, edge: .left, transaction: "tx"))
         #expect(split["cmd"] == .string("move-tab-to-split"))
@@ -124,10 +137,35 @@ import Testing
         #expect(column["pane"] == nil)
         let byPane = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7)))
         #expect(byPane["pane"] == .number(7))
+        #expect(byPane["dock"] == nil)
+        // A docked new column (dock-columns-v1) carries the dock as {edge, mode}.
+        let docked = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.3,
+                                                       dock: DockSnapshot(edge: .bottom, mode: .overlay)))
+        #expect(docked["dock"]?["edge"] == .string("bottom"))
+        #expect(docked["dock"]?["mode"] == .string("overlay"))
+        // Docking a pane's only tab leaves a fresh terminal (tab-column-respawn-v1).
+        let respawned = try object(MoveTabToColumnRespawnRequest(
+            MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.4, dock: DockSnapshot(edge: .right, mode: .docked)),
+            respawn: .terminal(SpawnOptions(cwd: "/tmp"))))
+        #expect(respawned["cmd"] == .string("move-tab-to-column"))
+        #expect(respawned["dock"]?["edge"] == .string("right"))
+        #expect(respawned["respawn"]?["kind"] == .string("terminal"))
+        #expect(respawned["respawn"]?["cwd"] == .string("/tmp"))
         let workspace = try object(MoveTabToNewWorkspaceRequest(surface: 3, group: "g", index: 2))
         #expect(workspace["cmd"] == .string("move-tab-to-new-workspace"))
         #expect(workspace["group"] == .string("g"))
         #expect(workspace["transaction"] == nil)
+        // `name` only when given (`tab-workspace-name-v1`; older daemons refuse unknown fields).
+        #expect(workspace["name"] == nil)
+        #expect(try object(MoveTabToNewWorkspaceRequest(surface: 3, name: "vim"))["name"] == .string("vim"))
+        // A browser respawn names the page, engine and profile; never the dragged tab's URL.
+        let respawn = try object(MoveTabToSplitRespawnRequest(
+            surface: 3, pane: 4, edge: .right, respawn: .browser(url: "chrome://newtab/", engine: .cef, profileID: "work")))
+        #expect(respawn["cmd"] == .string("move-tab-to-split"))
+        #expect(respawn["respawn"]?["kind"] == .string("browser"))
+        #expect(respawn["respawn"]?["url"] == .string("chrome://newtab/"))
+        #expect(respawn["respawn"]?["engine"] == .string("cef"))
+        #expect(respawn["respawn"]?["profile_id"] == .string("work"))
         let move = try object(MoveTabRequest(surface: 3, pane: 7, index: 0, transaction: "tx"))
         #expect(move["transaction"] == .string("tx"))
         let toWorkspace = try object(MoveTabToWorkspaceRequest(surface: 3, workspace: nil))
@@ -234,19 +272,6 @@ import Testing
         #expect(metadata["icon"] == .string("folder"))
         #expect(metadata.keys.contains("title") == false)
         #expect(metadata["mutation_id"] == .string("m"))
-
-        let ungroup = try object(MoveWorkspaceToGroupRequest(workspace: .key("k1"), group: nil, mutation: nil))
-        #expect(ungroup["group"] == .null)
-        #expect(ungroup["index"] == nil)
-        let group = try object(MoveWorkspaceToGroupRequest(workspace: .key("k1"), group: "agents", index: 0, mutation: nil))
-        #expect(group["group"] == .string("agents"))
-
-        let update = try object(UpdateWorkspaceGroupRequest(group: "agents", color: .clear, collapsed: true))
-        #expect(update["color"] == .null)
-        #expect(update["collapsed"] == .bool(true))
-        #expect(update["name"] == nil)
-        let create = try object(CreateWorkspaceGroupRequest(name: "Agents", group: "agents"))
-        #expect(create["group"] == .string("agents"))
 
         let browser = try object(NewFrontendBrowserTabRequest(url: "https://x", engine: .webkit, pane: 3, profileID: "p1"))
         #expect(browser["cmd"] == .string("new-frontend-browser-tab"))

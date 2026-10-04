@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import CmuxNextHistory
 import CmuxNextPalette
 import Foundation
@@ -22,6 +23,11 @@ enum HistoryPalettePages {
              symbol: "clock.arrow.circlepath", kinds: [.closed])
     }
 
+    static func commands(_ services: AppServices) -> PalettePageSpec {
+        page(services, id: "history.commands", title: HistoryAppStrings.commandsTitle,
+             placeholder: HistoryAppStrings.commandsPlaceholder, symbol: "terminal", kinds: [.command])
+    }
+
     static func agents(_ services: AppServices) -> PalettePageSpec {
         page(services, id: "history.agents", title: HistoryAppStrings.agentsTitle, placeholder: HistoryAppStrings.agentsPlaceholder,
              symbol: "arrow.clockwise.circle", kinds: [.agent])
@@ -35,6 +41,12 @@ enum HistoryPalettePages {
             return entries.map { item(for: $0, services: services) }
         }
         return PalettePageSpec(id: id, title: title, placeholder: placeholder, symbol: symbol, providers: [provider])
+    }
+
+    /// The brand mark an agent session's row draws (its provider's), or nil.
+    nonisolated static func agentBrand(_ entry: HistoryEntry) -> String? {
+        guard case .agent(let session) = entry.payload else { return nil }
+        return AgentBrandCatalog.brand(for: session.provider)?.rawValue
     }
 
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {
@@ -63,8 +75,12 @@ enum HistoryPalettePages {
                 secondary.append(PaletteCommand(id: "copyResume", title: HistoryAppStrings.copyResumeCommand, symbol: "terminal",
                                                 effect: .perform { restorer.copy(command) }))
             }
-        case .command:
-            primaryTitle = HistoryAppStrings.open
+        case .command(let command):
+            primaryTitle = HistoryAppStrings.runAgain
+            if let text = command.command {
+                secondary.append(PaletteCommand(id: "copyCommand", title: HistoryAppStrings.copyCommand, symbol: "doc.on.doc",
+                                                effect: .perform { restorer.copy(text) }))
+            }
         }
         if !entry.isAvailable { accessory = HistoryAppStrings.offline }
         secondary.append(PaletteCommand(id: "remove", title: HistoryAppStrings.remove, symbol: "trash", isDestructive: true,
@@ -72,7 +88,7 @@ enum HistoryPalettePages {
         let subtitle = [entry.detail, entry.machineName].compactMap { $0 }.joined(separator: " · ")
         return PaletteItem(
             id: entry.id, title: entry.title, subtitle: subtitle.isEmpty ? nil : subtitle, accessory: accessory,
-            symbol: symbol(entry.kind), keywords: [entry.searchText], isEnabled: entry.isAvailable,
+            symbol: symbol(entry.kind), brand: agentBrand(entry), keywords: [entry.searchText], isEnabled: entry.isAvailable,
             primary: PaletteCommand(id: "open", title: primaryTitle, symbol: "return", effect: .perform { restorer.open(entry) }),
             secondary: secondary)
     }

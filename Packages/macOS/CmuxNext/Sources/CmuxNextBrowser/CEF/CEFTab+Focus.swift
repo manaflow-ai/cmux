@@ -42,8 +42,8 @@ extension CEFTab {
     /// `setFocused(true)` asks inside `grantFocus`. CEF's own requests are
     /// refused. It asks after every navigation it starts, and on macOS
     /// granting one activates the page window, which takes the keys from
-    /// the omnibar of a new tab (Chrome keeps that omnibar focused until
-    /// the user clicks the page) or from wherever the user is typing.
+    /// the omnibar of a new tab (that omnibar stays focused until the
+    /// user clicks the page) or from wherever the user is typing.
     func chromiumRequestsFocus(_ source: CEFFocusSource) -> Bool {
         if isGrantingFocus { return true }
         host.lifecycleTrace.record(id, "focus-refused source=\(source.name)")

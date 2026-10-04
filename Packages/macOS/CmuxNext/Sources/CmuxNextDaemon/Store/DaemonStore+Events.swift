@@ -12,11 +12,24 @@ extension DaemonStore {
     /// applied exactly (revision gap, generation change, coarse invalidation).
     @discardableResult
     public func apply(_ event: DaemonEvent) -> Followup {
+        let followup = withOverlayLifted { applyEvent(event, sequence: nil) }
+        workspaceListMayHaveChanged()
+        // Waiters see the visible state, so they run once the overlay is back.
+        flushAppliedWaiters()
+        return followup
+    }
+
+    /// Applies one event to the confirmed records (the overlay is lifted)
+    /// and settles what its transaction echo confirms. Whether the echo
+    /// needs a resync is decided per event: the echo's own delta applied
+    /// exactly holds the intent's result even when another event of the
+    /// batch needs a resync.
+    private func applyEvent(_ event: DaemonEvent, sequence: UInt64?) -> Followup {
         let followup = applyState(event)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
+            settleIntentOnEcho(transaction, needsResync: followup == .resync, sequence: sequence)
         }
-        workspaceListMayHaveChanged()
         return followup
     }
 
@@ -34,43 +47,50 @@ extension DaemonStore {
         defer {
             applyDepth -= 1
             workspaceListMayHaveChanged()
+            // Whole batch applied: settle the transactions it confirmed.
+            flushAppliedWaiters()
         }
-        var followup = Followup.none
-        for envelope in batch {
-            if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) {
-                if apply(envelope.event) == .resync { followup = .resync }
-            } else if let transaction = envelope.event.clientTransactionID {
-                // Superseded by the snapshot, but its echo still settles the patch.
-                confirm(transaction)
+        return withOverlayLifted {
+            var followup = Followup.none
+            for envelope in batch {
+                if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
+                    if applyEvent(envelope.event, sequence: envelope.sequence) == .resync { followup = .resync }
+                } else if let transaction = envelope.event.clientTransactionID {
+                    // Superseded by the snapshot (which holds its result),
+                    // but its echo still settles the patch and the intent.
+                    confirm(transaction)
+                    settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
+                }
             }
+            // A batch that needs a resync is reflected only once the snapshot
+            // lands (`resync` advances to its barrier).
+            if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
+            return followup
         }
-        // A batch that needs a resync is reflected only once the snapshot
-        // lands (`resync` advances to its barrier).
-        if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
-        return followup
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
-        if sequence > appliedSequence { appliedSequence = sequence }
-    }
-
-    private func isLifecycle(_ event: DaemonEvent) -> Bool {
-        switch event {
-        case .connected, .disconnected, .daemonShutdown: true
-        default: false
-        }
+        guard sequence > appliedSequence else { return }
+        appliedSequence = sequence
+        // Intents first, so waiters see the visible state without them.
+        settleDueIntents()
+        runAppliedWaiters(nil)
     }
 
     private func applyState(_ event: DaemonEvent) -> Followup {
         switch event {
         case .connected(let identity, _):
             connectionEpoch += 1
+            session.connected(servesStateResources: identity.supports(DaemonCapabilities.shared.stateResources))
             connectionState = .connected(identity)
             noteHandshake(identity)
             return .resync
         case .disconnected(let reason):
             connectionEpoch += 1
             connectionState = .disconnected(reason)
+            // Nothing newer will arrive for commands sent on this connection.
+            drainAppliedWaiters = true
+            flushAppliedWaiters()
             return .none
         case .daemonShutdown:
             connectionEpoch += 1
@@ -173,7 +193,17 @@ extension DaemonStore {
         case .tabRenamed(let delta), .tabChanged(let delta):
             guard let tab = tabsBySurface[delta.surface] else { return .resync }
             tab.update(delta.entity)
-            panesByHandle[delta.pane]?.recomputeSpans()
+            // tab-drag-v1 reports a move as the moved tab's tab-changed
+            // naming its new pane (another pane, screen or a new workspace).
+            guard let target = panesByHandle[delta.pane] else { return .resync }
+            if relocate(tab, to: target, index: delta.index) {
+                structureChanged()
+            } else if let index = delta.index {
+                // A move inside the pane: the delta names the tab's index.
+                target.moveTab(surface: tab.surface, to: index)
+            } else {
+                target.recomputeSpans()
+            }
             return .none
 
         case .treeChanged, .layoutChanged, .overflow:
@@ -199,13 +229,26 @@ extension DaemonStore {
             tabsBySurface[status.surface]?.setAgent(status)
             return .none
 
-        case .bookmarksChanged(let profile, _):
-            onBookmarksChanged?(profile)
+        case .sessionState(let item): session.apply(item, to: workspaces); return .none
+        case .bookmarksChanged, .conversationChanged, .conversationTyping:
+            sideEvents.deliver(event)
             return .none
 
         case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
             return .none
         }
+    }
+
+    /// Moves `tab` into `target` at `index` when another pane holds it.
+    /// Returns whether anything moved.
+    private func relocate(_ tab: TabModel, to target: PaneModel, index: Int?) -> Bool {
+        let holders = panesByHandle.values.filter { $0 !== target && $0.tabs.contains { $0.surface == tab.surface } }
+        guard !holders.isEmpty else { return false }
+        for pane in holders { _ = pane.removeTab(surface: tab.surface) }
+        if !target.tabs.contains(where: { $0.surface == tab.surface }) {
+            target.insertTab(tab, at: min(max(index ?? target.tabs.count, 0), target.tabs.count))
+        }
+        return true
     }
 
     private func applyWorkspaceDelta(_ delta: WorkspaceDelta, _ body: (DaemonStore, WorkspaceDelta) -> Void) -> Followup {

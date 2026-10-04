@@ -18,8 +18,7 @@ struct HistoryRestorer {
             if !services.locationTrail.goTo(location) { services.registry.refuse(HistoryAppStrings.entryGone) }
         case .closed(let item): reopen(item)
         case .agent(let session): resume(session)
-        case .command(let command):
-            if let text = command.command { copy(text) }
+        case .command(let command): runAgain(command)
         }
     }
 
@@ -40,6 +39,12 @@ struct HistoryRestorer {
 
     /// Reopens a closed tab, screen or workspace from a history list.
     func reopen(_ item: ClosedItem) {
+        if let id = DaemonClosedHistory.daemonID(fromHistoryID: item.id) {
+            guard let entry = DaemonClosedHistory.entry(id, in: services) else {
+                return services.registry.refuse(HistoryAppStrings.entryGone)
+            }
+            return DaemonClosedHistory.reopen(entry, services: services)
+        }
         let context = AppActionContext(services: services)
         switch item.kind {
         case .terminalTab, .browserTab:
@@ -60,6 +65,11 @@ struct HistoryRestorer {
 
     /// Reopens one closed tab (`nil`: the newest) where it was.
     func reopen(closedID: String?) {
+        // The newest tab a daemon recorded, when the app's tracker has none.
+        if closedID == nil, services.closedTabs?.records.isEmpty ?? true,
+           let newest = DaemonClosedHistory.entries([.tab], in: services).first {
+            return DaemonClosedHistory.reopen(newest, services: services)
+        }
         guard let tracker = services.closedTabs else { return }
         let record = closedID.map { tracker.take($0) } ?? tracker.popLast()
         guard let record else {
@@ -83,6 +93,21 @@ struct HistoryRestorer {
         }
         guard let pane = old ?? focused else { return services.registry.refuse(HistoryAppStrings.noPane) }
         pane.newTerminalTab(cwd: session.cwd, typing: command + "\n")
+    }
+
+    /// Runs a command again in a new terminal tab, in its directory, on its
+    /// machine (the focused pane when it is there, else its machine's first
+    /// shown pane).
+    func runAgain(_ command: TerminalCommand) {
+        guard let text = command.command else { return services.registry.refuse(HistoryAppStrings.entryGone) }
+        guard services.machines.daemons.contains(where: { $0.machineID == command.machine }) else {
+            return services.registry.refuse(HistoryAppStrings.machineOffline)
+        }
+        let onMachine = { (pane: PaneController) in services.daemon(for: pane.pane).machineID == command.machine }
+        let focused = services.windows.active?.focusedPane.flatMap { onMachine($0) ? $0 : nil }
+        let shown = services.windows.controllers.lazy.compactMap { $0.content?.panes.values.first(where: onMachine) }.first
+        guard let pane = focused ?? shown else { return services.registry.refuse(HistoryAppStrings.noPane) }
+        pane.newTerminalTab(cwd: command.cwd, typing: text + "\n")
     }
 
     func copy(_ text: String) {

@@ -49,6 +49,13 @@ extension CEFPaneHost {
         tab.popupOpenerHost = self
         host.add(tab)
         runtime.register(tab, browser: browser)
+        // The page may have loaded before this adoption (its address and
+        // title events reached no tab): start from its current entry.
+        if let shim = runtime.shim, let json = shim.takeString(shim.tabNavigationEntries(browser)),
+           let entry = CEFNavigationEntries(json: json)?.current {
+            tab.handle(.address(browser: browser, url: entry.url))
+            if !entry.title.isEmpty { tab.handle(.title(browser: browser, title: entry.title)) }
+        }
         tab.reachedFirstRealPage()
         tab.inheritDelegates(from: opener)
         opener.emit(.openPopup(tab, BrowserPopupRequest(features: bounds)))
@@ -66,6 +73,7 @@ extension CEFPaneHost {
         }
         let size = hostView.bounds.size
         lifecycleTrace.record(tab.id, "popup-window-attach window=\(popupWindow) size=\(Int(size.width))x\(Int(size.height))")
+        runtime.notePopupWindow("window=\(popupWindow) attach")
         if shim.popupWindowAttach(popupWindow, Unmanaged.passUnretained(hostView).toOpaque(),
                                   max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32) == 1 {
             window = .live(window: popupWindow)
@@ -73,6 +81,7 @@ extension CEFPaneHost {
             _ = shim.tabActivate(browser)
             hostView.postGeometryChange()
             lifecycleTrace.record(tab.id, "popup-window-attached")
+            runtime.notePopupWindow("window=\(popupWindow) attached")
         } else {
             runtime.logger.error("CEF popup window \(popupWindow) did not attach; closing its tab")
             tab.close()
@@ -85,13 +94,31 @@ extension CEFRuntime {
     /// CMUX_POPUP_WINDOW_CREATED: runs on the next main-actor turn (the
     /// event arrives inside Chromium's window creation).
     func popupWindowCreated(window: Int32, browser: Int32) {
-        Task { @MainActor [weak self] in self?.adoptPopupWindow(window: window, browser: browser) }
+        Task { @MainActor [weak self] in
+            self?.notePopupWindow("created window=\(window) browser=\(browser)")
+            self?.adoptPopupWindow(window: window, browser: browser)
+        }
+    }
+
+    /// The tab a popup window opens over: the last shown pane's tab, else
+    /// any other shown pane's (the last shown pane may have lost its tab,
+    /// as when an extension removed a tab it had moved there).
+    func popupWindowOpener() -> CEFTab? {
+        if let tab = lastShownHost?.visibleTab { return tab }
+        let panes = hosts.values.filter { !$0.isPopupHost && $0.visibleTab != nil }
+        return (panes.first { $0.hostView.window != nil } ?? panes.first)?.visibleTab
     }
 
     private func adoptPopupWindow(window: Int32, browser: Int32) {
-        guard browser != 0, tabsByBrowser[browser] == nil, !adoptions.isClosed(browser) else { return }
-        unplaced[browser] = nil
-        guard let opener = lastShownHost?.visibleTab else {
+        guard browser != 0, tabsByBrowser[browser] == nil, !orphans.ledger.isClosed(browser) else {
+            notePopupWindow("window=\(window) browser=\(browser) skipped: known=\(tabsByBrowser[browser] != nil) closed=\(orphans.ledger.isClosed(browser))")
+            return
+        }
+        orphans.unplaced[browser] = nil
+        let opener = popupWindowOpener()
+        notePopupWindow("window=\(window) browser=\(browser) adopt opener=\(opener?.state.url?.absoluteString ?? "none") "
+                        + "shown=\(opener?.host.hostView.window != nil) last=\(lastShownHost?.visibleTab != nil)")
+        guard let opener else {
             // No cmux window to show it over: close it (chrome.windows sees
             // the window removed).
             logger.error("CEF popup window \(window) has no pane to open over; closing it")
@@ -127,4 +154,9 @@ extension NSView {
         let frame = window.convertToScreen(convert(bounds, to: nil))
         return CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
     }
+}
+
+extension CEFRuntime {
+    /// The latest popup window events (`debug.cef` `popup_windows`).
+    func notePopupWindow(_ event: String) { windowRequests.log.notePopupWindow(event) }
 }

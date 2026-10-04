@@ -3,6 +3,7 @@
 
 import os
 import re
+import subprocess
 import sys
 from swift_source_mask import mask_swift_source
 
@@ -14,7 +15,15 @@ parser.add_argument('--baseline', required=True)
 parser.add_argument('--general-baseline', required=True)
 parser.add_argument('--enum-roots', nargs='+', required=True)
 parser.add_argument('--type-roots', nargs='+', required=True)
+# Generated, shrink-only list of namespace types that predate the rule
+# covering them. --update-ratchet seeds it when absent and otherwise only
+# drops entries that are fixed; it never adds to an existing file.
+parser.add_argument('--ratchet')
+parser.add_argument('--update-ratchet', action='store_true')
+parser.add_argument('--fix', action='store_true', help='rewrite safe namespace declarations and rerun the check')
 args = parser.parse_args()
+if args.update_ratchet and not args.ratchet:
+    parser.error('--update-ratchet needs --ratchet')
 baseline_path = args.baseline
 general_baseline_path = args.general_baseline
 roots = args.type_roots
@@ -27,6 +36,17 @@ if os.path.exists(baseline_path):
         if entry and not entry.startswith("#"):
             baseline.add(entry)
 
+ratchet = set()
+if args.ratchet and os.path.exists(args.ratchet):
+    for raw in open(args.ratchet, encoding="utf-8"):
+        entry = raw.strip()
+        if entry and not entry.startswith("#"):
+            ratchet.add(entry)
+ratchet_seen = set()
+ratchet_new = set()
+fixes = {}
+fixed_declarations = set()
+
 general_baseline = set()
 if os.path.exists(general_baseline_path):
     for raw in open(general_baseline_path, encoding="utf-8"):
@@ -34,9 +54,11 @@ if os.path.exists(general_baseline_path):
         if entry and not entry.startswith("#"):
             general_baseline.add(entry)
 
+# Attributes and modifiers in any order: `public nonisolated enum`,
+# `nonisolated public enum` and `@MainActor public final class` all count.
 DECL = re.compile(
-    r"(?m)^(?P<indent>[ \t]*)(?P<head>(?:@\w+(?:\([^)]*\))?[ \t]+)*"
-    r"(?:(?:public|package|internal|open|final|private|fileprivate)[ \t]+)*"
+    r"(?m)^(?P<indent>[ \t]*)(?P<head>(?:(?:@\w+(?:\([^)]*\))?|public|package|internal|open|final|"
+    r"private|fileprivate|nonisolated|indirect)[ \t]+)*"
     r"(?P<kind>struct|class|enum|actor)[ \t]+(?P<name>\w+))"
 )
 EXT = re.compile(r"(?m)^[ \t]*(?:@\w+(?:\([^)]*\))?[ \t]+)*"
@@ -52,6 +74,42 @@ STATIC_KEY_PROTOCOLS = re.compile(
     r"\b(PreferenceKey|EnvironmentKey|FocusedValueKey|LayoutValueKey|"
     r"TransactionKey|ContainerValueKey|EntryKey)\b"
 )
+
+
+def schedule_fix(path, original, masked, match):
+    """Convert a safe namespace declaration and add its explicit initializer."""
+    declaration = (path, match.start())
+    if declaration in fixed_declarations:
+        return
+    brace = masked.find("{", match.end())
+    if brace < 0:
+        return
+    kind = match.group("kind")
+    if kind in ("class", "actor"):
+        print(
+            f"SKIP   namespace-type autofix     {path}:{original.count(chr(10), 0, match.start()) + 1} "
+            f"{kind} {match.group('name')} requires a manual conversion; --fix will not change its semantics"
+        )
+        return
+    visibility = "public" if "public" in match.group("head") else "package"
+    isolation = "nonisolated " if "nonisolated" in match.group("head") else ""
+    indent = match.group("indent")
+    initializer = f"\n{indent}    {visibility} {isolation}init() {{}}"
+    edits = fixes.setdefault(path, [])
+    if kind == "enum":
+        edits.append((match.start("kind"), match.end("kind"), "struct"))
+    edits.append((brace + 1, brace + 1, initializer))
+    fixed_declarations.add(declaration)
+
+
+def write_fixes():
+    for path, edits in fixes.items():
+        source = open(path, encoding="utf-8", errors="replace").read()
+        for start, end, replacement in sorted(edits, reverse=True):
+            source = source[:start] + replacement + source[end:]
+        with open(path, "w", encoding="utf-8") as out:
+            out.write(source)
+        print(f"fixed namespace declarations in {path}")
 
 
 def body_and_end(src, brace):
@@ -125,6 +183,15 @@ for root in roots:
                     if 'lint:allow' in context or f'namespace-enum\t{path}\t{name}' in general_baseline:
                         continue
                     print(f'ERROR   namespace-enum               {path}:{line}  enum {name} (caseless, static members) -> scope onto the owning type')
+                    if args.fix:
+                        # The matching namespace-type finding adds the same
+                        # initializer; this schedules the enum conversion once.
+                        m = re.search(
+                            rf"(?m)^(?P<indent>[ \t]*)(?P<head>(?:(?:@\w+(?:\([^)]*\))?|public|package|internal|open|final|private|fileprivate|nonisolated|indirect)[ \t]+)*)(?P<kind>enum)[ \t]+{re.escape(name)}",
+                            src,
+                        )
+                        if m:
+                            schedule_fix(path, original, src, m)
                     fail = True
 
             ext_counts = {}
@@ -173,12 +240,53 @@ for root in roots:
                     continue
                 if f"namespace-type\t{path}\t{m.group('name')}" in general_baseline:
                     continue
+                key = f"{path}:{m.group('name')}"
+                if key in ratchet:
+                    ratchet_seen.add(key)
+                    continue
+                if args.update_ratchet and not os.path.exists(args.ratchet):
+                    ratchet_new.add(key)
+                    continue
                 print(
                     f"ERROR   namespace-type               {path}:{line}  "
                     f"{m.group('kind')} {m.group('name')} (all-static public "
                     "surface, not instantiable) -> extension on the receiver "
                     "type or an instantiated value with injected dependencies"
                 )
+                if args.fix:
+                    schedule_fix(path, original, src, m)
                 fail = True
+
+RATCHET_HEADER = """\
+# Generated by `NAMESPACE_RATCHET_UPDATE=1 scripts/lint-ios-package-conventions.sh`.
+# Namespace types (all-static public surface) that predate the rule that
+# flags them. This list only shrinks: new offenders fail the lint, and an
+# entry whose type is fixed, renamed or deleted fails as stale until its
+# line goes. Fix one when you touch its file (an extension on the receiver
+# type, or a value the caller builds), then rerun the command above.
+"""
+
+if args.ratchet:
+    if args.update_ratchet:
+        entries = ratchet_seen | ratchet_new
+        with open(args.ratchet, "w", encoding="utf-8") as out:
+            out.write(RATCHET_HEADER)
+            out.writelines(f"{entry}\n" for entry in sorted(entries))
+        print(f"ratchet: {len(entries)} entries ({len(ratchet - ratchet_seen)} dropped, {len(ratchet_new)} seeded)")
+    else:
+        for entry in sorted(ratchet - ratchet_seen):
+            path, _, name = entry.rpartition(":")
+            print(
+                f"ERROR   namespace-ratchet-stale      {path}:0  {name} is fixed or gone "
+                f"-> delete its line from {args.ratchet}"
+            )
+            fail = True
+
+if args.fix and fixes:
+    write_fixes()
+    # Re-run without --fix so the command reports any unsafe or remaining
+    # findings and verifies that every mechanical edit is actually clean.
+    rerun = [arg for arg in sys.argv[1:] if arg != "--fix"]
+    sys.exit(subprocess.run([sys.executable, sys.argv[0], *rerun]).returncode)
 
 sys.exit(1 if fail else 0)

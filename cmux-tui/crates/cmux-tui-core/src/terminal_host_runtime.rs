@@ -835,185 +835,12 @@ mod unix {
         Ok(colors)
     }
 
-    enum ControlResponseWaiter {
-        Blocking { kind: MessageKind, sender: SyncSender<Frame> },
-        DeferredCellPixel { expected: (u16, u16) },
-    }
-
-    #[derive(Debug, Clone)]
-    pub(crate) enum DeferredCellPixelResolution {
-        Response(Frame),
-        Disconnected,
-    }
-
-    pub(crate) type DeferredCellPixelHandler =
-        Arc<dyn Fn(u64, (u16, u16), DeferredCellPixelResolution) + Send + Sync + 'static>;
-
-    #[derive(Default)]
-    struct PendingInputAckWindow {
-        writes: usize,
-        bytes: usize,
-    }
-
-    pub(crate) struct ControlResponses {
-        waiters: Mutex<HashMap<u64, ControlResponseWaiter>>,
-        deferred_cell_pixel_handler: Mutex<Option<DeferredCellPixelHandler>>,
-        latest_cell_pixel_ack: AtomicU64,
-        pending_input_acks: Mutex<PendingInputAckWindow>,
-        input_ack_shutdown: Mutex<Option<Arc<UnixStream>>>,
-    }
-
-    impl ControlResponses {
-        fn new() -> Self {
-            Self {
-                waiters: Mutex::new(HashMap::new()),
-                deferred_cell_pixel_handler: Mutex::new(None),
-                latest_cell_pixel_ack: AtomicU64::new(0),
-                pending_input_acks: Mutex::new(PendingInputAckWindow::default()),
-                input_ack_shutdown: Mutex::new(None),
-            }
-        }
-
-        #[cfg(test)]
-        pub(crate) fn new_for_test() -> Self {
-            Self::new()
-        }
-
-        #[cfg(test)]
-        pub(crate) fn invoke_deferred_cell_pixel_handler_for_test(
-            &self,
-            request_id: u64,
-            expected: (u16, u16),
-            resolution: DeferredCellPixelResolution,
-        ) {
-            if let Some(handler) = self.deferred_cell_pixel_handler.lock().unwrap().clone() {
-                handler(request_id, expected, resolution);
-            }
-        }
-
-        #[cfg(test)]
-        pub(crate) fn resolve(&self, frame: &Frame) -> bool {
-            self.resolve_after(frame, || {})
-        }
-
-        pub(crate) fn resolve_after(&self, frame: &Frame, before_resolve: impl FnOnce()) -> bool {
-            let waiter = self.waiters.lock().unwrap().remove(&frame.request_id);
-            match waiter {
-                Some(ControlResponseWaiter::Blocking { kind, sender }) => {
-                    if kind != frame.kind {
-                        return false;
-                    }
-                    if frame.kind == MessageKind::CellPixelSizeAck {
-                        self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
-                    }
-                    before_resolve();
-                    let _ = sender.try_send(frame.clone());
-                    true
-                }
-                Some(ControlResponseWaiter::DeferredCellPixel { expected }) => {
-                    if frame.kind != MessageKind::CellPixelSizeAck {
-                        return false;
-                    }
-                    self.latest_cell_pixel_ack.fetch_max(frame.request_id, Ordering::AcqRel);
-                    before_resolve();
-                    let handler = self.deferred_cell_pixel_handler.lock().unwrap().clone();
-                    if let Some(handler) = handler {
-                        handler(
-                            frame.request_id,
-                            expected,
-                            DeferredCellPixelResolution::Response(frame.clone()),
-                        );
-                    }
-                    true
-                }
-                None => false,
-            }
-        }
-
-        fn input_ack_shutdown_handle(
-            &self,
-            writer: &Mutex<UnixStream>,
-        ) -> std::io::Result<Arc<UnixStream>> {
-            let mut cached = self.input_ack_shutdown.lock().unwrap();
-            if let Some(shutdown) = cached.as_ref() {
-                return Ok(shutdown.clone());
-            }
-            let shutdown = Arc::new(writer.lock().unwrap().try_clone()?);
-            *cached = Some(shutdown.clone());
-            Ok(shutdown)
-        }
-
-        fn try_reserve_input_ack(&self, bytes: usize) -> bool {
-            if bytes > MAX_PENDING_INPUT_ACK_BYTES {
-                return false;
-            }
-            let mut pending = self.pending_input_acks.lock().unwrap();
-            if pending.writes >= MAX_PENDING_INPUT_ACKS
-                || bytes > MAX_PENDING_INPUT_ACK_BYTES.saturating_sub(pending.bytes)
-            {
-                return false;
-            }
-            pending.writes += 1;
-            pending.bytes += bytes;
-            true
-        }
-
-        fn release_input_ack(&self, bytes: usize) {
-            let mut pending = self.pending_input_acks.lock().unwrap();
-            debug_assert!(pending.writes > 0, "terminal input ACK reservation underflow");
-            debug_assert!(pending.bytes >= bytes, "terminal input ACK byte reservation underflow");
-            pending.writes = pending.writes.saturating_sub(1);
-            pending.bytes = pending.bytes.saturating_sub(bytes);
-        }
-
-        #[cfg(test)]
-        fn pending_input_acks_for_test(&self) -> (usize, usize) {
-            let pending = self.pending_input_acks.lock().unwrap();
-            (pending.writes, pending.bytes)
-        }
-
-        fn defer_cell_pixel(&self, request_id: u64, expected: (u16, u16)) -> bool {
-            let mut waiters = self.waiters.lock().unwrap();
-            let Some(waiter) = waiters.get_mut(&request_id) else { return false };
-            if !matches!(
-                waiter,
-                ControlResponseWaiter::Blocking { kind: MessageKind::CellPixelSizeAck, .. }
-            ) {
-                return false;
-            }
-            *waiter = ControlResponseWaiter::DeferredCellPixel { expected };
-            true
-        }
-
-        pub(crate) fn fail_all(&self) {
-            let deferred = {
-                let mut waiters = self.waiters.lock().unwrap();
-                waiters
-                    .drain()
-                    .filter_map(|(request_id, waiter)| match waiter {
-                        ControlResponseWaiter::DeferredCellPixel { expected } => {
-                            Some((request_id, expected))
-                        }
-                        ControlResponseWaiter::Blocking { .. } => None,
-                    })
-                    .collect::<Vec<_>>()
-            };
-            let handler = self.deferred_cell_pixel_handler.lock().unwrap().clone();
-            if let Some(handler) = handler {
-                for (request_id, expected) in deferred {
-                    handler(request_id, expected, DeferredCellPixelResolution::Disconnected);
-                }
-            }
-        }
-
-        pub(crate) fn set_deferred_cell_pixel_handler(&self, handler: DeferredCellPixelHandler) {
-            *self.deferred_cell_pixel_handler.lock().unwrap() = Some(handler);
-        }
-
-        pub(crate) fn latest_cell_pixel_ack(&self) -> u64 {
-            self.latest_cell_pixel_ack.load(Ordering::Acquire)
-        }
-    }
+    mod barrier_sync;
+    mod control_responses;
+    mod standby;
+    use control_responses::ControlResponseWaiter;
+    pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
+    pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
 
     pub(crate) struct InputAckReceipt {
         request_id: u64,
@@ -2088,141 +1915,8 @@ mod unix {
         kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
-        let launch_publication_lock = reserve_terminal_host_publication(root)?;
-        let owner_token = CapabilityToken::random()?;
-        let terminal_hex = encode_hex(terminal_id.as_bytes());
-        // macOS limits sockaddr_un paths to roughly one hundred bytes and
-        // TMPDIR is commonly already longer than that. Keep the transport
-        // endpoint short; the private durable record still carries its full
-        // canonical identity and owner capability.
-        let uid = fs::metadata(root)?.uid();
-        let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
-        prepare_endpoint_dir(&endpoint_root)?;
-        let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
-        let record_path =
-            crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
-        if record_path.exists() || endpoint.exists() {
-            anyhow::bail!("terminal host identity already exists");
-        }
-        let shell_launch = match options.command.clone().filter(|command| !command.is_empty()) {
-            Some(command) => {
-                crate::shell_integration::ShellLaunch { command, env: options.extra_env.clone() }
-            }
-            None => crate::shell_integration::integrate_default_shell(
-                vec![crate::platform::default_shell()],
-                options.extra_env.clone(),
-            ),
-        };
-        let command = shell_launch.command;
-        let launch = HostLaunch {
-            endpoint: endpoint.to_string_lossy().into_owned(),
-            record_path: record_path.to_string_lossy().into_owned(),
-            term: options.term.clone(),
-            cols: options.cols,
-            rows: options.rows,
-            cell_pixels,
-            scrollback: options.scrollback,
-            cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
-            command,
-            extra_env: shell_launch.env,
-            default_colors,
-            kitty_graphics_limits,
-        };
-
-        // Exec the daemon's own running build (open inode on Linux): after an
-        // in-place binary upgrade, resolving the executable path yields
-        // "<path> (deleted)" and exec fails, which broke every new tab/split
-        // on a long-lived daemon. This also guarantees daemon and host can
-        // never run skewed builds.
-        let binary = crate::platform::self_exe_for_spawn()
-            .context("resolve cmux-tui terminal-host binary")?;
-        let mut command = Command::new(binary);
-        command
-            .args(["__terminal-host", "--bootstrap-stdio"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            // A host outlives its daemon, so it must not retain a daemon log
-            // pipe whose EOF is itself used as a lifecycle signal.
-            .stderr(Stdio::null());
-        // A durable host must not share the daemon's controlling terminal,
-        // session, or process group. Otherwise a shell hangup or group
-        // interrupt intended for the daemon can also kill every hosted PTY.
-        // SAFETY: setsid(2) is async-signal-safe and touches no Rust state in
-        // the post-fork child. A freshly forked child is not a process-group
-        // leader, so failure is an actual launch error and must be surfaced.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
-            });
-        }
-        let child = command.spawn().context("spawn terminal-host process")?;
-        let mut process = SpawnedHostProcess { child: Some(child) };
-        let host_pid = process.child_mut().id();
-        let mut stdin =
-            process.child_mut().stdin.take().context("open terminal-host bootstrap stdin")?;
-        let mut stdout =
-            process.child_mut().stdout.take().context("open terminal-host bootstrap stdout")?;
-
-        let bootstrap = HostBootstrap {
-            min_version: PROTOCOL_VERSION,
-            max_version: PROTOCOL_VERSION,
-            terminal_id,
-            owner_token,
-        };
-        write_frame(&mut stdin, &bootstrap.into_frame(1))?;
-        let ready_frame = read_required_frame(&mut stdout, "bootstrap ready")?;
-        if ready_frame.kind != MessageKind::Ready {
-            anyhow::bail!("terminal host returned {:?} instead of Ready", ready_frame.kind);
-        }
-        let ready = HostReady::decode(&ready_frame.payload)?;
-        if ready.terminal_id != terminal_id {
-            anyhow::bail!("terminal host changed terminal identity during bootstrap");
-        }
-
-        let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode()?);
-        launch_frame.request_id = 2;
-        write_frame(&mut stdin, &launch_frame)?;
-        let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
-        if launched_frame.request_id != 2 {
-            anyhow::bail!("terminal host did not acknowledge launch");
-        }
-        if launched_frame.kind == MessageKind::LaunchFailed {
-            let failure = decode_host_launch_failure(&launched_frame.payload)?;
-            return Err(failure.into());
-        }
-        if launched_frame.kind != MessageKind::Ready {
-            anyhow::bail!("terminal host did not acknowledge launch");
-        }
-        let launched = HostReady::decode(&launched_frame.payload)?;
-        if launched.terminal_id != terminal_id || launched.incarnation != ready.incarnation {
-            anyhow::bail!("terminal host identity changed while launching PTY");
-        }
-        drop(stdin);
-        drop(stdout);
-
-        let record: TerminalHostRecord = serde_json::from_slice(
-            &fs::read(&record_path).context("read terminal-host discovery record")?,
-        )?;
-        validate_terminal_host_record(&record_path, &record)?;
-        if record.terminal_id != terminal_hex
-            || record.incarnation != ready.incarnation.to_hex()
-            || record.owner_token != encode_hex(owner_token.as_bytes())
-            || record.host_pid != host_pid
-        {
-            anyhow::bail!("terminal-host discovery record changed during launch");
-        }
-        drop(launch_publication_lock);
-        // Keep the exact-kill guard armed through record validation and a
-        // successful authenticated Snapshot. Returning Err after disarming it
-        // would leave a live published host while the mux marks its registry
-        // row Exited.
-        let mut attachment = connect_record(record, record_path)?;
-        attachment.launch_process = Some(process);
-        debug_assert_eq!(
-            attachment.launch_activation_pending,
-            attachment.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION
-        );
-        Ok(attachment)
+        let (colors, kitty) = (default_colors, kitty_graphics_limits);
+        launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None)
     }
 
     pub fn adopt_terminal_host(
@@ -2484,6 +2178,9 @@ mod unix {
     ) -> anyhow::Result<Vec<(PathBuf, TerminalHostRecord)>> {
         load_terminal_host_records_with_policy(root, false)
     }
+
+    pub mod unadoptable;
+    use unadoptable::process_definitely_absent;
 
     pub(crate) fn load_terminal_host_records_for_reset(
         root: &Path,
@@ -3069,10 +2766,10 @@ mod unix {
             let mut file =
                 OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
             file.write_all(&bytes)?;
-            file.sync_all()?;
+            barrier_sync::barrier_sync(&file)?;
             fs::rename(&temporary, path)?;
             if let Some(parent) = path.parent() {
-                File::open(parent)?.sync_all()?;
+                barrier_sync::barrier_sync_dir(parent)?;
             }
             Ok(())
         })();
@@ -4968,7 +4665,7 @@ mod unix {
                 let _ = fs::remove_file(&path);
                 return Err(error.into());
             }
-            file.sync_all()?;
+            barrier_sync::barrier_sync(&file)?; // why no full sync: barrier_sync.rs
             Ok(Self { file, path })
         }
     }
@@ -4996,19 +4693,11 @@ mod unix {
     pub(crate) fn prepare_terminal_host_publication_lock(root: &Path) -> anyhow::Result<()> {
         prepare_private_dir(root)?;
         let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
+        let (file, existed) = barrier_sync::open_lock_file(&path)
             .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
         validate_terminal_host_publication_lock(root, &path, &file)?;
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
-        file.sync_all()?;
-        File::open(root)?.sync_all()?;
+        barrier_sync::sync_new_lock_file(&file, root, existed)?;
         Ok(())
     }
 
@@ -5205,6 +4894,7 @@ mod unix {
             anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
         }
         let launch = HostLaunch::decode(&launch_frame.payload)?;
+        crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
         let shared = match spawn_host_runtime(&launch, &bootstrapped) {
             Ok(shared) => shared,
             Err(error) => {
@@ -5230,6 +4920,7 @@ mod unix {
         let listener = UnixListener::bind(&endpoint)?;
         fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
+        crate::debug_spans::mark("host.endpoint_bound");
 
         let start_nonce = CapabilityToken::random()?;
         let record = TerminalHostRecord {
@@ -5253,6 +4944,7 @@ mod unix {
         let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
+        crate::debug_spans::mark("host.lease_acquired");
         let mut guard = HostServiceGuard {
             shared: shared.clone(),
             endpoint,
@@ -5268,6 +4960,8 @@ mod unix {
         // leave behind an undiscoverable terminal process.
         write_record(Path::new(&launch.record_path), &record)?;
         guard.published = true;
+        crate::debug_spans::mark("host.record_written");
+        crate::debug_spans::finish(crate::debug_spans::take());
 
         // Integration failure-injection seam for the narrow record-before-
         // Ready crash window. It is inherited only by explicitly configured
@@ -5386,6 +5080,7 @@ mod unix {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
         let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
         let pty = cmux_pty::open(initial_pty_size)?;
+        crate::debug_spans::mark("host.pty_opened");
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
@@ -5399,6 +5094,7 @@ mod unix {
             command.cwd(cwd);
         }
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
         let mut child = SpawnedPtyChild::new(child, process_group_leader);
         let pid = child.child().process_id();
@@ -6638,16 +6334,6 @@ mod unix {
             anyhow::bail!("terminal-host {field} is not canonical lowercase hexadecimal");
         }
         decode_hex_array(text)
-    }
-
-    fn process_definitely_absent(pid: u32) -> bool {
-        let Ok(pid) = libc::pid_t::try_from(pid) else { return true };
-        // SAFETY: signal zero performs a liveness/permission probe and does
-        // not deliver a signal to the target process.
-        if unsafe { libc::kill(pid, 0) } == 0 {
-            return false;
-        }
-        std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
     }
 
     struct PayloadDecoder<'a> {
@@ -10315,10 +10001,13 @@ mod unix {
 }
 
 #[cfg(unix)]
+pub use unix::unadoptable::*;
+#[cfg(unix)]
 pub(crate) use unix::{
-    ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
+    ControlResponses, DecodedHostResize, DeferredCellPixelResolution, StandbyTerminalHost,
     acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
-    decode_host_resize_payload_for_version, load_terminal_host_records_for_reset,
+    decode_host_resize_payload_for_version, launch_terminal_host_from,
+    load_terminal_host_records_for_reset,
 };
 #[cfg(unix)]
 pub use unix::{

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/inbox",
+  "name": {
+    "en": "Inbox",
+    "ja": "受信トレイ"
+  },
+  "version": "0.3.0",
+  "description": {
+    "en": "Your cmux feed in one triage list: notices and requests from agents, apps, automations and integrations such as GitHub. Open, answer or decline, mark done or snooze each item.",
+    "ja": "cmux のフィードを1つのトリアージリストに: エージェント、アプリ、オートメーション、GitHub などの連携からの通知とリクエスト。各項目を開く、回答または辞退する、完了にする、スヌーズする。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "sidebar",
+    "agents",
+    "productivity",
+    "git"
+  ],
+  "keywords": [
+    "inbox",
+    "feed",
+    "triage",
+    "notifications",
+    "requests",
+    "agents"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "catalog": "catalog/inbox-catalog.json",
+  "cli": { "name": "inbox" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderInbox",
+      "title": {
+        "en": "Inbox",
+        "ja": "受信トレイ"
+      },
+      "symbol": "tray",
+      "options": {
+        "defaultRegion": "top",
+        "maxRows": 20
+      }
+    },
+    "cmux.status/1": {
+      "export": "renderStatus",
+      "title": {
+        "en": "Inbox",
+        "ja": "受信トレイ"
+      },
+      "symbol": "tray",
+      "options": {
+        "placement": "titlebar"
+      }
+    },
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": {
+        "en": "Inbox",
+        "ja": "受信トレイ"
+      },
+      "symbol": "tray"
+    }
+  },
+  "scopes": {
+    "feed:read": "List your feed items and their counts, and follow changes as they happen.",
+    "feed:write": "Mark items read or done, snooze them, and send the answers and declines you choose. Answers always come from your own tap.",
+    "actions:run": "Open an item through the feed: the agent's tab, a pull request, or the browser copy for a sign-in."
+  },
+  "optionalScopes": {
+    "workspace:read": "Show workspace names on items and group headers.",
+    "feed:answer": "Answer a request when you choose an answer; only your own tap answers."
+  },
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Layout (prototype)",
+      "values": [
+        "grouped",
+        "focus",
+        "card"
+      ],
+      "default": "grouped"
+    }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "groupBy": {
+        "type": "string",
+        "enum": [
+          "poster",
+          "workspace",
+          "thread"
+        ],
+        "default": "poster",
+        "title": "Group items by"
+      }
+    }
+  },
+  "activation": [
+    "onInterface:cmux.section/1",
+    "onInterface:cmux.status/1",
+    "onInterface:cmux.pane/1",
+    "onOp:inbox_app.open",
+    "onOp:inbox_app.mark_all_read",
+    "onOp:inbox_app.next_item",
+    "onOp:inbox_app.previous_item",
+    "onOp:inbox_app.open_item",
+    "onOp:inbox_app.mark_done",
+    "onOp:inbox_app.snooze"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/"
+  ],
+  "consumes": {
+    "ops": [
+      "feed.list",
+      "feed.get",
+      "feed.counts",
+      "feed.read",
+      "feed.archive",
+      "feed.unarchive",
+      "feed.snooze",
+      "feed.answer",
+      "feed.cancel"
+    ]
+  }
+}

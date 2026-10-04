@@ -21,6 +21,7 @@ enum DebugFocus {
             "context": .object([
                 "terminal_focused": .bool(context.contains(.terminalFocused)),
                 "browser_focused": .bool(context.contains(.browserFocused)),
+                "agent_focused": .bool(context.contains(.agentPaneFocused)),
                 "palette_open": .bool(context.contains(.paletteOpen)),
             ]),
             "consistent": .bool(windowProblems.isEmpty && windows.allSatisfy { $0["consistent"]?.boolValue == true }),
@@ -99,7 +100,7 @@ enum DebugFocus {
             controller.focusApplier.focusedChildWindowPageID == nil ? .content(pane: pane) : nil
         case .addressBar(let pane, _): .addressBar(pane: pane)
         case .findBar(let pane, _): .findBar(pane: pane)
-        case .agentPage(let pane, _): .content(pane: pane)
+        case .agentPage(let pane, _), .page(let pane, _), .conversation(let pane, _): .content(pane: pane)
         case .devTools: nil
         case .sidebar: .sidebar
         case .sidebarField: .sidebarField

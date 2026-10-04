@@ -15,6 +15,15 @@ public struct TerminalTimings {
         onSurfaceCreated?(duration)
     }
 
+    /// Called on the main actor each time a surface was handed terminal
+    /// content (a replay or output) from its IO, for the launch's
+    /// "first live terminal frame" mark.
+    public static var onContentApplied: (() -> Void)?
+
+    static func contentApplied() {
+        onContentApplied?()
+    }
+
     /// Phases of the libghostty runtime's one-time start (`ghostty_init`,
     /// config load, `ghostty_app_new`), in order.
     public private(set) static var runtimePhases: [(name: String, duration: Duration)] = []

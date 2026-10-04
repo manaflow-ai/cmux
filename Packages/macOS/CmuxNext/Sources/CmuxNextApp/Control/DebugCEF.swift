@@ -58,7 +58,8 @@ enum DebugCEF {
                 ]
                 if let panel = tab.sidePanelDiagnostic {
                     object["side_panel"] = .object(["title": .string(panel.title), "pinned": .bool(panel.pinned),
-                                                    "controls": .array(panel.controls.map { .string($0) }), "frame": rect(panel.frame)])
+                                                    "controls": .array(panel.controls.map { .string($0) }), "frame": rect(panel.frame),
+                                                    "chromium_focusable": panel.chromiumFocusable.map { .number(Double($0)) } ?? .null])
                 }
                 if let frames = tab.devToolsDiagnosticFrames {
                     object["page_frame"] = rect(frames.page)
@@ -100,6 +101,7 @@ enum DebugCEF {
             "guard_recent": .array(report.guardRecent.map { .string($0) }),
             "unplaced_tabs": .number(Double(report.unplacedTabs)),
             "fork_api": .number(Double(report.forkAPIVersion)),
+            "popup_windows": .array(report.popupWindows.map { .string($0) }),
         ])
     }
 

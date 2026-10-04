@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -28,8 +29,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
-    /// The room theme: the whole window (sidebar, chrome, and every
-    /// workspace without its own theme).
+    /// The room theme: every workspace without its own theme. The window's
+    /// own chrome (sidebar, titlebar, backdrop) draws in the shown
+    /// workspace's colors when they share the room's light/dark mode, so it
+    /// matches the content beside it without ever flipping the window light.
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
@@ -38,8 +41,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
-        sidebar = SidebarBridge(services: services, state: state)
+        let sidebar = SidebarBridge(services: services, state: state)
+        self.sidebar = sidebar
         root = WindowRootView(sidebar: sidebar.container)
+        // The static toggle runs the same action as the shortcut, palette and menu (R68).
+        root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
+            _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
+        }
+        let registry = services.registry
+        root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
+                                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -54,14 +65,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        // Backdrop first: changing it while AppKit installs the content
-        // view puts the content above the titlebar (see WindowRootView).
-        root.applyBackdrop(to: window)
-        window.contentView = root
+        super.init(window: window)
+        installHistoryButtons()
+        // Kind, scope and backdrop before the content view (the root paints
+        // the backdrop: `WindowSurfacePainting`).
+        window.install(kind: .main, content: root, scope: themeScope)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
-        super.init(window: window)
-        themeScope.adopt(window)
         window.delegate = self
         window.focus = focus
         focusApplier = FocusEffectApplier(controller: self)
@@ -158,6 +168,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let view = connectingView ?? DaemonConnectingView(frame: .zero)
         connectingView = view
         root.show(view)
+        themeScope.show(nil)
         guard startupObservation == nil else { return }
         let daemon = services.daemon
         startupObservation = Task { [weak self, weak view] in
@@ -191,7 +202,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // One synchronous swap: the old view leaves (its panes stay mounted,
         // paused) and the new one draws in the same frame.
         root.show(controller.contentView)
+        // The workspace's theme first, so the chrome repaints once; no
+        // crossfade, which would fade the swap itself.
         services.themes.contentDidShow(controller)
+        themeScope.show(controller.themeScope)
         trimParked()
         startupObservation?.cancel()
         startupObservation = nil
@@ -204,7 +218,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // now that the content is installed, re-applies it.
         controller.sendTopology()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
-        services.windows.stateDidChange(state)
+        services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.windows.contentDidAppear(self)
     }
@@ -239,19 +253,29 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        let snapshots = services.sidebarSnapshots, id = state.id
+        Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
     }
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        // Hover cards in other windows show this window's pages (R131). The
+        // next key window is known on the next main-actor turn.
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window else { return }
+            WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
+                                              presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
+                                              cache: self.services.cache)
+        }
     }
 
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
     func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
-    func windowDidMove(_ notification: Notification) { services.windows.stateDidChange(state) }
-    func windowDidEndLiveResize(_ notification: Notification) { services.windows.stateDidChange(state) }
+    func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
     private var badgeObservation: Task<Void, Never>?
 
@@ -289,6 +313,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        services.keyRouter.cancelChord()
+        removeHistoryObserver()
         services.windows.windowWillClose(self)
     }
 }
@@ -300,11 +326,17 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
-    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarBadgeFrame }
+    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
+
+    /// In an agent screenshot launch every frame stays on the test screen
+    /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+    }
 
     /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
     /// mouse-down in the band is delivered as usual, then moves the window
@@ -328,8 +360,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// frame with the page over the focus ring; the notifications that
     /// follow the page would come a frame late.
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
+        ChildWindowPolicy.check(childWin, parent: self)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
+        WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
     // MARK: OverlayPlaneHosting
@@ -342,7 +377,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     // MARK: BrowserWindowOcclusionProviding
 
-    var browserOcclusionRectsInWindow: [CGRect] { overlayLayer.interactiveRects }
+    /// Interactive overlays in the window, and occluders (the sidebar) that stay above pages.
+    var browserOcclusionRectsInWindow: [CGRect] {
+        overlayLayer.interactiveRects + (WindowOverlayHost.existingHost(for: self)?.occluderRects ?? [])
+    }
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)

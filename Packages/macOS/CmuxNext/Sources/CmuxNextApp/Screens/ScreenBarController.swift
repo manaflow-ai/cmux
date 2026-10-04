@@ -7,7 +7,7 @@ import CmuxNextTabs
 import Observation
 
 /// The bottom screen tab bar of one workspace: a `TabStripView` whose tabs
-/// are the workspace's screens (Chrome sizing, hover card, drag reorder,
+/// are the workspace's screens (tab sizing, hover card, drag reorder,
 /// groups). It mirrors the daemon through `ScreenBarMapping` and turns
 /// strip intents into `ScreenCommands` / `ScreenGroupCommands`.
 @MainActor
@@ -86,7 +86,7 @@ final class ScreenBarController {
         }
         guard let active, state.activeScreenID != active else { return }
         state.activeScreenID = active
-        content.services.windows.stateDidChange(state)
+        content.services.windows.recordSaver.stateDidChange(state)
     }
 
     /// Opens the inline editor on `screen` when the bar shows it.
@@ -202,8 +202,7 @@ final class ScreenBarController {
         case .group(let id), .savedGroup(let id):
             return registry.makeContextMenu(for: .screenGroup, target: ActionTargetRef(kind: .screenGroup, id: id.rawValue))
         case .emptyStrip, .newTabButton:
-            return registry.makeContextMenu(for: .screen, entries: [.action("screen.new"), .action("screen.newWith"),
-                                                                     .action("screen.reopenClosed")])
+            return registry.makeContextMenu(for: .screenBar)
         }
     }
 }

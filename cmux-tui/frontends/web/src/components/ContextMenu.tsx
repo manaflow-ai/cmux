@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { ContextMenuPoint } from "../lib/contextMenu";
 
@@ -93,9 +85,9 @@ export function MenuPopover({ point, onClose, children, className, ariaLabel }: 
     const direct = activeMenu.querySelectorAll<HTMLButtonElement>(
       ':scope > .context-menu-items > .context-menu-entry > button[role="menuitem"]',
     );
-    const buttons = [...(direct.length > 0
-      ? direct
-      : activeMenu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'))];
+    const buttons = [
+      ...(direct.length > 0 ? direct : activeMenu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')),
+    ];
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const offset = event.key === "ArrowDown" ? 1 : -1;
     focusMenuItem(buttons[(index + offset + buttons.length) % buttons.length]);
@@ -142,8 +134,9 @@ function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): vo
               className={item.danger ? "danger" : undefined}
               onClick={(event) => {
                 if (nested) {
-                  focusMenuItem(event.currentTarget.parentElement
-                    ?.querySelector<HTMLButtonElement>(".context-menu-submenu button"));
+                  focusMenuItem(
+                    event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(".context-menu-submenu button"),
+                  );
                   return;
                 }
                 onClose();
@@ -152,13 +145,12 @@ function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): vo
               onKeyDown={(event) => {
                 if (event.key === "ArrowRight" && nested) {
                   event.preventDefault();
-                  focusMenuItem(event.currentTarget.parentElement
-                    ?.querySelector<HTMLButtonElement>(".context-menu-submenu button"));
+                  focusMenuItem(
+                    event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(".context-menu-submenu button"),
+                  );
                 } else if (event.key === "ArrowLeft") {
                   const submenu = event.currentTarget.closest<HTMLElement>(".context-menu-submenu");
-                  const parentButton = submenu?.parentElement?.querySelector<HTMLButtonElement>(
-                    ":scope > button",
-                  );
+                  const parentButton = submenu?.parentElement?.querySelector<HTMLButtonElement>(":scope > button");
                   if (parentButton) {
                     event.preventDefault();
                     focusMenuItem(parentButton);
@@ -169,11 +161,13 @@ function MenuItems({ items, onClose }: { items: ContextMenuItem[]; onClose(): vo
               type="button"
             >
               <span>{item.label}</span>
-              {nested && <span className="context-menu-arrow" aria-hidden="true">›</span>}
+              {nested && (
+                <span className="context-menu-arrow" aria-hidden="true">
+                  ›
+                </span>
+              )}
             </button>
-            {nested && (
-              <Submenu items={item.children!} onClose={onClose} />
-            )}
+            {nested && <Submenu items={item.children!} onClose={onClose} />}
           </div>
         );
       })}
@@ -205,19 +199,12 @@ function Submenu({ items, onClose }: { items: ContextMenuItem[]; onClose(): void
     );
     const y = Math.max(margin, Math.min(entryRect.top - verticalOffset, maxY));
     const next = { left: x, top: y };
-    setPosition((current) => current?.left === next.left && current.top === next.top ? current : next);
+    setPosition((current) => (current?.left === next.left && current.top === next.top ? current : next));
   }, [items, parentLayout]);
 
   return (
-    <MenuLayoutContext.Provider
-      value={`${parentLayout}/${position?.left ?? "pending"}:${position?.top ?? "pending"}`}
-    >
-      <div
-        className="context-menu context-menu-submenu"
-        ref={submenuRef}
-        role="menu"
-        style={position}
-      >
+    <MenuLayoutContext.Provider value={`${parentLayout}/${position?.left ?? "pending"}:${position?.top ?? "pending"}`}>
+      <div className="context-menu context-menu-submenu" ref={submenuRef} role="menu" style={position}>
         <MenuItems items={items} onClose={onClose} />
       </div>
     </MenuLayoutContext.Provider>

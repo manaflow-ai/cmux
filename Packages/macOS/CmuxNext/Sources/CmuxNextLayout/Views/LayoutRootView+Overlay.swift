@@ -20,11 +20,14 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
+            let covers = screen.coverRects.map { convert($0, from: screen) }
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
+                // A strip pane's ring never draws over a docked column.
+                chrome.setExcluded(screen.isStripHost(host) ? covers.map { $0.offsetBy(dx: -rect.minX, dy: -rect.minY) } : [])
                 let alpha = host.alphaValue * screenAlpha
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
@@ -36,6 +39,7 @@ extension LayoutRootView {
             view.removeFromSuperview()
         }
         reportInteractiveRects()
+        notifyOverlaySync()
     }
 
     /// Rects (this view's coordinates) where native overlays in the root
@@ -97,12 +101,14 @@ extension LayoutRootView {
 
     /// The drop highlight's material (`debug.layers`), and a pin for it
     /// (`debug.drop_highlight`; nil follows this Mac).
-    public var dropHighlightMaterial: OverlayMaterial { highlight.surface.material }
-    public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.surface.materialOverride = material }
+    public var dropHighlightMaterial: OverlayMaterial { highlight.material }
+    public func pinDropHighlightMaterial(_ material: OverlayMaterial?) { highlight.pinMaterial(material) }
+    /// The drop overlay style drawing now (`drop.overlay.style`).
+    public var dropHighlightStyle: DropOverlayStyle { highlight.style }
 
-    /// The drop highlight's frame in window coordinates while it shows.
+    /// The drop highlight's target rect in window coordinates while it shows.
     public var dropHighlightFrameInWindow: CGRect? {
         guard highlight.isShowing, window != nil else { return nil }
-        return convert(highlight.frame, to: nil)
+        return highlight.convert(highlight.targetRect, to: nil)
     }
 }

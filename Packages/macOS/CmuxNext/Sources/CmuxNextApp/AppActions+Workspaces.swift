@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextLayout
 import CmuxNextSidebar
 
@@ -29,20 +31,54 @@ extension AppActions {
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
             // Sidebar order across every machine section.
-            let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+            let all = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
             guard !all.isEmpty else { return }
             let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
             services.windows.show(workspaceID: pick, in: state)
         })
-        registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
+        // Home is the store's home workspace (home.md 7): shown like any
+        // workspace, from any origin (a focus action), or refused with why.
+        registry.bind("home.show") {
+            guard let home = services.home.homeWorkspace else {
+                services.registry.refuse(RefusalStrings.homeNotReady)
+                return
+            }
+            if let state = services.windows.active?.state {
+                services.windows.show(workspaceID: home.id, in: state)
+            } else {
+                services.windows.reveal(workspaceID: home.id)
+            }
+        }
+        // The composer's attach button as an action (home.attachFiles): a path
+        // goes to the shown Home composer through its own intake (as a drop);
+        // without one the shown composer opens its file picker.
+        registry.bind("home.attachFiles", invoke: { invocation in
+            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.canAttach else {
+                services.registry.refuse(RefusalStrings.homeAttachNoHome)
+                return
+            }
+            guard let path = invocation["path"]?.stringValue, !path.isEmpty else {
+                view.pickFiles()
+                return
+            }
+            if view.attachFiles(paths: [path], via: .drop) == .missingFile {
+                services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
+            }
+        })
+                registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 
     /// New workspace with one terminal (`WorkspaceSpawn` arguments), shown
     /// in the active window unless `focus` is false (the CLI's default).
+    /// With `activate: true` as well (`cmux open <dir>` run by a person) it
+    /// also brings that window forward and activates the app
+    /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let spawn = WorkspaceSpawn(invocation)
-        let show = invocation["focus"]?.boolValue ?? true
+        let focus = NewWorkspaceFocus(invocation)
+        let show = focus.shows
+
         let windows = services.windows!
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
@@ -59,6 +95,7 @@ extension AppActions {
         services.registry.track(Task {
             do {
                 _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
@@ -67,9 +104,23 @@ extension AppActions {
         })
     }
 
+    /// Makes window `id` key and activates the app. A new window still
+    /// waiting for its first workspace comes to the front when that shows.
+    private static func focusWindow(_ windows: WindowManager, _ id: String) {
+        guard windows.ordersWindowsIn, let controller = windows.controller(for: id) else { return }
+        if windows.awaitingContent[id] != nil {
+            windows.bringToFront(controller)
+            WindowActivation.activateApp()
+            return
+        }
+        guard let window = controller.window else { return }
+        WindowActivation.show(window, .focus)
+        windows.didActivate(controller)
+    }
+
     private static func selectWorkspace(_ services: AppServices, offset: Int) {
         guard let state = services.windows.active?.state else { return }
-        let ids = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+        let ids = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
         guard !ids.isEmpty else { return }
         let current = state.workspaceID.flatMap(ids.firstIndex(of:)) ?? 0
         services.windows.show(workspaceID: ids[(current + offset + ids.count) % ids.count], in: state)
@@ -88,7 +139,7 @@ extension AppActions {
               let target = store.workspaces.firstIndex(where: { $0 === visible[position + offset] }), target != index else { return }
         let daemon = services.activeDaemon
         Task {
-            await daemon.perform("move-workspace", patch: .moveWorkspace(key: key, index: target)) { connection, _ in
+            await daemon.intend("move-workspace", .moveWorkspace(key: key, index: target)) { connection in
                 _ = try await connection.moveWorkspace(key, to: target)
             }
         }

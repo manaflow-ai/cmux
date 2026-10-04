@@ -30,16 +30,75 @@ public final class DesignSettings {
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
     /// clamped by `setPaneChrome`.
     public private(set) var paneChrome = PaneChromeOverrides()
-    /// `layout.centerFocusedColumn` (niri `center-focused-column`).
+    /// `layout.centerFocusedColumn`.
     public var centerFocusedColumn: CenterFocusedColumn = .never
+    /// `layout.stripScrollbar`: the column strip's scrollbar.
+    public var stripScrollbar: StripScrollbarMode = .auto
+    /// `sidebar.*`: section look and pinned band caps.
+    public var sidebarSections = SidebarSectionsPreferences.defaults
+    /// `layout.closeFocus`: who gets focus when the focused pane closes.
+    public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 0.5
+    /// `layout.newColumnWidth`: how a new column's width is chosen.
+    public var newColumnWidth: NewColumnWidthMode = .matchCurrent
+    /// `layout.splitSizing`: what a split does to its column.
+    public var splitSizing: SplitSizing = .even
+    /// `layout.dockColumnEdge`, `layout.dockColumnMode`.
+    public var dockColumnEdge: DockDefaultEdge = .nearest
+    public var dockColumnMode: DockDefaultMode = .docked
+    /// `layout.frameOrientation`: column-major (side docks full height) or
+    /// row-major (top and bottom docks full width), plans/cmux-next/layout-model.md.
+    public var frameOrientation: FrameOrientation = .columnMajor
+    /// `layout.rows`: off hides every row entry point and fits existing
+    /// rows into their column (plans/cmux-next/rows.md O1 to O3).
+    public var layoutRows = true
+    /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
+    /// content area a pane keeps below its chrome, in points.
+    public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// `focusRing.*`: the focused pane's ring or glow.
     public var focusRing = FocusRingSettings()
+    /// `sidebar.border` and `sidebar.borderWidth`.
+    public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
+    /// `appearance.statusIndicator.*`: loading and status indicators on
+    /// sidebar rows, tabs, sections and pane headers.
+    public var statusIndicator = StatusIndicatorSettings()
+    /// cmux's terminal font override (`terminal.fontFamily` in cmux.json),
+    /// so chrome that imitates the terminal (the braille status indicator)
+    /// draws in it. Nil (no override; a font set only in the Ghostty config
+    /// is not read) uses the system monospaced font.
+    public var terminalFontFamily: String?
+    /// `status.*`: inferred command busy and run notifications.
+    public var statusBehavior = StatusBehaviorSettings()
+    /// `appearance.borders`: default, or none (no border, hairline or
+    /// separator anywhere; `Borders`).
+    public var borders: BorderMode = .default
+    /// `appearance.focusIndicator`: what marks the focused pane.
+    public var focusIndicator: FocusIndicator = .both
+    /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
+    /// when `focusIndicator` marks tabs.
+    public var inactiveTabStyle: InactiveTabStyle = .fade
+
+    /// `focusIndicator` unless Debug Settings overrides it.
+    public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
+    /// `inactiveTabStyle` unless Debug Settings overrides it.
+    public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
+    /// `window.titlebarButtons`.
+    public var titlebarButtons: TitlebarButtonsMode = .hover
+    /// `tabs.plusButton`.
+    public var plusButton: PlusButtonMode = .hover
+    /// `sidebar.side` (R109).
+    public var sidebarSide: SidebarSide = .left
+    /// `sidebar.spacesPosition` (R109).
+    public var spacesPosition: SpacesPosition = .bottom
+    /// `tabs.barPosition` (R109).
+    public var tabBarPosition: TabBarPosition = .top
+    /// `tabs.barOrder` (R109).
+    public var tabBarOrder: TabBarOrder = .aboveToolbar
 
     public init() {}
 

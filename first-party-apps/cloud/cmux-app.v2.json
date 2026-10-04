@@ -1,0 +1,79 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/cloud",
+  "name": { "en": "Cloud", "ja": "クラウド" },
+  "version": "0.1.0",
+  "description": {
+    "en": "Create, start, pause, resize and delete your cmux Cloud machines, take and restore snapshots, and see your plan and usage. cmux keeps your sign-in; this app never sees it.",
+    "ja": "cmux Cloud のマシンを作成、起動、一時停止、サイズ変更、削除し、スナップショットを作成、復元して、プランと使用量を確認します。サインイン情報は cmux が保持し、このアプリは参照しません。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": { "symbol": "cloud" },
+  "categories": ["cloud", "developer-tools"],
+  "keywords": ["cloud", "vm", "machine", "snapshot", "remote"],
+  "engines": { "cmux": "^2.0" },
+  "catalog": "catalog/cloud-catalog.json",
+  "cli": { "name": "cloud" },
+  "presentation": {
+    "sidebarItem": { "section": "top", "order": 30 },
+    "screen": "app",
+    "tab": true
+  },
+  "server": {
+    "kind": "native",
+    "binaries": {
+      "darwin-arm64": "cmux-cloud",
+      "darwin-x64": "cmux-cloud",
+      "linux-arm64": "cmux-cloud",
+      "linux-x64": "cmux-cloud"
+    },
+    "instances": "machine",
+    "hosts": ["local", "cmux-server"],
+    "data": [{ "name": "projection", "class": "ephemeral" }],
+    "lifecycle": { "start": "onDemand" },
+    "scopes": {
+      "op:cmux.credential.relay": "Send each Cloud request to cmux, which adds your sign-in and calls the cmux Cloud API. The server never receives the sign-in token.",
+      "op:cmux.host.link.get": "Ask cmux which link program, network hub and folders to use for the private link to your Cloud machines, and get told when they change."
+    }
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "native": "cloud",
+      "title": { "en": "Cloud", "ja": "クラウド" },
+      "symbol": "cloud"
+    },
+    "cmux.fs.provider/1": { "server": true, "schemes": ["cloud-vm"] }
+  },
+  "consumes": {
+    "ops": [
+      "cloud.billing.checkout",
+      "cloud.machine.connect_info",
+      "cloud.machine.create",
+      "cloud.machine.delete",
+      "cloud.machine.get",
+      "cloud.machine.idle_policy.set",
+      "cloud.machine.list",
+      "cloud.machine.pause",
+      "cloud.machine.rename",
+      "cloud.machine.resize",
+      "cloud.machine.start",
+      "cloud.machine.upgrade",
+      "cloud.migration.start",
+      "cloud.migration.status",
+      "cloud.plan.get",
+      "cloud.snapshot.create",
+      "cloud.snapshot.delete",
+      "cloud.snapshot.list",
+      "cloud.snapshot.restore"
+    ]
+  },
+  "scopes": {
+    "cloud:read": "See your Cloud machines, their status and stats, snapshots, plan and usage.",
+    "cloud:write": "Create, start, pause, resize and delete Cloud machines and snapshots, and forward their ports to this Mac, when you or an allowed agent asks. Deletes always need you.",
+    "fs:write": "Write and make files on your Cloud machines. Removing a file and copying files to or from this Mac always need you."
+  },
+  "files": ["catalog/"]
+}

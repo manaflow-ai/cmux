@@ -40,7 +40,9 @@ extension TabStripView {
         updateSeparators()
     }
 
-    func updateHover(at point: CGPoint) {
+    /// `moved`: a pointer event (true) or content that moved under a still
+    /// pointer (false, `geometryDidChange`).
+    func updateHover(at point: CGPoint, moved: Bool) {
         // No hover (or hover card) while any drag involves this strip.
         let dragging = drag != nil || detachedID != nil || dropPlaceholderIndex != nil
             || groups.drag != nil || groups.detachedGroupID != nil
@@ -57,16 +59,8 @@ extension TabStripView {
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
         buttonGroup.hoveredIndex = dragging ? nil : trailingButtonIndex(at: point)
 
-        guard !hoverCardSuppressed, !groupEditor.isVisible else { return }
-        if let chip {
-            hoverChip(chip)
-        } else if let id, let item = model.tab(id), let cell = cells[id], let window,
-                  NSApp.isActive || WindowPlacement.noActivate {
-            let anchor = window.convertToScreen(tabsClip.convert(cell.frame, to: nil))
-            hoverCard.hover(.tab(item), anchor: anchor, tabWidth: cell.frame.width, parent: window)
-        } else {
-            hoverCard.hide()
-        }
+        // The coordinator hit-tests the pointer itself (`hoverCardTarget`).
+        if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
     }
 
     /// Shows tab `id`'s hover card now (with its CPU and memory) until the
@@ -74,21 +68,21 @@ extension TabStripView {
     /// cell or the window is hidden.
     @discardableResult
     public func showHoverCard(for id: TabID) -> Bool {
-        guard let item = model.tab(id), let cell = cells[id], cell.frame.width > 0.5, let window else { return false }
-        let anchor = window.convertToScreen(tabsClip.convert(cell.frame, to: nil))
-        hoverCard.showPinned(.tab(item), anchor: anchor, parent: window)
-        return hoverCard.shownID == id
+        guard model.tab(id) != nil, let cell = cells[id], cell.frame.width > 0.5, let window else { return false }
+        let target = HoverTarget(id: TabHoverCardController.targetID(id), window: window.windowNumber,
+                                 delay: hoverCard.policy.showDelay(tabWidth: cell.frame.width, metrics: metrics))
+        hoverCards.pin(target, from: hoverCard)
+        return hoverCards.isShowing(target.id)
     }
 
     public override func mouseEntered(with event: NSEvent) {
         buttonReveal.pointerInStrip = true
-        updateHover(at: convert(event.locationInWindow, from: nil))
+        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
     }
 
     public override func mouseMoved(with event: NSEvent) {
         buttonReveal.pointerInStrip = true
-        hoverCardSuppressed = false
-        updateHover(at: convert(event.locationInWindow, from: nil))
+        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
     }
 
     public override func mouseExited(with event: NSEvent) {
@@ -99,10 +93,9 @@ extension TabStripView {
         closeHoveredID = nil
         newTabButton.isHovered = false
         buttonGroup.hoveredIndex = nil
-        hoverCard.hide()
-        hoverCardSuppressed = false
+        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
         if closingModeWidth != nil, drag == nil {
-            // Chrome's deferred relayout: tabs resize once the pointer leaves.
+            // Deferred relayout: tabs resize once the pointer leaves.
             closingModeWidth = nil
             relayout(animated: !reduceMotion)
         }
@@ -111,8 +104,7 @@ extension TabStripView {
     // MARK: - Clicks
 
     public override func mouseDown(with event: NSEvent) {
-        hoverCard.hide(allowsQuickReshow: false)
-        hoverCardSuppressed = true
+        hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
         if isInNewTabButton(point) {
             pressedNewTab = true
@@ -141,7 +133,7 @@ extension TabStripView {
                 beginInlineRename(id)
                 return
             }
-            // Chrome selects on mouse down.
+            // Select on mouse down.
             if model.selectedID != id { model.send(.select(id)) }
             press = Press(id: id, start: point)
             return
@@ -152,7 +144,7 @@ extension TabStripView {
         // already moved it or ran the double-click action
         // (`TitlebarDragPolicy`). Elsewhere a double-click opens a tab.
         if actsAsTitlebar { return }
-        if event.clickCount == 2 { model.send(.newTab(after: nil)) }
+        if event.clickCount == 2 { model.send(.newTab(after: nil, opensWorkspace: event.modifierFlags.contains(.option))) }
     }
 
     public override func mouseDragged(with event: NSEvent) {
@@ -174,12 +166,12 @@ extension TabStripView {
             updateGroupDrag(at: point, event: event)
             return
         }
-        if let press = groups.press, !press.openedEditor, hypot(point.x - press.start.x, point.y - press.start.y) > Metrics.space2 {
+        if let press = groups.press, !press.openedEditor, hypot(point.x - press.start.x, point.y - press.start.y) > TabTunables.dragStartDistance.value {
             beginGroupDrag(press)
             updateGroupDrag(at: point, event: event)
             return
         }
-        if let press, hypot(point.x - press.start.x, point.y - press.start.y) > Metrics.space2 {
+        if let press, hypot(point.x - press.start.x, point.y - press.start.y) > TabTunables.dragStartDistance.value {
             beginDrag(press)
             updateDrag(at: point, event: event)
         }
@@ -193,7 +185,7 @@ extension TabStripView {
             if isInCloseButton(id, point) { close(id, source: .mouse) }
             return
         }
-        if endNewTabPress(at: point) { return }
+        if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
         if endTrailingButtonPress(at: point) { return }
         if drag != nil { endDrag() }
         press = nil
@@ -207,12 +199,13 @@ extension TabStripView {
         }
         groups.press = nil
         groups.holdTask?.cancel()
-        updateHover(at: point)
+        // A click is not a pointer move: the card stays dismissed (quiet).
+        updateHover(at: point, moved: false)
     }
 
     public override func otherMouseDown(with event: NSEvent) {
         guard event.buttonNumber == 2 else { return super.otherMouseDown(with: event) }
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         middlePressID = tabID(at: convert(event.locationInWindow, from: nil))
     }
 
@@ -230,7 +223,7 @@ extension TabStripView {
     }
 
     private func contextMenu(for event: NSEvent) -> NSMenu? {
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
         if trailingButtonIndex(at: point) != nil { return nil }
         if isInNewTabButton(point) {
@@ -252,30 +245,30 @@ extension TabStripView {
     public override func scrollWheel(with event: NSEvent) {
         guard result.isOverflowing else { return super.scrollWheel(with: event) }
         var delta = event.scrollingDeltaX
-        // Vertical wheels scroll the strip too, as in Chrome.
+        // Vertical wheels scroll the strip too.
         if abs(event.scrollingDeltaY) > abs(delta) { delta = event.scrollingDeltaY }
         if !event.hasPreciseScrollingDeltas { delta *= 12 }
         scroll.snap(to: TabScrollMath.clamp(scroll.value - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth))
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         applyFrames()
     }
 
     /// Mouse-up after a press on +. Returns whether the press was on +.
-    /// Chrome: a click opens a tab at once; a hold already showed the menu
+    /// A click opens a tab at once; a hold already showed the menu
     /// and must not also open a tab.
     @discardableResult
-    func endNewTabPress(at point: CGPoint) -> Bool {
+    func endNewTabPress(at point: CGPoint, modifiers: NSEvent.ModifierFlags = []) -> Bool {
         newTabHoldTask?.cancel()
         newTabHoldTask = nil
         defer { newTabHoldOpenedMenu = false }
         guard pressedNewTab else { return newTabHoldOpenedMenu }
         pressedNewTab = false
         newTabButton.isPressed = false
-        if !newTabHoldOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil)) }
+        if !newTabHoldOpenedMenu, isInNewTabButton(point) { model.send(.newTab(after: nil, opensWorkspace: modifiers.contains(.option))) }
         return true
     }
 
-    /// Holding + opens the new tab menu, like Safari's back button history.
+    /// Holding + opens the new tab menu, as a long press on a back button opens history.
     func startNewTabHold() {
         newTabHoldTask?.cancel()
         newTabHoldOpenedMenu = false
@@ -295,7 +288,7 @@ extension TabStripView {
     /// click opens a terminal tab.
     func showNewTabMenu() {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         let frame = convert(newTabButton.frame, from: newTabButton.superview)
         let origin = NSPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2)
         beginMenuTracking(menu)
@@ -329,7 +322,7 @@ extension TabStripView {
         }
     }
 
-    /// Closes a tab. Mouse closes enter Chrome's closing mode first.
+    /// Closes a tab. Mouse closes enter closing mode first.
     func close(_ id: TabID, source: TabCloseSource) {
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)

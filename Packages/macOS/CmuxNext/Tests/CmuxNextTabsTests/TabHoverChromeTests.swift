@@ -5,7 +5,7 @@ import Testing
 
 /// User feedback on nxdog9: the tab x shows only on the hovered tab, and
 /// the title never moves or resizes when it appears (the x overlays the
-/// title's end, which fades out, as in Chrome and Safari).
+/// title's end, which fades out).
 @MainActor @Suite struct TabHoverChromeTests {
     final class Harness {
         let window: NSWindow
@@ -56,7 +56,7 @@ import Testing
         let h = Harness(titles: [Self.longTitle, "Two"])
         let cell = h.strip.cells[TabID("t0")]!
         let metrics = h.strip.metrics
-        #expect(cell.titleLayer.frame.maxX == cell.bounds.width - metrics.contentTrailingInset)
+        #expect(cell.titleLayer.frame.maxX == cell.pillFrameInCell.maxX - metrics.contentTrailingInset)
     }
 
     @Test func titleFadesOutBeforeTheOverlayingCloseButton() throws {

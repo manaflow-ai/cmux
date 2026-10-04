@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
@@ -7,7 +8,7 @@ import Testing
 @MainActor
 struct AgentTabStoreTests {
     @Test func closingAPaneForgetsItsAgentTabsOnly() {
-        let store = AgentTabStore(tag: nil, environment: ["CMUX_NEXT_AGENT_PANE_MOCK": "1"])
+        let store = AgentTabStore(tag: nil, registry: ActionRegistry.standard(), environment: ["CMUX_NEXT_AGENT_PANE_MOCK": "1"])
         let daemon = DaemonStore()
         _ = store.open(in: "a", of: daemon)
         _ = store.open(in: "a", of: daemon)
@@ -15,6 +16,23 @@ struct AgentTabStoreTests {
         store.closePane("a")
         #expect(store.tabIDs(in: "a").isEmpty)
         #expect(store.tabIDs(in: "b") == [kept])
+    }
+
+    /// Resuming the same outside chat again shows the tab already resuming
+    /// it, from any pane, so acpmux never gets a second adopt for one chat
+    /// from this window; once that tab closes, a resume opens a new one.
+    @Test func resumingTheSameChatTwiceReusesItsTab() {
+        let store = AgentTabStore(tag: nil, registry: ActionRegistry.standard(), environment: ["CMUX_NEXT_AGENT_PANE_MOCK": "1"])
+        let daemon = DaemonStore()
+        let chat = AgentPaneAdopt(harness: "claude", agentSessionId: "0a1b2c3d")
+        let first = store.resume(chat, in: "a", of: daemon)
+        #expect(store.resume(chat, in: "b", of: daemon) == first)
+        #expect(store.tabIDs(in: "a") == [first] && store.tabIDs(in: "b").isEmpty)
+        let other = store.resume(AgentPaneAdopt(harness: "codex", agentSessionId: "0a1b2c3d"), in: "a", of: daemon)
+        #expect(other != first, "the id is per harness")
+        store.close(first)
+        let reopened = store.resume(chat, in: "a", of: daemon)
+        #expect(reopened != first && store.tabIDs(in: "a") == [other, reopened])
     }
 }
 
@@ -35,7 +53,7 @@ struct AgentTabLifecycleTests {
         try Self.connect(daemon)
         daemon.apply(snapshot: try ReopenClosedTabTests.tree([ReopenClosedTabTests.tab(1, "a", cwd: "/tmp")]))
         let pane = try #require(daemon.workspaces.first?.screens.first?.panes.first)
-        let store = AgentTabStore(tag: nil, environment: Self.mock)
+        let store = AgentTabStore(tag: nil, registry: ActionRegistry.standard(), environment: Self.mock)
         let key = store.open(in: pane.id, of: daemon)
 
         // A tree that drops the pane while the daemon is away is not
@@ -55,7 +73,7 @@ struct AgentTabLifecycleTests {
     /// Duplicate Tab on an agent tab opened an empty chat.
     @Test func duplicatingAnAgentTabShowsTheSameSession() async throws {
         let daemon = DaemonStore()
-        let store = AgentTabStore(tag: nil, environment: Self.mock)
+        let store = AgentTabStore(tag: nil, registry: ActionRegistry.standard(), environment: Self.mock)
         let key = store.open(in: "a", of: daemon)
         let next = store.open(in: "a", of: daemon)
         let view = try #require(store.view(for: key))
@@ -63,6 +81,24 @@ struct AgentTabLifecycleTests {
         let copy = store.duplicate(key, in: "a", of: daemon)
         #expect(store.tabIDs(in: "a") == [key, copy, next])
         #expect(store.view(for: copy)?.model.sessionId == "s-1")
+        store.closePane("a")
+    }
+
+    /// Pages show the app's shortcuts as bound now: a rebind in Settings or
+    /// cmux.json reaches a page that is already open.
+    @Test func openPagesFollowShortcutRebinds() async throws {
+        let registry = ActionRegistry.standard()
+        let store = AgentTabStore(tag: nil, registry: registry, environment: Self.mock)
+        let key = store.open(in: "a", of: DaemonStore())
+        let view = try #require(store.view(for: key))
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌘K" }
+        #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌘K")
+        registry.setShortcutOverride(Shortcut("j", modifiers: [.command, .option]), for: "agentPane.searchChats")
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J" }
+        #expect(view.shortcuts.labels["agentPane.searchChats"] == "⌥⌘J")
+        registry.setShortcutOverride(nil, for: "agentPane.searchChats")
+        await ReopenClosedTabTests.settle { view.shortcuts.labels["agentPane.searchChats"] == nil }
+        #expect(view.shortcuts.labels["agentPane.searchChats"] == nil, "an unbound action shows no shortcut")
         store.closePane("a")
     }
 }

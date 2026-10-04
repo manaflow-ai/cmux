@@ -24,6 +24,11 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSettings.handle(call.params, services: services))
             },
+            // Debug Settings window and tunable store (DebugTunables).
+            .mainActor("debug.tunables") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugTunables.handle(call.params, services: services))
+            },
         ])
         #endif
     }

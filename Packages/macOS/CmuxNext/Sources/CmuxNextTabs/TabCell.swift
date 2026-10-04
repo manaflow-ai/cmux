@@ -40,7 +40,8 @@ final class TabCell {
     var scale: CGFloat = 1 {
         didSet {
             guard oldValue != scale else { return }
-            for sublayer in [titleLayer, iconLayer, spinnerLayer, closeGlyphLayer, machineLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
+            for sublayer in [titleLayer, iconLayer, closeGlyphLayer, machineLayer].compactMap(\.self) as [CALayer] { sublayer.contentsScale = scale }
+            spinnerLayer?.contentsScale = scale
             updateColors(animated: false)
             layoutLayers()
         }
@@ -56,6 +57,8 @@ final class TabCell {
     }
 
     var bounds: CGRect { CGRect(origin: .zero, size: layer.bounds.size) }
+    /// The tab's rounded pill (its background) in this cell's coordinates.
+    var pillFrameInCell: CGRect { backgroundLayer.frame }
 
     private let backgroundLayer = CALayer()
     let iconLayer = CALayer()
@@ -67,7 +70,7 @@ final class TabCell {
     // Created on first need and removed when unused, so 100 idle tabs cost
     // five layers each (architecture.md 3): spinner while busy, badge while
     // unread or showing status, close button on the selected/hovered tab.
-    var spinnerLayer: CAShapeLayer?
+    var spinnerLayer: StatusIndicatorLayer?
     var badgeLayer: CALayer?
     var closeBackgroundLayer: CALayer?
     var closeGlyphLayer: CAShapeLayer?
@@ -143,7 +146,9 @@ final class TabCell {
             measuredTitle = nil
             titleLayer.string = displayTitle
         }
-        if previous?.isBusy != item.isBusy { updateSpinner() }
+        if previous?.indicator != item.indicator || previous?.busyStyle != item.busyStyle {
+            updateSpinner()
+        }
         if previous?.machineBadge != item.machineBadge { updateMachineBadge() }
         if previous?.themeBadge != item.themeBadge { updateThemeBadge() }
         if previous?.profileBadge != item.profileBadge { updateProfileBadge() }
@@ -187,20 +192,6 @@ final class TabCell {
         updateColors(animated: true)
     }
 
-    private func updateSpinner() {
-        let key = "spin"
-        if item.isBusy {
-            let spinnerLayer = makeSpinner()
-            if spinnerLayer.animation(forKey: key) == nil, let spin = Motion.spinAnimation() {
-                spinnerLayer.add(spin, forKey: key)
-            }
-        } else {
-            spinnerLayer?.removeFromSuperlayer()
-            spinnerLayer = nil
-        }
-        layoutLayers()
-    }
-
     func updateColors(animated: Bool) {
         Motion.transaction(animated ? .hover : nil) { applyColors() }
     }
@@ -218,7 +209,7 @@ final class TabCell {
             titleLayer.foregroundColor = text.cgColor
             machineLayer?.foregroundColor = Palette.textTertiary.cgColor
             applyProfileDotColors()
-            spinnerLayer?.strokeColor = Palette.textSecondary.cgColor
+            spinnerLayer?.colors = .current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             separatorLayer.backgroundColor = Palette.separator.cgColor
             iconLayer.contents = iconImage(tint: item.tint?.swatch ?? text)
         }
@@ -244,6 +235,10 @@ final class TabCell {
             return TabSymbolCache.shared.image(named: "circle.fill", tint: tint, pointSize: Metrics.smallIconSize * 0.6,
                                                size: metrics.iconSize, scale: scale)
         case .image(let image): return image.cgImage
+        case .agentMark(let brand):
+            return TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: metrics.iconSize, scale: scale)
+                ?? TabSymbolCache.shared.image(named: "terminal", tint: tint, pointSize: Metrics.smallIconSize,
+                                               size: metrics.iconSize, scale: scale)
         case .symbol(let name):
             return TabSymbolCache.shared.image(
                 named: name,
@@ -263,10 +258,13 @@ final class TabCell {
     }
 
     func layoutLayers() {
-        let bounds = bounds
+        let slot = bounds
         let m = metrics
+        // The pill leaves the gap to the next tab at its trailing side (the
+        // first pill starts on the border's line); content lays out in it.
+        let bounds = m.pillFrame(slotWidth: slot.width, height: slot.height)
         visibility = TabChromeVisibility.resolve(
-            width: bounds.width,
+            width: slot.width,
             isPinned: item.isPinned,
             isSelected: isSelected,
             isHovered: isHovered,
@@ -278,11 +276,12 @@ final class TabCell {
         defer { CATransaction.commit() }
 
         let hairline = 1 / scale
-        backgroundLayer.frame = bounds.insetBy(dx: m.tabBackgroundInset, dy: 0)
+        backgroundLayer.frame = bounds
         backgroundLayer.cornerRadius = m.cornerRadius
+        // The separator sits in the middle of the gap after the pill.
         separatorLayer.frame = CGRect(
-            x: pixel(bounds.width) - hairline,
-            y: pixel((bounds.height - m.separatorHeight) / 2),
+            x: pixel(bounds.maxX + (slot.width - bounds.maxX - hairline) / 2),
+            y: pixel((slot.height - m.separatorHeight) / 2),
             width: hairline,
             height: m.separatorHeight
         )
@@ -304,19 +303,22 @@ final class TabCell {
                 : (bounds.width - iconSide) / 2
         }
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
-        let showsIconArt = visibility.showsIcon && !item.isBusy
+        // A working agent keeps its brand mark, with the spinner as a small badge on it.
+        let spinnerBadgesMark = spinnerLayer != nil && { if case .agentMark = item.icon { true } else { false } }()
+        let showsIconArt = visibility.showsIcon && (spinnerLayer == nil || spinnerBadgesMark)
         iconLayer.frame = iconFrame
         layoutThemeBadge(iconFrame: iconFrame, visible: visibility.showsIcon)
         // A hibernated page's icon is dimmed until it is selected.
         iconLayer.opacity = showsIconArt ? (item.isDormant && !isSelected ? 0.55 : 1) : 0
         if let spinnerLayer {
-            spinnerLayer.opacity = visibility.showsIcon ? 1 : 0
-            let spinnerRect = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
-            if spinnerLayer.bounds.size != spinnerRect.size {
-                spinnerLayer.bounds = CGRect(origin: .zero, size: spinnerRect.size)
-                spinnerLayer.path = CGPath(ellipseIn: spinnerLayer.bounds, transform: nil)
+            spinnerLayer.layer.opacity = visibility.showsIcon ? 1 : 0
+            if spinnerBadgesMark {
+                let side = pixel(iconFrame.width * 0.55)
+                spinnerLayer.frame = CGRect(x: pixel(iconFrame.maxX - side + Metrics.space1), y: pixel(iconFrame.maxY - side + Metrics.space1),
+                                            width: side, height: side)
+            } else {
+                spinnerLayer.frame = iconFrame.insetBy(dx: Metrics.space1, dy: Metrics.space1)
             }
-            spinnerLayer.position = CGPoint(x: spinnerRect.midX, y: spinnerRect.midY)
         }
 
         if visibility.showsIcon, badgeColor != nil {
@@ -361,7 +363,7 @@ final class TabCell {
         if visibility.showsTitle {
             // The title always spans to the trailing inset, so it never moves
             // or resizes when the x appears; the x overlays its end and the
-            // title fades out before it (Chrome, Safari).
+            // title fades out before it.
             let titleX = iconFrame.maxX + m.iconTitleSpacing
             let span = max(0, bounds.width - m.contentTrailingInset - titleX)
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)

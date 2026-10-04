@@ -22,7 +22,7 @@ extension TabStripView {
         )
         self.press = nil
         setHovered(nil)
-        hoverCard.hide(allowsQuickReshow: false)
+        hoverCards.dismiss(.action)
         cells[press.id]?.isLifted = true
         installEscapeMonitor()
         updateSeparators()
@@ -79,7 +79,7 @@ extension TabStripView {
 
     /// Fraction of the dragged tab's width it must travel past a group's
     /// trailing edge to join or leave the group.
-    static let groupJoinHysteresis: CGFloat = 0.3
+    static var groupJoinHysteresis: CGFloat { TabTunables.groupJoinHysteresis.value }
 
     /// Scrolls an overflowing strip while a dragged tab sits in an edge fade.
     func autoscrollDuringDrag(_ dt: CGFloat) -> Bool {
@@ -87,8 +87,9 @@ extension TabStripView {
         let local = convert(point, to: tabsClip).x
         let edge = metrics.scrollFadeWidth
         var speed: CGFloat = 0
-        if local < edge { speed = -(edge - local) * 14 }
-        if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * 14 }
+        let gain = TabTunables.autoscrollGain.value
+        if local < edge { speed = -(edge - local) * gain }
+        if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
         let target = TabScrollMath.clamp(scroll.value + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         guard target != scroll.value else { return false }
@@ -212,7 +213,7 @@ extension TabStripView {
             context.setFillColor(Palette.windowBackground.cgColor)
         }
         let radius = metrics.cornerRadius
-        context.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: metrics.tabBackgroundInset, dy: 0), cornerWidth: radius, cornerHeight: radius, transform: nil))
+        context.addPath(CGPath(roundedRect: metrics.pillFrame(slotWidth: size.width, height: size.height), cornerWidth: radius, cornerHeight: radius, transform: nil))
         context.fillPath()
         for layer in layers {
             context.saveGState()
@@ -222,6 +223,10 @@ extension TabStripView {
         }
         return context.makeImage().map(TabImage.init)
     }
+
+    /// The tabs the strip shows, in order (tab conservation check DP1: once
+    /// no drag is in flight this equals the model's tabs).
+    public var presentedTabIDs: [TabID] { displayed.map(\.id) }
 
     /// Restores a tab this strip handed off (drag cancelled). It grows back
     /// into its slot. No-op when `id` is not the detached tab.

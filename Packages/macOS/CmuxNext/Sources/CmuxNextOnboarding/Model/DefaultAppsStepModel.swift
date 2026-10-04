@@ -44,13 +44,4 @@ public final class DefaultAppsStepModel {
             self?.refresh()
         }
     }
-
-    /// Every terminal claim not held yet.
-    public func requestAllTerminalClaims() {
-        for claim in DefaultHandlerClaim.terminalClaims where !isClaimed(claim) { request(claim) }
-    }
-
-    public func openServicesSettings() {
-        services.openExternal(SystemSettingsLink.services)
-    }
 }

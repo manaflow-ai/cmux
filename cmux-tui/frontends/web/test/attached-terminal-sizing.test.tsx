@@ -1,6 +1,6 @@
 import { render, waitFor } from "@testing-library/react";
 import { useCallback } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CmuxClient, DecodedAttachEvent } from "cmux/raw";
 import { useAttachedTerminal } from "../src/hooks/useAttachedTerminal";
 
@@ -96,7 +96,11 @@ function Harness({ client }: { client: CmuxClient }) {
     throw error;
   }, []);
   const { terminalRef } = useAttachedTerminal({ client, surface: 7n, onError });
-  return <div className="terminal-stage"><div ref={terminalRef} /></div>;
+  return (
+    <div className="terminal-stage">
+      <div ref={terminalRef} />
+    </div>
+  );
 }
 
 describe("attached terminal sizing", () => {
@@ -118,9 +122,7 @@ describe("attached terminal sizing", () => {
         { event: "vt-state", surface: 7n, cols: 100, rows: 30, data: new Uint8Array(), colors: {} },
         { event: "overflow", scope: "surface", surface: 7n, error: "subscriber fell behind" },
       ]),
-      new TestStream([
-        { event: "vt-state", surface: 7n, cols: 100, rows: 30, data: new Uint8Array(), colors: {} },
-      ]),
+      new TestStream([{ event: "vt-state", surface: 7n, cols: 100, rows: 30, data: new Uint8Array(), colors: {} }]),
     ];
     const client = {
       attachSurface: vi.fn(async () => streams.shift()!),
@@ -146,9 +148,7 @@ describe("attached terminal sizing", () => {
       disconnect() {}
     };
     const client = {
-      attachSurface: vi.fn(async () => new TestStream([
-        { event: "detached", surface: 7n },
-      ])),
+      attachSurface: vi.fn(async () => new TestStream([{ event: "detached", surface: 7n }])),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
       releaseSurfaceSize: vi.fn(async () => ({})),
       send: vi.fn(async () => ({})),
@@ -217,19 +217,13 @@ describe("attached terminal sizing", () => {
     const view = render(<Harness client={client} />);
 
     await waitFor(() => {
-      expect(terminalMocks.instances[0]?.writes[1]).toBe(
-        "\x1b]104\x1b\\\x1b]4;1;#112233\x1b\\\x1b]4;20;#445566\x1b\\",
-      );
+      expect(terminalMocks.instances[0]?.writes[1]).toBe("\x1b]104\x1b\\\x1b]4;1;#112233\x1b\\\x1b]4;20;#445566\x1b\\");
     });
     stream.release();
     await waitFor(() => {
-      expect(terminalMocks.instances[0]?.writes[2]).toBe(
-        "\x1b]104\x1b\\\x1b]4;2;#778899\x1b\\\x1b]4;21;#aabbcc\x1b\\",
-      );
+      expect(terminalMocks.instances[0]?.writes[2]).toBe("\x1b]104\x1b\\\x1b]4;2;#778899\x1b\\\x1b]4;21;#aabbcc\x1b\\");
       expect(terminalMocks.instances[0]?.writes[3]).toEqual(new Uint8Array([2]));
-      expect(terminalMocks.instances[0]?.writes[4]).toBe(
-        "\x1b]104\x1b\\\x1b]4;3;#abcdef\x1b\\\x1b]4;22;#fedcba\x1b\\",
-      );
+      expect(terminalMocks.instances[0]?.writes[4]).toBe("\x1b]104\x1b\\\x1b]4;3;#abcdef\x1b\\\x1b]4;22;#fedcba\x1b\\");
       const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
       expect(theme.red).not.toBe("#replay-red");
       expect(terminalMocks.instances[0]?.options.cursorStyle).toBe("underline");
@@ -245,27 +239,30 @@ describe("attached terminal sizing", () => {
       disconnect() {}
     };
     const client = {
-      attachSurface: vi.fn(async () => new TestStream([
-        {
-          event: "vt-state",
-          surface: 7n,
-          cols: 80,
-          rows: 24,
-          data: new Uint8Array(),
-          colors: { palette: { "4": "#112233" } },
-        },
-        { event: "output", surface: 7n, data: new Uint8Array([0x1b, 0x63]) },
-        {
-          event: "colors-changed",
-          surface: 7n,
-          fg: null,
-          bg: null,
-          cursor: null,
-          selection_bg: null,
-          selection_fg: null,
-          palette: { "4": "#112233" },
-        },
-      ])),
+      attachSurface: vi.fn(
+        async () =>
+          new TestStream([
+            {
+              event: "vt-state",
+              surface: 7n,
+              cols: 80,
+              rows: 24,
+              data: new Uint8Array(),
+              colors: { palette: { "4": "#112233" } },
+            },
+            { event: "output", surface: 7n, data: new Uint8Array([0x1b, 0x63]) },
+            {
+              event: "colors-changed",
+              surface: 7n,
+              fg: null,
+              bg: null,
+              cursor: null,
+              selection_bg: null,
+              selection_fg: null,
+              palette: { "4": "#112233" },
+            },
+          ]),
+      ),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
       releaseSurfaceSize: vi.fn(async () => ({})),
       send: vi.fn(async () => ({})),
@@ -291,16 +288,19 @@ describe("attached terminal sizing", () => {
       disconnect() {}
     };
     const client = {
-      attachSurface: vi.fn(async () => new TestStream([
-        {
-          event: "vt-state",
-          surface: 7n,
-          cols: 80,
-          rows: 24,
-          data: new Uint8Array([1]),
-          colors: { fg: "#eeeeee" },
-        },
-      ])),
+      attachSurface: vi.fn(
+        async () =>
+          new TestStream([
+            {
+              event: "vt-state",
+              surface: 7n,
+              cols: 80,
+              rows: 24,
+              data: new Uint8Array([1]),
+              colors: { fg: "#eeeeee" },
+            },
+          ]),
+      ),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
       releaseSurfaceSize: vi.fn(async () => ({})),
       send: vi.fn(async () => ({})),
@@ -309,10 +309,7 @@ describe("attached terminal sizing", () => {
     const view = render(<Harness client={client} />);
 
     await waitFor(() => {
-      expect(terminalMocks.instances[0]?.writes).toEqual([
-        "\x1b]10;#eeeeee\x1b\\",
-        new Uint8Array([1]),
-      ]);
+      expect(terminalMocks.instances[0]?.writes).toEqual(["\x1b]10;#eeeeee\x1b\\", new Uint8Array([1])]);
       const theme = terminalMocks.instances[0]?.options.theme as Record<string, unknown>;
       expect(theme.foreground).not.toBe("#eeeeee");
       expect(theme.red).toBe("#replay-red");
@@ -328,27 +325,30 @@ describe("attached terminal sizing", () => {
     };
     const restoreForeground = new Uint8Array([0x1b, 0x5d, 0x31, 0x31, 0x30, 0x1b, 0x5c]);
     const client = {
-      attachSurface: vi.fn(async () => new TestStream([
-        {
-          event: "vt-state",
-          surface: 7n,
-          cols: 80,
-          rows: 24,
-          data: new Uint8Array(),
-          colors: {},
-        },
-        {
-          event: "colors-changed",
-          surface: 7n,
-          fg: "#112233",
-          bg: "#223344",
-          cursor: "#334455",
-          selection_bg: null,
-          selection_fg: null,
-          palette: {},
-        },
-        { event: "output", surface: 7n, data: restoreForeground },
-      ])),
+      attachSurface: vi.fn(
+        async () =>
+          new TestStream([
+            {
+              event: "vt-state",
+              surface: 7n,
+              cols: 80,
+              rows: 24,
+              data: new Uint8Array(),
+              colors: {},
+            },
+            {
+              event: "colors-changed",
+              surface: 7n,
+              fg: "#112233",
+              bg: "#223344",
+              cursor: "#334455",
+              selection_bg: null,
+              selection_fg: null,
+              palette: {},
+            },
+            { event: "output", surface: 7n, data: restoreForeground },
+          ]),
+      ),
       resizeSurface: vi.fn(async () => ({ accepted: true, reservation_id: null })),
       releaseSurfaceSize: vi.fn(async () => ({})),
       send: vi.fn(async () => ({})),
@@ -367,9 +367,9 @@ describe("attached terminal sizing", () => {
       expect(theme.foreground).not.toBe("#112233");
       expect(theme.background).not.toBe("#223344");
       expect(theme.cursor).not.toBe("#334455");
-      expect(document.querySelector<HTMLElement>(".terminal-stage")?.style.getPropertyValue(
-        "--surface-background",
-      )).toBe("#223344");
+      expect(
+        document.querySelector<HTMLElement>(".terminal-stage")?.style.getPropertyValue("--surface-background"),
+      ).toBe("#223344");
     });
     view.unmount();
   });

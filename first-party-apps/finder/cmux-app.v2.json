@@ -1,0 +1,166 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/finder",
+  "name": {
+    "en": "Finder",
+    "ja": "ファインダー"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "Browse folders on this Mac, cmux servers, the team VM and SSH hosts. Copy, move, rename and trash files with progress, preview them, and send them to terminals and agents.",
+    "ja": "このMac、cmuxサーバー、チームVM、SSHホストのフォルダをブラウズします。進捗を見ながらファイルをコピー、移動、名前変更、ゴミ箱に入れ、プレビューし、ターミナルやエージェントに渡せます。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "productivity",
+    "cloud",
+    "developer-tools"
+  ],
+  "keywords": [
+    "files",
+    "finder",
+    "ssh",
+    "sftp",
+    "copy",
+    "browse"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
+  "catalog": "catalog/finder-catalog.json",
+  "cli": { "name": "finder" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderFiles",
+      "title": {
+        "en": "Files",
+        "ja": "ファイル"
+      },
+      "symbol": "folder",
+      "options": {
+        "defaultRegion": "middle"
+      }
+    },
+    "cmux.pane/1": {
+      "export": "renderFinder",
+      "title": {
+        "en": "Finder",
+        "ja": "ファインダー"
+      },
+      "symbol": "folder"
+    }
+  },
+  "scopes": {
+    "fs:read": "List and preview files in the folders and hosts you give this app.",
+    "host:read": "Show the hosts you connected this app to and whether they are online."
+  },
+  "optionalScopes": {
+    "fs:write": "Create, rename, copy, move and trash files when you ask, only in folders you gave it write access to.",
+    "agent:write": "Attach files to an agent when you choose Attach to Agent.",
+    "host:control": "Open the connect sheet for a host you choose; cmux asks for any password or key.",
+    "terminal:input": "Insert the path of a file you drop on a terminal."
+  },
+  "handles": {
+    "root": {
+      "reason": "Browse and change files in folders you pick.",
+      "rights": [
+        "read",
+        "write"
+      ],
+      "max": 64
+    },
+    "connection": {
+      "reason": "Browse files on hosts you connect: cmux servers, Cloud VMs, the team VM and SSH hosts.",
+      "max": 32,
+      "kinds": [
+        "ssh",
+        "cloud-vm",
+        "team-vm",
+        "cmux-host",
+        "local"
+      ]
+    }
+  },
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "listPreview",
+        "columns",
+        "dualPane"
+      ],
+      "default": "listPreview"
+    }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "showPreview": {
+        "type": "boolean",
+        "default": true,
+        "title": "Show the preview pane"
+      }
+    }
+  },
+  "activation": [
+    "onInterface:cmux.section/1",
+    "onInterface:cmux.pane/1",
+    "onOp:finder.open",
+    "onOp:finder.add_folder",
+    "onOp:finder.connect_host"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/"
+  ],
+  "drag": {
+    "provides": [
+      "file",
+      "directory"
+    ]
+  },
+  "drop": {
+    "accepts": [
+      "file",
+      "directory",
+      "url",
+      "text"
+    ]
+  },
+  "consumes": {
+    "ops": [
+      "fs.list",
+      "fs.stat",
+      "fs.read",
+      "fs.write",
+      "fs.mkdir",
+      "fs.rename",
+      "fs.copy",
+      "fs.move",
+      "fs.trash",
+      "fs.delete",
+      "host.list",
+      "host.connect",
+      "terminal.drop",
+      "agent.attach"
+    ],
+    "handles": [
+      "root",
+      "connection"
+    ]
+  }
+}

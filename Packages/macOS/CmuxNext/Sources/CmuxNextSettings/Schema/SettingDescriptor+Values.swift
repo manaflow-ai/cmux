@@ -19,6 +19,7 @@ extension SettingDescriptor {
     public func accepts(_ value: JSONValue) -> Bool {
         switch kind {
         case .choice(let choices):
+            if path == BackdropSelectionSetting().configPath { return BackdropSelectionSetting.accepts(value) }
             return value.stringValue.map { text in choices.contains { $0.value == text } } ?? false
         case .choiceOrNumber(let choices, let number):
             if let text = value.stringValue { return choices.contains { $0.value == text } }
@@ -37,10 +38,17 @@ extension SettingDescriptor {
         case .hostList:
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { $0.stringValue != nil }
+        case .folderList:
+            guard case .array(let items) = value else { return false }
+            return items.allSatisfy { $0.stringValue.map { $0.hasPrefix("/") || $0.hasPrefix("~/") } ?? false }
         case .timeRange:
             guard case .object(let members) = value else { return false }
             return members["start"]?.stringValue.flatMap(QuietHours.minutes) != nil
                 && members["end"]?.stringValue.flatMap(QuietHours.minutes) != nil
+        case .theme:
+            return value.stringValue.map(AppThemeSetting().isValid) ?? false
+        case .fontFamily:
+            return value.stringValue.map(TerminalFontSetting().isValidFamily) ?? false
         }
     }
 

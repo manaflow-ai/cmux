@@ -7,6 +7,8 @@ RELOAD_ORIGINAL_ARGS=("$@")
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -1259,7 +1261,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --cmux-tui-manifest-url)
-      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui pinned in scripts/cmux-next/cmux-tui.pin (CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
+      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui built from this checkout's cmux-tui tree (scripts/cmux-next/pin-cmux-tui.sh --help; CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
       exit 1
       ;;
     --derived-data)
@@ -1389,14 +1391,11 @@ fi
 
 # feat-cmux-next: the cmux scheme builds cmux-next.app, whose "Bundle cmux-tui"
 # phase (scripts/cmux-next/bundle-cmux-tui.sh) bundles the hosted cmux-tui
-# pinned in scripts/cmux-next/cmux-tui.pin. No published release client exists
-# for these commits: the pinned binary is fetched (public URL, sha256-verified, no GitHub
-# credentials) before the build and checked in the bundle after it.
+# built from this checkout's own cmux-tui tree (pin-cmux-tui.sh --help). It
+# is fetched (public URL, sha256-verified, no GitHub credentials) before the
+# build, waiting while the artifacts workflow publishes a new tree, and the
+# bundle phase fails when it does not serve a capability the app relies on.
 # CMUX_NEXT_TUI_BIN=<path> bundles a local build instead.
-if [[ ! -f "$PWD/scripts/cmux-next/cmux-tui.pin" ]]; then
-  echo "error: scripts/cmux-next/cmux-tui.pin is missing; the cmux scheme cannot bundle cmux-tui" >&2
-  exit 1
-fi
 # cmux-next reads no web API origin, so a local reload provisions no shared
 # GCP backend stack. An explicit mode or CMUX_DEV_BACKEND_URL (the fleet's
 # cmux-ci passes one) still wins.
@@ -1427,6 +1426,26 @@ if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
 else
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
+fi
+
+# cmux-next's agent pane starts the acpmux daemon from Resources/bin. CI and
+# reload-build provision CMUX_NEXT_ACPMUX_BIN from the in-tree source; a
+# tagged reload outside CI may reuse that commit-addressed cache, but never runs
+# Cargo on the developer machine.
+if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
+elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
+  if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
+    echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
+    "$PWD/scripts/cmux-next/build-acpmux.sh"
+    export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
+    echo "==> cmux-next: bundling fleet-built acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  else
+    echo "error: no cached acpmux for this checkout; provision it on CI/fleet or set CMUX_NEXT_ACPMUX_BIN" >&2
+    exit 1
+  fi
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -2017,15 +2036,16 @@ else
   mkdir -p "$BIN_DIR"
   "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
 fi
-# The Bundle cmux-tui phase already placed the pinned cmux-tui; refuse anything else.
+# The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
+# with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
 cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
 case "$cmux_next_tui_source" in
-  pinned-hosted|override)
+  tree-hosted|tree-local-build|pinned-hosted|override)
     echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
     ;;
   *)
-    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the pinned hosted build; see $cmux_next_tui_version" >&2
+    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the same-tree hosted build; see $cmux_next_tui_version" >&2
     exit 1
     ;;
 esac
@@ -2054,20 +2074,12 @@ fi
 # that path first can make Bundle.module trap during startup while the old
 # process is still initializing.
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
-  pkill -f "$TAG_PROCESS_PATTERN" || true
-  for _ in {1..20}; do
-    if ! pgrep -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 0.1
-  done
-  # A startup process may not service its quit event yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; force only this tagged
-  # executable after the bounded graceful window.
-  pkill -KILL -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1 || true
+  # A startup process may not service its quit request yet. Do not replace the
+  # resource-bearing bundle while it is still mapped; the helper forces only
+  # this tag's executables after a bounded graceful window.
+  cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
+    "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${BASE_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
@@ -2082,6 +2094,13 @@ if [[ "$BUILD_ONLY" -eq 1 && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
 elif [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   rm -rf "$TAG_APP_FINAL_PATH"
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
+  # xcodebuild registered its raw product under the tag's bundle id. Leave the
+  # tagged bundle as the only one, so a launch by bundle id (notification
+  # click, URL, Dock) never starts the raw copy without the tagged environment.
+  if [[ -n "${XCODEBUILD_SOURCE_APP_PATH:-}" && -d "$XCODEBUILD_SOURCE_APP_PATH" ]]; then
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+      -u "$XCODEBUILD_SOURCE_APP_PATH" >/dev/null 2>&1 || true
+  fi
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
@@ -2126,10 +2145,7 @@ fi
 if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
-    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-    sleep 0.3
-    pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-    sleep 0.3
+    cmux_stop_app_instances "$BUNDLE_ID" "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
   fi
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that

@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextPages
+import os
 public import WebKit
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
@@ -9,6 +11,7 @@ public import WebKit
 /// of the scope it sits in (window, workspace), re-applied whenever that
 /// scope repaints.
 public final class AgentPaneView: NSView {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript. Defaults to the
@@ -24,10 +27,38 @@ public final class AgentPaneView: NSView {
             if customization != oldValue { applyCustomization() }
         }
     }
+    /// The app shortcuts the page shows (``AgentPaneShortcuts``), pushed
+    /// when a rebind changes them, after each load, and on the handshake.
+    public var shortcuts = AgentPaneShortcuts() {
+        didSet {
+            if shortcuts != oldValue { applyShortcuts() }
+        }
+    }
+    /// `labs.previewFeatures`: pushed like ``shortcuts``.
+    public var previewFeatures = false {
+        didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
+    }
     private let navigation = AgentPaneNavigation()
-    private var crashReloads = AgentPaneCrashReloads()
+    /// The composer's mic; nothing runs until the user starts it.
+    let dictation: AgentPaneDictation
+    var crashReloads = PageCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
-    private var crashNotice: NSView?
+    var crashNotice: NSView?
+    /// On the shared page host (`cmux-page://cmux.agent/`, the `agent.pageHost` tunable): the page
+    /// view and the provider that answers its calls and carries the host's pushes. Nil on the old
+    /// host (`cmux-agent://pane`, deleted with P5 of the agent pane move).
+    let page: PageWebView?
+    let pageEvents: AgentPageProvider?
+    /// Whether the page can take typing yet (the key dispatcher queues keys until then).
+    public let inputReadiness: PageInputReadiness
+    /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
+    /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
+    private var motionObservation: Task<Void, Never>?
+    private var reduceMotionObserver: (any NSObjectProtocol)?
+    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
+
+    /// The process pool every agent page shares (R81: fonts are listed once per pool).
+    private static let processPool = WKProcessPool()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -44,35 +75,112 @@ public final class AgentPaneView: NSView {
     ///   - renderRate: How fast the page renders. Adaptive starts at the
     ///     display's full rate and caps it while scrolls miss frames, as they
     ///     do on a loaded machine (#16471).
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped) {
+    ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
+    ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
+    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
+                 pageHost: Bool = false) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
         self.source = source
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
         self.renderRate = renderRate
-        if renderRate != .capped {
-            configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
+        let webView: WKWebView
+        if pageHost, case .bundled(let index) = source {
+            let provider = AgentPageProvider { [weak model] _ in model }
+            guard let page = Self.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
+            else { return nil }
+            self.page = page
+            pageEvents = provider
+            webView = page.webKitView
+            inputReadiness = page.inputReadiness
+            dictation = AgentPaneDictation(send: { [weak provider] update in
+                if let event = AgentPageEvent.dictation(update) { provider?.publish(event) }
+            })
+        } else {
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .nonPersistent()
+            // One process pool for every agent page: a fresh pool per page made WebKit list the
+            // user-installed fonts again for each new page (registerUserInstalledFonts, about
+            // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
+            configuration.processPool = Self.processPool
+            if renderRate != .capped {
+                WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
+            }
+            source.register(on: configuration)
+            // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
+            // background is the one surface token, or clear over a see-through
+            // window (plans/cmux-next/windows.md).
+            configuration.userContentController.addUserScript(
+                WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            inputReadiness = PageInputReadiness(configuration: configuration)
+            webView = WKWebView(frame: .zero, configuration: configuration)
+            page = nil
+            pageEvents = nil
+            dictation = AgentPaneDictation(evaluate: { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) })
         }
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        self.webView = webView
         super.init(frame: .zero)
-        configuration.userContentController.addScriptMessageHandler(
-            AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
-        )
+        inputReadiness.attach(webView)
+        if let page {
+            attachPage(page)
+        } else {
+            webView.configuration.userContentController.addScriptMessageHandler(
+                AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
+            )
+        }
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
+        // The page paints its own background with the theme's opacity;
+        // WebKit's opaque backing would hide a translucent window's backdrop.
+        // macOS has no public switch, so this uses WebKit's
+        // `_setDrawsBackground:` SPI through KVC, checked first (as
+        // `WebKitTab` does); without it the pane keeps WebKit's backing.
+        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+            webView.setValue(false, forKey: "drawsBackground")
+        }
         #if DEBUG
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true
         #endif
-        if renderRate == .adaptive {
-            model.onFramePacing = { [weak self] intervals in self?.recordFramePacing(intervals) }
+        model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
+        model.onRenderRate = { [weak self] full in
+            guard let self, self.renderRate == .adaptive else { return }
+            self.rendersAtFullRate = full
         }
-        navigation.view = self
-        webView.navigationDelegate = navigation
-        addSubview(webView)
-        source.load(into: webView)
+        model.onDictation = { [weak self] command in self?.dictation.handle(command) }
+        if page == nil {
+            navigation.view = self
+            webView.navigationDelegate = navigation
+            addSubview(webView)
+            source.load(into: webView)
+        }
+        Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
+        observeMotion()
+    }
+
+    private static func sourceDescription(_ source: AgentPaneSource) -> String {
+        switch source {
+        case .bundled(let url): return "bundled:\(url.path)"
+        case .devServer(let url): return "dev:\(url.absoluteString)"
+        }
+    }
+
+    private func observeMotion() {
+        motionObservation = Task { [weak self] in
+            for await _ in Observations({ Motion.speed }) {
+                guard let self else { return }
+                self.applyTheme()
+            }
+        }
+        // Reduce Motion is not observable through Observation.
+        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
+        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
+            forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
     }
 
     @available(*, unavailable)
@@ -80,41 +188,147 @@ public final class AgentPaneView: NSView {
 
     public override func layout() {
         super.layout()
-        webView.frame = bounds
+        if let page { page.frame = bounds } else { webView.frame = bounds }
     }
 
     /// WebKit's feature that renders a page at the display-rate divisor
     /// nearest 60 fps.
-    static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
+    static let near60FPSFeature = WebKitRenderRate.near60FPSFeature
 
     public let renderRate: AgentPaneRenderRate
-    private var framePacing = AgentPaneFramePacing()
     /// The display's refresh rate when the pane has no window screen to ask
     /// (tests set it).
     var displayFramesPerSecond: () -> Int = { NSScreen.main?.maximumFramesPerSecond ?? 60 }
 
-    /// An adaptive pane's settled scroll: picks the rate for the next one.
-    func recordFramePacing(_ intervals: [Double], at now: Date = Date()) {
+    /// Display information stays native; the page owns adaptive rate policy.
+    func framePacingSettings() -> [String: Any] {
         let fps = window?.screen?.maximumFramesPerSecond ?? displayFramesPerSecond()
-        guard renderRate == .adaptive, fps > 0 else { return }
-        let full = framePacing.record(intervals: intervals, displayInterval: 1000 / Double(fps), at: now)
-        if full != rendersAtFullRate { rendersAtFullRate = full }
+        return ["adaptive": renderRate == .adaptive && fps > 0,
+                "displayInterval": fps > 0 ? 1000 / Double(fps) : 0]
     }
 
     /// Whether the page renders at the display's full rate. Setting it
-    /// changes the live page's preferences.
+    /// changes the live page's preferences and re-shows the page so WebKit
+    /// applies them.
     public var rendersAtFullRate: Bool {
         get { webView.configuration.preferences.isWebKitFeatureEnabled(Self.near60FPSFeature) == false }
-        set { webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) }
+        set {
+            guard newValue != rendersAtFullRate else { return }
+            // A WebKit without the feature has no rate to re-apply.
+            guard webView.configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: !newValue) else { return }
+            reapplyRenderRate()
+        }
+    }
+
+    /// The re-apply of the last rate change, while it runs.
+    private(set) var rateReapply: Task<Void, Never>?
+    /// An image of the page as shown; nil skips the re-apply (tests set it).
+    lazy var snapshotPage: () async -> NSImage? = { [weak self] in
+        try? await self?.webView.takeSnapshot(configuration: nil)
+    }
+    /// Waits out the re-apply's steps (tests set it).
+    // wakeup-allow: one-shot steps of a render-rate change (33 ms hidden, 50 ms covered), injected for tests
+    var pause: (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+
+    /// WebKit reads the rate only when the page's visibility changes, so the
+    /// web view is hidden for a moment and shown again. A snapshot of the
+    /// page covers it meanwhile; the adaptive rate changes only after a
+    /// scroll settles, so the snapshot matches what is on screen. Without a
+    /// snapshot the rate waits for the next visibility change instead of
+    /// blinking the page.
+    private func reapplyRenderRate() {
+        let previous = rateReapply
+        rateReapply = Task { [weak self] in
+            await previous?.value
+            guard let self, let image = await self.snapshotPage() else { return }
+            let cover = NSImageView(frame: self.webView.frame)
+            cover.image = image
+            cover.imageScaling = .scaleAxesIndependently
+            cover.autoresizingMask = [.width, .height]
+            self.addSubview(cover, positioned: .above, relativeTo: self.webView)
+            let focused = (self.window?.firstResponder as? NSView)?.isDescendant(of: self.webView) == true
+            self.webView.isHidden = true
+            // Hiding hands keyboard focus to the next key view; take it back
+            // unless the user moved it meanwhile.
+            let handedTo = self.window?.firstResponder
+            await self.pause(.milliseconds(33))
+            self.webView.isHidden = false
+            if focused, let window = self.window, window.firstResponder === handedTo {
+                window.makeFirstResponder(self.webView)
+            }
+            // The shown page paints its first frame under the cover.
+            await self.pause(.milliseconds(50))
+            cover.removeFromSuperview()
+        }
+    }
+
+    /// Toggle Dictation (the shortcut, palette or menu). From a key press,
+    /// holding the key past a moment makes it push-to-talk: dictation stops
+    /// when the key comes up.
+    public func toggleDictation(from event: NSEvent? = NSApp.currentEvent) {
+        dictation.toggle(from: event)
+    }
+
+    /// Opens the page's "Search chats" palette (Cmd-K, `agentPane.searchChats`);
+    /// a second call closes it.
+    public func showSearchChats() {
+        deliver([.command("searchChats")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"searchChats\");"])
+    }
+
+    /// Opens the frontend's Continue in… chooser. The chooser owns target
+    /// selection and preparation; native actions do not create a second
+    /// handoff pipeline.
+    public func showContinueIn() {
+        deliver([.command("continueIn")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
+    }
+    /// Palette and page buttons enter the same inline checkpoint review.
+    public func showCreateCheckpoint() {
+        guard model.checkpointAvailable else { return }
+        deliver([.command("createCheckpoint")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");"])
+    }
+
+    /// Runs a grouped-permission action from the app shortcut registry. The
+    /// page keeps the decision scoped to its selected session and refuses
+    /// stale, collecting, or unavailable groups before sending anything.
+    public func runPermissionAction(_ command: String) {
+        let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
+                       "permissionRetry", "permissionRevoke", "permissionRefresh"]
+        guard allowed.contains(command) else { return }
+        deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
+    }
+
+    /// Stops whichever agent pane is dictating, keeping its words, so the
+    /// shortcut ends a session started in a tab that is no longer in front.
+    /// False when none is.
+    @discardableResult
+    public static func stopDictation() -> Bool {
+        DictationMicrophone.shared.stopListening()
     }
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
-        webView.navigationDelegate = nil
+        motionObservation?.cancel()
+        motionObservation = nil
+        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
+        if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
+        reduceMotionObserver = nil
+        reduceMotionOverrideObserver = nil
+        dictation.close()
+        if let page {
+            page.close()
+        } else {
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
+            webView.navigationDelegate = nil
+        }
         webView.stopLoading()
         webView.loadHTMLString("", baseURL: nil)
         removeFromSuperview()
+    }
+
+    /// Another tab took the pane: stop listening, keep the words.
+    public override func viewDidHide() {
+        super.viewDidHide()
+        dictation.handle(.stop)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -124,65 +338,27 @@ public final class AgentPaneView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
+        if window == nil { dictation.handle(.stop) }
         applyTheme()
     }
 
-    /// Reloads the page after its web content process crashed, unless it
-    /// keeps crashing; then the pane says so and waits for the user.
-    func webContentProcessDidTerminate() {
-        if crashReloads.shouldReload(at: .now) {
-            source.load(into: webView)
-        } else {
-            showCrashNotice()
-        }
+
+    /// Runs a script in the page (tests record them).
+    lazy var evaluateScript: (String) -> Void = { [weak self] script in
+        self?.webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
-    private func showCrashNotice() {
-        guard crashNotice == nil else { return }
-        let message = NSTextField(wrappingLabelWithString: Self.crashedMessage)
-        message.alignment = .center
-        let reload = NSButton(title: Self.reloadTitle, target: self, action: #selector(reloadAfterCrashes))
-        let notice = NSStackView(views: [message, reload])
-        notice.orientation = .vertical
-        notice.spacing = 12
-        notice.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(notice)
-        let inset = notice.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48)
-        // A pane narrower than the inset clips the notice instead of
-        // breaking the layout.
-        inset.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            notice.centerXAnchor.constraint(equalTo: centerXAnchor),
-            notice.centerYAnchor.constraint(equalTo: centerYAnchor),
-            inset,
-        ])
-        crashNotice = notice
-        themeCrashNotice(themeTokens)
-    }
-
-    /// The notice sits on the pane's background, so it takes the pane's
-    /// theme rather than the system appearance.
-    private func themeCrashNotice(_ tokens: ThemeTokens) {
-        guard let notice = crashNotice else { return }
-        notice.appearance = NSAppearance(named: tokens.isDark ? .darkAqua : .aqua)
-        for case let label as NSTextField in notice.subviews {
-            label.textColor = tokens.textSecondary.nsColor
-        }
-    }
-
-    @objc private func reloadAfterCrashes() {
-        crashNotice?.removeFromSuperview()
-        crashNotice = nil
-        crashReloads = AgentPaneCrashReloads()
-        source.load(into: webView)
+    /// Focus Location Bar on a new tab page: the field takes the keyboard and
+    /// selects its text, wherever focus was on the page.
+    public func focusLocation() {
+        deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
     }
 
     /// Pushes ``customization`` to the page, even an empty one (it clears
     /// what removed files left behind).
     func applyCustomization() {
-        for script in customization.scripts() {
-            webView.evaluateJavaScript(script, completionHandler: nil)
-        }
+        deliver(AgentPageEvent.customization(customization), scripts: customization.scripts())
     }
 
     /// Re-pushes a non-empty ``customization`` to a page that may not have
@@ -193,13 +369,32 @@ public final class AgentPaneView: NSView {
         applyCustomization()
     }
 
+    /// The page's surface for overrides (R55): new tab page until a chat starts.
+    var surfaceKind: SurfaceKind { model.newTab != nil ? .newTabPage : .agentPane }
+
+    /// Pushes ``shortcuts`` to the page.
+    func applyShortcuts() {
+        deliver([.shortcuts(shortcuts)], scripts: shortcuts.script().map { [$0] } ?? [])
+    }
+
     /// Pushes this view's scope tokens to the page (and to the area WebKit
-    /// shows before the page paints).
-    func applyTheme() {
+    /// shows before the page paints); again when `surfaceKind` changes.
+    public func applyTheme() {
         let tokens = themeTokens
-        webView.underPageBackgroundColor = tokens.contentBackground.nsColor
+        let surface = surfaceKind
+        webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
-        guard let script = AgentPaneTheme.script(tokens) else { return }
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        page?.themeSurface = surface
+        deliver(AgentPageEvent.theme(tokens, surface: surface).map { [$0] } ?? [],
+                scripts: AgentPaneTheme.script(tokens, surface: surface).map { [$0] } ?? [])
+    }
+
+    /// Sends a push to the page: events on the page host, scripts on the old host (only built there).
+    func deliver(_ events: [AgentPageEvent], scripts: @autoclosure () -> [String]) {
+        if let pageEvents {
+            for event in events { pageEvents.publish(event) }
+        } else {
+            for script in scripts() { evaluateScript(script) }
+        }
     }
 }

@@ -249,10 +249,12 @@ level}, name, title, size, dead`. Layout nodes (`:9485-9506`): `leaf{pane}`,
 
 Launch snapshot (`launch-snapshot-v1`): the daemon keeps a read-only
 `launch-snapshot.json` next to its registry with the last settled
-`list-workspaces` tree and the native frontend projections, rewritten on
-settle and never while idle, and `identify` reports its path. The app
-remembers the path per session, applies the tree before connecting as a
-provisional store (`DaemonStore.applyProvisional`: `isLoaded` stays false),
+`list-workspaces` tree, the `list-personal` state (rooms, pins and
+personal groups, so the provisional sidebar filters and groups as the live
+one will) and the native frontend projections, rewritten on settle and
+never while idle, and `identify` reports its path. The app remembers the
+path per session, applies the tree and personal state before connecting as
+a provisional store (`DaemonStore.applyProvisional`: `isLoaded` stays false),
 opens the frontmost saved window from the snapshot's window records, and
 lets the live snapshot replace it in place. The file is a cache, never a
 source of truth.
@@ -584,11 +586,11 @@ Rules:
    `cmux-tui` CLI, so the TUI and the app see the same terminals) or a
    dedicated `cmux-app` session.
 
-## 8. Sessions, rooms and breaking changes (decision 2026-09-30)
+## 8. Sessions, spaces and breaking changes (decision 2026-09-30)
 
 The app federates many cmux-tui sessions (plans/cmux-next/data-model.md 1):
 terminals belong to their machine's session, a workspace's layout to its home
-session, and personal state (rooms, browser profiles, workspace groups,
+session, and personal state (spaces, browser profiles, workspace groups,
 sidebar order, saved groups, the session registry) only to the local home
 session. Session identity is `registry_id`. Breaking changes, each behind a
 capability, with the app in read-only fallback against older daemons:

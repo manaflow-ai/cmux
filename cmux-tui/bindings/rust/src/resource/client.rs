@@ -1,4 +1,5 @@
 use super::id::StreamId;
+use super::operation_class::{OperationClass, operation_class};
 use super::ops;
 use super::options::{MutationOptions, RequestOptions, validate_idempotency_key};
 use super::stream::{ResourceStream, StreamParts};
@@ -730,87 +731,6 @@ fn discard_connection_after(error: &Error) -> bool {
     )
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum OperationClass {
-    Read,
-    Mutation,
-    StreamOpen,
-    ConnectionControl,
-}
-
-fn operation_class(operation: &str) -> OperationClass {
-    use super::ops;
-
-    if matches!(
-        operation,
-        ops::SESSION_EVENTS
-            | ops::SESSION_JOURNAL_SUBSCRIBE
-            | ops::TERMINAL_ATTACH
-            | ops::BROWSER_ATTACH
-            | ops::SIDEBAR_VIEW_ATTACH
-    ) {
-        OperationClass::StreamOpen
-    } else if matches!(
-        operation,
-        ops::REQUEST_CANCEL
-            | ops::STREAM_CANCEL
-            | ops::CLIENT_METADATA_UPDATE
-            | ops::CLIENT_SIZING_SET
-            | ops::CLIENT_SIZING_RELEASE
-            | ops::CLIENT_CELL_PIXELS_SET
-            | ops::CLIENT_DETACH
-            | ops::TERMINAL_VIEWER_RESIZE
-            | ops::TERMINAL_VIEWER_RELEASE
-            | ops::BROWSER_VIEWER_RESIZE
-            | ops::BROWSER_VIEWER_RELEASE
-            | ops::TERMINAL_RENDERER_GRANT_CREATE
-    ) {
-        OperationClass::ConnectionControl
-    } else if matches!(
-        operation,
-        ops::MACHINE_LIST
-            | ops::MACHINE_GET
-            | ops::SESSION_LIST
-            | ops::SESSION_GET
-            | ops::SESSION_CREATION_RESOLVE
-            | ops::SESSION_SNAPSHOT
-            | ops::SESSION_JOURNAL_PRODUCER_LIST
-            | ops::SESSION_PING
-            | ops::CLIENT_LIST
-            | ops::CLIENT_GET
-            | ops::PAIRING_REQUEST_LIST
-            | ops::FRONTEND_PROJECTION_GET
-            | ops::WORKSPACE_LIST
-            | ops::WORKSPACE_GET
-            | ops::SCREEN_LIST
-            | ops::SCREEN_GET
-            | ops::SCREEN_LAYOUT_EXPORT
-            | ops::PANE_LIST
-            | ops::PANE_GET
-            | ops::PANE_NEIGHBOR_GET
-            | ops::TAB_LIST
-            | ops::TAB_GET
-            | ops::TERMINAL_LIST
-            | ops::TERMINAL_GET
-            | ops::TERMINAL_SCREEN_READ
-            | ops::TERMINAL_STATE_READ
-            | ops::TERMINAL_HISTORY_READ
-            | ops::TERMINAL_WAIT
-            | ops::TERMINAL_WAIT_EXIT
-            | ops::TERMINAL_COPY
-            | ops::TERMINAL_PROCESS_GET
-            | ops::BROWSER_LIST
-            | ops::BROWSER_GET
-            | ops::NOTIFICATION_LIST
-            | ops::AGENT_LIST
-            | ops::SIDEBAR_VIEW_GET
-    ) {
-        OperationClass::Read
-    } else {
-        OperationClass::Mutation
-    }
-}
-
 pub(crate) fn request_envelope(
     id: &str,
     operation: &str,
@@ -1074,11 +994,10 @@ fn random_stream_id() -> Result<StreamId> {
 
 #[cfg(test)]
 mod tests {
+    #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;
-    use sha2::{Digest as _, Sha256};
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
-
     static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(1);
 
     struct SocketFile(PathBuf);
@@ -1159,6 +1078,7 @@ mod tests {
         assert!(result.is_ok(), "source-compatible constructor must not panic");
     }
 
+    #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
@@ -1170,7 +1090,7 @@ mod tests {
         let uid = runtime_name.strip_prefix("cmux-tui-").unwrap();
         let hashed_dir = PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{uid}"));
         std::fs::create_dir_all(&hashed_dir).unwrap();
-        let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
+        let digest = crate::socket_hash::session_digest(&session).unwrap() + ".sock";
         let config = Config::from_socket_path(hashed_dir.join(digest));
         assert!(
             config

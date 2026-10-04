@@ -1,5 +1,5 @@
 import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 /// Carries a C pointer across an actor hop. Only sound where Ghostty
 /// documents the pointer as valid until the matching completion call.
@@ -49,32 +49,59 @@ nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s
 /// Paste and OSC 52 reads. Completes synchronously when the pasteboard has
 /// text-like content; returning false lets a performable paste binding fall
 /// through to the terminal.
-nonisolated func ghosttyReadClipboard(_ userdata: UnsafeMutableRawPointer?, _ clipboard: ghostty_clipboard_e, _ state: UnsafeMutableRawPointer?) -> Bool {
-    guard Thread.isMainThread, let bridge = SurfaceBridge.from(userdata) else { return false }
+nonisolated func ghosttyReadClipboard(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ clipboard: ghostty_clipboard_e,
+    _ state: UnsafeMutableRawPointer?,
+    _ mimes: UnsafePointer<UnsafePointer<CChar>?>?,
+    _ mimeCount: Int,
+    _ listAvailable: Bool
+) -> ghostty_clipboard_read_result_e {
+    guard Thread.isMainThread, let bridge = SurfaceBridge.from(userdata) else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
     let location: TerminalPasteboardLocation = clipboard == GHOSTTY_CLIPBOARD_SELECTION ? .selection : .standard
+    // Text-like types always arrive as the canonical "text/plain"; the
+    // terminal serves text only.
+    var wantsText = false
+    if let mimes {
+        for index in 0..<mimeCount where mimes[index].map({ String(cString: $0) }) == "text/plain" {
+            wantsText = true
+        }
+    }
     let pointer = UncheckedPointer(raw: state)
     return MainActor.assumeIsolated {
-        guard let view = bridge.view else { return false }
-        return view.completeClipboardRead(location: location, state: pointer)
+        guard let view = bridge.view else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
+        return view.clipboardRequests.completeRead(location: location, wantsText: wantsText,
+                                                   listAvailable: listAvailable, state: pointer)
     }
 }
 
+/// Unsafe paste or an OSC 52 / Kitty clipboard read that needs the user's
+/// consent. The confirmation's contents are borrowed for this call only, so
+/// the text is copied before the sheet opens.
 nonisolated func ghosttyConfirmReadClipboard(
     _ userdata: UnsafeMutableRawPointer?,
-    _ text: UnsafePointer<CChar>?,
+    _ confirm: UnsafePointer<ghostty_clipboard_confirm_s>?,
     _ state: UnsafeMutableRawPointer?,
     _ request: ghostty_clipboard_request_e
 ) {
     guard let bridge = SurfaceBridge.from(userdata) else { return }
-    let contents = text.map { String(cString: $0) } ?? ""
+    var contents = ""
+    if let confirm = confirm?.pointee, let items = confirm.contents {
+        for index in 0..<confirm.contents_len {
+            let item = items[index]
+            guard item.mime.map({ String(cString: $0) }) == "text/plain" else { continue }
+            contents = TerminalClipboardRequests.string(item)
+            break
+        }
+    }
     let kind: TerminalClipboardRequestKind = switch request {
-    case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ: .osc52Read
-    case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE: .osc52Write
+    case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_READ, GHOSTTY_CLIPBOARD_REQUEST_KITTY_READ: .osc52Read
+    case GHOSTTY_CLIPBOARD_REQUEST_OSC_52_WRITE, GHOSTTY_CLIPBOARD_REQUEST_KITTY_WRITE: .osc52Write
     default: .paste
     }
     let pointer = UncheckedPointer(raw: state)
     let run: @MainActor @Sendable () -> Void = {
-        bridge.view?.confirmClipboardRequest(contents: contents, kind: kind, state: pointer)
+        bridge.view?.clipboardRequests.confirm(contents: contents, kind: kind, state: pointer)
     }
     if Thread.isMainThread {
         MainActor.assumeIsolated(run)
@@ -94,16 +121,16 @@ nonisolated func ghosttyWriteClipboard(
     var items: [TerminalClipboardItem] = []
     for index in 0..<count {
         let item = contents[index]
-        guard let data = item.data else { continue }
+        guard item.data != nil else { continue }
         let mime = item.mime.map { String(cString: $0) } ?? "text/plain"
-        items.append(TerminalClipboardItem(mime: mime, text: String(cString: data)))
+        items.append(TerminalClipboardItem(mime: mime, text: TerminalClipboardRequests.string(item)))
     }
     guard !items.isEmpty else { return }
     let location: TerminalPasteboardLocation = clipboard == GHOSTTY_CLIPBOARD_SELECTION ? .selection : .standard
     let bridge = SurfaceBridge.from(userdata)
     let run: @MainActor @Sendable () -> Void = {
         if confirm, let view = bridge?.view {
-            view.confirmClipboardWrite(items: items, location: location)
+            view.clipboardRequests.confirmWrite(items: items, location: location)
         } else {
             TerminalPasteboard.write(items, to: location)
         }
@@ -121,13 +148,3 @@ nonisolated func ghosttyCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ pro
         MainActor.assumeIsolated { bridge.view?.surfaceRequestedClose() }
     }
 }
-
-/// tmux control mode is a local-PTY Ghostty feature; cmux-tui owns
-/// multiplexing, so these events are ignored.
-nonisolated func ghosttyTmuxControl(
-    _ userdata: UnsafeMutableRawPointer?,
-    _ event: ghostty_tmux_event_e,
-    _ id: UInt32,
-    _ bytes: UnsafePointer<UInt8>?,
-    _ length: UInt
-) {}

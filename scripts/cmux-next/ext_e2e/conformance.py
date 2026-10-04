@@ -32,6 +32,7 @@ UI_CHECKS = [
     ("mv3", "permissions", "request_prompt"),
     ("mv3", "sidePanel", "open"),
     ("mv3", "sidePanel", "page_loaded"),
+    ("mv3", "sidePanel", "cmux_header_keyboard"),
     ("mv3", "commands", "onCommand"),
     ("mv3", "contextMenus", "onClicked"),
     ("mv3", "devtools", "devtools_page_loaded"),
@@ -189,6 +190,13 @@ class Run:
                     panels = (self.app.call("debug.popups").get("result") or {}).get("panels") or []
                     found = any("popup=1" in (panel.get("url") or "") and panel.get("child_windows") for panel in panels)
                     self.popup_panels = [(panel.get("url"), len(panel.get("child_windows") or [])) for panel in panels]
+                    if not found:
+                        try:
+                            windows = (self.app.call("debug.cef").get("result") or {}).get("windows") or {}
+                            self.popup_panels = {"popup_windows": windows.get("popup_windows"), "panels": self.popup_panels,
+                                                 "fork_foreign": windows.get("fork_foreign_browsers")}
+                        except Exception:  # noqa: BLE001 - diagnostics only
+                            pass
             if found:
                 break
             time.sleep(0.15)
@@ -295,7 +303,7 @@ class Run:
         report = self.extensions()
         action = next((a for a in report.get("actions", []) if a.get("id") == MV3_ID), None)
         toolbar = app.call("debug.extensions.toolbar").get("result") or {}
-        # Unpinned actions live in the Extensions menu, as in Chrome.
+        # Unpinned actions live in the Extensions menu.
         placed = MV3_ID in toolbar.get("visible_actions", []) + toolbar.get("overflow_actions", []) or (
             action and not action.get("pinned") and toolbar.get("shows_extensions_button"))
         self.note("mv3", "action", "toolbar_button", "pass" if action and placed else "fail",
@@ -361,6 +369,33 @@ class Run:
         self.context_menu_check()
         self.devtools_check()
         self.omnibox_check()
+        self.side_panel_header_check()
+
+    def side_panel_header_check(self):
+        """Opens the side panel with a toolbar click (openPanelOnActionClick)
+        and reads cmux's header from debug.cef: cmux draws it, so none of
+        Chromium's own header buttons may stay in the Tab/F6 order."""
+        app = self.app
+        worker = self.sw_session(MV3_ID)
+        if not worker:
+            self.note("mv3", "sidePanel", "cmux_header_keyboard", "fail", "no extension service worker")
+            return
+        worker.evaluate("chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true}).then(() => setPopupForUI(''))")
+        if self.focused_url() is None:
+            self.focus_page_tab()
+        app.call("debug.extensions.click", {"extension": MV3_ID})
+
+        def header():
+            tabs = (app.call("debug.cef").get("result") or {}).get("devtools") or []
+            return next((t["side_panel"] for t in tabs if t.get("side_panel")), None)
+        panel = self.poll(header, lambda p: p is not None and "chromium_focusable" in p, 8)
+        ok = bool(panel) and panel.get("chromium_focusable") == 0 and "close" in (panel.get("controls") or [])
+        self.note("mv3", "sidePanel", "cmux_header_keyboard", "pass" if ok else "fail",
+                  panel or "no cmux side panel header (or no chromium_focusable) after the toolbar click")
+        if panel:
+            app.call("debug.cef", {"side_panel": "close"})
+        worker.evaluate("chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: false}).then(() => setPopupForUI('popup.html'))")
+        worker.close()
 
     def popup_gesture_checks(self):
         session = self.profile_target("page", f"chrome-extension://{MV3_ID}/popup.html", 5)
@@ -403,13 +438,18 @@ class Run:
         omnibar (debug.key, this app only), then Enter: onInputEntered."""
         app = self.app
         app.action("openBrowser", {"engine": "cef"})
-        time.sleep(2)
+        # Type only once the new tab's omnibar has focus (a fixed wait lost
+        # the keys on a loaded machine).
+        self.poll(lambda: app.call("debug.omnibar").get("result") or {},
+                  lambda o: o.get("has_focus") and o.get("field_editor_active"), 10)
         for key in list("cxt hello"):
             app.call("debug.key", {"key": key})
+        state = app.call("debug.omnibar").get("result") or {}
         app.call("debug.key", {"key": "return"})
         if not self.wait("mv3", "omnibox", "onInputEntered", 8):
             self.note("mv3", "omnibox", "onInputEntered", "fail",
-                      "no onInputEntered after typing the keyword session in the omnibar")
+                      "no onInputEntered after typing the keyword session in the omnibar; omnibar before Enter: "
+                      f"text={state.get('field_text')!r} keyword={state.get('keyword')!r} focus={state.get('has_focus')}")
 
     def context_menu_check(self):
         """Right-click the focused test page (trusted input through

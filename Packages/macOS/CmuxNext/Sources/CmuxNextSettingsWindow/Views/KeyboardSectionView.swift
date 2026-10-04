@@ -10,6 +10,7 @@ struct KeyboardSectionView: View {
     let model: SettingsWindowModel
 
     var body: some View {
+        KeymapFileActions(model: model)
         Text(SettingsWindowStrings.keyboardHint).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
         KeyboardShortcutList(model: model, sections: model.shortcutSections(), prefix: nil)
     }
@@ -46,6 +47,11 @@ private struct ShortcutRowView: View {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(SettingsStyle.attention)
                         .help(SettingsWindowStrings.conflict)
                         .accessibilityLabel(SettingsWindowStrings.conflict)
+                }
+                if row.isRefusedSystemWide {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(SettingsStyle.secondary)
+                        .help(SettingsWindowStrings.systemWideRefused)
+                        .accessibilityLabel(SettingsWindowStrings.systemWideRefused)
                 }
                 Spacer(minLength: Metrics.space6)
                 Button { model.beginRecording(row.id) } label: {

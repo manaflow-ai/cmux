@@ -30,6 +30,8 @@ enum HistoryAppStrings {
     static var locationsTitle: String { t("history.page.locations", "Location History") }
     static var closedTitle: String { t("history.page.closed", "Recently Closed") }
     static var searchTitle: String { t("history.page.search", "Search History") }
+    static var commandsTitle: String { t("history.page.commands", "Command History") }
+    static var commandsPlaceholder: String { t("history.page.commandsPlaceholder", "Search commands…") }
     static var agentsTitle: String { t("history.page.agents", "Agent Sessions") }
     static var searchPlaceholder: String { t("history.page.searchPlaceholder", "Search pages, places, agents…") }
     static var locationsPlaceholder: String { t("history.page.locationsPlaceholder", "Search where you were…") }
@@ -45,6 +47,9 @@ enum HistoryAppStrings {
     static var copySessionID: String { t("history.command.copySessionID", "Copy Session ID") }
     static var copyResumeCommand: String { t("history.command.copyResume", "Copy Resume Command") }
     static var remove: String { t("history.command.remove", "Remove from History") }
+    static var unknownCommand: String { t("history.command.unknown", "Command") }
+    static var runAgain: String { t("history.command.runAgain", "Run Again") }
+    static var copyCommand: String { t("history.command.copyCommand", "Copy Command") }
     static var current: String { t("history.accessory.current", "Current") }
     static var offline: String { t("history.accessory.offline", "Offline") }
     static var running: String { t("history.accessory.running", "Running") }

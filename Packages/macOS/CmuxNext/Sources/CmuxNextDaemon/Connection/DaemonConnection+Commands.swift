@@ -7,7 +7,12 @@ extension DaemonConnection {
     /// Stable frontend identity for the exactly-once ledger.
     public static let origin = "cmux-next"
 
-    public func mutation() -> MutationIdentity { MutationIdentity(origin: Self.origin) }
+    /// A fresh mutation identity, or one derived from the running action's
+    /// idempotency key (`DaemonCommandScope`), so a retried action replays.
+    public func mutation() -> MutationIdentity {
+        guard let derived = DaemonCommandScope.current?.nextMutationID() else { return MutationIdentity(origin: Self.origin) }
+        return MutationIdentity(origin: Self.origin, mutationID: derived)
+    }
 
     public func listWorkspaces() async throws -> DaemonTree {
         try await request(ListWorkspacesRequest())
@@ -36,33 +41,6 @@ extension DaemonConnection {
                                      markedUnread: Bool? = nil) async throws -> WorkspaceMetadataResult {
         try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, pinned: pinned,
                                                       markedUnread: markedUnread, mutation: mutation()))
-    }
-
-    // Groups (`workspace-groups-v1`)
-
-    @discardableResult
-    public func createGroup(name: String, id: WorkspaceGroupID? = nil, color: String? = nil, index: Int? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(CreateWorkspaceGroupRequest(name: name, group: id, color: color, index: index)).group
-    }
-
-    @discardableResult
-    public func updateGroup(_ id: WorkspaceGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                            collapsed: Bool? = nil) async throws -> WorkspaceGroupSnapshot {
-        try await request(UpdateWorkspaceGroupRequest(group: id, name: name, color: color, collapsed: collapsed)).group
-    }
-
-    public func deleteGroup(_ id: WorkspaceGroupID) async throws {
-        _ = try await request(DeleteWorkspaceGroupRequest(group: id))
-    }
-
-    public func moveGroup(_ id: WorkspaceGroupID, to index: Int) async throws {
-        _ = try await request(MoveWorkspaceGroupRequest(group: id, index: index))
-    }
-
-    /// Puts a workspace in a group (nil ungroups) at an optional section index.
-    @discardableResult
-    public func moveWorkspace(_ key: WorkspaceKey, toGroup group: WorkspaceGroupID?, index: Int? = nil) async throws -> MoveWorkspaceToGroupRequest.Response {
-        try await request(MoveWorkspaceToGroupRequest(workspace: .key(key), group: group, index: index, mutation: mutation()))
     }
 
     /// Closes a workspace. `endTerminals` also ends, in the same daemon
@@ -221,6 +199,11 @@ extension DaemonConnection {
         _ = try await request(SetColumnWidthRequest(pane: pane, width: width, transaction: transaction))
     }
 
+    /// `set-column-dock` for the column holding `pane`; nil unpins it.
+    public func setColumnDock(of pane: PaneID, dock: DockSnapshot?, transaction: UInt64? = nil) async throws {
+        _ = try await request(SetColumnDockRequest(pane: pane, dock: dock, transaction: transaction))
+    }
+
     public func swapPane(_ pane: PaneID, with target: SwapTarget) async throws {
         _ = try await request(SwapPaneRequest(pane: pane, target: target))
     }
@@ -303,7 +286,7 @@ extension DaemonConnection {
     /// store resync, with an error. d1aa608 and older closed the socket
     /// instead, losing the shutdown reply.)
     @discardableResult
-    public func shutdownDaemon(endTerminals: Bool = false) async throws -> ShutdownDaemonRequest.Response {
+    public func shutdownDaemon(endTerminals: Bool = false, keepLayout: Bool = false) async throws -> ShutdownDaemonRequest.Response {
         guard let identity else { throw DaemonError.notConnected }
         guard endTerminals else {
             return try await request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
@@ -315,36 +298,16 @@ extension DaemonConnection {
         let transport = try LineTransport(path: endpoint.socketPath)
         transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
         defer { transport.close() }
-        return try await Self.perform(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                      on: transport, timeout: Self.endTerminalsTimeout)
+        let request = ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true,
+                                            keepLayout: keepLayout ? true : nil)
+        return try await Self.perform(request, on: transport, timeout: Self.endTerminalsTimeout)
     }
 
-    /// Quit's end choices: stops this connection (so the daemon's exit
-    /// cannot trigger a reconnect that starts a new daemon), then ends every
-    /// terminal and stops the daemon (`shutdown-daemon end_terminals`).
-    /// With `deletingWorkspaces` (End Everything) it first closes every
-    /// workspace, so the next owner starts with none; the layout otherwise
-    /// stays and reopens with fresh shells. Both run on their own socket.
-    /// Returns the ended count.
-    @discardableResult
-    public func endSessionsAndStop(deletingWorkspaces: Bool = false) async throws -> UInt64 {
-        await close()
-        if deletingWorkspaces { try await closeEveryWorkspace() }
-        return try await shutdownDaemon(endTerminals: true).endedTerminals ?? 0
-    }
-
-    /// Closes every workspace on a short-lived socket (their terminals
-    /// detach; `shutdown-daemon end_terminals` then ends them).
-    private func closeEveryWorkspace() async throws {
-        guard let endpoint else { throw DaemonError.notConnected }
-        let transport = try LineTransport(path: endpoint.socketPath)
-        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
-        defer { transport.close() }
-        let tree = try await Self.perform(ListWorkspacesRequest(), on: transport)
-        for workspace in tree.workspaces {
-            let ref: WorkspaceRef = workspace.key.map { .key($0) } ?? .handle(workspace.id)
-            _ = try await Self.perform(CloseWorkspaceRequest(workspace: ref, mutation: nil), on: transport)
-        }
+    /// Quit's end choices (`SessionEnding.run`): ends every terminal and
+    /// stops the daemon; End Everything first closes every workspace but
+    /// Home. Returns every step that failed.
+    public func endSessionsAndStop(deletingWorkspaces: Bool = false, keepingLayout: Bool = false) async -> EndedSessions {
+        await SessionEnding.run(on: self, deletingWorkspaces: deletingWorkspaces, keepingLayout: keepingLayout)
     }
 
     /// Deadline for `shutdown-daemon end_terminals`, which awaits every host.

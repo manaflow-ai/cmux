@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 @testable import CmuxNextApp
 import CmuxNextSettings
 import Testing
@@ -153,7 +154,9 @@ struct QuitPolicyTests {
                 await QuitCompletion.run(choice, remember: remember, QuitSteps(
                     remember: { log.steps.append("remember:\($0.rawValue)") },
                     prepareWindows: { log.steps.append("windows") },
-                    endLocalSessions: { log.steps.append($0 ? "end+delete-workspaces" : "end") }
+                    endLocalSessions: { log.steps.append($0 == .endEverything ? "end+delete-workspaces" : "end"); return [] },
+                    confirmFailures: { _ in log.steps.append("confirm"); return .quitAnyway },
+                    stopBrowserEngines: { log.steps.append("engines") }
                 ))
                 var expected = remember ? ["remember:\(choice.rawValue)"] : []
                 expected.append("windows")
@@ -162,13 +165,69 @@ struct QuitPolicyTests {
                 case .endKeepLayout: expected.append("end")
                 case .endEverything: expected.append("end+delete-workspaces")
                 }
+                // Chromium's teardown is last: its own 10 s watchdog can end the
+                // process with code 2 mid-CefShutdown, which must not skip
+                // ending the local sessions.
+                expected.append("engines")
                 #expect(log.steps == expected, "\(choice) remember=\(remember)")
             }
         }
     }
 }
 
+extension QuitPolicyTests {
+    /// A failed end step is never passed silently: the failures are shown,
+    /// Retry runs the end again until it succeeds, and Chromium still stops
+    /// last.
+    @Test func aFailedEndAsksAndRetryRunsTheEndAgain() async {
+        let log = StepLog()
+        log.results = [
+            [EndSessionsFailure(step: .shutdownDaemon, message: "timeout")],
+            [EndSessionsFailure(step: .closeWorkspace(name: "a"), message: "busy")],
+            [],
+        ]
+        await QuitCompletion.run(.endEverything, remember: false, QuitSteps(
+            remember: { _ in },
+            prepareWindows: { log.steps.append("windows") },
+            endLocalSessions: { _ in log.steps.append("end"); return log.results.removeFirst() },
+            confirmFailures: { failures in log.steps.append("confirm:\(failures.count)"); return .retry },
+            stopBrowserEngines: { log.steps.append("engines") }
+        ))
+        #expect(log.steps == ["windows", "end", "confirm:1", "end", "confirm:1", "end", "engines"])
+    }
+
+    /// Quit Anyway quits with what did not end, after one question.
+    @Test func quitAnywayStopsAfterOneQuestion() async {
+        let log = StepLog()
+        await QuitCompletion.run(.endKeepLayout, remember: false, QuitSteps(
+            remember: { _ in },
+            prepareWindows: {},
+            endLocalSessions: { _ in log.steps.append("end"); return [EndSessionsFailure(step: .shutdownDaemon, message: "x")] },
+            confirmFailures: { _ in log.steps.append("confirm"); return .quitAnyway },
+            stopBrowserEngines: { log.steps.append("engines") }
+        ))
+        #expect(log.steps == ["end", "confirm", "engines"])
+    }
+
+    /// One line per failed step, then what Quit Anyway leaves running.
+    @Test func failureLinesNameEachStep() {
+        let lines = QuitFailureContent.lines([
+            EndSessionsFailure(step: .listWorkspaces, message: "m1"),
+            EndSessionsFailure(step: .closeWorkspace(name: "build"), message: "m2"),
+            EndSessionsFailure(step: .shutdownDaemon, message: "m3"),
+            EndSessionsFailure(step: .unsupported, message: "terminal-reap-v1"),
+        ])
+        #expect(lines.count == 5)
+        #expect(lines[0].contains("m1"))
+        #expect(lines[1].contains("build") && lines[1].contains("m2"))
+        #expect(lines[2].contains("m3"))
+        #expect(lines[3].contains("terminal-reap-v1"))
+        #expect(lines[4] == QuitStrings.failedKeepRunning)
+    }
+}
+
 @MainActor
 private final class StepLog {
     var steps: [String] = []
+    var results: [[EndSessionsFailure]] = []
 }

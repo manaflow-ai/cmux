@@ -40,6 +40,25 @@ public nonisolated enum ActionCategory: String, CaseIterable, Sendable, Hashable
         }
     }
 
+    /// The localization key of ``title`` (in ``titleTable``), for clients
+    /// that read the exported catalog (`action-surfaces.json`).
+    public var titleKey: String { "category.\(rawValue)" }
+
+    /// The string table ``title`` lives in.
+    public var titleTable: String {
+        switch self {
+        case .screen: "ScreenActions"
+        case .remote: "RemoteActions"
+        default: "Localizable"
+        }
+    }
+
+    /// The command palette section the category's actions list under.
+    public var paletteSectionID: String { "category.\(rawValue)" }
+
+    /// The palette section's order (after the palette's own sections).
+    public var paletteSectionOrder: Int { 100 + sortOrder }
+
     /// Display order of category sections.
     public var sortOrder: Int {
         Self.allCases.firstIndex(of: self) ?? Self.allCases.count

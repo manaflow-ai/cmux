@@ -1,0 +1,8 @@
+<key>DisabledFeatures</key>
+<array/>
+<key>history.terminalCommands</key>
+<false/>
+<key>navigation.historyScope</key>
+<string>workspace</string>
+<key>window.titlebar</key>
+<string>minimal</string>

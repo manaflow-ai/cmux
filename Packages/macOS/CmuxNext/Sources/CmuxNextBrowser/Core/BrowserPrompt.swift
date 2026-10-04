@@ -30,7 +30,7 @@ public final class BrowserPrompt: Identifiable {
         switch kind {
         case .permission: .deny
         case .alert: .accept
-        case .confirm, .textInput: .cancel
+        case .confirm, .textInput, .credentials: .cancel
         }
     }
 }

@@ -122,13 +122,20 @@ final class EmptyWorkspaceRepair {
 
     private func storeDidChange(_ store: DaemonStore) {
         guard isLive() else { return }
-        for workspace in store.workspaces {
+        for workspace in store.workspaces where !Self.isHome(workspace) {
             guard let key = workspace.key else { continue }
             if Self.hasPane(workspace) { notePopulated(key) } else { closeIfEmptied(key) }
         }
         let present = Set(store.workspaces.compactMap(\.key))
         populated = populated.filter { present.contains($0.key) }
         for key in states.keys where !present.contains(key) && states[key] == .closing { states[key] = nil }
+    }
+
+    /// The store's home workspace (workspace-kind-v1) starts empty on
+    /// purpose and the daemon never closes it: HomeService owns its content
+    /// (the Chief conversation tab), so it is neither repaired nor closed.
+    private static func isHome(_ workspace: WorkspaceModel) -> Bool {
+        workspace.kind == "home"
     }
 
     private static func hasPane(_ workspace: WorkspaceModel) -> Bool {
@@ -189,7 +196,7 @@ final class EmptyWorkspaceRepair {
     /// emptied workspace closes; one empty since this connection first saw
     /// it gets one create-terminal, and `created` gets the new surface.
     func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
-        guard let key = workspace.key, isLive() else { return }
+        guard let key = workspace.key, isLive(), !Self.isHome(workspace) else { return }
         guard !Self.hasPane(workspace) else { return notePopulated(key) }
         guard states[key] == nil, !closeIfEmptied(key), canCreate() else { return }
         states[key] = .awaitingPane
@@ -218,7 +225,8 @@ final class EmptyWorkspaceRepair {
     /// Marks `key` as being populated by this app for the duration of
     /// `body` (create-workspace then create-terminal). On success the
     /// workspace stays owned until the store shows its pane, because
-    /// `body` returns with the create-terminal reply, before the delta.
+    /// `body` returns with the create-terminal reply, before the delta. On
+    /// failure the workspace is never repaired (its creator closes it).
     func populating<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async rethrows -> T {
         if case .populating(let count) = states[key] { states[key] = .populating(count + 1) } else { states[key] = .populating(1) }
         do {
@@ -236,7 +244,10 @@ final class EmptyWorkspaceRepair {
         if count > 1 {
             states[key] = .populating(count - 1)
         } else {
-            states[key] = succeeded ? .awaitingPane : nil
+            // A failed create was closed again by its creator
+            // (`WorkspaceCreation`): it is empty on purpose and never
+            // repaired. The state goes when the workspace is gone.
+            states[key] = succeeded ? .awaitingPane : .closing
         }
     }
 }

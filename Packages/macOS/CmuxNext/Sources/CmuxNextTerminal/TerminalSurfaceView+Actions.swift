@@ -1,5 +1,5 @@
 import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 // Surface-targeted Ghostty actions (`action_cb`) applied to the session
 // model or forwarded to the delegate.
@@ -60,15 +60,15 @@ extension TerminalSurfaceView {
         case .scrollbar(let scrollbar):
             model.scrollbar = scrollbar
             // Output or a mouse scroll moved the viewport under the cursor box.
-            syncCopyModeCursor()
+            copyMode.syncCursor()
         case .startSearch(let needle):
-            model.search = TerminalSearchState(needle: needle, total: nil, selected: nil)
+            session.find.searchStarted(needle: needle)
         case .endSearch:
-            model.search = nil
+            session.find.searchEnded()
         case .searchTotal(let total):
-            model.search?.total = total
+            session.find.receiveTotal(total)
         case .searchSelected(let selected):
-            model.search?.selected = selected
+            session.find.receiveSelected(selected)
         case .copyTitleToClipboard:
             guard !model.title.isEmpty else { return false }
             TerminalPasteboard.write([TerminalClipboardItem(mime: "text/plain", text: model.title)], to: .standard)

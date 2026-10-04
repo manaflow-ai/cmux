@@ -21,7 +21,7 @@ extension AppServices {
     }
 
     /// Keyboard focus left page `key` (Tab past its last element, Shift-Tab
-    /// past its first): its omnibar takes it, as Chrome's toolbar does.
+    /// past its first): its omnibar takes it.
     /// Only while the page has the keyboard: a late report never moves
     /// focus the user put elsewhere.
     func focusAddressBarAfterPage(_ key: String) {
@@ -42,8 +42,8 @@ extension AppServices {
         }
     }
 
-    /// Page `key`'s DevTools opened docked (it takes the keyboard, as in
-    /// Chrome) or closed (the keyboard returns to the page).
+    /// Page `key`'s DevTools opened docked (it takes the keyboard) or
+    /// closed (the keyboard returns to the page).
     func devToolsDidChange(_ key: String, state: BrowserDevToolsState, focused: Bool) {
         for controller in windows.controllers {
             guard let pane = controller.content?.panes.values.first(where: { $0.currentTabKey == key }) else { continue }

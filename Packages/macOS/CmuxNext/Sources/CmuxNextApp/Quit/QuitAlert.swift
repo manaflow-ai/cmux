@@ -1,14 +1,13 @@
 import AppKit
 import CmuxNextDesign
 
-/// The quit question as plain NSAlerts (system font, spacing, app icon and
-/// button colors; nothing custom). "Quit cmux?" keeps the terminals by
-/// default (Quit, Return), Cancel (Escape), and "End Sessions…" opens "End
-/// all terminals?" (End Sessions, Keep Layout; Cancel; End Everything).
-/// "Don't ask again" is the alert's suppression checkbox. Each alert is a
-/// sheet on `window`, or a floating panel when no window is open. Buttons
-/// report through their own target, so no modal session or nested run loop
-/// runs.
+/// The quit question as cmux dialogs (R96, R138: no system alerts). "Quit
+/// cmux?" keeps the terminals by default (Keep Sessions Running, Return),
+/// Cancel (Escape), and "Quit Everything…" opens "End all terminals?"
+/// (Quit Everything, Cancel, End Everything; no Return default). "Don't ask
+/// again" is a check box. Each dialog blocks the window `QuitCoordinator`
+/// picks, or shows app-wide when no window is open (the app host, which
+/// activates the app).
 @MainActor
 final class QuitAlert {
     enum Answer: Equatable {
@@ -16,120 +15,130 @@ final class QuitAlert {
         case cancel
     }
 
+    static let rememberField = "remember"
+
     let prompt: QuitPrompt
     private(set) var content: QuitAlertContent
-    private var alert: NSAlert
-    private(set) var buttons: [(id: String, button: NSButton)] = []
+    private let center: CmuxDialogCenter
+    private var dialogID: Int?
     private var remember = false
     private weak var parent: NSWindow?
+    private(set) var isAttached = false
     private var completion: ((Answer) -> Void)?
 
-    init(prompt: QuitPrompt, completion: @escaping (Answer) -> Void) {
+    init(prompt: QuitPrompt, center: CmuxDialogCenter = .shared, completion: @escaping (Answer) -> Void) {
         self.prompt = prompt
+        self.center = center
         self.completion = completion
         content = .main(prompt)
-        alert = NSAlert()
-        build()
     }
 
     var lines: [String] { [content.title] + content.lines }
+    /// The buttons of the dialog showing now, left to right.
+    var buttons: [CmuxDialogButton] { Self.spec(content, remember: remember).buttons }
+
     var remembers: Bool {
-        get { alert.suppressionButton?.state == .on || remember }
+        get {
+            guard let dialogID, let value = center.record(dialogID)?.values[Self.rememberField]?.bool else { return remember }
+            return value
+        }
         set {
             remember = newValue
-            alert.suppressionButton?.state = newValue ? .on : .off
+            if let dialogID { center.setValue(.bool(newValue), for: Self.rememberField, in: dialogID) }
         }
     }
-    /// Attached to a window (else a floating panel).
-    var isAttachedSheet: Bool { alert.window.sheetParent != nil }
 
-    private func build() {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = content.title
-        alert.informativeText = content.message
-        buttons = content.buttons.map { id in
-            let button = alert.addButton(withTitle: QuitAlertContent.title(of: id))
-            button.target = self
-            button.action = #selector(pressed(_:))
-            button.identifier = NSUserInterfaceItemIdentifier(id.rawValue)
-            if id == .cancel { button.keyEquivalent = "\u{1b}" }
-            if id == .endEverything { button.hasDestructiveAction = true }
-            return (id.rawValue, button)
+    static func spec(_ content: QuitAlertContent, remember: Bool) -> CmuxDialogSpec {
+        let buttons = content.buttons.map { id in
+            CmuxDialogButton(id: id.rawValue, title: QuitAlertContent.title(of: id), role: role(of: id))
         }
-        alert.showsSuppressionButton = content.showsSuppression
-        alert.suppressionButton?.title = QuitStrings.dontAskAgain
-        alert.suppressionButton?.state = remember ? .on : .off
-        alert.layout()
-        self.alert = alert
+        // Drawn left to right: the other choices, Cancel, then the primary one.
+        let primary = buttons.prefix(1)
+        let rest = buttons.dropFirst()
+        let ordered = rest.filter { $0.role != .cancel } + rest.filter { $0.role == .cancel } + primary
+        let fields: [CmuxDialogField] = content.showsSuppression
+            ? [.check(id: rememberField, title: QuitStrings.dontAskAgain, on: remember)] : []
+        return CmuxDialogSpec(title: content.title, lines: content.lines, fields: fields, buttons: ordered,
+                              identifier: "cmux.dialog.quit")
     }
 
-    /// Shows the alert on `window` (visible, not minimized), else floating.
-    /// Never activates the app in a no-activate launch.
+    /// Keep (or Quit) answers Return, Cancel answers Escape, every end choice
+    /// is destructive and has no key.
+    private static func role(of id: QuitAlertContent.Button) -> CmuxDialogButton.Role {
+        switch id {
+        case .keep, .quit: .default
+        case .cancel: .cancel
+        case .quitEverything, .confirmQuitEverything, .endEverything: .destructive
+        }
+    }
+
+    /// Shows the dialog on `window` (visible, not minimized), else app-wide.
     func present(in window: NSWindow?) {
-        let panel = alert.window
-        if let window, window.isVisible, !window.isMiniaturized {
-            parent = window
-            window.themeScope.adopt(panel)
-            window.beginSheet(panel) { [weak self] response in
-                // Ended by someone else (SheetDismissal): a cancel.
-                if response == .cancel { self?.finish(.cancel) }
-            }
-            return
-        }
-        parent = nil
-        ThemeScope.app.adopt(panel)
-        panel.level = .floating
-        panel.center()
-        if WindowPlacement.noActivate {
-            panel.orderFrontRegardless()
-        } else {
-            NSApp.activate()
-            panel.makeKeyAndOrderFront(nil)
+        guard completion != nil else { return }
+        let attach = window.flatMap { $0.isVisible && !$0.isMiniaturized ? $0 : nil }
+        parent = attach
+        isAttached = attach != nil
+        let scope: CmuxDialogScope = attach.map { .window($0) } ?? .app
+        dialogID = center.present(Self.spec(content, remember: remember), in: scope) { [weak self] answer in
+            self?.answered(answer)
         }
     }
 
-    /// Clicks the button `id` ("quit", "cancel", "end", "end-keep-layout",
-    /// "end-everything"). False when the alert shown has no such button.
+    /// SIGTERM while the alert is open: Quit, keep sessions.
+    func answerKeepingSessions() {
+        finish(.quit(.keep, remember: false))
+    }
+
+    /// Clicks the button `id` ("keep", "quit", "cancel", "quit-everything",
+    /// "confirm-quit-everything", "end-everything"; the old "end" and
+    /// "end-keep-layout" still work). False when the dialog shown has no
+    /// such button.
     @discardableResult
     func press(_ id: String) -> Bool {
-        guard let button = buttons.first(where: { $0.id == id })?.button else { return false }
-        button.performClick(nil)
-        return true
+        guard let dialogID else { return false }
+        let ids = buttons.map(\.id)
+        let resolved = switch id {
+        case "quit" where !ids.contains("quit"): "keep"
+        case "end": "quit-everything"
+        case "end-keep-layout": "confirm-quit-everything"
+        default: id
+        }
+        return center.press(dialogID, button: resolved)
     }
 
-    @objc private func pressed(_ sender: NSButton) {
-        guard let id = sender.identifier.flatMap({ QuitAlertContent.Button(rawValue: $0.rawValue) }) else { return }
-        switch id {
-        case .quit: finish(.quit(prompt.defaultChoice, remember: content.showsSuppression && remembers))
-        case .cancel: finish(.cancel)
-        case .endKeepLayout: finish(.quit(.endKeepLayout, remember: remember))
+    /// A second Cmd-Q while the dialog shows: the default on the first step
+    /// (keep), nothing on the confirmation.
+    func answerDefault() {
+        guard content.isFirstStep, let primary = content.buttons.first else { return }
+        press(primary.rawValue)
+    }
+
+    private func answered(_ answer: CmuxDialogAnswer) {
+        dialogID = nil
+        let remembered = answer.values[Self.rememberField]?.bool ?? remember
+        switch QuitAlertContent.Button(rawValue: answer.button) {
+        case .keep: finish(.quit(.keep, remember: content.showsSuppression && remembered))
+        case .quit: finish(.quit(prompt.defaultChoice, remember: content.showsSuppression && remembered))
+        case .confirmQuitEverything: finish(.quit(.endKeepLayout, remember: remember))
         case .endEverything: finish(.quit(.endEverything, remember: remember))
-        case .endSessions: showEndConfirmation()
+        case .quitEverything:
+            // "End all terminals?" replaces "Quit cmux?" in the same place,
+            // carrying "Don't ask again".
+            remember = remembered
+            content = .endConfirmation
+            present(in: parent)
+        case .cancel, nil: finish(.cancel)
         }
     }
 
-    /// Replaces "Quit cmux?" with "End all terminals?" in the same place,
-    /// carrying "Don't ask again".
-    private func showEndConfirmation() {
-        remember = remembers
-        let window = parent
-        close()
-        content = .endConfirmation
-        build()
-        present(in: window)
-    }
-
-    private func close() {
-        let panel = alert.window
-        if let sheetParent = panel.sheetParent { sheetParent.endSheet(panel, returnCode: .OK) } else { panel.orderOut(nil) }
-    }
-
-    /// Closes the alert and reports `answer` once.
+    /// Ends the dialog and reports `answer` once.
     private func finish(_ answer: Answer) {
         guard let completion else { return }
         self.completion = nil
-        close()
+        if let dialogID {
+            self.dialogID = nil
+            center.dismiss(dialogID)
+        }
         completion(answer)
     }
 }

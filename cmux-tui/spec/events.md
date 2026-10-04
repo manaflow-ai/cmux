@@ -12,7 +12,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `bookmarks-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
@@ -38,6 +38,9 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `workspace-changed` | subscribe (`deltas`) | `workspace` | protocol 12 additive extension; capability `workspace-metadata-v1` |
 | `frontend-projection-changed` | subscribe | projection subject | protocol 7 |
 | `personal-changed` | subscribe | session | protocol 12; capability `profiles-v1` |
+| `bookmarks-changed` | subscribe | `browser_profile_id` | protocol 12; capability `bookmarks-v1` |
+| `conversation-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
+| `conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `local-conversations-v1` |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-renamed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -369,6 +372,63 @@ the commands after it) commits a change. The payload is
 refetch `list-personal`. An unchanged retry publishes nothing. Personal state
 does not advance `workspace_revision`.
 
+### bookmarks-changed
+
+| Field | Value |
+| --- | --- |
+| event | `bookmarks-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `bookmarks-v1` |
+
+Published after a bookmark command (commands.md, `list-bookmarks` and the
+commands after it) or a `delete-browser-profile` that deleted bookmarks
+commits a change. The payload is
+`{event:"bookmarks-changed", browser_profile_id:string, bookmarks_revision:uint64}`;
+interested frontends refetch `list-bookmarks` for that browser profile. An
+unchanged retry publishes nothing. Bookmarks advance neither
+`personal_revision` nor `workspace_revision`.
+### conversation-changed
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+Published after a `conversation-create` or `conversation-op` commits, never
+for a replay, and only to trusted local connections. Payload:
+
+```text
+object{
+  event:"conversation-changed",
+  conversation:string,
+  rev:uint64,
+  transaction:string|null,
+  change:Change
+}
+Change = object{kind:"message", message:Message}
+       | object{kind:"message-updated", message:Message}
+       | object{kind:"read-cursor", participant:string, seq:uint64}
+       | object{kind:"conversation", conversation:Summary}
+```
+
+`Message` and `Summary` are defined under `conversation-list` in
+commands.md. `rev` increases by exactly one per committed op, so a mirror
+that sees a gap refetches `conversation-snapshot`. `transaction` is the
+request's `transaction`, or null.
+
+### conversation-typing
+
+| Field | Value |
+| --- | --- |
+| event | `conversation-typing` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `local-conversations-v1` |
+
+`object{event:"conversation-typing", conversation:string, participant:string, on:bool}`,
+published for `conversation-typing` to trusted local connections. Ephemeral:
+never stored or replayed.
+
 ### terminal-registry-changed
 
 | Field | Value |
@@ -542,13 +602,15 @@ object{event:"tab-renamed",workspace:Id,screen:Id,pane:Id,surface:Id,entity:Tab}
 | status | implemented |
 | since | protocol 12 additive extension; capability `screen-metadata-v1` |
 
-Emitted when a screen's color, icon, pin, or group changed, or when it moved
-(within its workspace or into another one). `entity` is the full refreshed
+Emitted when a screen's color, icon, pin, or group changed, when it moved
+(within its workspace or into another one), or, with `dock-columns-v1`, when
+`set-column-dock` changed a column's `dock` flag. That delta carries the
+request's numeric `transaction` as a decimal string. `entity` is the full refreshed
 `Screen` and `index` its position in the workspace. Commands that reorder
 screens also emit `tree-changed` first. It carries no workspace revision.
 
 ```text
-object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen}
+object{event:"screen-changed",workspace:Id,screen:Id,index:usize,entity:Screen,transaction?:string}
 ```
 
 ### tab-changed

@@ -28,7 +28,22 @@ public final class LayoutModel {
     /// Pins the width of new columns (tests, the demo); nil follows cmux.json
     /// `layout.defaultColumnWidth` (see `defaultColumnWidth`).
     public var defaultColumnWidthOverride: Double?
-    /// niri `center-focused-column`: the override, else the live setting
+    /// Pins `layout.newColumnWidth` (tests, the demo).
+    public var newColumnWidthModeOverride: NewColumnWidthMode?
+    /// Pins `layout.splitSizing` (tests, the demo).
+    public var splitSizingOverride: SplitSizing?
+    /// Pins the strip scrollbar mode (tests, the demo); nil follows
+    /// cmux.json `layout.stripScrollbar`.
+    public var stripScrollbarOverride: StripScrollbarMode?
+    /// The daemon serves edge-docks-v1: drops on a screen's top or bottom
+    /// edge band open a dock (DropZoneGeometry.dockTarget).
+    public var acceptsEdgeDockDrops = false
+    /// The daemon serves `rows-v1`: row heights and new rows may be sent.
+    /// Without it no row op leaves the model (plans/cmux-next/rows.md).
+    public var acceptsRowOps = false
+    /// Pins `layout.rows` (tests, the demo); nil follows cmux.json.
+    public var rowsEnabledOverride: Bool?
+    /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
         centerFocusedColumnOverride ?? (followsDesignMetrics ? DesignSettings.shared.centerFocusedColumn : .never)
@@ -46,7 +61,9 @@ public final class LayoutModel {
     /// this model and `DesignSettings.shared`, so a density or metric override
     /// change relayouts every screen live.
     public var style: LayoutStyle {
-        followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
+        var style = followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
+        if let rowsEnabledOverride { style.rowsEnabled = rowsEnabledOverride }
+        return style
     }
 
     /// Panes that need attention (an unread notification), with the mark
@@ -67,8 +84,7 @@ public final class LayoutModel {
     /// True while a divider or column drag is in progress.
     public private(set) var isGestureActive = false
 
-    /// The latest one-shot "center this column" request (niri
-    /// `center-column`). The view scrolls the column to the viewport center
+    /// The latest one-shot "center this column" request. The view scrolls the column to the viewport center
     /// once per request; `sequence` distinguishes repeats of the same pane.
     public private(set) var centerRequest: ColumnCenterRequest?
 
@@ -233,8 +249,7 @@ public final class LayoutModel {
     }
 
     /// Scrolls the column holding `pane` (default: the focused pane) to the
-    /// center of the viewport and focuses that pane, like niri's
-    /// `center-column`. Client-local: scroll offsets are never sent to the
+    /// center of the viewport and focuses that pane. Client-local: scroll offsets are never sent to the
     /// daemon. Returns false when the pane is not in a columns screen.
     @discardableResult
     public func centerColumn(containing pane: PaneID? = nil) -> Bool {
@@ -313,7 +328,7 @@ public final class LayoutModel {
         }
     }
 
-    private func updateScreens(_ transform: (ScreenLayout) -> ScreenLayout) {
+    func updateScreens(_ transform: (ScreenLayout) -> ScreenLayout) {
         var next = screens
         for index in next.indices {
             next[index].layout = transform(next[index].layout)
@@ -347,7 +362,7 @@ public final class LayoutModel {
         if keepAlivePanes != keepAlive { keepAlivePanes = keepAlive }
     }
 
-    private func emit(_ intent: LayoutIntent) {
+    func emit(_ intent: LayoutIntent) {
         intentHandler?(intent)
     }
 }

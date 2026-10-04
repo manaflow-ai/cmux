@@ -4,6 +4,7 @@ extension PaletteModel {
     /// Asks every provider of a list page for items: immediate items land
     /// now (the first frame is never empty), async ones merge as they arrive.
     func load(_ state: PageState) {
+        state.needsLoad = false
         guard case .list(let page) = state.kind else { return }
         state.cancel()
         var pending = Set<String>()
@@ -27,20 +28,19 @@ extension PaletteModel {
                 state.rebuild()
                 if state === self.current {
                     self.isLoading = !state.pendingProviders.isEmpty
-                    self.refreshResults(resetSelection: false)
+                    // Same generation: the rows update, the selection stays.
+                    self.search(state)
                 }
             })
         }
     }
 
-    /// Recomputes rows for the current page. An empty query ranks on the
-    /// main actor (no matching, just grouping); a real query goes to the
-    /// searcher and the rows on screen stay until its result lands.
-    func refreshResults(resetSelection: Bool) {
-        guard let state = current else {
-            publish([], resetSelection: true)
-            return
-        }
+    /// Ranks the page's rows for its query and generation. An empty query
+    /// ranks on the main actor (no matching, just grouping); a real query
+    /// goes to the searcher and the rows on screen stay until its result
+    /// lands.
+    func search(_ state: PageState) {
+        let generation = state.generation
         switch state.kind {
         case .textInput(let spec):
             searchGeneration += 1
@@ -56,16 +56,17 @@ extension PaletteModel {
                     id: "submit",
                     title: PaletteStrings.submit,
                     symbol: "return",
-                    effect: spec.next?(text) ?? .perform { spec.submit(text) }
+                    effect: spec.skipsUnchangedText && !spec.initialText.isEmpty && text == spec.initialText
+                        ? .perform({}) : spec.next?(text) ?? .perform { spec.submit(text) }
                 ),
                 frecencyKey: nil
             )
-            publish([PaletteResultSection(section: .results, rows: [PaletteRow(item: item, highlights: [], score: 0)])],
-                    resetSelection: true)
+            deliver([PaletteResultSection(section: .results, rows: [PaletteRow(item: item, highlights: [], score: 0)])],
+                    to: state, generation: generation)
         case .list(let page):
             searchGeneration += 1
-            let generation = searchGeneration
-            if FuzzyQuery(state.query).isEmpty {
+            let searchID = searchGeneration
+            if FuzzyQuery(state.query).isEmpty || !page.filtersByQuery {
                 searchTask = nil
                 let ranked = PaletteRanker.rankEmpty(
                     entries: state.entries,
@@ -74,43 +75,73 @@ extension PaletteModel {
                     now: now(),
                     showsRecent: page.showsRecent
                 )
-                publish(state.resolve(ranked), resetSelection: resetSelection)
+                deliver(Self.leading(page.queryItems?(state.query), state.resolve(ranked)), to: state, generation: generation)
                 return
             }
             let request = (query: state.query, entries: state.entries, version: state.version,
-                           orders: state.sectionOrders, frecency: frecency, now: now(), recent: page.showsRecent)
+                           orders: state.sectionOrders, frecency: frecency, now: now(), recent: page.showsRecent,
+                           keepsOrder: page.keepsSectionOrder, prefixFirst: page.ranksPrefixFirst)
             let searcher = searcher
             searchTask = Task { [weak self, weak state] in
                 await searcher.install(entries: request.entries, version: request.version)
                 let result = await searcher.search(
-                    query: request.query, generation: generation, sectionOrders: request.orders,
-                    frecency: request.frecency, now: request.now, showsRecent: request.recent
+                    query: request.query, generation: searchID, sectionOrders: request.orders,
+                    frecency: request.frecency, now: request.now, showsRecent: request.recent,
+                    keepsSectionOrder: request.keepsOrder, ranksPrefixFirst: request.prefixFirst
                 )
-                guard let self, let state, result.generation == self.searchGeneration, state === self.current else { return }
+                guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
-                self.publish(state.resolve(result.sections), resetSelection: resetSelection)
-                if let submit = self.pendingSubmit {
-                    self.pendingSubmit = nil
-                    self.handle(submit)
+                self.deliver(Self.leading(page.queryItems?(request.query), state.resolve(result.sections)), to: state,
+                             generation: generation)
+                if self.pendingClose {
+                    self.pendingClose = false
+                    self.handle(.closeItem)
                 }
             }
         }
     }
 
-    func publish(_ newSections: [PaletteResultSection], resetSelection: Bool) {
+    /// `sections` after the page's rows made from the query, if any.
+    static func leading(_ items: [PaletteItem]?, _ sections: [PaletteResultSection]) -> [PaletteResultSection] {
+        guard let items, !items.isEmpty else { return sections }
+        let rows = items.map { PaletteRow(item: $0, highlights: [], score: 0) }
+        return [PaletteResultSection(section: items[0].section, rows: rows)] + sections
+    }
+
+    /// A page's rows for `generation`: cached on the page, shown when the
+    /// page is on screen, and handed to the reducer, which takes them only
+    /// for the level's current generation and keeps or moves the selection.
+    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int) {
+        guard pages[state.levelID] === state, state.generation == generation else { return }
+        state.lastSections = sections
+        if shownLevelID == state.levelID { display(sections) }
+        send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
+                      isFinal: state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection))
+    }
+
+    /// What navigation needs from the rows.
+    func navRows(_ sections: [PaletteResultSection]) -> [PaletteNavRow] {
+        sections.flatMap(\.rows).map { row in
+            let item = row.item
+            let drill = item.drills ?? (itemActionsAsScope && !item.secondary.isEmpty ? PaletteScopeID.actionsScope : nil)
+            return PaletteNavRow(id: item.id, enters: item.enters, drills: drill, isEnabled: item.isEnabled)
+        }
+    }
+
+    /// Puts `newSections` on screen (with the notice, if any). The
+    /// selection is the reducer's.
+    func display(_ newSections: [PaletteResultSection]) {
         sections = notice.map { Self.applying($0, to: newSections) } ?? newSections
         resultsVersion += 1
         let rows = self.rows
-        if resetSelection || selectedRowID == nil || !rows.contains(where: { $0.id == selectedRowID }) {
-            selectedRowID = rows.first?.id
-            scrollRequest += 1
-        }
         if let menu = actionsMenu, !rows.contains(where: { $0.id == menu.itemID }) {
             actionsMenu = nil
         }
-        current?.selectedRowID = selectedRowID
-        current?.lastSections = newSections
-        applyRestoredSelection()
+    }
+
+    /// Re-shows the rows on screen (after a notice changed).
+    func publish(_ newSections: [PaletteResultSection], resetSelection: Bool) {
+        display(current?.lastSections ?? newSections)
     }
 
     /// The notice replaces its row's subtitle.

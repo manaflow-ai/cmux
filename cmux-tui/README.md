@@ -22,7 +22,7 @@
 
 ## Build
 
-Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty` submodule initialized. The `ghostty-vt-sys` crate builds `libghostty-vt.a` from the submodule with Zig before compiling the Rust crates.
+Builds need Zig 0.16.0, a Rust toolchain, and the `ghostty-next` and `ghostty` submodules initialized (`git submodule update --init ghostty ghostty-next`). The `ghostty-vt-sys` crate builds `libghostty-vt.a` from `ghostty-next` (manaflow-ai/ghostty-next) with Zig before compiling the Rust crates, and fails with a message when that submodule is missing or empty. The shell-integration scripts still come from `ghostty`.
 
 ```bash
 cd cmux-tui

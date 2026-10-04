@@ -104,3 +104,15 @@ import Testing
         #expect(model.row(.groq).detection?.sources == [.cmuxKeychain])
     }
 }
+
+@MainActor @Suite struct AccountsStepViewTests {
+    /// Onboarding lists the four agent providers and only the others found here.
+    @Test func stepListsAgentProvidersAndDetectedOthers() async {
+        let services = MockAccountsServices()
+        let model = AccountsModel(services: services)
+        model.refresh()
+        for _ in 0..<200 where model.isRefreshing { await Task.yield() }
+        let shown = AccountsStepView(model: model, palette: .app).rows.map(\.provider)
+        #expect(shown == [.codex, .openAI, .claude, .anthropic, .gemini, .ollama])
+    }
+}

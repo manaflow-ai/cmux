@@ -113,6 +113,37 @@ import Testing
         #expect(h.registry.effectiveShortcut(for: "t.plain") == Shortcut("u"))
     }
 
+    @Test func theOpenRecorderSuspendsSystemWideHotKeysAndCancelResumesThem() async {
+        let h = await harness()
+        h.model.handle(.toggleActions)
+        #expect(h.registry.globalHotKeysSuspended)
+        h.recorder.cancel()
+        #expect(h.model.shortcutRecorder == nil)
+        #expect(!h.registry.globalHotKeysSuspended)
+        #expect(h.editor.saves.isEmpty)
+    }
+
+    @Test func aPageChangeWithTheRecorderOpenResumesSystemWideHotKeys() async {
+        let h = await harness()
+        h.model.handle(.toggleActions)
+        #expect(h.registry.globalHotKeysSuspended)
+        h.controller.show(.commands)
+        #expect(h.model.shortcutRecorder == nil)
+        #expect(!h.registry.globalHotKeysSuspended)
+    }
+
+    @Test func closingOneOfTwoOpenRecordersKeepsHotKeysSuspended() async {
+        let h = await harness()
+        let other = ShortcutRecorder(registry: h.registry, state: { nil }, setState: { _ in }, didFinish: { _, _ in })
+        other.editor = h.editor
+        #expect(other.begin("a.plain"))
+        h.model.handle(.toggleActions)
+        h.recorder.cancel()
+        #expect(h.registry.globalHotKeysSuspended)
+        other.abandon()
+        #expect(!h.registry.globalHotKeysSuspended)
+    }
+
     @Test func pressingTheCurrentShortcutChangesNothing() async {
         let h = await harness()
         h.model.handle(.toggleActions)
@@ -210,6 +241,22 @@ import Testing
         press(h, "\u{8}", [.shift], keyCode: 51)
         #expect(h.editor.restores.map(\.0) == ["t.plain"])
         #expect(h.registry.effectiveShortcut(for: "t.plain") == Shortcut("u"))
+    }
+
+    /// A chord-only default (the Cmd-J leader's) is a default: Restore
+    /// Default is offered and brings the chord back after an unbind.
+    @Test func shiftDeleteRestoresADefaultChord() async {
+        let h = await harness()
+        var chordOnly = Self.action("t.chord")
+        chordOnly.defaultChord = ShortcutChord(Shortcut("j", modifiers: [.command]), Shortcut("j", modifiers: []))
+        h.registry.seed([chordOnly])
+        h.registry.bind("t.chord") {}
+        h.registry.setShortcutOverride(nil, for: "t.chord")
+        #expect(h.recorder.begin("t.chord"))
+        #expect(h.model.shortcutRecorder?.hasDefault == true)
+        press(h, "\u{8}", [.shift], keyCode: 51)
+        #expect(h.editor.restores.map(\.0) == ["t.chord"])
+        #expect(h.registry.effectiveChord(for: "t.chord") == chordOnly.defaultChord)
     }
 
     @Test func restoringADefaultAnotherActionTookAsksFirst() async {

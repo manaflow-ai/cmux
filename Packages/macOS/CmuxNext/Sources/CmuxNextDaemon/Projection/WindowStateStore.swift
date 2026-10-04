@@ -47,7 +47,7 @@ public actor WindowStateStore {
                 revision = stored.projectionRevision
                 document = next
                 return next
-            } catch DaemonError.command(_, let message, _) where message.contains("revision conflict") && attempts < 3 {
+            } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") && attempts < 3 {
                 attempts += 1
                 try await load()
             }

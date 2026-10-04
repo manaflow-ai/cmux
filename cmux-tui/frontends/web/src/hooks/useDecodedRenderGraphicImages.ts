@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RenderGraphicImage } from "cmux/raw";
-import {
-  renderGraphicImageKey,
-  type DecodedRenderGraphicImage,
-} from "../lib/renderGraphics";
+import { renderGraphicImageKey, type DecodedRenderGraphicImage } from "../lib/renderGraphics";
 import type { RenderGraphicsDecodeScheduler } from "../lib/renderGraphicsDecodeScheduler";
 
 interface DecodedPixels {
@@ -44,9 +41,7 @@ export function useDecodedRenderGraphicImages(
 
   useEffect(() => {
     const activeKeys = new Set(stableImages.map(renderGraphicImageKey));
-    const pending = stableImages.filter(
-      (image) => !cacheRef.current.has(renderGraphicImageKey(image)),
-    );
+    const pending = stableImages.filter((image) => !cacheRef.current.has(renderGraphicImageKey(image)));
     for (const key of cacheRef.current.keys()) {
       if (!activeKeys.has(key)) cacheRef.current.delete(key);
     }
@@ -56,12 +51,7 @@ export function useDecodedRenderGraphicImages(
       for (const result of results) {
         const key = `${result.id}:${result.generation}`;
         if (activeKeys.has(key)) {
-          cacheRef.current.set(
-            key,
-            result.pixels === null
-              ? null
-              : { pixels: new Uint8ClampedArray(result.pixels) },
-          );
+          cacheRef.current.set(key, result.pixels === null ? null : { pixels: new Uint8ClampedArray(result.pixels) });
         }
       }
       setRevision((value) => value + 1);

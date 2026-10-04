@@ -7,12 +7,13 @@
 #   scripts/cmux-next/build-agent-pane-web.sh --check  # fail if it is stale
 set -eu
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 SRC="$ROOT/webviews/src/agent-session"
 OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 MODE="${1:-build}"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the agent pane" >&2; exit 1; }
+"$ROOT/scripts/check-webviews-bun-version.sh"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -20,24 +21,21 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
-bun x esbuild "$SRC/acpmux/main.tsx" \
-  --bundle \
-  --format=esm \
-  --platform=browser \
-  --target=es2022 \
-  '--define:process.env.NODE_ENV="production"' \
-  --minify \
-  --legal-comments=none \
-  --log-level=warning \
-  --outfile="$WORK/app.js"
+# `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
+# common languages, not every grammar and the WebAssembly engine. The React Compiler
+# runs on first-party sources, as in the Vite dev server; skipped components are listed.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/app.js"
 
 # The shared stylesheet opens with a Tailwind @import that only Vite resolves;
 # the pane needs just its variables and rules, so drop @import lines.
 grep -v '^@import ' "$SRC/shared/styles.css" > "$WORK/styles.css"
-cat "$SRC/acpmux/styles.css" >> "$WORK/styles.css"
+cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/changes/changes.css" \
+  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
+  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/newtab/screen.css" >> "$WORK/styles.css"
 
-# Inline script and style, loopback WebSocket only. No remote loads, no eval.
-CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src ws://127.0.0.1:* ws://localhost:*"
+# Inline script and style, loopback WebSocket only. No remote loads, no eval. Frames show
+# only loopback web pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts).
+CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src ws://127.0.0.1:* ws://localhost:*; frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'
@@ -53,7 +51,7 @@ CSP="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; 
 
 if [ "$MODE" = "--check" ]; then
   if ! cmp -s "$WORK/index.html" "$OUT/index.html"; then
-    echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh" >&2
+    echo "error: $OUT/index.html is stale; run scripts/cmux-next/build-agent-pane-web.sh (after merging feat-cmux-next: scripts/cmux-next/regenerate-web-bundles.sh)" >&2
     exit 1
   fi
   echo "agent pane web bundle is current"

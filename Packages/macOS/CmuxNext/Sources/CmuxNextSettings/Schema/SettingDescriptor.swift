@@ -20,9 +20,25 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     public let defaultLabel: String?
     /// Extra words the Settings search matches.
     public let keywords: [String]
+    /// String catalog keys of `group`, `title`, `help` and `defaultLabel`
+    /// (nil for text that is not localized), so clients outside the app
+    /// localize from the same catalog (`SettingsSchemaExport`).
+    public let textKeys: SettingTextKeys
+    /// Whether the palette lists this setting (R93). Every row is exposed
+    /// unless it names a reason to stay out.
+    public var palette: SettingPaletteExposure = .exposed
+
+    /// A row whose texts come from the string catalog (`SettingsText.keyed`).
+    public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
+                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: SettingText? = nil, keywords: [String] = []) {
+        self.init(path, section: section, group: group.text, title: title.text, help: help?.text, kind: kind,
+                  default: defaultValue, defaultLabel: defaultLabel?.text, keywords: keywords,
+                  textKeys: SettingTextKeys(group: group.key, title: title.key, help: help?.key, defaultLabel: defaultLabel?.key))
+    }
 
     public init(_ path: [String], section: SettingsSection, group: String, title: String, help: String? = nil,
-                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: String? = nil, keywords: [String] = []) {
+                kind: SettingKind, default defaultValue: JSONValue?, defaultLabel: String? = nil, keywords: [String] = [],
+                textKeys: SettingTextKeys = SettingTextKeys()) {
         self.path = path
         self.section = section
         self.group = group
@@ -32,10 +48,22 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
         self.defaultValue = defaultValue
         self.defaultLabel = defaultLabel
         self.keywords = keywords
+        self.textKeys = textKeys
     }
 
     /// The dotted key, as diagnostics and the CLI print it.
     public var id: String { path.joined(separator: ".") }
+}
+
+/// Whether a setting has a palette row (`SettingsPaletteSource`).
+public nonisolated enum SettingPaletteExposure: Sendable, Hashable {
+    case exposed
+    /// Kept out of the palette, with the reason.
+    case hidden(String)
+}
+
+extension SettingDescriptor {
+    public var isPaletteExposed: Bool { palette == .exposed }
 }
 
 /// What a setting holds and how the Settings window edits it.
@@ -55,6 +83,12 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case url
     /// A list of host names.
     case hostList
+    /// A list of folder paths, each absolute or `~/...` (`picker.pinned`).
+    case folderList
     /// `{"start": "HH:MM", "end": "HH:MM"}`; absent means off.
     case timeRange
+    /// A Ghostty theme: one theme name or `light:A,dark:B` (`AppThemeSetting`).
+    case theme
+    /// A font family name (`TerminalFontSetting`).
+    case fontFamily
 }

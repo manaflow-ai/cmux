@@ -64,7 +64,7 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_WILL_OPEN = 20,
   CMUX_SHIM_DEVTOOLS_OPENED = 21, // a = DevTools browser id, b = 1 docked
   CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
-  // The tab's renderer process ended unexpectedly (Chrome's "Aw, Snap!").
+  // The tab's renderer process ended unexpectedly (Chromium's "Aw, Snap!").
   // a = cef_termination_status_t, b = error code (exit code or signal),
   // s1 = Chromium's error string.
   CMUX_SHIM_RENDER_TERMINATED = 23,
@@ -73,7 +73,7 @@ typedef enum {
   CMUX_SHIM_RENDER_UNRESPONSIVE = 24,
   // The renderer answers again after RENDER_UNRESPONSIVE.
   CMUX_SHIM_RENDER_RESPONSIVE = 25,
-  // A Chrome command that opens a window of Chromium's own (New Window,
+  // A Chromium command that opens a window of Chromium's own (New Window,
   // New Incognito Window, Task Manager, feedback, guest profile, Move Tab to
   // New Window, app windows). The shim blocked it; request = the IDC_*
   // command id (chrome/app/chrome_command_ids.h).
@@ -83,8 +83,10 @@ typedef enum {
   // a = 1 for a redirect. The host re-creates the tab in the other store.
   CMUX_SHIM_NAVIGATION_REROUTE = 27,
   // The page did not handle a key down (CefKeyboardHandler::OnKeyEvent
-  // after the renderer). Only Escape without modifiers is reported;
-  // a = Windows key code (0x1B). A popup panel closes on it.
+  // after the renderer): Escape without modifiers (a popup panel closes on
+  // it), or a letter A-Z without Command, Control or Option while no
+  // editable field has focus (single-key page shortcuts). a = Windows key
+  // code (0x1B, or 0x41-0x5A), b = 1 when Shift was down.
   CMUX_SHIM_KEY_UNHANDLED = 28,
   // An extension install or permission prompt (fork API 12): request =
   // prompt id (0 = "installed" notice, no reply), s1 = JSON (cef_cmux.h,
@@ -97,12 +99,24 @@ typedef enum {
   // Focus left the page (CefFocusHandler::OnTakeFocus): Tab past the last
   // element (a = 1) or Shift-Tab past the first (a = 0).
   CMUX_SHIM_TAKE_FOCUS = 31,
+  // A DevTools protocol message of browser_id
+  // (CefDevToolsMessageObserver::OnDevToolsMessage). s1 = the raw JSON
+  // message. Two kinds come here: every reply to cmux_shim_devtools_send
+  // (its "id" is >= 2^30; it never also arrives as DEVTOOLS_RESULT), and,
+  // while cmux_shim_devtools_watch_events is on for browser_id, every
+  // protocol event (a message without "id", for example
+  // Runtime.bindingCalled). Replies to cmux_shim_devtools_call stay
+  // DEVTOOLS_RESULT only.
+  CMUX_SHIM_DEVTOOLS_EVENT = 32,
+  // A watched preference changed (cmux_shim_pref_watch). browser_id = 0,
+  // s1 = the preference name, s2 = the profile cache path.
+  CMUX_SHIM_PREF_CHANGED = 33,
 } cmux_shim_event_kind_t;
 
 typedef enum {
   CMUX_SHIM_DEVTOOLS_SHOW = 1,        // open, or focus the open DevTools
-  CMUX_SHIM_DEVTOOLS_CONSOLE = 2,     // Chrome's IDC_DEV_TOOLS_CONSOLE
-  CMUX_SHIM_DEVTOOLS_INSPECT = 3,     // Chrome's IDC_DEV_TOOLS_INSPECT (element picker)
+  CMUX_SHIM_DEVTOOLS_CONSOLE = 2,     // Chromium's IDC_DEV_TOOLS_CONSOLE
+  CMUX_SHIM_DEVTOOLS_INSPECT = 3,     // Chromium's IDC_DEV_TOOLS_INSPECT (element picker)
   CMUX_SHIM_DEVTOOLS_INSPECT_AT = 4,  // inspect the element at (x, y), view coordinates
   CMUX_SHIM_DEVTOOLS_CLOSE = 5,
 } cmux_shim_devtools_command_t;
@@ -226,7 +240,21 @@ CMUX_SHIM_EXPORT int cmux_shim_create_window(int request,
                             const char* profile_cache_path);
 // Fork tab API; 0 on failure.
 CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate);
+// A user-owned copy of `browser_id`, added in the background to the window
+// of `window_browser_id` at `index` (-1 = end) (cmux_tab_duplicate, fork
+// API 16): same profile, back/forward history and a sessionStorage
+// snapshot, its own BrowsingInstance, no opener, password filling on.
+// OnAfterCreated runs before it returns. The copy's browser id, or 0 (also
+// when the fork lacks the call).
+CMUX_SHIM_EXPORT int cmux_shim_tab_duplicate(int browser_id, int window_browser_id, int index);
 CMUX_SHIM_EXPORT int cmux_shim_tab_activate(int browser_id);
+// Back/Forward menu entries. JSON {"current": index, "entries": [{"url",
+// "title"}]} (display URLs), freed with cmux_shim_free; NULL for an unknown
+// browser. Works on every fork.
+CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_entries(int browser_id);
+// One history navigation to the entry `offset` from the current one
+// (negative = back). 1 when it went; 0 on forks before API 14.
+CMUX_SHIM_EXPORT int cmux_shim_tab_go_to_entry(int browser_id, int offset);
 CMUX_SHIM_EXPORT int cmux_shim_tab_window_id(int browser_id);
 
 CMUX_SHIM_EXPORT void cmux_shim_load_url(int browser_id, const char* url);
@@ -242,9 +270,28 @@ CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);
 CMUX_SHIM_EXPORT void cmux_shim_close(int browser_id);
-// Runs a DevTools method in process; DEVTOOLS_RESULT carries the returned id.
-// Returns 0 when the browser is gone or params_json is not a JSON object.
+// DevTools protocol message ids. Raw sends (cmux_shim_devtools_send) and
+// shim-internal calls (cmux_shim_devtools_call, the DevTools calls of a CEF
+// tab) share ONE id space per browser. Raw sends use ids >= 2^30
+// (1073741824) up to INT32_MAX; shim-internal calls use ids below 2^30,
+// which the shim assigns.
+//
+// Runs a DevTools method in process; DEVTOOLS_RESULT carries the returned id
+// (always below 2^30). Returns 0 when the browser is gone, params_json is not
+// a JSON object, or the browser used up its internal ids.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_call(int browser_id, const char* method, const char* params_json);
+// enabled != 0: DevTools protocol events of browser_id go to the host as
+// CMUX_SHIM_DEVTOOLS_EVENT (raw JSON); 0 stops them. Events flow only for
+// domains the host turned on (with cmux_shim_devtools_send or
+// cmux_shim_devtools_call). Closing the browser stops them.
+CMUX_SHIM_EXPORT void cmux_shim_devtools_watch_events(int browser_id, int enabled);
+// Sends one raw DevTools protocol message (CefBrowserHost::
+// SendDevToolsMessage): a JSON object with its own integer "id" >= 2^30
+// (see the id rule above), "method", optional "params" and optional
+// "sessionId". Its reply comes back as CMUX_SHIM_DEVTOOLS_EVENT. Returns 1
+// when sent, 0 when the browser is gone, -1 when refused (not a JSON object,
+// "id" missing, not an integer or below 2^30, or Chromium refused it).
+CMUX_SHIM_EXPORT int cmux_shim_devtools_send(int browser_id, const char* message_json);
 
 // DevTools. DevTools browsers are never tabs: they have their own
 // client and report only CMUX_SHIM_DEVTOOLS_* events.
@@ -374,6 +421,56 @@ CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const c
 // every cookie was handled: a = written, s1 = {"written","rejected"}.
 // Returns 0 when nothing was started (bad path or JSON).
 CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json);
+// Browser import: saved passwords into the Chromium password store of
+// profile_cache_path (a persistent profile; an off-the-record key returns 0),
+// the store autofill reads, encrypted with cmux's own Keychain key. Every
+// field is UTF-8 with an explicit length (no terminator needed). The shim
+// copies the entries before it returns, so the caller zeroes its buffers at
+// once; the shim zeroes its copies when the store has taken them. Values are
+// never logged. REPLY with `reply` and browser 0 follows: s1 = {"added",
+// "duplicate","conflict","rejected"} (counts only). Returns 0 when nothing was
+// started (bad path, or the fork lacks cmux_password_import: API 15).
+typedef struct {
+  const char* url;
+  size_t url_length;
+  const char* signon_realm;
+  size_t signon_realm_length;
+  const char* username;
+  size_t username_length;
+  const char* password;
+  size_t password_length;
+  // Microseconds since 1601 (Chromium time); 0 = now.
+  int64_t created;
+} cmux_shim_password_entry;
+CMUX_SHIM_EXPORT int cmux_shim_import_passwords(const char* profile_cache_path, int reply, const cmux_shim_password_entry* entries,
+                                                int count);
+// sizeof(cmux_shim_password_entry): Swift writes entries at the C offsets
+// (url 0, url_length 8, signon_realm 16, signon_realm_length 24, username 32,
+// username_length 40, password 48, password_length 56, created 64) and
+// refuses to call when this is not 72.
+CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void);
+// 1 when this fork can write passwords (cmux_password_import, API 15).
+CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void);
+// Turns Chromium's password filling on or off in one tab. An agent-driven
+// tab has it off: a page script could otherwise read a filled password
+// after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
+// Returns 0 when the fork lacks cmux_tab_set_password_fill (API 15).
+CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
+// Profile (Touch ID) passkeys of profile_cache_path (fork API 18,
+// cmux_profile_passkeys_list / cmux_profile_passkey_delete; the Passwords
+// page, plans/cmux-next/passwords.md 1.4). Metadata only, never key
+// material. 1 when this fork has both calls.
+CMUX_SHIM_EXPORT int cmux_shim_passkeys_available(void);
+// REPLY with `reply` and browser 0 follows once the profile is initialized:
+// a = 1 and s1 = the fork's JSON array [{"rp_id","credential_id" (base64url),
+// "user_name","user_display_name"}], or a = 0 and s1 empty when the keychain
+// could not be read. Returns 0 when nothing was started (bad path, an
+// off-the-record key, or the fork lacks the call).
+CMUX_SHIM_EXPORT int cmux_shim_passkeys_list(const char* profile_cache_path, int reply);
+// Deletes one profile passkey by its credential id (base64url, as listed).
+// REPLY with `reply` and browser 0 follows: a = 1 deleted, 0 not. Returns 0
+// when nothing was started (as above, or an empty id).
+CMUX_SHIM_EXPORT int cmux_shim_passkey_delete(const char* profile_cache_path, const char* credential_id, int reply);
 // The visible entry's SSL status as JSON {"secure","certStatus",
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.
@@ -400,11 +497,62 @@ CMUX_SHIM_EXPORT int cmux_shim_context_proxy_state(const char* profile_cache_pat
 // unique in-memory profile); Chromium destroys that profile, with all of its
 // data, once no browser uses it.
 CMUX_SHIM_EXPORT void cmux_shim_release_context(const char* profile_cache_path);
-// Main-frame http(s) navigations of browser_id: 0 unrestricted, 1 must stay
-// loopback (a remote machine's store), 2 must not be loopback (a normal
-// store in a remote workspace). A violation is cancelled and reported as
+// Main-frame navigation guard of browser_id. mode is a bit set.
+// Bits 0-1, the store (http(s) only): 0 unrestricted, 1 must stay loopback
+// (a remote machine's store), 2 must not be loopback (a normal store in a
+// remote workspace). A violation is cancelled and reported as
 // NAVIGATION_REROUTE.
+// Bit 2 (4), agent-driven tab: a main-frame navigation (redirects and
+// history steps included) to a Chromium page is cancelled before commit,
+// with no event; the tab stays on its page. Chromium pages: the schemes
+// chrome, chrome-extension, chrome-untrusted, chrome-search, devtools,
+// chrome-devtools and view-source; about: other than blank and srcdoc;
+// blob: and filesystem: of those. The same rule as AgentURLPolicy.swift
+// (plans/cmux-next/passwords.md, section 2).
 CMUX_SHIM_EXPORT void cmux_shim_set_navigation_guard(int browser_id, int mode);
+
+// Profile preferences (UI thread). Only these names are allowed:
+// credentials_enable_service, credentials_enable_autosignin,
+// autofill.profile_enabled, autofill.credit_card_enabled,
+// password_manager.biometric_authentication_filling. A profile is known
+// once its request context initialized this launch (a tab of that profile
+// opened, or a cookie import created it); cmux_shim_release_context forgets
+// it and its watches.
+//
+// JSON {"value": true|false|null, "modifiable": true|false} (value null when
+// the preference is missing or not a boolean), freed with
+// cmux_shim_free_owned; NULL for an unknown profile or a name not allowed.
+CMUX_SHIM_EXPORT char* cmux_shim_pref_get(const char* profile_cache_path, const char* pref_name);
+// 1 set; 0 not modifiable or name not allowed; -1 refused (unknown profile,
+// or Chromium failed to set it).
+CMUX_SHIM_EXPORT int cmux_shim_pref_set_bool(const char* profile_cache_path, const char* pref_name, int value);
+// enabled != 0: CMUX_SHIM_PREF_CHANGED for every change of pref_name in the
+// profile; 0 stops it. Returns 1 when done (also for a repeat), 0 for an
+// unknown profile (enable only), a name not allowed, or a failed
+// registration. Shutdown releases every watch.
+CMUX_SHIM_EXPORT int cmux_shim_pref_watch(const char* profile_cache_path, const char* pref_name, int enabled);
+
+// cmux-page:// pages served from a folder. The scheme
+// is registered at startup in every process (standard, secure,
+// CORS-enabled, fetch-enabled). This call serves cmux-page://<id>/ from
+// resource_root for every profile, also profiles opened later; a repeat
+// replaces the folder and policy of that id. id is lowercased and must be
+// [a-z0-9.-] (for example cmux.settings, cmux.history, cmux.apps,
+// cmux.agent); the page origin is cmux-page://<id>. Reserved ids ("cmux"
+// and every "cmux." id, PageID.isReserved in CmuxNextPages) are refused
+// here: only cmux_shim_page_scheme_add_first_party serves them. Responses: GET only
+// (else 405); the URL path resolves below resource_root (real paths,
+// compared component-wise; ".." and symlink escapes are 404); "/" serves
+// index.html; only .html .js .mjs .css .json .svg .wasm .woff .woff2 .ttf
+// .otf, anything else 404. Every response has Content-Security-Policy = csp
+// (NULL = "default-src 'self'") and X-Content-Type-Options: nosniff.
+// Returns 1 when added, 0 for a bad or reserved id or a root that is not a
+// directory.
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add(const char* id, const char* resource_root, const char* csp);
+// The same for a reserved id only (0 for any other id): the app's
+// first-party registration, which passes the page's bundled resource root
+// after checking it against the first-party table (FirstPartyPageSchemes).
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party(const char* id, const char* resource_root, const char* csp);
 
 #ifdef __cplusplus
 }

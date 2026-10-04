@@ -249,6 +249,7 @@ mod tests {
                 operation,
                 params: json!({}),
                 idempotency_key: Some(idempotency_key.to_string()),
+                origin: None,
             },
             selectors: crate::ResourceSelectors {
                 machine: Some("current".to_string()),

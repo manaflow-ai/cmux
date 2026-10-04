@@ -20,8 +20,12 @@
 #                              stapling so the submitted helper CDHash survives.
 #
 # Signs in the Apple-documented inside-out order:
+#   0. scripts/sign-cmux-bundle-helpers.sh stamps the cmux server's launchd
+#      plists (Contents/Library/LaunchDaemons, LaunchAgents) from the final
+#      bundle id; the app signature seals them.
 #   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
-#      hardened-runtime entitlements (no application-identifier).
+#      hardened-runtime entitlements (no application-identifier), through
+#      scripts/sign-cmux-bundle-helpers.sh; libexec/cmux-server-helper gets none.
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
 #   2. The nested cmux Computer Use app with the Developer ID identity.
@@ -112,21 +116,8 @@ if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
 fi
 
 if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
-  # 1. CLI and private helpers
-  for helper_dir in bin libexec; do
-    for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
-      [[ -f "$helper" && -x "$helper" ]] || continue
-      # Scripts are sealed by the bundle signature. Code-signing them directly
-      # stores the signature in an extended attribute, which Sparkle's
-      # BinaryDelta refuses to diff, so it would block delta updates.
-      if ! /usr/bin/file -b "$helper" | grep -q 'Mach-O'; then
-        echo "==> leaving non-Mach-O helper $(basename "$helper") to the bundle seal"
-        continue
-      fi
-      echo "==> signing helper $(basename "$helper")"
-      /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
-    done
-  done
+  # 0-1. The cmux server launchd plists, then the CLI and private helpers.
+  "$SCRIPT_DIR/sign-cmux-bundle-helpers.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
   # cmux-tui builds for SSH hosts. Notarization requires the macOS ones to be
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
@@ -174,6 +165,14 @@ echo "==> signing main bundle ($SIGN_MODE)"
 
 echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+# The cmux CLI is one Mach-O: bin/cmux-tui and bin/acpmux must stay links to it.
+for alias in cmux-tui acpmux; do
+  alias_path="$APP_PATH/Contents/Resources/bin/$alias"
+  if [[ -e "$alias_path" || -L "$alias_path" ]] && [[ "$(readlink "$alias_path" || true)" != cmux ]]; then
+    echo "error: bin/$alias is not a symlink to cmux" >&2
+    exit 1
+  fi
+done
 if [[ -d "$COMPUTER_USE_HELPER" ]]; then
   /usr/bin/codesign --verify --strict --verbose=2 "$COMPUTER_USE_HELPER"
 fi
@@ -241,6 +240,7 @@ fi
 # Helpers must NOT carry the main app's application-identifier.
 for helper_dir in bin libexec; do
   for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
+    [[ ! -L "$helper" ]] || continue
     [[ -f "$helper" && -x "$helper" ]] || continue
     /usr/bin/file -b "$helper" | grep -q 'Mach-O' || continue
     if /usr/bin/codesign -d --entitlements :- "$helper" 2>&1 \

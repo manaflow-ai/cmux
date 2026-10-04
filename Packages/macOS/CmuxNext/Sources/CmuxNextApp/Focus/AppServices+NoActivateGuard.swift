@@ -38,7 +38,8 @@ extension AppServices {
         let journalObserver = application?.inputObserver
         application?.inputObserver = { event in
             switch event.type {
-            case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown: guardian.userInput()
+            case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
+                if application?.currentEventIsSynthetic != true { guardian.userInput() }
             default: break
             }
             journalObserver?(event)

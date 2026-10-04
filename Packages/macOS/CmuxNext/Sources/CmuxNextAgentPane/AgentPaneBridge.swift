@@ -1,4 +1,5 @@
 import Foundation
+import os
 import WebKit
 
 /// Receives the page's `agentSession` messages. The user content controller
@@ -9,6 +10,7 @@ import WebKit
 /// carries the daemon token). Anything else is refused before the model
 /// sees it.
 final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.bridge")
     weak var view: AgentPaneView?
 
     init(view: AgentPaneView) {
@@ -17,9 +19,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
         guard isTrusted(message) else {
+            logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
             return (AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
-        return (await reply(to: AgentPaneRequest(body: message.body)), nil)
+        let request = AgentPaneRequest(body: message.body)
+        logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
+        return (await reply(to: request), nil)
     }
 
     /// The reply for a request from the pane's trusted page.
@@ -40,9 +45,15 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     private func prepare(for request: AgentPaneRequest) -> AgentPaneModel? {
         guard let view else { return nil }
         // The page installs its bridge and registry before asking for the
-        // handshake, which can be after didFinish; replay the customization
-        // so registry.js finds them.
-        if request == .ready { view.replayCustomization() }
+        // handshake, which can be after didFinish, where the theme and
+        // customization were first pushed; push them again so they land.
+        if request == .ready {
+            logger.info("agent pane ready accepted")
+            view.applyTheme()
+            view.applyShortcuts()
+            view.applyPreviewFeatures()
+            view.replayCustomization()
+        }
         return view.model
     }
 }

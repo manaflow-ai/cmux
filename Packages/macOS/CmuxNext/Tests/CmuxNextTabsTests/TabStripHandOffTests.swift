@@ -137,4 +137,39 @@ import Testing
         }
         #expect(h.dragStart != nil)
     }
+
+    /// Dogfood "a tab dropped on its own pane disappears": the strip hides a
+    /// handed-off tab for the drag. When the drop lands in the same strip
+    /// (the model keeps the tab), ending the drag's presentation shows it
+    /// again, at its new place.
+    @Test func endingTheDragShowsATabThatLandedInItsOwnStrip() throws {
+        let h = Harness(titles: ["One", "Two", "Three"])
+        defer { h.close() }
+        let press = h.point(inTab: 0, dx: 12, y: 14)
+        h.strip.mouseDown(with: h.event(.leftMouseDown, at: press))
+        for step in 1...12 {
+            h.strip.mouseDragged(with: h.event(.leftMouseDragged, at: CGPoint(x: press.x, y: press.y + CGFloat(step) * 8)))
+        }
+        _ = try #require(h.dragStart)
+        #expect(!h.strip.presentedTabIDs.contains(TabID("t0")))
+        // The move landed: t0 is now last in the same strip.
+        h.model.tabs = [h.model.tabs[1], h.model.tabs[2], h.model.tabs[0]]
+        h.strip.sync(fromModel: true)
+        h.strip.restoreDetachedTab(TabID("t0"))
+        #expect(h.strip.presentedTabIDs == h.model.orderedTabs.map(\.id))
+    }
+
+    @Test func endingTheDragShowsTheOnlyTabDroppedOnItsOwnPane() throws {
+        let h = Harness(titles: ["Only"])
+        defer { h.close() }
+        let press = h.point(inTab: 0, dx: 12, y: 14)
+        h.strip.mouseDown(with: h.event(.leftMouseDown, at: press))
+        for step in 1...12 {
+            h.strip.mouseDragged(with: h.event(.leftMouseDragged, at: CGPoint(x: press.x, y: press.y + CGFloat(step) * 8)))
+        }
+        _ = try #require(h.dragStart)
+        #expect(h.strip.presentedTabIDs.isEmpty)
+        h.strip.restoreDetachedTab(TabID("t0"))
+        #expect(h.strip.presentedTabIDs == [TabID("t0")])
+    }
 }

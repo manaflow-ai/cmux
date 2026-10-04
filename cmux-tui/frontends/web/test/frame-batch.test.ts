@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createFrameBatch } from "../src/lib/frameBatch";
 
 describe("animation-frame batching", () => {
@@ -13,7 +13,9 @@ describe("animation-frame batching", () => {
         callbacks.set(frame, callback);
         return frame;
       },
-      (frame) => { callbacks.delete(frame); },
+      (frame) => {
+        callbacks.delete(frame);
+      },
     );
 
     batch.schedule("delta-1");
@@ -36,7 +38,9 @@ describe("animation-frame batching", () => {
         callbacks.set(7, callback);
         return 7;
       },
-      (frame) => { callbacks.delete(frame); },
+      (frame) => {
+        callbacks.delete(frame);
+      },
     );
 
     batch.schedule("stale");

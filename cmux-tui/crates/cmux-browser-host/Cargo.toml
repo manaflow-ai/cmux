@@ -1,0 +1,23 @@
+[package]
+name = "cmux-browser-host"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux browser host: engine-neutral agent browser runtime, driver protocol and CDP driver"
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+url = "2.5"
+hmac.workspace = true
+sha1 = "0.10"
+rquickjs = "0.14"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

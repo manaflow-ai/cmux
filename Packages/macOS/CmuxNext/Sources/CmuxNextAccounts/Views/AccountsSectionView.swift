@@ -37,29 +37,6 @@ public struct AccountsSectionView: View {
     }
 }
 
-/// The onboarding step body: the same rows without titles, filling the
-/// frame the onboarding window gives it on a transparent background.
-public struct AccountsStepView: View {
-    let model: AccountsModel
-    let palette: AccountsPalette
-
-    public init(model: AccountsModel, palette: AccountsPalette) {
-        self.model = model
-        self.palette = palette
-    }
-
-    public var body: some View {
-        ScrollView {
-            AccountsSectionView(model: model, palette: palette)
-                .padding(.horizontal, Metrics.space2)
-                .padding(.bottom, Metrics.space4)
-        }
-        .scrollIndicators(.automatic)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color.clear)
-    }
-}
-
 /// Intro line, refresh, and the cmux sign-in banner when signed out.
 private struct AccountsHeader: View {
     let model: AccountsModel

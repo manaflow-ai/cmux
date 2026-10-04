@@ -16,19 +16,15 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     case lift
     /// A room, workspace or terminal theme switch recoloring in place.
     case theme
+    /// A Settings row found by search or a deep link: its highlight fades
+    /// out over this long (held this long, then removed, under Reduce Motion).
+    case highlight
+    /// The launch mark resolving on the window glass (`LaunchMarkView`).
+    case launch
 
-    /// Seconds at `MotionSpeed.fast`.
-    public var baseDuration: TimeInterval {
-        switch self {
-        case .hover: 0.08
-        case .focus: 0.1
-        case .fadeIn: 0.12
-        case .fadeOut: 0.08
-        case .crossfade: 0.1
-        case .lift: 0.12
-        case .theme: 0.16
-        }
-    }
+    /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
+    /// Debug Settings).
+    public var baseDuration: TimeInterval { MotionTunables.fades[self]?.value ?? 0.1 }
 }
 
 /// Repeating indicators. These show state, so speed does not scale them;
@@ -41,11 +37,5 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     /// Pane attention flash (two blinks).
     case flash
 
-    public var period: TimeInterval {
-        switch self {
-        case .spinner: 0.9
-        case .pulse: 1.8
-        case .flash: 0.6
-        }
-    }
+    public var period: TimeInterval { MotionTunables.loops[self]?.value ?? 1 }
 }

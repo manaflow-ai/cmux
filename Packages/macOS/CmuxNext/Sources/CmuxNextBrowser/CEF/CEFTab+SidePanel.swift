@@ -32,7 +32,7 @@ extension CEFTab {
     /// The header's frame in the content view, or nil without a side panel.
     var sidePanelHeaderFrame: CGRect? {
         guard let state = sidePanelState, sidePanelHeader != nil else { return nil }
-        return state.headerFrame(inPage: devToolsFrames(in: container.bounds).page)
+        return state.headerFrame(inPage: devToolsController.frames(in: container.bounds).page)
     }
 
     func pressSidePanel(_ control: CEFSidePanelState.Control) {
@@ -63,11 +63,11 @@ extension CEFTab {
 extension CEFTab {
     /// cmux's side panel header while shown (`debug.cef`): its title, the
     /// controls it shows and its screen frame (AppKit origin).
-    public var sidePanelDiagnostic: (title: String, controls: [String], pinned: Bool, frame: CGRect)? {
+    public var sidePanelDiagnostic: (title: String, controls: [String], pinned: Bool, chromiumFocusable: Int?, frame: CGRect)? {
         guard let state = sidePanelState, let header = sidePanelHeader, let window = header.window else { return nil }
         let controls: [(Bool, CEFSidePanelState.Control)] = [(state.showsPin, .pin), (state.showsOpenInNewTab, .openInNewTab),
                                                               (state.showsMoreInfo, .moreInfo), (true, .close)]
-        return (state.title, controls.filter(\.0).map(\.1.rawValue), state.isPinned,
+        return (state.title, controls.filter(\.0).map(\.1.rawValue), state.isPinned, state.chromiumFocusableControls,
                 window.convertToScreen(header.convert(header.bounds, to: nil)))
     }
 

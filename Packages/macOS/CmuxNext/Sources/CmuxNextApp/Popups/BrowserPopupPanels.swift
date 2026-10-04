@@ -37,6 +37,9 @@ final class BrowserPopupPanels {
 
     func openerKey(of page: any BrowserTab) -> String? { entries[ObjectIdentifier(page)]?.openerKey }
 
+    /// The popup pages tab `key` opened, at any depth (a popup's popups keep its opener key).
+    func pages(openedBy key: String) -> [any BrowserTab] { entries.values.filter { $0.openerKey == key }.map(\.panel.page) }
+
     var panels: [BrowserPopupPanel] { entries.values.map(\.panel) }
 
     /// The panel that is `window` or holds it (a Chromium page window is a
@@ -121,14 +124,16 @@ final class BrowserPopupPanels {
                 child.close()
                 return true
             }
+            // A popup an agent drives passes that on, as a tab does (BrowserPageRequests).
+            if page.isAgentDriven { child.markAgentDriven() }
             open(child, request: request, over: parent, openerKey: entry.openerKey)
         case .contextMenu(let request):
             contextMenus.present(request, in: page.contentView)
         case .resizePopup(let request):
             resize(entry, to: request)
-        case .activate, .download, .notice, .rerouteStore, .takeFocus:
+        case .activate, .download, .notice, .rerouteStore, .takeFocus, .unhandledKey:
             // A panel has no tab to select, no chrome for notices or an
-            // omnibar to take focus, and one store.
+            // omnibar to take focus, one store, and no page shortcuts.
             break
         case .openURL, .adoptTab:
             return false
@@ -154,17 +159,5 @@ final class BrowserPopupPanels {
             }
         }
         panel.setFrame(frame, display: true)
-    }
-
-    // MARK: Keys
-
-    /// Cmd-W closes the popup that has the keyboard (its panel, or its
-    /// Chromium page window) instead of the opener's tab.
-    func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let panel = panel(containing: window) else { return false }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w" else { return false }
-        close(panel.page)
-        return true
     }
 }

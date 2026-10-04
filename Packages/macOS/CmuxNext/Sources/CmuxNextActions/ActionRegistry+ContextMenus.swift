@@ -40,7 +40,7 @@ extension ActionRegistry {
     static func impliedContext(for context: ActionMenuContext) -> ActionContext {
         switch context {
         case .browserPage: .browserFocused
-        case .terminalSelection, .link: .terminalFocused
+        case .terminalSelection: .terminalFocused
         default: []
         }
     }
@@ -52,13 +52,13 @@ extension ActionRegistry {
             case .separator:
                 if let last = items.last, !last.isSeparatorItem { items.append(.separator()) }
             case .action(let id):
-                guard let descriptor = descriptor(for: id), Self.isAvailable(descriptor, in: context),
+                guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
                       let item = makeMenuItem(for: id)
                 else { continue }
                 item.representedObject = ActionMenuPayload(id: descriptor.id, target: target)
                 // Context menus are built per click, so a disabled entry can
                 // say why (Chromium in a build without CEF).
-                if let reason = unavailableReason(for: descriptor.id) {
+                if let reason = ActionTargetReasons.reason(for: descriptor.id, invocation: ActionInvocation(target: target), in: self) {
                     item.subtitle = reason
                     item.toolTip = reason
                 }
@@ -71,8 +71,16 @@ extension ActionRegistry {
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)
+            case .folder(let folder, let children):
+                let childItems = menuItems(children, target: target, context: context)
+                guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
+                let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
+                let submenu = NSMenu(title: folder.title)
+                childItems.forEach(submenu.addItem)
+                item.submenu = submenu
+                items.append(item)
             case .choices(let id):
-                guard let descriptor = descriptor(for: id), Self.isAvailable(descriptor, in: context),
+                guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
                       let item = makeChoicesItem(for: descriptor, target: target)
                 else { continue }
                 items.append(item)

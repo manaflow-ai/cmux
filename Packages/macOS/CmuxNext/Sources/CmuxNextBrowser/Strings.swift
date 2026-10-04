@@ -35,7 +35,7 @@ nonisolated enum Strings {
     static func searchWith(engine: String) -> String {
         String(localized: "browser.suggestion.searchWith", defaultValue: "\(engine) Search", bundle: .module)
     }
-    /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`, as Helium shows it.
+    /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
         String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .module)
     }
@@ -78,6 +78,7 @@ nonisolated enum Strings {
 
     // Context menu
     static var openLinkInNewTab: String { String(localized: "browser.menu.openLinkInNewTab", defaultValue: "Open Link in New Tab", bundle: .module) }
+    static var openLinkInNewWindow: String { String(localized: "browser.menu.openLinkInNewWindow", defaultValue: "Open Link in New Window", bundle: .module) }
     static var openImageInNewTab: String { String(localized: "browser.menu.openImageInNewTab", defaultValue: "Open Image in New Tab", bundle: .module) }
     static var openVideoInNewTab: String { String(localized: "browser.menu.openVideoInNewTab", defaultValue: "Open Video in New Tab", bundle: .module) }
 

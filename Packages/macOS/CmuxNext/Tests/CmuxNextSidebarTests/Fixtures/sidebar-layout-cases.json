@@ -1,0 +1,32 @@
+{
+  "about": "Shared cases for sidebar-layout-v1 (plans/cmux-next/sidebar-sections.md 4-5). Each op applies to the default document. The Swift reducer (SidebarLayoutFixtureTests) and the cmux-tui-core state reducer both run every case. expect: accept (with revision and, optionally, the item ids of one section and fields of one section) or reject (with reason).",
+  "cases": [
+    {"name": "remove home", "op": {"kind": "item.remove", "id": "itm_home"}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_app_store"]},
+    {"name": "remove a ref everywhere", "op": {"kind": "item.remove_ref", "ref": {"kind": "app", "value": "cmux/home"}}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_app_store"]},
+    {"name": "remove a ref the sidebar does not hold", "op": {"kind": "item.remove_ref", "ref": {"kind": "app", "value": "manaflow-ai/github-prs"}}, "expect": "reject", "reason": "unknown_item"},
+    {"name": "add pins at the end (index clamped)", "op": {"kind": "item.add", "item": {"id": "itm_ws", "ref": {"kind": "workspace", "value": "local:ws_1"}}, "section": "sec_top", "index": 99}, "expect": "accept", "revision": 1, "section": "sec_top", "items": ["itm_home", "itm_app_store", "itm_ws"]},
+    {"name": "same ref twice in a section is a no-op", "op": {"kind": "item.add", "item": {"id": "itm_h2", "ref": {"kind": "app", "value": "cmux/home"}}, "section": "sec_top", "index": 0}, "expect": "accept", "revision": 0},
+    {"name": "move across regions", "op": {"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 1}, "expect": "accept", "revision": 1, "section": "sec_bottom", "items": ["itm_settings", "itm_home", "itm_account"]},
+    {"name": "move within excludes itself", "op": {"kind": "item.move", "id": "itm_settings", "section": "sec_bottom", "index": 1}, "expect": "accept", "revision": 1, "section": "sec_bottom", "items": ["itm_account", "itm_settings"]},
+    {"name": "items never go into the workspaces section", "op": {"kind": "item.move", "id": "itm_home", "section": "sec_workspaces", "index": 0}, "expect": "reject", "reason": "workspaces_required"},
+    {"name": "the workspaces section stays", "op": {"kind": "section.remove", "id": "sec_workspaces"}, "expect": "reject", "reason": "workspaces_required"},
+    {"name": "the workspaces section shows in every room", "op": {"kind": "section.update", "id": "sec_workspaces", "patch": {"room": "prof_a"}}, "expect": "reject", "reason": "workspaces_required"},
+    {"name": "unknown item", "op": {"kind": "item.remove", "id": "itm_nope"}, "expect": "reject", "reason": "unknown_item"},
+    {"name": "unknown section", "op": {"kind": "section.remove", "id": "sec_nope"}, "expect": "reject", "reason": "unknown_section"},
+    {"name": "duplicate item id", "op": {"kind": "item.add", "item": {"id": "itm_settings", "ref": {"kind": "built_in", "value": "history"}}, "section": "sec_top", "index": 0}, "expect": "reject", "reason": "duplicate_id"},
+    {"name": "empty title", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"title": ""}}, "expect": "reject", "reason": "invalid_title"},
+    {"name": "max rows out of range", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"max_rows": 51}}, "expect": "reject", "reason": "invalid_max_rows"},
+    {"name": "columns out of range", "op": {"kind": "section.update", "id": "sec_top", "patch": {"layout": "grid", "columns": 40}}, "expect": "reject", "reason": "invalid_arrangement"},
+    {"name": "per-field arrangement patch keeps the other fields", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"gap": 6}}, "expect": "accept", "revision": 1, "section": "sec_bottom", "arrangement": {"layout": "grid", "align": "fill", "gap": 6, "columns": 8}},
+    {"name": "clear a field with null", "op": {"kind": "section.update", "id": "sec_top", "patch": {"layout": "grid", "columns": null}}, "expect": "accept", "revision": 1, "section": "sec_top", "arrangement": {"layout": "grid", "align": "leading"}},
+    {"name": "hide a title", "op": {"kind": "section.update", "id": "sec_bottom", "patch": {"title": "Tools", "shows_title": false}}, "expect": "accept", "revision": 1},
+    {"name": "show the account label", "op": {"kind": "item.update", "id": "itm_account", "shows_label": true}, "expect": "accept", "revision": 1},
+    {"name": "second workspaces section", "op": {"kind": "section.add", "section": {"id": "sec_w2", "region": "top", "look": "list", "content": "workspaces"}, "index": 0}, "expect": "reject", "reason": "workspaces_required"},
+    {"name": "add a section at the end of its region", "op": {"kind": "section.add", "section": {"id": "sec_p", "title": "Project", "region": "top", "look": "list", "content": "items"}, "index": 5}, "expect": "accept", "revision": 1},
+    {"name": "add an app section", "op": {"kind": "section.add", "section": {"id": "sec_app", "region": "top", "look": "list", "content": "app", "contribution": "manaflow-ai/github-prs#prs"}, "index": 9}, "expect": "accept", "revision": 1, "section": "sec_app", "items": []},
+    {"name": "an app section needs a contribution", "op": {"kind": "section.add", "section": {"id": "sec_app", "region": "top", "look": "list", "content": "app"}, "index": 0}, "expect": "reject", "reason": "invalid_contribution"},
+    {"name": "an app section's contribution names its app", "op": {"kind": "section.add", "section": {"id": "sec_app", "region": "top", "look": "list", "content": "app", "contribution": "#prs"}, "index": 0}, "expect": "reject", "reason": "invalid_contribution"},
+    {"name": "an items section has no contribution", "op": {"kind": "section.add", "section": {"id": "sec_x", "region": "top", "look": "list", "content": "items", "contribution": "a#b"}, "index": 0}, "expect": "reject", "reason": "invalid_contribution"},
+    {"name": "reset the defaults is a no-op", "op": {"kind": "layout.reset"}, "expect": "accept", "revision": 0}
+  ]
+}

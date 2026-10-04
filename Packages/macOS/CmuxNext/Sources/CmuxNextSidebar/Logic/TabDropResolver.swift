@@ -31,7 +31,12 @@ extension DropResolver {
             guard let sourceMachine else { return machine != nil }
             return machine == sourceMachine
         }
-        if case let .workspace(id) = row.key, tabIntoFraction.contains(fraction) {
+        let targetWorkspace: WorkspaceID? = switch row.key {
+        case let .workspace(id): id
+        case let .tab(workspace, _): workspace
+        default: nil
+        }
+        if let id = targetWorkspace, tabIntoFraction.contains(fraction) {
             guard let ws = SidebarEdits.workspace(id, in: sections), machineOK(ws.machineID) else { return nil }
             return .intoWorkspace(id)
         }
