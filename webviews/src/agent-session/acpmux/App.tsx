@@ -20,6 +20,7 @@ import { pageHostClient, startHostEvents } from "./pageHost";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
+import { useNewTabAdoption } from "./newtab/adoption";
 import { projectLabel } from "./sessionList";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1015,6 +1016,8 @@ function AcpmuxPane() {
   /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
   const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
+  // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
+  const newTabGeneration = useNewTabAdoption(setNewTab);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
   // Escape and the scrim close the narrow-pane overlay and give focus back to its toggle.
   const closeOverlay = useCallback(() => {
@@ -1644,6 +1647,7 @@ function AcpmuxPane() {
         <div className="acpmux-main" data-new-chat={freshChat && !showNewTab ? "" : undefined}>
           {showNewTab && newTab.layout === "b" ? (
             <NewTabScreen
+              key={newTabGeneration}
               snapshot={composerSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
@@ -1660,6 +1664,7 @@ function AcpmuxPane() {
             />
           ) : showNewTab ? (
             <NewTabPage
+              key={newTabGeneration}
               snapshot={composerSnapshot}
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
