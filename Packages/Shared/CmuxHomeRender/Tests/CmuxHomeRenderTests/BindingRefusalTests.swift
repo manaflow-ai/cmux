@@ -35,6 +35,28 @@ import Testing
         store.stop()
     }
 
+    /// The host opens a conversation and binds it; stopping the binding
+    /// (the transcript left the screen) closes it on the store, which drops
+    /// the window and tells the source.
+    @Test func stoppingTheBindingClosesTheTranscript() async throws {
+        let source = MockHomeSource(options: .immediate)
+        let store = HomeStore(source: source)
+        store.start()
+        let id = ConversationID("conv_infra")
+        try await until { store.me != nil && store.isOnline }
+        await store.open(id)
+        let me = try #require(store.me?.id)
+        #expect(!store.transcript(for: id).isEmpty)
+        let controller = HomeController(conversation: id, me: me, palette: Fixtures.palette, deadline: ManualDeadline())
+        let binding = HomeStoreBinding(store: store, controller: controller)
+        binding.stop()
+        #expect(store.transcript(for: id).isEmpty, "the transcript stayed open after its view went away")
+        binding.stop()
+        await store.open(id)
+        #expect(!store.transcript(for: id).isEmpty)
+        store.stop()
+    }
+
     private func until(_ condition: () -> Bool) async throws {
         for _ in 0..<20_000 where !condition() { await Task.yield() }
         #expect(condition())
