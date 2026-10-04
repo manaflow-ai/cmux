@@ -375,7 +375,9 @@ new body. No raw address, token or token hash is ever projected.
   a PUT starts: one hour covers a 100 MB PUT down to about 230 kbit/s.
 - Retention: `attref` rows are written in each message's commit; the ConversationDO alarm sweeps
   uploads unreferenced for 24 h in batches with a persistent (created_at, hash) cursor (a long run
-  of referenced records costs one pass, never a hot loop) and releases the uploader's stored bytes. Hooks for paths that do
+  of referenced records costs one pass, never a hot loop) and releases the uploader's stored bytes.
+  A batch holds a `running` mark until `markSwept`, so a retract or edit that lands while the batch
+  awaits its R2 delete queues another pass (due at once) instead of being cleared. Hooks for paths that do
   not exist yet: `messageDeleteWrites` (message retention) and `ConversationDO.deleteAttachmentStorage`
   (conversation storage deletion). Attachments in `conversation.import` remain C-13.
 

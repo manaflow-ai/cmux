@@ -65,7 +65,9 @@ const LATER_COLUMNS: ReadonlyArray<[string, string]> = [
   [OBJECTS, "poster TEXT"],
   [SLOTS, "poster TEXT"],
   [SLOTS, "poster_state TEXT"],
-  [SLOTS, "poster_etag TEXT"]
+  [SLOTS, "poster_etag TEXT"],
+  // 1 from a batch until its markSwept: a release in between (during the R2 delete) queues another pass.
+  [SWEEP, "running INTEGER NOT NULL DEFAULT 0"]
 ]
 const migrated = new WeakSet<object>()
 const has = (sql: Sql, table: string) => sql.exec(`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?`, table).length > 0
@@ -271,6 +273,7 @@ export const commitRecord = (sql: Sql, rec: Omit<Record, "uploaders" | "quota_us
  */
 export const sweepBatch = (sql: Sql, before: number): { records: Array<Record>; done: boolean } => {
   if (!has(sql, OBJECTS)) return { records: [], done: true }
+  ensure(sql)
   const c = sql.exec<{ cursor_at: number | null; cursor_hash: string | null }>(`SELECT cursor_at, cursor_hash FROM ${SWEEP} WHERE id = 1`)[0]
   const at = c?.cursor_at === null || c?.cursor_at === undefined ? null : Number(c.cursor_at)
   const rows =
@@ -294,7 +297,7 @@ export const sweepBatch = (sql: Sql, before: number): { records: Array<Record>; 
   const done = !stopped && rows.length < SWEEP_SCAN
   ensure(sql)
   sql.exec(`INSERT INTO ${SWEEP} (id, cutoff) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, Number.MIN_SAFE_INTEGER)
-  sql.exec(`UPDATE ${SWEEP} SET cursor_at = ?, cursor_hash = ? WHERE id = 1`, done || !last ? null : Number(last.created_at), done || !last ? null : last.hash)
+  sql.exec(`UPDATE ${SWEEP} SET cursor_at = ?, cursor_hash = ?, running = 1 WHERE id = 1`, done || !last ? null : Number(last.created_at), done || !last ? null : last.hash)
   return { records, done }
 }
 
@@ -330,15 +333,20 @@ export const nextSweepAt = (sql: Sql): number | null => {
 export const markSwept = (sql: Sql, now: number, done: boolean): void => {
   ensure(sql)
   if (!done) {
-    sql.exec(`UPDATE ${SWEEP} SET dirty_at = ? WHERE id = 1`, now)
+    sql.exec(`UPDATE ${SWEEP} SET dirty_at = ?, running = 0 WHERE id = 1`, now)
     return
   }
-  sql.exec(`UPDATE ${SWEEP} SET cutoff = ?, dirty_at = CASE WHEN redo = 1 THEN ? ELSE NULL END, redo = 0 WHERE id = 1`, now - GRACE, now)
+  sql.exec(`UPDATE ${SWEEP} SET cutoff = ?, dirty_at = CASE WHEN redo = 1 THEN ? ELSE NULL END, redo = 0, running = 0 WHERE id = 1`, now - GRACE, now)
 }
 
-/** A reference was released (retract, edit): older records may now be collectable. During a pass, the next pass is queued. */
+/**
+ * A reference was released (retract, edit): older records may now be collectable. During a pass
+ * (a cursor is held, or a batch is awaiting its R2 delete) the next pass is queued: markSwept
+ * would otherwise clear this dirty time and the release would wait for the next one.
+ */
 export const markDirty = (sql: Sql, at: number): void => {
   if (!has(sql, OBJECTS)) return
+  ensure(sql)
   sql.exec(`INSERT INTO ${SWEEP} (id, cutoff) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, Number.MIN_SAFE_INTEGER)
-  sql.exec(`UPDATE ${SWEEP} SET dirty_at = MIN(COALESCE(dirty_at, ?), ?), redo = CASE WHEN cursor_at IS NULL THEN redo ELSE 1 END WHERE id = 1`, at, at)
+  sql.exec(`UPDATE ${SWEEP} SET dirty_at = MIN(COALESCE(dirty_at, ?), ?), redo = CASE WHEN cursor_at IS NULL AND running = 0 THEN redo ELSE 1 END WHERE id = 1`, at, at)
 }
