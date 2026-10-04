@@ -1,5 +1,70 @@
 # cmux-next daily-driver readiness
 
+## Current audit: 2026-10-04
+
+**Not ready to replace classic yet.** The current target is Leo's terminal-first
+layout: named workspace/session rows, live Idle/Running status, collapsible
+folder groups, Claude Code and Codex TUIs, a split browser, and the sidebar
+update/help footer. ACP is optional for this verdict.
+
+The ranked findings and exact repro steps are in
+[HQ #1288](https://github.com/manaflow-ai/cmuxterm-hq/issues/1288).
+[Real side-by-side captures](https://github.com/manaflow-ai/cmux-app-screenshots/tree/487fcf6/captures/cmux-next/classic-parity-20261004)
+show shell output and a loaded browser beside the terminal in both products.
+The screenshots preserve the original UI pixels; host profiles and window
+sizes differ, so they do not establish controlled theme parity.
+
+Tested next: official nightly-next `57346c6c3c984177cebfdca28e44ce28cbb2dfb0`,
+version `1.0.0-nightly.3720357958801`, downloaded directly on a picker host.
+An isolated build of the same source, local backend, passed fleet job
+`22100843937c7b7e715aa94d`. Classic comparison: `8305cff51f0afae7f083fa848f69bd7d4f351b55`,
+local-backend fleet job `02c0000105a0842399f6d2e1`. No app artifacts were relayed
+through the submitter.
+
+| Current runtime item | Score | What the evidence establishes |
+| --- | --- | --- |
+| Shell input | WORKS | Foreground Ctrl-U and Return executed a command with visible output and prompt. No measured typing-latency claim. |
+| Scrollback | WORKS | Printed 120 numbered lines; targeted wheel scrolling exposed earlier output. |
+| Terminal/browser split | WORKS | Split Browser Right created the layout; entering a URL loaded a real page beside the terminal. |
+| Browser tabs/navigation | PARTIAL | Tab labels and URL bar are visible. Back/forward/reload cycle and several browser tabs remain unverified. |
+| Basic keep-session reopen | WORKS | Quit and Keep Sessions then relaunch preserved one workspace, terminal buffer, tab names, and browser split. Agent resume and crash restore remain unverified. |
+| Workspace context menu | WORKS | Persistent foreground CUA exposed the real menu. Transient foreground restoration had hidden it. |
+| Rename, groups, Idle/Running accuracy | UNVERIFIED | F2 is absent on this nightly and already owned by #17188. File/context rename routes exist. Real named/grouped session proof and live status still need capture. |
+| Claude Code and Codex TUIs | UNVERIFIED | Real pooled-provider tools/auth are not consistently provisioned on picker hosts. No real task or resume is scored. |
+| Footer | ROUGH | Classic's Help footer is visible; next shows Settings and Account without a visible Help entry. Update installation was not exercised. |
+| Settings | PARTIAL | Settings exists as a tab; the old missing-Settings verdict below is obsolete. Full Settings-window behavior is unverified. |
+| Config isolation | HAVE (source) | This nightly defaults to cmux-next.json, with one-time classic seeding. The old shared-config blocker below is obsolete for this nightly. |
+| Classic NIGHTLY coexistence | BROKEN | Both share com.cmuxterm.app.nightly and /tmp/cmux-nightly.sock. Classic owned the socket during capture. App exit cause is unproven. |
+| Long-run stability/resources | UNVERIFIED | 20-minute soak and 10-session CPU/memory measurements remain deferred to a dedicated host. |
+
+The overnight BusyWatchdog crash was fixed and merged in
+[#17290](https://github.com/manaflow-ai/cmux/pull/17290), after an executed red
+50,000-read regression and a green 112-test control suite, exact-head local
+fleet compile, and launch smoke. The audited published nightly predates that
+repair. A new nightly and longer soak are still required.
+
+Release identity belongs to Lawrence's release decision. Missing F2 is already
+in open #17188; live status is already in #16819/#16431. Groups source is merged
+in #17186; it is not a source-missing finding. Avoid duplicate fixes in those
+lanes. The optional ACP appendix remains unverified and follows
+`agent-pane-gaps.md` and `acp-ui-integration.md` ownership.
+
+For new capture chunks, use `capture-host acquire`, use its printed alias, run
+CUA directly under the lease, quit only the owned app, confirm the PID is gone,
+and release. Never nest `with-host-lock` under a lease. Prepare the actions
+before acquiring and record a four-minute cleanup deadline to leave time for
+quit/release. Pull artifacts on the mini with `cmux-ci artifact`, or directly
+from fleet CAS there; never copy app bundles between hosts. Repair guidance is
+in HQ REPAIR.md, updated by merged #1273/#1284.
+
+Localization audit: this update changes contributor evidence only, with no
+product strings or localization catalog changes. `localize-changes --base HEAD`
+prepared zero new/changed keys, then the strict catalog validator failed on
+22,088 pre-existing catalog parity errors (including Accounts needs-review
+entries). No catalog was modified; that inherited repair is outside this report.
+
+## Historical 2026-10-03 report (superseded where noted above)
+
 Checked source: `origin/feat-cmux-next` at `91d0fd4c1d76073cfa6327b3a00cc0f101d14c49`.
 The exact SHA produced fleet job `816bd0a3235568c95ae0caec` (`dd-91d0fd4c`) in
 142.60 seconds. This was the brief's explicit `--backend-mode local` build, so
