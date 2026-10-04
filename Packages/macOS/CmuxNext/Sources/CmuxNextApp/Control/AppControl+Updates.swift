@@ -51,6 +51,7 @@ extension AppControl {
         case "hidden": .hidden
         case "checking": .checking
         case "downloading": .downloading(progress: params["progress"]?.doubleValue)
+        case "available": .available(version: params["version"]?.stringValue)
         case "ready": .ready(version: params["version"]?.stringValue)
         case "installing": .installing
         case "note": .note(params["text"]?.stringValue ?? "", isError: params["error"]?.boolValue == true)

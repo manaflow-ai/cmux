@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
 import Observation
@@ -34,5 +35,28 @@ extension UpdaterService {
                 }
             }
         } ?? 0
+    }
+
+    /// Follows `updates.*` in cmux.json (R114): the gate's preferences and
+    /// Sparkle's schedule and download behavior.
+    func follow(_ settings: SettingsController) {
+        settingsObservation?.cancel()
+        settingsObservation = Task { [weak self, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await updates in Observations({ settings.snapshot.updates }) {
+                self?.apply(updates)
+            }
+        }
+    }
+
+    func apply(_ updates: UpdatesSettings) {
+        let preferences = UpdatePreferences(
+            installOnQuit: updates.installOnQuit,
+            notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .card,
+            quietHours: updates.quietHours.map { UpdateQuietHours(start: $0.start, end: $0.end) })
+        if self.preferences != preferences { self.preferences = preferences }
+        configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
+                  downloadAutomatically: updates.downloadAutomatically)
     }
 }

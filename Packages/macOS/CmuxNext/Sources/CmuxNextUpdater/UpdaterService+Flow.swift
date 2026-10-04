@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The R114 gate (``UpdateFlow``) wired to Sparkle and the App: the card
 /// and the Settings badge show only a staged update, a click installs at
@@ -20,9 +20,9 @@ extension UpdaterService {
     /// ``installNow()`` and ``installLater()``.
     public func cardClicked() {
         switch card {
-        case .ready: installClicked()
+        case .ready, .available: installClicked()
         case .note(_, isError: true): presentUpdateUI?()
-        case .checking, .available, .downloading, .waiting, .installing, .note, nil: break
+        case .checking, .downloading, .waiting, .installing, .note, nil: break
         }
     }
 
@@ -88,7 +88,10 @@ extension UpdaterService {
                 log.append("gate: no dialog host, waiting for \(blockers.busyAgents) agents")
                 send(.interruptDeclined)
             }
-        case .quit, .download:
+        case .download:
+            log.append("gate: downloading the available update")
+            acceptAvailable()
+        case .quit:
             break
         }
     }
@@ -131,5 +134,15 @@ extension UpdaterService {
     static func minuteOfDay(_ date: Date) -> Int {
         let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
         return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+    }
+}
+
+extension UpdaterService {
+    /// Applies `updates.checkAutomatically`, `checkIntervalSeconds` and
+    /// `downloadAutomatically` to Sparkle. No-op without a driver.
+    public func configure(checkAutomatically: Bool, checkInterval: TimeInterval, downloadAutomatically: Bool) {
+        guard let controller else { return }
+        controller.downloadsUpdatesInBackground = downloadAutomatically
+        controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
     }
 }

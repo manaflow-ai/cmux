@@ -50,9 +50,12 @@ public final class UpdaterService {
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
     @ObservationIgnored var cancelStaged: () -> Void = {}
+    @ObservationIgnored var acceptAvailable: () -> Void = {}
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     /// The App's observation of what a relaunch would interrupt.
     @ObservationIgnored public var blockersObservation: Task<Void, Never>?
+    /// The App's observation of the `updates.*` settings.
+    @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored var quietTimer: Task<Void, Never>?
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let now: () -> Date
@@ -114,6 +117,7 @@ public final class UpdaterService {
         if let controller {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
+            acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
         }
         minuteOfDay = Self.minuteOfDay(now())
     }
@@ -203,10 +207,10 @@ public final class UpdaterService {
         controller.model.setOverrideState(nil)
         syncFlowPhase()
         switch flow.phase {
-        case .ready, .downloading, .checking:
+        case .ready, .available, .downloading, .checking:
             // The gate installs once the update is staged and no agent is busy.
             send(.installRequested)
-        case .hidden, .installing, .note, .available:
+        case .hidden, .installing, .note:
             // Nothing found yet: an explicit install runs Sparkle's attempt
             // flow (a fresh check that installs the newest at once).
             controller.attemptUpdate()

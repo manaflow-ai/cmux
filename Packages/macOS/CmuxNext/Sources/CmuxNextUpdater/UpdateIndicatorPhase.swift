@@ -53,7 +53,9 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
         case .checking:
             self = .checking
         case .updateAvailable(let available):
-            self = .ready(version: available.appcastItem.displayVersionString)
+            // Only with `updates.downloadAutomatically` off: background
+            // installs accept every other found update at once.
+            self = .available(version: available.appcastItem.displayVersionString)
         case .notFound:
             self = .note(UpdaterStrings.upToDate, isError: false)
         case .error:

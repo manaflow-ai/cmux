@@ -34,7 +34,12 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
                 // Installs once staged.
                 installRequested = true
                 return []
-            case .hidden, .installing, .note, .available:
+            case .available:
+                // Downloads, shows its progress, installs once staged.
+                installRequested = true
+                userAsked = true
+                return [.download]
+            case .hidden, .installing, .note:
                 return []
             }
         case .installNowRequested:
@@ -107,8 +112,10 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// the user asked for (a check, a held install) always shows.
     public func card(preferences: UpdatePreferences, minuteOfDay: Int) -> UpdateCard? {
         switch phase {
-        case .hidden, .available:
+        case .hidden:
             return nil
+        case .available(let version):
+            return quietCard(.available(version: version), preferences: preferences, minuteOfDay: minuteOfDay)
         case .checking:
             return userAsked ? .checking : nil
         case .downloading(let progress):
@@ -121,18 +128,23 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             if installRequested, !blockers.isEmpty {
                 return .waiting(version: version, busyAgents: blockers.busyAgents)
             }
-            guard preferences.notify == .card else { return nil }
-            if let quiet = preferences.quietHours, quiet.contains(minuteOfDay: minuteOfDay) { return nil }
-            return .ready(version: version)
+            return quietCard(.ready(version: version), preferences: preferences, minuteOfDay: minuteOfDay)
         }
+    }
+
+    /// A card nobody asked for: only with `notify = card`, outside quiet hours.
+    private func quietCard(_ card: UpdateCard, preferences: UpdatePreferences, minuteOfDay: Int) -> UpdateCard? {
+        guard preferences.notify == .card else { return nil }
+        if let quiet = preferences.quietHours, quiet.contains(minuteOfDay: minuteOfDay) { return nil }
+        return card
     }
 
     /// The badge on the Settings item: a staged update, unless silent.
     public func showsSettingsBadge(preferences: UpdatePreferences) -> Bool {
         guard preferences.notify != .silent else { return false }
         switch phase {
-        case .ready, .installing: return true
-        case .hidden, .checking, .available, .downloading, .note: return false
+        case .available, .ready, .installing: return true
+        case .hidden, .checking, .downloading, .note: return false
         }
     }
 }

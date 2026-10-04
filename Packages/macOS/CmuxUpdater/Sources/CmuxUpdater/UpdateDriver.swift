@@ -100,7 +100,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source)
         }
-        if installsInBackground { return acceptInBackground(available) }
+        if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
         setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 

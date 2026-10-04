@@ -41,5 +41,15 @@ extension UpdateController {
     }
 
     /// Downloads the update that waits for the user; it then stages like a background download.
-    public func acceptAvailableUpdate() {}
+    public func acceptAvailableUpdate() {
+        guard case .updateAvailable(let available) = model.state, !available.reply.isConsumed else { return }
+        driver.acceptInBackground(available)
+    }
+
+    /// Sparkle's automatic-check schedule (the `SU*` keys; Sparkle persists them and restarts
+    /// its cycle). Writes only what changed.
+    public func setSchedule(automaticChecks: Bool, interval: TimeInterval) {
+        if updater.automaticallyChecksForUpdates != automaticChecks { updater.automaticallyChecksForUpdates = automaticChecks }
+        if updater.updateCheckInterval != interval { updater.updateCheckInterval = interval }
+    }
 }
