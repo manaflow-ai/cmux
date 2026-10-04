@@ -362,7 +362,13 @@ new body. No raw address, token or token hash is ever projected.
   commit answers 409 `attachment.preview_missing` until then. Commit writes `preview {hash,
   mime_type, byte_count, etag}` on the image's record; quota, expiry, refusals, the sweep and
   conversation deletion treat it exactly like a poster. The client makes the preview; the server
-  never decodes images.
+  never decodes images. The derived PUT also checks that the slot's own type names the URL's
+  variant, behind the per-variant token purpose; a mismatch is 403 and stores nothing.
+- First upload wins, including its derived image; a client adopts the stored ref. An intent for a
+  hash already recorded here answers `exists` with the stored record as it is: when that record
+  has no preview (or poster), the answer has none and no `preview_upload` (`poster_upload`), and
+  the preview the new intent declared is dropped. No path attaches a derived image to an existing
+  record. The client uses the returned attachment (with or without a preview) as its part's ref.
 - Use in messages: `message.send`/`message.edit` accept a hash only when the author uploaded it
   here or a message above the author's history floor references it; every other case is the same
   `unknown_attachment`. A part's `poster` is valid only on a video part and its `preview` only on
