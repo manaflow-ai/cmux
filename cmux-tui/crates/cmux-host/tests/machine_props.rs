@@ -1,6 +1,8 @@
 //! Property tests of the bind state machine and the retry rules.
 
-use cmux_host::machine::{Action, DaemonState, HEALTHY_RUN_MS, Input, Machine, Observation};
+use cmux_host::machine::{
+    Action, DaemonState, HEALTHY_RUN_MS, Input, Lifecycle, Machine, Observation, StopReason,
+};
 use cmux_host::retry::{ArmError, MAX_BACKOFF_MS, RearmOutcome, rearm_bounded};
 use proptest::prelude::*;
 
@@ -57,8 +59,13 @@ proptest! {
         let mut binds: Vec<String> = Vec::new();
         let mut readies = 0usize;
         let mut observed = false;
+        // Roles as the agent sees them: started, or stopped by a park, a
+        // shutdown or a rebind.
+        let mut roles_up = false;
         for (op, refuse) in ops {
             let stopping_before = matches!(m.daemon(), DaemonState::Stopping(_));
+            let rebind_stop_before =
+                matches!(m.daemon(), DaemonState::Stopping(StopReason::Bind(_)));
             let running_before = m.daemon() == &DaemonState::Running;
             let bound_before = w.bound.clone();
             let input = match &op {
@@ -146,9 +153,28 @@ proptest! {
                 .filter_map(|a| if let Action::Reseed(x) = a { Some(x) } else { None })
                 .collect();
             prop_assert!(step_reseeds.len() <= 1, "{actions:?}");
+            // Security review P2-2: no Resumed and no announce while a bind
+            // waits for the old session host to exit.
+            if matches!(op, Op::Resume) && rebind_stop_before {
+                let resumed = actions.iter().any(|a| {
+                    matches!(a, Action::Notify(Lifecycle::Resumed) | Action::Announce)
+                });
+                prop_assert!(!resumed, "{actions:?}");
+            }
             for action in &actions {
                 match action {
+                    Action::StartRoles(_) => roles_up = true,
+                    Action::ParkRoles | Action::ShutdownRoles => roles_up = false,
+                    other if other.name() == "stop-roles" => roles_up = false,
+                    Action::Notify(_) => {
+                        prop_assert!(roles_up, "event to stopped roles: {actions:?}");
+                    }
+                    _ => {}
+                }
+                match action {
                     Action::Reseed(x) => {
+                        // P2-2: roles never run while the identity changes.
+                        prop_assert!(!roles_up, "roles run during a rebind: {actions:?}");
                         if matches!(op, Op::Observe(_)) {
                             prop_assert_ne!(Some(x), w.bake.as_ref(), "the bake id never binds");
                         }

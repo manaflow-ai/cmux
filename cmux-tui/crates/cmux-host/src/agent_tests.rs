@@ -301,3 +301,49 @@ fn address_change_rereads_metadata() {
     assert_eq!(ran.iter().filter(|a| *a == "spawn-daemon").count(), 1, "{ran:?}");
     assert_eq!(ran.iter().filter(|a| *a == "ready").count(), 1, "{ran:?}");
 }
+
+/// Security review P2-1: after a clone signal (clock set or driver file)
+/// a failed metadata read arms the bounded retry also while the session
+/// host runs, so a fork of a running machine does not keep the source
+/// machine's identity until some later kernel event. Resumed waits for a
+/// read that confirms the id.
+#[test]
+fn failed_read_after_a_clone_signal_retries_while_the_host_runs() {
+    for signal in [Wake::ClockSet, Wake::DriverFile] {
+        let events = Events::default();
+        let mut fake = Fake::new(
+            vec![vec![signal], vec![Wake::Retry], vec![Wake::Retry]],
+            vec![Some("vm-1"), None, None, Some("vm-2")],
+        );
+        fake.bound = Some("vm-1".to_owned());
+        let mut agent = agent(fake, &events);
+        agent.run().unwrap();
+        let ran = &agent.platform().ran;
+        let retries = ran.iter().filter(|a| *a == "arm-retry").count();
+        assert_eq!(retries, 2, "{signal:?}: {ran:?}");
+        assert!(ran.contains(&"terminate-daemon".to_owned()), "{signal:?}: {ran:?}");
+        assert_eq!(events.all(), ["start:vm-1", "stop"], "{signal:?}");
+    }
+}
+
+/// Security review P2-2: a fork of a running machine stops the roles
+/// before the identity changes, sends no Resumed and no announce while
+/// the old session host stops, and starts the roles again with the new
+/// id at the commit, followed by Bound.
+#[test]
+fn rebind_of_a_running_machine_restarts_roles_without_resumed() {
+    let events = Events::default();
+    let mut fake = Fake::new(
+        vec![vec![Wake::DriverFile, Wake::ClockSet], vec![Wake::ProcessExit]],
+        vec![Some("vm-1"), Some("vm-2")],
+    );
+    fake.bound = Some("vm-1".to_owned());
+    fake.exits.push_back(Exit::Daemon { lived_ms: 1 });
+    let mut agent = agent(fake, &events);
+    agent.run().unwrap();
+    assert_eq!(events.all(), ["start:vm-1", "stop", "start:vm-2", "bound", "shutdown", "stop"]);
+    let ran = &agent.platform().ran;
+    let term = ran.iter().position(|a| a == "terminate-daemon").expect("old host stopped");
+    let reseed = ran.iter().position(|a| a == "reseed").expect("rebind");
+    assert!(!ran[term..reseed].iter().any(|a| a == "announce"), "{ran:?}");
+}

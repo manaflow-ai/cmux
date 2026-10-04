@@ -181,9 +181,50 @@ impl Drop for Harness {
         if let Some(pid) = self.status().and_then(|s| s.daemon_pid)
             && alive(pid)
         {
-            // SAFETY: cleanup of the fake session host this test started.
-            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+            kill_group(pid);
         }
+    }
+}
+
+/// SIGKILLs a process group. The session host runs under `setsid`, so its
+/// pid is its group: the fake host's `sleep 600` dies with it.
+fn kill_group(pid: u32) {
+    // SAFETY: kill of a process group this test started.
+    unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+}
+
+/// A process that looks like a terminal host of the test user
+/// (`.../cmux-tui __terminal-host`): `sh` with that argv runs the script
+/// file `__terminal-host`. Killed with its group on drop.
+struct FakeTerminalHost(Child);
+
+impl FakeTerminalHost {
+    fn start(dir: &Path) -> Self {
+        use std::os::unix::process::CommandExt;
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join("__terminal-host"), "sleep 600\n").unwrap();
+        let child = Command::new("/bin/sh")
+            .arg0(dir.join("cmux-tui"))
+            .arg("__terminal-host")
+            .current_dir(dir)
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        Self(child)
+    }
+
+    fn pid(&self) -> u32 {
+        self.0.id()
+    }
+}
+
+impl Drop for FakeTerminalHost {
+    fn drop(&mut self) {
+        kill_group(self.0.id());
+        let _ = self.0.wait();
     }
 }
 
@@ -253,12 +294,24 @@ fn agent_binds_parks_adopts_and_restarts() {
     assert_eq!(l.iter().filter(|x| x.starts_with("reseed id=")).count(), 2, "{l:#?}");
     wait_until("old host gone", || !alive(first_pid));
 
+    // Security review P2-3: a terminal host of the same user that is not
+    // recorded under this daemon home (another test's, on a shared box)
+    // survives the park; a recorded one is stopped.
+    let scratch = h.root.parent().unwrap();
+    let foreign = FakeTerminalHost::start(&scratch.join("foreign"));
+    let ours = FakeTerminalHost::start(&scratch.join("ours"));
+    let records = h.home.join(".local/state/cmux-tui/sessions/cloud/terminal-hosts-t");
+    fs::create_dir_all(&records).unwrap();
+    fs::write(records.join("h.json"), format!("{{\"host_pid\":{}}}", ours.pid())).unwrap();
+
     // Park: the bake writes its id; host stopped, no spawn after.
     fs::write(h.at("/etc/cmux/bake-instance-id"), "vm-b\n").unwrap();
     wait_until("parked", || h.status().is_some_and(|s| s.parked && s.daemon == "down"));
     let l = lines(&log);
     let park = index(&l, 0, "park-housekeeping");
     index(&l, park, "stop-terminal-hosts");
+    wait_until("recorded terminal host stopped", || !alive(ours.pid()));
+    assert!(alive(foreign.pid()), "the park stopped a terminal host outside this daemon home");
     let wakes = h.status().unwrap().wakes;
     h.clone_to("vm-b"); // another wake while parked: still no spawn
     wait_until("parked wake", || h.status().is_some_and(|s| s.wakes > wakes));
@@ -283,9 +336,8 @@ fn agent_binds_parks_adopts_and_restarts() {
         lines(&log2)
     );
 
-    // Crash: the adopted host dies; the agent restarts it.
-    // SAFETY: kill of the fake session host this test started.
-    unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+    // Crash: the adopted host dies (with its `sleep`); the agent restarts it.
+    kill_group(pid);
     wait_until("restart", || h.status().is_some_and(|s| s.daemon_pid.is_some_and(|p| p != pid)));
     terminate(&mut agent);
 }

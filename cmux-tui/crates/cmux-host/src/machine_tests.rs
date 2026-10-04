@@ -98,7 +98,7 @@ fn fork_of_running_machine_stops_old_host_before_identity_work() {
     let first = m.step(obs(Some("parent"), None, Some("parent")));
     assert_eq!(names(&first), ["start-roles", "arm-announce", "ready"]);
     let actions = m.step(obs(Some("child"), None, Some("parent")));
-    assert_eq!(names(&actions), ["terminate-daemon"]);
+    assert_eq!(names(&actions), ["stop-roles", "terminate-daemon"]);
     // A wake during the stop is deferred, not a second bind.
     assert!(m.step(obs(Some("child"), None, Some("parent"))).is_empty());
     assert_eq!(names(&m.step(Input::StopDeadline)), ["kill-daemon"]);
@@ -210,7 +210,8 @@ fn restarts_go_through_a_fresh_observation() {
     let clone = run(&mut m, Input::BackoffElapsed, &world);
     assert!(clone.is_empty());
     let after = m.step(obs(Some("y"), None, Some("x")));
-    assert_eq!(after[0], Action::Reseed("y".to_owned()), "{after:?}");
+    assert_eq!(names(&after)[..2], ["stop-roles", "reseed"], "{after:?}");
+    assert_eq!(after[1], Action::Reseed("y".to_owned()));
 }
 
 #[test]
@@ -330,4 +331,39 @@ fn agent_restart_on_bound_machine_starts_the_announce_loop_once() {
     assert!(first.contains(&Action::ArmAnnounce));
     let second = m.step(obs(Some("x"), None, Some("x")));
     assert!(!second.contains(&Action::ArmAnnounce), "{second:?}");
+}
+
+/// Security review P2-2: roles are stopped before the identity changes,
+/// hear nothing (no Resumed, no announce) while it changes, stay stopped
+/// after a failed bind, and start again with the new id at the commit.
+#[test]
+fn roles_stay_stopped_through_a_rebind_and_after_a_failed_bind() {
+    let mut m = Machine::new();
+    run(&mut m, obs(Some("p"), None, Some("p")), &ob(Some("p"), None, Some("p")));
+    let fork = m.step(obs(Some("x"), None, Some("p")));
+    assert_eq!(names(&fork), ["stop-roles", "terminate-daemon"]);
+    assert!(m.step(Input::ResumeSignal).is_empty(), "no Resumed or announce during the stop");
+    assert!(m.step(Input::AnnounceTick).is_empty(), "no announce during the stop");
+    let group = m.step(Input::DaemonExited { lived_ms: 1 });
+    assert!(names(&group).contains(&"commit-bind"), "{group:?}");
+    assert!(m.step(Input::ResumeSignal).is_empty(), "nor while the identity group is out");
+    assert_eq!(names(&m.step(Input::BindFailed("x".to_owned()))), ["arm-retry"]);
+    assert_eq!(m.daemon(), &DaemonState::Down);
+    for input in [
+        Input::ResumeSignal,
+        Input::AnnounceTick,
+        Input::AddressesChanged,
+        Input::ConfigChanged,
+        Input::ChannelChanged,
+    ] {
+        let actions = m.step(input);
+        let leaked = actions.iter().any(|a| matches!(a, Action::Notify(_) | Action::Announce));
+        assert!(!leaked, "roles keep the old identity after a failed bind: {actions:?}");
+    }
+    // The retry binds: roles start with the new id, then hear Bound.
+    m.step(Input::RetryElapsed);
+    let rest = run(&mut m, obs(Some("x"), None, Some("p")), &ob(Some("x"), None, Some("x")));
+    let start = names(&rest).iter().position(|a| *a == "start-roles").expect("roles start");
+    assert_eq!(rest[start], Action::StartRoles(Some("x".to_owned())));
+    assert_eq!(rest[start + 1], Action::Notify(Lifecycle::Bound("x".to_owned())));
 }
