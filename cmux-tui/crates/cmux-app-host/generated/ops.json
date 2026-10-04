@@ -82,7 +82,6 @@
     "cloud.shell.open",
     "cloud.snapshot.create",
     "cloud.snapshot.list",
-    "cloud.snapshot.restore",
     "codemirror.cycle_variant",
     "codemirror.open",
     "codemirror.revert",

@@ -55,10 +55,10 @@ fn another_error_keeps_the_machine_and_emits_nothing() {
         "cloud.machine.get",
         json!({ "machine": vm(1) }),
         None,
-        json!({ "error": { "code": "auth.forbidden", "message": "not yours", "retryable": false } }),
+        json!({ "error": { "code": "selector.not_found", "message": "no route", "retryable": false } }),
     );
     let get = Request::new("cloud.machine.get", json!({ "machine": vm(1) }));
-    assert_eq!(s.handle(&get).unwrap_err().code, "cmux.cloud.forbidden");
+    assert_eq!(s.handle(&get).unwrap_err().code, "cmux.cloud.not_found");
     assert!(s.projection().get(&vm(1)).is_some(), "only the machine's own code removes it");
     assert!(s.take_events().is_empty());
 }

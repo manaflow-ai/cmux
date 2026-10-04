@@ -325,10 +325,6 @@
       "scope": "cloud:read",
       "class": "read"
     },
-    "cloud.snapshot.restore": {
-      "scope": "cloud:write",
-      "class": "mutation"
-    },
     "codemirror.cycle_variant": {
       "scope": "codemirror:write",
       "class": "mutation"
@@ -1651,6 +1647,7 @@
     "cloud.machine.resize",
     "cloud.port.close",
     "cloud.snapshot.delete",
+    "cloud.snapshot.restore",
     "domain.release",
     "firewall.delete",
     "frontend_projection.get",

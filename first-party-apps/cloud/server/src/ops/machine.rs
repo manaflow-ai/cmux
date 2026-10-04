@@ -121,6 +121,7 @@ fn gone_if_not_found<C: ControlPlane, T>(
     answer: Result<T, CloudError>,
 ) -> Result<T, CloudError> {
     if let Err(error) = &answer
+        && error.code == codes::NOT_FOUND
         && error.upstream_code.as_deref() == Some("cloud.machine.not_found")
     {
         ctx.projection.remove(id);

@@ -5,15 +5,25 @@
 //! `cmux.cloud.protocol_error`. `tests/manifest.rs` checks this table
 //! against the backend catalog.
 
-/// Every read: the Worker's own refusals and an unreachable owner.
-const READ: &[&str] =
-    &["auth.forbidden", "auth.unauthenticated", "owner.unreachable", "validation.invalid"];
+/// Every read: the Worker's own refusals and gates (SSO, client version),
+/// an unreachable owner, and an unknown selector.
+const READ: &[&str] = &[
+    "auth.forbidden",
+    "auth.sso_required",
+    "auth.unauthenticated",
+    "client.too_old",
+    "owner.unreachable",
+    "selector.not_found",
+    "validation.invalid",
+];
 
-/// Every mutation: the shared mutation errors (`op-def.ts` `mutationErrors`)
-/// and an unreachable owner.
+/// Every mutation: the shared mutation errors (`op-def.ts` `mutationErrors`),
+/// the Worker's gates and an unreachable owner.
 const MUTATION: &[&str] = &[
     "auth.forbidden",
+    "auth.sso_required",
     "auth.unauthenticated",
+    "client.too_old",
     "idempotency.conflict",
     "owner.unreachable",
     "revision.conflict",

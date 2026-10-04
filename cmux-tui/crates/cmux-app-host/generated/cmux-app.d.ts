@@ -488,7 +488,7 @@ interface CmuxGlobal {
     machine: {
       /** `cloud.machine.connect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Open the one private link (carrier) to a machine and return it. A second call while the link is up returns the same carrier and starts no new link. A paused machine is started first. Not a focus change. When the link goes down nothing reconnects by itself and nothing queues: call connect again, also with the same key: connect is never replayed from the ledger. */
       connect: CmuxOp<{ machine: string }, { machine: string; carrier: string; generation: number; state: "up"; socket: string }>
-      /** `cloud.machine.connect_info` (read, scope `cloud:read`): How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. */
+      /** `cloud.machine.connect_info` (read, scope `cloud:read`): How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. The result carries a dial credential (link_token), so the op is off MCP and hidden on the CLI. */
       connect_info: CmuxOp<{ machine?: Cmux.MachineId; host?: Cmux.HostId }, Cmux.CloudConnectInfo>
       /** `cloud.machine.disconnect` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): End the link to a machine and forget it, also after a revocation. Every terminal of that machine on this Mac shows the disconnected state. The machine keeps running. */
       disconnect: CmuxOp<{ machine: string }, { machine: string; disconnected: boolean }>
@@ -540,8 +540,6 @@ interface CmuxGlobal {
       create: CmuxOp<{ machine: Cmux.MachineId; name?: string; expected_revision?: string }, Cmux.MutationResult<{ snapshot: Cmux.CloudSnapshot }>>
       /** `cloud.snapshot.list` (read, scope `cloud:read`): Snapshots of one machine, or of the team. */
       list: CmuxOp<{ machine?: Cmux.MachineId }, { snapshots: Array<Cmux.CloudSnapshot> }>
-      /** `cloud.snapshot.restore` (mutation, scope `cloud:write`): Create a new machine from a snapshot (plan checks as create). After mutation.indeterminate, retry with the same idempotency key. */
-      restore: CmuxOp<{ snapshot: Cmux.SnapshotId; name?: string; expected_revision?: string }, Cmux.MutationResult<{ machine: Cmux.CloudMachine }>>
     }
   }
   codemirror: {
