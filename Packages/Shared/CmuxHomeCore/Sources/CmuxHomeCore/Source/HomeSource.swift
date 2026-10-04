@@ -99,6 +99,28 @@ public protocol HomeSource: Sendable {
     /// Looks up whether an address already belongs to a cmux user.
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution
 
+    /// Uploads one prepared attachment's bytes (and its poster, when set) to
+    /// the conversation's blob storage under `file.ref.hash`. Idempotent by
+    /// hash: a blob the conversation already holds succeeds without sending
+    /// the bytes again. Files over `HomeAttachmentPolicy.streamMaxBytes` use
+    /// the owner's presigned PUT and its commit call before returning; a 412
+    /// on a retried presigned PUT means the first attempt landed, so commit.
+    /// A video with `ref.poster` declares it in the intent and PUTs the poster
+    /// to the answer's `poster_upload` before the video's PUT or commit (the
+    /// owner answers 409 `attachment.poster_missing` until then). An image
+    /// with `ref.preview` does the same with its preview (intent field
+    /// `preview {sha256, byte_count, mime_type}`, url variant `preview`).
+    /// Returns the stored ref; its `hash` equals `file.ref.hash`.
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef
+
+    /// A local file URL holding the variant's bytes. `location` names the
+    /// conversation and, when known, the message part that references the
+    /// hash (the owner mints download URLs per part). Idempotent (the same
+    /// ref and variant return the same file) and cancel-safe (a cancelled
+    /// fetch never leaves a partial file behind). A source without a
+    /// thumbnail service downsamples the original itself.
+    func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL
+
     /// The conversation's transcript left the screen: the store shows it
     /// nowhere now. A source that subscribed it for the transcript may end
     /// that subscription; the inbox entry stays as its owner lists it.
@@ -108,4 +130,14 @@ public protocol HomeSource: Sendable {
 extension HomeSource {
     /// Sources that keep no per-transcript state ignore it.
     public func close(_ conversation: ConversationID) {}
+
+    /// Default for sources without blob storage.
+    public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        throw HomeRejection.invalid("attachments unsupported")
+    }
+
+    /// Default for sources without blob storage.
+    public func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        throw HomeRejection.invalid("attachments unsupported")
+    }
 }

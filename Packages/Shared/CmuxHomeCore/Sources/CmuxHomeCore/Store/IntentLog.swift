@@ -15,10 +15,19 @@ public struct PendingIntent: Hashable, Sendable, Identifiable {
         case failed(HomeRejection)
     }
 
-    public let intent: HomeIntent
+    /// Replaced only before a send first reaches the owner (its parts adopt
+    /// the owner's stored attachment records); the key never changes.
+    public internal(set) var intent: HomeIntent
     public var state: State
     /// Set once the intent was resent without waiting for a reconnect.
     public var resentImmediately = false
+    /// A send still uploading its attachments: not sent to the owner yet,
+    /// so a disconnect or reconnect never resends it.
+    public var isUploading = false
+    /// A send waiting for an earlier send in its conversation to reach the
+    /// owner first: not sent yet, so a disconnect or reconnect never
+    /// resends it.
+    public var isQueued = false
 
     public init(intent: HomeIntent, state: State = .sending) {
         self.intent = intent
@@ -53,6 +62,41 @@ public struct IntentLog: Hashable, Sendable {
         update(key) { $0.state = .failed(rejection) }
     }
 
+    /// The uploads of a send finished (`uploading: false`) or a failed send
+    /// uploads again with the same key (`uploading: true`, back to `.sending`).
+    public mutating func setUploading(_ key: IdempotencyKey, _ uploading: Bool) {
+        update(key) {
+            $0.isUploading = uploading
+            if uploading { $0.state = .sending }
+        }
+    }
+
+    /// Replaces the op of a send that has not reached the owner yet (same
+    /// key, same position). False when the key is not in the log.
+    @discardableResult
+    public mutating func replaceOp(_ key: IdempotencyKey, with op: HomeOp) -> Bool {
+        guard let index = entries.firstIndex(where: { $0.intent.key == key }) else { return false }
+        let old = entries[index].intent
+        entries[index].intent = HomeIntent(key: key, op: op, issuedAt: old.issuedAt)
+        return true
+    }
+
+    /// Gives a refused send a new key in the same position, uploading again
+    /// (the owner's ledger keeps the refused key, so the same key would get
+    /// the same refusal). The row's id changes with the key.
+    public mutating func rekey(_ key: IdempotencyKey, to newKey: IdempotencyKey) {
+        guard let index = entries.firstIndex(where: { $0.intent.key == key }),
+              !entries.contains(where: { $0.intent.key == newKey }) else { return }
+        let old = entries[index].intent
+        var entry = PendingIntent(intent: HomeIntent(key: newKey, op: old.op, issuedAt: old.issuedAt))
+        entry.isUploading = true
+        entries[index] = entry
+    }
+
+    public mutating func setQueued(_ key: IdempotencyKey, _ queued: Bool) {
+        update(key) { $0.isQueued = queued }
+    }
+
     public mutating func discard(_ key: IdempotencyKey) {
         entries.removeAll { $0.intent.key == key }
     }
@@ -71,6 +115,22 @@ public struct IntentLog: Hashable, Sendable {
         entries[index].state = .sending
         entries[index].resentImmediately = true
         return entries[index].intent
+    }
+
+    /// Takes one unconfirmed intent for a resend after a backoff delay.
+    public mutating func takeResend(_ key: IdempotencyKey) -> HomeIntent? {
+        guard let index = entries.firstIndex(where: { $0.intent.key == key }), entries[index].state == .unconfirmed else { return nil }
+        entries[index].state = .sending
+        return entries[index].intent
+    }
+
+    /// A failed intent the owner never decided goes out again with the
+    /// same key (`.sending`, immediate resend allowed again).
+    public mutating func revive(_ key: IdempotencyKey) {
+        update(key) {
+            $0.state = .sending
+            $0.resentImmediately = false
+        }
     }
 
     /// Drops intents whose conversation left the inbox. Returns their keys.
@@ -100,7 +160,8 @@ public struct IntentLog: Hashable, Sendable {
 
     /// On disconnect: everything still in flight becomes unconfirmed.
     public mutating func markDisconnected() {
-        for index in entries.indices where entries[index].state == .sending {
+        for index in entries.indices
+        where entries[index].state == .sending && !entries[index].isUploading && !entries[index].isQueued {
             entries[index].state = .unconfirmed
         }
     }

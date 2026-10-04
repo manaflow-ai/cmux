@@ -200,7 +200,7 @@ fn rescue_open_answers_unsupported_without_a_route() {
         .key("r-1");
     let err = s.handle(&request).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.unsupported");
-    assert!(s.control_plane().calls.is_empty(), "no Cloud API call, no machine start");
+    assert!(s.control_plane().no_calls(), "no Cloud API call, no machine start");
 }
 
 #[test]
@@ -264,5 +264,5 @@ fn rescue_open_without_the_hosts_open_token_is_refused_before_any_call() {
         assert_eq!(code, Err("cmux.cloud.invalid_args"), "{code:?}");
     }
     assert!(transport.log().opened.is_empty(), "no stream opened");
-    assert!(s.control_plane().calls.is_empty(), "no Cloud API call, no machine start");
+    assert!(s.control_plane().no_calls(), "no Cloud API call, no machine start");
 }

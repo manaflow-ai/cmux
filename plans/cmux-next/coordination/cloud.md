@@ -1,0 +1,10 @@
+# Lane: cloud
+
+## Active streams
+- cmux-next Cloud client side (Cloud lead v2, R115 + R121). Contract plans/cmux-next/cloud-client-contract.md (accepted by the backend lead, state-placement.md 5). The backend lead owns the Worker/CloudDO <> Freestyle backend; this lane owns `cmux-cloud` (first-party-apps/cloud/server), the Cloud page and the Swift glue. Shared vectors: backend/catalog/cloud-vectors.json (decision CLOUD-VECTORS).
+- TRANSITIONAL classic channel (`ControlPlane::classic`, an HttpCall to the classic `/api/vm` routes), to be removed by the link slice: src/link/ops.rs (attach endpoint), src/fs/transfer.rs (scp endpoint), src/fs/files.rs (classic file routes). No other caller may use it.
+- Follow-ups from the backend lead's answers (a1c6283b256): read errors carry only each op's declared codes; mutation.indeterminate is retryable with the same key; backend/catalog owns the client-facing cloud.* names and the app-server fragment declares none; team events {event, data} come from a generated EventFrame mapping.
+
+## Landed
+- 2026-10-04 7bd95bec06a cloud: cmux-cloud speaks cmux.wire/1 (red 2c0e979b262, fix d41a2a78e0a, review fixes 7bd95bec06a): WireCall replaces HttpCall; typed wire errors; list paging; projection by team revision and events; new ops connect_info, billing.checkout, migration.status/start, machine.upgrade; network/domain/firewall/tunnel/publication ops, stats, snapshot.fork, usage.get and 46 /api/vm fixtures deleted (decision C1); backend/catalog/cloud-vectors.json added; cmux-app-host generated files regenerated (Cloud lead v2)
+- 2026-10-04 60a39da3892 plans: cloud-client-contract.md (Cloud lead v2)

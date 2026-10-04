@@ -1,7 +1,12 @@
 //! Unit tests of the driver internals in `net.rs`.
-use smoltcp::wire::IpAddress;
+use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
+use smoltcp::socket::tcp;
+use smoltcp::time::Instant as SmolInstant;
+use smoltcp::wire::{HardwareAddress, IpAddress, IpCidr, IpEndpoint};
 
 use super::*;
+use crate::device::VirtualDevice;
+use crate::tcp_stack::{FIRST_EPHEMERAL_PORT, TCP_TIMEOUT};
 
 struct TcpPeer {
     iface: Interface,
@@ -20,7 +25,7 @@ impl TcpPeer {
             addresses.push(IpCidr::new(address, 24)).unwrap();
         });
         let mut sockets = SocketSet::new(Vec::new());
-        let handle = sockets.add(Driver::new_socket(TCP_TIMEOUT));
+        let handle = sockets.add(TcpStack::new_socket(TCP_TIMEOUT));
         Self { iface, device, sockets, handle }
     }
 
@@ -126,14 +131,14 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
         Driver::new(pair.client, Box::new(underlay), receiver, Arc::new(Notify::new())).unwrap();
     let (reply, pending) = oneshot::channel();
     driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
-    assert_eq!(driver.conns.len(), 1);
-    assert_eq!(driver.sockets.iter().count(), 1);
+    assert_eq!(driver.stack.conns.len(), 1);
+    assert_eq!(driver.stack.sockets.iter().count(), 1);
 
     drop(pending);
-    driver.process_conns();
+    driver.stack.process_conns();
 
-    assert!(driver.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
-    assert_eq!(driver.sockets.iter().count(), 0);
+    assert!(driver.stack.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
+    assert_eq!(driver.stack.sockets.iter().count(), 0);
 }
 
 #[test]

@@ -180,4 +180,14 @@ export interface Env {
   readonly HYPERDRIVE?: Hyperdrive
   /** Read-only role (search-ro, pg_read_all_data) for home.search; never used for writes. */
   readonly HYPERDRIVE_RO?: Hyperdrive
+  /** PlanetScale MySQL `cmux-next-vitess` through Hyperdrive, readwriter role (projection writes). */
+  readonly PS_MYSQL?: Hyperdrive
+  /** PlanetScale MySQL reader role (home.search, directory reads). */
+  readonly PS_MYSQL_RO?: Hyperdrive
+  /** Projection primary: "postgres" (default) until the verified MySQL cutover, then "mysql". */
+  readonly PROJECTION_PRIMARY?: string
+  /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
+  readonly PROJECTION_SHADOW?: string
+  /** Where projection reads (home.search, feed sweep) go: "postgres" (default) or "mysql". */
+  readonly PROJECTION_READS?: string
 }

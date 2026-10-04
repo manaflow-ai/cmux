@@ -5,11 +5,6 @@ public nonisolated enum AgentPaneNewTabLayout: String, CaseIterable, Codable, Se
     case a, b
 }
 
-/// The screen's Search | Ask switch: what plain text does.
-public nonisolated enum AgentPaneNewTabMode: String, CaseIterable, Codable, Sendable {
-    case search, ask
-}
-
 /// What the page asks the App to replace it with (`tab.open`).
 public nonisolated struct AgentPaneOpenTab: Equatable, Sendable {
     public var kind: AgentPaneTabKind

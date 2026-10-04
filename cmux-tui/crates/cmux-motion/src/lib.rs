@@ -13,8 +13,11 @@
 //! `advance(now, &policy())` once per frame and scheduling another frame
 //! only while it returns true. The process-wide settings (`speed`,
 //! `policy`, the env vars) are the default `settings` feature; without it the
-//! host builds a `MotionPolicy` itself. The numbers in `spring.rs` are the only
-//! animation timing constants; change them together with `docs/motion.md`.
+//! host builds a `MotionPolicy` itself. A `Spring` is a `SpringKind::Size`
+//! (a move to 0 uses `disappear`) unless built with `Spring::position`
+//! (positions and offsets never switch token). The numbers in `spring.rs`
+//! are the only animation timing constants; change them together with
+//! `docs/motion.md`.
 
 mod clock;
 #[cfg(feature = "settings")]

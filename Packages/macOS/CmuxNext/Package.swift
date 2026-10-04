@@ -619,6 +619,7 @@ let package = Package(
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),
+                .process("BrowserToolbarActions.xcstrings"),
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
                 .process("HistoryActions.xcstrings"),
@@ -683,10 +684,7 @@ let package = Package(
                 "CmuxNextTerminalGeometry",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
-            swiftSettings: uiSwiftSettings,
-            // libghostty's static archive carries C++ (glslang); like
-            // CmuxNextAppTests, the test bundle links libc++ itself.
-            linkerSettings: [.linkedLibrary("c++")]
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextTerminalGeometryTests",

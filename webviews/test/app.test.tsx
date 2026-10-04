@@ -1104,12 +1104,10 @@ test("native viewer navigation remains installed after an unrelated render", asy
   expect(dom.window.__cmuxPerformDiffViewerNavigationAction).toBe(action);
   expect(action?.("diffViewerOpenFileSearch")).toBe(true);
   expect(action?.("unknown")).toBe(false);
-  await waitFor(
-    () => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true",
-  );
+  await waitFor(() => dom?.window.document.getElementById("app")?.dataset.fileSearchOpen === "true");
 });
 
-test("files sidebar shows the viewed progress, path filter, and status toggles", async () => {
+test("files sidebar is the filter field and the tree; Hide viewed files is in the options menu", async () => {
   dom = createDom();
   installDomGlobals(dom, () => {
     throw new Error("unexpected fetch");
@@ -1121,21 +1119,19 @@ test("files sidebar shows the viewed progress, path filter, and status toggles",
     />,
   );
   const doc = dom.window.document;
-  expect(doc.getElementById("files-viewed-progress")?.textContent).toBe("0 of 0 files viewed");
+  const sidebar = doc.getElementById("files-sidebar")!;
   const filterInput = doc.getElementById("file-filter-input") as HTMLInputElement;
-  expect(filterInput?.getAttribute("placeholder")).toBe("Filter files");
-  for (const status of ["added", "modified", "deleted", "renamed"]) {
-    const toggle = doc.querySelector(`[data-file-status-filter="${status}"]`);
-    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
-  }
-  const hideViewed = doc.getElementById("hide-viewed-toggle");
-  expect(hideViewed?.getAttribute("aria-pressed")).toBe("false");
-  expect(hideViewed?.getAttribute("aria-label")).toBe("Hide viewed files");
-  hideViewed?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-  await waitFor(() => doc.getElementById("hide-viewed-toggle")?.getAttribute("aria-pressed") === "true");
-  expect(doc.getElementById("hide-viewed-toggle")?.getAttribute("aria-label")).toBe("Show viewed files");
-  doc.querySelector<HTMLButtonElement>('[data-file-status-filter="added"]')?.click();
-  await waitFor(() => doc.querySelector('[data-file-status-filter="added"]')?.getAttribute("aria-pressed") === "false");
+  expect(filterInput?.getAttribute("placeholder")).toBe("Filter files…");
+  expect(sidebar.querySelector("#files-header, #files-viewed-progress, [data-file-status-filter]")).toBeNull();
+  // The toolbar pill sits in the top bar, not over the diff.
+  expect(doc.querySelector("#toolbar .diff-pill")).not.toBeNull();
+  doc.getElementById("options-button")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await waitFor(() => doc.getElementById("hide-viewed-toggle") != null);
+  const hideViewed = doc.getElementById("hide-viewed-toggle")!;
+  expect(hideViewed.getAttribute("aria-checked")).toBe("false");
+  expect(hideViewed.textContent).toContain("Hide viewed files");
+  hideViewed.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await waitFor(() => doc.getElementById("hide-viewed-toggle")?.getAttribute("aria-checked") === "true");
   expect(doc.getElementById("app")?.dataset.fileFilterActive).toBe("true");
 });
 
