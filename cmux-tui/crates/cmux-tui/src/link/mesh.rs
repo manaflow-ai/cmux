@@ -13,9 +13,9 @@ use cmux_link::pairing::Pairings;
 use cmux_wg::{GatewayId, IpNetwork, PeerRoute, WgMesh, WgMeshListener, WgNet, WgPeer, WgStream};
 use zeroize::Zeroizing;
 
-use super::locked;
 use super::control::OverlayListener;
 use super::dial::Overlay;
+use super::locked;
 use super::mesh_cloud::{CloudRoute, choose_route, cloud_networks, start_gateway};
 
 /// Keepalives hold NAT mappings open on direct paths.

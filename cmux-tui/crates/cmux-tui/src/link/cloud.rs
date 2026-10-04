@@ -18,8 +18,8 @@ use cmux_link::dial::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
-use super::locked;
 use super::dial::{DIAL_TIMEOUT, Overlay, reply};
+use super::locked;
 
 /// Where connect_info and link tokens come from: the host credential relay
 /// in the product, a fake in tests.
@@ -85,9 +85,8 @@ impl<S: ConnectInfoSource> CloudResolver<S> {
         host: &str,
         refresh: bool,
     ) -> Result<Resolved, ConnectInfoError> {
-        let cached = (!refresh)
-            .then(|| locked(&self.cache).get(host, Instant::now()).cloned())
-            .flatten();
+        let cached =
+            (!refresh).then(|| locked(&self.cache).get(host, Instant::now()).cloned()).flatten();
         let info = match cached {
             Some(info) => info,
             None => {
