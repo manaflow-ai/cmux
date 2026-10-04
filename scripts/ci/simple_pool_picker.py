@@ -159,6 +159,7 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
 
 
 def _pick_blacksmith(state: State) -> Choice:
+    """Choose the least-loaded configured Blacksmith fallback pool."""
     if not state.overflow_enabled:
         return Choice(state.fallback, "Blacksmith overflow disabled")
     pools = {pool.label: pool for pool in state.blacksmith}
@@ -174,6 +175,7 @@ def _pick_blacksmith(state: State) -> Choice:
 
 
 def _pool(item: Pool | Mapping[str, Any]) -> Pool:
+    """Normalize a serialized pool entry into the immutable pool model."""
     if isinstance(item, Pool):
         return item
     return Pool(str(item["label"]), int(item.get("capacity", 0)), int(item.get("running", 0)),
@@ -226,6 +228,7 @@ class LiveState:
 
 
 def _slots(raw: str | None) -> dict[str, int]:
+    """Parse positive, valid owned-pool capacities from CI configuration."""
     try:
         data = json.loads(raw or "{}")
     except (TypeError, ValueError):
@@ -244,6 +247,7 @@ def _slots(raw: str | None) -> dict[str, int]:
 
 
 def observe(*, token: str, repository: str, jobs: int, env: Mapping[str, str], fork: bool) -> State:
+    """Read live runner and queue state once, degrading safely when unavailable."""
     fallback = (env.get("MACOS_RUNNER_PR") or BLACKSMITH[1]).strip() or BLACKSMITH[1]
     enabled = (env.get("CI_PR_POOL_OWNED") or "").strip() == "1"
     runners: list[Mapping[str, Any]] | None = None
@@ -304,6 +308,7 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
 
 
 def planned_jobs(env: Mapping[str, str]) -> int:
+    """Estimate a run's peak macOS job count from its workflow inputs."""
     if (env.get("RUN_JOBS") or "").isdigit():
         return max(0, int(env["RUN_JOBS"]))
     if not any((env.get(key) or "") == "true" for key in ("RUN_MACOS", "RUN_CLI", "RUN_CLAUDE_WRAPPER", "RUN_REMOTE_DAEMON", "RUN_SWIFT_PACKAGES", "RUN_RELEASE_BUILD")):
@@ -330,6 +335,7 @@ def write_outputs(choice: Choice, jobs: int, path: str | None = None,
     except (TypeError, ValueError):
         pass
     def role_label(role: str) -> str:
+        """Return the configured role label for the selected owned pool."""
         if not choice.owned:
             return ""
         match = OWNED_FAMILY.fullmatch(choice.label)
