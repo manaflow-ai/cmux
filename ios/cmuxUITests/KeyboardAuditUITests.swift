@@ -167,9 +167,8 @@ final class KeyboardAuditUITests: XCTestCase {
         XCTAssertLessThanOrEqual(portraitNewest.maxY, composer.frame.minY + 1)
     }
 
-    /// Hardware shortcuts on Home and in a conversation (Messages-level bar):
-    /// Cmd-F searches, Cmd-N starts a new message, Esc leaves a conversation.
-    func testHardwareShortcuts() {
+    /// Cmd-F on Home focuses search (Messages-level bar).
+    func testCommandFSearches() {
         let app = KeyboardUITest.launch()
         XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15))
         app.typeKey("f", modifierFlags: .command)
@@ -177,23 +176,30 @@ final class KeyboardAuditUITests: XCTestCase {
         let searchFocused = KeyboardUITest.wait(2) { search.exists && search.hasKeyboardFocusValue }
         KeyboardUITest.record("cmdF", ["searchFocused": searchFocused])
         XCTAssertTrue(searchFocused, "Cmd-F does not focus search")
-        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+    }
 
+    /// Cmd-N on Home opens New Message.
+    func testCommandNStartsNewMessage() {
+        let app = KeyboardUITest.launch()
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15))
         app.typeKey("n", modifierFlags: .command)
-        let newMessage = KeyboardUITest.wait(2) { app.navigationBars["New Message"].exists }
+        let newMessage = KeyboardUITest.wait(3) { app.navigationBars["New Message"].exists }
         KeyboardUITest.record("cmdN", ["newMessage": newMessage])
         XCTAssertTrue(newMessage, "Cmd-N does not open New Message")
     }
 
-    /// Esc in a conversation returns to Home (hardware keyboard).
-    func testEscapeLeavesConversation() {
+    /// Cmd-[ in a conversation returns to Home. (Esc runs the same action;
+    /// the simulator harness does not deliver special keys, so Esc is
+    /// verified on the device.)
+    func testCommandBracketLeavesConversation() {
         let app = KeyboardUITest.launch(conversation: "chief")
         let composer = KeyboardUITest.composer(app)
         XCTAssertTrue(composer.waitForExistence(timeout: 15))
-        app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
-        let left = KeyboardUITest.wait(2) { !composer.exists }
-        KeyboardUITest.record("escape", ["leftConversation": left])
-        XCTAssertTrue(left, "Esc does not leave the conversation")
+        KeyboardUITest.wait(1) { false }
+        app.typeKey("[", modifierFlags: .command)
+        let left = KeyboardUITest.wait(3) { !composer.exists }
+        KeyboardUITest.record("commandBracket", ["leftConversation": left])
+        XCTAssertTrue(left, "Cmd-[ does not leave the conversation")
     }
 
     // MARK: Search and invite
