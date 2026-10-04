@@ -88,3 +88,16 @@ describe("team member and host paging", { timeout: 120_000 }, () => {
     expect(hosts).toMatchObject({ hosts: [], next_cursor: null })
   })
 })
+
+describe("UserDO membership index", { timeout: 60_000 }, () => {
+  it("lists every team the user belongs to, fed by TeamDO membership writes", async () => {
+    const { runDurableObjectAlarm } = await import("cloudflare:test")
+    const t = await token("team-index-1")
+    const ensured = (await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: "e", origin: "user" })).value
+    const team = ensured.personal_team as string
+    const user = ensured.id as string
+    await runDurableObjectAlarm(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)))
+    const userStub = (env as unknown as { USER_DO: DurableObjectNamespace }).USER_DO.get((env as unknown as { USER_DO: DurableObjectNamespace }).USER_DO.idFromName(user)) as unknown as { homeTeamsOf(entity: string): Promise<Array<{ team: string; role: string; kind: string }>> }
+    expect(await userStub.homeTeamsOf(user)).toEqual([{ team, role: "owner", kind: "personal" }])
+  })
+})
