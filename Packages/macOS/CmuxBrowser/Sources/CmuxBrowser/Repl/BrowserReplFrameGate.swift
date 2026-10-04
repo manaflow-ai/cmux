@@ -84,6 +84,12 @@ public final class BrowserReplFrameGate {
     /// The session's policy; only the native session sets it.
     public var policy = BrowserReplDomainPolicy()
     private let world: WKContentWorld
+    /// How long one of the gate's own probes (a frame's document, its focus,
+    /// the frame boxes) may take. WebKit does not call a script's completion
+    /// when a navigation replaces the document it runs in, and a busy page
+    /// answers late; past this the call is refused with `stale`.
+    private let probeTimeout: Duration
+    private let clock: any Clock<Duration>
     /// The document each frame last showed when the gate read it.
     private var known: [Key: BrowserReplFrameDocument] = [:]
 
@@ -92,9 +98,14 @@ public final class BrowserReplFrameGate {
         let frameID: String
     }
 
-    /// - Parameter world: a content world agent and page code cannot reach.
-    public init(world: WKContentWorld) {
+    /// - Parameters:
+    ///   - world: a content world agent and page code cannot reach.
+    ///   - probeTimeout: the bound on each of the gate's own probes.
+    ///   - clock: measures `probeTimeout`.
+    public init(world: WKContentWorld, probeTimeout: Duration = .seconds(5), clock: any Clock<Duration> = ContinuousClock()) {
         self.world = world
+        self.probeTimeout = probeTimeout
+        self.clock = clock
     }
 
     /// Why the policy blocks the document WebKit recorded for `frame` when
@@ -187,11 +198,12 @@ public final class BrowserReplFrameGate {
                 tops.append((top, entry.frame, entry.reason))
             }
         }
-        let value = try await webView.callAsyncJavaScript(
+        let value = try await probe(
             Self.boxesSource,
             arguments: ["indexes": tops.map(\.top.indexInParent)],
-            in: nil,
-            contentWorld: world
+            in: webView,
+            frame: nil,
+            what: "the page did not report its frames' positions"
         )
         let boxes = value as? [Any] ?? []
         for (index, entry) in tops.enumerated() {
@@ -218,24 +230,34 @@ public final class BrowserReplFrameGate {
         for entry in blockedFrames {
             let refusal = BrowserReplDriverError(code: "blocked", message: "The keyboard focus is in frame \(entry.frame.url), which the domain policy blocks: \(entry.reason)")
             guard let info = entry.frame.info else { throw refusal }
-            let probe: [String: Any]
+            let focus: [String: Any]
             do {
-                probe = try await webView.callAsyncJavaScript(Self.focusSource, arguments: [:], in: info, contentWorld: world) as? [String: Any] ?? [:]
+                focus = try await probe(
+                    Self.focusSource, arguments: [:], in: webView, frame: info,
+                    what: "frame \(entry.frame.url) did not report its focus"
+                ) as? [String: Any] ?? [:]
+            } catch let error as BrowserReplDriverError where error.code == "stale" {
+                throw error
             } catch {
                 // A frame that has gone takes no input; any other failure
                 // leaves its focus unknown.
                 if Self.isGoneFrame(error) { continue }
                 throw refusal
             }
-            if probe["inner"] as? Bool == true { continue }
-            if probe["focused"] as? Bool == true { throw refusal }
+            if focus["inner"] as? Bool == true { continue }
+            if focus["focused"] as? Bool == true { throw refusal }
             guard let parentID = entry.frame.parentFrameID, let parent = byID[parentID] else { continue }
-            let ownsFocus = try? await webView.callAsyncJavaScript(
-                Self.ownerFocusSource,
-                arguments: ["index": entry.frame.indexInParent],
-                in: parent.info,
-                contentWorld: world
-            ) as? Bool
+            let ownsFocus: Bool?
+            do {
+                ownsFocus = try await probe(
+                    Self.ownerFocusSource, arguments: ["index": entry.frame.indexInParent], in: webView, frame: parent.info,
+                    what: "frame \(parent.url) did not report its focus"
+                ) as? Bool
+            } catch let error as BrowserReplDriverError where error.code == "stale" {
+                throw error
+            } catch {
+                ownsFocus = nil
+            }
             if ownsFocus ?? true { throw refusal }
         }
     }
@@ -312,7 +334,9 @@ public final class BrowserReplFrameGate {
     private func read(_ frame: BrowserReplFrame, in webView: WKWebView) async throws -> BrowserReplFrameDocument {
         let value: Any?
         do {
-            value = try await webView.callAsyncJavaScript(Self.readSource, arguments: [:], in: frame.info, contentWorld: world)
+            value = try await probe(Self.readSource, arguments: [:], in: webView, frame: frame.info, what: "frame \(frame.frameID) did not answer")
+        } catch let error as BrowserReplDriverError {
+            throw error
         } catch {
             throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) did not answer: \(error.localizedDescription)")
         }
@@ -320,6 +344,40 @@ public final class BrowserReplFrameGate {
             throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.frameID) did not answer")
         }
         return BrowserReplFrameDocument(origin: pair[0] as? String, place: place)
+    }
+
+    /// Runs one of the gate's own scripts in its world, failing with
+    /// `stale` when it has not answered within ``probeTimeout``. The
+    /// script itself cannot be cancelled; a late answer is dropped.
+    private func probe(
+        _ source: String,
+        arguments: [String: Any],
+        in webView: WKWebView,
+        frame: WKFrameInfo?,
+        what: String
+    ) async throws -> Any? {
+        let race = ProbeRace()
+        let world = self.world
+        Task { @MainActor in
+            do {
+                race.finish(.success(BrowserReplProbeValue(value: try await webView.callAsyncJavaScript(source, arguments: arguments, in: frame, contentWorld: world))))
+            } catch {
+                race.finish(.failure(error))
+            }
+        }
+        let clock = self.clock
+        let timeout = probeTimeout
+        let message = "\(what) within \(timeout.components.seconds) s (it may have navigated or be busy); try again"
+        let deadline = Task { @MainActor in
+            do {
+                try await clock.sleep(for: timeout)
+            } catch {
+                return
+            }
+            race.finish(.failure(BrowserReplDriverError(code: "stale", message: message.prefix(1).uppercased() + message.dropFirst())))
+        }
+        defer { deadline.cancel() }
+        return try await race.value().value
     }
 
     private func blocked(_ frame: BrowserReplFrame, document: BrowserReplFrameDocument?, reason: String) -> BrowserReplDriverError {
@@ -337,5 +395,37 @@ public final class BrowserReplFrameGate {
 
     private static func format(_ value: CGFloat) -> String {
         value == value.rounded() ? String(Int(value)) : String(format: "%.1f", Double(value))
+    }
+}
+
+/// A probe's answer, carried between main-actor tasks.
+private struct BrowserReplProbeValue: @unchecked Sendable {
+    let value: Any?
+}
+
+/// First answer wins: the probe's or the timeout's.
+@MainActor
+private final class ProbeRace {
+    private var result: Result<BrowserReplProbeValue, any Error>?
+    private var continuation: CheckedContinuation<BrowserReplProbeValue, any Error>?
+
+    func finish(_ value: Result<BrowserReplProbeValue, any Error>) {
+        guard result == nil else { return }
+        result = value
+        if let continuation {
+            self.continuation = nil
+            continuation.resume(with: value)
+        }
+    }
+
+    func value() async throws -> BrowserReplProbeValue {
+        if let result { return try result.get() }
+        return try await withCheckedThrowingContinuation { continuation in
+            if let result {
+                continuation.resume(with: result)
+            } else {
+                self.continuation = continuation
+            }
+        }
     }
 }

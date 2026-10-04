@@ -221,7 +221,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   is not recorded. In tabs the session created the content rules keep a
   blocked frame from loading at all; its empty frame belongs to the parent
   and refuses nothing. The page can still move a frame or the focus in its
-  own web process between the check and the input reaching it.
+  own web process between the check and the input reaching it. Each of
+  these checks' own scripts (a frame's document, its focus, the frame
+  boxes) must answer within 5 s, or the call fails with `stale`: WebKit
+  drops a script's completion when a navigation replaces its document, and
+  a busy page answers late.
 - Page-opened windows: a window a page opens from a tab a session drives
   becomes a popup tab through cmux's own navigation, which trusts local
   files and cmux's internal schemes, and the page controls its URL. So it
