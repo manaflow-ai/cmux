@@ -140,9 +140,23 @@
           return out;
         },
         // A file's text at a ref: file("owner/repo", "path/to/file", { ref: "main" }).
+        // The path's segments and the ref name a file inside the one
+        // repository: an empty, "." or ".." segment (which URL parsing
+        // would resolve, leaving the repository) is refused, and the URL
+        // must still be under the repository's raw prefix once parsed.
         async file(repo, filePath, options = {}) {
           const name = repoName(repo);
-          const res = await t.fetch(`${ORIGIN}/${name}/raw/${encodeURIComponent(options.ref || "HEAD")}/${String(filePath).split("/").map(encodeURIComponent).join("/")}`);
+          const ref = String(options.ref || "HEAD");
+          if (ref === "." || ref === "..") throw new S.SiteError("invalid", `github.file: ref: ${JSON.stringify(ref)} is not a ref`);
+          const segments = String(filePath).split("/");
+          for (const seg of segments) {
+            if (seg === "") throw new S.SiteError("invalid", `github.file: ${JSON.stringify(String(filePath))} has an empty segment; give the path from the repository root, like "src/main.c"`);
+            if (seg === "." || seg === "..") throw new S.SiteError("invalid", `github.file: ${JSON.stringify(String(filePath))} has a dot segment; give the path inside the repository, without "." or ".."`);
+          }
+          const prefix = `${ORIGIN}/${name}/raw/${encodeURIComponent(ref)}/`;
+          const url = prefix + segments.map(encodeURIComponent).join("/");
+          if (!new root.CmuxBrowserRepl.core.URL(url).href.startsWith(prefix)) throw new S.SiteError("invalid", `github.file: ${JSON.stringify(String(filePath))} is not a path inside ${name}`);
+          const res = await t.fetch(url);
           if (res.status === 404) throw new S.SiteError("not_found", `github.file: ${name}/${filePath} not found at ${options.ref || "HEAD"}`);
           if (!res.ok) throw new S.SiteError("http", `github.file: HTTP ${res.status}`);
           return res.text();
