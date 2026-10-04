@@ -60,8 +60,6 @@ unsafe extern "C" {
         length: CFIndex,
         is_directory: u8,
     ) -> CFTypeRef;
-    fn CFBundleCreate(allocator: CFTypeRef, url: CFTypeRef) -> CFTypeRef;
-    fn CFBundleGetIdentifier(bundle: CFTypeRef) -> CFTypeRef;
 }
 
 #[link(name = "Security", kind = "framework")]
@@ -69,6 +67,9 @@ unsafe extern "C" {
     static kSecGuestAttributeAudit: CFTypeRef;
     static kSecCodeInfoTeamIdentifier: CFTypeRef;
     static kSecCodeInfoUnique: CFTypeRef;
+    static kSecCodeInfoIdentifier: CFTypeRef;
+    fn SecStaticCodeCreateWithPath(path: CFTypeRef, flags: u32, code: *mut CFTypeRef) -> OSStatus;
+    fn SecStaticCodeCheckValidity(code: CFTypeRef, flags: u32, requirement: CFTypeRef) -> OSStatus;
     fn SecCodeCopySelf(flags: u32, code: *mut CFTypeRef) -> OSStatus;
     fn SecCodeCopyGuestWithAttributes(
         host: CFTypeRef,
@@ -161,7 +162,7 @@ pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller
     {
         return Err(NotTheApp::Unavailable(format!("unexpected Team ID {team:?}")));
     }
-    let identifier = containing_app_identifier().map_err(NotTheApp::Unavailable)?;
+    let identifier = containing_app_identifier(&team).map_err(NotTheApp::Unavailable)?;
     let requirement = requirement(&format!(
         "anchor apple generic and certificate leaf[subject.OU] = \"{team}\" and identifier \"{identifier}\""
     ))
@@ -172,14 +173,28 @@ pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller
         .map_err(NotTheApp::Signature)
 }
 
+/// Whether this binary is Team-signed and sits inside an app bundle, so
+/// prover A can work at all.
+pub(crate) fn signed_inside_app() -> bool {
+    let team = own_code().and_then(|code| signing(&code)).ok().and_then(|own| own.team);
+    team.is_some_and(|team| containing_app_identifier(&team).is_ok())
+}
+
 /// Resolves `token` to running code (tests: a pid-reused token must fail).
 #[cfg(test)]
 pub(crate) fn guest_for_test(token: &[u32; 8]) -> Result<(), String> {
     guest_code(token).map(|_| ())
 }
 
-/// `CFBundleIdentifier` of the app bundle that contains this executable.
-fn containing_app_identifier() -> Result<String, String> {
+/// `kSecCSBasicValidateOnly`: the signature and its code directory (which
+/// binds the Info.plist and the identifier), without hashing every page and
+/// resource of a large app bundle.
+const BASIC_VALIDATE_ONLY: u32 = (1 << 1) | (1 << 2);
+
+/// The signed identifier of the app bundle that contains this executable.
+/// It comes from the bundle's code directory after the bundle's signature is
+/// checked against this build's team, never from an unsigned Info.plist.
+fn containing_app_identifier(team: &str) -> Result<String, String> {
     let executable = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
     let bundle = crate::app_caller::containing_bundle(&executable)
         .ok_or("this binary is not inside an app bundle")?;
@@ -196,12 +211,32 @@ fn containing_app_identifier() -> Result<String, String> {
         },
         "CFURLCreateFromFileSystemRepresentation",
     )?;
-    // SAFETY: `url.0` is a live CFURL.
-    let bundle = Owned::new(unsafe { CFBundleCreate(ptr::null(), url.0) }, "CFBundleCreate")?;
-    // SAFETY: `bundle.0` is live; the identifier is borrowed (Get rule) and
-    // copied before `bundle` drops.
-    let identifier = unsafe { string(CFBundleGetIdentifier(bundle.0)) }
-        .ok_or("the containing app has no CFBundleIdentifier")?;
+    let mut code: CFTypeRef = ptr::null();
+    // SAFETY: `url.0` is a live CFURL; the out-pointer is valid.
+    status(
+        unsafe { SecStaticCodeCreateWithPath(url.0, 0, &raw mut code) },
+        "SecStaticCodeCreateWithPath",
+    )?;
+    let code = Owned::new(code, "SecStaticCodeCreateWithPath")?;
+    let team_requirement = requirement(&format!(
+        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\""
+    ))?;
+    // SAFETY: both references are live owned objects.
+    status(
+        unsafe { SecStaticCodeCheckValidity(code.0, BASIC_VALIDATE_ONLY, team_requirement.0) },
+        "containing app signature",
+    )?;
+    let mut information: CFTypeRef = ptr::null();
+    // SAFETY: `code.0` is live; the out-pointer is valid.
+    status(
+        unsafe { SecCodeCopySigningInformation(code.0, 0, &raw mut information) },
+        "SecCodeCopySigningInformation",
+    )?;
+    let information = Owned::new(information, "SecCodeCopySigningInformation")?;
+    // SAFETY: the dictionary is live and the key is a framework constant; the
+    // value is borrowed (Get rule) and copied before `information` drops.
+    let identifier = unsafe { string(CFDictionaryGetValue(information.0, kSecCodeInfoIdentifier)) }
+        .ok_or("the containing app has no signed identifier")?;
     if !crate::app_caller::plain_bundle_identifier(&identifier) {
         return Err(format!("unexpected bundle identifier {identifier:?}"));
     }

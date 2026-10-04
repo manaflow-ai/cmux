@@ -5315,7 +5315,6 @@ pub(crate) struct ClientRegistry {
     loopback: loopback_forward::LoopbackForwarder,
     pub(crate) snapshot_viewers: terminal_snapshot::SnapshotViewers,
     apps: crate::apps::AppsSlot,
-    /// `verified_app` per connection and the app's install key (P8 3b-2).
     app_trust: app_trust::AppTrust,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
@@ -5396,15 +5395,6 @@ impl ClientRegistry {
             self.state.lock().unwrap().daemon_handoff,
             Some(DaemonHandoffReservation::Committed(_))
         )
-    }
-
-    fn is_unix(&self, client: u64) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .clients
-            .get(&client)
-            .is_some_and(|record| matches!(record.transport, ClientTransport::Unix))
     }
 
     fn install_resource_stream(

@@ -133,10 +133,23 @@ struct ConnectionProof {
 }
 
 /// The daemon side of `verified_app` (one per daemon, in the registry).
-#[derive(Default)]
 pub(crate) struct AppTrust {
     install_key: OnceLock<FrontendKey>,
     connections: Mutex<HashMap<u64, Arc<ConnectionProof>>>,
+    /// A signed daemon inside a signed app accepts only prover A: there a
+    /// same-uid process could restart the owner with a key it chose, so the
+    /// install-key proof alone must not count (security review, P1).
+    signed_build: bool,
+}
+
+impl Default for AppTrust {
+    fn default() -> Self {
+        Self {
+            install_key: OnceLock::new(),
+            connections: Mutex::new(HashMap::new()),
+            signed_build: cmux_link::app_caller::signed_app_build(),
+        }
+    }
 }
 
 impl AppTrust {
@@ -163,14 +176,16 @@ impl AppTrust {
     }
 
     /// Whether `client` is the cmux app: role `main` declared in its
-    /// `client-hello`, and the install-key proof or prover A.
+    /// `client-hello`, and prover A on a signed build or the install-key
+    /// proof on an unsigned (development) build.
     pub(crate) fn verified_app(&self, client: u64) -> bool {
         let Some(proof) = self.proof(client) else { return false };
         if proof.role.get() != Some(&HelloRole::Main) {
             return false;
         }
-        if proof.hello.get().is_some() {
-            return true;
+        if !self.signed_build {
+            // Unsigned (development) builds: the install-key proof only.
+            return proof.hello.get().is_some();
         }
         let Some(token) = proof.token else { return false };
         // Outside the registry lock: a few Security framework calls, once.
@@ -188,6 +203,19 @@ impl AppTrust {
         let _ = proof.role.set(HelloRole::Main);
         let _ = proof.hello.set(install_id.to_string());
         self.connections().insert(client, proof);
+    }
+}
+
+impl super::ClientRegistry {
+    /// Whether `client` is a local (Unix socket) connection: the transport
+    /// fact the apps gate and `verified_app` start from.
+    pub(super) fn is_unix(&self, client: u64) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .clients
+            .get(&client)
+            .is_some_and(|record| matches!(record.transport, super::ClientTransport::Unix))
     }
 }
 
@@ -224,6 +252,12 @@ pub(super) struct HelloGate {
 }
 
 impl HelloGate {
+    /// Ends the hello window (a line the connection's admission refused
+    /// still counts as a line).
+    pub(super) fn close(&mut self) {
+        self.state = GateState::Closed;
+    }
+
     pub(super) fn new(local: bool) -> Self {
         Self { local, state: GateState::Open { identified: false } }
     }

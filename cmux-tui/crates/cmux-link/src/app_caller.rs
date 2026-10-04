@@ -114,6 +114,22 @@ pub fn verify_containing_app(token: &PeerToken) -> Result<(), NotTheApp> {
     }
 }
 
+/// Whether prover A applies to this process: a Team-signed binary inside a
+/// signed app bundle (Release and signed builds). Checked once.
+pub fn signed_app_build() -> bool {
+    static SIGNED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SIGNED.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        {
+            crate::caller::macos::signed_inside_app()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    })
+}
+
 /// `CFBundleIdentifier` characters allowed into the requirement text.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn plain_bundle_identifier(identifier: &str) -> bool {

@@ -84,10 +84,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let socket_output = socket.to_string_lossy().into_owned();
     if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin } = plan.action {
         // Read before anything else: stdin is the app's pipe, never argv/env.
-        let install_key = match install_key_stdin
-            .then(|| cmux_tui_core::server::read_frontend_key(std::io::stdin().lock()))
-            .transpose()
-        {
+        let install_key = match install_key_stdin.then(read_install_key_from_stdin).transpose() {
             Ok(key) => key,
             Err(_) => {
                 let message = crate::localization::catalog().local_server.install_key_invalid;
@@ -368,6 +365,21 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 global.output,
             )
         }
+    }
+}
+
+/// Reads the install key straight from descriptor 0 (no buffered stdin
+/// copy outlives it; the parsed key is zeroized on drop).
+fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::FrontendKey> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        let stdin = std::fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
+        cmux_tui_core::server::read_frontend_key(stdin)
+    }
+    #[cfg(not(unix))]
+    {
+        cmux_tui_core::server::read_frontend_key(std::io::stdin().lock())
     }
 }
 

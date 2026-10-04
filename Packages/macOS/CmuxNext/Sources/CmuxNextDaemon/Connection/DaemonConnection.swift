@@ -242,31 +242,12 @@ public actor DaemonConnection {
     }
 
     /// `identify`, `set-client-info` and `subscribe` go out together (one
-    /// round trip); the identity is checked before the connection is used.
-    /// Against the wrong or an incompatible daemon the other two are
-    /// harmless, and the socket closes. With `clientHello`, `client-hello`
-    /// step 1 rides with `identify` and its proof (step 2) leads the second
-    /// round trip, so it directly follows step 1.
+    /// round trip, with `client-hello` when configured: `HandshakeLines`);
+    /// the identity is checked before the connection is used. Against the
+    /// wrong or an incompatible daemon the other lines are harmless, and the
+    /// socket closes.
     private func handshake(_ transport: LineTransport) async throws -> DaemonIdentity {
-        let hello = configuration.clientHello
-        var first = [PipelinedLine(IdentifyRequest())]
-        if let hello { first.append(PipelinedLine(ClientHelloStartRequest(installID: hello.installKey?.installID))) }
-        let setup = [
-            PipelinedLine(SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
-                                               capabilities: configuration.handshakeCapabilities)),
-            PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents)),
-        ]
-        var replies = await transport.pipeline(hello == nil ? first + setup : first, timeout: configuration.requestTimeout)
-        if let hello {
-            let proof = Self.helloProof(hello, start: replies[1])
-            let rest = await transport.pipeline((proof.map { [PipelinedLine($0)] } ?? []) + setup,
-                                                timeout: configuration.requestTimeout)
-            if proof != nil, let verified = try? rest[0].get() {
-                let ok = (try? WireCoding.decodeResponse(ClientHelloProofRequest.Response.self, from: verified.line))?.verified == true
-                logger.info("client-hello install-key proof \(ok ? "accepted" : "refused", privacy: .public)")
-            }
-            replies = [replies[0]] + rest.suffix(2)
-        }
+        let replies = await HandshakeLines.send(transport, configuration: configuration, logger: logger)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
         DaemonLaunchTimings.shared.mark("daemon.identify_end")
         guard identity.app == "cmux-tui" else {
@@ -285,17 +266,6 @@ public actor DaemonConnection {
         _ = try replies[1].get()
         _ = try replies[2].get()
         return identity
-    }
-
-    /// Step 2 of `client-hello` when step 1 returned a nonce and the app
-    /// holds an install key; nil otherwise (an older daemon answers step 1
-    /// with an error, which only leaves the connection unverified).
-    static func helloProof(_ hello: ClientHelloIdentity,
-                           start: Result<LineTransport.Response, any Error>) -> ClientHelloProofRequest? {
-        guard let key = hello.installKey, let line = try? start.get().line,
-              let nonce = (try? WireCoding.decodeResponse(ClientHelloStartRequest.Response.self, from: line))?.nonce,
-              let proof = key.proof(nonceHex: nonce) else { return nil }
-        return ClientHelloProofRequest(installID: key.installID, proof: proof)
     }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {

@@ -71,10 +71,30 @@ pub(crate) fn claim_inherited_fd(option: &str, value: &str) -> Result<i32, Strin
     Ok(fd)
 }
 
+/// Parses `OWNER_READY_FD_ARG` or `OWNER_INSTALL_KEY_FD_ARG` (each once).
+pub(crate) fn claim_fd_arg(
+    arg: &str,
+    value: Option<String>,
+    args: &mut crate::Args,
+) -> Result<(), String> {
+    let value = value.ok_or_else(|| format!("{arg} needs a value"))?;
+    let fd = claim_inherited_fd(arg, &value)?;
+    let slot = if arg == OWNER_READY_FD_ARG {
+        &mut args.owner_ready_fd
+    } else {
+        &mut args.owner_install_key_fd
+    };
+    if slot.replace(fd).is_some() {
+        return Err(format!("{arg} may be supplied only once"));
+    }
+    Ok(())
+}
+
 /// Reads the app's install key from the inherited pipe `fd`, closes it and
 /// gives the key to the session (`client-hello`). A bad or missing payload
 /// leaves the daemon without a key: no connection proves itself with one.
-pub(crate) fn install_key_from_fd(mux: &cmux_tui_core::Mux, fd: i32) {
+pub(crate) fn install_key_from_fd(mux: &cmux_tui_core::Mux, fd: Option<i32>) {
+    let Some(fd) = fd else { return };
     #[cfg(unix)]
     {
         use std::os::fd::FromRawFd;
