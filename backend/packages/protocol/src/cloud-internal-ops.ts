@@ -18,6 +18,15 @@ export const CloudDriverResultParams = Schema.Struct({
 
 export const CloudPruneParams = Schema.Struct({ now: Schema.Int })
 
+/** An operator cleared one abandoned ledger row after checking the provider by hand (who, when, why). */
+export const CloudAbandonedClearParams = Schema.Struct({
+  key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  by: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+  by_email: Schema.NullOr(Schema.String.check(Schema.isMaxLength(320))),
+  reason: Schema.String.check(Schema.isMinLength(8), Schema.isMaxLength(500)),
+  at: Schema.Int
+})
+
 /** One hourly lookup of a cancelled create's recorded name (N1): absent, deleted by that name, or a VM whose metadata does not match. */
 export const CloudWatchResultParams = Schema.Struct({
   key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
@@ -44,5 +53,6 @@ const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
 export const cloudInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("cloud.driver_result", CloudDriverResultParams, "Internal: a provider call (create or delete) finished, failed, or was refused."),
   internal("cloud.watch_result", CloudWatchResultParams, "Internal: one lookup of a cancelled create's recorded name finished."),
-  internal("cloud.prune", CloudPruneParams, "Internal: drop tombstones older than 30 days and finished ledger rows older than 7 days.")
+  internal("cloud.prune", CloudPruneParams, "Internal: drop tombstones older than 30 days and finished ledger rows older than 7 days."),
+  internal("cloud.abandoned_clear", CloudAbandonedClearParams, "Internal: an operator (a person, with the admin key) cleared one abandoned ledger row after a provider lookup found no VM; audited.")
 ]

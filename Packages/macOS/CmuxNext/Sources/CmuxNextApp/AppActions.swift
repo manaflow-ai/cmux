@@ -79,8 +79,18 @@ enum AppActions {
         // --end-everything.
         registry.bind("quit", invoke: { invocation in
             do {
-                let origin = try QuitPolicy.origin(for: invocation, scripted: registry.isCapturingRefusal)
-                services.quit.requestQuit(origin)
+                let scripted = registry.isCapturingRefusal
+                let origin = try QuitPolicy.origin(for: invocation, scripted: scripted)
+                // A scripted quit saves unsaved documents first and refuses,
+                // naming them, when a save fails (R96 quit hook).
+                guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }
+                registry.track(Task { @MainActor in
+                    if let refusal = QuitUnsavedStep.refusal(await QuitUnsavedStep.saveUnattended(services.quit.unsaved)) {
+                        return ActionWorkFailure(refusal)
+                    }
+                    services.quit.requestQuit(origin)
+                    return nil
+                })
             } catch {
                 registry.refuse(QuitArgumentConflict.reason)
             }

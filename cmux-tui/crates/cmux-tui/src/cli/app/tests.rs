@@ -85,7 +85,7 @@ fn action_runs_wait_by_default_and_no_wait_opts_out() {
     assert_eq!(params, json!({ "action": "window.new", "wait": true, "origin": "script" }));
     let command = parse(&args(&["action", "run", "window.new", "--no-wait"])).unwrap().unwrap();
     let AppCommand::Call { timeout, .. } = &command else { panic!("expected a call") };
-    assert_eq!(*timeout, READ_TIMEOUT);
+    assert_eq!(*timeout, Some(READ_TIMEOUT));
     assert_eq!(
         call(command).1,
         json!({ "action": "window.new", "wait": false, "origin": "script" })
@@ -108,6 +108,14 @@ fn busy_is_retried_only_when_the_app_says_nothing_ran() {
 /// A fake app control socket that answers each request line with the
 /// next canned response and records what it received, per connection.
 fn fake_app(responses: Vec<Value>) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<Value>>>) {
+    fake_app_after(Duration::ZERO, responses)
+}
+
+/// `fake_app` that waits `delay` before each answer (a person at a sheet).
+fn fake_app_after(
+    delay: Duration,
+    responses: Vec<Value>,
+) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<Value>>>) {
     use std::os::unix::net::UnixListener;
     // The shared helper keeps the socket path under sun_path whatever
     // $TMPDIR is; the guard moves into the server thread.
@@ -128,6 +136,7 @@ fn fake_app(responses: Vec<Value>) -> (PathBuf, std::thread::JoinHandle<Vec<Vec<
             received.push(serde_json::from_str::<Value>(&line).unwrap());
             line.clear();
             let Some(response) = responses.next() else { break };
+            std::thread::sleep(delay);
             writeln!(writer, "{response}").unwrap();
         }
         connections.push(received);
@@ -325,4 +334,116 @@ fn keybinding_reads_call_the_app_read_ops() {
     assert!(parse(&args(&["keybinding", "resolve"])).is_err(), "resolve needs keys");
     assert!(parse(&args(&["keybinding"])).is_err());
     assert!(parse(&args(&["keybinding", "list", "--nope", "x"])).is_err());
+}
+
+/// RED: `--confirm` sends `confirm: true` on every settings write, anywhere
+/// after the verb; `settings reset` is its own verb (`unset` stays).
+#[test]
+fn settings_writes_take_confirm_and_reset_is_a_verb() {
+    let cases = [
+        (
+            &["settings", "set", "history.terminalCommands", "false", "--confirm"][..],
+            "settings.set",
+            json!({ "path": "history.terminalCommands", "value": false, "confirm": true }),
+        ),
+        (
+            &["settings", "set", "--confirm", "window.titlebar", "minimal"][..],
+            "settings.set",
+            json!({ "path": "window.titlebar", "value": "minimal", "confirm": true }),
+        ),
+        (
+            &["settings", "reset", "a.b", "--confirm"][..],
+            "settings.reset",
+            json!({ "path": "a.b", "confirm": true }),
+        ),
+        (&["settings", "reset", "a.b"][..], "settings.reset", json!({ "path": "a.b" })),
+        (
+            &["settings", "unset", "a.b", "--confirm"][..],
+            "settings.unset",
+            json!({ "path": "a.b", "confirm": true }),
+        ),
+        (&["settings", "unset", "a.b"][..], "settings.unset", json!({ "path": "a.b" })),
+    ];
+    for (words, method, params) in cases {
+        let command = parse(&args(words)).unwrap_or_else(|error| panic!("{words:?}: {error:?}"));
+        assert_eq!(call(command.unwrap()), (method, params), "{words:?}");
+    }
+    assert!(parse(&args(&["settings", "set", "a.b"])).is_err());
+    assert!(parse(&args(&["settings", "reset"])).is_err());
+    assert!(parse(&args(&["settings", "reset", "a.b", "--yes"])).is_err());
+}
+
+/// RED: a user-only key the app refuses (`setting_user_only`) ends the
+/// command with exit 1, the CLI's code for an op the app refused, and the
+/// request carries no `confirm`. With `--confirm` the CLI waits for the
+/// person longer than any read deadline, and a declined sheet is exit 1.
+#[test]
+fn a_user_only_key_is_refused_without_confirm_and_waits_for_the_person_with_it() {
+    let key = "history.terminalCommands";
+    let refused = json!({ "id": 1, "ok": false, "error": { "code": "setting_user_only",
+        "message": "history.terminalCommands can be changed only by you",
+        "data": { "key": key } } });
+    let (socket, app) = fake_app(vec![refused]);
+    let command = parse(&args(&["settings", "set", key, "false"])).unwrap().unwrap();
+    assert_eq!(run(&global_for(&socket), command), 1);
+    let connections = app.join().unwrap();
+    assert!(connections[0][0]["params"].get("confirm").is_none(), "{connections:?}");
+
+    let approved = json!({ "id": 1, "ok": true, "result": { "path": ["history", "terminalCommands"], "value": false } });
+    let (socket, app) = fake_app_after(READ_TIMEOUT + Duration::from_millis(500), vec![approved]);
+    let command = parse(&args(&["settings", "set", key, "false", "--confirm"])).unwrap().unwrap();
+    assert_eq!(run(&global_for(&socket), command), 0, "the CLI stopped waiting for the person");
+    let connections = app.join().unwrap();
+    assert_eq!(connections[0][0]["params"]["confirm"], true);
+
+    let declined = json!({ "id": 1, "ok": false, "error": { "code": "setting_user_only",
+        "message": "history.terminalCommands was not changed: the confirmation was declined",
+        "data": { "key": key, "declined": true } } });
+    let (socket, app) = fake_app(vec![declined]);
+    let command = parse(&args(&["settings", "reset", key, "--confirm"])).unwrap().unwrap();
+    assert_eq!(run(&global_for(&socket), command), 1);
+    assert_eq!(app.join().unwrap()[0][0]["method"], "settings.reset");
+}
+
+/// `--confirm` waits with no client deadline; plain reads and writes keep
+/// the control-plane one.
+#[test]
+fn only_a_confirmed_settings_write_waits_without_a_deadline() {
+    let timeout = |words: &[&str]| match parse(&args(words)).unwrap().unwrap() {
+        AppCommand::Call { timeout, .. } => timeout,
+        AppCommand::Open { .. } | AppCommand::Events { .. } => panic!("expected a call"),
+    };
+    assert_eq!(timeout(&["settings", "set", "a.b", "1", "--confirm"]), None);
+    assert_eq!(timeout(&["settings", "reset", "a.b", "--confirm"]), None);
+    assert_eq!(timeout(&["settings", "set", "a.b", "1"]), Some(READ_TIMEOUT));
+    assert_eq!(timeout(&["settings", "get"]), Some(READ_TIMEOUT));
+}
+
+/// A refusal without --confirm keeps the app's message and adds the rerun
+/// hint; a declined sheet says "declined in cmux"; neither echoes the value.
+#[test]
+fn a_user_only_refusal_says_what_to_do() {
+    let messages = &crate::localization::catalog().app_control;
+    let refusal = |declined: bool| {
+        json!({ "code": "setting_user_only", "message": "k can be changed only by you",
+            "data": { "key": "k", "declined": declined } })
+    };
+    let secret = "s3cr3t-value";
+    let mut error = refusal(false);
+    settings::explain_refusal("settings.set", &json!({ "path": "k", "value": secret }), &mut error);
+    let text = error["message"].as_str().unwrap();
+    assert!(text.starts_with("k can be changed only by you\n"), "{text}");
+    assert!(text.ends_with(messages.settings_confirm_hint), "{text}");
+    assert!(!text.contains(secret));
+    assert_eq!(error["code"], "setting_user_only", "JSON output keeps the code");
+
+    let mut error = refusal(true);
+    let confirmed = json!({ "path": "k", "value": secret, "confirm": true });
+    settings::explain_refusal("settings.reset", &confirmed, &mut error);
+    assert_eq!(error["message"], messages.settings_declined);
+    assert_eq!(error["data"]["declined"], true);
+
+    let mut other = json!({ "code": "managed", "message": "managed by your organization" });
+    settings::explain_refusal("settings.set", &confirmed, &mut other);
+    assert_eq!(other["message"], "managed by your organization");
 }
