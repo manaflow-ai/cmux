@@ -127,8 +127,11 @@ fn session(id: &str, name: &str, status: &str, child: bool) -> Value {
 
 impl AgentConnection for FakeConnection {
     fn request(&self, method: &str, params: Value, reply: AgentReply) {
-        self.hub.calls.lock().unwrap().push(method.to_owned());
+        // The call is recorded after the flags are read, so a test that waits
+        // for the call and then changes a flag cannot race this request.
+        let calls = |hub: &FakeHub| hub.calls.lock().unwrap().push(method.to_owned());
         if self.closed.load(Ordering::Acquire) {
+            calls(&self.hub);
             return reply(Err(AgentError::Closed));
         }
         if method == "session/prompt" {
@@ -137,6 +140,7 @@ impl AgentConnection for FakeConnection {
                     .reject_prompts
                     .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
             if refuse.is_ok() {
+                calls(&self.hub);
                 return reply(Err(AgentError::Rejected { message: "no agent session".into() }));
             }
             // The real hub acknowledges a recorded prompt at once, to the prompting connection.
@@ -150,8 +154,10 @@ impl AgentConnection for FakeConnection {
             }
         }
         if self.hub.hold.lock().unwrap().contains(method) {
-            return self.held.lock().unwrap().push(reply);
+            self.held.lock().unwrap().push(reply);
+            return calls(&self.hub);
         }
+        calls(&self.hub);
         reply(Ok(self.hub.handle(method, &params)));
     }
 
