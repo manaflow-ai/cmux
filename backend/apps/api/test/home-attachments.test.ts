@@ -1,4 +1,5 @@
 import { env, exports } from "cloudflare:workers"
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { createHash } from "node:crypto"
 import { invites } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
@@ -74,6 +75,7 @@ const join = async (id: string, ok: (w: Principal, o: string, p: unknown, k: str
   await ok(owner.principal, "invite.approve_join", { invite_id: invite }, `ap${i}`)
 }
 
+const text = (t: string) => ({ type: "text", text: t })
 const bytesOf = (s: string) => new TextEncoder().encode(s)
 const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex")
 const intent = (who: Who, conversation: string, body: Uint8Array, over: Record<string, unknown> = {}) =>
@@ -86,7 +88,9 @@ const upload = async (who: Who, conversation: string, body: Uint8Array, over: Re
   if (r.json.value.state === "upload") expect((await put(r.json.value.upload_url, body)).status).toBe(200)
   return sha(body)
 }
-const urlFor = (who: Who, conversation: string, hash: string) => post("/v1/home/attachments/url", who.token, { conversation, hash })
+const urlFor = (who: Who, conversation: string, hash: string, at?: { message_id: string; part_index: number }) => post("/v1/home/attachments/url", who.token, { conversation, hash, ...at })
+/** The opaque object id in a minted download URL. */
+const objectIdOf = (url: string) => new URL(url).pathname.split("/").pop()!
 const attachmentPart = (hash: string, body: Uint8Array, over: Record<string, unknown> = {}) => ({ type: "attachment", hash, name: "pic.png", mime_type: "image/png", byte_count: body.byteLength, width: 2, height: 2, ...over })
 
 describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
@@ -112,19 +116,19 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     const body = bytesOf("<svg/>")
     expect((await intent(alice, id, body, { mime_type: "image/svg+xml", name: "x.svg" })).status).toBe(415)
     expect((await intent(alice, id, body, { mime_type: "application/zip", name: "setup.exe" })).status).toBe(415)
-    const big = await intent(alice, id, body, { byte_count: 25_000_001 })
+    const big = await intent(alice, id, body, { byte_count: 100_000_001 })
     expect(big.status).toBe(413)
     expect(big.json.error.code).toBe("attachment.too_large")
   })
 
-  it("takes the daily byte quota per user; a repeated intent for the same hash counts once", async () => {
+  it("takes the daily byte quota per user (2 GB); a repeated intent for the same hash adds no bytes", async () => {
     const alice = await signIn("att-quota-alice")
     const { id } = await group(alice)
     const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 100_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
-    for (let i = 0; i < 10; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
-    // Same (conversation, hash): no new charge.
+    for (let i = 0; i < 20; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
+    // Same (conversation, hash): no new bytes.
     expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })).status).toBe(200)
-    const over = await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(10) })
+    const over = await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(20) })
     expect(over.status).toBe(429)
     expect(over.json.error.code).toBe("attachment.quota")
     expect(over.json.error.retry_after_ms).toBeGreaterThan(0)
@@ -229,7 +233,7 @@ describe("Home attachments: message.send and downloads", { timeout: 60_000 }, ()
     tampered.searchParams.set("e", String(Date.now() + 3_600_000))
     expect((await worker.fetch(tampered.toString())).status).toBe(403)
     const { downloadPath } = await import("../src/home-attachments.ts")
-    const expired = await downloadPath(testEnv, g.id, imgHash, bob.user, Date.now() - 1)
+    const expired = downloadPath(testEnv, { conversation: g.id, objectId: objectIdOf(minted.json.value.url), actor: bob.user, expires: Date.now() - 1 })
     expect((await worker.fetch(`https://api.test${expired}`)).status).toBe(403)
 
     // Removing Bob ends his access at once, even with a URL minted before.
@@ -276,5 +280,182 @@ describe("Home attachments: retention", { timeout: 60_000 }, () => {
     expect((await op(alice.token, "message.retract", { conversation: g.id, message_id: sent.json.value.message_id }, "r1")).json.ok).toBe(true)
     expect(await conv.collectAttachments(g.id, later)).toHaveLength(1)
     expect(await objects()).toEqual([])
+  })
+})
+
+describe("Home attachments: review fixes (P2/P3)", { timeout: 120_000 }, () => {
+  it("message.send needs the author to be an uploader or see a referencing message; 'not yours' and 'unknown' look the same", async () => {
+    const alice = await signIn("att-own-alice")
+    const bob = await signIn("att-own-bob")
+    const g = await group(alice, [bob])
+    const unsent = bytesOf("alice unsent")
+    const hash = await upload(alice, g.id, unsent)
+    const theirs = await op(bob.token, "message.send", { conversation: g.id, client_msg_id: "b1", parts: [attachmentPart(hash, unsent)] }, "b1")
+    const unknown = await op(bob.token, "message.send", { conversation: g.id, client_msg_id: "b2", parts: [attachmentPart("f".repeat(64), unsent)] }, "b2")
+    expect(theirs.json.error.code).toBe("unknown_attachment")
+    expect(unknown.json.error.code).toBe(theirs.json.error.code)
+    // Once Alice sent it, Bob sees it in a message and may forward it.
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "a1", parts: [attachmentPart(hash, unsent)] }, "a1")).json.ok).toBe(true)
+    expect((await op(bob.token, "message.send", { conversation: g.id, client_msg_id: "b3", parts: [attachmentPart(hash, unsent)] }, "b3")).json.ok).toBe(true)
+
+    // since_join: a hash only referenced before Carol's join is unknown to her.
+    const carol = await signIn("att-own-carol")
+    const h = await group(alice, [], "since_join")
+    const old = bytesOf("pre-join file")
+    const oldHash = await upload(alice, h.id, old)
+    expect((await op(alice.token, "message.send", { conversation: h.id, client_msg_id: "o1", parts: [attachmentPart(oldHash, old)] }, "o1")).json.ok).toBe(true)
+    await h.join(carol, 0)
+    expect((await op(carol.token, "message.send", { conversation: h.id, client_msg_id: "c1", parts: [attachmentPart(oldHash, old)] }, "c1")).json.error.code).toBe("unknown_attachment")
+  })
+
+  it("the ConversationDO alarm collects unreferenced uploads after 24 h and releases the uploader's storage; conversation deletion removes the prefix", async () => {
+    const alice = await signIn("att-alarm-alice")
+    const g = await group(alice)
+    const kept = bytesOf("kept by a message")
+    const orphan = bytesOf("orphan upload")
+    const keptHash = await upload(alice, g.id, kept)
+    await upload(alice, g.id, orphan)
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [attachmentPart(keptHash, kept)] }, "m1")).json.ok).toBe(true)
+    const doStub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    const userStub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(alice.user))
+    const stored = () => runInDurableObject(userStub, async (_i, state) => Number((state.storage.sql.exec("SELECT COALESCE(SUM(bytes), 0) AS b FROM home_attachment_stored").toArray()[0] as { b: number }).b))
+    expect(await stored()).toBe(kept.byteLength + orphan.byteLength)
+    // An upload commit schedules the sweep; age both records past the grace period and fire the alarm.
+    expect(await runInDurableObject(doStub, async (_i, state) => (await state.storage.getAlarm()) !== null)).toBe(true)
+    await runInDurableObject(doStub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachments SET created_at = ?", Date.now() - 25 * 3_600_000))
+    await runDurableObjectAlarm(doStub)
+    const left = async () => (await testEnv.HOME_ATTACHMENTS.list({ prefix: `home/v1/${g.id}/` })).objects.length
+    expect(await left()).toBe(1)
+    expect(await stored()).toBe(kept.byteLength)
+    expect((await urlFor(alice, g.id, keptHash)).status).toBe(200)
+    // Deleting the conversation's storage removes every object under its prefix.
+    const conv = doStub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
+    expect(await conv.deleteAttachmentStorage(g.id)).toBe(1)
+    expect(await left()).toBe(0)
+    expect(await stored()).toBe(0)
+  })
+
+  it("an upload slot is single use; slot and download URLs carry no file name and no hash", async () => {
+    const alice = await signIn("att-slot-alice")
+    const g = await group(alice)
+    const body = bytesOf("single use bytes")
+    const r = await intent(alice, g.id, body, { name: "Secret Plans 2027.png" })
+    const url = r.json.value.upload_url as string
+    expect(url).not.toContain("Secret")
+    expect(decodeURIComponent(url)).not.toContain("Secret")
+    expect(url).not.toContain(sha(body))
+    expect(Buffer.from(url.split("/").pop()!.split(".")[0]!, "base64url").toString("latin1")).not.toContain("Secret")
+    expect((await put(url, body)).status).toBe(200)
+    const again = await put(url, body)
+    expect(again.status).toBe(403)
+    expect(((await again.json()) as any).error.code).toBe("attachment.slot_invalid")
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [attachmentPart(sha(body), body, { name: "Secret Plans 2027.png" })] }, "m1")).json.ok).toBe(true)
+    const minted = (await urlFor(alice, g.id, sha(body))).json.value.url as string
+    expect(minted).not.toContain(sha(body))
+    expect(decodeURIComponent(minted)).not.toContain("Secret")
+  })
+
+  it("Range past the end is 416; the file name comes from the message part; text types download as text/plain attachments", async () => {
+    const alice = await signIn("att-range-alice")
+    const g = await group(alice)
+    const md = bytesOf("# notes\n<script>alert(1)</script>\n")
+    const hash = await upload(alice, g.id, md, { mime_type: "text/markdown", name: "a.md", width: undefined, height: undefined })
+    const sent = await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [text("see"), attachmentPart(hash, md, { mime_type: "text/markdown", name: "Meeting notes.md", width: undefined, height: undefined })] }, "m1")
+    expect(sent.json.ok).toBe(true)
+    const url = (await urlFor(alice, g.id, hash, { message_id: sent.json.value.message_id, part_index: 1 })).json.value.url as string
+    const res = await worker.fetch(url)
+    expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8")
+    expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="Meeting notes\.md"/)
+    await res.arrayBuffer()
+    const past = await worker.fetch(url, { headers: { range: `bytes=${md.byteLength + 10}-${md.byteLength + 20}` } })
+    expect(past.status).toBe(416)
+    expect(past.headers.get("content-range")).toBe(`bytes */${md.byteLength}`)
+    const clamped = await worker.fetch(url, { headers: { range: `bytes=2-999999` } })
+    expect(clamped.status).toBe(206)
+    expect(clamped.headers.get("content-range")).toBe(`bytes 2-${md.byteLength - 1}/${md.byteLength}`)
+    await clamped.arrayBuffer()
+    // A part index that does not hold this hash is refused at mint.
+    expect((await urlFor(alice, g.id, hash, { message_id: sent.json.value.message_id, part_index: 0 })).status).toBe(404)
+  })
+
+  it("download signatures carry a key id (current and previous accepted) and bind the method", async () => {
+    const alice = await signIn("att-kid-alice")
+    const g = await group(alice)
+    const body = bytesOf("rotating keys")
+    const hash = await upload(alice, g.id, body)
+    const minted = (await urlFor(alice, g.id, hash)).json.value.url as string
+    expect(new URL(minted).searchParams.get("k")).toBe(testEnv.HOME_ATTACHMENT_KEY_ID)
+    const { downloadPath } = await import("../src/home-attachments.ts")
+    const args = { conversation: g.id, objectId: objectIdOf(minted), actor: alice.user, expires: Date.now() + 60_000 }
+    const previous = await worker.fetch(`https://api.test${downloadPath(testEnv, { ...args, kid: testEnv.HOME_ATTACHMENT_KEY_PREVIOUS_ID })}`)
+    expect(previous.status).toBe(200)
+    await previous.arrayBuffer()
+    expect((await worker.fetch(`https://api.test${downloadPath(testEnv, { ...args, kid: "unknown" })}`)).status).toBe(403)
+    expect((await worker.fetch(`https://api.test${downloadPath(testEnv, { ...args, method: "PUT" })}`)).status).toBe(403)
+    const head = await worker.fetch(minted, { method: "HEAD" })
+    expect(head.status).toBe(200)
+  })
+
+  it("stored bytes per uploader are capped at 10 GB", async () => {
+    const alice = await signIn("att-stored-alice")
+    const g = await group(alice)
+    const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(alice.user)) as unknown as { recordAttachmentStorage(e: string, key: string, bytes: number): Promise<void> }
+    await user.recordAttachmentStorage(alice.user, "home/v1/elsewhere/x", 10_000_000_000 - 5)
+    const r = await intent(alice, g.id, bytesOf("123456"))
+    expect(r.status).toBe(429)
+    expect(r.json.error.code).toBe("attachment.storage_quota")
+  })
+})
+
+describe("Home attachments: presigned R2 PUT for 32-100 MB", { timeout: 120_000 }, () => {
+  it("SigV4 presigning matches the AWS documented example", async () => {
+    const { presignUrl } = await import("../src/r2-presign.ts")
+    const url = presignUrl({
+      method: "GET",
+      url: "https://examplebucket.s3.amazonaws.com/test.txt",
+      region: "us-east-1",
+      accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      headers: {},
+      expiresSec: 86400,
+      now: Date.UTC(2013, 4, 24)
+    })
+    expect(new URL(url).searchParams.get("X-Amz-Signature")).toBe("aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404")
+  })
+
+  it("a large file gets a presigned PUT that signs length and checksum; commit HEADs size and checksum before it is referenceable", async () => {
+    const alice = await signIn("att-big-alice")
+    const g = await group(alice)
+    const big = new Uint8Array(40_000_000).fill(7)
+    const hash = sha(big)
+    const r = await intent(alice, g.id, big, { mime_type: "video/mp4", name: "trip.mp4", duration_ms: 1000, width: undefined, height: undefined })
+    expect(r.json.value).toMatchObject({ state: "upload", method: "PUT", mode: "presigned" })
+    const url = new URL(r.json.value.upload_url)
+    expect(url.origin).toBe(testEnv.HOME_ATTACHMENTS_S3_ENDPOINT)
+    expect(url.searchParams.get("X-Amz-SignedHeaders")).toBe("content-length;host;x-amz-checksum-sha256")
+    expect(Number(url.searchParams.get("X-Amz-Expires"))).toBe(900)
+    expect(r.json.value.headers).toEqual({ "content-length": String(big.byteLength), "x-amz-checksum-sha256": Buffer.from(hash, "hex").toString("base64") })
+    expect(r.json.value.upload_url).not.toContain(hash)
+    const key = decodeURIComponent(url.pathname).split("/").slice(2).join("/")
+    const commit = (slot: string) => post("/v1/home/attachments/commit", alice.token, { conversation: g.id, slot })
+    // Committing before the bytes land is refused and keeps the slot.
+    expect((await commit(r.json.value.slot)).status).toBe(409)
+    // The client's PUT lands (simulated on the bucket binding with R2's checksum).
+    await testEnv.HOME_ATTACHMENTS.put(key, big, { sha256: hash })
+    const done = await commit(r.json.value.slot)
+    expect(done.status).toBe(200)
+    expect(done.json.value.state).toBe("stored")
+    expect((await commit(r.json.value.slot)).status).toBe(403)
+    expect((await op(alice.token, "message.send", { conversation: g.id, client_msg_id: "m1", parts: [attachmentPart(hash, big, { mime_type: "video/mp4", name: "trip.mp4", width: undefined, height: undefined })] }, "m1")).json.ok).toBe(true)
+
+    // Other bytes of the same length under a second slot: refused at commit and deleted.
+    const other = new Uint8Array(40_000_000).fill(9)
+    const r2 = await intent(alice, g.id, other, { mime_type: "video/mp4", name: "b.mp4", width: undefined, height: undefined, sha256: sha(new Uint8Array(40_000_000).fill(8)) })
+    const key2 = decodeURIComponent(new URL(r2.json.value.upload_url).pathname).split("/").slice(2).join("/")
+    await testEnv.HOME_ATTACHMENTS.put(key2, other, { sha256: sha(other) })
+    const bad = await commit(r2.json.value.slot)
+    expect(bad.status).toBe(400)
+    expect(bad.json.error.code).toBe("attachment.hash_mismatch")
+    expect(await testEnv.HOME_ATTACHMENTS.head(key2)).toBeNull()
   })
 })

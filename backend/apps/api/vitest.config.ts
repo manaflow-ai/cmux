@@ -36,6 +36,14 @@ export default defineConfig({
           HOME_ADDRESS_KEY: "test-home-address-key-0123456789abcdef",
           // Home attachment upload slots and download URLs (HMAC key); test-only.
           HOME_ATTACHMENT_KEY: "test-home-attachment-key-0123456789abcdef",
+          HOME_ATTACHMENT_KEY_ID: "k2",
+          HOME_ATTACHMENT_KEY_PREVIOUS: "test-home-attachment-key-previous-0123456789",
+          HOME_ATTACHMENT_KEY_PREVIOUS_ID: "k1",
+          // Presigned R2 PUTs for large files: fake S3 endpoint and token (URLs are only built, never called).
+          HOME_ATTACHMENTS_S3_ENDPOINT: "https://test-account.r2.cloudflarestorage.com",
+          HOME_ATTACHMENTS_S3_BUCKET: "cmux-home-attachments-local",
+          HOME_ATTACHMENTS_S3_ACCESS_KEY_ID: "test-access-key-id",
+          HOME_ATTACHMENTS_S3_SECRET_ACCESS_KEY: "test-secret-access-key",
           GITHUB_APP_SLUG: "cmux-test",
           GITHUB_APP_CLIENT_ID: "Iv1.test",
           GITHUB_APP_CLIENT_SECRET: "gh-client-secret",
