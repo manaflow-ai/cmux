@@ -8,7 +8,8 @@ import { grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState 
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
-import { FOREGROUND_MAX_WAIT_MS, FOREGROUND_RECHECK_MS, HOURLY_PUSH_CAP, HomePushQueue, homeApnsMessage, pushCandidate, RETRY_LIMIT, retryBackoffMs, stillPushable } from "./home-push.ts"
+import { HomePushQueue, pushCandidate } from "./home-push.ts"
+import { drainHomePush } from "./home-push-drain.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 import { apnsConfig, sendApnsMessage, type ApnsMessage, type SendResult } from "./push/apns.ts"
@@ -160,75 +161,21 @@ export class UserDO extends OwnerDO<UserState> {
     else if (decision.reason === "muted" || decision.reason === "agent" || decision.reason === "before_join") this.homePush.skip(params.conversation, params.last_seq, now)
   }
 
-  /**
-   * Sends due Home pushes. Device facts are checked here: no push target settles the row; an
-   * active Mac holds a plain row back (a read meanwhile clears it), and the hourly cap defers
-   * it to when the window frees (approvals pass both). A row is settled before its send (at
-   * most once), so a retried alarm never sends it again; APNs retry_later puts it back with a
-   * backoff, and tokens APNs refuses are dropped by this owner.
-   */
+  /** Sends due Home pushes (home-push-drain.ts); tests call it with an explicit time. */
   private async drainHomePush(now: number): Promise<void> {
-    const due = this.homePush.due(now)
     const engine = this.existing()
-    if (due.length === 0 || !engine) return
+    if (!engine) return
     const entity = engine.stream.slice("user:".length)
     const inbox = this.inbox.open(entity)
-    // Device facts once per drain, before any row is read: the per-row step below never awaits before its settle.
-    let targets = await this.pushTargets(entity)
-    const quiet = due.some((r) => !r.approval) ? await this.homePushQuiet(entity) : false
-    const log = (msg: string, row: { conversation: string; seq: number }, extra: Record<string, unknown> = {}) =>
-      console.log(JSON.stringify({ msg, conversation: row.conversation, seq: row.seq, ...extra }))
-    for (const listed of due) {
-      // Re-read after the previous send's await: an overlapping drain may have settled it.
-      const row = this.homePush.dueRow(listed.conversation, now)
-      if (!row) continue
-      const entry = inbox.rows.get<homeInbox.InboxEntry>(homeInbox.TABLE_ENTRY, row.conversation)?.row
-      const message = homeApnsMessage(row.conversation, row, row.seq, row.approval, now)
-      const skip = stillPushable(entry, row.approval, now) ?? (targets.length === 0 ? "no_target" : message === null ? "empty" : null)
-      if (skip !== null || !message) {
-        this.homePush.settle(row.conversation, row.seq, now, false)
-        log("home.push.skipped", row, { reason: skip })
-        continue
-      }
-      if (!row.approval) {
-        if (quiet) {
-          if (now - row.queued_at >= FOREGROUND_MAX_WAIT_MS) {
-            this.homePush.settle(row.conversation, row.seq, now, false)
-            log("home.push.skipped", row, { reason: "mac_active" })
-          } else {
-            this.homePush.defer(row.conversation, now + FOREGROUND_RECHECK_MS)
-            log("home.push.deferred", row, { reason: "mac_active" })
-          }
-          continue
-        }
-        const budget = this.homePush.budget(now)
-        if (budget.sent >= HOURLY_PUSH_CAP) {
-          this.homePush.defer(row.conversation, budget.freeAt ?? now + 60_000)
-          log("home.push.deferred", row, { reason: "hourly_cap", until: budget.freeAt })
-          continue
-        }
-        this.homePush.recordSend(now)
-      }
-      this.homePush.settle(row.conversation, row.seq, now, true)
-      try {
-        const results = await this.homePushSender(targets, message, now)
-        if (results === null) {
-          log("home.push.skipped", row, { reason: "apns not configured" })
-          continue
-        }
-        const dropped = new Set(results.filter((r) => r.outcome === "drop_target").map((r) => r.token))
-        for (const token of dropped) await this.dropPushTarget(entity, token, results.find((r) => r.token === token)?.reason ?? "rejected")
-        targets = targets.filter((t) => !dropped.has(t.token))
-        log("home.push.sent", row, { results: results.map((r) => ({ outcome: r.outcome, status: r.status, reason: r.reason })) })
-        // No device took it and APNs asked to retry: the row comes back with a backoff (bounded), else the loss is logged.
-        const retry = results.some((r) => r.outcome === "retry_later") && !results.some((r) => r.outcome === "sent")
-        if (retry && row.attempts >= RETRY_LIMIT) log("home.push.lost", row, { attempts: row.attempts })
-        else if (retry) log("home.push.retry", row, { attempts: row.attempts + 1, reopened: this.homePush.reopen(row, now + retryBackoffMs(row.attempts)) })
-      } catch (e) {
-        // An effect after the settle never throws out of the wake: the decision stands (at most once).
-        console.error(JSON.stringify({ msg: "home.push.failed", conversation: row.conversation, error: String(e).slice(0, 200) }))
-      }
-    }
+    await drainHomePush({
+      queue: this.homePush,
+      entity,
+      entry: (conversation) => inbox.rows.get<homeInbox.InboxEntry>(homeInbox.TABLE_ENTRY, conversation)?.row,
+      pushTargets: (e) => this.pushTargets(e),
+      quiet: (e) => this.homePushQuiet(e),
+      send: (targets, message, at) => this.homePushSender(targets, message, at),
+      dropPushTarget: (e, token, reason) => this.dropPushTarget(e, token, reason)
+    }, now)
   }
 
   private async deliverKrlNotices(now: number): Promise<void> {

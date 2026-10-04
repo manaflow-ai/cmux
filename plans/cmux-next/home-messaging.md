@@ -316,7 +316,7 @@ new body. No raw address, token or token hash is ever projected.
   (`FOREGROUND_MAX_WAIT_MS`), so a stale message never notifies later. Approvals bypass the hold
   and the cap. Per-user cap: 60 plain pushes per hour (B10); an over-cap push waits for the
   window. Known follow-ups: the cap counts a send before the APNs call, so an APNs
-  `retry_later` that is sent again counts twice (`recordSend` in `drainHomePush`); collapsed or
+  `retry_later` that is sent again counts twice (`recordSend` in `home-push-drain.ts`); collapsed or
   capped pushes do not update the app badge (B10).
 
 ## 10. Retention
