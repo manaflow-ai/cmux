@@ -98,7 +98,10 @@ mod unix {
     pub struct UnixControl {
         shared: Arc<Shared>,
         writer_tx: Sender<OutboundLine>,
-        raw_fd: std::os::fd::RawFd,
+        /// A duplicate of the stream's descriptor, owned here, so `end()`
+        /// shuts the socket down even after both halves dropped and never
+        /// touches a descriptor number another resource reused.
+        shutdown_fd: std::os::fd::OwnedFd,
         next_id: AtomicU64,
         timeout_ms: u64,
     }
@@ -131,9 +134,12 @@ mod unix {
             .map_err(|_| format!("cmux-tui control connect timed out ({})", socket_path.display()))?
             .map_err(|error| error.to_string())?;
         require_peer_uid(&stream, expected_uid)?;
-        let raw_fd = {
-            use std::os::fd::AsRawFd as _;
-            stream.as_raw_fd()
+        let shutdown_fd = {
+            use std::os::fd::AsFd as _;
+            stream
+                .as_fd()
+                .try_clone_to_owned()
+                .map_err(|error| format!("cmux-tui control descriptor: {error}"))?
         };
         let (read_half, write_half) = stream.into_split();
         let shared = Arc::new(Shared {
@@ -161,7 +167,7 @@ mod unix {
         Ok(Arc::new(UnixControl {
             shared,
             writer_tx,
-            raw_fd,
+            shutdown_fd,
             next_id: AtomicU64::new(1),
             timeout_ms,
         }))
@@ -326,7 +332,8 @@ mod unix {
         /// The descriptor `end()` shuts down.
         #[cfg(test)]
         pub(crate) fn shutdown_descriptor(&self) -> std::os::fd::RawFd {
-            self.raw_fd
+            use std::os::fd::AsRawFd as _;
+            self.shutdown_fd.as_raw_fd()
         }
 
         #[cfg(test)]
@@ -431,11 +438,12 @@ mod unix {
             self.shared.deliberate.store(true, Ordering::SeqCst);
             self.shared.settle_closed();
             // Shut both directions so the read loop sees EOF and any blocked
-            // writer unblocks; the halves drop and close the fd afterwards.
-            // SAFETY: shutdown on a socket fd this handle owns for the split
-            // stream's lifetime; a failure (already closed) is harmless.
+            // writer unblocks. shutdown acts on the socket, so the owned
+            // duplicate reaches it; a socket already shut down is harmless.
+            // SAFETY: shutdown on a descriptor this handle owns.
             unsafe {
-                libc::shutdown(self.raw_fd, libc::SHUT_RDWR);
+                use std::os::fd::AsRawFd as _;
+                libc::shutdown(self.shutdown_fd.as_raw_fd(), libc::SHUT_RDWR);
             }
         }
     }
