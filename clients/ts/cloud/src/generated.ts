@@ -1144,7 +1144,7 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms). */
   readonly "conversation.create": {
     readonly params: {
       readonly kind?: "group"
@@ -2005,7 +2005,7 @@ export interface CloudOps {
       }>
     }
   }
-  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms). */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId
