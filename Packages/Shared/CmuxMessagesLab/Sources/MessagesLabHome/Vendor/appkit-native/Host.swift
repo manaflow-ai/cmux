@@ -102,6 +102,9 @@ final class HostView: NSView {
         // avatar, pill, video button), which is for captures only.
         demo.header.isHidden = true
         above.root.addSublayer(demo.chrome.layer)
+        // cmux: a pane, not a window: no window border (ChromeView strokes a
+        // 1 pt rounded frame around the window bounds) and no traffic lights.
+        demo.chrome.isHidden = true
         // The overlay scroller replaces the drawn thumb (the only shared
         // subview with the thumb's corner radius).
         demo.subviews.first { $0.layer.cornerRadius == 3.375 }?.isHidden = true
