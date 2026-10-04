@@ -148,17 +148,13 @@ fn private_process_modes_run_under_the_cmux_name() {
 }
 
 /// A one-connection app socket that answers every request with `result`.
-/// The socket lives in a short directory under the canonical /tmp, because a
-/// socket path must fit sun_path (104 bytes on macOS) and a macOS $TMPDIR
-/// already uses about half of it. The returned guard removes the directory.
+/// The socket lives in a short directory from the shared helper, so its path
+/// fits sun_path whatever $TMPDIR is. The returned guard removes it.
 fn fake_app(
     result: serde_json::Value,
-) -> (tempfile::TempDir, PathBuf, std::thread::JoinHandle<()>) {
+) -> (cmux_unix_socket::TestDir, PathBuf, std::thread::JoinHandle<()>) {
     use std::io::{BufRead, BufReader, Write};
-    let dir = tempfile::Builder::new()
-        .prefix("cmux-sfc")
-        .tempdir_in(fs::canonicalize("/tmp").unwrap())
-        .unwrap();
+    let dir = cmux_unix_socket::short_test_dir("cmux-sfc");
     let socket = dir.path().join("app.sock");
     let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
     let handle = std::thread::spawn(move || {
