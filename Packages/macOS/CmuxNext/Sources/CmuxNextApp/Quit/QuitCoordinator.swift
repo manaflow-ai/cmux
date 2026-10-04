@@ -111,6 +111,9 @@ final class QuitCoordinator {
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
         let services = services
+        // Sparkle installs a staged update as the app exits unless
+        // `updates.installOnQuit` is off (then its installer is cancelled now).
+        services.updater.prepareForQuit()
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.

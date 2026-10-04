@@ -37,9 +37,15 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Opt-in background installs (see `UpdateDriver+BackgroundInstall.swift`); off keeps the
     /// prompt-driven flow unchanged.
     var installsInBackground = false
+    /// With background installs: whether a found update downloads without a click.
+    var downloadsInBackground = true
+    /// Replaces the baked feed when set (``UpdateController/feedOverride``).
+    var feedOverride: String?
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
+    /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
+    var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
@@ -96,7 +102,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source)
         }
-        if installsInBackground { return acceptInBackground(available) }
+        if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
         setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 

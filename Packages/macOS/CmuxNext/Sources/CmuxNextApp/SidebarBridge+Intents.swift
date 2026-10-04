@@ -104,9 +104,9 @@ extension SidebarBridge {
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .activateItemAccessory(let id):
-            // The update badge on Settings opens the updater sheet.
+            // One click on the update badge installs the staged update (R114).
             if model.itemInfo[id]?.accessory == .update || model.layout.item(id)?.ref == .builtIn(.settings) {
-                services.updater.presentUpdateUI?()
+                services.updater.installClicked()
             }
         case .layout(let op):
             applyLayoutOp(op)

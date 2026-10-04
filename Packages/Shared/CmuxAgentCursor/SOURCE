@@ -2,6 +2,6 @@
 # change cmux-cua first, then run scripts/cmux_agent_cursor_vendor.py sync (the pin
 # bump script scripts/bump-cmux-cua-pin.sh does this in the same commit).
 repo: manaflow-ai/cmux-cua
-sha: 418f5841e8555ef404f8f6a9e31c108531c48933
+sha: e07dc89ebfce362ea97b750af67d51463afa498d
 path: libs/cmux-cua/swift/CmuxAgentCursor
-tree: 183e50643d9b1473288edc6463b1e65611d9e539
+tree: d775ff71e5ef5beea341af11f0d938044f9b3b22
