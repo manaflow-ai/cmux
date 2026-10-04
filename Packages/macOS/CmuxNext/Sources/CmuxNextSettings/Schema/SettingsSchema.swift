@@ -102,7 +102,7 @@ public nonisolated enum SettingsSchema {
             ),
             TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
-            ChromePlacementSetting.tabBarPositionDescriptor(group: tabs),
+        ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
