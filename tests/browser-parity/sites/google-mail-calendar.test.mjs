@@ -114,6 +114,25 @@ test("googleCalendar.create: draft first; the confirmed draft saves through the 
   assert.match(await s.error('sites.googleCalendar.create({ title: "x", start: "2026-10-01T18:00:00Z", end: "2026-10-01T17:00:00Z" })'), /end must be after start/);
 });
 
+// The event form is checked against the draft right before Save: a title,
+// start time or guest the form holds that the user did not preview (a page
+// script changed it after the template loaded) saves nothing.
+test("googleCalendar.create: a form whose title, time or guests differ from the draft saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  for (const tamper of [{ title: "Design review (moved)" }, { startTime: "3:00am" }, { guest: "eve@example.net" }]) {
+    env.state.calendarTamper = tamper;
+    try {
+      const d = await s.value('sites.googleCalendar.create({ title: "Design review", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /form_mismatch|does not hold the drafted event/, JSON.stringify(tamper));
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  const allDay = await s.value('sites.googleCalendar.create({ title: "Offsite", start: "2026-10-05", end: "2026-10-07", allDay: true })');
+  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(allDay.id)}, { confirm: true })`)).status, "saved");
+});
+
 test("signed out: Gmail's sign-in redirect is reported, not parsed", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {

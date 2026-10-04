@@ -60,7 +60,7 @@ export function createState() {
   // current when a Gmail or Calendar page loads; notionUser: the Notion user
   // the session holds; notionSwitchOnSync: the user another session signs
   // in as when Notion next answers syncRecordValues.
-  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, composerSuffix: null, gmailSignature: null };
+  return { gmailSent: [], calendarCreated: [], slackPosts: [], notionOps: [], linkedinPosts: [], xPosts: [], requests: [], editors: createEditors(), slackChannels: null, googleAccounts: null, gmailThreadExtra: null, linkedinViewer: null, linkedinSwitchOnCompose: null, googleSwitchOnLoad: null, notionUser: null, notionSwitchOnSync: null, notionRobotsRedirect: null, composerSuffix: null, gmailSignature: null, calendarTamper: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -314,9 +314,33 @@ function calendar(req, url, body, state) {
     switchGoogleOnLoad(state);
     const account = googleAccountAt(state, url.pathname.split("/")[3]);
     return {
-      html: html(`<header><a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a></header><div role="main"><input aria-label="Title" value="${esc(url.searchParams.get("text") || "")}"><button id="save" aria-label="Save">Save</button></div>
+      // As live: the form shows the template's fields, dates and times in
+      // the event's time zone (ctz, else the browser's), and one guest list
+      // entry per guest plus the organizer once there are guests.
+      // calendarTamper: a page script changes the form after it loads.
+      html: html(`<header><a role="button" aria-label="Google Account: ${esc(account[2])} (${esc(account[3])})" href="https://accounts.google.com/SignOutOptions"></a></header><div role="main"><input aria-label="Title" value="${esc(url.searchParams.get("text") || "")}">
+      <input aria-label="Start date"><input aria-label="Start time"><input aria-label="End time"><input aria-label="End date"><div role="list" aria-label="Guests" id="guests"></div><button id="save" aria-label="Save">Save</button></div>
       <script>
         const p = Object.fromEntries(new URLSearchParams(location.search));
+        {
+          const tz = p.ctz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const parse = (v) => /T/.test(v) ? new Date(v.replace(/^(\\d{4})(\\d{2})(\\d{2})T(\\d{2})(\\d{2})(\\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z")) : new Date(v.replace(/^(\\d{4})(\\d{2})(\\d{2})$/, "$1-$2-$3T00:00:00Z"));
+          const [a, b] = (p.dates || "").split("/").map(parse);
+          const allDay = !/T/.test(p.dates || "");
+          const day = (d) => d.toLocaleDateString("en-US", { timeZone: allDay ? "UTC" : tz, month: "short", day: "numeric", year: "numeric" });
+          const time = (d) => d.toLocaleTimeString("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).replace(" ", "").toLowerCase();
+          const field = (label, v) => (document.querySelector('[aria-label="' + label + '"]').value = v);
+          field("Start date", day(a));
+          field("End date", day(allDay ? new Date(b.getTime() - 86400000) : b));
+          if (!allDay) (field("Start time", time(a)), field("End time", time(b)));
+          const guests = (p.add || "").split(",").filter(Boolean);
+          if (guests.length) guests.push(${JSON.stringify(account[3])});
+          document.getElementById("guests").innerHTML = guests.map((g) => '<div role="listitem" data-email="' + g + '">' + g + '</div>').join("");
+          const tamper = ${JSON.stringify(state.calendarTamper || null)};
+          if (tamper && tamper.title) field("Title", tamper.title);
+          if (tamper && tamper.startTime) field("Start time", tamper.startTime);
+          if (tamper && tamper.guest) document.getElementById("guests").insertAdjacentHTML("beforeend", '<div role="listitem" data-email="' + tamper.guest + '">' + tamper.guest + '</div>');
+        }
         const done = async () => { await fetch("__mock/event", { method: "POST", body: JSON.stringify(p) }); location.href = location.pathname.replace(/eventedit$/, "week"); };
         document.getElementById("save").addEventListener("click", () => {
           if (p.add) {
