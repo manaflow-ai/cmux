@@ -106,12 +106,20 @@ async fn dial(
     let mut caller = BufReader::new(caller);
     let pairings = Pairings::default();
     let serve = serve_dial_line(link_side, &request, overlay, &pairings, resolver);
-    let mut reply = String::new();
-    let read = async {
+    // Read the reply, then hang up, so a dial that wrongly succeeds ends
+    // and the assertions report it instead of a hang.
+    let read = async move {
+        let mut reply = String::new();
         caller.read_line(&mut reply).await.unwrap();
+        reply
     };
-    tokio::join!(serve, read);
-    (reply, caller.into_inner())
+    let ((), reply) = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        tokio::join!(serve, read)
+    })
+    .await
+    .expect("the dial ends within 20 s");
+    let (_, idle) = tokio::io::duplex(1);
+    (reply, idle)
 }
 
 /// Serve a dial in the background and return the caller's side.

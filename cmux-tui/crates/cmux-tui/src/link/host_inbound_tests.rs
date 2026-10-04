@@ -53,7 +53,13 @@ async fn serve(
         session_socket: &host.session,
         sshd: host.sshd.local_addr().unwrap(),
     };
-    let result = serve_host_inbound(link_side, [5; 32], source, verifier, &me).await;
+    // A refused stream ends at once; one still open after 5 s was served.
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        serve_host_inbound(link_side, [5; 32], source, verifier, &me),
+    )
+    .await
+    .unwrap_or(Ok(()));
     (result, peer)
 }
 
