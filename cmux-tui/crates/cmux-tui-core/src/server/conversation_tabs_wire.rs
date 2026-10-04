@@ -5,7 +5,9 @@
 //! `client.metadata.update {capabilities}`). Storage and the journal keep the
 //! canonical `conversation` kind; the projection applies to every control
 //! message the connection receives (responses, `session.snapshot`,
-//! `session.events`, journal replay, raw tree events).
+//! `session.events`, journal replay, raw tree events). Control messages pass
+//! through `project_conversation_tabs`; resource stream items through
+//! `project_conversation_tab_item`.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -114,6 +116,15 @@ impl MessageWriter {
             return Ok(text);
         }
         self.render_service.serialize_control(&value)
+    }
+
+    /// The same projection on a stream item before it is serialized
+    /// (`session.events` snapshot and delta items, journal records): stream
+    /// items do not pass through `send_control`.
+    pub(super) fn project_conversation_tab_item(&self, item: &mut Value) {
+        if !self.conversation_tabs.load(Ordering::Acquire) && conversation_tabs_present() {
+            downgrade_conversation_tabs(item);
+        }
     }
 }
 

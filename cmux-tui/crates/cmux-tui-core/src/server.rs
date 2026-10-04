@@ -10508,8 +10508,9 @@ fn send_resource_stream_item(
     stream_id: &StreamPublicId,
     sequence: u64,
     cursor: &Value,
-    item: Value,
+    mut item: Value,
 ) -> bool {
+    writer.project_conversation_tab_item(&mut item);
     writer
         .send_stream_backpressured(
             &json!({
