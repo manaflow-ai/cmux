@@ -440,7 +440,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   fails with `blocked`, also through a frame record from before it
   navigated (a local document is bound by its URL, not only its origin),
   input that would reach it and PDFs are refused, and a screenshot blanks
-  it. A tab whose main frame shows a web page (`http`, `https`) cannot
+  it. As under a policy, a capture there judges the documents it marks (a
+  frame can show such a file after the tree read) and holds child-frame
+  loads until it is taken, also with no policy. A tab whose main frame shows a web page (`http`, `https`) cannot
   frame a local file, so it is left to the policy alone.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`; a `blob:` URL is judged by the origin in it, and one of

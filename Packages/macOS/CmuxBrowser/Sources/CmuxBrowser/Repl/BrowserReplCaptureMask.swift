@@ -68,8 +68,9 @@ extension WKContentWorld {
 /// child of one document, so a list that names fewer frames than that
 /// refuses the capture (`stale`).
 ///
-/// The domain policy judges the document each frame shows when it is
-/// marked, the one the capture shows. A blocked main frame refuses the
+/// The domain policy (with ``init(secretMasks:gate:blockedChildFrames:probe:)``,
+/// the frame gate's rules, local files included) judges the document each
+/// frame shows when it is marked, the one the capture shows. A blocked main frame refuses the
 /// capture. A blocked child frame refuses a capture that cannot hide it (a
 /// PDF, ``BlockedChildFrames/refuse``); a screenshot is handed those
 /// frames and blanks them (``BlockedChildFrames/handToCapture``).
@@ -110,6 +111,15 @@ public struct BrowserReplCaptureMask {
 
     let masks: [Mask]
     let policy: BrowserReplDomainPolicy
+    /// Judges the documents the capture shows: the domain policy, or with
+    /// a gate the gate's rules (its policy, and in a tab the session did
+    /// not create the local-file rule, which holds without a policy).
+    private(set) var judge: Judge
+
+    struct Judge {
+        let isActive: @MainActor (WKWebView) -> Bool
+        let blockReason: @MainActor (BrowserReplFrameDocument, WKWebView) -> String?
+    }
     let blockedChildFrames: BlockedChildFrames
     /// Bounds each of the mask's scripts: WebKit drops a script's
     /// completion when a navigation replaces its document.
@@ -131,6 +141,7 @@ public struct BrowserReplCaptureMask {
         probe: BrowserReplScriptProbe = BrowserReplScriptProbe()
     ) {
         self.policy = policy
+        judge = Judge(isActive: { _ in policy.isActive }, blockReason: { document, _ in policy.blockReason(document: document) })
         self.blockedChildFrames = blockedChildFrames
         self.probe = probe
         masks = secretMasks.compactMap { mask in
@@ -140,7 +151,11 @@ public struct BrowserReplCaptureMask {
         }
     }
 
-    /// A mask whose capture is judged by `gate` (its domain policy).
+    /// A mask whose capture is judged by `gate`
+    /// (``BrowserReplFrameGate/blockReason(_:in:)``): its domain policy,
+    /// and in a tab the session did not create the local-file rule, which
+    /// holds with no policy. It runs whenever the gate judges the tab
+    /// (``BrowserReplFrameGate/isActive(in:)``).
     public init(
         secretMasks: [[String: Any]],
         gate: BrowserReplFrameGate,
@@ -148,6 +163,7 @@ public struct BrowserReplCaptureMask {
         probe: BrowserReplScriptProbe = BrowserReplScriptProbe()
     ) {
         self.init(secretMasks: secretMasks, policy: gate.policy, blockedChildFrames: blockedChildFrames, probe: probe)
+        judge = Judge(isActive: { gate.isActive(in: $0) }, blockReason: { gate.blockReason($0, in: $1) })
     }
 
     public var isEmpty: Bool { masks.isEmpty }
@@ -169,7 +185,7 @@ public struct BrowserReplCaptureMask {
         frames: () async -> [WKFrameInfo?],
         _ capture: (_ blockedChildFrames: [String: String]) async throws -> T
     ) async throws -> T {
-        guard !isEmpty || policy.isActive else { return try await capture([:]) }
+        guard !isEmpty || judge.isActive(webView) else { return try await capture([:]) }
         var marked: [WKFrameInfo?] = []
         var blockedChildren: [String: String] = [:]
         do {
@@ -184,7 +200,7 @@ public struct BrowserReplCaptureMask {
                 children += document.children
                 // Judged on the document the mark step marked, the one the
                 // capture shows (the after-capture check refuses another).
-                if let reason = policy.blockReason(document: document.policyDocument) {
+                if let reason = judge.blockReason(document.policyDocument, webView) {
                     let isMain = frame?.isMainFrame ?? true
                     guard !isMain, blockedChildFrames == .handToCapture,
                           let id = frame.flatMap(BrowserReplFrame.frameID(of:)) else {
@@ -286,7 +302,7 @@ public struct BrowserReplCaptureMask {
         }
         return MarkedDocument(
             origin: origin,
-            policyDocument: BrowserReplFrameDocument(origin: document["locationOrigin"] as? String, place: place)
+            policyDocument: BrowserReplFrameDocument(origin: document["locationOrigin"] as? String, place: place, local: document["local"] as? String)
                 .withMakers(frame: frame, in: webView),
             children: children
         )
@@ -372,7 +388,9 @@ public struct BrowserReplCaptureMask {
         }
       };
       visitShadows(document);
-      return { origin: String(self.origin), locationOrigin: location.origin, place: location.protocol + "//" + location.host, children: children.size };
+      const local = location.origin === "file://" || location.protocol === "file:"
+        ? location.href.slice(0, location.href.length - location.hash.length) : null;
+      return { origin: String(self.origin), locationOrigin: location.origin, place: location.protocol + "//" + location.host, local, children: children.size };
     }
     if (mode === "off") {
       state.marks.delete(token);

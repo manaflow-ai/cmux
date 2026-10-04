@@ -2764,10 +2764,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let quality = (params["quality"] as? NSNumber)?.doubleValue
         let fullPage = params["fullPage"] as? Bool ?? false
         let clip = params["clip"] as? [String: Any]
-        let policy = currentPolicy
         let frameGate = self.frameGate
         let image: CGImage = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { webView, _ in
-            try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .handToCapture, webView: webView) { blockedChildFrames in
+            try await Self.withSecretMasks(masks, gate: frameGate, blockedChildFrames: .handToCapture, webView: webView) { blockedChildFrames in
                 // Frames the domain policy blocks (an ad or tracker under
                 // allowedDomains) are blanked, not the whole capture refused:
                 // those of the tree, and those whose document the mask found
@@ -2788,16 +2787,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func pdf(_ params: [String: Any]) async throws -> [String: Any] {
         let panel = try panel(params)
-        let policy = currentPolicy
+        let frameGate = self.frameGate
         let data: Data = try await withTypedSecretMasks(params) { masks in try await withWindow(panel) { [self] webView, _ in
             // A PDF cannot blank a frame: any frame whose marked document
-            // the policy blocks refuses it, also one that navigated after
+            // the gate blocks (the policy, or a local file the session may
+            // not read) refuses it, also one that navigated after
             // checkFramePolicy read the tree.
-            try await Self.withSecretMasks(masks, policy: policy, blockedChildFrames: .refuse, webView: webView) { _ in
+            try await Self.withSecretMasks(masks, gate: frameGate, blockedChildFrames: .refuse, webView: webView) { _ in
                 // No child frame loads a new document while the PDF is
                 // printed: one the page created meanwhile could show a
                 // blocked page the checks around it never saw.
-                guard policy.isActive else { return try await self.printPDF(webView: webView, params: params) }
+                guard frameGate.isActive(in: webView) else { return try await self.printPDF(webView: webView, params: params) }
                 return try await BrowserReplSubframeLoadHold.shared.holding(webView) {
                     try await self.printPDF(webView: webView, params: params)
                 }
@@ -2808,18 +2808,19 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// Runs `capture` with registered secrets masked in frames on their
     /// domains, bound to the documents the frames show, and refuses it when
-    /// the main frame, or with `.refuse` any frame, shows a page the policy
-    /// blocks; with `.handToCapture` `capture` gets the blocked child frames
-    /// to blank (BrowserReplCaptureMask).
+    /// the main frame, or with `.refuse` any frame, shows a page the gate
+    /// blocks (the policy, or in a user's tab a local file the session may
+    /// not read); with `.handToCapture` `capture` gets the blocked child
+    /// frames to blank (BrowserReplCaptureMask).
     @MainActor
     private static func withSecretMasks<T>(
         _ masks: [[String: Any]],
-        policy: BrowserReplDomainPolicy,
+        gate: BrowserReplFrameGate,
         blockedChildFrames: BrowserReplCaptureMask.BlockedChildFrames,
         webView: WKWebView,
         _ capture: (_ blockedChildFrames: [String: String]) async throws -> T
     ) async throws -> T {
-        try await BrowserReplCaptureMask(secretMasks: masks, policy: policy, blockedChildFrames: blockedChildFrames).run(
+        try await BrowserReplCaptureMask(secretMasks: masks, gate: gate, blockedChildFrames: blockedChildFrames).run(
             in: webView,
             frames: { await BrowserReplFrameTree.frames(of: webView).map(\.info) },
             capture
