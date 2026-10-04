@@ -361,7 +361,7 @@ export type MarkdownProps = InlineOptions & {
 export function Markdown({ children, className = "", linkIcon, streaming = false }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = parser.current.update(children);
+  const blocks = parser.current.update(children, { streaming });
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
