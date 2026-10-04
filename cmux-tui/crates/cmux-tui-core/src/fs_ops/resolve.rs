@@ -95,9 +95,9 @@ impl Roots {
     /// as the last component is followed (inside the roots); without it the
     /// last component is returned as named.
     pub fn resolve(&self, path: &str, follow_last: bool) -> Result<Resolved, FsError> {
-        // RED: the sandbox walk is not wired yet.
-        let _ = (path, follow_last, Walk::new, Self::locate);
-        Err(FsError::Failure("not implemented".into()))
+        let components = request_components(path)?;
+        let (root, rest) = self.locate(&components)?;
+        Walk::new(root)?.run(rest.into_iter().collect(), follow_last)
     }
 
     /// The root that holds `components` (the longest matching spelling)
