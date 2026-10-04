@@ -31,6 +31,7 @@ import {
   isVmOperationUnsupportedError,
   vmWorkflowErrorCause,
   type VmCreateInProgressError,
+  type VmResourcePoolExceededError,
   type VmModelPlaneError,
   type VmOperationUnsupportedError,
   type VmProviderOperationError,
@@ -63,6 +64,7 @@ import {
   vmRequiresProCopy,
   vmMemoryErrorCopy,
   vmGoLimitCopy,
+  vmResourcePoolCopy,
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
@@ -642,6 +644,60 @@ export async function vmActiveLimitExceededResponse(input: {
   });
 }
 
+/** Whole GB for display; pool sizes are multiples of 1 GiB. */
+function poolGb(memoryMb: number): number {
+  return Math.round((memoryMb / 1024) * 10) / 10;
+}
+
+/**
+ * The shared-pool refusal every create, Base open/reset, resume, resize, and
+ * fork answers with. It is a limit, not an outage: 402 like the active-VM
+ * limit, with the pool, what is in use, and the request so clients can show
+ * usage, and an upgrade to Max when the caller is not already on Max.
+ */
+export async function vmResourcePoolExceededResponse(
+  error: VmResourcePoolExceededError,
+  locale: Locale,
+): Promise<Response> {
+  const upgradePlanId = error.planId === "max" ? null : "max";
+  const memory = error.resource === "memoryMb";
+  const copy = await vmResourcePoolCopy(locale, {
+    resource: error.resource,
+    used: memory ? poolGb(error.used.memoryMb) : error.used.vcpus,
+    pool: memory ? poolGb(error.pool.memoryMb) : error.pool.vcpus,
+    requested: memory ? poolGb(error.requested.memoryMb) : error.requested.vcpus,
+    canUpgrade: upgradePlanId !== null,
+  });
+  const upgradeUrl = upgradePlanId ? `https://cmux.com/api/billing/checkout?plan=${upgradePlanId}` : null;
+  return vmErrorResponse({
+    error: "vm_resource_pool_exceeded",
+    status: 402,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    phase: error.phase,
+    retryable: false,
+    extra: {
+      resource: error.resource,
+      pool: error.pool,
+      used: error.used,
+      requested: error.requested,
+      upgradePlanId,
+      ...(upgradeUrl ? { upgradeUrl } : {}),
+    },
+    details: {
+      resource: error.resource,
+      poolVcpus: error.pool.vcpus,
+      poolMemoryMb: error.pool.memoryMb,
+      usedVcpus: error.used.vcpus,
+      usedMemoryMb: error.used.memoryMb,
+      requestedVcpus: error.requested.vcpus,
+      requestedMemoryMb: error.requested.memoryMb,
+      upgradePlanId,
+    },
+  });
+}
+
 export type VmCreateLikeOperation = "fork" | "restore";
 
 /** Request-scoped inputs a responder may need beyond the error itself. */
@@ -1000,6 +1056,7 @@ export const vmWorkflowErrorResponders = {
   VmCreateFailedError: () => null,
   VmImageConfigError: () => null,
   VmLimitExceededError: () => null,
+  VmResourcePoolExceededError: (error, context) => vmResourcePoolExceededResponse(error, context.locale),
   VmUsageLimitExceededError: (_error, context) => goLimitResponse("hours", context.locale),
   VmSavedLimitExceededError: (_error, context) => goLimitResponse("saved", context.locale),
   VmGoShapeError: async (_error, context) => {

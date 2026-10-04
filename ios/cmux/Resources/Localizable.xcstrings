@@ -103949,10 +103949,513 @@
     "mobile.billing.plan.go.size": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"2 vCPUs and 4 GB RAM"}},"de":{"stringUnit":{"state":"translated","value":"2 vCPUs und 4 GB RAM"}},"fr":{"stringUnit":{"state":"translated","value":"2 vCPU et 4 Go de RAM"}},"ar":{"stringUnit":{"state":"translated","value":"2 vCPU وذاكرة RAM بسعة 4 جيجابايت"}},"es":{"stringUnit":{"state":"translated","value":"2 vCPU y 4 GB de RAM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"2 個 vCPU 與 4 GB RAM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"2 个 vCPU 和 4 GB RAM"}},"ko":{"stringUnit":{"state":"translated","value":"vCPU 2개, RAM 4GB"}},"ja":{"stringUnit":{"state":"translated","value":"vCPU 2 基と RAM 4 GB"}}}},
     "mobile.billing.plan.max": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Max"}},"de":{"stringUnit":{"state":"translated","value":"Max"}},"fr":{"stringUnit":{"state":"translated","value":"Max"}},"ar":{"stringUnit":{"state":"translated","value":"Max"}},"es":{"stringUnit":{"state":"translated","value":"Max"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Max"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Max"}},"ko":{"stringUnit":{"state":"translated","value":"Max"}},"ja":{"stringUnit":{"state":"translated","value":"Max"}}}},
     "mobile.billing.plan.max.machines": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up to 5 Cloud VMs"}},"de":{"stringUnit":{"state":"translated","value":"Bis zu 5 Cloud-VMs"}},"fr":{"stringUnit":{"state":"translated","value":"Jusqu’à 5 VM Cloud"}},"ar":{"stringUnit":{"state":"translated","value":"حتى 5 أجهزة Cloud VM"}},"es":{"stringUnit":{"state":"translated","value":"Hasta 5 VM en la nube"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"最多 5 部 Cloud VM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"最多 5 台 Cloud VM"}},"ko":{"stringUnit":{"state":"translated","value":"최대 5개의 Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"最大 5 台の Cloud VM"}}}},
-    "mobile.billing.plan.max.size": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up to 16 vCPUs and 32 GB RAM per VM"}},"de":{"stringUnit":{"state":"translated","value":"Bis zu 16 vCPUs und 32 GB RAM pro VM"}},"fr":{"stringUnit":{"state":"translated","value":"Jusqu’à 16 vCPU et 32 Go de RAM par VM"}},"ar":{"stringUnit":{"state":"translated","value":"حتى 16 vCPU وذاكرة RAM بسعة 32 جيجابايت لكل VM"}},"es":{"stringUnit":{"state":"translated","value":"Hasta 16 vCPU y 32 GB de RAM por VM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每部 VM 最多 16 個 vCPU 與 32 GB RAM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每台 VM 最多 16 个 vCPU 和 32 GB RAM"}},"ko":{"stringUnit":{"state":"translated","value":"VM당 최대 vCPU 16개, RAM 32GB"}},"ja":{"stringUnit":{"state":"translated","value":"VM あたり最大 vCPU 16 基と RAM 32 GB"}}}},
+    "mobile.billing.plan.max.size": {"extractionState":"manual","localizations":{"en":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing 80 vCPUs and 160 GB RAM"
+          }
+        },"de":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemeinsame 80 vCPUs und 160 GB RAM"
+          }
+        },"fr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partageant 80 vCPU et 160 Go de RAM"
+          }
+        },"ar":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتشارك 80 vCPU وذاكرة RAM بسعة 160 جيجابايت"
+          }
+        },"es":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartiendo 80 vCPU y 160 GB de RAM"
+          }
+        },"zh-Hant":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用 80 個 vCPU 與 160 GB RAM"
+          }
+        },"zh-Hans":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享 80 个 vCPU 和 160 GB RAM"
+          }
+        },"ko":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 80개, RAM 160GB 공유"
+          }
+        },"ja":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 80 基と RAM 160 GB を共有"
+          }
+        }}},
+    "cloud.pool.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld of %2$lld vCPUs · %3$lld of %4$lld GB RAM in use"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld von %2$lld vCPUs · %3$lld von %4$lld GB RAM belegt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld vCPU sur %2$lld · %3$lld Go de RAM sur %4$lld utilisés"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيد الاستخدام: %1$lld من %2$lld وحدة معالجة مركزية افتراضية · %3$lld من %4$lld جيجابايت من الذاكرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld de %2$lld vCPU · %3$lld de %4$lld GB de RAM en uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 %1$lld / %2$lld 個虛擬 CPU · %3$lld / %4$lld GB 記憶體"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 %1$lld / %2$lld 个虚拟 CPU · %3$lld / %4$lld GB 内存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 중: vCPU %1$lld/%2$lld개 · RAM %3$lld/%4$lld GB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用中: %1$lld / %2$lld vCPU · %3$lld / %4$lld GB RAM"
+          }
+        }
+      }
+    },
+    "cloud.error.resourcePool.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause or delete a VM, or upgrade to Max."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiere oder lösche eine VM, oder führe ein Upgrade auf Max durch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettez en pause ou supprimez une VM, ou passez à Max."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوقف جهازًا افتراضيًا مؤقتًا أو احذفه، أو قم بالترقية إلى Max."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausa o elimina una VM, o actualiza a Max."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請暫停或刪除一台虛擬機，或升級至 Max。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请暂停或删除一台虚拟机，或升级到 Max。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM을 일시 중지하거나 삭제하거나 Max로 업그레이드하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM を一時停止するか削除する、または Max にアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "cloud.error.resourcePool.maxAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pause or delete a VM."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiere oder lösche eine VM."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettez en pause ou supprimez une VM."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوقف جهازًا افتراضيًا مؤقتًا أو احذفه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausa o elimina una VM."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請暫停或刪除一台虛擬機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请暂停或删除一台虚拟机。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM을 일시 중지하거나 삭제하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VM を一時停止するか削除してください。"
+          }
+        }
+      }
+    },
+    "cloud.create.pool.doesNotFit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size needs %1$lld GB RAM, but only %2$lld GB of your %3$lld GB pool is free. Pause or delete a VM, or upgrade to Max."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe benötigt %1$lld GB RAM, aber von deinem %3$lld-GB-Pool sind nur %2$lld GB frei. Pausiere oder lösche eine VM, oder führe ein Upgrade auf Max durch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille nécessite %1$lld Go de RAM, mais seuls %2$lld Go de votre réserve de %3$lld Go sont libres. Mettez en pause ou supprimez une VM, ou passez à Max."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الحجم إلى %1$lld جيجابايت من الذاكرة، لكن المتاح من مجموعتك البالغة %3$lld جيجابايت هو %2$lld جيجابايت فقط. أوقف جهازًا افتراضيًا مؤقتًا أو احذفه، أو قم بالترقية إلى Max."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño necesita %1$lld GB de RAM, pero solo quedan libres %2$lld GB de tu grupo de %3$lld GB. Pausa o elimina una VM, o actualiza a Max."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此規格需要 %1$lld GB 記憶體，但你的 %3$lld GB 資源池只剩 %2$lld GB 可用。請暫停或刪除一台虛擬機，或升級至 Max。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格需要 %1$lld GB 内存，但你的 %3$lld GB 资源池只剩 %2$lld GB 可用。请暂停或删除一台虚拟机，或升级到 Max。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기에는 RAM %1$lld GB가 필요하지만 %3$lld GB 풀 중 %2$lld GB만 남아 있습니다. VM을 일시 중지하거나 삭제하거나 Max로 업그레이드하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズには %1$lld GB RAM が必要ですが、%3$lld GB のプールのうち空きは %2$lld GB だけです。VM を一時停止するか削除する、または Max にアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "cloud.create.pool.doesNotFitMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size needs %1$lld GB RAM, but only %2$lld GB of your %3$lld GB pool is free. Pause or delete a VM."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe benötigt %1$lld GB RAM, aber von deinem %3$lld-GB-Pool sind nur %2$lld GB frei. Pausiere oder lösche eine VM."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille nécessite %1$lld Go de RAM, mais seuls %2$lld Go de votre réserve de %3$lld Go sont libres. Mettez en pause ou supprimez une VM."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الحجم إلى %1$lld جيجابايت من الذاكرة، لكن المتاح من مجموعتك البالغة %3$lld جيجابايت هو %2$lld جيجابايت فقط. أوقف جهازًا افتراضيًا مؤقتًا أو احذفه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño necesita %1$lld GB de RAM, pero solo quedan libres %2$lld GB de tu grupo de %3$lld GB. Pausa o elimina una VM."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此規格需要 %1$lld GB 記憶體，但你的 %3$lld GB 資源池只剩 %2$lld GB 可用。請暫停或刪除一台虛擬機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格需要 %1$lld GB 内存，但你的 %3$lld GB 资源池只剩 %2$lld GB 可用。请暂停或删除一台虚拟机。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기에는 RAM %1$lld GB가 필요하지만 %3$lld GB 풀 중 %2$lld GB만 남아 있습니다. VM을 일시 중지하거나 삭제하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズには %1$lld GB RAM が必要ですが、%3$lld GB のプールのうち空きは %2$lld GB だけです。VM を一時停止するか削除してください。"
+          }
+        }
+      }
+    },
+    "cloud.create.pool.doesNotFitVcpus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size needs %1$lld vCPUs, but only %2$lld of your %3$lld vCPUs are free. Pause or delete a VM, or upgrade to Max."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe benötigt %1$lld vCPUs, aber von deinen %3$lld vCPUs sind nur %2$lld frei. Pausiere oder lösche eine VM, oder führe ein Upgrade auf Max durch."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille nécessite %1$lld vCPU, mais seuls %2$lld de vos %3$lld vCPU sont libres. Mettez en pause ou supprimez une VM, ou passez à Max."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الحجم إلى %1$lld من وحدات المعالجة المركزية الافتراضية، لكن المتاح منها %2$lld فقط من أصل %3$lld. أوقف جهازًا افتراضيًا مؤقتًا أو احذفه، أو قم بالترقية إلى Max."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño necesita %1$lld vCPU, pero solo quedan libres %2$lld de tus %3$lld vCPU. Pausa o elimina una VM, o actualiza a Max."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此規格需要 %1$lld 個虛擬 CPU，但你的 %3$lld 個虛擬 CPU 中只剩 %2$lld 個可用。請暫停或刪除一台虛擬機，或升級至 Max。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格需要 %1$lld 个虚拟 CPU，但你的 %3$lld 个虚拟 CPU 中只剩 %2$lld 个可用。请暂停或删除一台虚拟机，或升级到 Max。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기에는 vCPU %1$lld개가 필요하지만 vCPU %3$lld개 중 %2$lld개만 남아 있습니다. VM을 일시 중지하거나 삭제하거나 Max로 업그레이드하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズには %1$lld vCPU が必要ですが、%3$lld vCPU のうち空きは %2$lld vCPU だけです。VM を一時停止するか削除する、または Max にアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "cloud.create.pool.doesNotFitVcpusMax": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This size needs %1$lld vCPUs, but only %2$lld of your %3$lld vCPUs are free. Pause or delete a VM."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Größe benötigt %1$lld vCPUs, aber von deinen %3$lld vCPUs sind nur %2$lld frei. Pausiere oder lösche eine VM."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette taille nécessite %1$lld vCPU, mais seuls %2$lld de vos %3$lld vCPU sont libres. Mettez en pause ou supprimez une VM."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج هذا الحجم إلى %1$lld من وحدات المعالجة المركزية الافتراضية، لكن المتاح منها %2$lld فقط من أصل %3$lld. أوقف جهازًا افتراضيًا مؤقتًا أو احذفه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamaño necesita %1$lld vCPU, pero solo quedan libres %2$lld de tus %3$lld vCPU. Pausa o elimina una VM."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此規格需要 %1$lld 個虛擬 CPU，但你的 %3$lld 個虛擬 CPU 中只剩 %2$lld 個可用。請暫停或刪除一台虛擬機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规格需要 %1$lld 个虚拟 CPU，但你的 %3$lld 个虚拟 CPU 中只剩 %2$lld 个可用。请暂停或删除一台虚拟机。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 크기에는 vCPU %1$lld개가 필요하지만 vCPU %3$lld개 중 %2$lld개만 남아 있습니다. VM을 일시 중지하거나 삭제하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサイズには %1$lld vCPU が必要ですが、%3$lld vCPU のうち空きは %2$lld vCPU だけです。VM を一時停止するか削除してください。"
+          }
+        }
+      }
+    },
     "mobile.billing.plan.pro": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Pro"}},"de":{"stringUnit":{"state":"translated","value":"Pro"}},"fr":{"stringUnit":{"state":"translated","value":"Pro"}},"ar":{"stringUnit":{"state":"translated","value":"Pro"}},"es":{"stringUnit":{"state":"translated","value":"Pro"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"Pro"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"Pro"}},"ko":{"stringUnit":{"state":"translated","value":"Pro"}},"ja":{"stringUnit":{"state":"translated","value":"Pro"}}}},
     "mobile.billing.plan.pro.machines": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up to 5 Cloud VMs"}},"de":{"stringUnit":{"state":"translated","value":"Bis zu 5 Cloud-VMs"}},"fr":{"stringUnit":{"state":"translated","value":"Jusqu’à 5 VM Cloud"}},"ar":{"stringUnit":{"state":"translated","value":"حتى 5 أجهزة Cloud VM"}},"es":{"stringUnit":{"state":"translated","value":"Hasta 5 VM en la nube"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"最多 5 部 Cloud VM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"最多 5 台 Cloud VM"}},"ko":{"stringUnit":{"state":"translated","value":"최대 5개의 Cloud VM"}},"ja":{"stringUnit":{"state":"translated","value":"最大 5 台の Cloud VM"}}}},
-    "mobile.billing.plan.pro.size": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Up to 4 vCPUs and 8 GB RAM per VM"}},"de":{"stringUnit":{"state":"translated","value":"Bis zu 4 vCPUs und 8 GB RAM pro VM"}},"fr":{"stringUnit":{"state":"translated","value":"Jusqu’à 4 vCPU et 8 Go de RAM par VM"}},"ar":{"stringUnit":{"state":"translated","value":"حتى 4 vCPU وذاكرة RAM بسعة 8 جيجابايت لكل VM"}},"es":{"stringUnit":{"state":"translated","value":"Hasta 4 vCPU y 8 GB de RAM por VM"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"每部 VM 最多 4 個 vCPU 與 8 GB RAM"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"每台 VM 最多 4 个 vCPU 和 8 GB RAM"}},"ko":{"stringUnit":{"state":"translated","value":"VM당 최대 vCPU 4개, RAM 8GB"}},"ja":{"stringUnit":{"state":"translated","value":"VM あたり最大 vCPU 4 基と RAM 8 GB"}}}},
+    "mobile.billing.plan.pro.size": {"extractionState":"manual","localizations":{"en":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sharing 20 vCPUs and 40 GB RAM"
+          }
+        },"de":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemeinsame 20 vCPUs und 40 GB RAM"
+          }
+        },"fr":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partageant 20 vCPU et 40 Go de RAM"
+          }
+        },"ar":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتشارك 20 vCPU وذاكرة RAM بسعة 40 جيجابايت"
+          }
+        },"es":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartiendo 20 vCPU y 40 GB de RAM"
+          }
+        },"zh-Hant":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "共用 20 個 vCPU 與 40 GB RAM"
+          }
+        },"zh-Hans":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享 20 个 vCPU 和 40 GB RAM"
+          }
+        },"ko":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 20개, RAM 40GB 공유"
+          }
+        },"ja":{
+          "stringUnit": {
+            "state": "translated",
+            "value": "vCPU 20 基と RAM 40 GB を共有"
+          }
+        }}},
     "mobile.billing.pricePerPeriod": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"de":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"fr":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"ar":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"es":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"ko":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@ / %2$@"}}}},
     "mobile.billing.privacy": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Privacy Policy"}},"de":{"stringUnit":{"state":"translated","value":"Datenschutzerklärung"}},"fr":{"stringUnit":{"state":"translated","value":"Politique de confidentialité"}},"ar":{"stringUnit":{"state":"translated","value":"سياسة الخصوصية"}},"es":{"stringUnit":{"state":"translated","value":"Política de privacidad"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"隱私權政策"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"隐私政策"}},"ko":{"stringUnit":{"state":"translated","value":"개인정보 처리방침"}},"ja":{"stringUnit":{"state":"translated","value":"プライバシーポリシー"}}}},
     "mobile.billing.purchasing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Completing your purchase"}},"de":{"stringUnit":{"state":"translated","value":"Kauf wird abgeschlossen"}},"fr":{"stringUnit":{"state":"translated","value":"Finalisation de votre achat"}},"ar":{"stringUnit":{"state":"translated","value":"جارٍ إتمام عملية الشراء"}},"es":{"stringUnit":{"state":"translated","value":"Completando tu compra"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"正在完成購買"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"正在完成购买"}},"ko":{"stringUnit":{"state":"translated","value":"구입을 완료하는 중"}},"ja":{"stringUnit":{"state":"translated","value":"購入を完了しています"}}}},

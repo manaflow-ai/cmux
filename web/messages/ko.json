@@ -80,6 +80,13 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "resourcePool": {
+      "title": "Cloud VM 리소스가 부족합니다",
+      "memoryMessage": "VM이 이미 {pool} GB RAM 중 {used} GB를 사용하고 있습니다. 이 VM에는 {requested} GB가 필요합니다.",
+      "vcpuMessage": "VM이 이미 vCPU {pool}개 중 {used}개를 사용하고 있습니다. 이 VM에는 vCPU {requested}개가 필요합니다.",
+      "upgradeAction": "VM을 일시 중지하거나 삭제하거나, Max로 업그레이드하세요.",
+      "action": "VM을 일시 중지하거나 삭제하세요."
     }
   },
   "billingRecovery": {
@@ -490,16 +497,17 @@
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
-            "최대 5대의 Cloud VM, VM당 최대 vCPU 4개와 8 GB RAM",
+            "최대 5대의 Cloud VM이 vCPU 20개와 40 GB RAM을 공유",
             "cmux iOS 앱"
           ],
           "max": [
-            "최대 5대의 Cloud VM, VM당 최대 vCPU 16개와 32 GB RAM",
+            "최대 5대의 Cloud VM이 vCPU 80개와 160 GB RAM을 공유",
             "더 큰 머신 크기",
             "Pro의 모든 기능"
           ],
           "team": [
             "모든 멤버에게 Pro의 모든 기능",
+            "사용자당 최대 5대의 Cloud VM, 사용자당 vCPU 20개와 40 GB RAM을 공유",
             "팀 전체에 청구서 하나",
             "우선 지원"
           ]
@@ -2917,11 +2925,12 @@
       "planMax": "Max",
       "sizesDefault": "크기를 고르지 않으면 새 머신은 8 GB 메모리를 사용합니다. cmux vm ls --json을 실행하면 플랜에서 허용하는 크기를 볼 수 있습니다.",
       "limitsTitle": "플랜 한도",
-      "limitsDesc": "플랜 한도는 공유 CPU나 메모리 풀이 아니라 머신 수를 기준으로 합니다. 각 머신은 해당 크기만큼의 리소스를 받습니다.",
+      "limitsDesc": "활성 머신은 하나의 vCPU 및 메모리 풀을 공유합니다. 큰 머신 한 대를 실행하거나 작은 머신 여러 대를 실행할 수 있습니다. 일시 중지된 머신은 풀을 사용하지 않습니다. 디스크는 머신마다 따로 정해지며 풀에 포함되지 않습니다.",
       "limitsFree": "무료 계정은 머신을 만들 수 없습니다.",
-      "limitsPaid": "Pro 및 Max 계정은 활성 머신을 최대 5대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
-      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 5대까지 가질 수 있습니다.",
-      "limitsMax": "8 GB보다 큰 머신에는 cmux Max가 필요합니다. Max 머신은 최대 32 GB와 vCPU 16개까지 가능합니다.",
+      "limitsPaid": "Pro 및 Founder's Edition 계정은 vCPU 20개와 40 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. 실행 중이거나 시작 중인 머신이 활성 머신입니다.",
+      "limitsTeam": "Team 계정은 유료 시트 하나당 활성 머신을 최대 5대까지 가질 수 있습니다. 유료 시트 하나마다 팀 풀에 vCPU 20개와 40 GB 메모리가 추가됩니다.",
+      "limitsMax": "Max 계정은 vCPU 80개와 160 GB 메모리를 공유하는 활성 머신을 최대 5대까지 가질 수 있습니다. 머신 한 대는 Pro와 Team에서 최대 32 GB와 vCPU 16개, Max에서 최대 64 GB와 vCPU 32개까지 가능합니다.",
+      "limitsPoolFull": "새로 만들거나, 재개하거나, 크기를 늘리거나, 포크한 머신이 풀을 넘게 되면 cmux는 요청을 거부하고 풀 사용량을 보여 줍니다. 머신을 일시 중지하거나 삭제해 리소스를 확보하거나 Max로 업그레이드하세요.",
       "limitsPricing": "현재 가격은 가격 페이지를 확인하세요. 사용량 기반 과금이나 초과 요금은 없습니다.",
       "agentUpdatesTitle": "코딩 에이전트를 최신 상태로 유지",
       "agentUpdatesDesc": "이 설정을 켜면 머신이 Claude Code, Codex, OpenCode, pi, agent-browser를 업데이트합니다. 머신을 만든 뒤와 연결할 때마다 확인하며, 24시간에 최대 한 번입니다. 업데이트는 분리된 상태로 실행되므로 연결을 막지 않습니다.",
@@ -2930,7 +2939,7 @@
       "agentUpdatesToggle": "새 머신 시트에서는 이 설정이 기본으로 켜져 있습니다. 기존 머신에서 바꾸려면 머신을 오른쪽 클릭하고 에이전트를 최신 상태로 유지를 선택하거나 cmux vm agent-updates를 실행하세요. cmux vm new는 --agent-updates latest를 전달하지 않으면 이미지의 버전을 유지합니다. 업데이트를 끄면 이미 설치된 버전이 유지됩니다.",
       "agentUpdatesNetwork": "업데이트는 github.com, api.github.com, objects.githubusercontent.com, release-assets.githubusercontent.com만 사용합니다. cmux는 허용 목록과 인터넷 없음을 포함한 모든 네트워크 모드에서 이 호스트를 허용하므로, 네트워크 정책이 업데이트를 막지 않습니다.",
       "resizeTitle": "크기 조정",
-      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 4 GB 단위로 최대 256 GB, 메모리는 최대 32 GB, CPU는 최대 16 vCPU까지 늘릴 수 있습니다. 실제 최대치는 플랜에 따라 정해집니다.",
+      "resizeDesc": "데이터 손실 없이 머신을 더 크게 만들 수 있습니다. 머신을 오른쪽 클릭하고 Resize machine을 선택하거나 cmux vm resize를 사용합니다. 크기 조정은 머신을 키우는 것만 가능합니다. 디스크는 4 GB 단위로 최대 256 GB까지 늘릴 수 있습니다. 메모리와 CPU는 Pro와 Team에서 최대 32 GB와 16 vCPU, Max에서 최대 64 GB와 32 vCPU까지 늘릴 수 있습니다. 머신이 클수록 풀을 더 많이 사용합니다. 실제 최대치는 플랜에 따라 정해집니다.",
       "pauseTitle": "일시 중지와 재개",
       "pauseDesc": "cmux vm pause는 머신의 컴퓨팅을 중지합니다. 디스크, 워크스페이스, 터미널 기록은 유지되고, 실행 중인 프로세스는 중지됩니다. cmux vm resume은 머신을 다시 시작합니다. 일시 중지된 머신을 열거나 그 머신에서 명령을 실행해도 머신이 시작됩니다.",
       "pauseIdle": "머신은 유휴 상태여도 스스로 일시 중지되지 않습니다. 일시 중지하거나 삭제할 때까지 계속 실행됩니다.",
@@ -3081,9 +3090,11 @@
       "errPlan": "Cloud VM에는 유료 플랜이 필요함",
       "fixPlan": "무료 계정은 머신을 만들 수 없습니다. 가격 페이지에서 업그레이드하세요.",
       "errSize": "선택한 크기에 더 높은 플랜이 필요함",
-      "fixSize": "8 GB보다 큰 머신에는 cmux Max가 필요합니다. 더 작은 크기를 고르거나 업그레이드하세요.",
+      "fixSize": "32 GB보다 큰 머신에는 cmux Max가 필요합니다. 더 작은 크기를 고르거나 업그레이드하세요.",
       "errLimit": "활성 머신 한도에 도달함",
       "fixLimit": "머신을 일시 중지하거나 삭제한 뒤 다시 시도하세요.",
+      "errPool": "Cloud VM 리소스 부족",
+      "fixPool": "활성 머신이 이미 공유 vCPU나 메모리를 사용하고 있습니다. 머신을 일시 중지하거나 삭제하거나, 더 작은 크기를 고르거나, Max로 업그레이드하세요.",
       "errLocked": "머신이 잠겨 있음",
       "fixLocked": "유료 플랜이 종료되었고 머신이 생성된 지 7일이 지났습니다. 업그레이드하면 다시 연결할 수 있습니다. 파일은 유지됩니다.",
       "errAgentMissing": "claude 또는 codex: command not found",

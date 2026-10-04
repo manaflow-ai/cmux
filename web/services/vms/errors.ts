@@ -3,6 +3,7 @@ import * as Data from "effect/Data";
 import * as Option from "effect/Option";
 import * as Runtime from "effect/Runtime";
 import type { ProviderId } from "./drivers";
+import type { VmComputeResources, VmPoolResourceName } from "./machineSpec";
 
 export class VmDatabaseError extends Data.TaggedError("VmDatabaseError")<{
   readonly operation: string;
@@ -152,6 +153,25 @@ export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError
   readonly limit: number;
 }> {}
 
+/**
+ * A create, Base open/reset, resume, resize, or fork would push the billing
+ * scope's active machines past the plan's shared vCPU or memory pool.
+ */
+export class VmResourcePoolExceededError extends Data.TaggedError("VmResourcePoolExceededError")<{
+  readonly kind: "resource_pool";
+  readonly billingTeamId: string;
+  readonly phase: "create" | "resume" | "resize" | "fork";
+  /** The first pooled dimension that does not fit (memory is checked first). */
+  readonly resource: VmPoolResourceName;
+  readonly pool: VmComputeResources;
+  /** What the scope's other active machines already use. */
+  readonly used: VmComputeResources;
+  /** The whole size of the machine being created, resumed, resized, or forked. */
+  readonly requested: VmComputeResources;
+  /** The plan that owns the pool, so the refusal can name an upgrade. */
+  readonly planId: string;
+}> {}
+
 export class VmUsageLimitExceededError extends Data.TaggedError("VmUsageLimitExceededError")<{
   readonly includedHours: number;
   readonly usedHours: number;
@@ -236,6 +256,7 @@ export type VmWorkflowError =
   | VmAccountDeletionInProgressError
   | VmImageConfigError
   | VmLimitExceededError
+  | VmResourcePoolExceededError
   | VmUsageLimitExceededError
   | VmSavedLimitExceededError
   | VmGoShapeError
@@ -325,6 +346,10 @@ export function isVmLimitExceededError(err: unknown): err is VmLimitExceededErro
   return (err as { _tag?: string } | null)?._tag === "VmLimitExceededError";
 }
 
+export function isVmResourcePoolExceededError(err: unknown): err is VmResourcePoolExceededError {
+  return (err as { _tag?: string } | null)?._tag === "VmResourcePoolExceededError";
+}
+
 export function isVmUsageLimitExceededError(err: unknown): err is VmUsageLimitExceededError {
   return (err as { _tag?: string } | null)?._tag === "VmUsageLimitExceededError";
 }
@@ -385,6 +410,7 @@ const vmWorkflowErrorTagRecord = {
   VmAccountDeletionInProgressError: true,
   VmImageConfigError: true,
   VmLimitExceededError: true,
+  VmResourcePoolExceededError: true,
   VmUsageLimitExceededError: true,
   VmSavedLimitExceededError: true,
   VmGoShapeError: true,

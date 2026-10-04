@@ -6,7 +6,9 @@ import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import {
   lockedMemoryOptionsMbForPlan,
+  maxActiveVmsForPlan,
   maxMemoryMbForPlan,
+  resourcePoolForPlan,
   maxVcpusForPlan,
   memoryOptionsMbForPlan,
 } from "../services/vms/entitlements";
@@ -15,6 +17,8 @@ import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingG
 import { VmRepository, VmRepositoryLive, type VmRepositoryShape } from "../services/vms/repository";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { forkVm, resizeVm, resumeVm } from "../services/vms/workflows";
+import { VmResourcePoolExceededError } from "../services/vms/errors";
+import { respondVmWorkflowError } from "../services/vms/routeHelpers";
 
 const serialTest = (test as typeof test & { serial: typeof test }).serial;
 const dbTest = process.env.CMUX_DB_TEST === "1" ? serialTest : test.skip;
@@ -119,6 +123,62 @@ describe("Cloud VM plan ceilings", () => {
   test("a create reservation claims the image ladder's vCPUs for its memory", () => {
     expect(vmResourceReservationForCreate({ memoryMb: 8 * GB, env: {} })).toMatchObject({ vcpus: 4, memoryMb: 8 * GB });
     expect(vmResourceReservationForCreate({ memoryMb: 32 * GB, env: {} })).toMatchObject({ vcpus: 16, memoryMb: 32 * GB });
+  });
+});
+
+describe("Cloud VM resource pool policy", () => {
+  test("each plan's pool follows the paid seat count like the machine allowance", () => {
+    for (const plan of ["pro", "founders"]) {
+      expect(resourcePoolForPlan(plan, maxActiveVmsForPlan(plan, {}))).toEqual(PRO_POOL);
+    }
+    expect(resourcePoolForPlan("team", maxActiveVmsForPlan("team", {}, { seats: 3 }))).toEqual({ vcpus: 60, memoryMb: 120 * GB });
+    expect(resourcePoolForPlan("max", maxActiveVmsForPlan("max", {}))).toEqual({ vcpus: 80, memoryMb: 160 * GB });
+    // A Max caller on a large team keeps the larger pool in each dimension.
+    expect(resourcePoolForPlan("max", 50)).toEqual({ vcpus: 200, memoryMb: 400 * GB });
+    expect(resourcePoolForPlan("go", 1)).toBeNull();
+    expect(resourcePoolForPlan("free", 0)).toBeNull();
+    expect(resourcePoolForPlan("pro", null)).toBeNull();
+  });
+
+  const refusal = (planId: string, resource: "memoryMb" | "vcpus") => new VmResourcePoolExceededError({
+    kind: "resource_pool", billingTeamId: "team", phase: "create", resource, planId,
+    pool: planId === "max" ? { vcpus: 80, memoryMb: 160 * GB } : PRO_POOL,
+    used: { vcpus: 16, memoryMb: 32 * GB },
+    requested: { vcpus: 8, memoryMb: 16 * GB },
+  });
+
+  test("a full pool answers 402 with usage and the Max upgrade", async () => {
+    const response = await respondVmWorkflowError(refusal("pro", "memoryMb"), { locale: "en" });
+    expect(response?.status).toBe(402);
+    expect(await response?.json()).toMatchObject({
+      error: "vm_resource_pool_exceeded",
+      message: "Your VMs already use 32 of 40 GB RAM. This VM needs 16 GB.",
+      action: "Pause or delete a VM, or upgrade to Max.",
+      phase: "create",
+      retryable: false,
+      pool: PRO_POOL,
+      used: { vcpus: 16, memoryMb: 32 * GB },
+      requested: { vcpus: 8, memoryMb: 16 * GB },
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max",
+    });
+  });
+
+  test("Max names no upgrade, and a vCPU refusal counts vCPUs", async () => {
+    const response = await respondVmWorkflowError(refusal("max", "vcpus"), { locale: "en" });
+    expect(await response?.json()).toMatchObject({
+      message: "Your VMs already use 16 of 80 vCPUs. This VM needs 8 vCPUs.",
+      action: "Pause or delete a VM.",
+      upgradePlanId: null,
+    });
+  });
+
+  test("the refusal is localized", async () => {
+    const response = await respondVmWorkflowError(refusal("pro", "memoryMb"), { locale: "ja" });
+    const payload = await response?.json() as { message: string };
+    expect(payload.message).toContain("32");
+    expect(payload.message).toContain("40");
+    expect(payload.message).not.toContain("Your VMs");
   });
 });
 
