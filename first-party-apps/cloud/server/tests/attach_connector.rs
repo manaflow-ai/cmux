@@ -111,6 +111,31 @@ fn a_second_connect_while_the_link_is_up_is_refused() {
 }
 
 #[test]
+fn a_connect_while_a_close_waits_for_the_drain_is_unavailable() {
+    // A dropped handle's close that no drain applied yet must not pass to
+    // a new handle: the link is about to end.
+    let spawner = FakeSpawner::default();
+    let mut s = server(&spawner);
+    let mut link = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("connect");
+    link.close().expect("close");
+    drop(link);
+    match s.connector().connect(request("cloud-vm", "vm-alpha01")).err() {
+        Some(BackendError::Unavailable { reason, retryable }) => {
+            assert_eq!(reason, "the link is closing");
+            assert!(retryable, "a connect after the drain works");
+        }
+        other => panic!("a connect before the drain: {other:?}"),
+    }
+    let events = s.connector().take_events();
+    assert!(
+        matches!(&events[..], [ConnectorEvent::End { channel, .. }] if channel == CHANNEL),
+        "the close applies at the drain: {events:?}"
+    );
+    let again = s.connector().connect(request("cloud-vm", "vm-alpha01")).expect("after the drain");
+    assert_ne!(again.channel(), CHANNEL, "a new channel");
+}
+
+#[test]
 fn a_dropped_link_handle_keeps_the_link_and_frees_its_channel_for_one_handle() {
     let spawner = FakeSpawner::default();
     let mut s = server(&spawner);
