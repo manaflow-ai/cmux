@@ -156,9 +156,20 @@ keys. The AST lands with the fix; the text grammar is the next slice.
   weak set of decided events; the menu gate refuses every registry menu item for one.
 - The popup Cmd-W step is a window-kind rule: in a browser popup (`windowKind ==
   browserPopup`) a key whose binding is a close action closes the popup.
+- Step 1 (IME): while an input method composes, every key it can use reaches it
+  undecided (every key but a Command chord; Kotoeri converts with Ctrl-J/K/L); a Command
+  chord (Cmd-W, Cmd-Q) still resolves. Spec section 3 says "nothing else runs"; blocking
+  Cmd-Q during composition would be a regression, so this is a proposed spec edit.
+- Decided keys are matched by identity and by signature (timestamp, key code,
+  modifiers, characters; `DecidedKeyEvents`), so a copy of the key that Chromium hands
+  to its pre-key hook never runs an action twice.
+- The popup rule uses every close action (`WindowKeyTable.isClose`), which matches lane
+  20's window key table: a close action run from the menu or palette while a popup is
+  key closes the popup too.
 - Home conversation tabs are `FocusTopology.Kind.conversation` and resolve to
   `.conversation(pane:tab:)` (the Home lead's 8ae1c9c1914; the applier gives the message
-  box the keyboard); the context key is `surfaceKind == home`.
+  box the keyboard, and with no Home view yet it blurs a Chromium page and resigns the
+  pane responder); the context key is `surfaceKind == home`.
 - Removed: `BrowserChordTable.tabNavigation` (now default entries), the popup key step,
   the `chordMismatch` slot (a decided event is never re-run).
 

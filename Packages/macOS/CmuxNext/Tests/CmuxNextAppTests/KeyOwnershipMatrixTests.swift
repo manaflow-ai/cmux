@@ -162,6 +162,23 @@ struct KeyOwnershipMatrixTests {
         #expect(Self.owner(services, try K.key("\t", keyCode: 48, [.control]), reactPage) == .action("nextSurface"))
     }
 
+    /// Step 1: while an input method composes (marked text), every key it
+    /// can use reaches it (Ctrl-Tab too); a Command chord still resolves.
+    @Test func inputMethodKeepsItsKeysAndCommandChordsStillResolve() throws {
+        let services = Self.services()
+        let composing = KeyRouter.Facts(hasMarkedText: true)
+        let agent = Self.focused(.agent, tab: "local-agent:1")
+        let router = services.keyRouter!
+        #expect(router.decide(try K.key("\t", keyCode: 48, [.control]), focus: agent, keyWindow: .content, facts: composing) == .deliver)
+        #expect(router.decide(try K.key("k", keyCode: 40, [.control]), focus: agent, keyWindow: .content, facts: composing) == .deliver)
+        guard case .run(let candidate) = router.decide(try K.key("w", keyCode: 13, [.command]), focus: agent, keyWindow: .content,
+                                                       facts: composing) else {
+            Issue.record("Cmd-W did not resolve while composing")
+            return
+        }
+        #expect(candidate.id == "closeTab")
+    }
+
     /// The registry decides with the focus of the window the key goes to,
     /// never with the process-wide context another window published: Cmd-R
     /// in a page is Reload even while the global context still says

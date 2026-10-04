@@ -107,7 +107,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// chord, is stateful and runs in ``interceptKeyDown(_:in:)``).
     func decide(_ event: NSEvent, focus: FocusState, keyWindow: KeyWindowKind, facts: Facts = Facts()) -> Decision {
         guard keyWindow == .content else { return .panel }
-        if facts.hasMarkedText { return .deliver }
+        if Self.belongsToInputMethod(event, facts: facts) { return .deliver }
         guard Self.isChord(event.modifierFlags) else {
             let typesHere = facts.primaryInputReady && Self.isPrintable(event) && Self.mayHavePrimaryInput(focus.resolved)
             return typesHere ? .primaryInput : .deliver
@@ -130,9 +130,16 @@ final class KeyRouter: BrowserKeyRouting {
 
     // MARK: App-wide dispatch
 
-    /// Key-downs this dispatcher decided (weak): the window hook, the
-    /// Chromium hook and the menu gate run nothing for them.
-    let decided = NSHashTable<NSEvent>.weakObjects()
+    /// Key-downs this dispatcher decided: the window hook, the Chromium
+    /// hook and the menu gate run nothing for them.
+    let decided = DecidedKeyEvents()
+
+    /// Step 1: an input method that is composing (marked text) gets every
+    /// key it can use, which is every key but a Command chord (Kotoeri's
+    /// Ctrl-J/K/L convert); a Command chord (Cmd-W, Cmd-Q) still resolves.
+    nonisolated static func belongsToInputMethod(_ event: NSEvent, facts: Facts) -> Bool {
+        facts.hasMarkedText && !event.modifierFlags.contains(.command)
+    }
 
     /// Runs from `CmuxApplication.sendEvent` for every key-down of the
     /// process, before any window or responder. `window` is where the key
@@ -170,13 +177,13 @@ final class KeyRouter: BrowserKeyRouting {
     /// Steps 1-5 for a key-down in `window`, a cmux window or a Chromium
     /// page window over `controller`'s window.
     func dispatch(_ event: NSEvent, in window: NSWindow, controller: WindowController, facts: Facts) -> Bool {
+        // 1. The input method's keys reach it undecided (menus keep their rule).
+        if Self.belongsToInputMethod(event, facts: facts) { return false }
         decided.add(event)
-        // 1. An input method composing gets every key.
-        if facts.hasMarkedText { return false }
         let focus = controller.focus.state
         let context = keyContext(for: focus, facts: facts)
         // 2. A chord.
-        if let consumed = routeChord(event, in: window, controller: controller, context: context) { return consumed }
+        if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
         guard Self.isChord(event.modifierFlags) else {
             onTyping?(window)
             return false
@@ -272,7 +279,8 @@ final class KeyRouter: BrowserKeyRouting {
     /// A chord key in a cmux window: whether it was consumed, or nil to
     /// route it as usual. Only ``canArm(focus:hasMarkedText:)`` arms a
     /// chord, so the chord's action runs whatever its tier.
-    private func routeChord(_ event: NSEvent, in window: NSWindow, controller: WindowController, context: KeyContext) -> Bool? {
+    private func routeChord(_ event: NSEvent, in window: NSWindow, controller: WindowController, context: KeyContext,
+                            facts: Facts) -> Bool? {
         let focus = controller.focus.state
         let table = RegistryKeyBindings(registry).table
         let bits = context.bits
@@ -292,7 +300,7 @@ final class KeyRouter: BrowserKeyRouting {
                 }
             }
             return nil
-        }, canArm: { Self.canArm(focus: focus, hasMarkedText: false) })
+        }, canArm: { Self.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
         if let leader = chords.leaderPrefix, let shell = controller.window {
             whichKey?.show(after: leader, in: shell)
         } else {
