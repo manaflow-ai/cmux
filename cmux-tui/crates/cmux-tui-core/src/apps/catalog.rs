@@ -85,6 +85,20 @@ impl Package {
         Some((family, entry))
     }
 
+    /// The catalog ops whose user runs get an open token: `options.openOps`
+    /// of the app's terminal backend and connector implementations.
+    pub fn open_ops(&self) -> BTreeSet<String> {
+        ["cmux.terminal.backend/1", "cmux.terminal.connector/1"]
+            .iter()
+            .filter_map(|interface| {
+                self.manifest.get("implements")?.get(*interface)?.pointer("/options/openOps")
+            })
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(|op| op.as_str().map(str::to_string))
+            .collect()
+    }
+
     /// The export behind a catalog op of the app.
     pub fn export_for_op(&self, op: &str) -> Option<String> {
         let (_, entry) = self.catalog_ops().into_iter().find(|(name, _)| name == op)?;
