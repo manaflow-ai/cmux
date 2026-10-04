@@ -317,6 +317,16 @@ native (`BrowserReplBoundary` in the session, and the driver):
   allowance; text it stops on is withheld, as text masking would grow by
   more than 8 MiB is, so values that share a long prefix cannot make
   masking quadratic.
+- Local files: whatever the domain policy, the session refuses
+  `tab.navigate`/`tabs.open` (`blocked`) to any URL but `http`, `https`,
+  `about:`, `data:`, `blob:` and a `file:` URL of a file strictly inside
+  the session's working or temporary directory, judged by the path as
+  written (`..` resolved without the file system) and refused when a part
+  of it below that directory is a symbolic link. The browser loads a file
+  with read access to its directory, so a page could otherwise read files
+  the session's `fs` cannot; cmux's internal schemes and `javascript:` are
+  refused too. A string without a scheme that looks like a path (`/`, `~`,
+  `.`) is refused.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`; a `blob:` URL is judged by the origin in it, and one of
   an opaque origin, `blob:null/...`, is blocked) and `session.configure`

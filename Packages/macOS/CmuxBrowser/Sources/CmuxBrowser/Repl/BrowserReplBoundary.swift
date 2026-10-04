@@ -15,6 +15,9 @@ final class BrowserReplBoundary: @unchecked Sendable {
     private var policy = BrowserReplDomainPolicy()
     private let publicSuffixes: BrowserReplPublicSuffixList
     private let typedSecrets: @Sendable () -> BrowserReplSecretStore?
+    /// The session's working and temporary directories, the only places a
+    /// navigation may load a file from.
+    private var fileRoots: [String] = []
 
     /// - Parameters:
     ///   - publicSuffixes: The list `site` and `publicSuffix` answers come
@@ -74,6 +77,12 @@ final class BrowserReplBoundary: @unchecked Sendable {
     var domainPolicy: BrowserReplDomainPolicy { lock.withLock { policy } }
 
     func blockReason(_ url: String) -> String? { domainPolicy.blockReason(url) }
+
+    /// Sets the directories a navigation may load files from (the session's
+    /// working directory, which `cd` changes, and its temporary directory).
+    func setFileRoots(_ roots: [String]) {
+        lock.withLock { fileRoots = roots }
+    }
 
     // MARK: Secrets host (`__cmuxNative.secrets`)
 
@@ -183,7 +192,9 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// - `input.insertText { secret: name }` gets the value, the secret's
     ///   name and its domains; the driver types it only into a frame whose
     ///   origin matches.
-    /// - Navigations and new tabs to a URL the policy blocks are refused.
+    /// - Navigations and new tabs to a URL the policy blocks, to a file
+    ///   outside the session's directories, or to another local scheme
+    ///   (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``) are refused.
     /// - `session.configure` may not set content rules: they come from the
     ///   policy.
     /// - Captures get the plain secret values to mask in matching frames.
@@ -204,8 +215,15 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 params["secretDomains"] = typed.domains.map(\.json)
             }
         case "tab.navigate", "tabs.open":
-            if let url = params["url"] as? String, let reason = blockReason(url) {
-                return .failure(BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)"))
+            if let url = params["url"] as? String {
+                // Local files only inside the session's own directories, and
+                // none of cmux's internal schemes, whatever the policy.
+                if let reason = BrowserReplFileSandbox.navigationRefusal(url, roots: lock.withLock({ fileRoots })) {
+                    return .failure(BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)"))
+                }
+                if let reason = blockReason(url) {
+                    return .failure(BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)"))
+                }
             }
         case "session.configure":
             if params.keys.contains("contentRules") {
