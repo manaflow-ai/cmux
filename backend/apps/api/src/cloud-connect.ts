@@ -1,6 +1,6 @@
 import type { Principal, SqlStore, StoredRow } from "@cmux/ownership"
 import { CloudMachineConnectInfo, CloudMachineLinkToken, cloudServicesProblem, overlayAddress } from "@cmux/protocol"
-import { LINK_TOKEN_MAX_TTL_S, newJti, signLinkToken, type SigningKeys } from "./link-token.ts"
+import { LINK_TOKEN_MAX_TTL_S, newJti, signLinkToken, signingKid, type SigningKeys } from "./link-token.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { decodeParams } from "./domains/common.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
@@ -134,7 +134,8 @@ export const mintLinkToken = async (
   if (!args.keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
   const iat = Math.floor(Date.now() / 1000)
   const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp: iat + LINK_TOKEN_MAX_TTL_S, jti: newJti(), team: entity }
-  const kid = args.keys.active
+  const kid = signingKid(args.keys, Date.now())
+  if (!kid) return { ok: false, code: "owner.unreachable", message: "no link signing key has been published long enough to sign" }
   const token = await signLinkToken(claims, kid, args.keys.keys[kid]!)
   audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, at: Date.now() })
   return { ok: true, value: { token, expires_at: claims.exp * 1000, host: row.host, epoch: claims.epoch, services: claims.svc } }

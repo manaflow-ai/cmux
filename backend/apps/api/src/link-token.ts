@@ -7,7 +7,7 @@ import { decodeProtectedHeader, importJWK, jwtVerify, SignJWT, type JWK } from "
  * (install id), svc, epoch, iat, exp (at most 300 s after iat), jti (128 random bits), team.
  *
  * The private keys come only from the per-environment Worker secret CLOUD_LINK_SIGNING_KEYS
- * ({active, keys: {kid: private JWK}}, at most 2 kids). They are imported per call, never logged,
+ * ({active, keys: {kid: private JWK}, published_at?: {kid: ms}}, at most 2 kids; a kid signs only 24 h after publication). They are imported per call, never logged,
  * never put in a response, error, event or storage. The VM receives the public keyset at bind.
  */
 
@@ -18,7 +18,15 @@ export const MAX_ACTIVE_KIDS = 2
 export interface SigningKeys {
   readonly active: string
   readonly keys: Readonly<Record<string, JWK>>
+  /** When each kid entered the public keyset (ms). Required for every kid once there are two. */
+  readonly published_at: Readonly<Record<string, number>>
 }
+
+/**
+ * CLOUD-LINK-FOLLOWUPS (1): a kid is in the public keyset at least this long before it signs, so a
+ * VM that refetches the keyset once a day already holds it when the first token arrives.
+ */
+export const KID_PUBLISH_LEAD_MS = 24 * 3600_000
 
 export interface PublicKeyset {
   /** First 16 hex of sha256 over the canonical public keyset: what the VM holds. */
@@ -58,7 +66,29 @@ export const parseSigningKeys = (raw: string | undefined): SigningKeys | null =>
   const kids = Object.keys(keys)
   if (kids.length < 1 || kids.length > MAX_ACTIVE_KIDS || !kids.includes(v.active)) return null
   if (!kids.every((k) => KID.test(k) && isEd25519Private(keys[k]))) return null
-  return { active: v.active, keys: keys as Record<string, JWK> }
+  const pub = (v as { published_at?: unknown }).published_at
+  const published: Record<string, number> = {}
+  if (pub !== undefined) {
+    if (!pub || typeof pub !== "object") return null
+    for (const [k, t] of Object.entries(pub as Record<string, unknown>)) {
+      if (!kids.includes(k) || typeof t !== "number" || !Number.isFinite(t)) return null
+      published[k] = t
+    }
+  }
+  // A rotation (two kids) must say when each kid was published; only a lone legacy kid may omit it.
+  if (kids.length > 1 && !kids.every((k) => k in published)) return null
+  return { active: v.active, keys: keys as Record<string, JWK>, published_at: published }
+}
+
+/**
+ * The kid that signs at `now`: the active kid once it has been published KID_PUBLISH_LEAD_MS,
+ * else another kid that has; null when none has (the mint then refuses). A lone kid without
+ * published_at signs at once.
+ */
+export const signingKid = (k: SigningKeys, now: number): string | null => {
+  const ready = (kid: string) => (k.published_at[kid] === undefined ? Object.keys(k.keys).length === 1 : k.published_at[kid]! + KID_PUBLISH_LEAD_MS <= now)
+  if (ready(k.active)) return k.active
+  return Object.keys(k.keys).find((kid) => kid !== k.active && ready(kid)) ?? null
 }
 
 const sortedJson = (v: unknown): string =>
