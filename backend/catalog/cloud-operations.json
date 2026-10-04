@@ -771,6 +771,17 @@
             "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
           }
         },
+        "upgrade_plan": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+            }
+          }
+        },
         "limits": {
           "required": true,
           "type": {
@@ -18369,6 +18380,17 @@
                 "type": "string",
                 "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
               },
+              "upgrade_plan": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "limits": {
                 "type": "object",
                 "properties": {
@@ -18461,6 +18483,7 @@
             },
             "required": [
               "plan_id",
+              "upgrade_plan",
               "limits",
               "usage"
             ],

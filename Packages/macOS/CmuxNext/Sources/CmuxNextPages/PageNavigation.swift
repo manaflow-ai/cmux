@@ -50,5 +50,5 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     public static let standard = PageEngineOptions()
 
     /// WebKit's feature that renders a page at the display-rate divisor nearest 60 fps.
-    public static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"
+    public static let near60FPSFeature = "PreferPageRenderingUpdatesNear60FPSEnabled"  // WebKitRenderRate.near60FPSFeature
 }

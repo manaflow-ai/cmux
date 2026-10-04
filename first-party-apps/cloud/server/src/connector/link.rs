@@ -4,7 +4,9 @@
 //! channel's one `end` from the server's drain of link events.
 
 use crate::link::Carrier;
-use cmux_terminal_iface::{BackendError, DEFAULT_WINDOW_BYTES, End, FrameBody, HostLink, Lost};
+use cmux_terminal_iface::{
+    BackendError, DEFAULT_WINDOW_BYTES, DataPlane, End, FrameBody, HostLink, Lost,
+};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// What a link handle and the server share for one channel.
@@ -16,6 +18,8 @@ pub(crate) struct LinkShared {
     ended: bool,
     /// The handle asked for a close that the server did not apply yet.
     close: bool,
+    /// A live [`CloudHostLink`] holds the channel (one handle per channel).
+    held: bool,
 }
 
 pub(crate) type LinkHandle = Arc<Mutex<LinkShared>>;
@@ -23,6 +27,12 @@ pub(crate) type LinkHandle = Arc<Mutex<LinkShared>>;
 fn lock(handle: &LinkHandle) -> MutexGuard<'_, LinkShared> {
     // A panic while holding the lock leaves plain data; keep serving.
     handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Gives the channel to one new handle; `false` while another handle holds
+/// it. A dropped handle frees the channel and leaves the link up.
+pub(crate) fn claim(handle: &LinkHandle) -> bool {
+    !std::mem::replace(&mut lock(handle).held, true)
 }
 
 /// Takes a close the handle asked for (`true` once per ask).
@@ -39,8 +49,17 @@ pub(crate) fn end(handle: &LinkHandle, lost: Lost) {
     }
 }
 
-/// One link to a Cloud machine's session host.
-pub struct CloudHostLink {
+/// One link to a Cloud machine's session host. Its bytes move on the
+/// carrier socket ([`DataPlane::Socket`]): the app host has no frame stream
+/// for this server, so the daemon dials the link's local socket. It is the
+/// only handle of its channel while it lives.
+///
+/// [`HostLink::close`] only asks: the server applies the close at its next
+/// drain of link events (`take_events`, `take_link_events` or the serve
+/// loop), and [`HostLink::take_frames`] gives the `end` only after that
+/// drain. A caller that closes and takes frames in the same tick gets no
+/// `end` yet and must not loop waiting for it.
+pub(crate) struct CloudHostLink {
     carrier: Carrier,
     shared: LinkHandle,
 }
@@ -48,17 +67,6 @@ pub struct CloudHostLink {
 impl CloudHostLink {
     pub(crate) fn new(carrier: Carrier, shared: LinkHandle) -> Self {
         Self { carrier, shared }
-    }
-
-    /// The channel id (`cloud-vm/<machine>#<generation>`).
-    pub fn channel(&self) -> &str {
-        &self.carrier.id
-    }
-
-    /// The local carrier until the app host's frame stream exists (GAP in
-    /// `crate::connector`).
-    pub fn carrier(&self) -> &Carrier {
-        &self.carrier
     }
 
     /// Asks the server to end the link (applied at its next drain).
@@ -73,6 +81,15 @@ impl CloudHostLink {
 }
 
 impl HostLink for CloudHostLink {
+    /// `cloud-vm/<machine>#<generation>`: a new id after every reconnect.
+    fn channel(&self) -> &str {
+        &self.carrier.id
+    }
+
+    fn data_plane(&self) -> DataPlane {
+        DataPlane::Socket { path: self.carrier.socket.clone() }
+    }
+
     fn window_bytes(&self) -> u32 {
         DEFAULT_WINDOW_BYTES
     }
@@ -84,8 +101,10 @@ impl HostLink for CloudHostLink {
         match frame {
             // The session host ended the channel: end the link.
             FrameBody::End(_) => self.ask_close(),
-            // GAP(data plane): the bytes move on the carrier socket.
-            FrameBody::Data { .. } | FrameBody::Credit { .. } => Err(BackendError::Unsupported),
+            // DataPlane::Socket: the bytes move on the carrier socket.
+            FrameBody::Data { .. } | FrameBody::Credit { .. } => Err(BackendError::invalid(
+                "this link's bytes move on its carrier socket (DataPlane::Socket)",
+            )),
         }
     }
 
@@ -93,7 +112,15 @@ impl HostLink for CloudHostLink {
         std::mem::take(&mut lock(&self.shared).frames)
     }
 
+    /// Applied at the server's next drain (see [`CloudHostLink`]).
     fn close(&mut self) -> Result<(), BackendError> {
         self.ask_close()
+    }
+}
+
+impl Drop for CloudHostLink {
+    /// Frees the channel for one new handle; the link stays up.
+    fn drop(&mut self) {
+        lock(&self.shared).held = false;
     }
 }

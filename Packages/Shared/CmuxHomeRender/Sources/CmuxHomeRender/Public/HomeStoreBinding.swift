@@ -31,6 +31,9 @@ public final class HomeStoreBinding {
     /// Delivered"): the host can say why (for example a conversation whose
     /// owner stores no attachments). `retry` or Cancel stay on the row.
     public var onSendNotDelivered: (HomeIntent, HomeRejection) -> Void = { _, _ in }
+    /// An op of this conversation other than a send (a tapback, a read
+    /// cursor) ran out of resends unanswered: it may not have gone through.
+    public var onUnanswered: (HomeIntent) -> Void = { _ in }
 
     public init(store: HomeStore, controller: HomeController) {
         self.store = store
@@ -49,6 +52,12 @@ public final class HomeStoreBinding {
             guard intent.op.conversation == id else { previous?(intent, rejection); return }
             guard let self, !self.stopped else { return }
             self.onRefusal(intent, rejection)
+        }
+        let previousUnanswered = store.onUnanswered
+        store.onUnanswered = { [weak self] intent in
+            guard intent.op.conversation == id else { previousUnanswered?(intent); return }
+            guard let self, !self.stopped else { return }
+            self.onUnanswered(intent)
         }
         controller.onIntent = { [weak self] intent in self?.perform(intent) }
         controller.onNeedsOlder = { [weak store] in

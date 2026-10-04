@@ -274,7 +274,7 @@ role, new backend or transport underneath. DELETE = gone in v1. NEW = files the 
 | `src/link/config.rs` | 234 | CHANGE | link details from `cmux.host.link.get` for `cmux link`, no hub socket |
 | `src/link/spawner.rs` | 177 | CHANGE | spawns or asks `cmux link` to dial a host id (lane 12) |
 | `src/link/argv.rs` | 157 | DELETE | the `remote connect --wireguard-hub` argv goes with the classic transport |
-| `src/connector/mod.rs` | 128 | CHANGE (C13) | `connector.open` app-to-host, frames, pump. STATUS: iface swap done (shared `cmux-terminal-iface`); the frame data plane is a GAP (Cloud links answer `unsupported` for data/credit frames, bytes ride the carrier socket); the PUMP is the next Cloud lane item, C13b uses the carrier socket behind one adapter until then |
+| `src/connector/mod.rs` | 128 | CHANGE (C13) | `connector.open` app-to-host, frames, pump. STATUS: iface swap done (shared `cmux-terminal-iface`); the frame data plane is not used yet: the link reports `DataPlane::Socket {path}` (shared crate, cldv3-iface) and refuses data/credit frames as `invalid`, bytes ride the carrier socket; close by channel and the `ConnectorEvent` drain are trait methods now; the PUMP is the next Cloud lane item, C13b uses the carrier socket behind one adapter until then |
 | `src/connector/iface.rs` | 127 | DELETE (C13) | replaced by `cmux-terminal-iface` |
 | `src/rescue/mod.rs`, `src/rescue/backend.rs` | 10, 342 | KEEP (C13 frames) | the byte terminal stays |
 | `src/rescue/iface.rs` | 332 | DELETE (C13) | replaced by `cmux-terminal-iface` |

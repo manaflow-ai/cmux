@@ -146,6 +146,15 @@ import Testing
         #expect(view.field.notice == "You can’t send messages in this conversation.")
     }
 
+    /// An op that ran out of resends (a tapback, a read cursor) may not have
+    /// gone through: the composer says so.
+    @Test func anUnansweredOpShowsANotice() {
+        let (window, view, _) = host()
+        defer { window.close() }
+        view.showUnanswered(HomeIntent(op: .setReadCursor(conversation: Self.conversation, seq: 1)))
+        #expect(view.field.notice == "A change may not have gone through. Check your connection.")
+    }
+
     @Test func plainTextPasteStaysText() {
         let (window, view, _) = host()
         defer { window.close() }

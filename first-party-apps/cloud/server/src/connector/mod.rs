@@ -3,18 +3,17 @@
 //! one channel to it. The link supervisor (`crate::link`) does the work.
 //!
 //! The interface types and traits are the shared `cmux-terminal-iface`
-//! crate. Local adapters, on purpose:
-//! - [`ConnectorEvent`] and [`CloudConnector::take_events`]: the shared
-//!   trait has no event queue; a channel's `end` reaches its [`HostLink`]
-//!   as a frame, and the server keeps this queue for callers that hold no
-//!   link handle (the serve loop, `cmux.terminal.connector.close`).
-//! - [`CloudConnector::close`]: close by channel id (the shared trait closes
-//!   through the link handle).
-//! - [`CloudConnector::open_link`] and [`CloudHostLink::carrier`]: GAP(data
-//!   plane). The app host has no frame stream for this server yet, so the
-//!   link's bytes move on the [`Carrier`] (the link's local socket, which
-//!   the daemon dials). Until that pump exists, data and credit frames on a
-//!   link are `unsupported`.
+//! crate, with no local adapters: the link names its channel
+//! ([`HostLink::channel`]), the connector closes by channel id and drains
+//! [`ConnectorEvent`]s for callers that hold no link handle (the serve loop,
+//! `cmux.terminal.connector.close`), and the link's bytes move on its
+//! carrier socket ([`cmux_terminal_iface::DataPlane::Socket`]), which the
+//! daemon dials, because the app host has no frame stream for this server.
+//!
+//! One handle per channel: a connect while a live handle holds the target's
+//! channel is `invalid` ([`ALREADY_CONNECTED`]). A link close through the
+//! handle applies at the server's next drain, so the handle's `end` frame
+//! comes only after that drain ([`link::CloudHostLink`]).
 
 mod link;
 
@@ -23,20 +22,16 @@ use crate::link::ops::connect;
 use crate::link::{Attach, CONNECTOR_KIND, CarrierEvent, channel_id};
 use crate::ops::Server;
 use cmux_terminal_iface::{
-    BackendError, BackendId, ConnectRequest, HostLink, LocalId, Lost, TerminalConnector, allow_kind,
+    BackendError, BackendId, ConnectRequest, ConnectorEvent, HostLink, LocalId, Lost,
+    TerminalConnector, allow_kind,
 };
+use link::CloudHostLink;
 use std::collections::BTreeMap;
 
-pub use link::CloudHostLink;
 pub(crate) use link::LinkHandle;
 
-/// The connector's events (`end` of each channel a connect answered).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConnectorEvent {
-    /// `end {channel, lost}`: exactly once per channel, after its last data.
-    /// Nothing queues for the channel after it; reconnect is one `connect`.
-    End { channel: String, lost: Lost },
-}
+/// The refusal of a second handle for a channel that has a live one.
+pub const ALREADY_CONNECTED: &str = "already connected; use the open link";
 
 /// The connector, borrowed from the server for one call (the server is the
 /// only writer of link state; the connector is its interface view).
@@ -74,9 +69,19 @@ fn close_channel(attach: &mut Attach, channel: &str) -> Result<(), BackendError>
     }
 }
 
-impl<C: ControlPlane> CloudConnector<'_, C> {
-    /// `connect` with the concrete link (its channel id and carrier).
-    pub fn open_link(&mut self, request: ConnectRequest) -> Result<CloudHostLink, BackendError> {
+impl<C: ControlPlane + Send> TerminalConnector for CloudConnector<'_, C> {
+    fn id(&self) -> &BackendId {
+        &self.server.attach().connector_id
+    }
+
+    fn kinds(&self) -> &[LocalId] {
+        &self.server.attach().connector_kinds
+    }
+
+    /// At most one channel per target and one live handle per channel: a
+    /// second call while a handle holds the channel is `invalid`
+    /// ([`ALREADY_CONNECTED`]). A kind not in `kinds` fails with `denied`.
+    fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError> {
         let attach = self.server.attach();
         allow_kind(&attach.connector_kinds, &request.kind)?;
         // The host issues the token after the user's gesture; this server
@@ -94,39 +99,24 @@ impl<C: ControlPlane> CloudConnector<'_, C> {
             }
         })?;
         let handles = &mut self.server.attach_mut().link_handles;
-        let handle = handles.entry(carrier.id.clone()).or_default().clone();
-        Ok(CloudHostLink::new(carrier, handle))
+        let handle = handles.entry(carrier.id.clone()).or_default();
+        if !link::claim(handle) {
+            return Err(BackendError::invalid(ALREADY_CONNECTED));
+        }
+        Ok(Box::new(CloudHostLink::new(carrier, handle.clone())))
     }
-}
 
-impl<C> CloudConnector<'_, C> {
     /// Ends a channel by id; its `end` follows. A channel that is not open
     /// is `invalid`.
-    pub fn close(&mut self, channel: &str) -> Result<(), BackendError> {
+    fn close(&mut self, channel: &str) -> Result<(), BackendError> {
         close_channel(self.server.attach_mut(), channel)
     }
 
     /// `end` events since the last call, in order.
-    pub fn take_events(&mut self) -> Vec<ConnectorEvent> {
+    fn take_events(&mut self) -> Vec<ConnectorEvent> {
         // The connector reads its own side of the one drain: the host lines
         // keep every event this takes (crate::link::Attach::drain_link_events).
         self.server.attach_mut().take_connector_events()
-    }
-}
-
-impl<C: ControlPlane + Send> TerminalConnector for CloudConnector<'_, C> {
-    fn id(&self) -> &BackendId {
-        &self.server.attach().connector_id
-    }
-
-    fn kinds(&self) -> &[LocalId] {
-        &self.server.attach().connector_kinds
-    }
-
-    /// At most one channel per target: a second call while it is up answers
-    /// the same channel. A kind not in `kinds` fails with `denied`.
-    fn connect(&mut self, request: ConnectRequest) -> Result<Box<dyn HostLink>, BackendError> {
-        Ok(Box::new(self.open_link(request)?))
     }
 }
 

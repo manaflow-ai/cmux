@@ -110,6 +110,12 @@ extension HomeNativeTranscriptView {
         field.showNotice(HomeStrings.notDeliveredReason(rejection))
     }
 
+    /// An op (a tapback, a read cursor) ran out of resends unanswered
+    /// (`HomeStoreBinding.onUnanswered`): it may not have gone through.
+    public func showUnanswered(_ intent: HomeIntent) {
+        field.showNotice(HomeStrings.unanswered)
+    }
+
     /// Returns when every attachment given so far is in the draft (tests).
     func attachmentsReady() async {
         while let current = intake {

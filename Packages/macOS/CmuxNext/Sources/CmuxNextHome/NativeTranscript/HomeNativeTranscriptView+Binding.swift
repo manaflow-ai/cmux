@@ -11,6 +11,7 @@ extension HomeNativeTranscriptView {
         binding.onAttachmentRefusal = { [weak self] _, refusal in self?.showAttachmentRefusal(refusal) }
         binding.onRefusal = { [weak self] _, rejection in self?.showRefusal(rejection) }
         binding.onSendNotDelivered = { [weak self] _, rejection in self?.showNotDelivered(rejection) }
+        binding.onUnanswered = { [weak self] intent in self?.showUnanswered(intent) }
         onCancelSend = { [weak binding] key in binding?.cancelSend(key) ?? false }
     }
 }
