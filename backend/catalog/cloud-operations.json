@@ -1650,6 +1650,36 @@
       "pattern": "^grant_[a-z0-9]{20}$",
       "description": "A server-side grant; tokens carry only its id."
     },
+    "HomeAttachmentPoster": {
+      "kind": "object",
+      "fields": {
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HomeSha256"
+          }
+        },
+        "mime_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/jpeg",
+              "image/webp"
+            ]
+          }
+        },
+        "byte_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+    },
     "HomeChief": {
       "kind": "object",
       "fields": {
@@ -2549,11 +2579,11 @@
                 "name": "int64"
               }
             },
-            "poster_hash": {
+            "poster": {
               "required": false,
               "type": {
                 "kind": "ref",
-                "name": "HomeSha256"
+                "name": "HomeAttachmentPoster"
               }
             }
           }
@@ -14050,6 +14080,33 @@
             "pattern": "^[0-9a-f]{64}$",
             "description": "SHA-256 of the bytes, lowercase hex."
           },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -14149,8 +14206,8 @@
                     "type": "integer",
                     "minimum": 0
                   },
-                  "poster_hash": {
-                    "$ref": "#/$defs/HomeSha256"
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
                   }
                 },
                 "required": [
@@ -14772,6 +14829,33 @@
             "pattern": "^[0-9a-f]{64}$",
             "description": "SHA-256 of the bytes, lowercase hex."
           },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -14871,8 +14955,8 @@
                     "type": "integer",
                     "minimum": 0
                   },
-                  "poster_hash": {
-                    "$ref": "#/$defs/HomeSha256"
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
                   }
                 },
                 "required": [
@@ -15935,6 +16019,33 @@
             "pattern": "^[0-9a-f]{64}$",
             "description": "SHA-256 of the bytes, lowercase hex."
           },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -16034,8 +16145,8 @@
                     "type": "integer",
                     "minimum": 0
                   },
-                  "poster_hash": {
-                    "$ref": "#/$defs/HomeSha256"
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
                   }
                 },
                 "required": [
@@ -16736,6 +16847,33 @@
             "pattern": "^[0-9a-f]{64}$",
             "description": "SHA-256 of the bytes, lowercase hex."
           },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -16835,8 +16973,8 @@
                     "type": "integer",
                     "minimum": 0
                   },
-                  "poster_hash": {
-                    "$ref": "#/$defs/HomeSha256"
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
                   }
                 },
                 "required": [
@@ -33693,6 +33831,33 @@
             "pattern": "^[0-9a-f]{64}$",
             "description": "SHA-256 of the bytes, lowercase hex."
           },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -33792,8 +33957,8 @@
                     "type": "integer",
                     "minimum": 0
                   },
-                  "poster_hash": {
-                    "$ref": "#/$defs/HomeSha256"
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
                   }
                 },
                 "required": [
@@ -34166,6 +34331,33 @@
             "pattern": "^[0-9a-f]{64}$",
             "description": "SHA-256 of the bytes, lowercase hex."
           },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -34265,8 +34457,8 @@
                     "type": "integer",
                     "minimum": 0
                   },
-                  "poster_hash": {
-                    "$ref": "#/$defs/HomeSha256"
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
                   }
                 },
                 "required": [

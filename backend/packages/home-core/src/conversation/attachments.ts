@@ -1,5 +1,5 @@
 import type { RowWrite } from "./engine-types.ts"
-import type { AttachmentPart, Message, Part } from "./types.ts"
+import type { AttachmentPart, AttachmentPoster, Message, Part } from "./types.ts"
 
 /**
  * Home attachments (home-messaging.md section 2, `attachment` part): pure rules shared by the
@@ -26,6 +26,8 @@ export const ATTACHMENT_LIMITS = {
   maxNameChars: 255,
   maxDimension: 100_000,
   maxDurationMs: 24 * 3_600_000,
+  /** A video's poster image (JPEG or WebP), uploaded through the Worker with its video's slot. */
+  posterMaxBytes: 2 * MB,
   /** Upload slot (both modes) and download URL lifetimes. */
   uploadTtlMs: 15 * 60_000,
   downloadTtlMs: 10 * 60_000,
@@ -53,6 +55,9 @@ export const ATTACHMENT_TYPES: Readonly<Record<string, AttachmentClass>> = {
   "audio/aac": "audio",
   "audio/wav": "audio"
 }
+
+/** Poster image types (a video's still frame). */
+export const POSTER_TYPES: ReadonlySet<string> = new Set(["image/jpeg", "image/webp"])
 
 /** Text types download as text/plain attachments (never rendered as their own type). */
 export const servedContentType = (mime: string): string => (mime.startsWith("text/") || mime === "application/json" ? "text/plain; charset=utf-8" : mime)
@@ -133,11 +138,41 @@ export const validateAttachmentMeta = (input: unknown): MetaResult => {
   }
 }
 
+export type PosterResult =
+  | { readonly ok: true; readonly poster: AttachmentPoster | null }
+  | { readonly ok: false; readonly code: "validation.invalid" | "attachment.poster_refused" | "attachment.type_refused" | "attachment.too_large"; readonly message: string }
+
+/**
+ * The optional `poster {sha256, byte_count, mime_type}` of an upload intent: only for a video,
+ * JPEG or WebP, at most `posterMaxBytes`. Null when absent.
+ */
+export const validatePosterMeta = (input: unknown, cls: AttachmentClass): PosterResult => {
+  if (input === undefined || input === null) return { ok: true, poster: null }
+  if (cls !== "video") return { ok: false, code: "attachment.poster_refused", message: "only a video takes a poster" }
+  const v = input as Record<string, unknown>
+  if (typeof input !== "object" || !isSha256(v.sha256) || !Number.isInteger(v.byte_count) || (v.byte_count as number) <= 0 || typeof v.mime_type !== "string") {
+    return { ok: false, code: "validation.invalid", message: "poster needs sha256, byte_count and mime_type" }
+  }
+  const mime = v.mime_type.toLowerCase()
+  if (!POSTER_TYPES.has(mime)) return { ok: false, code: "attachment.type_refused", message: "a poster is image/jpeg or image/webp" }
+  if ((v.byte_count as number) > ATTACHMENT_LIMITS.posterMaxBytes) return { ok: false, code: "attachment.too_large", message: `posters are limited to ${ATTACHMENT_LIMITS.posterMaxBytes} bytes` }
+  return { ok: true, poster: { hash: v.sha256, byte_count: v.byte_count as number, mime_type: mime } }
+}
+
+/** A part's `poster {hash, mime_type, byte_count}` (video parts only), or null when invalid. */
+const cleanPoster = (input: unknown, cls: AttachmentClass | undefined): AttachmentPoster | null => {
+  if (cls !== "video" || typeof input !== "object" || input === null) return null
+  const v = input as Record<string, unknown>
+  const r = validatePosterMeta({ sha256: v.hash, byte_count: v.byte_count, mime_type: v.mime_type }, cls)
+  return r.ok && r.poster && r.poster.mime_type === v.mime_type ? r.poster : null
+}
+
 /** Validates one `attachment` part (shape and the same type, name and size rules); throws nothing, returns null when invalid. */
 export const cleanAttachmentPart = (part: Record<string, unknown>): AttachmentPart | null => {
   const r = validateAttachmentMeta({ ...part, sha256: part.hash })
   if (!r.ok || r.meta.mime_type !== part.mime_type) return null
-  if (!optional(part.poster_hash, isSha256)) return null
+  const poster = part.poster === undefined ? undefined : cleanPoster(part.poster, ATTACHMENT_TYPES[r.meta.mime_type])
+  if (poster === null) return null
   return {
     type: "attachment",
     hash: r.meta.sha256,
@@ -147,7 +182,7 @@ export const cleanAttachmentPart = (part: Record<string, unknown>): AttachmentPa
     ...(r.meta.width === undefined ? {} : { width: r.meta.width }),
     ...(r.meta.height === undefined ? {} : { height: r.meta.height }),
     ...(r.meta.duration_ms === undefined ? {} : { duration_ms: r.meta.duration_ms }),
-    ...(typeof part.poster_hash === "string" ? { poster_hash: part.poster_hash } : {})
+    ...(poster ? { poster } : {})
   }
 }
 
@@ -166,6 +201,8 @@ export interface AttachmentRecord {
   readonly byte_count: number
   /** R2 etag at commit; downloads read only this version. */
   readonly etag?: string
+  /** A video's poster, uploaded with the same slot and stored at `attachmentPosterKey(object_key)`; its etag pins downloads too. */
+  readonly poster?: AttachmentPoster & { readonly etag?: string }
   /** Actors who uploaded these bytes here (each may use the object before any message references it). */
   readonly uploaders: ReadonlyArray<string>
   /** The user whose stored-bytes quota the object counts against (the first uploader's user). */
@@ -174,6 +211,8 @@ export interface AttachmentRecord {
 }
 
 export const attachmentObjectKey = (conversation: string, objectId: string) => `home/v1/${conversation}/${objectId}`
+/** The poster object of a video stored at `objectKey` (same slot, same prefix). */
+export const attachmentPosterKey = (objectKey: string) => `${objectKey}.poster`
 export const attachmentPrefix = (conversation: string) => `home/v1/${conversation}/`
 
 /**
@@ -183,14 +222,10 @@ export const attachmentPrefix = (conversation: string) => `home/v1/${conversatio
  */
 export const TABLE_ATTREF = "attref"
 
-/** Every hash a part list references (the file and its poster). */
+/** Every hash a part list references (a poster belongs to its video's record, not a hash of its own). */
 export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
   const out = new Set<string>()
-  for (const p of parts) {
-    if (p.type !== "attachment") continue
-    out.add(p.hash)
-    if (p.poster_hash) out.add(p.poster_hash)
-  }
+  for (const p of parts) if (p.type === "attachment") out.add(p.hash)
   return out
 }
 
@@ -201,17 +236,16 @@ export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
  */
 export type AttachmentLookup = (hash: string, actor: string, floor: number) => AttachmentRecord | undefined
 
-/** The owner's check for `actor`: each part's hash (and poster) is usable by the author, and its type and size match the record. */
+/** The owner's check for `actor`: each part's hash is usable by the author, and its type, size and claimed poster match the record. */
 export const checkAttachments = (parts: ReadonlyArray<Part>, lookup: AttachmentLookup, actor: string, floor: number): "unknown_attachment" | "attachment_mismatch" | null => {
   for (const p of parts) {
     if (p.type !== "attachment") continue
     const rec = lookup(p.hash, actor, floor)
     if (!rec) return "unknown_attachment"
     if (rec.mime_type !== p.mime_type || rec.byte_count !== p.byte_count) return "attachment_mismatch"
-    if (p.poster_hash !== undefined) {
-      const poster = lookup(p.poster_hash, actor, floor)
-      if (!poster) return "unknown_attachment"
-      if (ATTACHMENT_TYPES[poster.mime_type] !== "image") return "attachment_mismatch"
+    if (p.poster !== undefined) {
+      const kept = rec.poster
+      if (!kept || kept.hash !== p.poster.hash || kept.mime_type !== p.poster.mime_type || kept.byte_count !== p.poster.byte_count) return "attachment_mismatch"
     }
   }
   return null

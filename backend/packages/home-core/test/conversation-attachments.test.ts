@@ -88,6 +88,8 @@ describe("message.send with attachment parts (the owner checks the hash)", () =>
   const record = (hash: string, mime_type = "image/png", byte_count = 1000): AttachmentRecord => ({ hash, object_id: hash.slice(0, 32), object_key: `home/v1/conv_GROUP/${hash.slice(0, 32)}`, mime_type, byte_count, uploaders: [ALICE], quota_user: ALICE, created_at: 0 })
   records.set(HASH, record(HASH))
   records.set(POSTER, record(POSTER, "image/jpeg", 50))
+  const VIDEO = "c".repeat(63) + "d"
+  records.set(VIDEO, { ...record(VIDEO, "video/mp4", 5000), poster: { hash: POSTER, mime_type: "image/jpeg", byte_count: 50, etag: "e" } })
   const asked: Array<[string, string, number]> = []
   // As the DO answers: only for an uploader (here Alice) or a hash referenced above the actor's floor.
   const domain = makeConversationDomain({
@@ -117,12 +119,18 @@ describe("message.send with attachment parts (the owner checks the hash)", () =>
     expect(host.rows.get(TABLE_ATTREF, `${HASH}:${id}`)).toBeUndefined()
   })
 
-  it("refuses an unknown or foreign hash, a mismatched size or type, and an unknown poster", () => {
+  it("refuses an unknown or foreign hash, a mismatched size or type, and a poster the record does not hold", () => {
     const host = group()
     expect(send(host, [part({ hash: "c".repeat(64) })], "m1")).toMatchObject({ ok: false, code: "unknown_attachment" })
     expect(send(host, [part({ byte_count: 999 })], "m2")).toMatchObject({ ok: false, code: "attachment_mismatch" })
     expect(send(host, [part({ mime_type: "image/jpeg" })], "m3")).toMatchObject({ ok: false, code: "attachment_mismatch" })
-    expect(send(host, [part({ poster_hash: "d".repeat(64) })], "m4")).toMatchObject({ ok: false, code: "unknown_attachment" })
+    // A poster only on a video part, and only the one its record holds.
+    const poster = { hash: POSTER, mime_type: "image/jpeg", byte_count: 50 }
+    expect(send(host, [part({ poster })], "m4")).toMatchObject({ ok: false, code: "invalid_parts" })
+    const video = part({ hash: VIDEO, name: "clip.mp4", mime_type: "video/mp4", byte_count: 5000 })
+    expect(send(host, [{ ...video, poster: { ...poster, byte_count: 51 } }], "m6")).toMatchObject({ ok: false, code: "attachment_mismatch" })
+    expect(send(host, [{ ...video, poster: { ...poster, mime_type: "image/png" } }], "m7")).toMatchObject({ ok: false, code: "invalid_parts" })
+    expect(send(host, [{ ...video, poster }], "m8").ok).toBe(true)
     expect(send(host, [part({ name: "photo.exe" })], "m5")).toMatchObject({ ok: false, code: "invalid_parts" })
   })
 

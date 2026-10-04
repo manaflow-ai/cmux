@@ -83,7 +83,13 @@ export const Part = Schema.Union([
     width: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
     height: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
     duration_ms: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
-    poster_hash: Schema.optionalKey(Sha256)
+    poster: Schema.optionalKey(
+      Schema.Struct({
+        hash: Sha256,
+        mime_type: Schema.Literals(["image/jpeg", "image/webp"]),
+        byte_count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(2_000_000))
+      }).annotate({ identifier: "HomeAttachmentPoster", description: "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}." })
+    )
   }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." })
 ]).annotate({ identifier: "HomePart" })
 export const Parts = Schema.Array(Part).check(Schema.isMinLength(1), Schema.isMaxLength(16))

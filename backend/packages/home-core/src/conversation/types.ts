@@ -66,8 +66,15 @@ export interface AttachmentPart {
   readonly height?: number
   /** Video and audio length. */
   readonly duration_ms?: number
-  /** Hash of a poster image uploaded to the same conversation (video). */
-  readonly poster_hash?: string
+  /** Video only: the poster image uploaded with this video's slot (home-messaging.md section 10.1); must equal the record's. */
+  readonly poster?: AttachmentPoster
+}
+
+/** A video's poster image: JPEG or WebP, stored next to the video under the same upload slot. */
+export interface AttachmentPoster {
+  readonly hash: string
+  readonly mime_type: string
+  readonly byte_count: number
 }
 
 export type Part =

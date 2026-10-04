@@ -294,6 +294,13 @@ export type Grant = {
 /** A server-side grant; tokens carry only its id. */
 export type GrantId = string
 
+/** Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}. */
+export type HomeAttachmentPoster = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/jpeg" | "image/webp"
+  readonly byte_count: number
+}
+
 export type HomeChief = {
   readonly id: ChiefId
   readonly owner_user: string
@@ -430,7 +437,7 @@ export type HomePart = {
   readonly width?: number
   readonly height?: number
   readonly duration_ms?: number
-  readonly poster_hash?: HomeSha256
+  readonly poster?: HomeAttachmentPoster
 }
 
 export type HomeParticipant = {

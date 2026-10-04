@@ -34,7 +34,7 @@ from `cmux-conversation::encode_id` unless stated).
 | --- | --- | --- |
 | Conversation head | `conv_<26>` (group, chief); `conv_dm_<26>` = base32(sha256("dm\0" + lo + "\0" + hi))[0..26] where lo/hi are the two sorted participant ids (a user id or an address id) | `kind`, `title`, `team?` (the team whose policy applies; null for personal), `created_by`, `created_at`, `updated_at`, `last_seq`, `rev`, `participants[]`, `invites[]`, `settings {wake_policy, agent_budget {turns, gap_ms}, history_visible: "all"|"since_join"}`, `retention_days?` (from team policy), `state: "active"|"archived"` |
 | Participant | `user_<id>`, `agent_<id>`, `addr_<26>` | `kind: human|agent|address`, `display_name`, `agent_class?: mux|agent`, `owner_user?` (agents), `role: owner|member`, `joined_seq` (last_seq when added), `added_by`, `left_at?` |
-| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, name, mime_type, byte_count, width?, height?, duration_ms?, poster_hash?}` (cloud heads only; see section 10.1), refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
+| Message | `msg_<26>`, `seq` dense per conversation | `client_msg_id`, `author`, `parts[]` (text with runs/mentions, `work`, `approval`, `attachment {hash, name, mime_type, byte_count, width?, height?, duration_ms?, poster? {hash, mime_type, byte_count}}` (cloud heads only; see section 10.1), refs `task`/`vm`/`pr`), `reply_to? {message_id, part_index}`, `thread_root?`, `created_at`, `edited_at?`, `retracted_at?`, `reactions[] {author, part_index, kind, at}` |
 | Read cursor | (conversation, participant) | `last_read_seq` (monotonic, written only by that participant) |
 | Invite | `inv_<26>` inside its conversation | `address` (`addr_<26>`), `channel: email|sms`, `display_name`, `invited_by`, `created_at`, `expires_at` (14 days), `token_hash` (sha256 of sha256 of the 128-bit secret), `status: pending|accepted|revoked|expired`, `accepted_by?`, `accepted_at?`, `delivery {state: queued|sent|delivered|bounced|complained|failed|suppressed|refused_env, provider_id?, at}`, `copy_variant`, `locale` |
 | Inbox entry | (user, conversation) | owner-projected (from ConversationDO, guarded by conversation `rev`): `kind`, `title`, `last_seq`, `last_at`, `preview` (240 chars, author + text), `unread` (count after the user's cursor, excluding own messages), `mentions` (unread mentions of the user), `dm_peer?`, `rev`; user-owned: `pinned`, `pin_position`, `muted_until?`, `archived`, `marked_unread` |
@@ -333,13 +333,36 @@ new body. No raw address, token or token hash is ever projected.
   `content-length` and `x-amz-checksum-sha256`), then `POST /v1/home/attachments/commit`, which HEADs
   size and checksum. Either way the object is usable only after verification; the recorded etag
   pins downloads to that version.
+- Presigned overwrite (answered 2026-10-04): no. The presigned PUT signs `content-length`,
+  `x-amz-checksum-sha256` and `if-none-match: *`. R2 refuses bytes that do not match the signed
+  checksum, and refuses any PUT to a key that already holds an object (412), so once the bytes are
+  there (and so after commit) the URL cannot write again; a client that retries a PUT whose first
+  attempt landed gets 412 and calls commit. The header is signed, so the client cannot drop it.
+  Downloads also read only the etag recorded at commit. Stream slots are single use through the
+  Worker. The conditional PUT against real R2 is still to be checked on staging.
+- Video posters: one poster per video, part of the same attachment (never a separate part or
+  record). The intent of a video may declare `poster {sha256, byte_count, mime_type}` (image/jpeg
+  or image/webp, 2 MB; `attachment.poster_refused` for any other class, 415 for other types, 413
+  over the cap). The answer adds `poster_upload {method: PUT, upload_url, headers}`, always through
+  the Worker (`PUT /v1/home/attachments/poster/<conv>/<slot>.<kid>.<mac>`), which hashes the bytes
+  and stores them at `<object key>.poster`, a key derived from the slot. The poster PUT works once
+  while the slot is open; the video's own PUT or commit answers 409 `attachment.poster_missing`
+  until it is stored (the slot stays usable). Commit writes `poster {hash, mime_type, byte_count,
+  etag}` on the video's record and answers it; the slot's quota charge includes the poster bytes.
+  With an `exists` commit the first record wins, also for its poster. Expiry, refusals, the sweep
+  and conversation deletion delete the poster key with its object.
 - Use in messages: `message.send`/`message.edit` accept a hash only when the author uploaded it
   here or a message above the author's history floor references it; every other case is the same
-  `unknown_attachment`.
-- Downloads: `POST /v1/home/attachments/url {conversation, hash, message_id?, part_index?}` mints a
-  10-minute bearer-less URL bound to key id, method, conversation, object id, part, actor and
-  expiry; each GET rechecks membership and floor; the file name comes from the message part; text
-  is served as `text/plain` attachments, only images inline; out-of-range `Range` is 416.
+  `unknown_attachment`. A part's `poster` is valid only on a video part (`invalid_parts`
+  otherwise) and must equal its record's poster (`attachment_mismatch`).
+- Downloads: `POST /v1/home/attachments/url {conversation, hash, message_id?, part_index?, variant?}`
+  mints a 10-minute bearer-less URL bound to key id, method, conversation, object id, part,
+  variant, actor and expiry; each GET rechecks membership and floor; the file name comes from the
+  message part; text is served as `text/plain` attachments, only images inline; out-of-range
+  `Range` is 416. `variant: "poster"` (the only variant; anything else is 400) signs the poster
+  recorded on the video's record, for a video record and, with `message_id`, a video part; without
+  one it is 404 `attachment.no_poster`, never the video. The GET reads only the record's poster
+  key, type, size and etag (nothing from the request) and serves it inline.
 - No URL carries user content: object and slot ids are random; names stay in message parts.
 - Inbox: bumps carry `preview_attachments {kind: photo|video|audio|file, count}` (preview text
   empty for attachment-only messages); clients localize.

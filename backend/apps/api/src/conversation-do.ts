@@ -41,8 +41,8 @@ export type AttachmentAccess =
   | { readonly ok: false; readonly code: "auth.forbidden"; readonly message: string }
   | { readonly ok: true; readonly open: boolean; readonly record: conversation.AttachmentRecord | null }
 
-/** A download the owner allows: the record, and the file name from the message part (or a generic one). */
-export type DownloadAccess = { readonly record: conversation.AttachmentRecord; readonly name: string | null } | null
+/** A download the owner allows: the record, and (when asked by message part) that part, whose name is the file name. */
+export type DownloadAccess = { readonly record: conversation.AttachmentRecord; readonly name: string | null; readonly part?: conversation.AttachmentPart } | null
 
 type Users = { releaseAttachmentStorage(e: string, key: string): Promise<void>; refundAttachmentQuota(e: string, slot: string): Promise<void> }
 
@@ -161,7 +161,7 @@ export class ConversationDO extends OwnerDO<Head> {
     for (;;) {
       const due = store.dueSlots(this.sqlStore, now, 100)
       if (due.length === 0) return
-      if (this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(due.map((s) => s.object_key))
+      if (this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(due.flatMap(store.slotKeys))
       for (const slot of due) {
         if (slot.state !== "tombstone") await this.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
         store.removeSlot(this.sqlStore, slot.id)
@@ -282,7 +282,7 @@ export class ConversationDO extends OwnerDO<Head> {
     entity: string,
     actor: string,
     quotaUser: string,
-    meta: { hash: string; byte_count: number; mime_type: string },
+    meta: { hash: string; byte_count: number; mime_type: string; poster?: conversation.AttachmentPoster },
     mode: store.UploadSlot["mode"],
     id: string
   ): Promise<store.UploadSlot | null> {
@@ -302,6 +302,17 @@ export class ConversationDO extends OwnerDO<Head> {
     return store.takeSlot(this.sqlStore, id, mode, consume, actor)
   }
 
+  /** The open slot whose declared poster may be PUT now (moved to `uploading`). */
+  async posterSlot(entity: string, id: string): Promise<store.UploadSlot | null> {
+    if (!this.existingState(entity)) return null
+    return store.takePoster(this.sqlStore, id)
+  }
+
+  /** Ends a poster PUT: its etag when verified, null when refused (the client may PUT again). */
+  async settlePoster(entity: string, id: string, etag: string | null): Promise<void> {
+    if (this.existingState(entity)) store.settlePoster(this.sqlStore, id, etag)
+  }
+
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
   async settleSlot(entity: string, id: string): Promise<void> {
     if (!this.existingState(entity)) return
@@ -318,7 +329,7 @@ export class ConversationDO extends OwnerDO<Head> {
     entity: string,
     slotId: string,
     etag?: string
-  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
+  ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; poster?: conversation.AttachmentPoster } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
     if (!this.existingState(entity)) return { ok: false, code: "slot_gone" }
     const slot = store.slotIn(this.sqlStore, slotId, "uploading")
     if (!slot) return { ok: false, code: "slot_gone" }
@@ -327,18 +338,21 @@ export class ConversationDO extends OwnerDO<Head> {
       store.settleSlot(this.sqlStore, slot, false)
       return { ok: false, code: a ? "archived" : "auth.forbidden" }
     }
-    const r = store.commitRecord(this.sqlStore, { hash: slot.hash, object_id: slot.object_id, object_key: slot.object_key, mime_type: slot.mime_type, byte_count: slot.byte_count, ...(etag ? { etag } : {}), uploader: slot.actor, quota_user: slot.quota_user, created_at: Date.now() })
+    // The poster goes into the record only once verified (the Worker refuses to commit a video whose declared poster is missing).
+    const poster = slot.poster && slot.poster_state === "stored" ? { ...slot.poster, ...(slot.poster_etag ? { etag: slot.poster_etag } : {}) } : undefined
+    const r = store.commitRecord(this.sqlStore, { hash: slot.hash, object_id: slot.object_id, object_key: slot.object_key, mime_type: slot.mime_type, byte_count: slot.byte_count, ...(etag ? { etag } : {}), ...(poster ? { poster } : {}), uploader: slot.actor, quota_user: slot.quota_user, created_at: Date.now() })
     store.settleSlot(this.sqlStore, slot, r.record.object_key === slot.object_key)
     this.scheduleAlarm()
-    return { ok: true, state: r.state, object_key: r.record.object_key }
+    const kept = r.record.poster
+    return { ok: true, state: r.state, object_key: r.record.object_key, ...(kept ? { poster: { hash: kept.hash, mime_type: kept.mime_type, byte_count: kept.byte_count } } : {}) }
   }
 
-  /** The file name of part `partIndex` of a message `actor` can see, when that part holds `hash`; undefined otherwise. */
-  private partName(state: Head, me: { joined_seq?: number }, messageId: string, partIndex: number, hash: string): string | undefined {
+  /** Part `partIndex` of a message `actor` can see, when that part holds `hash`; undefined otherwise. */
+  private attachmentPartAt(state: Head, me: { joined_seq?: number }, messageId: string, partIndex: number, hash: string): conversation.AttachmentPart | undefined {
     const msg = this.boundEngine!.rows.get<conversation.Message>(conversation.TABLE_MSG, messageId)?.row
     if (!msg || msg.retracted_at !== undefined || msg.seq <= this.floor(state, me)) return undefined
     const part = msg.parts[partIndex]
-    return part?.type === "attachment" && part.hash === hash ? part.name : undefined
+    return part?.type === "attachment" && part.hash === hash ? part : undefined
   }
 
   /** For URL mints (by hash) and downloads (by object id): the usable record and the part's name. */
@@ -349,8 +363,8 @@ export class ConversationDO extends OwnerDO<Head> {
     const record = found ? store.usableRecord(this.sqlStore, found.hash, actor, this.floor(a.state, a.me)) : null
     if (!record) return null
     if (!at) return { record, name: null }
-    const name = this.partName(a.state, a.me, at.message_id, at.part_index, record.hash)
-    return name === undefined ? null : { record, name }
+    const part = this.attachmentPartAt(a.state, a.me, at.message_id, at.part_index, record.hash)
+    return part === undefined ? null : { record, name: part.name, part }
   }
 
   /** Unreferenced uploads past the grace period: forget, delete their objects, release the uploaders' storage. */
@@ -362,7 +376,7 @@ export class ConversationDO extends OwnerDO<Head> {
   }
 
   private async dropObjects(records: ReadonlyArray<conversation.AttachmentRecord>): Promise<void> {
-    if (records.length && this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(records.map((r) => r.object_key))
+    if (records.length && this.env.HOME_ATTACHMENTS) await this.env.HOME_ATTACHMENTS.delete(records.flatMap(store.recordKeys))
     for (const r of records) {
       try {
         await this.users(r.quota_user).releaseAttachmentStorage(r.quota_user, r.object_key)
@@ -394,7 +408,8 @@ export class ConversationDO extends OwnerDO<Head> {
       const page = await this.env.HOME_ATTACHMENTS.list({ prefix: conversation.attachmentPrefix(entity), ...(cursor ? { cursor } : {}) })
       if (page.objects.length) {
         await this.env.HOME_ATTACHMENTS.delete(page.objects.map((o) => o.key))
-        deleted += page.objects.filter((o) => !records.some((r) => r.object_key === o.key)).length
+        const known = new Set(records.flatMap(store.recordKeys))
+        deleted += page.objects.filter((o) => !known.has(o.key)).length
       }
       cursor = page.truncated ? page.cursor : undefined
     } while (cursor)

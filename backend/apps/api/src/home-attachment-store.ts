@@ -19,7 +19,8 @@ import type { SqlStore } from "@cmux/ownership"
  */
 type Sql = Pick<SqlStore, "exec">
 type Record = conversation.AttachmentRecord
-type Row = { hash: string; object_id: string; object_key: string; mime_type: string; byte_count: number; etag: string | null; uploaders: string; quota_user: string; created_at: number }
+type Row = { hash: string; object_id: string; object_key: string; mime_type: string; byte_count: number; etag: string | null; poster?: string | null; uploaders: string; quota_user: string; created_at: number }
+type Poster = conversation.AttachmentPoster
 
 export interface UploadSlot {
   readonly id: string
@@ -33,6 +34,10 @@ export interface UploadSlot {
   readonly mode: "stream" | "presigned"
   readonly expires_at: number
   readonly state?: "open" | "uploading" | "tombstone"
+  /** A video's declared poster: uploaded once through the Worker (`open` -> `uploading` -> `stored`) before the video commits. */
+  readonly poster?: Poster
+  readonly poster_state?: "open" | "uploading" | "stored"
+  readonly poster_etag?: string
 }
 
 /** An `uploading` slot whose PUT never finished is reclaimed this long after its expiry (a slow upload may still be running). */
@@ -49,6 +54,14 @@ const ENGINE_ROWS = "own_rows"
 const MAX_UPLOADERS = 64
 const GRACE = conversation.ATTACHMENT_LIMITS.unreferencedGraceMs
 
+/** Columns added after the first schema (poster support); added once per store instance. */
+const LATER_COLUMNS: ReadonlyArray<[string, string]> = [
+  [OBJECTS, "poster TEXT"],
+  [SLOTS, "poster TEXT"],
+  [SLOTS, "poster_state TEXT"],
+  [SLOTS, "poster_etag TEXT"]
+]
+const migrated = new WeakSet<object>()
 const has = (sql: Sql, table: string) => sql.exec(`SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?`, table).length > 0
 const ensure = (sql: Sql) => {
   sql.exec(
@@ -59,7 +72,14 @@ const ensure = (sql: Sql) => {
     `CREATE TABLE IF NOT EXISTS ${SLOTS} (id TEXT PRIMARY KEY, hash TEXT NOT NULL, byte_count INTEGER NOT NULL, mime_type TEXT NOT NULL, actor TEXT NOT NULL, quota_user TEXT NOT NULL, object_id TEXT NOT NULL, object_key TEXT NOT NULL, mode TEXT NOT NULL, expires_at INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'open')`
   )
   sql.exec(`CREATE TABLE IF NOT EXISTS ${SWEEP} (id INTEGER PRIMARY KEY CHECK (id = 1), cutoff INTEGER NOT NULL, dirty_at INTEGER, cursor_at INTEGER, cursor_hash TEXT, redo INTEGER NOT NULL DEFAULT 0)`)
+  if (migrated.has(sql)) return
+  for (const [table, column] of LATER_COLUMNS) {
+    const name = column.split(" ")[0]
+    if (!sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('${table}')`).some((c) => c.name === name)) sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column}`)
+  }
+  migrated.add(sql)
 }
+const posterOf = (json: string | null | undefined): (Poster & { etag?: string }) | undefined => (json ? (JSON.parse(json) as Poster & { etag?: string }) : undefined)
 const toRecord = (r: Row): Record => ({
   hash: r.hash,
   object_id: r.object_id,
@@ -67,10 +87,16 @@ const toRecord = (r: Row): Record => ({
   mime_type: r.mime_type,
   byte_count: Number(r.byte_count),
   ...(r.etag ? { etag: r.etag } : {}),
+  ...(r.poster ? { poster: posterOf(r.poster)! } : {}),
   uploaders: JSON.parse(r.uploaders) as Array<string>,
   quota_user: r.quota_user,
   created_at: Number(r.created_at)
 })
+
+/** Every R2 key a slot may have written: its object and its poster. */
+export const slotKeys = (slot: Pick<UploadSlot, "object_key">): Array<string> => [slot.object_key, conversation.attachmentPosterKey(slot.object_key)]
+/** Every R2 key of a record. */
+export const recordKeys = (r: Record): Array<string> => (r.poster ? [r.object_key, conversation.attachmentPosterKey(r.object_key)] : [r.object_key])
 
 /** A random 128-bit hex id (object ids and slot ids). */
 export const randomId = () => crypto.randomUUID().replace(/-/g, "")
@@ -106,7 +132,7 @@ export const usableRecord = (sql: Sql, hash: string, actor: string, floor: numbe
 export const createSlot = (sql: Sql, slot: UploadSlot): void => {
   ensure(sql)
   sql.exec(
-    `INSERT INTO ${SLOTS} (id, hash, byte_count, mime_type, actor, quota_user, object_id, object_key, mode, expires_at, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`,
+    `INSERT INTO ${SLOTS} (id, hash, byte_count, mime_type, actor, quota_user, object_id, object_key, mode, expires_at, state, poster, poster_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
     slot.id,
     slot.hash,
     slot.byte_count,
@@ -116,16 +142,26 @@ export const createSlot = (sql: Sql, slot: UploadSlot): void => {
     slot.object_id,
     slot.object_key,
     slot.mode,
-    slot.expires_at
+    slot.expires_at,
+    slot.poster ? JSON.stringify({ hash: slot.poster.hash, mime_type: slot.poster.mime_type, byte_count: slot.poster.byte_count }) : null,
+    slot.poster ? "open" : null
   )
 }
 
-const slotRow = (s: UploadSlot): UploadSlot => ({ ...s, byte_count: Number(s.byte_count), expires_at: Number(s.expires_at) })
+type SlotRow = Omit<UploadSlot, "poster" | "poster_state" | "poster_etag"> & { poster?: string | null; poster_state?: UploadSlot["poster_state"] | null; poster_etag?: string | null }
+const slotRow = ({ poster, poster_state, poster_etag, ...s }: SlotRow): UploadSlot => ({
+  ...s,
+  byte_count: Number(s.byte_count),
+  expires_at: Number(s.expires_at),
+  ...(poster ? { poster: posterOf(poster)! } : {}),
+  ...(poster_state ? { poster_state } : {}),
+  ...(poster_etag ? { poster_etag } : {})
+})
 
 /** The slot `id` in `state`, or null. */
 export const slotIn = (sql: Sql, id: string, state: NonNullable<UploadSlot["state"]>): UploadSlot | null => {
   if (!has(sql, SLOTS)) return null
-  const s = sql.exec<UploadSlot>(`SELECT * FROM ${SLOTS} WHERE id = ? AND state = ?`, id, state)[0]
+  const s = sql.exec<SlotRow>(`SELECT * FROM ${SLOTS} WHERE id = ? AND state = ?`, id, state)[0]
   return s ? slotRow(s) : null
 }
 
@@ -135,6 +171,23 @@ export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume
   if (!s || s.mode !== mode || s.expires_at <= Date.now() || (actor !== undefined && s.actor !== actor)) return null
   if (consume) sql.exec(`UPDATE ${SLOTS} SET state = 'uploading' WHERE id = ?`, id)
   return { ...s, state: consume ? "uploading" : "open" }
+}
+
+/** Whether the slot's declared poster (if any) is stored, so the video may commit. */
+export const posterReady = (slot: UploadSlot): boolean => !slot.poster || slot.poster_state === "stored"
+
+/** The live open slot `id` whose declared poster is still `open`; moves the poster to `uploading` (one PUT at a time, once stored never again). */
+export const takePoster = (sql: Sql, id: string): UploadSlot | null => {
+  const s = slotIn(sql, id, "open")
+  if (!s || !s.poster || s.poster_state !== "open" || s.expires_at <= Date.now()) return null
+  sql.exec(`UPDATE ${SLOTS} SET poster_state = 'uploading' WHERE id = ?`, id)
+  return { ...s, poster_state: "uploading" }
+}
+
+/** Ends a poster PUT: `etag` when the bytes were verified (stored), null to let the client try again. */
+export const settlePoster = (sql: Sql, id: string, etag: string | null): void => {
+  if (!has(sql, SLOTS)) return
+  sql.exec(`UPDATE ${SLOTS} SET poster_state = ?, poster_etag = ? WHERE id = ? AND poster_state = 'uploading'`, etag === null ? "open" : "stored", etag, id)
 }
 
 /**
@@ -151,7 +204,7 @@ const DUE = `CASE WHEN state = 'uploading' THEN expires_at + ${UPLOADING_GRACE_M
 
 /** Slots whose time is up: open (never used), uploading (a PUT that never finished) and tombstones. */
 export const dueSlots = (sql: Sql, now: number, limit: number): Array<UploadSlot> =>
-  has(sql, SLOTS) ? sql.exec<UploadSlot>(`SELECT * FROM ${SLOTS} WHERE ${DUE} <= ? ORDER BY ${DUE} LIMIT ?`, now, limit).map(slotRow) : []
+  has(sql, SLOTS) ? sql.exec<SlotRow>(`SELECT * FROM ${SLOTS} WHERE ${DUE} <= ? ORDER BY ${DUE} LIMIT ?`, now, limit).map(slotRow) : []
 
 export const removeSlot = (sql: Sql, id: string): void => void sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, id)
 
@@ -173,15 +226,27 @@ export const commitRecord = (sql: Sql, rec: Omit<Record, "uploaders" | "quota_us
     sql.exec(`UPDATE ${OBJECTS} SET uploaders = ? WHERE hash = ?`, JSON.stringify(uploaders), rec.hash)
     return { state: "exists", record: { ...prior, uploaders } }
   }
-  const record: Record = { hash: rec.hash, object_id: rec.object_id, object_key: rec.object_key, mime_type: rec.mime_type, byte_count: rec.byte_count, ...(rec.etag ? { etag: rec.etag } : {}), uploaders: [rec.uploader], quota_user: rec.quota_user, created_at: rec.created_at }
+  const record: Record = {
+    hash: rec.hash,
+    object_id: rec.object_id,
+    object_key: rec.object_key,
+    mime_type: rec.mime_type,
+    byte_count: rec.byte_count,
+    ...(rec.etag ? { etag: rec.etag } : {}),
+    ...(rec.poster ? { poster: rec.poster } : {}),
+    uploaders: [rec.uploader],
+    quota_user: rec.quota_user,
+    created_at: rec.created_at
+  }
   sql.exec(
-    `INSERT INTO ${OBJECTS} (hash, object_id, object_key, mime_type, byte_count, etag, uploaders, quota_user, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO ${OBJECTS} (hash, object_id, object_key, mime_type, byte_count, etag, poster, uploaders, quota_user, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     record.hash,
     record.object_id,
     record.object_key,
     record.mime_type,
     record.byte_count,
     record.etag ?? null,
+    record.poster ? JSON.stringify(record.poster) : null,
     JSON.stringify(record.uploaders),
     record.quota_user,
     record.created_at
@@ -231,7 +296,7 @@ export const sweepBatch = (sql: Sql, before: number): { records: Array<Record>; 
 export const forgetAll = (sql: Sql): { records: Array<Record>; slots: Array<UploadSlot> } => {
   if (!has(sql, OBJECTS)) return { records: [], slots: [] }
   const records = sql.exec<Row>(`SELECT * FROM ${OBJECTS}`).map(toRecord)
-  const slots = sql.exec<UploadSlot>(`SELECT * FROM ${SLOTS}`).map(slotRow)
+  const slots = sql.exec<SlotRow>(`SELECT * FROM ${SLOTS}`).map(slotRow)
   sql.exec(`DELETE FROM ${OBJECTS}`)
   sql.exec(`DELETE FROM ${SLOTS}`)
   return { records, slots }
