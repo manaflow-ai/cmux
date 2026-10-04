@@ -27,6 +27,9 @@ final class ViewerService {
     let picker: CmuxPicker
     var diffViewer: any DiffViewerOpening = UnavailableDiffViewer()
     var fileOpener: any FileOpening
+    /// The diff open a picker choice started (one at a time; the next
+    /// choice cancels it).
+    private(set) var diffOpen: Task<Void, Never>?
     private weak var services: AppServices?
 
     init(services: AppServices, recents: ViewerRecents = ViewerRecents()) {
@@ -61,8 +64,15 @@ final class ViewerService {
     func diffPickerPage(for pane: PaneController) -> PalettePageSpec {
         picker.openPage(.init(choose: .folders, startDirectory: Self.start(for: pane), recents: [.diff])) { [weak self, weak pane] urls in
             guard let self, let pane, let folder = urls?.first else { return }
-            Task {
-                do { try await self.openDiff(folder.path, in: pane, focus: true) } catch { self.showRefusal(Self.reason(error)) }
+            // One diff open at a time: a newer choice cancels the one before.
+            self.diffOpen?.cancel()
+            self.diffOpen = Task { [weak self, weak pane] in
+                guard let self, let pane else { return }
+                do { try await self.openDiff(folder.path, in: pane, focus: true) } catch {
+                    if !Task.isCancelled { self.showRefusal(Self.reason(error)) }
+                }
+                // A cancelled open leaves the handle to the one that replaced it.
+                if !Task.isCancelled { self.diffOpen = nil }
             }
         }
     }

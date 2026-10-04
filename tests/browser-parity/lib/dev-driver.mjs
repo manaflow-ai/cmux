@@ -26,6 +26,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 export const runtimeDir = path.join(repoRoot, "cmux-tui/crates/cmux-browser-host/js");
 
 const AGENT_KEY = 'Symbol.for("cmux.browserRepl.agent")';
+const OBSERVE_METHODS = new Set(["ping", "snapshot", "stats", "refState", "refForHandle", "elementAt", "splitFrames", "queryAll", "describe", "strictError", "elementState", "checkStates", "rect", "contentBox", "iframeHandles", "retarget", "read", "activeHandle"]);
 const NEEDS_AGENT = "__cmuxNeedsAgent__";
 const ERROR_KEY = "__cmuxError__";
 const JSON_KEY = "__cmuxJson__";
@@ -688,6 +689,15 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       return out;
     },
     "frame.evaluate": async ({ targetId, frameId: id, ...rest }) => evaluate(frameFor(targetId, id), rest),
+    // The host's read-only page-agent call (browser lead contract v1): the
+    // driver builds the call; only allowlisted methods run.
+    "frame.observe": async ({ targetId, frameId: id, method, args = [] }) => {
+      if (!OBSERVE_METHODS.has(method)) {
+        throw Object.assign(new DriverError("forbidden", `frame.observe: ${method} is not a read; use frame.evaluate`), { errorName: "observe_not_allowed" });
+      }
+      if (!Array.isArray(args) || args.length > 8 || JSON.stringify(args).length > 65536) throw new DriverError("invalid", "frame.observe: args: expected at most 8 JSON values (64 KiB)");
+      return evaluate(frameFor(targetId, id), { world: "agent", source: `(m, ...a) => globalThis[${AGENT_KEY}][m](...a)`, args: [method, ...args], awaitPromise: true });
+    },
     "frame.ownerBox": async ({ targetId, frameId: id }) => {
       const frame = frameFor(targetId, id);
       const owner = await frame.frameElement();
@@ -974,7 +984,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   // Reads and input on a tab whose page the session's policy blocks are
   // refused, as the app's driver does.
   // Of the cookie calls only cookies.clear takes its scope from the page.
-  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.clear$)/;
+  const GUARDED = /^(frame\.evaluate|frame\.observe|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.clear$)/;
   // The session's own input, script and navigations (WebKitBrowserReplDriver.isActionOnPage).
   const ACTIONS = /^(input\.|frame\.evaluate$|tab\.navigate$|tab\.reload$|tab\.history$)/;
   const NAVIGATIONS = /^tab\.(navigate|reload|history)$/;
