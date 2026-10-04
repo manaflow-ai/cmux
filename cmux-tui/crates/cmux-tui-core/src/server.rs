@@ -384,6 +384,16 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
     }
 }
 
+/// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
+/// when the binary installed a cloud transport.
+fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
+    let mut capabilities = advertised_capabilities(cfg!(unix));
+    if mux.cloud_conversations().is_some() {
+        capabilities.push(cloud_conversations::CAPABILITY);
+    }
+    capabilities
+}
+
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
@@ -2067,6 +2077,19 @@ enum Command {
     ConversationTyping(conversations::TypingParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
+    /// Cloud conversations proxy (`cloud-conversations-v1`,
+    /// server/cloud_conversations.rs).
+    CloudSessionSet(cloud_conversations::SessionParams),
+    CloudSessionClear,
+    CloudSessionStatus,
+    CloudInboxList(cloud_conversations::InboxListParams),
+    CloudConversationSnapshot(cloud_conversations::SnapshotParams),
+    CloudConversationHistory(cloud_conversations::HistoryParams),
+    CloudConversationOp(crate::cloud_conversations::OpRequest),
+    CloudInboxSubscribe,
+    CloudInboxUnsubscribe,
+    CloudConversationSubscribe(cloud_conversations::TargetParams),
+    CloudConversationUnsubscribe(cloud_conversations::TargetParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -6938,6 +6961,7 @@ fn disconnect_client_with_notice(
         record
     };
     mux.unbind_conversation_principal(client);
+    mux.release_cloud_conversation_client(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.
@@ -10707,6 +10731,9 @@ fn handle_request_with_cancellation(
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }
+    if cloud_conversations::is_network(&cmd) {
+        return cloud_conversations::start(mux, client, id, cmd, writer);
+    }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {
@@ -10730,6 +10757,7 @@ fn handle_request_with_cancellation(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let mut reason = None;
+    let mut retryable = None;
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
             id,
@@ -10740,7 +10768,9 @@ fn handle_request_with_cancellation(
             error_delivery: None,
         },
         Err(error) => {
-            reason = conversations::error_reason(&error);
+            reason = conversations::error_reason(&error)
+                .or_else(|| cloud_conversations::error_reason(&error));
+            retryable = cloud_conversations::error_retryable(&error);
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
@@ -10755,7 +10785,7 @@ fn handle_request_with_cancellation(
         }
     };
     let response_ok = response.ok;
-    let sent = responses::send_response_with_reason(writer, response, reason);
+    let sent = responses::send_response_with_details(writer, response, reason, retryable);
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
@@ -12914,7 +12944,7 @@ fn handle_command_with_cancellation(
                 "build_commit": stamped_build_commit(),
                 "ghostty_commit": stamped_ghostty_commit(),
                 "protocol": PROTOCOL_VERSION,
-                "capabilities": advertised_capabilities(cfg!(unix)),
+                "capabilities": identify_capabilities(mux),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "session_id": registry_id,
@@ -14630,6 +14660,25 @@ fn handle_command_with_cancellation(
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
         Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
+        Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
+        Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
+        Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
+        Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
+        Command::CloudConversationSnapshot(params) => {
+            cloud_conversations::snapshot(mux, client, params)
+        }
+        Command::CloudConversationHistory(params) => {
+            cloud_conversations::history(mux, client, params)
+        }
+        Command::CloudConversationOp(request) => cloud_conversations::op(mux, client, request),
+        Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
+        Command::CloudInboxUnsubscribe => cloud_conversations::unsubscribe(mux, client, None),
+        Command::CloudConversationSubscribe(params) => {
+            cloud_conversations::subscribe(mux, client, Some(params))
+        }
+        Command::CloudConversationUnsubscribe(params) => {
+            cloud_conversations::unsubscribe(mux, client, Some(params))
+        }
         Command::CreateProfile {
             name,
             profile,

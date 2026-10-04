@@ -54,15 +54,20 @@ pub(super) fn send_response(writer: &MessageWriter, response: Response) -> bool 
 }
 
 /// Sends `response` with the stable `reason` of a conversation reject next to
-/// its `error_code` (home.md section 2), when there is one.
-pub(super) fn send_response_with_reason(
+/// its `error_code` (home.md section 2), and the `retryable` flag of a cloud
+/// conversation error (home-cloud-proxy.md section 6), when there are some.
+pub(super) fn send_response_with_details(
     writer: &MessageWriter,
     response: Response,
     reason: Option<String>,
+    retryable: Option<bool>,
 ) -> bool {
     let Ok(mut value) = serde_json::to_value(response) else { return false };
     if let Some(reason) = reason {
         value["reason"] = Value::String(reason);
+    }
+    if let Some(retryable) = retryable {
+        value["retryable"] = Value::Bool(retryable);
     }
     writer.send_control(&value).is_ok()
 }
@@ -86,5 +91,6 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::rows::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
         .or_else(|| super::conversations::error_code(error))
+        .or_else(|| super::cloud_conversations::error_code(error))
         .or_else(|| crate::state::home_error_code(error))
 }
