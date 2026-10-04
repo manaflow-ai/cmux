@@ -169,31 +169,50 @@ enum AttachmentMedia {
 
     // MARK: Prepare
 
-    /// Copies (or writes) the bytes into the cache and fills the ref.
+    /// The owner's mime type for a file extension: the allow list's own
+    /// table first, then the OS's UTType.
+    static func mimeType(forExtension fileExtension: String) -> String {
+        let ext = fileExtension.lowercased()
+        if let known = HomeAttachmentPolicy.extensionTypes[ext] { return known }
+        return HomeAttachmentPolicy.canonicalMimeType(mimeType(for: UTType(filenameExtension: ext)))
+    }
+
+    /// Checks the policy, then copies the bytes into the cache and fills the ref.
     static func prepare(fileURL: URL, root: URL) async throws -> LocalAttachment {
-        let type = UTType(filenameExtension: fileURL.pathExtension)
+        let name = fileURL.lastPathComponent
+        let mime = mimeType(forExtension: fileURL.pathExtension)
+        let size = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        try HomeAttachmentPolicy.check(mimeType: mime, byteCount: size, name: name)
         let (hash, cached, byteCount) = try ingest(fileURL: fileURL, root: root)
-        return try await describe(cached: cached, hash: hash, byteCount: byteCount, name: fileURL.lastPathComponent,
-                                  type: type, root: root)
+        try HomeAttachmentPolicy.check(mimeType: mime, byteCount: byteCount, name: name) // the file may have grown
+        return try await describe(cached: cached, hash: hash, byteCount: byteCount, name: name, mimeType: mime, root: root)
     }
 
     static func prepare(data: Data, typeIdentifier: String, root: URL) async throws -> LocalAttachment {
         let type = UTType(typeIdentifier)
         let fileExtension = type?.preferredFilenameExtension ?? ""
-        let (hash, cached) = try ingest(data: data, fileExtension: fileExtension, root: root)
+        // The type's own mime type when the owner allows it (an M4A type may
+        // prefer the .mp4 extension), else the extension's.
+        let typeMime = HomeAttachmentPolicy.canonicalMimeType(mimeType(for: type))
+        let mime = HomeAttachmentPolicy.allowedTypes[typeMime] != nil || fileExtension.isEmpty
+            ? typeMime
+            : mimeType(forExtension: fileExtension)
         let name = fileExtension.isEmpty ? "attachment" : "attachment.\(fileExtension)"
-        return try await describe(cached: cached, hash: hash, byteCount: data.count, name: name, type: type, root: root)
+        try HomeAttachmentPolicy.check(mimeType: mime, byteCount: data.count, name: name)
+        let (hash, cached) = try ingest(data: data, fileExtension: fileExtension, root: root)
+        return try await describe(cached: cached, hash: hash, byteCount: data.count, name: name, mimeType: mime, root: root)
     }
 
-    private static func describe(cached: URL, hash: String, byteCount: Int, name: String, type: UTType?,
+    /// Media facts are best effort: a file whose media cannot be read still
+    /// sends, without a size, duration or poster.
+    private static func describe(cached: URL, hash: String, byteCount: Int, name: String, mimeType: String,
                                  root: URL) async throws -> LocalAttachment {
-        var ref = AttachmentRef(hash: hash, name: name, mimeType: mimeType(for: type), byteCount: byteCount)
+        var ref = AttachmentRef(hash: hash, name: name, mimeType: mimeType, byteCount: byteCount)
         var posterURL: URL?
-        if let type, type.conforms(to: .image), let size = imageDisplaySize(cached) {
+        if mimeType.hasPrefix("image/"), let size = imageDisplaySize(cached) {
             ref.width = size.width
             ref.height = size.height
-        } else if let type, type.conforms(to: .audiovisualContent) {
-            let movie = try await inspectMovie(cached)
+        } else if mimeType.hasPrefix("video/") || mimeType.hasPrefix("audio/"), let movie = try? await inspectMovie(cached) {
             ref.width = movie.width
             ref.height = movie.height
             ref.durationMs = movie.durationMs
@@ -211,7 +230,7 @@ enum AttachmentMedia {
         let sourceURL: URL
         if let poster = files.posterURL {
             sourceURL = poster
-        } else if UTType(mimeType: ref.mimeType)?.conforms(to: .image) == true {
+        } else if ref.mimeType.hasPrefix("image/") {
             sourceURL = files.fileURL
         } else {
             throw HomeRejection.invalid("no_thumbnail")

@@ -85,15 +85,20 @@ public protocol HomeSource: Sendable {
     func resolve(_ contact: ContactAddress) async throws -> ContactResolution
 
     /// Uploads one prepared attachment's bytes (and its poster, when set) to
-    /// blob storage under `file.ref.hash`. Idempotent by hash: uploading a
-    /// blob the store already has succeeds without sending the bytes again.
+    /// the conversation's blob storage under `file.ref.hash`. Idempotent by
+    /// hash: a blob the conversation already holds succeeds without sending
+    /// the bytes again. Files over `HomeAttachmentPolicy.streamMaxBytes` use
+    /// the owner's presigned PUT and its commit call before returning.
     /// Returns the stored ref; its `hash` equals `file.ref.hash`.
     func upload(_ file: AttachmentUpload) async throws -> AttachmentRef
 
-    /// A local file URL holding the variant's bytes. Idempotent (the same
+    /// A local file URL holding the variant's bytes. `location` names the
+    /// conversation and, when known, the message part that references the
+    /// hash (the owner mints download URLs per part). Idempotent (the same
     /// ref and variant return the same file) and cancel-safe (a cancelled
-    /// fetch never leaves a partial file behind).
-    func fetch(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL
+    /// fetch never leaves a partial file behind). A source without a
+    /// thumbnail service downsamples the original itself.
+    func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL
 }
 
 extension HomeSource {
@@ -103,7 +108,7 @@ extension HomeSource {
     }
 
     /// Default for sources without blob storage.
-    public func fetch(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL {
+    public func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
         throw HomeRejection.invalid("attachments unsupported")
     }
 }

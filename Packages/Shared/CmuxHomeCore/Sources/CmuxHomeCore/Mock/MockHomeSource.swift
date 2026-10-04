@@ -47,6 +47,8 @@ public actor MockHomeSource: HomeSource {
     private var failingUploads: Set<String> = []
     /// Every upload call, by hash, in call order (for tests).
     public private(set) var uploadCalls: [String] = []
+    /// The location of every fetch, in call order (for tests).
+    public private(set) var fetchLocations: [AttachmentLocation] = []
     /// Where `fetch` writes files (one directory per source instance).
     private let fetchDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("cmux-home-mock-blobs", isDirectory: true)
@@ -178,7 +180,8 @@ public actor MockHomeSource: HomeSource {
     /// Writes the blob (or a JPEG thumbnail of it, or of the video's poster)
     /// to a file named by hash and variant. Atomic writes, so a cancelled
     /// fetch leaves nothing partial; a second fetch returns the same file.
-    public func fetch(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL {
+    public func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        fetchLocations.append(location)
         guard let blob = blobs[ref.hash] else { throw HomeRejection.invalid("unknown_blob") }
         try FileManager.default.createDirectory(at: fetchDirectory, withIntermediateDirectories: true)
         switch variant {
@@ -193,7 +196,7 @@ public actor MockHomeSource: HomeSource {
             let target = fetchDirectory.appendingPathComponent("\(ref.hash)-thumb-\(maxPixel).jpg")
             if FileManager.default.fileExists(atPath: target.path) { return target }
             let imageHash: String
-            if UTType(mimeType: blob.mimeType)?.conforms(to: .image) == true {
+            if blob.mimeType.hasPrefix("image/") {
                 imageHash = ref.hash
             } else if let poster = ref.posterHash, blobs[poster] != nil {
                 imageHash = poster
@@ -201,7 +204,7 @@ public actor MockHomeSource: HomeSource {
                 throw HomeRejection.invalid("no_thumbnail")
             }
             let original = try await fetch(AttachmentRef(hash: imageHash, name: "", mimeType: blobs[imageHash]?.mimeType ?? "image/jpeg",
-                                                         byteCount: 0), variant: .original)
+                                                         byteCount: 0), at: location, variant: .original)
             let data = try AttachmentMedia.thumbnailJPEG(of: original, maxPixel: maxPixel)
             try Task.checkCancellation()
             try data.write(to: target, options: .atomic)

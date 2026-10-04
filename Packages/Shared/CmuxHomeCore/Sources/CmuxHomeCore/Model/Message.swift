@@ -97,6 +97,35 @@ public struct AttachmentRef: Hashable, Sendable, Codable {
         self.durationMs = durationMs
         self.posterHash = posterHash
     }
+
+    /// The owner's wire part keys (snake_case); absent optionals are omitted.
+    enum CodingKeys: String, CodingKey {
+        case hash, name, width, height
+        case mimeType = "mime_type"
+        case byteCount = "byte_count"
+        case durationMs = "duration_ms"
+        case posterHash = "poster_hash"
+    }
+
+    /// Keys an earlier client build encoded before the wire keys.
+    private enum LegacyCodingKeys: String, CodingKey {
+        case mimeType, byteCount
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        hash = try container.decode(String.self, forKey: .hash)
+        name = try container.decode(String.self, forKey: .name)
+        mimeType = try container.decodeIfPresent(String.self, forKey: .mimeType)
+            ?? legacy.decode(String.self, forKey: .mimeType)
+        byteCount = try container.decodeIfPresent(Int.self, forKey: .byteCount)
+            ?? legacy.decode(Int.self, forKey: .byteCount)
+        width = try container.decodeIfPresent(Int.self, forKey: .width)
+        height = try container.decodeIfPresent(Int.self, forKey: .height)
+        durationMs = try container.decodeIfPresent(Int.self, forKey: .durationMs)
+        posterHash = try container.decodeIfPresent(String.self, forKey: .posterHash)
+    }
 }
 
 public struct LinkPreview: Hashable, Sendable, Codable {

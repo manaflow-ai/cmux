@@ -226,13 +226,21 @@ public final class HomeStore {
     /// the store uploads every attachment through the source, then submits
     /// `message.send` with the same key. An upload failure leaves the row
     /// "Not Delivered" (retry uploads only what is missing). Throws like
-    /// `perform`.
+    /// `perform`, and `HomeAttachmentError` (nothing logged) for a file the
+    /// owner would refuse.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
                      key: IdempotencyKey = .make()) async throws {
         guard isOnline else { throw HomeRejection.ownerUnreachable }
         var parts = attachments.map { MessagePart.attachment($0.ref) }
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
         guard !parts.isEmpty else { throw HomeRejection.invalid("empty_message") }
+        guard parts.count <= HomeAttachmentPolicy.maxParts else {
+            throw HomeAttachmentError.tooManyParts(limit: HomeAttachmentPolicy.maxParts)
+        }
+        for attachment in attachments {
+            try HomeAttachmentPolicy.check(mimeType: attachment.ref.mimeType, byteCount: attachment.ref.byteCount,
+                                           name: attachment.ref.name)
+        }
         let op = HomeOp.sendMessage(conversation: conversation, parts: parts)
         guard !attachments.isEmpty else {
             try await perform(op, key: key)
@@ -252,17 +260,45 @@ public final class HomeStore {
     }
 
     /// A local file holding the variant's bytes: this client's own copy when
-    /// it has one, else the source's (which caches). Idempotent and cancel-safe.
+    /// it has one, else the source's (which caches). The source needs the
+    /// message part that references the hash; this finds it in the loaded
+    /// transcripts (newest first). Idempotent and cancel-safe.
     public func fetchAttachment(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL {
-        if let files = localFiles[ref.hash] {
-            switch variant {
-            case .original:
-                return files.fileURL
-            case .thumbnail(let maxPixel):
-                return try await Self.localThumbnail(files, ref: ref, maxPixel: maxPixel)
+        if let local = try await localAttachment(ref, variant: variant) { return local }
+        guard let location = location(of: ref.hash) else { throw HomeRejection.invalid("attachment_not_loaded") }
+        return try await source.fetch(ref, at: location, variant: variant)
+    }
+
+    /// The same when the caller knows where the attachment appears (a row's
+    /// `messageID` and part index, a search hit).
+    public func fetchAttachment(_ ref: AttachmentRef, at location: AttachmentLocation,
+                                variant: AttachmentVariant) async throws -> URL {
+        if let local = try await localAttachment(ref, variant: variant) { return local }
+        return try await source.fetch(ref, at: location, variant: variant)
+    }
+
+    private func localAttachment(_ ref: AttachmentRef, variant: AttachmentVariant) async throws -> URL? {
+        guard let files = localFiles[ref.hash] else { return nil }
+        switch variant {
+        case .original:
+            return files.fileURL
+        case .thumbnail(let maxPixel):
+            return try await Self.localThumbnail(files, ref: ref, maxPixel: maxPixel)
+        }
+    }
+
+    /// The newest committed message part that references `hash` (as the
+    /// bytes or as a video's poster).
+    func location(of hash: String) -> AttachmentLocation? {
+        for (conversation, window) in mirror.windows {
+            for message in window.messages.reversed() where !message.isRetracted {
+                for (index, part) in message.parts.enumerated() {
+                    guard case .attachment(let ref) = part, ref.hash == hash || ref.posterHash == hash else { continue }
+                    return AttachmentLocation(conversation: conversation, message: message.id, partIndex: index)
+                }
             }
         }
-        return try await source.fetch(ref, variant: variant)
+        return nil
     }
 
     private nonisolated static func localThumbnail(_ files: LocalAttachmentFiles, ref: AttachmentRef,

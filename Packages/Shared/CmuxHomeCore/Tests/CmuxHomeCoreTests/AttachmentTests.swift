@@ -86,12 +86,12 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         // A file larger than one hashing chunk takes the streamed path.
         var large = Data(count: AttachmentMedia.chunkSize * 2 + 123)
         for index in stride(from: 0, to: large.count, by: 997) { large[index] = UInt8(index % 251) }
-        let file = root.appendingPathComponent("large.bin")
+        let file = root.appendingPathComponent("large.txt")
         try large.write(to: file)
         let fromFile = try await store.prepareAttachment(fileURL: file)
         #expect(fromFile.ref.hash == sha256Hex(large))
         #expect(fromFile.ref.byteCount == large.count)
-        #expect(fromFile.ref.name == "large.bin")
+        #expect(fromFile.ref.name == "large.txt")
         #expect(try Data(contentsOf: fromFile.fileURL) == large)
     }
 
@@ -131,6 +131,48 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(posterImage.height > posterImage.width) // the transform is applied to the poster too
     }
 
+    @MainActor @Test func policyRefusesTypesAndSizesBeforeCopying() async throws {
+        let root = try temporaryDirectory()
+        let cache = root.appendingPathComponent("cache")
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: cache)
+        await #expect(throws: HomeAttachmentError.typeRefused(mimeType: "image/svg+xml", name: "attachment.svg")) {
+            try await store.prepareAttachment(data: Data("<svg/>".utf8), typeIdentifier: UTType.svg.identifier)
+        }
+        let script = root.appendingPathComponent("run.sh")
+        try Data("echo".utf8).write(to: script)
+        await #expect(throws: HomeAttachmentError.self) { try await store.prepareAttachment(fileURL: script) }
+
+        // A sparse file one byte over the limit: refused from its size, never read.
+        let big = root.appendingPathComponent("big.mp4")
+        FileManager.default.createFile(atPath: big.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: big)
+        try handle.truncate(atOffset: UInt64(HomeAttachmentPolicy.maxBytes + 1))
+        try handle.close()
+        await #expect(throws: HomeAttachmentError.tooLarge(byteCount: HomeAttachmentPolicy.maxBytes + 1, limit: HomeAttachmentPolicy.maxBytes)) {
+            try await store.prepareAttachment(fileURL: big)
+        }
+        #expect(!FileManager.default.fileExists(atPath: cache.path))
+    }
+
+    @MainActor @Test func mimeTypesUseTheOwnersSpelling() async throws {
+        let root = try temporaryDirectory()
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
+        // Not real audio: media facts are best effort, the file still prepares.
+        let m4a = try await store.prepareAttachment(data: Data("not audio".utf8), typeIdentifier: UTType.mpeg4Audio.identifier)
+        #expect(m4a.ref.mimeType == "audio/mp4")
+        #expect(m4a.ref.durationMs == nil)
+        let wav = try await store.prepareAttachment(data: Data("not wav".utf8), typeIdentifier: UTType.wav.identifier)
+        #expect(wav.ref.mimeType == "audio/wav")
+        for (name, mime) in [("notes.md", "text/markdown"), ("t.csv", "text/csv"), ("d.json", "application/json"),
+                             ("a.zip", "application/zip"), ("s.mp3", "audio/mpeg"), ("h.heic", "image/heic")] {
+            let file = root.appendingPathComponent(name)
+            try Data("x\(name)".utf8).write(to: file)
+            #expect(try await store.prepareAttachment(fileURL: file).ref.mimeType == mime)
+        }
+        #expect(HomeAttachmentPolicy.canonicalMimeType("audio/x-m4a") == "audio/mp4")
+        #expect(AttachmentPreview.of([.text("hi")]) == nil)
+    }
+
     @Test func attachmentRefWithoutNewFieldsDecodes() throws {
         let expected = AttachmentRef(hash: "abc", name: "a.png", mimeType: "image/png", byteCount: 3, width: 4, height: 5)
         let wire = Data(#"{"hash":"abc","name":"a.png","mime_type":"image/png","byte_count":3,"width":4,"height":5}"#.utf8)
@@ -151,7 +193,7 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
     /// width?, height?, duration_ms?, poster_hash? (snake_case).
     @Test func attachmentRefEncodesTheWireShape() throws {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let video = AttachmentRef(hash: "h", name: "v.mov", mimeType: "video/quicktime", byteCount: 9, width: 1, height: 2,
                                   durationMs: 1500, posterHash: "p")
         #expect(String(decoding: try encoder.encode(video), as: UTF8.self)
@@ -303,23 +345,81 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         let localThumb = try await store.fetchAttachment(photo.ref, variant: .thumbnail(maxPixel: 60))
         #expect(try await store.fetchAttachment(photo.ref, variant: .thumbnail(maxPixel: 60)) == localThumb)
 
-        let first = try await source.fetch(photo.ref, variant: .original)
-        let second = try await source.fetch(photo.ref, variant: .original)
+        let here = AttachmentLocation(conversation: conversation)
+        let first = try await source.fetch(photo.ref, at: here, variant: .original)
+        let second = try await source.fetch(photo.ref, at: here, variant: .original)
         #expect(first == second)
         #expect(try Data(contentsOf: first) == Data(contentsOf: file))
-        let thumb = try await source.fetch(photo.ref, variant: .thumbnail(maxPixel: 60))
+        let thumb = try await source.fetch(photo.ref, at: here, variant: .thumbnail(maxPixel: 60))
         let thumbSource = try #require(CGImageSourceCreateWithURL(thumb as CFURL, nil))
         let thumbImage = try #require(CGImageSourceCreateImageAtIndex(thumbSource, 0, nil))
         #expect(max(thumbImage.width, thumbImage.height) <= 60)
         await #expect(throws: HomeRejection.invalid("unknown_blob")) {
-            try await source.fetch(AttachmentRef(hash: "missing", name: "", mimeType: "image/png", byteCount: 0), variant: .original)
+            try await source.fetch(AttachmentRef(hash: "missing", name: "", mimeType: "image/png", byteCount: 0), at: here, variant: .original)
         }
+    }
+
+    @Test func fetchWithoutALocalCopyNamesTheMessagePart() async throws {
+        let (store, source) = try await started()
+        let (a, b) = try await twoAttachments(store)
+        try await store.send(conversation: conversation, text: "", attachments: [a, b], key: IdempotencyKey("attach-located"))
+        let message = try #require(try await source.snapshot(of: conversation, tail: 1).messages.last)
+
+        // Another client (no local copy) finds the part in its loaded transcript.
+        let other = HomeStore(source: source, blobCacheDirectory: try temporaryDirectory())
+        other.start()
+        await waitUntil { other.isOnline && !other.rows.isEmpty }
+        await other.open(conversation)
+        await waitUntil { other.transcript(for: self.conversation).last?.key == IdempotencyKey("attach-located") }
+        #expect(other.transcript(for: conversation).last?.localAttachments.isEmpty == true)
+        let url = try await other.fetchAttachment(b.ref, variant: .original)
+        #expect(try Data(contentsOf: url) == Data("second".utf8))
+        #expect(await source.fetchLocations.last == AttachmentLocation(conversation: conversation, message: message.id, partIndex: 1))
+        await #expect(throws: HomeRejection.invalid("attachment_not_loaded")) {
+            try await other.fetchAttachment(AttachmentRef(hash: "nowhere", name: "x", mimeType: "text/plain", byteCount: 1),
+                                            variant: .original)
+        }
+    }
+
+    @Test func inboxRowPreviewsAttachmentsWithoutTheirNames() async throws {
+        let (store, _) = try await started()
+        let root = try temporaryDirectory()
+        let file = root.appendingPathComponent("p.jpg")
+        try makeJPEG(width: 10, height: 10, orientation: 1).write(to: file)
+        let photo = try await store.prepareAttachment(fileURL: file)
+        let other = try await store.prepareAttachment(data: try makeJPEG(width: 12, height: 10, orientation: 1),
+                                                      typeIdentifier: UTType.jpeg.identifier)
+        try await store.send(conversation: conversation, text: "", attachments: [photo, other], key: IdempotencyKey("attach-row"))
+        await waitUntil { store.transcript(for: self.conversation).last?.delivery == .committed }
+        let row = try #require(store.rows.first { $0.id == self.conversation })
+        #expect(row.preview == "")
+        #expect(row.previewAttachments == AttachmentPreview(kind: .photo, count: 2))
+
+        let (a, _) = try await twoAttachments(store)
+        try await store.send(conversation: conversation, text: "notes", attachments: [photo, a], key: IdempotencyKey("attach-row-2"))
+        await waitUntil { store.transcript(for: self.conversation).last?.key == IdempotencyKey("attach-row-2") }
+        let mixed = try #require(store.rows.first { $0.id == self.conversation })
+        #expect(mixed.preview == "notes")
+        #expect(mixed.previewAttachments == AttachmentPreview(kind: .file, count: 2))
+    }
+
+    @Test func sendRefusesAFileTheOwnerWouldRefuseAndLogsNothing() async throws {
+        let (store, source) = try await started()
+        let svg = LocalAttachment(ref: AttachmentRef(hash: String(repeating: "a", count: 64), name: "x.svg",
+                                                     mimeType: "image/svg+xml", byteCount: 10),
+                                  fileURL: URL(fileURLWithPath: "/nonexistent/x.svg"))
+        await #expect(throws: HomeAttachmentError.typeRefused(mimeType: "image/svg+xml", name: "x.svg")) {
+            try await store.send(conversation: conversation, text: "x", attachments: [svg])
+        }
+        #expect(store.log.isEmpty)
+        #expect(await source.uploadCalls.isEmpty)
     }
 
     @Test func sourcesWithoutBlobStorageRefuseAttachments() async throws {
         let source = LosingFirstAnswerSource(inner: MockHomeSource(options: .immediate))
         await #expect(throws: HomeRejection.invalid("attachments unsupported")) {
-            try await source.fetch(AttachmentRef(hash: "h", name: "", mimeType: "", byteCount: 0), variant: .original)
+            try await source.fetch(AttachmentRef(hash: "h", name: "", mimeType: "", byteCount: 0),
+                                   at: AttachmentLocation(conversation: ConversationID("c")), variant: .original)
         }
     }
 }
