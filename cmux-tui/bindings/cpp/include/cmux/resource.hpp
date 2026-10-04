@@ -437,9 +437,9 @@ struct CreateBrowserTabOptions {
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
 
-/// `column.update`: set `sticky`, `width`, or both. `edge` ("left" or
-/// "right") and `mode` ("docked" or "overlay") apply only when `sticky` is
-/// true.
+/// `column.update`: set `sticky`, `width`, or both. `edge` ("left",
+/// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
+/// when `sticky` is true.
 struct ColumnUpdateOptions {
     std::optional<bool> sticky;
     std::optional<std::string> edge;

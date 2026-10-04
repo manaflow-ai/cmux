@@ -3,11 +3,15 @@
 
 use super::super::*;
 
-/// Viewport edge of a sticky column (`column.update` `edge`).
+/// Viewport edge of a sticky column (`column.update` `edge`). `Top` and
+/// `Bottom` are the edge docks of `edge-docks-v1`: the column becomes a
+/// screen-wide band rather than a sticky side column.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ColumnEdge {
     Left,
     Right,
+    Top,
+    Bottom,
 }
 
 impl ColumnEdge {
@@ -15,6 +19,8 @@ impl ColumnEdge {
         match self {
             Self::Left => "left",
             Self::Right => "right",
+            Self::Top => "top",
+            Self::Bottom => "bottom",
         }
     }
 }
@@ -64,8 +70,12 @@ impl ColumnUpdateOptions {
         if self.sticky != Some(true) && (self.edge.is_some() || self.mode.is_some()) {
             return invalid("column update edge and mode apply only with sticky: true");
         }
-        if self.edge.as_deref().is_some_and(|edge| !matches!(edge, "left" | "right")) {
-            return invalid("column edge must be left or right");
+        if self
+            .edge
+            .as_deref()
+            .is_some_and(|edge| !matches!(edge, "left" | "right" | "top" | "bottom"))
+        {
+            return invalid("column edge must be left, right, top or bottom");
         }
         if self.mode.as_deref().is_some_and(|mode| !matches!(mode, "docked" | "overlay")) {
             return invalid("column mode must be docked or overlay");

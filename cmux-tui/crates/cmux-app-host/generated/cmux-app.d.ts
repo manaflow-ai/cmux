@@ -414,7 +414,7 @@ interface CmuxGlobal {
   }
   column: {
     /** `column.update` (mutation, scope `column:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; column: string /* split_… */; sticky?: boolean; edge?: "left" | "right"; mode?: "docked" | "overlay"; width?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
+    update: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; column: string /* split_… */; sticky?: boolean; edge?: "left" | "right" | "top" | "bottom"; mode?: "docked" | "overlay"; width?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
   }
   conversation: {
     /** `conversation.create` (mutation, scope `conversation:write`): Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
