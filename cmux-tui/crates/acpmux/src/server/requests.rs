@@ -569,8 +569,9 @@ pub(super) async fn handle_request(
                 if clear {
                     cfg.presets.remove(&name);
                     if let Some(dir) = &presets_dir {
-                        crate::config::remove_preset_dir(dir, &name)
-                            .map_err(|e| RpcError::internal(format!("remove preset directory: {e}")))?;
+                        crate::config::remove_preset_dir(dir, &name).map_err(|e| {
+                            RpcError::internal(format!("remove preset directory: {e}"))
+                        })?;
                     }
                 } else if let Some(set) = set {
                     let obj = set.as_object().unwrap();
@@ -657,8 +658,8 @@ pub(super) async fn handle_request(
                     let kind = cfg.harnesses[&profile].kind;
                     crate::config::check_preset_args(kind, &p.args)
                         .map_err(RpcError::invalid_params)?;
-                    let keeps_prompt = p.system_prompt_sha256.is_some()
-                        && !matches!(new_prompt, Some(None));
+                    let keeps_prompt =
+                        p.system_prompt_sha256.is_some() && !matches!(new_prompt, Some(None));
                     if (matches!(new_prompt, Some(Some(_))) || keeps_prompt)
                         && kind != crate::config::HarnessKind::ClaudeStdio
                     {

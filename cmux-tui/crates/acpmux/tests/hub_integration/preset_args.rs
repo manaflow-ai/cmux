@@ -212,14 +212,15 @@ async fn the_system_prompt_file_is_checked_against_its_hash_at_every_session_sta
 async fn a_system_prompt_needs_a_claude_harness_a_plain_name_and_text() {
     let state = StateDir::new();
     let (_hub, mut c) = args_setup(&state, Origin::Local).await;
-    let set = |name: &str, harness: &str, text: Value| {
-        json!({"name": name, "set": {"harness": harness, "systemPrompt": text}})
-    };
-    let err = c.request(method::MUX_PRESETS, set("acp", "fake", json!(PROMPT_A))).await.unwrap_err();
+    let set = |name: &str, harness: &str, text: Value| json!({"name": name, "set": {"harness": harness, "systemPrompt": text}});
+    let err =
+        c.request(method::MUX_PRESETS, set("acp", "fake", json!(PROMPT_A))).await.unwrap_err();
     assert!(err.contains("Claude"), "{err}");
     for name in ["../escape", "a/b", ".hidden", ""] {
-        let err =
-            c.request(method::MUX_PRESETS, set(name, "fakeclaude", json!(PROMPT_A))).await.unwrap_err();
+        let err = c
+            .request(method::MUX_PRESETS, set(name, "fakeclaude", json!(PROMPT_A)))
+            .await
+            .unwrap_err();
         assert!(err.contains("name"), "{name:?}: {err}");
     }
     let err = c.request(method::MUX_PRESETS, set("n", "fakeclaude", json!(1))).await.unwrap_err();
@@ -253,7 +254,8 @@ async fn preset_args_are_validated() {
         json!(["--tools", "Bash"]),
         json!(["--add-dir", "/"]),
     ] {
-        let err = c.request(method::MUX_PRESETS, set(words.clone(), "fakeclaude")).await.unwrap_err();
+        let err =
+            c.request(method::MUX_PRESETS, set(words.clone(), "fakeclaude")).await.unwrap_err();
         assert!(err.starts_with("args: "), "{words}: {err}");
     }
     let ok = c
@@ -283,10 +285,9 @@ async fn a_session_refuses_a_hand_edited_preset_with_bad_args() {
         assert!(err.starts_with("args: "), "{args}: {err}");
     }
     // A hand-written hash with no file behind it refuses the start too.
-    let preset: acpmux::config::Preset = serde_json::from_value(
-        json!({"harness": "fakeclaude", "systemPromptSha256": SHA_A}),
-    )
-    .unwrap();
+    let preset: acpmux::config::Preset =
+        serde_json::from_value(json!({"harness": "fakeclaude", "systemPromptSha256": SHA_A}))
+            .unwrap();
     hub.config.write().await.presets.insert("edited".into(), preset);
     let err = c.request(method::SESSION_NEW, new_params("edited")).await.unwrap_err();
     assert!(err.contains("system prompt"), "{err}");
@@ -320,10 +321,8 @@ async fn a_remote_origin_connection_never_uses_or_sets_args_or_a_system_prompt()
         json!({"description": "renamed"}),
     ] {
         let name = if set.get("harness").is_some() { "fromweb" } else { "prompted" };
-        let err = web
-            .request(method::MUX_PRESETS, json!({"name": name, "set": set}))
-            .await
-            .unwrap_err();
+        let err =
+            web.request(method::MUX_PRESETS, json!({"name": name, "set": set})).await.unwrap_err();
         assert!(err.contains("remote"), "{set}: {err}");
     }
     let err = web

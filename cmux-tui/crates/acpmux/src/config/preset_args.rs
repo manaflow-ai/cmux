@@ -49,8 +49,9 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
         return Ok(());
     }
     if kind != HarnessKind::ClaudeStdio {
-        return Err("args: only Claude Code harnesses take preset args; this harness takes none"
-            .to_owned());
+        return Err(
+            "args: only Claude Code harnesses take preset args; this harness takes none".to_owned()
+        );
     }
     let mut words = args.iter();
     while let Some(arg) = words.next() {
@@ -58,8 +59,9 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
             "--tools" => match words.next().map(String::as_str) {
                 Some("") => {}
                 _ => {
-                    return Err("args: --tools takes only an empty value (\"\": no tools)"
-                        .to_owned());
+                    return Err(
+                        "args: --tools takes only an empty value (\"\": no tools)".to_owned()
+                    );
                 }
             },
             "--strict-mcp-config" | "--no-session-persistence" => {}
@@ -150,13 +152,19 @@ mod tests {
     use super::*;
 
     fn claude(args: &[&str]) -> Result<(), String> {
-        check_preset_args(HarnessKind::ClaudeStdio, &args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>())
+        check_preset_args(
+            HarnessKind::ClaudeStdio,
+            &args.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>(),
+        )
     }
 
     #[test]
     fn the_allowlisted_words_pass() {
         assert_eq!(claude(&[]), Ok(()));
-        assert_eq!(claude(&["--tools", "", "--strict-mcp-config", "--no-session-persistence"]), Ok(()));
+        assert_eq!(
+            claude(&["--tools", "", "--strict-mcp-config", "--no-session-persistence"]),
+            Ok(())
+        );
         assert_eq!(claude(&["--no-session-persistence"]), Ok(()));
     }
 
