@@ -132,12 +132,8 @@ impl HostEngines {
                 "no Chromium found (set CMUX_BROWSER_HOST_CHROMIUM)",
             ));
         };
-        let browser = HeadlessChromium::launch(&HeadlessOptions {
-            binary,
-            user_data_dir: None,
-            extra_args: Vec::new(),
-        })
-        .map_err(|e| unavailable("headless", &e.to_string()))?;
+        let browser = HeadlessChromium::launch(&headless_options(binary))
+            .map_err(|e| unavailable("headless", &e.to_string()))?;
         let driver = CdpDriver::attach_browser(
             browser.connection().clone(),
             self.agent_source.clone(),
@@ -150,4 +146,16 @@ impl HostEngines {
     fn headless(&self, _events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
         Err(unavailable("headless", "headless Chromium over a pipe needs a Unix host"))
     }
+}
+
+/// Launch options from the environment: `CMUX_BROWSER_HOST_HEADLESS=0` runs
+/// headful (Cloud user tabs), `CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE=0`
+/// lets Chromium throttle background tabs.
+#[cfg(unix)]
+fn headless_options(binary: PathBuf) -> crate::cdp::pipe::HeadlessOptions {
+    let off = |name: &str| std::env::var(name).is_ok_and(|value| value == "0");
+    let mut options = crate::cdp::pipe::HeadlessOptions::new(binary);
+    options.headless = !off("CMUX_BROWSER_HOST_HEADLESS");
+    options.full_rate_background = !off("CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE");
+    options
 }
