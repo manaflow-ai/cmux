@@ -10541,8 +10541,7 @@ fn handle_connection_frame(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
-    let _ = transport;
-    if mux.is_remote_client(client) {
+    if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
     }
     // Before the acknowledgement the handoff can still fail (for example
