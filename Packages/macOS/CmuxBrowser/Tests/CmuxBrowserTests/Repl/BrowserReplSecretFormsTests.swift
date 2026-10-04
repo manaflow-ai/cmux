@@ -186,4 +186,30 @@ struct BrowserReplSecretFormsTests {
         #expect(store.redact("a&AMP;b&LT;c a&#38b&#60c") == "<secret:amp> <secret:amp>")
         #expect(store.redact("&#112; \\u0070 &amp;") == "&#112; \\u0070 &amp;")
     }
+
+    /// A page can turn a digit-only value into a JavaScript number
+    /// (`Number(field.value)`), which drops leading zeros and reaches the
+    /// session as a JSON number, not text. Each registered value whose
+    /// number is exact is masked as that number, whatever its length.
+    @Test("A digit-only secret returned as a JSON number is masked, with leading zeros and past six digits")
+    func numericFormsAreMasked() throws {
+        let store = BrowserReplSecretStore()
+        try store.set(name: "account", value: "0012345678", domains: ["example.com"], totp: false, title: "t")
+        try store.set(name: "pin", value: "0042", domains: ["example.com"], totp: false, title: "t")
+        try store.set(name: "card", value: "4111111111111111", domains: ["example.com"], totp: false, title: "t")
+        try store.set(name: "rate", value: "3.140", domains: ["example.com"], totp: false, title: "t")
+        let masked = JSONSerialization.browserReplObject(store.redactJSON(#"{"a":12345678,"b":42,"c":4111111111111111,"d":3.14,"e":[12345678]}"#))
+        #expect(masked["a"] as? String == "<secret:account>", "\(masked)")
+        #expect(masked["b"] as? String == "<secret:pin>", "\(masked)")
+        #expect(masked["c"] as? String == "<secret:card>", "\(masked)")
+        #expect(masked["d"] as? String == "<secret:rate>", "\(masked)")
+        #expect(masked["e"] as? [String] == ["<secret:account>"], "\(masked)")
+        #expect(try store.redactedValue(NSNumber(value: 12345678)) as? String == "<secret:account>")
+        #expect(try store.redactedValue(NSNumber(value: 12345678.0)) as? String == "<secret:account>")
+        // Other numbers stay numbers.
+        let kept = JSONSerialization.browserReplObject(store.redactJSON(#"{"a":12345679,"b":43,"t":true}"#))
+        #expect((kept["a"] as? NSNumber)?.int64Value == 12345679, "\(kept)")
+        #expect((kept["b"] as? NSNumber)?.int64Value == 43, "\(kept)")
+        #expect(kept["t"] as? Bool == true, "\(kept)")
+    }
 }
