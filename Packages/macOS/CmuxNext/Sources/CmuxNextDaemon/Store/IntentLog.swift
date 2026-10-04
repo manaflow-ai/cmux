@@ -12,6 +12,8 @@ enum IntentUndo: Equatable {
     case workspacePlace(key: WorkspaceKey, index: Int, group: WorkspaceGroupID?)
     case workspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
     case tabGroupCollapsed(TabGroupID, collapsed: Bool)
+    /// The column's row heights before the apply.
+    case rowHeights(column: ColumnID, heights: [RowHeightValue])
 }
 
 struct PendingIntent {

@@ -50,6 +50,9 @@ public final class DesignSettings {
     /// `layout.frameOrientation`: column-major (side docks full height) or
     /// row-major (top and bottom docks full width), plans/cmux-next/layout-model.md.
     public var frameOrientation: FrameOrientation = .columnMajor
+    /// `layout.rows`: off hides every row entry point and fits existing
+    /// rows into their column (plans/cmux-next/rows.md O1 to O3).
+    public var layoutRows = true
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

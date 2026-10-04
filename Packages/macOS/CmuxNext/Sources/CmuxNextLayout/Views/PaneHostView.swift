@@ -47,6 +47,21 @@ final class PaneHostView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// Whether the pane sits in a sticky (docked) column: it then shows the
+    /// user's docks background under its content (`appearance.surfaces.docks`).
+    var isDocked = false {
+        didSet { if isDocked != oldValue { applyDockFill() } }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyDockFill()
+    }
+
+    private func applyDockFill() {
+        clipView.layer?.backgroundColor = isDocked ? performWithTheme { Palette.surfaceOverride(.docks)?.cgColor } : nil
+    }
+
     /// Height of the content's header (tab strip, toolbar); 0 without one.
     var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
 

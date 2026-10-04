@@ -19,6 +19,14 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 cliName: "pane new-column", mainMenu: .view, startsTerminal: true
             ),
             ActionDescriptor(
+                id: "newRow",
+                title: String(localized: "action.newRow", defaultValue: "New Row", bundle: .module),
+                keywords: ["scroll", "row", "pane"],
+                defaultShortcut: Shortcut("d", modifiers: [.control, .shift, .command]), category: .pane,
+                symbol: "rectangle.grid.1x2", surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane],
+                cliName: "pane new-row", mainMenu: .view, startsTerminal: true
+            ),
+            ActionDescriptor(
                 id: "splitDown",
                 title: String(localized: "action.splitDown", defaultValue: "Split Down", bundle: .module),
                 keywords: ["pane", "horizontal"], defaultShortcut: Shortcut("d", modifiers: [.command, .shift]),

@@ -3,7 +3,16 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isLoopbackHost, payloadFor, readBody, resolveResource, rpcRequestStatus } from "../dev-server/diffHost";
+import {
+  dependencyCacheName,
+  isDependencyCacheRequest,
+  isLoopbackHost,
+  payloadFor,
+  readBody,
+  resolveResource,
+  rpcRequestStatus,
+} from "../dev-server/diffHost";
+import { diffLanguagesDirectory, readDiffLanguagePack } from "../dev-server/diffLanguages";
 import { SHELL_PLACEHOLDERS, fillShell, markdownFiles, splitStyles } from "../dev-server/markdownHost";
 
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "dev-server-test-")));
@@ -197,5 +206,41 @@ describe("markdown dev host shell fill", () => {
     ]);
     expect(splitStyles(html.replace("p{}", "p{color:red}")).skeleton).toBe(skeleton);
     expect(splitStyles(html.replace("<body>", "<body><p>")).skeleton).not.toBe(skeleton);
+  });
+});
+
+describe("diff languages folder (dev host)", () => {
+  test("lives next to cmux.json and moves with CMUX_NEXT_CONFIG_FILE", () => {
+    expect(diffLanguagesDirectory({}, "/Users/me")).toBe("/Users/me/.config/cmux/diff/languages");
+    expect(diffLanguagesDirectory({ CMUX_NEXT_CONFIG_FILE: "/tmp/x/cmux.json" }, "/Users/me")).toBe(
+      "/tmp/x/diff/languages",
+    );
+  });
+
+  test("sends every JSON file as text and skips other files", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-diff-languages-"));
+    fs.writeFileSync(path.join(dir, "foo.language.json"), '{"id":"foo"}');
+    fs.mkdirSync(path.join(dir, "grammars"));
+    fs.writeFileSync(path.join(dir, "grammars", "foo.tmLanguage.json"), "{}");
+    fs.writeFileSync(path.join(dir, "notes.txt"), "x");
+    fs.writeFileSync(path.join(dir, ".hidden.json"), "{}");
+    expect(readDiffLanguagePack(dir)).toEqual({
+      files: [
+        { path: "foo.language.json", text: '{"id":"foo"}' },
+        { path: "grammars/foo.tmLanguage.json", text: "{}" },
+      ],
+    });
+    expect(readDiffLanguagePack(path.join(dir, "missing"))).toEqual({ files: [] });
+    fs.rmSync(dir, { recursive: true });
+  });
+});
+
+describe("optimized dependency caching", () => {
+  test("each port has its own cache, and only its modules are revalidated", () => {
+    const name = dependencyCacheName(4181);
+    expect(name).toBe(".vite-dev-deps-4181");
+    expect(isDependencyCacheRequest(`/node_modules/${name}/deps/shiki.js`, name)).toBe(true);
+    expect(isDependencyCacheRequest(`/node_modules/${dependencyCacheName(4182)}/deps/shiki.js`, name)).toBe(false);
+    expect(isDependencyCacheRequest("/src/App.tsx", name)).toBe(false);
   });
 });

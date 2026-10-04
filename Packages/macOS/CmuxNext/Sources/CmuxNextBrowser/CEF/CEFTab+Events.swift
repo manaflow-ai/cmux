@@ -9,6 +9,7 @@ extension CEFTab {
     /// OnLoadingStateChange(!loading). Same-document navigations only change
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
+        defer { CEFAgentURLGuard.check(self, after: event) }
         switch event {
         case .loadingState(_, let loading, let back, let forward):
             nativeHistory = (back, forward)

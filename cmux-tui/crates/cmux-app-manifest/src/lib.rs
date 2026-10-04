@@ -6,21 +6,29 @@
 //! Structure comes from the JSON Schema (`cmux-app-host/schema/v2`); the
 //! semantic rules a schema cannot express (publisher ownership, native code
 //! tiers, interface names and options, scope classes, package paths, the
-//! catalog fragment) live in [`rules`], [`catalog`] and [`package`].
+//! catalog fragment, CLI names and MCP tool names) live in [`rules`],
+//! [`catalog`], [`cli`] and [`package`].
 
 mod catalog;
+mod cli;
 mod interfaces;
 mod issue;
 mod package;
 mod presentation;
 mod rules;
 mod scopes;
+mod toolbar;
 
 pub use catalog::{CATALOG_SCHEMA, validate_catalog};
+pub use cli::{
+    CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
+    first_party_cli_owner, is_mcp_tool, is_reserved_cli_name, mcp_tool_name,
+};
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES};
 pub use issue::{Issue, Severity};
 pub use package::{PackageReport, validate_package, validate_package_file};
 pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo, scope_info};
+pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};
 
 use serde_json::Value;
 use std::sync::OnceLock;

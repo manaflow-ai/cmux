@@ -112,12 +112,19 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
+        case .conversation(let pane, let tab):
+            // Home's primary input, its message box (spec/app-screens.md 3).
+            blurChildWindowPage()
+            guard case .conversation(let view)? = presented(pane: pane, tab: tab) else {
+                // No Home view yet: the previous content must not keep keys.
+                resignPaneResponder(in: window)
+                return
+            }
+            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
         case .emptyPane:
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.
-            if let view = window.firstResponder as? NSView, controller.content?.panes.values.contains(where: { view.isDescendant(of: $0.view) }) == true {
-                window.makeFirstResponder(nil)
-            }
+            resignPaneResponder(in: window)
         case .sidebar, .sidebarField, .textField:
             // Reported by AppKit; the responder is already there.
             blurChildWindowPage()
@@ -127,6 +134,13 @@ final class FocusEffectApplier: FocusEffectApplying {
             blurChildWindowPage()
         case .overlay:
             break
+        }
+    }
+
+    /// Takes the keyboard from a view inside any pane of this window.
+    private func resignPaneResponder(in window: NSWindow) {
+        if let view = window.firstResponder as? NSView, controller.content?.panes.values.contains(where: { view.isDescendant(of: $0.view) }) == true {
+            window.makeFirstResponder(nil)
         }
     }
 

@@ -1,0 +1,12 @@
+{
+  "$comment": "Shape recorded from web/app/api/vm/[id]/snapshots/[snapshotId]/route.ts (no customer data).",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/vm/vm-alpha01/snapshots/snap-one"
+  },
+  "status": 200,
+  "body": {
+    "id": "snap-one",
+    "deleted": true
+  }
+}

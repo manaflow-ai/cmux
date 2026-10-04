@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2";
+inline constexpr std::string_view kProtocolIrSha256 = "0edc0a3c7e51c1f0843d49e78b98ef01dea251fb14beeda82935fcf345a138a1";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2302,6 +2302,7 @@ struct MoveTabToColumnRequest {
 struct MoveTabToNewWorkspaceRequest {
     Field<std::string> group{};
     Field<std::uint64_t> index{};
+    Field<std::string> name{};
     Id surface{};
     Field<std::string> transaction{};
     friend bool operator==(const MoveTabToNewWorkspaceRequest&, const MoveTabToNewWorkspaceRequest&) = default;

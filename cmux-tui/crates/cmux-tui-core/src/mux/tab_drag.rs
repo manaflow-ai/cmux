@@ -973,8 +973,9 @@ mod tests {
             &WorkspaceMutation::local("tab-drag-test"),
         )
         .unwrap();
-        assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None).is_err());
-        let workspace = mux.move_tab_to_new_workspace(second, Some("g".into()), Some(0)).unwrap();
+        assert!(mux.move_tab_to_new_workspace(second, Some("missing".into()), None, None).is_err());
+        let workspace =
+            mux.move_tab_to_new_workspace(second, Some("g".into()), Some(0), None).unwrap();
         let (order, key) = mux.with_state(|state| {
             (
                 state.workspaces.iter().map(|workspace| workspace.id).collect::<Vec<_>>(),

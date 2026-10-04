@@ -17,7 +17,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/inbox open",
+        "path": "open",
         "visible": true
       },
       "mcp": {
@@ -47,7 +47,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/inbox mark-all-read",
+        "path": "mark-all-read",
         "visible": true
       },
       "mcp": {
@@ -82,7 +82,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/inbox next-item",
+        "path": "next-item",
         "visible": true
       },
       "mcp": {
@@ -118,7 +118,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/inbox previous-item",
+        "path": "previous-item",
         "visible": true
       },
       "mcp": {
@@ -153,7 +153,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/inbox open-item",
+        "path": "open-item",
         "visible": true
       },
       "mcp": {
@@ -188,7 +188,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/inbox mark-done",
+        "path": "mark-done",
         "visible": true
       },
       "mcp": {
@@ -229,7 +229,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/inbox snooze",
+        "path": "snooze",
         "visible": true
       },
       "mcp": {
@@ -258,7 +258,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/inbox cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

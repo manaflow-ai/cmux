@@ -1,0 +1,90 @@
+name: cmux-next web bundles
+
+# feat-cmux-next takes direct pushes, so ci-web.yml's PR checks never run there.
+# This backstop rebuilds the committed web bundles on every push that touches them.
+# safe-push.sh runs the same checks before the push.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "webviews/**"
+      - "Resources/markdown-viewer/webviews-app/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/**"
+      - "scripts/build-webviews-app.sh"
+      - "scripts/cmux-next/build-agent-pane-web.sh"
+      - "scripts/cmux-next/build-agent-activity-web.sh"
+      - ".github/workflows/cmux-next-web-bundles.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-web-bundles-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundles:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Verify generated webviews assets
+        run: ./scripts/build-webviews-app.sh --check
+
+      - name: Verify generated cmux-next agent pane
+        run: ./scripts/cmux-next/build-agent-pane-web.sh --check
+
+      - name: Verify generated cmux-next Agent Activity
+        run: ./scripts/cmux-next/build-agent-activity-web.sh --check
+
+  # Signal only for now (the coordinator's call): `vp check` and the full
+  # webviews test suite. Make them blocking (drop continue-on-error) once both
+  # are green on the branch.
+  webviews-checks:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Install webviews dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: vp check
+        working-directory: webviews
+        run: bun run check
+
+      - name: bun test
+        working-directory: webviews
+        run: bun test

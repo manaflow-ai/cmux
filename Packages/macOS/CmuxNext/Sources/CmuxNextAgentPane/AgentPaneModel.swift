@@ -24,7 +24,11 @@ public final class AgentPaneModel {
     /// plain chat. Cleared once the page reports a session.
     public private(set) var newTab: AgentPaneNewTab?
     /// The new tab page chose a terminal or browser (`tab.open`).
-    @ObservationIgnored public var onOpenTab: ((AgentPaneTabKind, String, String?) -> Void)?
+    @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
+    /// What the user typed after `!` so far (`tab.typeAhead`).
+    @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
+    /// The screen's mode or agent pick to remember (`newTab.remember`).
+    @ObservationIgnored public var onRememberNewTab: ((String?, String?) -> Void)?
     /// The location bar picked an open tab or workspace (`tab.jump`).
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
@@ -133,9 +137,17 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
-        case .openTab(let kind, let text, let cwd):
+        case .openTab(let kind, let text, let cwd, let search, let run):
             guard newTab != nil, let onOpenTab else { return Self.unsupported("tab.open") }
-            onOpenTab(kind, text, cwd)
+            onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
+            return AgentPaneReply.success()
+        case .typeAhead(let text):
+            guard newTab != nil, let onTypeAhead else { return Self.unsupported("tab.typeAhead") }
+            onTypeAhead(text)
+            return AgentPaneReply.success()
+        case .rememberNewTab(let mode, let agent):
+            guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
+            onRememberNewTab(mode, agent)
             return AgentPaneReply.success()
         case .runAction(let id):
             guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }

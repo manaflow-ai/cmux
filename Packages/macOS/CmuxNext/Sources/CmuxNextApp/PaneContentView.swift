@@ -201,6 +201,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         performWithTheme {
             contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
+        // The strip: clear, or the user's tab bar background (R55).
+        stripView.wantsLayer = true
+        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
     }
 }
 

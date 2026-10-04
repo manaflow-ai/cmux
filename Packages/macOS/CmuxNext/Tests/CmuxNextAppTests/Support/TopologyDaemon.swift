@@ -103,16 +103,24 @@ nonisolated final class TopologyDaemon: Sendable {
 
     let state = State()
     let socket: ScriptedDaemonSocket
+    final class CommandLog: Sendable {
+        let names = Mutex<[String]>([])
+    }
 
-    init() throws {
-        let state = state
+    /// Every command name the app sent, in order.
+    let commands = CommandLog()
+
+    /// `extraCapabilities` are advertised besides the required ones.
+    init(extraCapabilities: [String] = []) throws {
+        let state = state, commands = commands
         socket = try ScriptedDaemonSocket(handler: { request in
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
             func ok(_ data: String) -> [String] { [#"{"id":\#(id),"ok":true,"data":\#(data)}"#] }
             func int(_ name: String) -> Int { request[name]?.doubleValue.map { Int($0) } ?? 0 }
+            commands.names.withLock { $0.append(request["cmd"]?.stringValue ?? "") }
             switch request["cmd"]?.stringValue {
             case "identify":
-                let caps = DaemonCapabilities.shared.required.map { "\"\($0)\"" }.joined(separator: ",")
+                let caps = (DaemonCapabilities.shared.required + extraCapabilities).map { "\"\($0)\"" }.joined(separator: ",")
                 let revision = state.tree.withLock { $0.revision }
                 return ok(#"{"app":"cmux-tui","version":"0.1.0","protocol":12,"capabilities":[\#(caps)],"session":"local","pid":7,"registry_id":"r","generation":"g1","workspace_revision":\#(revision)}"#)
             case "list-workspaces":
@@ -170,7 +178,7 @@ nonisolated final class TopologyDaemon: Sendable {
                     let workspace = tree.next(), screen = tree.next(), pane = tree.next()
                     tree.workspaces.append(Workspace(id: workspace, key: key, screens: [
                         Screen(id: screen, layout: .leaf(pane), panes: [Pane(id: pane, tabs: [surface])]),
-                    ]))
+                    ], name: request["name"]?.stringValue))
                     tree.revision += 1
                     return workspace
                 }

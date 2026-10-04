@@ -59,3 +59,42 @@ import Testing
         #expect(view.firstRun.isHidden)
     }
 }
+
+/// spec/app-screens.md section 3: clicking empty space in the Home column
+/// focuses the message box (R65).
+@MainActor
+@Suite struct HomeEmptyClickFocusTests {
+    @Test func clickingEmptyTranscriptSpaceFocusesTheMessageBox() throws {
+        let (window, view) = HomeFirstRunTests.view()
+        defer { window.close() }
+        view.controller.update(items: [], summary: HomeFirstRunTests.summary(), typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        window.makeFirstResponder(nil)
+        let point = view.rowHost.convert(CGPoint(x: view.rowHost.bounds.midX, y: 120), to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                        clickCount: 1, pressure: 1))
+            if type == .leftMouseDown { view.rowHost.mouseDown(with: event) } else { view.rowHost.mouseUp(with: event) }
+        }
+        #expect(window.firstResponder === view.field.textView)
+    }
+}
+
+/// homenat14 snapshot (R65 proof): typed text sat at the field's top-left
+/// corner, its first letter clipped, because the glass sized the text view to
+/// the whole field. The text starts at the field's insets, where the
+/// placeholder is.
+@MainActor
+@Suite struct HomeFieldTextInsetTests {
+    @Test func typedTextStartsAtTheFieldsInsets() {
+        let (window, view) = HomeFirstRunTests.view()
+        defer { window.close() }
+        view.layoutSubtreeIfNeeded()
+        let field = view.field
+        field.layoutSubtreeIfNeeded()
+        let text = field.textView.convert(field.textView.bounds, to: field)
+        #expect(abs(text.minX - field.horizontalInset) <= 0.5, "text view \(text) in field \(field.bounds)")
+        #expect(text.maxX <= field.bounds.maxX - field.horizontalInset + 0.5)
+    }
+}

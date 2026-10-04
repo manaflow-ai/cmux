@@ -4,7 +4,7 @@
 
 import { IrError, type JsonSchema } from "./ir";
 
-const ANNOTATIONS = new Set([
+export const ANNOTATIONS: ReadonlySet<string> = new Set([
   "$schema",
   "$id",
   "$comment",
@@ -17,7 +17,7 @@ const ANNOTATIONS = new Set([
   "writeOnly",
 ]);
 
-const SUPPORTED = new Set([
+export const SUPPORTED: ReadonlySet<string> = new Set([
   "type",
   "$ref",
   "properties",
@@ -39,6 +39,9 @@ const SUPPORTED = new Set([
   "minItems",
   "maxItems",
   "format",
+  // Decision 21: marks a secret property in a result or event. emit-ir derives each op's
+  // `secret_output` from it; generators only check that it is a boolean.
+  "x-cmux-secret",
 ]);
 
 const TYPE_NAMES = new Set(["object", "array", "string", "integer", "number", "boolean", "null"]);
@@ -72,6 +75,25 @@ function checkKeywords(schema: SchemaObject, where: string): void {
       throw new IrError(`${where}: JSON Schema keyword ${JSON.stringify(key)} is outside the supported subset`);
     }
   }
+  if (schema["x-cmux-secret"] !== undefined && typeof schema["x-cmux-secret"] !== "boolean") {
+    throw new IrError(`${where}: x-cmux-secret must be a boolean`);
+  }
+}
+
+/**
+ * Decision 19: a `pattern` must mean the same in RE2 (Rust, Go) and ECMA-262 (TS), so
+ * lookaround, backreferences and named groups (whose syntax differs) are refused.
+ */
+export function checkPortablePattern(pattern: string, where: string): void {
+  const refusals: Array<[RegExp, string]> = [
+    [/\(\?<?[=!]/, "lookaround"],
+    [/\\[1-9]/, "a backreference"],
+    [/\\k</, "a named backreference"],
+    [/\(\?P?<[A-Za-z_]/, "a named group"],
+  ];
+  for (const [refused, what] of refusals) {
+    if (refused.test(pattern)) throw new IrError(`${where}: pattern uses ${what}, which RE2 and ECMA-262 do not share`);
+  }
 }
 
 function typeList(schema: SchemaObject, where: string): string[] | null {
@@ -99,6 +121,19 @@ function propertyKey(name: string): string {
 }
 
 // TypeScript types
+
+/** JSDoc from a schema's `description` (schemars copies Rust doc comments there), or "". */
+export function docComment(schema: JsonSchema, indent: string): string {
+  if (typeof schema !== "object") return "";
+  const secret = schema["x-cmux-secret"] === true ? "Secret (x-cmux-secret): never shown to agents or logged." : "";
+  const text = [typeof schema.description === "string" ? schema.description.trim() : "", secret]
+    .filter(Boolean)
+    .join("\n\n");
+  if (!text) return "";
+  const lines = text.replaceAll("*/", "*\\/").trim().split("\n");
+  if (lines.length === 1) return `${indent}/** ${lines[0]} */\n`;
+  return `${indent}/**\n${lines.map((line) => `${indent} *${line ? ` ${line}` : ""}`).join("\n")}\n${indent} */\n`;
+}
 
 export function renderType(schema: JsonSchema, types: Record<string, JsonSchema>, where: string, indent = ""): string {
   if (schema === true) return "unknown";
@@ -184,7 +219,8 @@ function renderObjectType(
   const inner = `${indent}  `;
   const lines = Object.entries(properties).map(([key, value]) => {
     const optional = required.has(key) ? "" : "?";
-    return `${inner}${propertyKey(key)}${optional}: ${renderType(value, types, `${where}.properties.${key}`, inner)};`;
+    const doc = docComment(value, inner);
+    return `${doc}${inner}${propertyKey(key)}${optional}: ${renderType(value, types, `${where}.properties.${key}`, inner)};`;
   });
   const extra = schema.additionalProperties;
   let base = lines.length > 0 ? `{\n${lines.join("\n")}\n${indent}}` : null;
@@ -354,6 +390,7 @@ export class ValidatorBuilder {
     }
     if (schema.pattern !== undefined) {
       if (typeof schema.pattern !== "string") throw new IrError(`${where}: pattern must be a string`);
+      checkPortablePattern(schema.pattern, where);
       try {
         new RegExp(schema.pattern, "u");
       } catch {

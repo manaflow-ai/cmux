@@ -1,8 +1,8 @@
 // Generates the typed TS client, types and validators from the pane protocol IR. Pure: takes
 // the IR, returns file contents. scripts/pane-protocol-codegen.ts writes or checks them.
 
-import { IrError, parseIr, type Ir, type JsonSchema } from "./ir";
-import { refName, renderType, ValidatorBuilder } from "./schema";
+import { IrError, parseIr, type Ir, type IrOp, type JsonSchema } from "./ir";
+import { docComment, refName, renderType, ValidatorBuilder } from "./schema";
 
 export interface GenerateOptions {
   /** Shown in the header; keep it repo-relative so --check output is stable across checkouts. */
@@ -50,8 +50,10 @@ function splitName(name: string, namespaces: string[], kind: "op" | "event"): Sp
   if (rest.some((part) => !/^[a-z][a-z0-9_]*$/.test(part))) {
     throw new IrError(`${kind} ${name}: segments after the namespace must be lower_snake_case`);
   }
-  if (kind === "op" && rest.length !== 2) throw new IrError(`op ${name} must be <namespace>.<family>.<verb>`);
-  if (kind === "event" && rest.length < 2) throw new IrError(`event ${name} must be <namespace>.<family>.<event>`);
+  // A verb may nest (`cmux.router.token.refresh`); the client nests the same way.
+  if (rest.length < 2) {
+    throw new IrError(`${kind} ${name} must be <namespace>.<family>.<${kind === "op" ? "verb" : "event"}>`);
+  }
   return { namespace: ns, family: rest[0], member: rest.slice(1).join(".") };
 }
 
@@ -75,7 +77,10 @@ interface Resolved {
     result: string;
     kind: string;
     scope: string;
+    owner: string;
+    aliases: string[];
     errors: string[];
+    meta: Pick<IrOp, "paths" | "mcp" | "cli" | "secret_output">;
   }>;
   events: Array<{ name: string; split: SplitName; data: string; scope: string }>;
 }
@@ -92,7 +97,10 @@ function resolve(ir: Ir): Resolved {
       result: typeRef(op.result, `${base}Result`, ir, inline, `op ${op.name} result`),
       kind: op.kind,
       scope: op.scope,
+      owner: op.owner,
+      aliases: op.aliases,
       errors: op.errors,
+      meta: { paths: op.paths, mcp: op.mcp, ...(op.cli ? { cli: op.cli } : {}), secret_output: op.secret_output },
     };
   });
   const events = ir.events.map((event) => ({
@@ -112,11 +120,18 @@ function generateTypes(resolved: Resolved): string {
   const types = resolved.ir.types;
   const blocks = allTypes(resolved).map(([name, schema]) => {
     const rendered = renderType(schema, types, `types.${name}`);
-    return rendered.startsWith("{\n") && !rendered.includes("} &")
-      ? `export interface ${name} ${rendered}`
-      : `export type ${name} = ${rendered};`;
+    const declaration =
+      rendered.startsWith("{\n") && !rendered.includes("} &")
+        ? `export interface ${name} ${rendered}`
+        : `export type ${name} = ${rendered};`;
+    return docComment(schema, "") + declaration;
   });
   return `${blocks.join("\n\n")}\n`;
+}
+
+/** Validator table rows for every op name and alias. */
+function withAliases(resolved: Resolved, pick: (op: Resolved["ops"][number]) => string): Array<[string, string]> {
+  return resolved.ops.flatMap((op) => [op.name, ...op.aliases].map((name): [string, string] => [name, pick(op)]));
 }
 
 function generateValidators(resolved: Resolved): string {
@@ -162,8 +177,8 @@ function generateValidators(resolved: Resolved): string {
   lines.push(...builder.constants, ...(builder.constants.length > 0 ? [""] : []));
   lines.push(functions.join("\n\n"), "", publics.join("\n\n"), "");
   lines.push(
-    `const PARAMS = ${table(resolved.ops.map((op) => [op.name, op.params]))};`,
-    `const RESULTS = ${table(resolved.ops.map((op) => [op.name, op.result]))};`,
+    `const PARAMS = ${table(withAliases(resolved, (op) => op.params))};`,
+    `const RESULTS = ${table(withAliases(resolved, (op) => op.result))};`,
     `const EVENTS = ${table(resolved.events.map((event) => [event.name, event.data]))};`,
     "",
     `/** Incoming-value validators for Session; null means the IR has no such op or event. */`,
@@ -204,18 +219,27 @@ function renderTree(tree: Tree, indent: string): string {
   return `{\n${entries.join("\n")}\n${indent}}`;
 }
 
+function opSummary(op: Resolved["ops"][number], errors: string): string {
+  const parts = [`${op.kind}, scope ${op.scope}.`, `Errors: ${errors}.`];
+  if (op.meta.cli) parts.push(`CLI: \`${op.meta.cli.path}\`${op.meta.cli.visible ? "" : " (hidden)"}.`);
+  parts.push(`MCP: ${op.meta.mcp.expose}${op.meta.mcp.group ? ` (${op.meta.mcp.group})` : ""}.`);
+  if (op.meta.paths.length > 0) parts.push(`Paths: ${op.meta.paths.join(", ")}.`);
+  if (op.meta.secret_output) parts.push("Secret output: never offered to agents.");
+  return parts.join(" ");
+}
+
 function generateClient(resolved: Resolved): string {
   const tree: Tree = {};
   const opMap: string[] = [];
   const eventMap: string[] = [];
   for (const op of resolved.ops) {
-    const path = [...op.split.namespace.split("."), camel(op.split.family), camel(op.split.member)];
+    const path = [...op.split.namespace.split("."), camel(op.split.family), ...op.split.member.split(".").map(camel)];
     const errors = op.errors.length > 0 ? op.errors.join(", ") : "none declared";
     insert(
       tree,
       path,
       [
-        `/** ${op.kind}, scope ${op.scope}. Errors: ${errors}. */`,
+        `/** ${opSummary(op, errors)} */`,
         `(params: T.${op.params}, options?: CallOptions): Promise<T.${op.result}> => call(${JSON.stringify(op.name)}, params, options)`,
       ].join("\n"),
       op.name,
@@ -238,14 +262,35 @@ function generateClient(resolved: Resolved): string {
     );
     eventMap.push(`  ${JSON.stringify(event.name)}: T.${event.data};`);
   }
-  const ops = resolved.ops.map(
-    (op) =>
-      `  { name: ${JSON.stringify(op.name)}, kind: ${JSON.stringify(op.kind)}, scope: ${JSON.stringify(op.scope)}, errors: ${JSON.stringify(op.errors)} },`,
-  );
-  const interfaces = resolved.ir.interfaces.map(
-    (iface) =>
-      `  { name: ${JSON.stringify(iface.name)}, ops: ${JSON.stringify(iface.ops)}, events: ${JSON.stringify(iface.events)} },`,
-  );
+  // Field order is fixed here, not taken from the IR, so the generated bytes do not depend on
+  // how emit-ir orders keys.
+  const ops = resolved.ops.map((op) => {
+    const entry = {
+      name: op.name,
+      owner: op.owner,
+      kind: op.kind,
+      scope: op.scope,
+      aliases: op.aliases,
+      errors: op.errors,
+      paths: op.meta.paths,
+      mcp:
+        op.meta.mcp.group === undefined
+          ? { expose: op.meta.mcp.expose }
+          : { expose: op.meta.mcp.expose, group: op.meta.mcp.group },
+      ...(op.meta.cli
+        ? {
+            cli: {
+              path: op.meta.cli.path,
+              visible: op.meta.cli.visible,
+              ...(op.meta.cli.positional ? { positional: op.meta.cli.positional } : {}),
+            },
+          }
+        : {}),
+      secret_output: op.meta.secret_output,
+    };
+    return `  ${JSON.stringify(entry)},`;
+  });
+  const interfaces = resolved.ir.interfaces.map((iface) => `  ${JSON.stringify(iface)},`);
   return [
     `import type { CallOptions, Session, SubscribeOptions, Subscription } from "../session";`,
     `import type * as T from "./types";`,
@@ -263,9 +308,29 @@ function generateClient(resolved: Resolved): string {
     `export type OpName = keyof OpMap;`,
     `export type EventName = keyof EventMap;`,
     "",
+    `/** Per-op metadata from the IR, for tools that list ops (CLI, MCP, code mode). */`,
+    `export interface OpMeta {`,
+    `  readonly name: string;`,
+    `  /** "first-party" or "app:<id>". */`,
+    `  readonly owner: string;`,
+    `  /** read | mutation | stream. */`,
+    `  readonly kind: string;`,
+    `  readonly scope: string;`,
+    `  readonly aliases: readonly string[];`,
+    `  readonly errors: readonly string[];`,
+    `  /** Top-level params that name filesystem paths; the provider confines them to the token's roots. */`,
+    `  readonly paths: readonly string[];`,
+    `  /** MCP exposure. The tool name is the op name with "." and "-" as "_". */`,
+    `  readonly mcp: { readonly expose: "default" | "opt_in" | "never"; readonly group?: string };`,
+    `  /** CLI verb relative to the app; absent when the op has no verb. */`,
+    `  readonly cli?: { readonly path: string; readonly visible: boolean; readonly positional?: readonly string[] };`,
+    `  /** The result can carry a secret; never offer this op to agents. */`,
+    `  readonly secret_output: boolean;`,
+    `}`,
+    "",
     `export const OPS = [`,
     ...ops,
-    `] as const;`,
+    `] as const satisfies readonly OpMeta[];`,
     "",
     `export const INTERFACES = [`,
     ...interfaces,

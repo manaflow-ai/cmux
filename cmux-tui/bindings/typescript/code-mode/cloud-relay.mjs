@@ -39,6 +39,11 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
     if (VM.has(operation)) {
       if (operation === "vm.list") { method = "GET"; }
       else if (operation === "vm.create") { method = "POST"; payload = { ...params }; }
+      else if (operation === "vm.snapshot.restore") {
+        // Restore makes a new machine from an account snapshot: POST /api/vm/restore.
+        routeSegment(params, "snapshot_id", operation);
+        method = "POST"; path = "/api/vm/restore"; payload = bodyWithout(params, "vm_id");
+      }
       else {
         const id = vmId(params, operation);
         if (operation === "vm.get") path = `/api/vm/${encodeURIComponent(id)}`;
@@ -57,7 +62,6 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
           const snap = operation.slice("vm.snapshot.".length);
           if (snap === "list") path = `/api/vm/${encodeURIComponent(id)}/snapshots`;
           else if (snap === "create") { method = "POST"; path = `/api/vm/${encodeURIComponent(id)}/snapshot`; payload = bodyWithout(params, "vm_id"); }
-          else if (snap === "restore") { method = "POST"; path = `/api/vm/${encodeURIComponent(id)}/restore`; payload = bodyWithout(params, "vm_id"); }
           else { method = "DELETE"; path = `/api/vm/${encodeURIComponent(id)}/snapshots/${encodeURIComponent(String(params.snapshot_id ?? ""))}`; }
         }
       }

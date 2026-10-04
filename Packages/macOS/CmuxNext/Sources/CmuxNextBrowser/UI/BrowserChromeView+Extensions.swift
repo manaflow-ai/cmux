@@ -99,6 +99,8 @@ extension BrowserChromeView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { extensionToolbar.hidePopups() }
+        // A tab shown again repaints: overrides may have changed while it was out (R55).
+        else { updateColors() }
     }
 
     /// The region of this chrome that contains `view`, nil when outside.

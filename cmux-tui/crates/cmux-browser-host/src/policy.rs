@@ -195,7 +195,51 @@ const FORBIDDEN_SCHEMES: &[&str] = &[
     "view-source",
     "javascript",
     "chrome-search",
+    "chrome-untrusted",
 ];
+
+/// Chromium's own pages (WebUI, extensions, DevTools): an agent may not open
+/// them, run script in them or read them. The same rule as the app's
+/// `AgentURLPolicy` (CmuxNextBrowser/Core/AgentURLPolicy.swift); change both.
+const BROWSER_PAGE_SCHEMES: &[&str] = &[
+    "chrome",
+    "chrome-extension",
+    "chrome-untrusted",
+    "chrome-search",
+    "devtools",
+    "chrome-devtools",
+    "view-source",
+];
+
+/// True when `text` names one of Chromium's own pages. Like Chromium, tabs
+/// and newlines anywhere and leading spaces and control characters do not
+/// count; `about:` pages other than blank and srcdoc are `chrome://` pages;
+/// `blob:` and `filesystem:` take the origin of their inner URL.
+pub fn is_browser_page(text: &str) -> bool {
+    let cleaned: String = text.chars().filter(|c| !matches!(c, '\t' | '\n' | '\r')).collect();
+    let trimmed = cleaned.trim_start_matches(|c: char| (c as u32) <= 0x20);
+    let Some((scheme, rest)) = trimmed.split_once(':') else {
+        return false;
+    };
+    let scheme = scheme.to_lowercase();
+    let mut chars = scheme.chars();
+    if !chars.next().is_some_and(char::is_alphabetic)
+        || !chars.all(|c| c.is_alphanumeric() || "+-.".contains(c))
+    {
+        return false;
+    }
+    if BROWSER_PAGE_SCHEMES.contains(&scheme.as_str()) {
+        return true;
+    }
+    if matches!(scheme.as_str(), "blob" | "filesystem") {
+        return is_browser_page(rest);
+    }
+    if scheme == "about" {
+        let page = rest.split(['?', '#']).next().unwrap_or("").to_lowercase();
+        return !matches!(page.as_str(), "blank" | "srcdoc");
+    }
+    false
+}
 
 impl Policy {
     pub fn locked(&self) -> bool {
@@ -238,6 +282,9 @@ impl Policy {
     /// Why an agent may not open `url` as a document (navigation, new tab,
     /// popup, fetch), or `None` when it may.
     pub fn navigation_refusal(&self, url: &str) -> Option<String> {
+        if is_browser_page(url) {
+            return Some(format!("{} is a browser page, not available to agents", url.trim()));
+        }
         let parsed = match Url::parse(url) {
             Ok(parsed) => parsed,
             Err(_) => match Url::parse(&format!("https://{url}")) {

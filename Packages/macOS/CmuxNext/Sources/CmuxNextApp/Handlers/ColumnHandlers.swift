@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 
 /// scrolling-column column actions: new column, focus and move left/right, center,
@@ -12,6 +13,14 @@ enum ColumnHandlers {
         registry.bind("newColumn", invoke: { invocation in
             guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
             content.layoutModel.newColumn(after: pane.layoutPaneID)
+        })
+        // New Row (plans/cmux-next/rows.md): disabled while rows are off (O2)
+        // or the daemon lacks rows-v1; the layout model checks both again.
+        registry.bind("newRow", unavailable: { newRowUnavailableReason(ctx) }, invoke: { invocation in
+            guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
+            if !content.layoutModel.newRow(below: pane.layoutPaneID) {
+                ctx.refuse(newRowUnavailableReason(ctx) ?? RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.rows))
+            }
         })
         registry.bind("column.focusLeft", invoke: { focusAdjacent($0, forward: false, ctx) })
         registry.bind("column.focusRight", invoke: { focusAdjacent($0, forward: true, ctx) })
@@ -34,6 +43,14 @@ enum ColumnHandlers {
         }
         registry.bind("column.cycleWidth", invoke: { cycle($0, forward: true, ctx) })
         registry.bind("column.cycleWidthBack", invoke: { cycle($0, forward: false, ctx) })
+    }
+
+    /// Why New Row cannot run now: rows off, or a daemon without rows-v1.
+    @MainActor static func newRowUnavailableReason(_ ctx: AppActionContext) -> String? {
+        guard ctx.design.layoutRows else { return RefusalStrings.rowsTurnedOff }
+        let daemon = ctx.services.activeDaemon
+        guard !daemon.supports(DaemonCapabilities.shared.rows) else { return nil }
+        return daemon.missingCapabilityMessage(DaemonCapabilities.shared.rows)
     }
 
     /// The targeted column (`column:<id>`), else the targeted or focused

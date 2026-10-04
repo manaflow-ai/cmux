@@ -104,3 +104,15 @@ export function payloadFor(
     },
   };
 }
+
+/// The dev server's dependency cache directory under node_modules, one per port. The name is
+/// part of every optimized module URL; it changed from `.vite-dev-server-<port>` so pages that
+/// cached the old immutable modules load fresh ones.
+export function dependencyCacheName(port: number): string {
+  return `.vite-dev-deps-${port}`;
+}
+
+/// Whether a request path is one of the optimized dependency modules in `cacheName`.
+export function isDependencyCacheRequest(pathname: string, cacheName: string): boolean {
+  return pathname.startsWith(`/node_modules/${cacheName}/`);
+}

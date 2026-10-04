@@ -6,6 +6,7 @@ import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextServer
 import CmuxNextSettings
@@ -20,8 +21,8 @@ import Foundation
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
-            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsWindowLayout.tunables
+            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
+            + SettingsWindowLayout.tunables + NewTabTunables.all
     }
 }
 

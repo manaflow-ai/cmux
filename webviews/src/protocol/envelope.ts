@@ -78,6 +78,8 @@ export interface EvMessage {
   sub: number;
   seq: number;
   data: unknown;
+  /** True on the first event after the provider dropped events from a full queue. */
+  gap?: true;
 }
 export interface UnsubMessage {
   t: "unsub";
@@ -135,9 +137,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** u64 on the wire; JS can only represent the safe-integer range exactly, so larger ids are refused. */
-function isU64(value: unknown): value is number {
+/** Request, subscription and seq ids are 1..2^53-1 (decision 12): exact in JSON in every language. */
+function isId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+}
+
+/** `ok`/`err` may also carry id 0, which is reserved for the auth reply (decision 5). */
+function isResultId(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** Stream ids are 1..2^32-1: they must also fit the u32 in a binary frame header. */
+function isStreamId(value: unknown): value is number {
+  return isU32(value) && value >= 1;
 }
 
 function isU32(value: unknown): value is number {
@@ -181,7 +193,7 @@ export function checkEnvelope(raw: unknown): Envelope {
     case "call": {
       const msg: CallMessage = {
         t: "call",
-        id: requireField(raw, "id", isU64, "a u64"),
+        id: requireField(raw, "id", isId, "an id in 1..2^53-1"),
         op: requireField(raw, "op", isString, "a string"),
         params: raw.params === undefined ? {} : raw.params,
       };
@@ -192,13 +204,13 @@ export function checkEnvelope(raw: unknown): Envelope {
     case "ok":
       return {
         t: "ok",
-        id: requireField(raw, "id", isU64, "a u64"),
+        id: requireField(raw, "id", isResultId, "an id in 0..2^53-1"),
         value: raw.value === undefined ? null : raw.value,
       };
     case "err": {
       const msg: ErrMessage = {
         t: "err",
-        id: requireField(raw, "id", isU64, "a u64"),
+        id: requireField(raw, "id", isResultId, "an id in 0..2^53-1"),
         code: requireField(raw, "code", isString, "a string"),
         message: requireField(raw, "message", isString, "a string"),
         retryable: requireField(raw, "retryable", isBoolean, "a boolean"),
@@ -210,7 +222,7 @@ export function checkEnvelope(raw: unknown): Envelope {
     case "sub": {
       const msg: SubMessage = {
         t: "sub",
-        id: requireField(raw, "id", isU64, "a u64"),
+        id: requireField(raw, "id", isId, "an id in 1..2^53-1"),
         stream: requireField(raw, "stream", isString, "a string"),
       };
       const filter = optionalField(raw, "filter", isRecord, "an object");
@@ -219,24 +231,28 @@ export function checkEnvelope(raw: unknown): Envelope {
       if (cap !== undefined) msg.cap = cap;
       return msg;
     }
-    case "ev":
-      return {
+    case "ev": {
+      const msg: EvMessage = {
         t: "ev",
-        sub: requireField(raw, "sub", isU64, "a u64"),
-        seq: requireField(raw, "seq", isU64, "a u64"),
+        sub: requireField(raw, "sub", isId, "an id in 1..2^53-1"),
+        seq: requireField(raw, "seq", isId, "an id in 1..2^53-1"),
         data: raw.data === undefined ? null : raw.data,
       };
+      // Decision 15: the provider dropped events before this one. Omitted when false.
+      if (optionalField(raw, "gap", isBoolean, "a boolean")) msg.gap = true;
+      return msg;
+    }
     case "unsub":
-      return { t: "unsub", sub: requireField(raw, "sub", isU64, "a u64") };
+      return { t: "unsub", sub: requireField(raw, "sub", isId, "an id in 1..2^53-1") };
     case "cancel":
-      return { t: "cancel", id: requireField(raw, "id", isU64, "a u64") };
+      return { t: "cancel", id: requireField(raw, "id", isId, "an id in 1..2^53-1") };
     case "release":
       return { t: "release", handle: requireField(raw, "handle", isString, "a string") };
     case "open": {
       const msg: OpenMessage = {
         t: "open",
-        id: requireField(raw, "id", isU64, "a u64"),
-        stream: requireField(raw, "stream", isU32, "a u32"),
+        id: requireField(raw, "id", isId, "an id in 1..2^53-1"),
+        stream: requireField(raw, "stream", isStreamId, "a stream id in 1..2^32-1"),
         op: requireField(raw, "op", isString, "a string"),
       };
       if (raw.params !== undefined) msg.params = raw.params;
@@ -247,11 +263,11 @@ export function checkEnvelope(raw: unknown): Envelope {
     case "credit":
       return {
         t: "credit",
-        stream: requireField(raw, "stream", isU32, "a u32"),
+        stream: requireField(raw, "stream", isStreamId, "a stream id in 1..2^32-1"),
         bytes: requireField(raw, "bytes", isU32, "a u32"),
       };
     case "end": {
-      const msg: EndMessage = { t: "end", stream: requireField(raw, "stream", isU32, "a u32") };
+      const msg: EndMessage = { t: "end", stream: requireField(raw, "stream", isStreamId, "a stream id in 1..2^32-1") };
       const code = optionalField(raw, "code", isString, "a string");
       if (code !== undefined) msg.code = code;
       const message = optionalField(raw, "message", isString, "a string");
@@ -277,7 +293,9 @@ export interface BinaryFrame {
 }
 
 export function encodeBinaryFrame(frame: BinaryFrame): Uint8Array {
-  if (!isU32(frame.stream) || !isU32(frame.credit)) throw new EnvelopeError("stream id and credit must be u32");
+  if (!isStreamId(frame.stream) || !isU32(frame.credit)) {
+    throw new EnvelopeError("stream id must be in 1..2^32-1 and credit a u32");
+  }
   if (frame.payload.byteLength + BINARY_HEADER_BYTES > MAX_MESSAGE_BYTES) {
     throw new EnvelopeError("binary frame exceeds 16 MiB");
   }
@@ -293,8 +311,10 @@ export function decodeBinaryFrame(bytes: Uint8Array): BinaryFrame {
   if (bytes.byteLength < BINARY_HEADER_BYTES) throw new EnvelopeError("binary frame shorter than its 8-byte header");
   if (bytes.byteLength > MAX_MESSAGE_BYTES) throw new EnvelopeError("binary frame exceeds 16 MiB");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const stream = view.getUint32(0, false);
+  if (stream === 0) throw new EnvelopeError("binary frame for stream 0");
   return {
-    stream: view.getUint32(0, false),
+    stream,
     credit: view.getUint32(4, false),
     payload: bytes.subarray(BINARY_HEADER_BYTES),
   };
