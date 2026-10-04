@@ -76,4 +76,14 @@ extension SidebarLayoutDocument {
                           LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
                       ]),
     ])
+
+    /// The ops that turn built-in Home and App Store items into app items
+    /// (R63/R64), or none.
+    public nonisolated var appRefMigrationOps: [SidebarLayoutOp] { [] }
+
+    /// Every migration in order (sections, then app refs), as one op list.
+    public nonisolated var layoutMigrationOps: [SidebarLayoutOp] { sectionsMigrationOps }
+
+    /// This layout with `layoutMigrationOps` applied.
+    public nonisolated var layoutMigration: SidebarLayoutDocument { sectionsMigration }
 }
