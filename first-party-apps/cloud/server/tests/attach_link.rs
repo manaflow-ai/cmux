@@ -4,8 +4,8 @@
 mod attach_common;
 mod common;
 
-use attach_common::{FakeSpawner, FakeTransport, Script, attach, socket_for};
-use cmux_cloud::connector::iface::{CarrierEvent, TerminalConnector};
+use attach_common::{FakeSpawner, FakeTransport, Script, attach, link_events, socket_for};
+use cmux_cloud::connector::iface::CarrierEvent;
 use cmux_cloud::link::{LinkState, LinkTag};
 use cmux_cloud::{Origin, Request, Server};
 use common::FakeControlPlane;
@@ -71,7 +71,7 @@ fn link_exit_gives_down_retryable_and_a_later_connect_respawns_once() {
     let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     spawner.exit("vm-alpha01", 1);
-    let events = s.connector().take_events();
+    let events = link_events(&mut s);
     assert!(
         events.iter().any(|e| matches!(
             e,
@@ -111,7 +111,7 @@ fn revoked_does_not_respawn() {
     s.control_plane_mut().serve("attach_endpoint_403");
     let err = s.handle(&connect("vm-alpha01", "c-2")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.forbidden");
-    let events = s.connector().take_events();
+    let events = link_events(&mut s);
     assert!(events.iter().any(|e| matches!(e, CarrierEvent::Revoked { .. })), "{events:?}");
     let err = s.handle(&connect("vm-alpha01", "c-3")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.link_revoked");
@@ -213,7 +213,7 @@ fn disconnect_ends_the_link_process_and_reports_down() {
     let spawner = FakeSpawner::default();
     let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
-    s.connector().take_events();
+    link_events(&mut s);
     let done = s
         .handle(
             &Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" }))
@@ -222,11 +222,11 @@ fn disconnect_ends_the_link_process_and_reports_down() {
         .expect("disconnect");
     assert_eq!(done, json!({ "machine": "vm-alpha01", "disconnected": true }));
     assert_eq!(spawner.log().terminated.len(), 1);
-    let events = s.connector().take_events();
+    let events = link_events(&mut s);
     assert!(matches!(&events[..], [CarrierEvent::Down { retryable: true, .. }]), "{events:?}");
     // The old process's late exit changes nothing.
     spawner.exit("vm-alpha01", 0);
-    assert!(s.connector().take_events().is_empty());
+    assert!(link_events(&mut s).is_empty());
     assert!(s.attach().supervisor().state("vm-alpha01").is_none());
 }
 
