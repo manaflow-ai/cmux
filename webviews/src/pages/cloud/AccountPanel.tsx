@@ -1,7 +1,7 @@
 // Account, plan and usage. `cloud.plan.get` answers the limits and the usage in one record; the page
 // shows them as the backend reports them (machines, snapshots, compute hours) and computes no limit.
-// Checkout runs from a plan refusal's "See plans" (Notices.tsx). Ops the owner does not serve yet
-// (team list, sign-out) show "Not available yet".
+// "See plans" (Notices.tsx) links the public plans page until billing lands, then runs the checkout.
+// Ops the owner does not serve yet (team list, sign-out) show "Not available yet".
 import type { Strings } from "../shared/i18n";
 import { percent } from "./model";
 import { AccountOps } from "./ops";

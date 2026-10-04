@@ -426,9 +426,9 @@ describe("CloudPage", () => {
     const runs = provider.calls.filter((call) => call.op === ACTION_RUN).length;
     await act(async () => link!.click());
     expect(provider.calls.filter((call) => call.op === ACTION_RUN).length).toBe(runs);
-    expect(provider.calls.some((call) => (call.params as { action?: string })?.action === CloudOps.billingCheckout)).toBe(
-      false,
-    );
+    expect(
+      provider.calls.some((call) => (call.params as { action?: string })?.action === CloudOps.billingCheckout),
+    ).toBe(false);
   });
 
   test("a quota refusal outside the sheet shows its numbers in Japanese too", async () => {

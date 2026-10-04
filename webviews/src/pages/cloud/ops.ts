@@ -62,6 +62,12 @@ export const AccountOps = {
  * proxy. Only CEF honors a machine store; WebKit refuses a proxied configuration with a typed error.
  * README "Host gaps": the host does not serve this action yet.
  */
+/**
+ * The public plans page. "See plans" links it while billing is not built (`cloud.billing.checkout`
+ * answers owner.unreachable); switch "See plans" back to the checkout when billing lands.
+ */
+export const PLANS_URL = "https://cmux.com/pricing";
+
 export const HostActions = {
   browserTabOpen: "browser.tab.open",
 } as const;
