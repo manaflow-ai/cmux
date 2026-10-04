@@ -12,8 +12,9 @@ extension CloudHandlers {
         bind("cloudOpenMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             // An app link waits for the user after it ended: opening the
-            // machine connects it (a live link stays as it is).
-            if session.appLink != nil { session.connect(origin: .user) }
+            // machine connects it (a live link stays as it is), as `user`
+            // only for the user's own gesture.
+            if session.appLink != nil { session.connect(origin: connectOrigin(for: invocation)) }
             run("open machine", context) { show(try await firstWorkspace(on: session, context), context) }
         }
         bind("cloudSSH", registry, reason: reason) { invocation in
