@@ -39,8 +39,10 @@ pub const CHIEF_ROLE_TAG: &str = "cmux.chief.role";
 
 /// The tags of a Chief session of `role` for home `home_id`.
 pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
-    let _ = (home_id, role);
-    BTreeMap::new()
+    BTreeMap::from([
+        (CHIEF_TAG.to_owned(), home_id.to_owned()),
+        (CHIEF_ROLE_TAG.to_owned(), role.to_owned()),
+    ])
 }
 
 /// What a running turn hears about its session.
@@ -446,11 +448,23 @@ pub fn new_session(
             json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
         )
         .map_err(|e| format!("session/new: {e}"))?;
-    result
+    let id = result
         .get("sessionId")
         .and_then(Value::as_str)
         .map(str::to_owned)
-        .ok_or_else(|| "session/new answered without a sessionId".to_owned())
+        .ok_or_else(|| "session/new answered without a sessionId".to_owned())?;
+    // Right after creation: an untagged Chief session would count as one of
+    // the user's agents (quit counts, endAgents), so it does not stay.
+    if !spec.tags.is_empty()
+        && let Err(e) = client.request(
+            "_acpmux/tag",
+            json!({"sessionId": id, "set": spec.tags}),
+        )
+    {
+        let _ = client.request("_acpmux/kill", json!({"sessionId": id, "purge": true}));
+        return Err(format!("tagging session {}: {e}", spec.name));
+    }
+    Ok(id)
 }
 
 impl AgentPort for Acpmux {
