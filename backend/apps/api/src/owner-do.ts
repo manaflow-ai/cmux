@@ -2,8 +2,9 @@ import { DurableObject } from "cloudflare:workers"
 import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OutboxFailure, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
-import { drainOutbox, isTransientError } from "./projection.ts"
-import { refusalOnInitial } from "./owner-preflight.ts"
+import { DEAD_REPLAY_MS, drainOutboxChannels } from "./owner-outbox.ts"
+import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./owner-preflight.ts"
+import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { SnapshotBatcher } from "./snapshot-batcher.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
@@ -33,33 +34,6 @@ export type ReadResult = { readonly ok: true; readonly value: unknown; readonly 
 const MAX_BACKOFF_MS = 5 * 60_000
 /** How long hidden events coalesce before the filtered resync snapshot. */
 const RESYNC_BATCH_MS = 250
-/** How long a socket's install status from UserDO is trusted before its events wait for a new check. */
-const INSTALL_CHECK_MS = 60_000
-/** Frames one socket may have waiting behind a revocation check. */
-const MAX_QUEUED_FRAMES = 256
-
-const closeQuietly = (ws: WebSocket, code: number, reason: string) => {
-  try {
-    ws.close(code, reason)
-  } catch {}
-}
-
-/** Dead outbox items are replayed this long after they died (automatic replay tool). */
-const DEAD_REPLAY_MS = 24 * 3600_000
-
-/**
- * Transient (backoff forever) or poison (counts toward dead letter) for a failed outbox delivery.
- * PlanetScale errors are classified by SQLSTATE (isTransientError); a DO target only by the
- * runtime's own `retryable`/`overloaded` flags, never by message text (security review P2).
- */
-const outboxFailure = (channel: string, e: unknown): OutboxFailure => {
-  if (channel === "") return isTransientError(e) ? "transient" : "poison"
-  const flags = e as { retryable?: unknown; overloaded?: unknown } | null
-  if (flags?.retryable === true || flags?.overloaded === true) return "transient"
-  if (e instanceof Error && e.message.startsWith("no binding for ")) return "transient"
-  return "poison"
-}
-
 const PRUNE_SLACK_MS = 60 * 60_000
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
@@ -117,8 +91,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** The entity this object is bound to, or null for an object that was never created (no write). */
   protected boundEntity(): string | null {
-    if (this.store.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'do_entity'`).length === 0) return null
-    return this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]?.entity ?? null
+    return boundEntityOf(this.store)
   }
 
   /** `{entity}` of a bound object, or undefined (the shape subclasses read before). Never writes. */
@@ -129,146 +102,26 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   /** True when this object exists for `entity`; refuses any other entity. Never writes. */
   protected isBound(entity: string): boolean {
-    const row = this.boundEntity()
-    if (row !== null && row !== entity) throw new Error(`object bound to ${row}, not ${entity}`)
-    return row !== null
+    return isBoundTo(this.store, entity)
   }
 
   /** Binds this object to its entity on first use (creates its storage); refuses any other entity. */
   protected bind(entity: string): OwnerEngine<S> {
-    if (!this.isBound(entity)) {
-      this.store.exec(`CREATE TABLE IF NOT EXISTS do_entity (id INTEGER PRIMARY KEY CHECK (id = 1), entity TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`)
-      this.store.exec(`CREATE TABLE IF NOT EXISTS do_wake (id INTEGER PRIMARY KEY CHECK (id = 1), attempts INTEGER NOT NULL)`)
-      this.store.exec(`INSERT INTO do_entity (id, entity) VALUES (1, ?)`, entity)
-    }
+    if (!this.isBound(entity)) createBinding(this.store, entity)
     return this.open(entity)
   }
 
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
-  /** Install status per `user\0install\0grant`, from UserDO, at most INSTALL_CHECK_MS old (memory only). */
-  private readonly installChecks = new Map<string, { active: boolean; at: number }>()
-  /** Sockets whose events are held until their install is checked again; they get a snapshot after. */
-  private readonly heldForCheck = new Set<WebSocket>()
-  private checking = false
+  private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
+    if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
+  })
 
-  private installKey = (p: Principal) => `${p.user}\u0000${p.install}\u0000${p.grant ?? ""}`
+  /** Whether a socket may receive a frame now (token expiry and install revocation, socket-gate.ts). */
+  protected socketLive = (ws: WebSocket, a: Attachment): boolean => this.gate.live(ws, a)
 
-  /**
-   * Whether a socket may receive a frame now (P0, coordinator 2026-10-03). An expired token closes
-   * the socket (4401 "token expired"). An install whose status is older than INSTALL_CHECK_MS is
-   * held (no frame) while UserDO is asked; a revoked install closes (4401 "install revoked").
-   */
-  protected socketLive(ws: WebSocket, a: Attachment, now = Date.now()): boolean {
-    if (a.principal.expires_at !== undefined && a.principal.expires_at <= now) {
-      closeQuietly(ws, 4401, "token expired")
-      return false
-    }
-    const p = a.principal
-    if (this.checksInstallRevocation && p.kind === "install" && p.install && p.user) {
-      const c = this.installChecks.get(this.installKey(p))
-      if (c && !c.active) {
-        closeQuietly(ws, 4401, "install revoked")
-        return false
-      }
-      if (!c || now - c.at > INSTALL_CHECK_MS) {
-        this.heldForCheck.add(ws)
-        this.ctx.waitUntil(this.runInstallChecks())
-        return false
-      }
-    }
-    return !this.heldForCheck.has(ws)
-  }
-
-  /** Asks UserDO about every held socket's install, then closes revoked ones and resyncs the rest. */
-  private async runInstallChecks(): Promise<void> {
-    if (this.checking) return
-    this.checking = true
-    try {
-      while (this.heldForCheck.size > 0) {
-        const held = [...this.heldForCheck]
-        const byUser = new Map<string, Map<string, { install: string; grant: string | undefined }>>()
-        for (const ws of held) {
-          const p = (ws.deserializeAttachment() as Attachment | null)?.principal
-          if (!p?.user || !p.install) continue
-          const m = byUser.get(p.user) ?? new Map()
-          m.set(this.installKey(p), { install: p.install, grant: p.grant })
-          byUser.set(p.user, m)
-        }
-        const now = Date.now()
-        const results = await Promise.all([...byUser].map(async ([user, installs]) => ({ installs, status: await this.askUserDO(user, [...installs.values()]) })))
-        // Unreachable UserDO: fail closed (the sockets stay held; the next frame asks again).
-        if (results.some((r) => r.status === null)) return
-        for (const { installs, status } of results) [...installs.keys()].forEach((k, i) => this.installChecks.set(k, { active: status![i] === true, at: now }))
-        for (const ws of held) {
-          this.heldForCheck.delete(ws)
-          const a = ws.deserializeAttachment() as Attachment | null
-          if (!a || !this.socketLive(ws, a)) continue
-          if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
-        }
-      }
-    } finally {
-      this.checking = false
-    }
-  }
-
-  private askUserDO(user: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<ReadonlyArray<boolean> | null> {
-    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(user)) as unknown as { installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined }>): Promise<ReadonlyArray<boolean>> }
-    return stub.installsActive(user, list).catch(() => null)
-  }
-
-  /**
-   * Gate for frames a socket sends: an expired token closes the socket; an install whose cached
-   * status is revoked closes it; a stale status is checked now (one UserDO RPC) before the frame is
-   * routed. An unreachable UserDO refuses the frame (fail closed) and keeps the socket.
-   */
-  private async frameAllowed(ws: WebSocket, a: Attachment): Promise<true | false | "unreachable"> {
-    const p = a.principal
-    if (p.expires_at !== undefined && p.expires_at <= Date.now()) {
-      closeQuietly(ws, 4401, "token expired")
-      return false
-    }
-    if (!this.checksInstallRevocation || p.kind !== "install" || !p.install || !p.user) return true
-    const key = this.installKey(p)
-    let c = this.installChecks.get(key)
-    if (!c || Date.now() - c.at > INSTALL_CHECK_MS) {
-      const status = await this.askUserDO(p.user, [{ install: p.install, grant: p.grant }])
-      if (!status) return "unreachable"
-      c = { active: status[0] === true, at: Date.now() }
-      this.installChecks.set(key, c)
-      // A socket held by a failed background check is released now that the status is fresh.
-      if (this.heldForCheck.size > 0) this.ctx.waitUntil(this.runInstallChecks())
-    }
-    if (!c.active) {
-      closeQuietly(ws, 4401, "install revoked")
-      return false
-    }
-    return true
-  }
-
-  /** Test hook: forget cached install status (as if INSTALL_CHECK_MS passed). */
-  forgetInstallChecks(): void {
-    this.installChecks.clear()
-  }
-
-  /** Closes sockets whose token expired (alarm sweep: also with no events). */
-  private sweepExpiredSockets(now: number): void {
-    for (const ws of this.ctx.getWebSockets()) {
-      const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.principal.expires_at !== undefined && a.principal.expires_at <= now) closeQuietly(ws, 4401, "token expired")
-    }
-  }
-
-  /** The earliest token expiry of an open socket, or null. */
-  private nextSocketExpiry(): number | null {
-    let at: number | null = null
-    for (const ws of this.ctx.getWebSockets()) {
-      const e = (ws.deserializeAttachment() as Attachment | null)?.principal.expires_at
-      // A past expiry belongs to a socket the sweep already closed (it may still be listed while closing).
-      if (typeof e === "number" && e > Date.now() && (at === null || e < at)) at = e
-    }
-    return at
-  }
+  /** Test hook: forget cached install status (as if the check interval passed). */
+  forgetInstallChecks = (): void => this.gate.forget()
 
   private broadcast(frame: OwnerFrame) {
     const extras = frame.t === "event" ? this.eventExtras(frame) : undefined
@@ -337,16 +190,11 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return JSON.stringify(this.subscriberSnapshot(engine.snapshot(principal.identity, pending), principal))
   }
 
-
   /** Closes every socket whose principal matches (revocation). */
   protected closeSockets(match: (p: Principal) => boolean, reason: string) {
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a && match(a.principal)) {
-        try {
-          ws.close(4401, reason)
-        } catch {}
-      }
+      if (a && match(a.principal)) closeQuietly(ws, 4401, reason)
     }
   }
 
@@ -401,9 +249,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const events = this.engine.nextEventPruneAt()
     const eventPrune = events === null ? null : events + PRUNE_SLACK_MS
     // Dead outbox items come back once a day by themselves (a fix deployed since then drains them).
-    const dead = this.engine.outbox.oldestDeadAt()
-    const replay = dead === null ? null : dead + DEAD_REPLAY_MS
-    const sockets = this.nextSocketExpiry()
+    const replay = ((d) => (d === null ? null : d + DEAD_REPLAY_MS))(this.engine.outbox.oldestDeadAt())
+    const sockets = this.gate.nextExpiry()
     const times = [wake, prune, eventPrune, replay, sockets].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
@@ -493,12 +340,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > want ? this.ctx.storage.setAlarm(want) : undefined))
   }
 
-  /**
-   * One op from an authenticated principal. Requester frames return; events fan out to subscribers.
-   * An op on an object that does not exist yet is decided on the initial state first, and storage
-   * is created only when it would commit (home-scale review: no empty objects from refused ops).
-   * Such a refusal has no ledger entry: a retry with the same key is decided again.
-   */
+  /** One op. On an object that does not exist yet it is decided on the initial state first; a refusal writes nothing (no ledger entry). */
   async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     if (!this.isBound(entity)) {
       const refused = refusalOnInitial(this.domain, `${this.streamPrefix}:${entity}`, principal, frame)
@@ -522,14 +364,13 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return r.ok ? { ...r, revision: String(engine.currentSeq) } : r
   }
 
-  /** Operator replay tool (admin-outbox.ts): dead outbox items go back to the queue. */
+  /** Operator replay tool (admin-outbox.ts); never creates an object. */
   async replayDeadLetters(entity: string, ids?: ReadonlyArray<number>): Promise<{ replayed: number; dead: number }> {
-    // Never creates an object: an unknown name has nothing to replay.
     if (!this.isBound(entity)) return { replayed: 0, dead: 0 }
-    const engine = this.bind(entity)
-    const replayed = engine.outbox.replayDead(Date.now(), ids ? { ids } : {})
+    const outbox = this.bind(entity).outbox
+    const replayed = outbox.replayDead(Date.now(), ids ? { ids } : {})
     this.afterCommit()
-    return { replayed, dead: engine.outbox.deadCount() }
+    return { replayed, dead: outbox.deadCount() }
   }
 
   async debug(entity: string) {
@@ -550,46 +391,20 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
-    if (principal.kind === "install" && principal.install && principal.user) this.installChecks.set(this.installKey(principal), { active: true, at: Date.now() })
+    this.gate.seed(principal)
     this.afterCommit()
     safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
   }
 
   /** One promise chain per socket: frames are gated and routed strictly in arrival order. */
-  private readonly frameChains = new Map<WebSocket, Promise<void>>()
-  private readonly frameDepth = new Map<WebSocket, number>()
-
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    const depth = (this.frameDepth.get(ws) ?? 0) + 1
-    // A client that floods frames while a check is pending is closed instead of queued without bound.
-    if (depth > MAX_QUEUED_FRAMES) return closeQuietly(ws, 1008, "too many frames")
-    this.frameDepth.set(ws, depth)
-    const prev = this.frameChains.get(ws) ?? Promise.resolve()
-    const next = prev
-      .then(() => this.handleFrame(ws, message))
-      .catch((e: unknown) => console.error(JSON.stringify({ msg: "socket frame failed", stream: this.engine?.stream, error: String(e) })))
-      .finally(() => this.frameDepth.set(ws, (this.frameDepth.get(ws) ?? 1) - 1))
-    this.frameChains.set(ws, next)
-    await next
-    if (this.frameChains.get(ws) === next) this.frameChains.delete(ws)
+    // Frames of one socket run in order, each after the expiry and revocation gate (socket-gate.ts).
+    await this.gate.enqueue(ws, message, () => this.handleFrame(ws, message), this.engine?.stream)
   }
 
   private async handleFrame(ws: WebSocket, message: string | ArrayBuffer) {
-    // A socket lives no longer than its token, and a revoked install's frames are never routed.
-    const gate = await this.frameAllowed(ws, ws.deserializeAttachment() as Attachment)
-    if (gate !== true) {
-      if (gate === "unreachable") {
-        let key: unknown
-        try {
-          key = (JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)) as { idempotency_key?: unknown }).idempotency_key
-        } catch {}
-        safeSend(ws, JSON.stringify({ t: "error", code: "owner.unreachable", message: "could not check this install; retry", ...(typeof key === "string" ? { idempotency_key: key } : {}) }))
-      }
-      return
-    }
-    // Read after the await: another frame of this socket may have changed it, or closed it.
-    if (ws.readyState !== WebSocket.READY_STATE_OPEN) return
+    // Read after the gate's await: an earlier frame of this socket may have changed it.
     const a = ws.deserializeAttachment() as Attachment
     const row = this.boundEntity()
     if (row === null) return ws.close(1011, "unbound")
@@ -639,9 +454,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   }
 
   override async webSocketClose(ws: WebSocket, code: number) {
-    this.heldForCheck.delete(ws)
-    this.frameChains.delete(ws)
-    this.frameDepth.delete(ws)
+    this.gate.closed(ws)
     // 1005/1006 are reserved: they report "no code" and "abnormal" and cannot be sent.
     try {
       ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing")
@@ -654,42 +467,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * the earlier of the drain retry and the owner's next wake.
    */
   override async alarm() {
-    this.sweepExpiredSockets(Date.now())
+    this.gate.sweep(Date.now())
     if (!this.engine) return
-    const outbox = this.engine.outbox
-    // Each channel (PlanetScale projections, or one target object) reads, fails and backs off on
-    // its own, so a dead target cannot stop projections or healthy targets.
-    for (const channel of outbox.dueChannels(Date.now())) {
-      // After a failure a target channel sends its head alone, so a poison item is found by itself.
-      const rows = outbox.pending(channel, channel !== "" && outbox.isolating(channel) ? 1 : 100)
-      if (rows.length === 0) continue
-      try {
-        if (channel === "") {
-          const res = await drainOutbox(this.env, this.engine.stream, rows)
-          outbox.markSent(res.sent, Date.now())
-          // Only the bad row leaves the queue; the rest of the batch committed (home-scale review P1).
-          for (const d of res.dead) {
-            outbox.deadLetter(d.id, Date.now())
-            console.error(JSON.stringify({ msg: "outbox row dead-lettered", stream: this.engine.stream, channel: "planetscale", dead_letter: d.id, error: d.error }))
-          }
-        } else {
-          const batch = groupTargets(rows)[0]!
-          outbox.markSent(batch.superseded, Date.now())
-          const ns = this.targetNamespace(batch.class)
-          if (!ns) throw new Error(`no binding for ${batch.class}`)
-          const stub = ns.get(ns.idFromName(batch.name)) as unknown as { systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> }
-          const res = await stub.systemDeliver(batch.name, this.engine.stream, batch.items)
-          outbox.markSent(res.done, Date.now())
-          if (res.done.length < batch.items.length) throw new Error(`${batch.items.length - res.done.length} items not delivered`)
-        }
-        outbox.succeeded(channel)
-      } catch (e) {
-        const dead = outbox.failed(channel, Date.now(), outboxFailure(channel, e))
-        console.error(JSON.stringify({ msg: "outbox delivery failed", stream: this.engine.stream, channel: channel || "planetscale", error: String(e), ...(dead === null ? {} : { dead_letter: dead }) }))
-      }
-    }
-    const replayed = outbox.replayDead(Date.now(), { deadBefore: Date.now() - DEAD_REPLAY_MS })
-    if (replayed > 0) console.warn(JSON.stringify({ msg: "outbox dead letters replayed", stream: this.engine.stream, count: replayed }))
+    await drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c))
     this.engine.pruneEvents(Date.now() - EVENT_RETENTION_MS)
     // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
     this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)

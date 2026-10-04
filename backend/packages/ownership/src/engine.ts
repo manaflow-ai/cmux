@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto"
+import { claimedPrincipal, settled, stateFull } from "./state-guard.ts"
 import { idFactory } from "./ids.ts"
 import { channelOf, Outbox, type OutboxRow } from "./outbox.ts"
 import { checkWrites, EMPTY_ROWS, readOnly, SqlRows, type RowWrite } from "./rows.ts"
@@ -88,22 +89,6 @@ export const LEDGER_RETENTION_MS = 7 * 24 * 3600_000
  * EVENT_KEEP_LAST always stay. A resume from before the oldest kept event gets
  * a snapshot instead of a replay (`canReplayFrom`).
  */
-/** Largest committed head (one SQLite row; Durable Object rows are at most 2 MB). */
-export const STATE_MAX_BYTES = 1_500_000
-const utf8Length = (text: string): number => {
-  let n = 0
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i)
-    if (c < 0x80) n += 1
-    else if (c < 0x800) n += 2
-    else if (c >= 0xd800 && c <= 0xdbff) {
-      n += 4
-      i++
-    } else n += 3
-  }
-  return n
-}
-
 export const EVENT_RETENTION_MS = 30 * 24 * 3600_000
 export const EVENT_KEEP_LAST = 10_000
 
@@ -268,17 +253,10 @@ export class OwnerEngine<S, P = unknown> {
         : { ok: false, frame: reject(r.code, r.message, r) }
     }
 
-    // The head is one SQLite row (at most 2 MB): a commit that would pass STATE_MAX_BYTES is a typed,
-    // retryable refusal (owner.state_full) instead of an SQLite error that fails every later commit.
-    let stateJson: string | undefined
-    if (decision.ok && decision.changed) {
-      stateJson = JSON.stringify(decision.state)
-      const bytes = utf8Length(stateJson)
-      if (bytes > STATE_MAX_BYTES) {
-        console.error(JSON.stringify({ msg: "owner state full", stream: this.stream, op: frame.op, bytes }))
-        decision = { ok: false, frame: reject("owner.state_full", `the owner's state would be ${bytes} bytes (limit ${STATE_MAX_BYTES})`, { retryable: true }) }
-      }
-    }
+    // The head is one SQLite row (2 MB): past STATE_MAX_BYTES the commit is a retryable owner.state_full (state-guard.ts).
+    const stateJson = decision.ok && decision.changed ? JSON.stringify(decision.state) : undefined
+    const full = stateJson === undefined ? undefined : stateFull(stateJson, this.stream, frame.op)
+    if (full) decision = { ok: false, frame: reject("owner.state_full", full, { retryable: true }) }
 
     // 4. Commit (state, rows, ledger, events, outbox) in one transaction, then publish.
     const changed = decision.ok && decision.changed
@@ -518,10 +496,3 @@ export class OwnerEngine<S, P = unknown> {
   }
 }
 
-const settled = (stream: string, tx: string, key: string, sequence: number, ok: boolean): SettledFrame => ({ t: "request-settled", tx, idempotency_key: key, stream, sequence, ok })
-
-/** The TrustClaimedOwner mutant: identity taken from the request body. */
-const claimedPrincipal = (p: Principal, params: unknown): Principal => {
-  const claimed = (params as { claimed_identity?: unknown } | null)?.claimed_identity
-  return typeof claimed === "string" ? { ...p, identity: claimed } : p
-}
