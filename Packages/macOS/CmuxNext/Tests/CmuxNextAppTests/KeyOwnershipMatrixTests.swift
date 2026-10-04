@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDaemon
 import CmuxNextTerminal
 import Testing
 
@@ -53,6 +54,11 @@ struct KeyOwnershipMatrixTests {
             Surface(name: "terminal copy mode", focus: terminal, facts: KeyOwnershipFacts(terminalCopyMode: true)),
             Surface(name: "page (WebKit)", focus: page),
             Surface(name: "page (Chromium page window)", focus: page),
+            // A Chromium pane's keys reach `CEFTab.keyRouter`, which runs this
+            // same dispatcher for a key `sendEvent` did not decide.
+            Surface(name: "page (Chromium, through CEFTab.keyRouter)", focus: page),
+            Surface(name: "React page (cmux-page://settings/, WebKit)", focus: page),
+            Surface(name: "React page (cmux-page://settings/, Chromium)", focus: page),
             Surface(name: "text field in a page", focus: page),
             Surface(name: "address bar", focus: focused(.browser, tab: "b1", target: .addressBar)),
             Surface(name: "find bar", focus: focused(.browser, tab: "b1", target: .findBar)),
@@ -132,12 +138,37 @@ struct KeyOwnershipMatrixTests {
         #expect(failures.isEmpty, "\(failures.count) wrong owners:\n\(failures.joined(separator: "\n"))")
     }
 
+    /// A React page (`cmux-page://<id>/`: Settings, History, App Store) is
+    /// a web page (`surfaceKind == page`). It gets the keys the dispatcher
+    /// delivers (arrows, Return, Escape, typing) and never handles a Command
+    /// or Control chord itself: chords resolve in the dispatcher.
+    @Test func reactPageGetsNavigationKeysAndChordsResolveInTheDispatcher() throws {
+        let services = Self.services()
+        let reactPage = Surface(name: "React page (cmux-page://settings/)", focus: Self.page)
+        let up = String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        let down = String(UnicodeScalar(NSDownArrowFunctionKey)!)
+        let delivered: [(String, NSEvent)] = [
+            ("up", try K.key(up, keyCode: 126, [.function, .numericPad])),
+            ("down", try K.key(down, keyCode: 125, [.function, .numericPad])),
+            ("return", try K.key("\r", keyCode: 36, [])),
+            ("escape", try K.key("\u{1b}", keyCode: 53, [])),
+            ("typing", try K.key("a", keyCode: 0, [])),
+        ]
+        for (name, event) in delivered {
+            #expect(Self.owner(services, event, reactPage) == .surface, "\(name)")
+        }
+        #expect(Self.owner(services, try K.key("p", keyCode: 35, [.command, .shift]), reactPage) == .action("commandPalette"))
+        #expect(Self.owner(services, try K.key("w", keyCode: 13, [.command]), reactPage) == .action("closeTab"))
+        #expect(Self.owner(services, try K.key("\t", keyCode: 48, [.control]), reactPage) == .action("nextSurface"))
+    }
+
     /// The registry decides with the focus of the window the key goes to,
     /// never with the process-wide context another window published: Cmd-R
     /// in a page is Reload even while the global context still says
     /// terminal (focus.md R10).
     @Test func resolutionUsesTheKeyWindowsFocusNotTheGlobalContext() throws {
         let services = Self.services()
+        for id: ActionID in ["browserReload", "renameTab"] { services.registry.bind(id, invoke: { _ in }) }
         services.registry.context = [.terminalFocused]
         let reload = try K.key("r", keyCode: 15, [.command])
         #expect(services.keyRouter.candidate(for: reload, focus: Self.page)?.id == "browserReload")
@@ -201,22 +232,17 @@ struct KeyOwnershipMatrixTests {
         return bits
     }
 
-    /// The owner the key router gives `event` in `surface`.
+    /// The owner the key dispatcher gives `event` in `surface`.
     static func owner(_ services: AppServices, _ event: NSEvent, _ surface: Surface) -> KeyOwner {
-        guard surface.window == .content else { return .panel }
-        let router = services.keyRouter!
-        // What the window's focus coordinator publishes.
-        services.registry.context = contextBits(surface.focus, base: services.registry.context)
-        if let candidate = router.candidate(for: event, focus: surface.focus) {
-            // Tiers 0 and 1: the app-wide interceptor.
-            if KeyRouter.intercepts(candidate, focus: surface.focus, keyWindow: surface.window) { return .action(candidate.id) }
-            // Tier 2: the window or Chromium hook.
-            if candidate.tier == .content, KeyRouter.allows(.content, id: candidate.id, focus: surface.focus) { return .action(candidate.id) }
+        let facts = KeyRouter.Facts(terminalCopyMode: surface.facts.terminalCopyMode)
+        switch services.keyRouter.decide(event, focus: surface.focus, keyWindow: surface.window, facts: facts) {
+        case .run(let candidate): return .action(candidate.id)
+        case .deliver: return .surface
+        case .consume: return .consumed
+        case .panel: return .panel
         }
-        if router.consumesBrowserOnlyChord(event, focus: surface.focus) { return .consumed }
-        return .surface
     }
 
-    /// The tab kind a Home conversation tab has in the focus topology today.
-    static var homeKind: FocusTopology.Kind { .other }
+    /// The tab kind a Home conversation tab has in the focus topology.
+    static var homeKind: FocusTopology.Kind { .of(.conversation, isFrontendOwned: false) }
 }

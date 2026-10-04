@@ -1,6 +1,7 @@
 # Keybindings: key ordering, binding table and customization
 
-Status: step 1 (map and root cause) written 2026-10-03 at `feat-cmux-next` 0e15d7d4059.
+Status: step 1 (map and root cause) written 2026-10-03 at `feat-cmux-next` 0e15d7d4059;
+step 2 (one dispatcher, binding table, Ctrl-Tab fix) implemented the same day.
 Spec: cmux-next-spec `spec/keybindings-and-palette.md` (R59). Scope: one key dispatcher,
 a binding table with `when` clauses, then the customization slices. Default bindings do
 not change (K1). Paths are under `Packages/macOS/CmuxNext/Sources/` unless noted.
@@ -138,6 +139,37 @@ spec section 2.
 
 `WhenClause` (pure): `!`, `&&`, `||`, `==`, `!=`, `=~`, `in`, parentheses over context
 keys. The AST lands with the fix; the text grammar is the next slice.
+
+### 4.1 As built (step 2)
+
+- `KeyRouter.interceptKeyDown` is the dispatcher; `KeyRouter.decide(_:focus:keyWindow:facts:)`
+  is its pure decision (`run`, `deliver`, `consume`, `panel`) that tests call.
+- `RegistryKeyBindings.table` builds the table (cached with the shortcut index);
+  `KeyBindingDefaults` holds the tab-switch entries; `KeyRouter.keyContext(for:appContext:facts:)`
+  builds the context keys; `ActionInvocation.keyContext` carries the key window's bits into
+  `perform`, so availability is checked against that window.
+- A Chromium pane's keys also reach Chromium's pre-key hook (`CEFTab.keyRouter` ->
+  `KeyRouter.browserTab(_:keyEquivalent:)`). A key the dispatcher decided in `sendEvent`
+  goes to the page there; a key that reached Chromium without passing `sendEvent` runs
+  the whole dispatcher in the hook (same order). The window hook runs content actions
+  only for a key the dispatcher never saw (a synthetic event). `KeyRouter.decided` is a
+  weak set of decided events; the menu gate refuses every registry menu item for one.
+- The popup Cmd-W step is a window-kind rule: in a browser popup (`windowKind ==
+  browserPopup`) a key whose binding is a close action closes the popup.
+- Home conversation tabs are `FocusTopology.Kind.conversation` and resolve to
+  `.conversation(pane:tab:)` (the Home lead's 8ae1c9c1914; the applier gives the message
+  box the keyboard); the context key is `surfaceKind == home`.
+- Removed: `BrowserChordTable.tabNavigation` (now default entries), the popup key step,
+  the `chordMismatch` slot (a decided event is never re-run).
+
+### 4.2 Pages and the dispatcher (coordinator, 2026-10-03)
+
+A page (a React page at `cmux-page://<id>/`: Settings, History, App Store; any web page)
+handles only the keys the dispatcher delivers to it: plain navigation (arrows, Return),
+typing, and Escape when no binding resolves. A page never handles a Command or Control
+chord itself; chords resolve in the dispatcher, and a chord no binding claims reaches
+WebKit or Chromium (editing chords through the Edit menu). Test:
+`KeyOwnershipMatrixTests.reactPageGetsNavigationKeysAndChordsResolveInTheDispatcher`.
 
 ## 5. Ctrl-Tab after the fix
 
