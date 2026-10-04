@@ -1628,7 +1628,7 @@ function AcpmuxPane() {
           setMode: (modeId) => client.setMode(modeId),
           setConfig: (configId, value) => client.setConfig(configId, value),
           discard: (sessionId) => client.discard(sessionId),
-          prewarm: (harness) => client.prewarm(harness),
+          prewarm: (harness, cwd) => client.prewarm(harness, cwd),
         };
         harnessSwitch.setHandlers({
           restore: restorePrompt,
