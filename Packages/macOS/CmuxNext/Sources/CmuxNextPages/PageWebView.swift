@@ -37,12 +37,35 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Nil when the page is missing from the resource bundle.
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil) {
-        guard let root = PageSchemeHandler.bundledRoot(for: descriptor) else { return nil }
+        guard let root = Self.debugRoot(for: descriptor) ?? PageSchemeHandler.bundledRoot(for: descriptor) else { return nil }
         self.init(descriptor: descriptor, root: root, routes: routes, route: route)
     }
 
-    /// `root` is the directory that holds the page's `index.html` (tests pass their own).
-    public init(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil) {
+    /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
+    nonisolated static func debugRoot(for descriptor: PageDescriptor) -> URL? {
+        #if DEBUG
+        let name = "CMUX_NEXT_PAGE_ROOT_" + descriptor.id.replacingOccurrences(of: ".", with: "_")
+        return ProcessInfo.processInfo.environment[name].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        #else
+        return nil
+        #endif
+    }
+
+    /// Whether `descriptor` may be served from `root`: any root for an app page; for a first-party
+    /// page only its bundled root or its DEBUG override.
+    nonisolated static func mayServe(_ descriptor: PageDescriptor, from root: URL) -> Bool {
+        guard PageID.isReserved(descriptor.id) else { return true }
+        let wanted = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let allowed = [PageSchemeHandler.bundledRoot(for: descriptor), debugRoot(for: descriptor)].compactMap { $0 }
+        return allowed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == wanted }
+    }
+
+    /// `root` is the directory that holds the page's `index.html`. A first-party page (``PageID``)
+    /// is served only from its bundled root, so nothing else can be served under a first-party
+    /// origin; DEBUG builds may point one at another root (`CMUX_NEXT_PAGE_ROOT_<id>`, dots as
+    /// underscores) for the page dev loop. Nil when that check fails.
+    public init?(descriptor: PageDescriptor, root: URL, routes: [PageRoute], route: String? = nil) {
+        guard Self.mayServe(descriptor, from: root) else { return nil }
         self.descriptor = descriptor
         router = PageRouter(descriptor: descriptor, routes: routes)
         let configuration = WKWebViewConfiguration()
