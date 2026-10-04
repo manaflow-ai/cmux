@@ -1,19 +1,39 @@
 name: cmux-next web bundles
 
-# feat-cmux-next takes direct pushes, so ci-web.yml's PR checks never run there.
-# This backstop rebuilds the committed web bundles on every push that touches them.
-# safe-push.sh runs the same checks before the push.
+# Committed generated web output (the page strings, the React pages bundle, the webviews app, the
+# agent pane, Agent Activity) must match its sources. Pull requests into feat-cmux-next run the
+# same checks as safe-push.sh before a direct push (#17241 merged stale Settings strings because
+# only pushes ran a subset); pushes keep the backstop.
 on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - "webviews/**"
+      - "schemas/settings/**"
+      - "Resources/markdown-viewer/webviews-app/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/**"
+      - "scripts/build-webviews-app.sh"
+      - "scripts/cmux-next/build-agent-pane-web.sh"
+      - "scripts/cmux-next/build-agent-activity-web.sh"
+      - "scripts/cmux-next/build-pages-web.sh"
+      - "scripts/cmux-next/check-web-bundles.sh"
+      - ".github/workflows/cmux-next-web-bundles.yml"
   push:
     branches: [feat-cmux-next]
     paths:
       - "webviews/**"
+      - "schemas/settings/**"
       - "Resources/markdown-viewer/webviews-app/**"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/**"
       - "scripts/build-webviews-app.sh"
       - "scripts/cmux-next/build-agent-pane-web.sh"
       - "scripts/cmux-next/build-agent-activity-web.sh"
+      - "scripts/cmux-next/build-pages-web.sh"
+      - "scripts/cmux-next/check-web-bundles.sh"
       - ".github/workflows/cmux-next-web-bundles.yml"
 
 permissions:
@@ -44,14 +64,8 @@ jobs:
         with:
           node-version: "24.11.1"
 
-      - name: Verify generated webviews assets
-        run: ./scripts/build-webviews-app.sh --check
-
-      - name: Verify generated cmux-next agent pane
-        run: ./scripts/cmux-next/build-agent-pane-web.sh --check
-
-      - name: Verify generated cmux-next Agent Activity
-        run: ./scripts/cmux-next/build-agent-activity-web.sh --check
+      - name: Verify generated page strings and web bundles
+        run: ./scripts/cmux-next/check-web-bundles.sh
 
   # Signal only for now (the coordinator's call): `vp check` and the full
   # webviews test suite. Make them blocking (drop continue-on-error) once both

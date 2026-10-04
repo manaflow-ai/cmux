@@ -490,6 +490,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_package_lane_suite.py
 
+      - name: Validate the cmux-next web bundle checks on pull requests
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_cmux_next_web_bundle_checks.py
+
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_workflow_run_sources.py

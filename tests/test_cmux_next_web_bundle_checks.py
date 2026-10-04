@@ -42,7 +42,7 @@ def fixture(stale: str | None) -> tuple[Path, Path]:
         path.parent.mkdir(parents=True, exist_ok=True)
         status = 1 if check == stale else 0
         if check.endswith(".mjs"):
-            path.write_text(f"require('fs').appendFileSync({str(log)!r}, `{check} ${{process.argv.slice(2).join(' ')}} cwd=${{process.cwd()}}\\n`); process.exit({status});\n")
+            path.write_text(f"import fs from 'node:fs';\nfs.appendFileSync({str(log)!r}, `{check} ${{process.argv.slice(2).join(' ')}} cwd=${{process.cwd()}}\\n`);\nprocess.exit({status});\n")
         else:
             path.write_text(f"#!/bin/sh\necho \"{check} $* cwd=$(pwd)\" >> {log}\nexit {status}\n")
             path.chmod(0o755)
