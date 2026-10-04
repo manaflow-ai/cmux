@@ -77,22 +77,6 @@ final class KeyRouter: BrowserKeyRouting {
         return allows(tier, focus: focus)
     }
 
-    /// Page actions a browser's own chrome runs (Chrome and Safari run
-    /// them from the omnibox and the find bar): none of their chords is a
-    /// text-editing chord, so the field loses nothing.
-    nonisolated static let browserChromeActions: Set<ActionID> = [
-        "browserBack", "browserForward", "browserReload", "browserHardReload", "browserShowHistory", "browser.copyURL",
-        "browser.findPrevious",
-    ]
-
-    /// The address bar or the find bar of a browser tab has the keyboard.
-    nonisolated static func isBrowserChromeField(_ resolved: FocusState.Resolved) -> Bool {
-        switch resolved {
-        case .addressBar, .findBar: true
-        default: false
-        }
-    }
-
     /// The actions DevTools runs itself before its frontend sees the key.
     nonisolated static let devToolsActions: Set<ActionID> = ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole",
                                                              "inspectBrowserElement"]
