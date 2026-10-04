@@ -307,9 +307,16 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
   leaves the hour). Reach lookups are capped at 64 targets per op after the gate (TeamDO checks
   the cap too). `dm.open` with a user peer spends the `conversation.create` budget.
   All of an owner's chiefs together also share a total of 3x the per-actor limit per hour (180
-  and 360), so archiving and creating chiefs mints no fresh budget.
-  A retry of a key already decided in the target conversation replays its stored result even
-  when the budget is spent (checked only after a refusal).
+  and 360): every `agent_` actor counted in the owner's UserDO counts toward it, and the owner's
+  own budget is separate, so archiving and creating chiefs mints no fresh budget.
+  After a refusal, a retry of a key already decided in the target conversation goes straight to
+  the owner with the plain principal (no reach RPC): its stored result, or `idempotency.conflict`
+  for other params. A refused `dm.open` with a user peer still reopens the caller's existing DM
+  (inbox peer index, no charge). A caller whose UserDO never served them (no `user.ensure`) gets
+  `home.user_not_ready`, not retryable. A create the owner refuses (reach, policy) opens an empty
+  ConversationDO: the refusal is decided on the initial state and writes no storage or ledger.
+  Open follow-up: `conversation.import` with a new `local_id` and `dm.open` with an address peer
+  have no Worker budget yet (only the per-network limits below).
 - Per network: Cloudflare rate limiting on `invite.create`, `dm.open` with an address, and
   `invite.preview`: 30 per minute per IP.
 - Content: inviter text appears in the invite only for trusted inviters (verified email, account

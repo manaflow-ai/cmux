@@ -1,5 +1,5 @@
 import { env, exports } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import type { PushTarget } from "@cmux/protocol"
 import { importJWK, SignJWT, type JWK } from "jose"
@@ -343,13 +343,16 @@ describe("Home push: UserDO decides from each inbox.bump", () => {
 
   it("a throwing Home push drain does not skip the socket-close flush or the KRL notices, and the next wake is still scheduled", async () => {
     const { user, stub } = await pushUser("home-push-wake-isolation")
-    // A queued push (delivered, not drained) keeps the object's next wake due.
-    expect((await stub.systemDeliver(user, "conv:test", [bump(user, convId())])).done).toHaveLength(1)
-    type WakeSteps = { flushCloses(now: number): Promise<void>; deliverKrlNotices(now: number): Promise<void>; drainHomePush(now: number): Promise<void>; alarm(): Promise<void> }
+    // Fire any alarm the runtime still has pending first, so none is due while the steps are patched.
+    await runDurableObjectAlarm(stub)
+    type WakeSteps = { flushCloses(now: number): Promise<void>; deliverKrlNotices(now: number): Promise<void>; drainHomePush(now: number): Promise<void>; alarm(): Promise<void>; systemDeliver: UserStub["systemDeliver"] }
     const ran: Array<string> = []
     let alarm: number | null = 0
     await runInDurableObject(stub, async (instance: unknown, state: DurableObjectState) => {
       const o = instance as WakeSteps
+      // A queued push (delivered, not drained) keeps the object's next wake due; its alarm is removed at once.
+      expect((await o.systemDeliver(user, "conv:test", [bump(user, convId())])).done).toHaveLength(1)
+      await state.storage.deleteAlarm()
       const flush = o.flushCloses.bind(o)
       const krl = o.deliverKrlNotices.bind(o)
       o.flushCloses = async (now) => (ran.push("flushCloses"), flush(now))

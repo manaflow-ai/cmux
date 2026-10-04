@@ -23,7 +23,9 @@ export const isHomeRateOp = (op: string): op is HomeRateOp => Object.hasOwn(HOME
 /**
  * All of an owner's chiefs together get CHIEF_TOTAL_FACTOR times the per-actor limit per hour
  * (180 conversation.create, 360 participants.add), counted under CHIEF_TOTAL_ACTOR besides each
- * chief's own budget. Without it an archive-and-create loop of chiefs would mint fresh budgets.
+ * chief's own budget. Every `agent_` actor counted in the owner's UserDO counts toward it; the
+ * owner's own budget is separate. Without it an archive-and-create loop of chiefs would mint
+ * fresh budgets.
  * 3 lets an owner run three chiefs at full rate at once (a default chief plus two task chiefs is
  * the common case) while capping a chief-driven flood at three humans' worth.
  */
