@@ -117,7 +117,7 @@ export async function runOracleCells(cells) {
     };
     const globals = {
       tabs: {
-        list: async () => Promise.all(context.pages().map(async (p) => ({ id: idOf(p), title: await p.title(), url: p.url(), active: p === s.current, current: p === s.current }))),
+        list: async () => Promise.all(context.pages().map(async (p) => ({ id: idOf(p), title: await p.title(), url: p.url(), active: p === s.current, current: p === s.current, state: "live" }))),
         async open(url, o = {}) {
           const p = await newPage();
           if (url) await p.goto(url);
