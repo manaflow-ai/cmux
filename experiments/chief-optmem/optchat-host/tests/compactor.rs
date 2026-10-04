@@ -244,3 +244,82 @@ fn shutdown_drops_late_results() {
         "{view}"
     );
 }
+
+/// A model that counts its ended conversations.
+struct Ending {
+    replies: Mutex<Vec<Result<Reply, ModelError>>>,
+    calls: AtomicUsize,
+    ended: Mutex<Vec<NodeId>>,
+}
+
+impl Ending {
+    fn new(replies: Vec<Result<Reply, ModelError>>) -> Ending {
+        Ending {
+            replies: Mutex::new(replies),
+            calls: AtomicUsize::new(0),
+            ended: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl CompactModel for Ending {
+    fn call(&self, _: &CompactRequest, _: &[Followup]) -> Result<Reply, ModelError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.replies.lock().unwrap().remove(0)
+    }
+    fn end(&self, request: &CompactRequest) {
+        self.ended.lock().unwrap().push(request.node);
+    }
+}
+
+fn node_request(step: &str) -> CompactRequest {
+    CompactRequest {
+        node: NodeId::new(0, 4),
+        system: "SYS".into(),
+        context: "<chat>\n</chat>".into(),
+        step: step.into(),
+        cut: None,
+    }
+}
+
+/// The acpmux route keeps one session per node across the size loop and
+/// kills it when the node is done or failed: `run_node` ends the
+/// conversation exactly once, whatever the outcome.
+#[test]
+fn run_node_ends_the_conversation_once_on_every_outcome() {
+    let long = "x".repeat(700);
+    let model = Ending::new(vec![Ok(Reply::text(long)), Ok(Reply::text("short line"))]);
+    assert_eq!(run_node(&model, &node_request("S")).unwrap(), "short line");
+    assert_eq!(model.calls.load(Ordering::SeqCst), 2, "one size-loop retry");
+    assert_eq!(*model.ended.lock().unwrap(), vec![NodeId::new(0, 4)]);
+
+    let model = Ending::new(vec![Err(ModelError::new("HTTP 429"))]);
+    assert!(run_node(&model, &node_request("S")).is_err());
+    assert_eq!(model.ended.lock().unwrap().len(), 1, "a failed node is ended too");
+
+    let model = Ending::new(vec![Ok(Reply::text("   "))]);
+    assert!(run_node(&model, &node_request("S")).is_err());
+    assert_eq!(model.ended.lock().unwrap().len(), 1, "an empty reply is ended too");
+}
+
+#[test]
+fn a_cut_request_line_starts_with_the_cut() {
+    let model = Ending::new(vec![Ok(Reply::text("user: a long log"))]);
+    let request = CompactRequest {
+        cut: Some("(cut: 10 of 20 characters not shown) ".into()),
+        ..node_request("S")
+    };
+    assert_eq!(
+        run_node(&model, &request).unwrap(),
+        "(cut: 10 of 20 characters not shown) user: a long log"
+    );
+}
+
+#[test]
+fn the_probe_builds_one_node_and_ends_it() {
+    let model = Ending::new(vec![Ok(Reply::text("user: ping"))]);
+    assert_eq!(probe(&model, "SYS").unwrap(), "user: ping");
+    assert_eq!(*model.ended.lock().unwrap(), vec![PROBE_NODE]);
+    let failing = Ending::new(vec![Err(ModelError::new("HTTP 429: rate_limit_error"))]);
+    assert!(probe(&failing, "SYS").unwrap_err().message.contains("429"));
+}

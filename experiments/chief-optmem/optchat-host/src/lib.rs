@@ -20,6 +20,7 @@ pub use anthropic::{AnthropicModel, AGENT_HEADER};
 pub use cap::cap_tool_result;
 pub use chat::{Cancel, Error, Failure, OptChat, Status};
 pub use clock::{Clock, ManualClock, SystemClock};
+pub use compactor::{probe, run_node, PROBE_NODE};
 pub use config::{
     api_key, Config, API_KEY_ENV, BASE_URL_ENV, DEFAULT_BASE_URL, DEFAULT_FALLBACK_MODEL,
     DEFAULT_MODEL, SUBROUTER_KEY,

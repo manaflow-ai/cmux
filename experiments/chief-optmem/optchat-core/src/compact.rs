@@ -146,6 +146,10 @@ pub struct CompactRequest {
     pub context: String,
     /// The SCALE line and the step: the message whole, or the two lines.
     pub step: String,
+    /// For a message longer than `STEP_MESSAGE` characters: what the line
+    /// starts with, saying how much of the message the call did not show
+    /// (`finish_line` puts it there). None: the step holds it whole.
+    pub cut: Option<String>,
 }
 
 fn flatten(text: &str) -> String {
@@ -193,7 +197,14 @@ pub fn compact_request(
         system,
         context,
         step,
+        cut: None,
     }
+}
+
+/// The node text for an accepted reply: `request.cut` first, when the call
+/// showed only part of its message.
+pub fn finish_line(_request: &CompactRequest, line: &str) -> String {
+    line.to_string()
 }
 
 /// What to do with the model's latest reply (section 4.3).

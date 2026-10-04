@@ -171,6 +171,7 @@ fn a_turn_over_the_acpmux_wire() {
             harness: "claude-sr".into(),
             policy: "approve-all".into(),
             model: None,
+            effort: None,
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,

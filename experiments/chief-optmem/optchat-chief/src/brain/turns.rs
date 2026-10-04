@@ -169,6 +169,7 @@ impl Brain {
                 harness: self.settings.harness.clone(),
                 policy: self.settings.policy.clone(),
                 model: self.settings.model.clone(),
+                effort: None,
             },
             blocks: turn_blocks(&view.text, &texts),
             key,

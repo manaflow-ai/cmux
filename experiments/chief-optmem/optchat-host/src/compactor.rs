@@ -186,3 +186,13 @@ pub fn run_node(model: &dyn CompactModel, request: &CompactRequest) -> Result<St
         }
     }
 }
+
+/// The node a start-up probe asks for; no tree reaches level 63.
+pub const PROBE_NODE: NodeId = NodeId::new(63, 0);
+
+/// Builds one tiny node through `model`, as the compactor would (one
+/// conversation, the size loop, `end`), so a host can say at start that its
+/// compactor cannot build anything instead of every turn waiting silently.
+pub fn probe(_model: &dyn CompactModel, _system: &str) -> Result<String, ModelError> {
+    Err(ModelError::new("probe is not implemented"))
+}

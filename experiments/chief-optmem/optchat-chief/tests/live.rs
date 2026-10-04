@@ -34,6 +34,7 @@ fn start(chat: &optchat_host::OptChat, n: u64, text: &str) -> TurnStart {
             harness: String::new(),
             policy: String::new(),
             model: None,
+            effort: None,
         },
         blocks: turn_blocks(&view.text, &[text.to_owned()]),
         limit: Some(Duration::from_secs(600)),

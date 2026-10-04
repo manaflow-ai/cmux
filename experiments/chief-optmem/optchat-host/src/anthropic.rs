@@ -167,6 +167,7 @@ mod tests {
             system: "SYS".into(),
             context: "<chat>\n</chat>".into(),
             step: "STEP".into(),
+            cut: None,
         }
     }
 

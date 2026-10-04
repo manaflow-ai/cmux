@@ -72,4 +72,9 @@ pub trait CompactModel: Send + Sync {
     /// one user message of the context and step blocks), then each followup's
     /// reply and retry text, oldest first. No tools.
     fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError>;
+
+    /// The node's conversation is over (built, or failed until its retry):
+    /// a model that keeps a conversation open between calls (an acpmux
+    /// session) closes it here. Called once per `run_node`.
+    fn end(&self, _request: &CompactRequest) {}
 }

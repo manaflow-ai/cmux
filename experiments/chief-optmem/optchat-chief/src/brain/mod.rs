@@ -67,6 +67,10 @@ pub enum Input {
         key: String,
         outcome: TurnOutcome,
     },
+    /// Something the user must hear once (the compactor cannot build a
+    /// node): posted in the Chief conversation, with `key` as its
+    /// idempotency key, as soon as the conversation is known.
+    Notice { key: String, text: String },
 }
 
 impl From<DaemonEvent> for Input {
@@ -311,6 +315,7 @@ impl Brain {
                 let _ = reply.send(texts);
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
+            Input::Notice { .. } => {}
         }
     }
 

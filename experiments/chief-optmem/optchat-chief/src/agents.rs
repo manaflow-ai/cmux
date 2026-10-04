@@ -169,6 +169,7 @@ pub fn run(flags: &Flags) -> Result<String, String> {
                             .or_else(|| env("MUX_POLICY"))
                             .unwrap_or_else(|| "approve-all".into()),
                         model: flags.value("model").map(str::to_owned),
+                        effort: None,
                     },
                     None,
                 )?,

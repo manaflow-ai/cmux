@@ -16,7 +16,7 @@ mod node;
 mod render;
 
 pub use compact::{
-    compact_request, cut_at_bytes, size_check, CompactPrompt, CompactRequest, SizeCheck,
+    compact_request, cut_at_bytes, finish_line, size_check, CompactPrompt, CompactRequest, SizeCheck,
     CMUX_PROMPT_ADDITIONS, SCALE, TAELIN_PROMPT,
 };
 pub use memory::{Memory, Store, Work};
@@ -33,6 +33,10 @@ pub const JOBS: usize = 8;
 pub const TRIES: usize = 5;
 /// Largest tool result logged, in characters; head and tail are kept (section 7).
 pub const CAP: usize = 30_000;
+/// Longest message a compactor call shows whole, in characters; a longer
+/// one (a huge paste or tool input) shows its head and tail only, in that
+/// call alone, so it fits the compactor model's context. The log keeps it whole.
+pub const STEP_MESSAGE: usize = 200_000;
 /// Cache breakpoints inside the rendered view, in characters (section 8).
 pub const MARKS: [usize; 3] = [50_000, 80_000, 100_000];
 /// What an unbuilt view line shows; no model call ever sees it (section 6).

@@ -486,3 +486,45 @@ fn a_failed_read_builds_and_starts_nothing() {
         text: "user: second".into()
     }));
 }
+
+/// Audit round 2: a paste or tool input larger than the compactor model's
+/// context failed its node on every try, and under rule 3 every later
+/// level-0 node and every turn waited forever. The call shows the head and
+/// tail only (the log keeps the message whole), and the line says so.
+#[test]
+fn a_huge_message_is_cut_for_its_summary_call_only_and_the_line_says_so() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    let total = STEP_MESSAGE * 3;
+    let huge = format!("HEAD{}TAIL", "é".repeat(total - 8));
+    store.push(Kind::User, huge.clone());
+    memory.append();
+    let request = compact_request(
+        &memory,
+        &store,
+        NodeId::new(0, 0),
+        CompactPrompt::default().text("Chief"),
+    );
+    assert_eq!(store.message(0).1, huge, "the log keeps the message whole");
+    assert!(
+        request.step.chars().count() < STEP_MESSAGE + 2_000,
+        "the call shows at most STEP_MESSAGE characters of it"
+    );
+    assert!(request.step.contains("user: HEAD") && request.step.ends_with("TAIL"));
+    let cut = total - STEP_MESSAGE;
+    let prefix = request.cut.clone().expect("the request says it is cut");
+    assert!(prefix.contains(&cut.to_string()) && prefix.contains(&total.to_string()));
+    assert!(request.step.contains(&prefix), "the model is told the line's start");
+    let line = finish_line(&request, "user: pasted a long log");
+    assert_eq!(line, format!("{prefix}user: pasted a long log"));
+    assert_eq!(finish_line(&request, &line), line, "never twice");
+    // A message that fits is shown whole and its line is the model's own.
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    store.push(Kind::Tool, "w".repeat(STEP_MESSAGE));
+    memory.append();
+    let whole = compact_request(&memory, &store, NodeId::new(0, 0), String::new());
+    assert_eq!(whole.cut, None);
+    assert!(whole.step.ends_with(&"w".repeat(STEP_MESSAGE)));
+    assert_eq!(finish_line(&whole, "tool: x"), "tool: x");
+}

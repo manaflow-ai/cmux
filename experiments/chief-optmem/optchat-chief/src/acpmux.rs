@@ -22,6 +22,8 @@ pub struct SessionSpec {
     pub harness: String,
     pub policy: String,
     pub model: Option<String>,
+    /// acpmux's `effort` (a harness config option); None: the harness default.
+    pub effort: Option<String>,
 }
 
 /// What a running turn hears about its session.
@@ -325,6 +327,9 @@ pub fn new_session(
     let mut meta = json!({"name": spec.name, "harness": spec.harness, "policy": spec.policy});
     if let Some(model) = &spec.model {
         meta["model"] = json!(model);
+    }
+    if let Some(effort) = &spec.effort {
+        meta["effort"] = json!(effort);
     }
     if let Some(preset) = preset {
         meta["preset"] = json!(preset);
