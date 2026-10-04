@@ -344,7 +344,9 @@ fn deflate(raw: &[u8]) -> Vec<u8> {
         flate2::Compression::new(1),
     );
     // Writing to a Vec cannot fail.
+    // crash-allow: DEFLATE writes into an in-memory Vec<u8>, which never fails
     encoder.write_all(raw).expect("deflate into memory");
+    // crash-allow: DEFLATE writes into an in-memory Vec<u8>, which never fails
     encoder.finish().expect("deflate into memory")
 }
 
