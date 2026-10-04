@@ -433,7 +433,8 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// (``Swift/Dictionary/redactingBrowserReplCredentials()``).
     public func downloadDelivery(startedBy: String?) -> BrowserReplNetworkRecipient? {
         guard let recipient = downloadRecipient(startedBy: startedBy) else { return nil }
-        return BrowserReplNetworkRecipient(sessionID: recipient, seesCredentials: true)
+        let creator = isSessionOwned ? creatorSessionID : nil
+        return BrowserReplNetworkRecipient(sessionID: recipient, seesCredentials: recipient == creator)
     }
 
     /// Parses `tab.handleEvents` names.

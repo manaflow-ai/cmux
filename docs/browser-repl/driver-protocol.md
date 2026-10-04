@@ -251,7 +251,7 @@ Every event carries `targetId`.
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
 | `dialog.opened` | `{ dialogId, type: "alert"\|"confirm"\|"prompt"\|"beforeunload", message, defaultValue, dismissedDuring? }` (stays open until `dialog.respond`; with `dismissedDuring: "copy"\|"cut"\|"paste"` it opened during that clipboard command and is already dismissed) |
 | `filechooser.opened` | `{ chooserId, frameId, element, multiple }` (the native panel is not shown; see `tab.handleEvents` for which tabs send it) |
-| `download.started` | `{ downloadId, url, suggestedFilename }` |
+| `download.started` | `{ downloadId, url, suggestedFilename }`. Only the tab's creating session gets `url` as written; a session that gets a download in a user's tab (its own input started it) gets it with the userinfo and credential-named query and fragment parameters reading `redacted`, as in network events |
 | `download.finished` | `{ downloadId, path?, error? }` |
 | `console` | `{ type, text, args?, location? }` |
 | `pageerror` | `{ message, stack }` |
