@@ -12,7 +12,7 @@
         "$ref": "#/types/HelloResult"
       },
       "name": "com.example.hello.greet.ticks",
-      "scope": "com.example.hello:use"
+      "scope": "hello:read"
     }
   ],
   "interfaces": [
@@ -50,6 +50,7 @@
       "errors": [
         "cmux.git.not_a_repo"
       ],
+      "gesture": false,
       "kind": "read",
       "mcp": {
         "expose": "default",
@@ -66,7 +67,9 @@
       "result": {
         "$ref": "#/types/GitStatus"
       },
+      "risk": "read",
       "scope": "git:read",
+      "scope_class": "standard",
       "secret_output": false
     },
     {
@@ -81,6 +84,7 @@
         "cmux.git.not_a_repo",
         "cmux.git.bad_ref"
       ],
+      "gesture": false,
       "kind": "read",
       "mcp": {
         "expose": "default",
@@ -97,13 +101,16 @@
       "result": {
         "$ref": "#/types/GitDiff"
       },
+      "risk": "read",
       "scope": "git:read",
+      "scope_class": "standard",
       "secret_output": false
     },
     {
       "errors": [
         "cmux.router.refused"
       ],
+      "gesture": false,
       "kind": "mutation",
       "mcp": {
         "expose": "never"
@@ -117,13 +124,16 @@
       "result": {
         "$ref": "#/types/ProviderWelcome"
       },
-      "scope": "router:provide",
+      "risk": "mutate-shared",
+      "scope": "router:control",
+      "scope_class": "sensitive",
       "secret_output": false
     },
     {
       "errors": [
         "cmux.router.no_provider"
       ],
+      "gesture": false,
       "kind": "read",
       "mcp": {
         "expose": "never"
@@ -137,11 +147,14 @@
       "result": {
         "$ref": "#/types/ResolveResult"
       },
-      "scope": "router:use",
+      "risk": "read",
+      "scope": "router:read",
+      "scope_class": "standard",
       "secret_output": false
     },
     {
       "errors": [],
+      "gesture": false,
       "kind": "mutation",
       "mcp": {
         "expose": "never"
@@ -155,11 +168,14 @@
       "result": {
         "$ref": "#/types/TokenRefreshResult"
       },
-      "scope": "router:use",
+      "risk": "mutate-own",
+      "scope": "router:write",
+      "scope_class": "sensitive",
       "secret_output": false
     },
     {
       "errors": [],
+      "gesture": false,
       "kind": "read",
       "mcp": {
         "expose": "never"
@@ -173,11 +189,14 @@
       "result": {
         "$ref": "#/types/InterfacesListResult"
       },
-      "scope": "router:use",
+      "risk": "read",
+      "scope": "router:read",
+      "scope_class": "standard",
       "secret_output": false
     },
     {
       "errors": [],
+      "gesture": false,
       "kind": "read",
       "mcp": {
         "expose": "never"
@@ -191,11 +210,14 @@
       "result": {
         "$ref": "#/types/PagesListResult"
       },
-      "scope": "router:use",
+      "risk": "read",
+      "scope": "router:read",
+      "scope_class": "standard",
       "secret_output": false
     },
     {
       "errors": [],
+      "gesture": false,
       "kind": "read",
       "mcp": {
         "expose": "never"
@@ -209,7 +231,9 @@
       "result": {
         "$ref": "#/types/HelloResult"
       },
-      "scope": "com.example.hello:use",
+      "risk": "read",
+      "scope": "hello:read",
+      "scope_class": "standard",
       "secret_output": false
     }
   ],
