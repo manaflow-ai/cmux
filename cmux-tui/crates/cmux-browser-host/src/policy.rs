@@ -195,7 +195,18 @@ const FORBIDDEN_SCHEMES: &[&str] = &[
     "view-source",
     "javascript",
     "chrome-search",
+    "chrome-untrusted",
 ];
+
+/// Schemes of Chromium's own pages (passwords, settings, extensions,
+/// DevTools): an agent may not open them, run script in them or read them.
+const BROWSER_PAGE_SCHEMES: &[&str] =
+    &["chrome", "chrome-extension", "chrome-untrusted", "chrome-search", "devtools", "view-source"];
+
+/// True when `url` is one of Chromium's own pages.
+pub fn is_browser_page(url: &str) -> bool {
+    Url::parse(url.trim()).is_ok_and(|parsed| BROWSER_PAGE_SCHEMES.contains(&parsed.scheme()))
+}
 
 impl Policy {
     pub fn locked(&self) -> bool {

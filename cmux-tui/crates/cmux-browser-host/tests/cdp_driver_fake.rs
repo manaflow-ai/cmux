@@ -787,7 +787,9 @@ fn privileged_tab(h: &Harness) -> String {
     );
     h._conn.receive(&event.to_string());
     for _ in 0..2000 {
-        if h.call("tab.info", json!({"targetId": target}))["url"] == "chrome://password-manager/passwords" {
+        if h.call("tab.info", json!({"targetId": target}))["url"]
+            == "chrome://password-manager/passwords"
+        {
             return target;
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
@@ -813,7 +815,10 @@ fn agents_cannot_navigate_or_open_tabs_to_browser_pages() {
         let error = h.driver.call("tabs.open", &json!({"url": url})).unwrap_err();
         assert_eq!(error.code, ErrorCode::Forbidden, "{url}");
         let sent = h.methods_since(mark);
-        assert!(!sent.iter().any(|m| m == "Page.navigate" || m == "Target.createTarget"), "{url}: {sent:?}");
+        assert!(
+            !sent.iter().any(|m| m == "Page.navigate" || m == "Target.createTarget"),
+            "{url}: {sent:?}"
+        );
     }
 }
 
@@ -823,10 +828,22 @@ fn agents_cannot_run_script_in_or_read_a_browser_page() {
     let target = privileged_tab(&h);
     let mark = h.mark();
     for (method, params) in [
-        ("frame.evaluate", json!({"targetId": target, "world": "main", "source": "() => 1", "args": []})),
-        ("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 1", "args": []})),
-        ("cdp", json!({"targetId": target, "method": "Runtime.evaluate", "params": {"expression": "1"}})),
-        ("cdp", json!({"targetId": target, "method": "Runtime.callFunctionOn", "params": {"functionDeclaration": "() => 1"}})),
+        (
+            "frame.evaluate",
+            json!({"targetId": target, "world": "page", "source": "() => 1", "args": []}),
+        ),
+        (
+            "frame.evaluate",
+            json!({"targetId": target, "world": "agent", "source": "() => 1", "args": []}),
+        ),
+        (
+            "cdp",
+            json!({"targetId": target, "method": "Runtime.evaluate", "params": {"expression": "1"}}),
+        ),
+        (
+            "cdp",
+            json!({"targetId": target, "method": "Runtime.callFunctionOn", "params": {"functionDeclaration": "() => 1"}}),
+        ),
         ("cdp", json!({"targetId": target, "method": "DOM.getDocument", "params": {}})),
         ("frames.list", json!({"targetId": target})),
         ("input.insertText", json!({"targetId": target, "text": "x"})),
@@ -837,12 +854,21 @@ fn agents_cannot_run_script_in_or_read_a_browser_page() {
     }
     let sent = h.methods_since(mark);
     assert!(
-        !sent.iter().any(|m| m.starts_with("Runtime.") || m.starts_with("DOM.") || m.starts_with("Input.") || m == "Page.captureScreenshot"),
+        !sent.iter().any(|m| m.starts_with("Runtime.")
+            || m.starts_with("DOM.")
+            || m.starts_with("Input.")
+            || m == "Page.captureScreenshot"),
         "{sent:?}"
     );
     // Leaving the page stays possible.
     h.call("tab.navigate", json!({"targetId": target, "url": "https://b.test/"}));
-    assert_eq!(h.call("frame.evaluate", json!({"targetId": target, "world": "agent", "source": "() => 1", "args": []})), "ok");
+    assert_eq!(
+        h.call(
+            "frame.evaluate",
+            json!({"targetId": target, "world": "agent", "source": "() => 1", "args": []})
+        ),
+        "ok"
+    );
 }
 
 #[test]
@@ -852,11 +878,16 @@ fn history_never_returns_an_agent_to_a_browser_page() {
     {
         let mut browser = h.wire.browser.lock().unwrap();
         let tab = browser.tabs.get_mut(&target).unwrap();
-        tab.history = vec!["https://a.test/".into(), "chrome://password-manager/passwords".into(), "https://b.test/".into()];
+        tab.history = vec![
+            "https://a.test/".into(),
+            "chrome://password-manager/passwords".into(),
+            "https://b.test/".into(),
+        ];
         tab.index = 2;
     }
     let mark = h.mark();
-    let error = h.driver.call("tab.history", &json!({"targetId": target, "delta": -1})).unwrap_err();
+    let error =
+        h.driver.call("tab.history", &json!({"targetId": target, "delta": -1})).unwrap_err();
     assert_eq!(error.code, ErrorCode::Forbidden);
     assert!(!h.methods_since(mark).iter().any(|m| m == "Page.navigateToHistoryEntry"));
 }
@@ -868,7 +899,10 @@ fn a_redirect_onto_a_browser_page_is_left_and_refused() {
     let mark = h.mark();
     let error = h
         .driver
-        .call("tab.navigate", &json!({"targetId": target, "url": "https://a.test/redirect-to-browser-page"}))
+        .call(
+            "tab.navigate",
+            &json!({"targetId": target, "url": "https://a.test/redirect-to-browser-page"}),
+        )
         .unwrap_err();
     assert_eq!(error.code, ErrorCode::Forbidden);
     let leave = h

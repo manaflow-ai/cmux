@@ -120,6 +120,7 @@ impl CdpDriver {
 impl Driver for CdpDriver {
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
         let inner = &self.inner;
+        inner.browser_page_refusal(method, params)?;
         match method {
             "tabs.list" => Ok(inner.tabs_list()),
             "tabs.open" => inner.tabs_open(params),
