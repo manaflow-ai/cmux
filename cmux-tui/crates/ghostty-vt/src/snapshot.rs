@@ -315,9 +315,11 @@ impl Terminal {
     }
 
     /// The divergence check of a local-history READY: the primary screen's
-    /// history row count and a digest of its last 64 history rows
-    /// (codepoints and wrap flags, no styles). A viewer that reflowed its
-    /// own copy of the history compares both after its reflow.
+    /// history row count and a digest of the 64 history rows directly above
+    /// the READY seam (codepoints and wrap flags, no styles). Call it
+    /// directly after [`Terminal::encode_snapshot`] with no terminal change
+    /// in between. A viewer that reflowed its own copy of the history
+    /// compares both after its reflow.
     ///
     /// Computed by libghostty-vt `ghostty_terminal_history_digest` (digest
     /// version [`HISTORY_DIGEST_VERSION`]). `None` when it fails; the caller

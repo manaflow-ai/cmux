@@ -381,8 +381,11 @@ impl PtySurface {
     /// `None` when it cannot be encoded now or the history check is not
     /// available (those viewers get a READY with history instead).
     fn encode_local_ready_locked(&self, term: &Terminal) -> Option<Arc<LocalReadySnapshot>> {
-        let check = term.history_digest()?;
+        // The digest covers the history rows directly above this READY's
+        // seam in the terminal's page layout, so it is computed directly
+        // after the encode, on the same terminal under the same lock hold.
         let data = term.encode_snapshot(SnapshotPhase::Ready).ok()?;
+        let check = term.history_digest()?;
         let (generation, offset) = self.snapshot_position.load();
         let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         Some(Arc::new(LocalReadySnapshot {

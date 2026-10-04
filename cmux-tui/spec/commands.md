@@ -6000,8 +6000,10 @@ colors-changed | digest)* -> detached` instead of the replay stream:
   dropped, and no history chunk follows it. A burst of resizes gives one such
   READY per resize, in order. `history_rows` is the host's primary-screen
   history row count after the resize and `history_digest` (lowercase hex) is
-  the digest of its last 64 history rows (codepoints and wrap flags, no
-  styles) as libghostty-vt `ghostty_terminal_history_digest` computes it. The
+  the digest of the 64 history rows directly above the READY's seam
+  (codepoints and wrap flags, no styles) as libghostty-vt
+  `ghostty_terminal_history_digest` (digest version 2) computes it on the
+  same terminal directly after the READY encode. The
   viewer computes both from its reflowed history and sends `snapshot-request`
   on a mismatch. A local READY ends the history of an older READY. A viewer
   that is behind (a snapshot pending or deferred, a backlog overflow) or is
