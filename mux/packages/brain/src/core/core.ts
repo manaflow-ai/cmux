@@ -16,7 +16,7 @@ import {
   workPart,
   workStatus,
 } from "./rules.ts";
-import { type ChildRecord, type HostStateData, isAnswered, loadState, MAX_CHILDREN, markAnswered, plainState } from "./state.ts";
+import { type ChildRecord, type HostStateData, isAnswered, loadState, MAX_CHILDREN, MAX_PRUNED, markAnswered, plainState } from "./state.ts";
 import { compareCodePoints as compare, plain } from "./text.ts";
 
 // The sans-I/O brain host (plans/cmux-next/chief-mac.md section 3):
@@ -667,6 +667,7 @@ export class Core {
         continue;
       }
       delete this.state.prompts[promptId];
+      this.promptRejections.delete(promptId);
       this.dirty = true;
       this.log(`dropping permission prompt ${promptId}: its session is not waiting`);
     }
@@ -856,10 +857,11 @@ export class Core {
     // A child first seen ready or idle gets a done card (closed: failed, waiting: waiting).
     const status = workStatus(session.status);
     const order = Math.max(0, ...Object.values(this.state.children).map((c) => c.order ?? 0)) + 1;
-    const child: ChildRecord = { conversation, name: session.name, status, edits: 0, order };
+    // A pruned child that comes back already has a card: it gets no second one.
+    const pruned = this.state.prunedChildren?.includes(session.sessionId) === true;
+    const child: ChildRecord = { conversation: pruned ? "" : conversation, name: session.name, status, edits: 0, order };
     this.state.children[session.sessionId] = child;
-    this.pruneChildren();
-    if (conversation) {
+    if (child.conversation) {
       const key = `work:${session.sessionId}`;
       this.state.outbox.push({
         conversation,
@@ -868,22 +870,31 @@ export class Core {
         op: { kind: "message.send", client_msg_id: key, parts: [workPart(session.name, status, session.lastPrompt)] },
       });
     }
+    this.pruneChildren(session.sessionId);
     this.dirty = true;
     this.log(`child ${session.name} started (${session.sessionId})`);
     return { ...child };
   }
 
-  /** Past MAX_CHILDREN: drops the oldest finished children that no queued op names. */
-  private pruneChildren(): void {
+  /**
+   * Past MAX_CHILDREN: drops the oldest finished children that no queued op
+   * names, never `added` (the child just recorded). Pruned ids are remembered
+   * (at most MAX_PRUNED, oldest out).
+   */
+  private pruneChildren(added: string): void {
     const ids = Object.keys(this.state.children);
     if (ids.length <= MAX_CHILDREN) return;
     const queued = new Set(this.state.outbox.map((entry) => entry.child).filter((id) => id !== undefined));
     const order = (id: string) => this.state.children[id].order ?? 0;
+    const finished = (id: string) => this.state.children[id].status === "done" || this.state.children[id].status === "failed";
     const prunable = ids
-      .filter((id) => (this.state.children[id].status === "done" || this.state.children[id].status === "failed") && !queued.has(id))
+      .filter((id) => id !== added && finished(id) && !queued.has(id))
       .sort((a, b) => order(a) - order(b) || compare(a, b));
     for (const id of prunable.slice(0, ids.length - MAX_CHILDREN)) {
       delete this.state.children[id];
+      const pruned = (this.state.prunedChildren ?? []).filter((known) => known !== id);
+      pruned.push(id);
+      this.state.prunedChildren = pruned.slice(-MAX_PRUNED);
       this.log(`pruned child ${id} (more than ${MAX_CHILDREN} children)`);
     }
   }

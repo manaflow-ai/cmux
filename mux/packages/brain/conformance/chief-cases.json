@@ -18296,7 +18296,10 @@
          }
         },
         "defaultConversation": "conv_a",
-        "muxSessionId": "s_mux"
+        "muxSessionId": "s_mux",
+        "prunedChildren": [
+         "s_01"
+        ]
        }
       },
       {
@@ -18322,6 +18325,867 @@
          }
         ]
        }
+      }
+     ]
+    },
+    {
+     "now": 1790985600006,
+     "input": {
+      "kind": "session_changed",
+      "session": {
+       "sessionId": "s_01",
+       "name": "s_01",
+       "harness": "claude",
+       "cwd": "/work",
+       "status": "running",
+       "pendingPermissions": 0,
+       "stateSeq": 1,
+       "preview": null,
+       "tags": {
+        "mux.parent": "mux"
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "work:s_new",
+          "child": "s_new",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "work:s_new",
+           "parts": [
+            {
+             "type": "work",
+             "session": "new",
+             "status": "running"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {
+         "s_00": {
+          "conversation": "conv_a",
+          "name": "s_00",
+          "status": "running",
+          "messageId": "m_s_00",
+          "edits": 1,
+          "order": 1
+         },
+         "s_03": {
+          "conversation": "conv_a",
+          "name": "s_03",
+          "status": "done",
+          "messageId": "m_s_03",
+          "edits": 1,
+          "order": 4
+         },
+         "s_04": {
+          "conversation": "conv_a",
+          "name": "s_04",
+          "status": "done",
+          "messageId": "m_s_04",
+          "edits": 1,
+          "order": 5
+         },
+         "s_05": {
+          "conversation": "conv_a",
+          "name": "s_05",
+          "status": "done",
+          "messageId": "m_s_05",
+          "edits": 1,
+          "order": 6
+         },
+         "s_06": {
+          "conversation": "conv_a",
+          "name": "s_06",
+          "status": "done",
+          "messageId": "m_s_06",
+          "edits": 1,
+          "order": 7
+         },
+         "s_07": {
+          "conversation": "conv_a",
+          "name": "s_07",
+          "status": "done",
+          "messageId": "m_s_07",
+          "edits": 1,
+          "order": 8
+         },
+         "s_08": {
+          "conversation": "conv_a",
+          "name": "s_08",
+          "status": "done",
+          "messageId": "m_s_08",
+          "edits": 1,
+          "order": 9
+         },
+         "s_09": {
+          "conversation": "conv_a",
+          "name": "s_09",
+          "status": "done",
+          "messageId": "m_s_09",
+          "edits": 1,
+          "order": 10
+         },
+         "s_10": {
+          "conversation": "conv_a",
+          "name": "s_10",
+          "status": "done",
+          "messageId": "m_s_10",
+          "edits": 1,
+          "order": 11
+         },
+         "s_11": {
+          "conversation": "conv_a",
+          "name": "s_11",
+          "status": "done",
+          "messageId": "m_s_11",
+          "edits": 1,
+          "order": 12
+         },
+         "s_12": {
+          "conversation": "conv_a",
+          "name": "s_12",
+          "status": "done",
+          "messageId": "m_s_12",
+          "edits": 1,
+          "order": 13
+         },
+         "s_13": {
+          "conversation": "conv_a",
+          "name": "s_13",
+          "status": "done",
+          "messageId": "m_s_13",
+          "edits": 1,
+          "order": 14
+         },
+         "s_14": {
+          "conversation": "conv_a",
+          "name": "s_14",
+          "status": "done",
+          "messageId": "m_s_14",
+          "edits": 1,
+          "order": 15
+         },
+         "s_15": {
+          "conversation": "conv_a",
+          "name": "s_15",
+          "status": "done",
+          "messageId": "m_s_15",
+          "edits": 1,
+          "order": 16
+         },
+         "s_16": {
+          "conversation": "conv_a",
+          "name": "s_16",
+          "status": "done",
+          "messageId": "m_s_16",
+          "edits": 1,
+          "order": 17
+         },
+         "s_17": {
+          "conversation": "conv_a",
+          "name": "s_17",
+          "status": "done",
+          "messageId": "m_s_17",
+          "edits": 1,
+          "order": 18
+         },
+         "s_18": {
+          "conversation": "conv_a",
+          "name": "s_18",
+          "status": "done",
+          "messageId": "m_s_18",
+          "edits": 1,
+          "order": 19
+         },
+         "s_19": {
+          "conversation": "conv_a",
+          "name": "s_19",
+          "status": "done",
+          "messageId": "m_s_19",
+          "edits": 1,
+          "order": 20
+         },
+         "s_20": {
+          "conversation": "conv_a",
+          "name": "s_20",
+          "status": "done",
+          "messageId": "m_s_20",
+          "edits": 1,
+          "order": 21
+         },
+         "s_21": {
+          "conversation": "conv_a",
+          "name": "s_21",
+          "status": "done",
+          "messageId": "m_s_21",
+          "edits": 1,
+          "order": 22
+         },
+         "s_22": {
+          "conversation": "conv_a",
+          "name": "s_22",
+          "status": "done",
+          "messageId": "m_s_22",
+          "edits": 1,
+          "order": 23
+         },
+         "s_23": {
+          "conversation": "conv_a",
+          "name": "s_23",
+          "status": "done",
+          "messageId": "m_s_23",
+          "edits": 1,
+          "order": 24
+         },
+         "s_24": {
+          "conversation": "conv_a",
+          "name": "s_24",
+          "status": "done",
+          "messageId": "m_s_24",
+          "edits": 1,
+          "order": 25
+         },
+         "s_25": {
+          "conversation": "conv_a",
+          "name": "s_25",
+          "status": "done",
+          "messageId": "m_s_25",
+          "edits": 1,
+          "order": 26
+         },
+         "s_26": {
+          "conversation": "conv_a",
+          "name": "s_26",
+          "status": "done",
+          "messageId": "m_s_26",
+          "edits": 1,
+          "order": 27
+         },
+         "s_27": {
+          "conversation": "conv_a",
+          "name": "s_27",
+          "status": "done",
+          "messageId": "m_s_27",
+          "edits": 1,
+          "order": 28
+         },
+         "s_28": {
+          "conversation": "conv_a",
+          "name": "s_28",
+          "status": "done",
+          "messageId": "m_s_28",
+          "edits": 1,
+          "order": 29
+         },
+         "s_29": {
+          "conversation": "conv_a",
+          "name": "s_29",
+          "status": "done",
+          "messageId": "m_s_29",
+          "edits": 1,
+          "order": 30
+         },
+         "s_30": {
+          "conversation": "conv_a",
+          "name": "s_30",
+          "status": "done",
+          "messageId": "m_s_30",
+          "edits": 1,
+          "order": 31
+         },
+         "s_31": {
+          "conversation": "conv_a",
+          "name": "s_31",
+          "status": "done",
+          "messageId": "m_s_31",
+          "edits": 1,
+          "order": 32
+         },
+         "s_32": {
+          "conversation": "conv_a",
+          "name": "s_32",
+          "status": "done",
+          "messageId": "m_s_32",
+          "edits": 1,
+          "order": 33
+         },
+         "s_33": {
+          "conversation": "conv_a",
+          "name": "s_33",
+          "status": "done",
+          "messageId": "m_s_33",
+          "edits": 1,
+          "order": 34
+         },
+         "s_34": {
+          "conversation": "conv_a",
+          "name": "s_34",
+          "status": "done",
+          "messageId": "m_s_34",
+          "edits": 1,
+          "order": 35
+         },
+         "s_35": {
+          "conversation": "conv_a",
+          "name": "s_35",
+          "status": "done",
+          "messageId": "m_s_35",
+          "edits": 1,
+          "order": 36
+         },
+         "s_36": {
+          "conversation": "conv_a",
+          "name": "s_36",
+          "status": "done",
+          "messageId": "m_s_36",
+          "edits": 1,
+          "order": 37
+         },
+         "s_37": {
+          "conversation": "conv_a",
+          "name": "s_37",
+          "status": "done",
+          "messageId": "m_s_37",
+          "edits": 1,
+          "order": 38
+         },
+         "s_38": {
+          "conversation": "conv_a",
+          "name": "s_38",
+          "status": "done",
+          "messageId": "m_s_38",
+          "edits": 1,
+          "order": 39
+         },
+         "s_39": {
+          "conversation": "conv_a",
+          "name": "s_39",
+          "status": "done",
+          "messageId": "m_s_39",
+          "edits": 1,
+          "order": 40
+         },
+         "s_40": {
+          "conversation": "conv_a",
+          "name": "s_40",
+          "status": "done",
+          "messageId": "m_s_40",
+          "edits": 1,
+          "order": 41
+         },
+         "s_41": {
+          "conversation": "conv_a",
+          "name": "s_41",
+          "status": "done",
+          "messageId": "m_s_41",
+          "edits": 1,
+          "order": 42
+         },
+         "s_42": {
+          "conversation": "conv_a",
+          "name": "s_42",
+          "status": "done",
+          "messageId": "m_s_42",
+          "edits": 1,
+          "order": 43
+         },
+         "s_43": {
+          "conversation": "conv_a",
+          "name": "s_43",
+          "status": "done",
+          "messageId": "m_s_43",
+          "edits": 1,
+          "order": 44
+         },
+         "s_44": {
+          "conversation": "conv_a",
+          "name": "s_44",
+          "status": "done",
+          "messageId": "m_s_44",
+          "edits": 1,
+          "order": 45
+         },
+         "s_45": {
+          "conversation": "conv_a",
+          "name": "s_45",
+          "status": "done",
+          "messageId": "m_s_45",
+          "edits": 1,
+          "order": 46
+         },
+         "s_46": {
+          "conversation": "conv_a",
+          "name": "s_46",
+          "status": "done",
+          "messageId": "m_s_46",
+          "edits": 1,
+          "order": 47
+         },
+         "s_47": {
+          "conversation": "conv_a",
+          "name": "s_47",
+          "status": "done",
+          "messageId": "m_s_47",
+          "edits": 1,
+          "order": 48
+         },
+         "s_48": {
+          "conversation": "conv_a",
+          "name": "s_48",
+          "status": "done",
+          "messageId": "m_s_48",
+          "edits": 1,
+          "order": 49
+         },
+         "s_49": {
+          "conversation": "conv_a",
+          "name": "s_49",
+          "status": "done",
+          "messageId": "m_s_49",
+          "edits": 1,
+          "order": 50
+         },
+         "s_50": {
+          "conversation": "conv_a",
+          "name": "s_50",
+          "status": "done",
+          "messageId": "m_s_50",
+          "edits": 1,
+          "order": 51
+         },
+         "s_51": {
+          "conversation": "conv_a",
+          "name": "s_51",
+          "status": "done",
+          "messageId": "m_s_51",
+          "edits": 1,
+          "order": 52
+         },
+         "s_52": {
+          "conversation": "conv_a",
+          "name": "s_52",
+          "status": "done",
+          "messageId": "m_s_52",
+          "edits": 1,
+          "order": 53
+         },
+         "s_53": {
+          "conversation": "conv_a",
+          "name": "s_53",
+          "status": "done",
+          "messageId": "m_s_53",
+          "edits": 1,
+          "order": 54
+         },
+         "s_54": {
+          "conversation": "conv_a",
+          "name": "s_54",
+          "status": "done",
+          "messageId": "m_s_54",
+          "edits": 1,
+          "order": 55
+         },
+         "s_55": {
+          "conversation": "conv_a",
+          "name": "s_55",
+          "status": "done",
+          "messageId": "m_s_55",
+          "edits": 1,
+          "order": 56
+         },
+         "s_56": {
+          "conversation": "conv_a",
+          "name": "s_56",
+          "status": "done",
+          "messageId": "m_s_56",
+          "edits": 1,
+          "order": 57
+         },
+         "s_57": {
+          "conversation": "conv_a",
+          "name": "s_57",
+          "status": "done",
+          "messageId": "m_s_57",
+          "edits": 1,
+          "order": 58
+         },
+         "s_58": {
+          "conversation": "conv_a",
+          "name": "s_58",
+          "status": "done",
+          "messageId": "m_s_58",
+          "edits": 1,
+          "order": 59
+         },
+         "s_59": {
+          "conversation": "conv_a",
+          "name": "s_59",
+          "status": "done",
+          "messageId": "m_s_59",
+          "edits": 1,
+          "order": 60
+         },
+         "s_60": {
+          "conversation": "conv_a",
+          "name": "s_60",
+          "status": "done",
+          "messageId": "m_s_60",
+          "edits": 1,
+          "order": 61
+         },
+         "s_61": {
+          "conversation": "conv_a",
+          "name": "s_61",
+          "status": "done",
+          "messageId": "m_s_61",
+          "edits": 1,
+          "order": 62
+         },
+         "s_62": {
+          "conversation": "conv_a",
+          "name": "s_62",
+          "status": "done",
+          "messageId": "m_s_62",
+          "edits": 1,
+          "order": 63
+         },
+         "s_63": {
+          "conversation": "conv_a",
+          "name": "s_63",
+          "status": "done",
+          "messageId": "m_s_63",
+          "edits": 1,
+          "order": 64
+         },
+         "s_64": {
+          "conversation": "conv_a",
+          "name": "s_64",
+          "status": "done",
+          "messageId": "m_s_64",
+          "edits": 1,
+          "order": 65
+         },
+         "s_65": {
+          "conversation": "conv_a",
+          "name": "s_65",
+          "status": "done",
+          "messageId": "m_s_65",
+          "edits": 1,
+          "order": 66
+         },
+         "s_66": {
+          "conversation": "conv_a",
+          "name": "s_66",
+          "status": "done",
+          "messageId": "m_s_66",
+          "edits": 1,
+          "order": 67
+         },
+         "s_67": {
+          "conversation": "conv_a",
+          "name": "s_67",
+          "status": "done",
+          "messageId": "m_s_67",
+          "edits": 1,
+          "order": 68
+         },
+         "s_68": {
+          "conversation": "conv_a",
+          "name": "s_68",
+          "status": "done",
+          "messageId": "m_s_68",
+          "edits": 1,
+          "order": 69
+         },
+         "s_69": {
+          "conversation": "conv_a",
+          "name": "s_69",
+          "status": "done",
+          "messageId": "m_s_69",
+          "edits": 1,
+          "order": 70
+         },
+         "s_70": {
+          "conversation": "conv_a",
+          "name": "s_70",
+          "status": "done",
+          "messageId": "m_s_70",
+          "edits": 1,
+          "order": 71
+         },
+         "s_71": {
+          "conversation": "conv_a",
+          "name": "s_71",
+          "status": "done",
+          "messageId": "m_s_71",
+          "edits": 1,
+          "order": 72
+         },
+         "s_72": {
+          "conversation": "conv_a",
+          "name": "s_72",
+          "status": "done",
+          "messageId": "m_s_72",
+          "edits": 1,
+          "order": 73
+         },
+         "s_73": {
+          "conversation": "conv_a",
+          "name": "s_73",
+          "status": "done",
+          "messageId": "m_s_73",
+          "edits": 1,
+          "order": 74
+         },
+         "s_74": {
+          "conversation": "conv_a",
+          "name": "s_74",
+          "status": "done",
+          "messageId": "m_s_74",
+          "edits": 1,
+          "order": 75
+         },
+         "s_75": {
+          "conversation": "conv_a",
+          "name": "s_75",
+          "status": "done",
+          "messageId": "m_s_75",
+          "edits": 1,
+          "order": 76
+         },
+         "s_76": {
+          "conversation": "conv_a",
+          "name": "s_76",
+          "status": "done",
+          "messageId": "m_s_76",
+          "edits": 1,
+          "order": 77
+         },
+         "s_77": {
+          "conversation": "conv_a",
+          "name": "s_77",
+          "status": "done",
+          "messageId": "m_s_77",
+          "edits": 1,
+          "order": 78
+         },
+         "s_78": {
+          "conversation": "conv_a",
+          "name": "s_78",
+          "status": "done",
+          "messageId": "m_s_78",
+          "edits": 1,
+          "order": 79
+         },
+         "s_79": {
+          "conversation": "conv_a",
+          "name": "s_79",
+          "status": "done",
+          "messageId": "m_s_79",
+          "edits": 1,
+          "order": 80
+         },
+         "s_80": {
+          "conversation": "conv_a",
+          "name": "s_80",
+          "status": "done",
+          "messageId": "m_s_80",
+          "edits": 1,
+          "order": 81
+         },
+         "s_81": {
+          "conversation": "conv_a",
+          "name": "s_81",
+          "status": "done",
+          "messageId": "m_s_81",
+          "edits": 1,
+          "order": 82
+         },
+         "s_82": {
+          "conversation": "conv_a",
+          "name": "s_82",
+          "status": "done",
+          "messageId": "m_s_82",
+          "edits": 1,
+          "order": 83
+         },
+         "s_83": {
+          "conversation": "conv_a",
+          "name": "s_83",
+          "status": "done",
+          "messageId": "m_s_83",
+          "edits": 1,
+          "order": 84
+         },
+         "s_84": {
+          "conversation": "conv_a",
+          "name": "s_84",
+          "status": "done",
+          "messageId": "m_s_84",
+          "edits": 1,
+          "order": 85
+         },
+         "s_85": {
+          "conversation": "conv_a",
+          "name": "s_85",
+          "status": "done",
+          "messageId": "m_s_85",
+          "edits": 1,
+          "order": 86
+         },
+         "s_86": {
+          "conversation": "conv_a",
+          "name": "s_86",
+          "status": "done",
+          "messageId": "m_s_86",
+          "edits": 1,
+          "order": 87
+         },
+         "s_87": {
+          "conversation": "conv_a",
+          "name": "s_87",
+          "status": "done",
+          "messageId": "m_s_87",
+          "edits": 1,
+          "order": 88
+         },
+         "s_88": {
+          "conversation": "conv_a",
+          "name": "s_88",
+          "status": "done",
+          "messageId": "m_s_88",
+          "edits": 1,
+          "order": 89
+         },
+         "s_89": {
+          "conversation": "conv_a",
+          "name": "s_89",
+          "status": "done",
+          "messageId": "m_s_89",
+          "edits": 1,
+          "order": 90
+         },
+         "s_90": {
+          "conversation": "conv_a",
+          "name": "s_90",
+          "status": "done",
+          "messageId": "m_s_90",
+          "edits": 1,
+          "order": 91
+         },
+         "s_91": {
+          "conversation": "conv_a",
+          "name": "s_91",
+          "status": "done",
+          "messageId": "m_s_91",
+          "edits": 1,
+          "order": 92
+         },
+         "s_92": {
+          "conversation": "conv_a",
+          "name": "s_92",
+          "status": "done",
+          "messageId": "m_s_92",
+          "edits": 1,
+          "order": 93
+         },
+         "s_93": {
+          "conversation": "conv_a",
+          "name": "s_93",
+          "status": "done",
+          "messageId": "m_s_93",
+          "edits": 1,
+          "order": 94
+         },
+         "s_94": {
+          "conversation": "conv_a",
+          "name": "s_94",
+          "status": "done",
+          "messageId": "m_s_94",
+          "edits": 1,
+          "order": 95
+         },
+         "s_95": {
+          "conversation": "conv_a",
+          "name": "s_95",
+          "status": "done",
+          "messageId": "m_s_95",
+          "edits": 1,
+          "order": 96
+         },
+         "s_96": {
+          "conversation": "conv_a",
+          "name": "s_96",
+          "status": "done",
+          "messageId": "m_s_96",
+          "edits": 1,
+          "order": 97
+         },
+         "s_97": {
+          "conversation": "conv_a",
+          "name": "s_97",
+          "status": "done",
+          "messageId": "m_s_97",
+          "edits": 1,
+          "order": 98
+         },
+         "s_98": {
+          "conversation": "conv_a",
+          "name": "s_98",
+          "status": "done",
+          "messageId": "m_s_98",
+          "edits": 1,
+          "order": 99
+         },
+         "s_99": {
+          "conversation": "conv_a",
+          "name": "s_99",
+          "status": "done",
+          "messageId": "m_s_99",
+          "edits": 1,
+          "order": 100
+         },
+         "s_new": {
+          "conversation": "conv_a",
+          "name": "new",
+          "status": "running",
+          "edits": 0,
+          "order": 101
+         },
+         "s_01": {
+          "conversation": "",
+          "name": "s_01",
+          "status": "running",
+          "edits": 0,
+          "order": 102
+         }
+        },
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux",
+        "prunedChildren": [
+         "s_01",
+         "s_02"
+        ]
+       }
+      },
+      {
+       "kind": "log",
+       "line": "pruned child s_02 (more than 100 children)"
+      },
+      {
+       "kind": "log",
+       "line": "child s_01 started (s_01)"
       }
      ]
     }
@@ -18356,14 +19220,6 @@
       "messageId": "m_s_00",
       "edits": 1,
       "order": 1
-     },
-     "s_02": {
-      "conversation": "conv_a",
-      "name": "s_02",
-      "status": "done",
-      "messageId": "m_s_02",
-      "edits": 1,
-      "order": 3
      },
      "s_03": {
       "conversation": "conv_a",
@@ -19145,6 +20001,4777 @@
       "conversation": "conv_a",
       "name": "new",
       "status": "running",
+      "edits": 0,
+      "order": 101
+     },
+     "s_01": {
+      "conversation": "",
+      "name": "s_01",
+      "status": "running",
+      "edits": 0,
+      "order": 102
+     }
+    },
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux",
+    "prunedChildren": [
+     "s_01",
+     "s_02"
+    ]
+   }
+  },
+  {
+   "name": "children: a new child first seen done is kept past the cap when every other child runs",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {
+     "s_00": {
+      "conversation": "conv_a",
+      "name": "s_00",
+      "status": "running",
+      "messageId": "m_s_00",
+      "edits": 1,
+      "order": 1
+     },
+     "s_01": {
+      "conversation": "conv_a",
+      "name": "s_01",
+      "status": "running",
+      "messageId": "m_s_01",
+      "edits": 1,
+      "order": 2
+     },
+     "s_02": {
+      "conversation": "conv_a",
+      "name": "s_02",
+      "status": "running",
+      "messageId": "m_s_02",
+      "edits": 1,
+      "order": 3
+     },
+     "s_03": {
+      "conversation": "conv_a",
+      "name": "s_03",
+      "status": "running",
+      "messageId": "m_s_03",
+      "edits": 1,
+      "order": 4
+     },
+     "s_04": {
+      "conversation": "conv_a",
+      "name": "s_04",
+      "status": "running",
+      "messageId": "m_s_04",
+      "edits": 1,
+      "order": 5
+     },
+     "s_05": {
+      "conversation": "conv_a",
+      "name": "s_05",
+      "status": "running",
+      "messageId": "m_s_05",
+      "edits": 1,
+      "order": 6
+     },
+     "s_06": {
+      "conversation": "conv_a",
+      "name": "s_06",
+      "status": "running",
+      "messageId": "m_s_06",
+      "edits": 1,
+      "order": 7
+     },
+     "s_07": {
+      "conversation": "conv_a",
+      "name": "s_07",
+      "status": "running",
+      "messageId": "m_s_07",
+      "edits": 1,
+      "order": 8
+     },
+     "s_08": {
+      "conversation": "conv_a",
+      "name": "s_08",
+      "status": "running",
+      "messageId": "m_s_08",
+      "edits": 1,
+      "order": 9
+     },
+     "s_09": {
+      "conversation": "conv_a",
+      "name": "s_09",
+      "status": "running",
+      "messageId": "m_s_09",
+      "edits": 1,
+      "order": 10
+     },
+     "s_10": {
+      "conversation": "conv_a",
+      "name": "s_10",
+      "status": "running",
+      "messageId": "m_s_10",
+      "edits": 1,
+      "order": 11
+     },
+     "s_11": {
+      "conversation": "conv_a",
+      "name": "s_11",
+      "status": "running",
+      "messageId": "m_s_11",
+      "edits": 1,
+      "order": 12
+     },
+     "s_12": {
+      "conversation": "conv_a",
+      "name": "s_12",
+      "status": "running",
+      "messageId": "m_s_12",
+      "edits": 1,
+      "order": 13
+     },
+     "s_13": {
+      "conversation": "conv_a",
+      "name": "s_13",
+      "status": "running",
+      "messageId": "m_s_13",
+      "edits": 1,
+      "order": 14
+     },
+     "s_14": {
+      "conversation": "conv_a",
+      "name": "s_14",
+      "status": "running",
+      "messageId": "m_s_14",
+      "edits": 1,
+      "order": 15
+     },
+     "s_15": {
+      "conversation": "conv_a",
+      "name": "s_15",
+      "status": "running",
+      "messageId": "m_s_15",
+      "edits": 1,
+      "order": 16
+     },
+     "s_16": {
+      "conversation": "conv_a",
+      "name": "s_16",
+      "status": "running",
+      "messageId": "m_s_16",
+      "edits": 1,
+      "order": 17
+     },
+     "s_17": {
+      "conversation": "conv_a",
+      "name": "s_17",
+      "status": "running",
+      "messageId": "m_s_17",
+      "edits": 1,
+      "order": 18
+     },
+     "s_18": {
+      "conversation": "conv_a",
+      "name": "s_18",
+      "status": "running",
+      "messageId": "m_s_18",
+      "edits": 1,
+      "order": 19
+     },
+     "s_19": {
+      "conversation": "conv_a",
+      "name": "s_19",
+      "status": "running",
+      "messageId": "m_s_19",
+      "edits": 1,
+      "order": 20
+     },
+     "s_20": {
+      "conversation": "conv_a",
+      "name": "s_20",
+      "status": "running",
+      "messageId": "m_s_20",
+      "edits": 1,
+      "order": 21
+     },
+     "s_21": {
+      "conversation": "conv_a",
+      "name": "s_21",
+      "status": "running",
+      "messageId": "m_s_21",
+      "edits": 1,
+      "order": 22
+     },
+     "s_22": {
+      "conversation": "conv_a",
+      "name": "s_22",
+      "status": "running",
+      "messageId": "m_s_22",
+      "edits": 1,
+      "order": 23
+     },
+     "s_23": {
+      "conversation": "conv_a",
+      "name": "s_23",
+      "status": "running",
+      "messageId": "m_s_23",
+      "edits": 1,
+      "order": 24
+     },
+     "s_24": {
+      "conversation": "conv_a",
+      "name": "s_24",
+      "status": "running",
+      "messageId": "m_s_24",
+      "edits": 1,
+      "order": 25
+     },
+     "s_25": {
+      "conversation": "conv_a",
+      "name": "s_25",
+      "status": "running",
+      "messageId": "m_s_25",
+      "edits": 1,
+      "order": 26
+     },
+     "s_26": {
+      "conversation": "conv_a",
+      "name": "s_26",
+      "status": "running",
+      "messageId": "m_s_26",
+      "edits": 1,
+      "order": 27
+     },
+     "s_27": {
+      "conversation": "conv_a",
+      "name": "s_27",
+      "status": "running",
+      "messageId": "m_s_27",
+      "edits": 1,
+      "order": 28
+     },
+     "s_28": {
+      "conversation": "conv_a",
+      "name": "s_28",
+      "status": "running",
+      "messageId": "m_s_28",
+      "edits": 1,
+      "order": 29
+     },
+     "s_29": {
+      "conversation": "conv_a",
+      "name": "s_29",
+      "status": "running",
+      "messageId": "m_s_29",
+      "edits": 1,
+      "order": 30
+     },
+     "s_30": {
+      "conversation": "conv_a",
+      "name": "s_30",
+      "status": "running",
+      "messageId": "m_s_30",
+      "edits": 1,
+      "order": 31
+     },
+     "s_31": {
+      "conversation": "conv_a",
+      "name": "s_31",
+      "status": "running",
+      "messageId": "m_s_31",
+      "edits": 1,
+      "order": 32
+     },
+     "s_32": {
+      "conversation": "conv_a",
+      "name": "s_32",
+      "status": "running",
+      "messageId": "m_s_32",
+      "edits": 1,
+      "order": 33
+     },
+     "s_33": {
+      "conversation": "conv_a",
+      "name": "s_33",
+      "status": "running",
+      "messageId": "m_s_33",
+      "edits": 1,
+      "order": 34
+     },
+     "s_34": {
+      "conversation": "conv_a",
+      "name": "s_34",
+      "status": "running",
+      "messageId": "m_s_34",
+      "edits": 1,
+      "order": 35
+     },
+     "s_35": {
+      "conversation": "conv_a",
+      "name": "s_35",
+      "status": "running",
+      "messageId": "m_s_35",
+      "edits": 1,
+      "order": 36
+     },
+     "s_36": {
+      "conversation": "conv_a",
+      "name": "s_36",
+      "status": "running",
+      "messageId": "m_s_36",
+      "edits": 1,
+      "order": 37
+     },
+     "s_37": {
+      "conversation": "conv_a",
+      "name": "s_37",
+      "status": "running",
+      "messageId": "m_s_37",
+      "edits": 1,
+      "order": 38
+     },
+     "s_38": {
+      "conversation": "conv_a",
+      "name": "s_38",
+      "status": "running",
+      "messageId": "m_s_38",
+      "edits": 1,
+      "order": 39
+     },
+     "s_39": {
+      "conversation": "conv_a",
+      "name": "s_39",
+      "status": "running",
+      "messageId": "m_s_39",
+      "edits": 1,
+      "order": 40
+     },
+     "s_40": {
+      "conversation": "conv_a",
+      "name": "s_40",
+      "status": "running",
+      "messageId": "m_s_40",
+      "edits": 1,
+      "order": 41
+     },
+     "s_41": {
+      "conversation": "conv_a",
+      "name": "s_41",
+      "status": "running",
+      "messageId": "m_s_41",
+      "edits": 1,
+      "order": 42
+     },
+     "s_42": {
+      "conversation": "conv_a",
+      "name": "s_42",
+      "status": "running",
+      "messageId": "m_s_42",
+      "edits": 1,
+      "order": 43
+     },
+     "s_43": {
+      "conversation": "conv_a",
+      "name": "s_43",
+      "status": "running",
+      "messageId": "m_s_43",
+      "edits": 1,
+      "order": 44
+     },
+     "s_44": {
+      "conversation": "conv_a",
+      "name": "s_44",
+      "status": "running",
+      "messageId": "m_s_44",
+      "edits": 1,
+      "order": 45
+     },
+     "s_45": {
+      "conversation": "conv_a",
+      "name": "s_45",
+      "status": "running",
+      "messageId": "m_s_45",
+      "edits": 1,
+      "order": 46
+     },
+     "s_46": {
+      "conversation": "conv_a",
+      "name": "s_46",
+      "status": "running",
+      "messageId": "m_s_46",
+      "edits": 1,
+      "order": 47
+     },
+     "s_47": {
+      "conversation": "conv_a",
+      "name": "s_47",
+      "status": "running",
+      "messageId": "m_s_47",
+      "edits": 1,
+      "order": 48
+     },
+     "s_48": {
+      "conversation": "conv_a",
+      "name": "s_48",
+      "status": "running",
+      "messageId": "m_s_48",
+      "edits": 1,
+      "order": 49
+     },
+     "s_49": {
+      "conversation": "conv_a",
+      "name": "s_49",
+      "status": "running",
+      "messageId": "m_s_49",
+      "edits": 1,
+      "order": 50
+     },
+     "s_50": {
+      "conversation": "conv_a",
+      "name": "s_50",
+      "status": "running",
+      "messageId": "m_s_50",
+      "edits": 1,
+      "order": 51
+     },
+     "s_51": {
+      "conversation": "conv_a",
+      "name": "s_51",
+      "status": "running",
+      "messageId": "m_s_51",
+      "edits": 1,
+      "order": 52
+     },
+     "s_52": {
+      "conversation": "conv_a",
+      "name": "s_52",
+      "status": "running",
+      "messageId": "m_s_52",
+      "edits": 1,
+      "order": 53
+     },
+     "s_53": {
+      "conversation": "conv_a",
+      "name": "s_53",
+      "status": "running",
+      "messageId": "m_s_53",
+      "edits": 1,
+      "order": 54
+     },
+     "s_54": {
+      "conversation": "conv_a",
+      "name": "s_54",
+      "status": "running",
+      "messageId": "m_s_54",
+      "edits": 1,
+      "order": 55
+     },
+     "s_55": {
+      "conversation": "conv_a",
+      "name": "s_55",
+      "status": "running",
+      "messageId": "m_s_55",
+      "edits": 1,
+      "order": 56
+     },
+     "s_56": {
+      "conversation": "conv_a",
+      "name": "s_56",
+      "status": "running",
+      "messageId": "m_s_56",
+      "edits": 1,
+      "order": 57
+     },
+     "s_57": {
+      "conversation": "conv_a",
+      "name": "s_57",
+      "status": "running",
+      "messageId": "m_s_57",
+      "edits": 1,
+      "order": 58
+     },
+     "s_58": {
+      "conversation": "conv_a",
+      "name": "s_58",
+      "status": "running",
+      "messageId": "m_s_58",
+      "edits": 1,
+      "order": 59
+     },
+     "s_59": {
+      "conversation": "conv_a",
+      "name": "s_59",
+      "status": "running",
+      "messageId": "m_s_59",
+      "edits": 1,
+      "order": 60
+     },
+     "s_60": {
+      "conversation": "conv_a",
+      "name": "s_60",
+      "status": "running",
+      "messageId": "m_s_60",
+      "edits": 1,
+      "order": 61
+     },
+     "s_61": {
+      "conversation": "conv_a",
+      "name": "s_61",
+      "status": "running",
+      "messageId": "m_s_61",
+      "edits": 1,
+      "order": 62
+     },
+     "s_62": {
+      "conversation": "conv_a",
+      "name": "s_62",
+      "status": "running",
+      "messageId": "m_s_62",
+      "edits": 1,
+      "order": 63
+     },
+     "s_63": {
+      "conversation": "conv_a",
+      "name": "s_63",
+      "status": "running",
+      "messageId": "m_s_63",
+      "edits": 1,
+      "order": 64
+     },
+     "s_64": {
+      "conversation": "conv_a",
+      "name": "s_64",
+      "status": "running",
+      "messageId": "m_s_64",
+      "edits": 1,
+      "order": 65
+     },
+     "s_65": {
+      "conversation": "conv_a",
+      "name": "s_65",
+      "status": "running",
+      "messageId": "m_s_65",
+      "edits": 1,
+      "order": 66
+     },
+     "s_66": {
+      "conversation": "conv_a",
+      "name": "s_66",
+      "status": "running",
+      "messageId": "m_s_66",
+      "edits": 1,
+      "order": 67
+     },
+     "s_67": {
+      "conversation": "conv_a",
+      "name": "s_67",
+      "status": "running",
+      "messageId": "m_s_67",
+      "edits": 1,
+      "order": 68
+     },
+     "s_68": {
+      "conversation": "conv_a",
+      "name": "s_68",
+      "status": "running",
+      "messageId": "m_s_68",
+      "edits": 1,
+      "order": 69
+     },
+     "s_69": {
+      "conversation": "conv_a",
+      "name": "s_69",
+      "status": "running",
+      "messageId": "m_s_69",
+      "edits": 1,
+      "order": 70
+     },
+     "s_70": {
+      "conversation": "conv_a",
+      "name": "s_70",
+      "status": "running",
+      "messageId": "m_s_70",
+      "edits": 1,
+      "order": 71
+     },
+     "s_71": {
+      "conversation": "conv_a",
+      "name": "s_71",
+      "status": "running",
+      "messageId": "m_s_71",
+      "edits": 1,
+      "order": 72
+     },
+     "s_72": {
+      "conversation": "conv_a",
+      "name": "s_72",
+      "status": "running",
+      "messageId": "m_s_72",
+      "edits": 1,
+      "order": 73
+     },
+     "s_73": {
+      "conversation": "conv_a",
+      "name": "s_73",
+      "status": "running",
+      "messageId": "m_s_73",
+      "edits": 1,
+      "order": 74
+     },
+     "s_74": {
+      "conversation": "conv_a",
+      "name": "s_74",
+      "status": "running",
+      "messageId": "m_s_74",
+      "edits": 1,
+      "order": 75
+     },
+     "s_75": {
+      "conversation": "conv_a",
+      "name": "s_75",
+      "status": "running",
+      "messageId": "m_s_75",
+      "edits": 1,
+      "order": 76
+     },
+     "s_76": {
+      "conversation": "conv_a",
+      "name": "s_76",
+      "status": "running",
+      "messageId": "m_s_76",
+      "edits": 1,
+      "order": 77
+     },
+     "s_77": {
+      "conversation": "conv_a",
+      "name": "s_77",
+      "status": "running",
+      "messageId": "m_s_77",
+      "edits": 1,
+      "order": 78
+     },
+     "s_78": {
+      "conversation": "conv_a",
+      "name": "s_78",
+      "status": "running",
+      "messageId": "m_s_78",
+      "edits": 1,
+      "order": 79
+     },
+     "s_79": {
+      "conversation": "conv_a",
+      "name": "s_79",
+      "status": "running",
+      "messageId": "m_s_79",
+      "edits": 1,
+      "order": 80
+     },
+     "s_80": {
+      "conversation": "conv_a",
+      "name": "s_80",
+      "status": "running",
+      "messageId": "m_s_80",
+      "edits": 1,
+      "order": 81
+     },
+     "s_81": {
+      "conversation": "conv_a",
+      "name": "s_81",
+      "status": "running",
+      "messageId": "m_s_81",
+      "edits": 1,
+      "order": 82
+     },
+     "s_82": {
+      "conversation": "conv_a",
+      "name": "s_82",
+      "status": "running",
+      "messageId": "m_s_82",
+      "edits": 1,
+      "order": 83
+     },
+     "s_83": {
+      "conversation": "conv_a",
+      "name": "s_83",
+      "status": "running",
+      "messageId": "m_s_83",
+      "edits": 1,
+      "order": 84
+     },
+     "s_84": {
+      "conversation": "conv_a",
+      "name": "s_84",
+      "status": "running",
+      "messageId": "m_s_84",
+      "edits": 1,
+      "order": 85
+     },
+     "s_85": {
+      "conversation": "conv_a",
+      "name": "s_85",
+      "status": "running",
+      "messageId": "m_s_85",
+      "edits": 1,
+      "order": 86
+     },
+     "s_86": {
+      "conversation": "conv_a",
+      "name": "s_86",
+      "status": "running",
+      "messageId": "m_s_86",
+      "edits": 1,
+      "order": 87
+     },
+     "s_87": {
+      "conversation": "conv_a",
+      "name": "s_87",
+      "status": "running",
+      "messageId": "m_s_87",
+      "edits": 1,
+      "order": 88
+     },
+     "s_88": {
+      "conversation": "conv_a",
+      "name": "s_88",
+      "status": "running",
+      "messageId": "m_s_88",
+      "edits": 1,
+      "order": 89
+     },
+     "s_89": {
+      "conversation": "conv_a",
+      "name": "s_89",
+      "status": "running",
+      "messageId": "m_s_89",
+      "edits": 1,
+      "order": 90
+     },
+     "s_90": {
+      "conversation": "conv_a",
+      "name": "s_90",
+      "status": "running",
+      "messageId": "m_s_90",
+      "edits": 1,
+      "order": 91
+     },
+     "s_91": {
+      "conversation": "conv_a",
+      "name": "s_91",
+      "status": "running",
+      "messageId": "m_s_91",
+      "edits": 1,
+      "order": 92
+     },
+     "s_92": {
+      "conversation": "conv_a",
+      "name": "s_92",
+      "status": "running",
+      "messageId": "m_s_92",
+      "edits": 1,
+      "order": 93
+     },
+     "s_93": {
+      "conversation": "conv_a",
+      "name": "s_93",
+      "status": "running",
+      "messageId": "m_s_93",
+      "edits": 1,
+      "order": 94
+     },
+     "s_94": {
+      "conversation": "conv_a",
+      "name": "s_94",
+      "status": "running",
+      "messageId": "m_s_94",
+      "edits": 1,
+      "order": 95
+     },
+     "s_95": {
+      "conversation": "conv_a",
+      "name": "s_95",
+      "status": "running",
+      "messageId": "m_s_95",
+      "edits": 1,
+      "order": 96
+     },
+     "s_96": {
+      "conversation": "conv_a",
+      "name": "s_96",
+      "status": "running",
+      "messageId": "m_s_96",
+      "edits": 1,
+      "order": 97
+     },
+     "s_97": {
+      "conversation": "conv_a",
+      "name": "s_97",
+      "status": "running",
+      "messageId": "m_s_97",
+      "edits": 1,
+      "order": 98
+     },
+     "s_98": {
+      "conversation": "conv_a",
+      "name": "s_98",
+      "status": "running",
+      "messageId": "m_s_98",
+      "edits": 1,
+      "order": 99
+     },
+     "s_99": {
+      "conversation": "conv_a",
+      "name": "s_99",
+      "status": "running",
+      "messageId": "m_s_99",
+      "edits": 1,
+      "order": 100
+     }
+    },
+    "defaultConversation": "conv_a"
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [
+       {
+        "sessionId": "s_00",
+        "name": "s_00",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_01",
+        "name": "s_01",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_02",
+        "name": "s_02",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_03",
+        "name": "s_03",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_04",
+        "name": "s_04",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_05",
+        "name": "s_05",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_06",
+        "name": "s_06",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_07",
+        "name": "s_07",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_08",
+        "name": "s_08",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_09",
+        "name": "s_09",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_10",
+        "name": "s_10",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_11",
+        "name": "s_11",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_12",
+        "name": "s_12",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_13",
+        "name": "s_13",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_14",
+        "name": "s_14",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_15",
+        "name": "s_15",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_16",
+        "name": "s_16",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_17",
+        "name": "s_17",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_18",
+        "name": "s_18",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_19",
+        "name": "s_19",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_20",
+        "name": "s_20",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_21",
+        "name": "s_21",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_22",
+        "name": "s_22",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_23",
+        "name": "s_23",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_24",
+        "name": "s_24",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_25",
+        "name": "s_25",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_26",
+        "name": "s_26",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_27",
+        "name": "s_27",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_28",
+        "name": "s_28",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_29",
+        "name": "s_29",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_30",
+        "name": "s_30",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_31",
+        "name": "s_31",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_32",
+        "name": "s_32",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_33",
+        "name": "s_33",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_34",
+        "name": "s_34",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_35",
+        "name": "s_35",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_36",
+        "name": "s_36",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_37",
+        "name": "s_37",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_38",
+        "name": "s_38",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_39",
+        "name": "s_39",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_40",
+        "name": "s_40",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_41",
+        "name": "s_41",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_42",
+        "name": "s_42",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_43",
+        "name": "s_43",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_44",
+        "name": "s_44",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_45",
+        "name": "s_45",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_46",
+        "name": "s_46",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_47",
+        "name": "s_47",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_48",
+        "name": "s_48",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_49",
+        "name": "s_49",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_50",
+        "name": "s_50",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_51",
+        "name": "s_51",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_52",
+        "name": "s_52",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_53",
+        "name": "s_53",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_54",
+        "name": "s_54",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_55",
+        "name": "s_55",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_56",
+        "name": "s_56",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_57",
+        "name": "s_57",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_58",
+        "name": "s_58",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_59",
+        "name": "s_59",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_60",
+        "name": "s_60",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_61",
+        "name": "s_61",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_62",
+        "name": "s_62",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_63",
+        "name": "s_63",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_64",
+        "name": "s_64",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_65",
+        "name": "s_65",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_66",
+        "name": "s_66",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_67",
+        "name": "s_67",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_68",
+        "name": "s_68",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_69",
+        "name": "s_69",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_70",
+        "name": "s_70",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_71",
+        "name": "s_71",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_72",
+        "name": "s_72",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_73",
+        "name": "s_73",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_74",
+        "name": "s_74",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_75",
+        "name": "s_75",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_76",
+        "name": "s_76",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_77",
+        "name": "s_77",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_78",
+        "name": "s_78",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_79",
+        "name": "s_79",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_80",
+        "name": "s_80",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_81",
+        "name": "s_81",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_82",
+        "name": "s_82",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_83",
+        "name": "s_83",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_84",
+        "name": "s_84",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_85",
+        "name": "s_85",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_86",
+        "name": "s_86",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_87",
+        "name": "s_87",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_88",
+        "name": "s_88",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_89",
+        "name": "s_89",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_90",
+        "name": "s_90",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_91",
+        "name": "s_91",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_92",
+        "name": "s_92",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_93",
+        "name": "s_93",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_94",
+        "name": "s_94",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_95",
+        "name": "s_95",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_96",
+        "name": "s_96",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_97",
+        "name": "s_97",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_98",
+        "name": "s_98",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s_99",
+        "name": "s_99",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       }
+      ],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {
+         "s_00": {
+          "conversation": "conv_a",
+          "name": "s_00",
+          "status": "running",
+          "messageId": "m_s_00",
+          "edits": 1,
+          "order": 1
+         },
+         "s_01": {
+          "conversation": "conv_a",
+          "name": "s_01",
+          "status": "running",
+          "messageId": "m_s_01",
+          "edits": 1,
+          "order": 2
+         },
+         "s_02": {
+          "conversation": "conv_a",
+          "name": "s_02",
+          "status": "running",
+          "messageId": "m_s_02",
+          "edits": 1,
+          "order": 3
+         },
+         "s_03": {
+          "conversation": "conv_a",
+          "name": "s_03",
+          "status": "running",
+          "messageId": "m_s_03",
+          "edits": 1,
+          "order": 4
+         },
+         "s_04": {
+          "conversation": "conv_a",
+          "name": "s_04",
+          "status": "running",
+          "messageId": "m_s_04",
+          "edits": 1,
+          "order": 5
+         },
+         "s_05": {
+          "conversation": "conv_a",
+          "name": "s_05",
+          "status": "running",
+          "messageId": "m_s_05",
+          "edits": 1,
+          "order": 6
+         },
+         "s_06": {
+          "conversation": "conv_a",
+          "name": "s_06",
+          "status": "running",
+          "messageId": "m_s_06",
+          "edits": 1,
+          "order": 7
+         },
+         "s_07": {
+          "conversation": "conv_a",
+          "name": "s_07",
+          "status": "running",
+          "messageId": "m_s_07",
+          "edits": 1,
+          "order": 8
+         },
+         "s_08": {
+          "conversation": "conv_a",
+          "name": "s_08",
+          "status": "running",
+          "messageId": "m_s_08",
+          "edits": 1,
+          "order": 9
+         },
+         "s_09": {
+          "conversation": "conv_a",
+          "name": "s_09",
+          "status": "running",
+          "messageId": "m_s_09",
+          "edits": 1,
+          "order": 10
+         },
+         "s_10": {
+          "conversation": "conv_a",
+          "name": "s_10",
+          "status": "running",
+          "messageId": "m_s_10",
+          "edits": 1,
+          "order": 11
+         },
+         "s_11": {
+          "conversation": "conv_a",
+          "name": "s_11",
+          "status": "running",
+          "messageId": "m_s_11",
+          "edits": 1,
+          "order": 12
+         },
+         "s_12": {
+          "conversation": "conv_a",
+          "name": "s_12",
+          "status": "running",
+          "messageId": "m_s_12",
+          "edits": 1,
+          "order": 13
+         },
+         "s_13": {
+          "conversation": "conv_a",
+          "name": "s_13",
+          "status": "running",
+          "messageId": "m_s_13",
+          "edits": 1,
+          "order": 14
+         },
+         "s_14": {
+          "conversation": "conv_a",
+          "name": "s_14",
+          "status": "running",
+          "messageId": "m_s_14",
+          "edits": 1,
+          "order": 15
+         },
+         "s_15": {
+          "conversation": "conv_a",
+          "name": "s_15",
+          "status": "running",
+          "messageId": "m_s_15",
+          "edits": 1,
+          "order": 16
+         },
+         "s_16": {
+          "conversation": "conv_a",
+          "name": "s_16",
+          "status": "running",
+          "messageId": "m_s_16",
+          "edits": 1,
+          "order": 17
+         },
+         "s_17": {
+          "conversation": "conv_a",
+          "name": "s_17",
+          "status": "running",
+          "messageId": "m_s_17",
+          "edits": 1,
+          "order": 18
+         },
+         "s_18": {
+          "conversation": "conv_a",
+          "name": "s_18",
+          "status": "running",
+          "messageId": "m_s_18",
+          "edits": 1,
+          "order": 19
+         },
+         "s_19": {
+          "conversation": "conv_a",
+          "name": "s_19",
+          "status": "running",
+          "messageId": "m_s_19",
+          "edits": 1,
+          "order": 20
+         },
+         "s_20": {
+          "conversation": "conv_a",
+          "name": "s_20",
+          "status": "running",
+          "messageId": "m_s_20",
+          "edits": 1,
+          "order": 21
+         },
+         "s_21": {
+          "conversation": "conv_a",
+          "name": "s_21",
+          "status": "running",
+          "messageId": "m_s_21",
+          "edits": 1,
+          "order": 22
+         },
+         "s_22": {
+          "conversation": "conv_a",
+          "name": "s_22",
+          "status": "running",
+          "messageId": "m_s_22",
+          "edits": 1,
+          "order": 23
+         },
+         "s_23": {
+          "conversation": "conv_a",
+          "name": "s_23",
+          "status": "running",
+          "messageId": "m_s_23",
+          "edits": 1,
+          "order": 24
+         },
+         "s_24": {
+          "conversation": "conv_a",
+          "name": "s_24",
+          "status": "running",
+          "messageId": "m_s_24",
+          "edits": 1,
+          "order": 25
+         },
+         "s_25": {
+          "conversation": "conv_a",
+          "name": "s_25",
+          "status": "running",
+          "messageId": "m_s_25",
+          "edits": 1,
+          "order": 26
+         },
+         "s_26": {
+          "conversation": "conv_a",
+          "name": "s_26",
+          "status": "running",
+          "messageId": "m_s_26",
+          "edits": 1,
+          "order": 27
+         },
+         "s_27": {
+          "conversation": "conv_a",
+          "name": "s_27",
+          "status": "running",
+          "messageId": "m_s_27",
+          "edits": 1,
+          "order": 28
+         },
+         "s_28": {
+          "conversation": "conv_a",
+          "name": "s_28",
+          "status": "running",
+          "messageId": "m_s_28",
+          "edits": 1,
+          "order": 29
+         },
+         "s_29": {
+          "conversation": "conv_a",
+          "name": "s_29",
+          "status": "running",
+          "messageId": "m_s_29",
+          "edits": 1,
+          "order": 30
+         },
+         "s_30": {
+          "conversation": "conv_a",
+          "name": "s_30",
+          "status": "running",
+          "messageId": "m_s_30",
+          "edits": 1,
+          "order": 31
+         },
+         "s_31": {
+          "conversation": "conv_a",
+          "name": "s_31",
+          "status": "running",
+          "messageId": "m_s_31",
+          "edits": 1,
+          "order": 32
+         },
+         "s_32": {
+          "conversation": "conv_a",
+          "name": "s_32",
+          "status": "running",
+          "messageId": "m_s_32",
+          "edits": 1,
+          "order": 33
+         },
+         "s_33": {
+          "conversation": "conv_a",
+          "name": "s_33",
+          "status": "running",
+          "messageId": "m_s_33",
+          "edits": 1,
+          "order": 34
+         },
+         "s_34": {
+          "conversation": "conv_a",
+          "name": "s_34",
+          "status": "running",
+          "messageId": "m_s_34",
+          "edits": 1,
+          "order": 35
+         },
+         "s_35": {
+          "conversation": "conv_a",
+          "name": "s_35",
+          "status": "running",
+          "messageId": "m_s_35",
+          "edits": 1,
+          "order": 36
+         },
+         "s_36": {
+          "conversation": "conv_a",
+          "name": "s_36",
+          "status": "running",
+          "messageId": "m_s_36",
+          "edits": 1,
+          "order": 37
+         },
+         "s_37": {
+          "conversation": "conv_a",
+          "name": "s_37",
+          "status": "running",
+          "messageId": "m_s_37",
+          "edits": 1,
+          "order": 38
+         },
+         "s_38": {
+          "conversation": "conv_a",
+          "name": "s_38",
+          "status": "running",
+          "messageId": "m_s_38",
+          "edits": 1,
+          "order": 39
+         },
+         "s_39": {
+          "conversation": "conv_a",
+          "name": "s_39",
+          "status": "running",
+          "messageId": "m_s_39",
+          "edits": 1,
+          "order": 40
+         },
+         "s_40": {
+          "conversation": "conv_a",
+          "name": "s_40",
+          "status": "running",
+          "messageId": "m_s_40",
+          "edits": 1,
+          "order": 41
+         },
+         "s_41": {
+          "conversation": "conv_a",
+          "name": "s_41",
+          "status": "running",
+          "messageId": "m_s_41",
+          "edits": 1,
+          "order": 42
+         },
+         "s_42": {
+          "conversation": "conv_a",
+          "name": "s_42",
+          "status": "running",
+          "messageId": "m_s_42",
+          "edits": 1,
+          "order": 43
+         },
+         "s_43": {
+          "conversation": "conv_a",
+          "name": "s_43",
+          "status": "running",
+          "messageId": "m_s_43",
+          "edits": 1,
+          "order": 44
+         },
+         "s_44": {
+          "conversation": "conv_a",
+          "name": "s_44",
+          "status": "running",
+          "messageId": "m_s_44",
+          "edits": 1,
+          "order": 45
+         },
+         "s_45": {
+          "conversation": "conv_a",
+          "name": "s_45",
+          "status": "running",
+          "messageId": "m_s_45",
+          "edits": 1,
+          "order": 46
+         },
+         "s_46": {
+          "conversation": "conv_a",
+          "name": "s_46",
+          "status": "running",
+          "messageId": "m_s_46",
+          "edits": 1,
+          "order": 47
+         },
+         "s_47": {
+          "conversation": "conv_a",
+          "name": "s_47",
+          "status": "running",
+          "messageId": "m_s_47",
+          "edits": 1,
+          "order": 48
+         },
+         "s_48": {
+          "conversation": "conv_a",
+          "name": "s_48",
+          "status": "running",
+          "messageId": "m_s_48",
+          "edits": 1,
+          "order": 49
+         },
+         "s_49": {
+          "conversation": "conv_a",
+          "name": "s_49",
+          "status": "running",
+          "messageId": "m_s_49",
+          "edits": 1,
+          "order": 50
+         },
+         "s_50": {
+          "conversation": "conv_a",
+          "name": "s_50",
+          "status": "running",
+          "messageId": "m_s_50",
+          "edits": 1,
+          "order": 51
+         },
+         "s_51": {
+          "conversation": "conv_a",
+          "name": "s_51",
+          "status": "running",
+          "messageId": "m_s_51",
+          "edits": 1,
+          "order": 52
+         },
+         "s_52": {
+          "conversation": "conv_a",
+          "name": "s_52",
+          "status": "running",
+          "messageId": "m_s_52",
+          "edits": 1,
+          "order": 53
+         },
+         "s_53": {
+          "conversation": "conv_a",
+          "name": "s_53",
+          "status": "running",
+          "messageId": "m_s_53",
+          "edits": 1,
+          "order": 54
+         },
+         "s_54": {
+          "conversation": "conv_a",
+          "name": "s_54",
+          "status": "running",
+          "messageId": "m_s_54",
+          "edits": 1,
+          "order": 55
+         },
+         "s_55": {
+          "conversation": "conv_a",
+          "name": "s_55",
+          "status": "running",
+          "messageId": "m_s_55",
+          "edits": 1,
+          "order": 56
+         },
+         "s_56": {
+          "conversation": "conv_a",
+          "name": "s_56",
+          "status": "running",
+          "messageId": "m_s_56",
+          "edits": 1,
+          "order": 57
+         },
+         "s_57": {
+          "conversation": "conv_a",
+          "name": "s_57",
+          "status": "running",
+          "messageId": "m_s_57",
+          "edits": 1,
+          "order": 58
+         },
+         "s_58": {
+          "conversation": "conv_a",
+          "name": "s_58",
+          "status": "running",
+          "messageId": "m_s_58",
+          "edits": 1,
+          "order": 59
+         },
+         "s_59": {
+          "conversation": "conv_a",
+          "name": "s_59",
+          "status": "running",
+          "messageId": "m_s_59",
+          "edits": 1,
+          "order": 60
+         },
+         "s_60": {
+          "conversation": "conv_a",
+          "name": "s_60",
+          "status": "running",
+          "messageId": "m_s_60",
+          "edits": 1,
+          "order": 61
+         },
+         "s_61": {
+          "conversation": "conv_a",
+          "name": "s_61",
+          "status": "running",
+          "messageId": "m_s_61",
+          "edits": 1,
+          "order": 62
+         },
+         "s_62": {
+          "conversation": "conv_a",
+          "name": "s_62",
+          "status": "running",
+          "messageId": "m_s_62",
+          "edits": 1,
+          "order": 63
+         },
+         "s_63": {
+          "conversation": "conv_a",
+          "name": "s_63",
+          "status": "running",
+          "messageId": "m_s_63",
+          "edits": 1,
+          "order": 64
+         },
+         "s_64": {
+          "conversation": "conv_a",
+          "name": "s_64",
+          "status": "running",
+          "messageId": "m_s_64",
+          "edits": 1,
+          "order": 65
+         },
+         "s_65": {
+          "conversation": "conv_a",
+          "name": "s_65",
+          "status": "running",
+          "messageId": "m_s_65",
+          "edits": 1,
+          "order": 66
+         },
+         "s_66": {
+          "conversation": "conv_a",
+          "name": "s_66",
+          "status": "running",
+          "messageId": "m_s_66",
+          "edits": 1,
+          "order": 67
+         },
+         "s_67": {
+          "conversation": "conv_a",
+          "name": "s_67",
+          "status": "running",
+          "messageId": "m_s_67",
+          "edits": 1,
+          "order": 68
+         },
+         "s_68": {
+          "conversation": "conv_a",
+          "name": "s_68",
+          "status": "running",
+          "messageId": "m_s_68",
+          "edits": 1,
+          "order": 69
+         },
+         "s_69": {
+          "conversation": "conv_a",
+          "name": "s_69",
+          "status": "running",
+          "messageId": "m_s_69",
+          "edits": 1,
+          "order": 70
+         },
+         "s_70": {
+          "conversation": "conv_a",
+          "name": "s_70",
+          "status": "running",
+          "messageId": "m_s_70",
+          "edits": 1,
+          "order": 71
+         },
+         "s_71": {
+          "conversation": "conv_a",
+          "name": "s_71",
+          "status": "running",
+          "messageId": "m_s_71",
+          "edits": 1,
+          "order": 72
+         },
+         "s_72": {
+          "conversation": "conv_a",
+          "name": "s_72",
+          "status": "running",
+          "messageId": "m_s_72",
+          "edits": 1,
+          "order": 73
+         },
+         "s_73": {
+          "conversation": "conv_a",
+          "name": "s_73",
+          "status": "running",
+          "messageId": "m_s_73",
+          "edits": 1,
+          "order": 74
+         },
+         "s_74": {
+          "conversation": "conv_a",
+          "name": "s_74",
+          "status": "running",
+          "messageId": "m_s_74",
+          "edits": 1,
+          "order": 75
+         },
+         "s_75": {
+          "conversation": "conv_a",
+          "name": "s_75",
+          "status": "running",
+          "messageId": "m_s_75",
+          "edits": 1,
+          "order": 76
+         },
+         "s_76": {
+          "conversation": "conv_a",
+          "name": "s_76",
+          "status": "running",
+          "messageId": "m_s_76",
+          "edits": 1,
+          "order": 77
+         },
+         "s_77": {
+          "conversation": "conv_a",
+          "name": "s_77",
+          "status": "running",
+          "messageId": "m_s_77",
+          "edits": 1,
+          "order": 78
+         },
+         "s_78": {
+          "conversation": "conv_a",
+          "name": "s_78",
+          "status": "running",
+          "messageId": "m_s_78",
+          "edits": 1,
+          "order": 79
+         },
+         "s_79": {
+          "conversation": "conv_a",
+          "name": "s_79",
+          "status": "running",
+          "messageId": "m_s_79",
+          "edits": 1,
+          "order": 80
+         },
+         "s_80": {
+          "conversation": "conv_a",
+          "name": "s_80",
+          "status": "running",
+          "messageId": "m_s_80",
+          "edits": 1,
+          "order": 81
+         },
+         "s_81": {
+          "conversation": "conv_a",
+          "name": "s_81",
+          "status": "running",
+          "messageId": "m_s_81",
+          "edits": 1,
+          "order": 82
+         },
+         "s_82": {
+          "conversation": "conv_a",
+          "name": "s_82",
+          "status": "running",
+          "messageId": "m_s_82",
+          "edits": 1,
+          "order": 83
+         },
+         "s_83": {
+          "conversation": "conv_a",
+          "name": "s_83",
+          "status": "running",
+          "messageId": "m_s_83",
+          "edits": 1,
+          "order": 84
+         },
+         "s_84": {
+          "conversation": "conv_a",
+          "name": "s_84",
+          "status": "running",
+          "messageId": "m_s_84",
+          "edits": 1,
+          "order": 85
+         },
+         "s_85": {
+          "conversation": "conv_a",
+          "name": "s_85",
+          "status": "running",
+          "messageId": "m_s_85",
+          "edits": 1,
+          "order": 86
+         },
+         "s_86": {
+          "conversation": "conv_a",
+          "name": "s_86",
+          "status": "running",
+          "messageId": "m_s_86",
+          "edits": 1,
+          "order": 87
+         },
+         "s_87": {
+          "conversation": "conv_a",
+          "name": "s_87",
+          "status": "running",
+          "messageId": "m_s_87",
+          "edits": 1,
+          "order": 88
+         },
+         "s_88": {
+          "conversation": "conv_a",
+          "name": "s_88",
+          "status": "running",
+          "messageId": "m_s_88",
+          "edits": 1,
+          "order": 89
+         },
+         "s_89": {
+          "conversation": "conv_a",
+          "name": "s_89",
+          "status": "running",
+          "messageId": "m_s_89",
+          "edits": 1,
+          "order": 90
+         },
+         "s_90": {
+          "conversation": "conv_a",
+          "name": "s_90",
+          "status": "running",
+          "messageId": "m_s_90",
+          "edits": 1,
+          "order": 91
+         },
+         "s_91": {
+          "conversation": "conv_a",
+          "name": "s_91",
+          "status": "running",
+          "messageId": "m_s_91",
+          "edits": 1,
+          "order": 92
+         },
+         "s_92": {
+          "conversation": "conv_a",
+          "name": "s_92",
+          "status": "running",
+          "messageId": "m_s_92",
+          "edits": 1,
+          "order": 93
+         },
+         "s_93": {
+          "conversation": "conv_a",
+          "name": "s_93",
+          "status": "running",
+          "messageId": "m_s_93",
+          "edits": 1,
+          "order": 94
+         },
+         "s_94": {
+          "conversation": "conv_a",
+          "name": "s_94",
+          "status": "running",
+          "messageId": "m_s_94",
+          "edits": 1,
+          "order": 95
+         },
+         "s_95": {
+          "conversation": "conv_a",
+          "name": "s_95",
+          "status": "running",
+          "messageId": "m_s_95",
+          "edits": 1,
+          "order": 96
+         },
+         "s_96": {
+          "conversation": "conv_a",
+          "name": "s_96",
+          "status": "running",
+          "messageId": "m_s_96",
+          "edits": 1,
+          "order": 97
+         },
+         "s_97": {
+          "conversation": "conv_a",
+          "name": "s_97",
+          "status": "running",
+          "messageId": "m_s_97",
+          "edits": 1,
+          "order": 98
+         },
+         "s_98": {
+          "conversation": "conv_a",
+          "name": "s_98",
+          "status": "running",
+          "messageId": "m_s_98",
+          "edits": 1,
+          "order": 99
+         },
+         "s_99": {
+          "conversation": "conv_a",
+          "name": "s_99",
+          "status": "running",
+          "messageId": "m_s_99",
+          "edits": 1,
+          "order": 100
+         }
+        },
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "conversations_listed",
+      "conversations": [
+       {
+        "id": "conv_a",
+        "owner": "local",
+        "title": "conv_a",
+        "participants": [
+         {
+          "id": "user_local",
+          "kind": "human",
+          "display_name": "Me"
+         },
+         {
+          "id": "agent_mux",
+          "kind": "agent",
+          "display_name": "mux",
+          "agent_class": "mux",
+          "acp_session": "mux"
+         }
+        ],
+        "last_seq": 0,
+        "rev": 1,
+        "created_at": "2026-10-03T00:00:00.000Z",
+        "updated_at": "2026-10-03T00:00:00.000Z",
+        "read_cursors": {}
+       }
+      ]
+     },
+     "effects": [
+      {
+       "kind": "fetch_snapshot",
+       "conversation": "conv_a",
+       "tail": 500
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "snapshot",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      },
+      "messages": []
+     },
+     "effects": [
+      {
+       "kind": "ready"
+      }
+     ]
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "session_changed",
+      "session": {
+       "sessionId": "s_new",
+       "name": "new",
+       "harness": "claude",
+       "cwd": "/work",
+       "status": "idle",
+       "pendingPermissions": 0,
+       "stateSeq": 1,
+       "preview": null,
+       "tags": {
+        "mux.parent": "mux"
+       }
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "work:s_new",
+          "child": "s_new",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "work:s_new",
+           "parts": [
+            {
+             "type": "work",
+             "session": "new",
+             "status": "done"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {
+         "s_00": {
+          "conversation": "conv_a",
+          "name": "s_00",
+          "status": "running",
+          "messageId": "m_s_00",
+          "edits": 1,
+          "order": 1
+         },
+         "s_01": {
+          "conversation": "conv_a",
+          "name": "s_01",
+          "status": "running",
+          "messageId": "m_s_01",
+          "edits": 1,
+          "order": 2
+         },
+         "s_02": {
+          "conversation": "conv_a",
+          "name": "s_02",
+          "status": "running",
+          "messageId": "m_s_02",
+          "edits": 1,
+          "order": 3
+         },
+         "s_03": {
+          "conversation": "conv_a",
+          "name": "s_03",
+          "status": "running",
+          "messageId": "m_s_03",
+          "edits": 1,
+          "order": 4
+         },
+         "s_04": {
+          "conversation": "conv_a",
+          "name": "s_04",
+          "status": "running",
+          "messageId": "m_s_04",
+          "edits": 1,
+          "order": 5
+         },
+         "s_05": {
+          "conversation": "conv_a",
+          "name": "s_05",
+          "status": "running",
+          "messageId": "m_s_05",
+          "edits": 1,
+          "order": 6
+         },
+         "s_06": {
+          "conversation": "conv_a",
+          "name": "s_06",
+          "status": "running",
+          "messageId": "m_s_06",
+          "edits": 1,
+          "order": 7
+         },
+         "s_07": {
+          "conversation": "conv_a",
+          "name": "s_07",
+          "status": "running",
+          "messageId": "m_s_07",
+          "edits": 1,
+          "order": 8
+         },
+         "s_08": {
+          "conversation": "conv_a",
+          "name": "s_08",
+          "status": "running",
+          "messageId": "m_s_08",
+          "edits": 1,
+          "order": 9
+         },
+         "s_09": {
+          "conversation": "conv_a",
+          "name": "s_09",
+          "status": "running",
+          "messageId": "m_s_09",
+          "edits": 1,
+          "order": 10
+         },
+         "s_10": {
+          "conversation": "conv_a",
+          "name": "s_10",
+          "status": "running",
+          "messageId": "m_s_10",
+          "edits": 1,
+          "order": 11
+         },
+         "s_11": {
+          "conversation": "conv_a",
+          "name": "s_11",
+          "status": "running",
+          "messageId": "m_s_11",
+          "edits": 1,
+          "order": 12
+         },
+         "s_12": {
+          "conversation": "conv_a",
+          "name": "s_12",
+          "status": "running",
+          "messageId": "m_s_12",
+          "edits": 1,
+          "order": 13
+         },
+         "s_13": {
+          "conversation": "conv_a",
+          "name": "s_13",
+          "status": "running",
+          "messageId": "m_s_13",
+          "edits": 1,
+          "order": 14
+         },
+         "s_14": {
+          "conversation": "conv_a",
+          "name": "s_14",
+          "status": "running",
+          "messageId": "m_s_14",
+          "edits": 1,
+          "order": 15
+         },
+         "s_15": {
+          "conversation": "conv_a",
+          "name": "s_15",
+          "status": "running",
+          "messageId": "m_s_15",
+          "edits": 1,
+          "order": 16
+         },
+         "s_16": {
+          "conversation": "conv_a",
+          "name": "s_16",
+          "status": "running",
+          "messageId": "m_s_16",
+          "edits": 1,
+          "order": 17
+         },
+         "s_17": {
+          "conversation": "conv_a",
+          "name": "s_17",
+          "status": "running",
+          "messageId": "m_s_17",
+          "edits": 1,
+          "order": 18
+         },
+         "s_18": {
+          "conversation": "conv_a",
+          "name": "s_18",
+          "status": "running",
+          "messageId": "m_s_18",
+          "edits": 1,
+          "order": 19
+         },
+         "s_19": {
+          "conversation": "conv_a",
+          "name": "s_19",
+          "status": "running",
+          "messageId": "m_s_19",
+          "edits": 1,
+          "order": 20
+         },
+         "s_20": {
+          "conversation": "conv_a",
+          "name": "s_20",
+          "status": "running",
+          "messageId": "m_s_20",
+          "edits": 1,
+          "order": 21
+         },
+         "s_21": {
+          "conversation": "conv_a",
+          "name": "s_21",
+          "status": "running",
+          "messageId": "m_s_21",
+          "edits": 1,
+          "order": 22
+         },
+         "s_22": {
+          "conversation": "conv_a",
+          "name": "s_22",
+          "status": "running",
+          "messageId": "m_s_22",
+          "edits": 1,
+          "order": 23
+         },
+         "s_23": {
+          "conversation": "conv_a",
+          "name": "s_23",
+          "status": "running",
+          "messageId": "m_s_23",
+          "edits": 1,
+          "order": 24
+         },
+         "s_24": {
+          "conversation": "conv_a",
+          "name": "s_24",
+          "status": "running",
+          "messageId": "m_s_24",
+          "edits": 1,
+          "order": 25
+         },
+         "s_25": {
+          "conversation": "conv_a",
+          "name": "s_25",
+          "status": "running",
+          "messageId": "m_s_25",
+          "edits": 1,
+          "order": 26
+         },
+         "s_26": {
+          "conversation": "conv_a",
+          "name": "s_26",
+          "status": "running",
+          "messageId": "m_s_26",
+          "edits": 1,
+          "order": 27
+         },
+         "s_27": {
+          "conversation": "conv_a",
+          "name": "s_27",
+          "status": "running",
+          "messageId": "m_s_27",
+          "edits": 1,
+          "order": 28
+         },
+         "s_28": {
+          "conversation": "conv_a",
+          "name": "s_28",
+          "status": "running",
+          "messageId": "m_s_28",
+          "edits": 1,
+          "order": 29
+         },
+         "s_29": {
+          "conversation": "conv_a",
+          "name": "s_29",
+          "status": "running",
+          "messageId": "m_s_29",
+          "edits": 1,
+          "order": 30
+         },
+         "s_30": {
+          "conversation": "conv_a",
+          "name": "s_30",
+          "status": "running",
+          "messageId": "m_s_30",
+          "edits": 1,
+          "order": 31
+         },
+         "s_31": {
+          "conversation": "conv_a",
+          "name": "s_31",
+          "status": "running",
+          "messageId": "m_s_31",
+          "edits": 1,
+          "order": 32
+         },
+         "s_32": {
+          "conversation": "conv_a",
+          "name": "s_32",
+          "status": "running",
+          "messageId": "m_s_32",
+          "edits": 1,
+          "order": 33
+         },
+         "s_33": {
+          "conversation": "conv_a",
+          "name": "s_33",
+          "status": "running",
+          "messageId": "m_s_33",
+          "edits": 1,
+          "order": 34
+         },
+         "s_34": {
+          "conversation": "conv_a",
+          "name": "s_34",
+          "status": "running",
+          "messageId": "m_s_34",
+          "edits": 1,
+          "order": 35
+         },
+         "s_35": {
+          "conversation": "conv_a",
+          "name": "s_35",
+          "status": "running",
+          "messageId": "m_s_35",
+          "edits": 1,
+          "order": 36
+         },
+         "s_36": {
+          "conversation": "conv_a",
+          "name": "s_36",
+          "status": "running",
+          "messageId": "m_s_36",
+          "edits": 1,
+          "order": 37
+         },
+         "s_37": {
+          "conversation": "conv_a",
+          "name": "s_37",
+          "status": "running",
+          "messageId": "m_s_37",
+          "edits": 1,
+          "order": 38
+         },
+         "s_38": {
+          "conversation": "conv_a",
+          "name": "s_38",
+          "status": "running",
+          "messageId": "m_s_38",
+          "edits": 1,
+          "order": 39
+         },
+         "s_39": {
+          "conversation": "conv_a",
+          "name": "s_39",
+          "status": "running",
+          "messageId": "m_s_39",
+          "edits": 1,
+          "order": 40
+         },
+         "s_40": {
+          "conversation": "conv_a",
+          "name": "s_40",
+          "status": "running",
+          "messageId": "m_s_40",
+          "edits": 1,
+          "order": 41
+         },
+         "s_41": {
+          "conversation": "conv_a",
+          "name": "s_41",
+          "status": "running",
+          "messageId": "m_s_41",
+          "edits": 1,
+          "order": 42
+         },
+         "s_42": {
+          "conversation": "conv_a",
+          "name": "s_42",
+          "status": "running",
+          "messageId": "m_s_42",
+          "edits": 1,
+          "order": 43
+         },
+         "s_43": {
+          "conversation": "conv_a",
+          "name": "s_43",
+          "status": "running",
+          "messageId": "m_s_43",
+          "edits": 1,
+          "order": 44
+         },
+         "s_44": {
+          "conversation": "conv_a",
+          "name": "s_44",
+          "status": "running",
+          "messageId": "m_s_44",
+          "edits": 1,
+          "order": 45
+         },
+         "s_45": {
+          "conversation": "conv_a",
+          "name": "s_45",
+          "status": "running",
+          "messageId": "m_s_45",
+          "edits": 1,
+          "order": 46
+         },
+         "s_46": {
+          "conversation": "conv_a",
+          "name": "s_46",
+          "status": "running",
+          "messageId": "m_s_46",
+          "edits": 1,
+          "order": 47
+         },
+         "s_47": {
+          "conversation": "conv_a",
+          "name": "s_47",
+          "status": "running",
+          "messageId": "m_s_47",
+          "edits": 1,
+          "order": 48
+         },
+         "s_48": {
+          "conversation": "conv_a",
+          "name": "s_48",
+          "status": "running",
+          "messageId": "m_s_48",
+          "edits": 1,
+          "order": 49
+         },
+         "s_49": {
+          "conversation": "conv_a",
+          "name": "s_49",
+          "status": "running",
+          "messageId": "m_s_49",
+          "edits": 1,
+          "order": 50
+         },
+         "s_50": {
+          "conversation": "conv_a",
+          "name": "s_50",
+          "status": "running",
+          "messageId": "m_s_50",
+          "edits": 1,
+          "order": 51
+         },
+         "s_51": {
+          "conversation": "conv_a",
+          "name": "s_51",
+          "status": "running",
+          "messageId": "m_s_51",
+          "edits": 1,
+          "order": 52
+         },
+         "s_52": {
+          "conversation": "conv_a",
+          "name": "s_52",
+          "status": "running",
+          "messageId": "m_s_52",
+          "edits": 1,
+          "order": 53
+         },
+         "s_53": {
+          "conversation": "conv_a",
+          "name": "s_53",
+          "status": "running",
+          "messageId": "m_s_53",
+          "edits": 1,
+          "order": 54
+         },
+         "s_54": {
+          "conversation": "conv_a",
+          "name": "s_54",
+          "status": "running",
+          "messageId": "m_s_54",
+          "edits": 1,
+          "order": 55
+         },
+         "s_55": {
+          "conversation": "conv_a",
+          "name": "s_55",
+          "status": "running",
+          "messageId": "m_s_55",
+          "edits": 1,
+          "order": 56
+         },
+         "s_56": {
+          "conversation": "conv_a",
+          "name": "s_56",
+          "status": "running",
+          "messageId": "m_s_56",
+          "edits": 1,
+          "order": 57
+         },
+         "s_57": {
+          "conversation": "conv_a",
+          "name": "s_57",
+          "status": "running",
+          "messageId": "m_s_57",
+          "edits": 1,
+          "order": 58
+         },
+         "s_58": {
+          "conversation": "conv_a",
+          "name": "s_58",
+          "status": "running",
+          "messageId": "m_s_58",
+          "edits": 1,
+          "order": 59
+         },
+         "s_59": {
+          "conversation": "conv_a",
+          "name": "s_59",
+          "status": "running",
+          "messageId": "m_s_59",
+          "edits": 1,
+          "order": 60
+         },
+         "s_60": {
+          "conversation": "conv_a",
+          "name": "s_60",
+          "status": "running",
+          "messageId": "m_s_60",
+          "edits": 1,
+          "order": 61
+         },
+         "s_61": {
+          "conversation": "conv_a",
+          "name": "s_61",
+          "status": "running",
+          "messageId": "m_s_61",
+          "edits": 1,
+          "order": 62
+         },
+         "s_62": {
+          "conversation": "conv_a",
+          "name": "s_62",
+          "status": "running",
+          "messageId": "m_s_62",
+          "edits": 1,
+          "order": 63
+         },
+         "s_63": {
+          "conversation": "conv_a",
+          "name": "s_63",
+          "status": "running",
+          "messageId": "m_s_63",
+          "edits": 1,
+          "order": 64
+         },
+         "s_64": {
+          "conversation": "conv_a",
+          "name": "s_64",
+          "status": "running",
+          "messageId": "m_s_64",
+          "edits": 1,
+          "order": 65
+         },
+         "s_65": {
+          "conversation": "conv_a",
+          "name": "s_65",
+          "status": "running",
+          "messageId": "m_s_65",
+          "edits": 1,
+          "order": 66
+         },
+         "s_66": {
+          "conversation": "conv_a",
+          "name": "s_66",
+          "status": "running",
+          "messageId": "m_s_66",
+          "edits": 1,
+          "order": 67
+         },
+         "s_67": {
+          "conversation": "conv_a",
+          "name": "s_67",
+          "status": "running",
+          "messageId": "m_s_67",
+          "edits": 1,
+          "order": 68
+         },
+         "s_68": {
+          "conversation": "conv_a",
+          "name": "s_68",
+          "status": "running",
+          "messageId": "m_s_68",
+          "edits": 1,
+          "order": 69
+         },
+         "s_69": {
+          "conversation": "conv_a",
+          "name": "s_69",
+          "status": "running",
+          "messageId": "m_s_69",
+          "edits": 1,
+          "order": 70
+         },
+         "s_70": {
+          "conversation": "conv_a",
+          "name": "s_70",
+          "status": "running",
+          "messageId": "m_s_70",
+          "edits": 1,
+          "order": 71
+         },
+         "s_71": {
+          "conversation": "conv_a",
+          "name": "s_71",
+          "status": "running",
+          "messageId": "m_s_71",
+          "edits": 1,
+          "order": 72
+         },
+         "s_72": {
+          "conversation": "conv_a",
+          "name": "s_72",
+          "status": "running",
+          "messageId": "m_s_72",
+          "edits": 1,
+          "order": 73
+         },
+         "s_73": {
+          "conversation": "conv_a",
+          "name": "s_73",
+          "status": "running",
+          "messageId": "m_s_73",
+          "edits": 1,
+          "order": 74
+         },
+         "s_74": {
+          "conversation": "conv_a",
+          "name": "s_74",
+          "status": "running",
+          "messageId": "m_s_74",
+          "edits": 1,
+          "order": 75
+         },
+         "s_75": {
+          "conversation": "conv_a",
+          "name": "s_75",
+          "status": "running",
+          "messageId": "m_s_75",
+          "edits": 1,
+          "order": 76
+         },
+         "s_76": {
+          "conversation": "conv_a",
+          "name": "s_76",
+          "status": "running",
+          "messageId": "m_s_76",
+          "edits": 1,
+          "order": 77
+         },
+         "s_77": {
+          "conversation": "conv_a",
+          "name": "s_77",
+          "status": "running",
+          "messageId": "m_s_77",
+          "edits": 1,
+          "order": 78
+         },
+         "s_78": {
+          "conversation": "conv_a",
+          "name": "s_78",
+          "status": "running",
+          "messageId": "m_s_78",
+          "edits": 1,
+          "order": 79
+         },
+         "s_79": {
+          "conversation": "conv_a",
+          "name": "s_79",
+          "status": "running",
+          "messageId": "m_s_79",
+          "edits": 1,
+          "order": 80
+         },
+         "s_80": {
+          "conversation": "conv_a",
+          "name": "s_80",
+          "status": "running",
+          "messageId": "m_s_80",
+          "edits": 1,
+          "order": 81
+         },
+         "s_81": {
+          "conversation": "conv_a",
+          "name": "s_81",
+          "status": "running",
+          "messageId": "m_s_81",
+          "edits": 1,
+          "order": 82
+         },
+         "s_82": {
+          "conversation": "conv_a",
+          "name": "s_82",
+          "status": "running",
+          "messageId": "m_s_82",
+          "edits": 1,
+          "order": 83
+         },
+         "s_83": {
+          "conversation": "conv_a",
+          "name": "s_83",
+          "status": "running",
+          "messageId": "m_s_83",
+          "edits": 1,
+          "order": 84
+         },
+         "s_84": {
+          "conversation": "conv_a",
+          "name": "s_84",
+          "status": "running",
+          "messageId": "m_s_84",
+          "edits": 1,
+          "order": 85
+         },
+         "s_85": {
+          "conversation": "conv_a",
+          "name": "s_85",
+          "status": "running",
+          "messageId": "m_s_85",
+          "edits": 1,
+          "order": 86
+         },
+         "s_86": {
+          "conversation": "conv_a",
+          "name": "s_86",
+          "status": "running",
+          "messageId": "m_s_86",
+          "edits": 1,
+          "order": 87
+         },
+         "s_87": {
+          "conversation": "conv_a",
+          "name": "s_87",
+          "status": "running",
+          "messageId": "m_s_87",
+          "edits": 1,
+          "order": 88
+         },
+         "s_88": {
+          "conversation": "conv_a",
+          "name": "s_88",
+          "status": "running",
+          "messageId": "m_s_88",
+          "edits": 1,
+          "order": 89
+         },
+         "s_89": {
+          "conversation": "conv_a",
+          "name": "s_89",
+          "status": "running",
+          "messageId": "m_s_89",
+          "edits": 1,
+          "order": 90
+         },
+         "s_90": {
+          "conversation": "conv_a",
+          "name": "s_90",
+          "status": "running",
+          "messageId": "m_s_90",
+          "edits": 1,
+          "order": 91
+         },
+         "s_91": {
+          "conversation": "conv_a",
+          "name": "s_91",
+          "status": "running",
+          "messageId": "m_s_91",
+          "edits": 1,
+          "order": 92
+         },
+         "s_92": {
+          "conversation": "conv_a",
+          "name": "s_92",
+          "status": "running",
+          "messageId": "m_s_92",
+          "edits": 1,
+          "order": 93
+         },
+         "s_93": {
+          "conversation": "conv_a",
+          "name": "s_93",
+          "status": "running",
+          "messageId": "m_s_93",
+          "edits": 1,
+          "order": 94
+         },
+         "s_94": {
+          "conversation": "conv_a",
+          "name": "s_94",
+          "status": "running",
+          "messageId": "m_s_94",
+          "edits": 1,
+          "order": 95
+         },
+         "s_95": {
+          "conversation": "conv_a",
+          "name": "s_95",
+          "status": "running",
+          "messageId": "m_s_95",
+          "edits": 1,
+          "order": 96
+         },
+         "s_96": {
+          "conversation": "conv_a",
+          "name": "s_96",
+          "status": "running",
+          "messageId": "m_s_96",
+          "edits": 1,
+          "order": 97
+         },
+         "s_97": {
+          "conversation": "conv_a",
+          "name": "s_97",
+          "status": "running",
+          "messageId": "m_s_97",
+          "edits": 1,
+          "order": 98
+         },
+         "s_98": {
+          "conversation": "conv_a",
+          "name": "s_98",
+          "status": "running",
+          "messageId": "m_s_98",
+          "edits": 1,
+          "order": 99
+         },
+         "s_99": {
+          "conversation": "conv_a",
+          "name": "s_99",
+          "status": "running",
+          "messageId": "m_s_99",
+          "edits": 1,
+          "order": 100
+         },
+         "s_new": {
+          "conversation": "conv_a",
+          "name": "new",
+          "status": "done",
+          "edits": 0,
+          "order": 101
+         }
+        },
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "log",
+       "line": "child new started (s_new)"
+      },
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "work:s_new",
+       "op": {
+        "kind": "message.send",
+        "client_msg_id": "work:s_new",
+        "parts": [
+         {
+          "type": "work",
+          "session": "new",
+          "status": "done"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [
+     {
+      "conversation": "conv_a",
+      "idempotency_key": "work:s_new",
+      "child": "s_new",
+      "op": {
+       "kind": "message.send",
+       "client_msg_id": "work:s_new",
+       "parts": [
+        {
+         "type": "work",
+         "session": "new",
+         "status": "done"
+        }
+       ]
+      }
+     }
+    ],
+    "children": {
+     "s_00": {
+      "conversation": "conv_a",
+      "name": "s_00",
+      "status": "running",
+      "messageId": "m_s_00",
+      "edits": 1,
+      "order": 1
+     },
+     "s_01": {
+      "conversation": "conv_a",
+      "name": "s_01",
+      "status": "running",
+      "messageId": "m_s_01",
+      "edits": 1,
+      "order": 2
+     },
+     "s_02": {
+      "conversation": "conv_a",
+      "name": "s_02",
+      "status": "running",
+      "messageId": "m_s_02",
+      "edits": 1,
+      "order": 3
+     },
+     "s_03": {
+      "conversation": "conv_a",
+      "name": "s_03",
+      "status": "running",
+      "messageId": "m_s_03",
+      "edits": 1,
+      "order": 4
+     },
+     "s_04": {
+      "conversation": "conv_a",
+      "name": "s_04",
+      "status": "running",
+      "messageId": "m_s_04",
+      "edits": 1,
+      "order": 5
+     },
+     "s_05": {
+      "conversation": "conv_a",
+      "name": "s_05",
+      "status": "running",
+      "messageId": "m_s_05",
+      "edits": 1,
+      "order": 6
+     },
+     "s_06": {
+      "conversation": "conv_a",
+      "name": "s_06",
+      "status": "running",
+      "messageId": "m_s_06",
+      "edits": 1,
+      "order": 7
+     },
+     "s_07": {
+      "conversation": "conv_a",
+      "name": "s_07",
+      "status": "running",
+      "messageId": "m_s_07",
+      "edits": 1,
+      "order": 8
+     },
+     "s_08": {
+      "conversation": "conv_a",
+      "name": "s_08",
+      "status": "running",
+      "messageId": "m_s_08",
+      "edits": 1,
+      "order": 9
+     },
+     "s_09": {
+      "conversation": "conv_a",
+      "name": "s_09",
+      "status": "running",
+      "messageId": "m_s_09",
+      "edits": 1,
+      "order": 10
+     },
+     "s_10": {
+      "conversation": "conv_a",
+      "name": "s_10",
+      "status": "running",
+      "messageId": "m_s_10",
+      "edits": 1,
+      "order": 11
+     },
+     "s_11": {
+      "conversation": "conv_a",
+      "name": "s_11",
+      "status": "running",
+      "messageId": "m_s_11",
+      "edits": 1,
+      "order": 12
+     },
+     "s_12": {
+      "conversation": "conv_a",
+      "name": "s_12",
+      "status": "running",
+      "messageId": "m_s_12",
+      "edits": 1,
+      "order": 13
+     },
+     "s_13": {
+      "conversation": "conv_a",
+      "name": "s_13",
+      "status": "running",
+      "messageId": "m_s_13",
+      "edits": 1,
+      "order": 14
+     },
+     "s_14": {
+      "conversation": "conv_a",
+      "name": "s_14",
+      "status": "running",
+      "messageId": "m_s_14",
+      "edits": 1,
+      "order": 15
+     },
+     "s_15": {
+      "conversation": "conv_a",
+      "name": "s_15",
+      "status": "running",
+      "messageId": "m_s_15",
+      "edits": 1,
+      "order": 16
+     },
+     "s_16": {
+      "conversation": "conv_a",
+      "name": "s_16",
+      "status": "running",
+      "messageId": "m_s_16",
+      "edits": 1,
+      "order": 17
+     },
+     "s_17": {
+      "conversation": "conv_a",
+      "name": "s_17",
+      "status": "running",
+      "messageId": "m_s_17",
+      "edits": 1,
+      "order": 18
+     },
+     "s_18": {
+      "conversation": "conv_a",
+      "name": "s_18",
+      "status": "running",
+      "messageId": "m_s_18",
+      "edits": 1,
+      "order": 19
+     },
+     "s_19": {
+      "conversation": "conv_a",
+      "name": "s_19",
+      "status": "running",
+      "messageId": "m_s_19",
+      "edits": 1,
+      "order": 20
+     },
+     "s_20": {
+      "conversation": "conv_a",
+      "name": "s_20",
+      "status": "running",
+      "messageId": "m_s_20",
+      "edits": 1,
+      "order": 21
+     },
+     "s_21": {
+      "conversation": "conv_a",
+      "name": "s_21",
+      "status": "running",
+      "messageId": "m_s_21",
+      "edits": 1,
+      "order": 22
+     },
+     "s_22": {
+      "conversation": "conv_a",
+      "name": "s_22",
+      "status": "running",
+      "messageId": "m_s_22",
+      "edits": 1,
+      "order": 23
+     },
+     "s_23": {
+      "conversation": "conv_a",
+      "name": "s_23",
+      "status": "running",
+      "messageId": "m_s_23",
+      "edits": 1,
+      "order": 24
+     },
+     "s_24": {
+      "conversation": "conv_a",
+      "name": "s_24",
+      "status": "running",
+      "messageId": "m_s_24",
+      "edits": 1,
+      "order": 25
+     },
+     "s_25": {
+      "conversation": "conv_a",
+      "name": "s_25",
+      "status": "running",
+      "messageId": "m_s_25",
+      "edits": 1,
+      "order": 26
+     },
+     "s_26": {
+      "conversation": "conv_a",
+      "name": "s_26",
+      "status": "running",
+      "messageId": "m_s_26",
+      "edits": 1,
+      "order": 27
+     },
+     "s_27": {
+      "conversation": "conv_a",
+      "name": "s_27",
+      "status": "running",
+      "messageId": "m_s_27",
+      "edits": 1,
+      "order": 28
+     },
+     "s_28": {
+      "conversation": "conv_a",
+      "name": "s_28",
+      "status": "running",
+      "messageId": "m_s_28",
+      "edits": 1,
+      "order": 29
+     },
+     "s_29": {
+      "conversation": "conv_a",
+      "name": "s_29",
+      "status": "running",
+      "messageId": "m_s_29",
+      "edits": 1,
+      "order": 30
+     },
+     "s_30": {
+      "conversation": "conv_a",
+      "name": "s_30",
+      "status": "running",
+      "messageId": "m_s_30",
+      "edits": 1,
+      "order": 31
+     },
+     "s_31": {
+      "conversation": "conv_a",
+      "name": "s_31",
+      "status": "running",
+      "messageId": "m_s_31",
+      "edits": 1,
+      "order": 32
+     },
+     "s_32": {
+      "conversation": "conv_a",
+      "name": "s_32",
+      "status": "running",
+      "messageId": "m_s_32",
+      "edits": 1,
+      "order": 33
+     },
+     "s_33": {
+      "conversation": "conv_a",
+      "name": "s_33",
+      "status": "running",
+      "messageId": "m_s_33",
+      "edits": 1,
+      "order": 34
+     },
+     "s_34": {
+      "conversation": "conv_a",
+      "name": "s_34",
+      "status": "running",
+      "messageId": "m_s_34",
+      "edits": 1,
+      "order": 35
+     },
+     "s_35": {
+      "conversation": "conv_a",
+      "name": "s_35",
+      "status": "running",
+      "messageId": "m_s_35",
+      "edits": 1,
+      "order": 36
+     },
+     "s_36": {
+      "conversation": "conv_a",
+      "name": "s_36",
+      "status": "running",
+      "messageId": "m_s_36",
+      "edits": 1,
+      "order": 37
+     },
+     "s_37": {
+      "conversation": "conv_a",
+      "name": "s_37",
+      "status": "running",
+      "messageId": "m_s_37",
+      "edits": 1,
+      "order": 38
+     },
+     "s_38": {
+      "conversation": "conv_a",
+      "name": "s_38",
+      "status": "running",
+      "messageId": "m_s_38",
+      "edits": 1,
+      "order": 39
+     },
+     "s_39": {
+      "conversation": "conv_a",
+      "name": "s_39",
+      "status": "running",
+      "messageId": "m_s_39",
+      "edits": 1,
+      "order": 40
+     },
+     "s_40": {
+      "conversation": "conv_a",
+      "name": "s_40",
+      "status": "running",
+      "messageId": "m_s_40",
+      "edits": 1,
+      "order": 41
+     },
+     "s_41": {
+      "conversation": "conv_a",
+      "name": "s_41",
+      "status": "running",
+      "messageId": "m_s_41",
+      "edits": 1,
+      "order": 42
+     },
+     "s_42": {
+      "conversation": "conv_a",
+      "name": "s_42",
+      "status": "running",
+      "messageId": "m_s_42",
+      "edits": 1,
+      "order": 43
+     },
+     "s_43": {
+      "conversation": "conv_a",
+      "name": "s_43",
+      "status": "running",
+      "messageId": "m_s_43",
+      "edits": 1,
+      "order": 44
+     },
+     "s_44": {
+      "conversation": "conv_a",
+      "name": "s_44",
+      "status": "running",
+      "messageId": "m_s_44",
+      "edits": 1,
+      "order": 45
+     },
+     "s_45": {
+      "conversation": "conv_a",
+      "name": "s_45",
+      "status": "running",
+      "messageId": "m_s_45",
+      "edits": 1,
+      "order": 46
+     },
+     "s_46": {
+      "conversation": "conv_a",
+      "name": "s_46",
+      "status": "running",
+      "messageId": "m_s_46",
+      "edits": 1,
+      "order": 47
+     },
+     "s_47": {
+      "conversation": "conv_a",
+      "name": "s_47",
+      "status": "running",
+      "messageId": "m_s_47",
+      "edits": 1,
+      "order": 48
+     },
+     "s_48": {
+      "conversation": "conv_a",
+      "name": "s_48",
+      "status": "running",
+      "messageId": "m_s_48",
+      "edits": 1,
+      "order": 49
+     },
+     "s_49": {
+      "conversation": "conv_a",
+      "name": "s_49",
+      "status": "running",
+      "messageId": "m_s_49",
+      "edits": 1,
+      "order": 50
+     },
+     "s_50": {
+      "conversation": "conv_a",
+      "name": "s_50",
+      "status": "running",
+      "messageId": "m_s_50",
+      "edits": 1,
+      "order": 51
+     },
+     "s_51": {
+      "conversation": "conv_a",
+      "name": "s_51",
+      "status": "running",
+      "messageId": "m_s_51",
+      "edits": 1,
+      "order": 52
+     },
+     "s_52": {
+      "conversation": "conv_a",
+      "name": "s_52",
+      "status": "running",
+      "messageId": "m_s_52",
+      "edits": 1,
+      "order": 53
+     },
+     "s_53": {
+      "conversation": "conv_a",
+      "name": "s_53",
+      "status": "running",
+      "messageId": "m_s_53",
+      "edits": 1,
+      "order": 54
+     },
+     "s_54": {
+      "conversation": "conv_a",
+      "name": "s_54",
+      "status": "running",
+      "messageId": "m_s_54",
+      "edits": 1,
+      "order": 55
+     },
+     "s_55": {
+      "conversation": "conv_a",
+      "name": "s_55",
+      "status": "running",
+      "messageId": "m_s_55",
+      "edits": 1,
+      "order": 56
+     },
+     "s_56": {
+      "conversation": "conv_a",
+      "name": "s_56",
+      "status": "running",
+      "messageId": "m_s_56",
+      "edits": 1,
+      "order": 57
+     },
+     "s_57": {
+      "conversation": "conv_a",
+      "name": "s_57",
+      "status": "running",
+      "messageId": "m_s_57",
+      "edits": 1,
+      "order": 58
+     },
+     "s_58": {
+      "conversation": "conv_a",
+      "name": "s_58",
+      "status": "running",
+      "messageId": "m_s_58",
+      "edits": 1,
+      "order": 59
+     },
+     "s_59": {
+      "conversation": "conv_a",
+      "name": "s_59",
+      "status": "running",
+      "messageId": "m_s_59",
+      "edits": 1,
+      "order": 60
+     },
+     "s_60": {
+      "conversation": "conv_a",
+      "name": "s_60",
+      "status": "running",
+      "messageId": "m_s_60",
+      "edits": 1,
+      "order": 61
+     },
+     "s_61": {
+      "conversation": "conv_a",
+      "name": "s_61",
+      "status": "running",
+      "messageId": "m_s_61",
+      "edits": 1,
+      "order": 62
+     },
+     "s_62": {
+      "conversation": "conv_a",
+      "name": "s_62",
+      "status": "running",
+      "messageId": "m_s_62",
+      "edits": 1,
+      "order": 63
+     },
+     "s_63": {
+      "conversation": "conv_a",
+      "name": "s_63",
+      "status": "running",
+      "messageId": "m_s_63",
+      "edits": 1,
+      "order": 64
+     },
+     "s_64": {
+      "conversation": "conv_a",
+      "name": "s_64",
+      "status": "running",
+      "messageId": "m_s_64",
+      "edits": 1,
+      "order": 65
+     },
+     "s_65": {
+      "conversation": "conv_a",
+      "name": "s_65",
+      "status": "running",
+      "messageId": "m_s_65",
+      "edits": 1,
+      "order": 66
+     },
+     "s_66": {
+      "conversation": "conv_a",
+      "name": "s_66",
+      "status": "running",
+      "messageId": "m_s_66",
+      "edits": 1,
+      "order": 67
+     },
+     "s_67": {
+      "conversation": "conv_a",
+      "name": "s_67",
+      "status": "running",
+      "messageId": "m_s_67",
+      "edits": 1,
+      "order": 68
+     },
+     "s_68": {
+      "conversation": "conv_a",
+      "name": "s_68",
+      "status": "running",
+      "messageId": "m_s_68",
+      "edits": 1,
+      "order": 69
+     },
+     "s_69": {
+      "conversation": "conv_a",
+      "name": "s_69",
+      "status": "running",
+      "messageId": "m_s_69",
+      "edits": 1,
+      "order": 70
+     },
+     "s_70": {
+      "conversation": "conv_a",
+      "name": "s_70",
+      "status": "running",
+      "messageId": "m_s_70",
+      "edits": 1,
+      "order": 71
+     },
+     "s_71": {
+      "conversation": "conv_a",
+      "name": "s_71",
+      "status": "running",
+      "messageId": "m_s_71",
+      "edits": 1,
+      "order": 72
+     },
+     "s_72": {
+      "conversation": "conv_a",
+      "name": "s_72",
+      "status": "running",
+      "messageId": "m_s_72",
+      "edits": 1,
+      "order": 73
+     },
+     "s_73": {
+      "conversation": "conv_a",
+      "name": "s_73",
+      "status": "running",
+      "messageId": "m_s_73",
+      "edits": 1,
+      "order": 74
+     },
+     "s_74": {
+      "conversation": "conv_a",
+      "name": "s_74",
+      "status": "running",
+      "messageId": "m_s_74",
+      "edits": 1,
+      "order": 75
+     },
+     "s_75": {
+      "conversation": "conv_a",
+      "name": "s_75",
+      "status": "running",
+      "messageId": "m_s_75",
+      "edits": 1,
+      "order": 76
+     },
+     "s_76": {
+      "conversation": "conv_a",
+      "name": "s_76",
+      "status": "running",
+      "messageId": "m_s_76",
+      "edits": 1,
+      "order": 77
+     },
+     "s_77": {
+      "conversation": "conv_a",
+      "name": "s_77",
+      "status": "running",
+      "messageId": "m_s_77",
+      "edits": 1,
+      "order": 78
+     },
+     "s_78": {
+      "conversation": "conv_a",
+      "name": "s_78",
+      "status": "running",
+      "messageId": "m_s_78",
+      "edits": 1,
+      "order": 79
+     },
+     "s_79": {
+      "conversation": "conv_a",
+      "name": "s_79",
+      "status": "running",
+      "messageId": "m_s_79",
+      "edits": 1,
+      "order": 80
+     },
+     "s_80": {
+      "conversation": "conv_a",
+      "name": "s_80",
+      "status": "running",
+      "messageId": "m_s_80",
+      "edits": 1,
+      "order": 81
+     },
+     "s_81": {
+      "conversation": "conv_a",
+      "name": "s_81",
+      "status": "running",
+      "messageId": "m_s_81",
+      "edits": 1,
+      "order": 82
+     },
+     "s_82": {
+      "conversation": "conv_a",
+      "name": "s_82",
+      "status": "running",
+      "messageId": "m_s_82",
+      "edits": 1,
+      "order": 83
+     },
+     "s_83": {
+      "conversation": "conv_a",
+      "name": "s_83",
+      "status": "running",
+      "messageId": "m_s_83",
+      "edits": 1,
+      "order": 84
+     },
+     "s_84": {
+      "conversation": "conv_a",
+      "name": "s_84",
+      "status": "running",
+      "messageId": "m_s_84",
+      "edits": 1,
+      "order": 85
+     },
+     "s_85": {
+      "conversation": "conv_a",
+      "name": "s_85",
+      "status": "running",
+      "messageId": "m_s_85",
+      "edits": 1,
+      "order": 86
+     },
+     "s_86": {
+      "conversation": "conv_a",
+      "name": "s_86",
+      "status": "running",
+      "messageId": "m_s_86",
+      "edits": 1,
+      "order": 87
+     },
+     "s_87": {
+      "conversation": "conv_a",
+      "name": "s_87",
+      "status": "running",
+      "messageId": "m_s_87",
+      "edits": 1,
+      "order": 88
+     },
+     "s_88": {
+      "conversation": "conv_a",
+      "name": "s_88",
+      "status": "running",
+      "messageId": "m_s_88",
+      "edits": 1,
+      "order": 89
+     },
+     "s_89": {
+      "conversation": "conv_a",
+      "name": "s_89",
+      "status": "running",
+      "messageId": "m_s_89",
+      "edits": 1,
+      "order": 90
+     },
+     "s_90": {
+      "conversation": "conv_a",
+      "name": "s_90",
+      "status": "running",
+      "messageId": "m_s_90",
+      "edits": 1,
+      "order": 91
+     },
+     "s_91": {
+      "conversation": "conv_a",
+      "name": "s_91",
+      "status": "running",
+      "messageId": "m_s_91",
+      "edits": 1,
+      "order": 92
+     },
+     "s_92": {
+      "conversation": "conv_a",
+      "name": "s_92",
+      "status": "running",
+      "messageId": "m_s_92",
+      "edits": 1,
+      "order": 93
+     },
+     "s_93": {
+      "conversation": "conv_a",
+      "name": "s_93",
+      "status": "running",
+      "messageId": "m_s_93",
+      "edits": 1,
+      "order": 94
+     },
+     "s_94": {
+      "conversation": "conv_a",
+      "name": "s_94",
+      "status": "running",
+      "messageId": "m_s_94",
+      "edits": 1,
+      "order": 95
+     },
+     "s_95": {
+      "conversation": "conv_a",
+      "name": "s_95",
+      "status": "running",
+      "messageId": "m_s_95",
+      "edits": 1,
+      "order": 96
+     },
+     "s_96": {
+      "conversation": "conv_a",
+      "name": "s_96",
+      "status": "running",
+      "messageId": "m_s_96",
+      "edits": 1,
+      "order": 97
+     },
+     "s_97": {
+      "conversation": "conv_a",
+      "name": "s_97",
+      "status": "running",
+      "messageId": "m_s_97",
+      "edits": 1,
+      "order": 98
+     },
+     "s_98": {
+      "conversation": "conv_a",
+      "name": "s_98",
+      "status": "running",
+      "messageId": "m_s_98",
+      "edits": 1,
+      "order": 99
+     },
+     "s_99": {
+      "conversation": "conv_a",
+      "name": "s_99",
+      "status": "running",
+      "messageId": "m_s_99",
+      "edits": 1,
+      "order": 100
+     },
+     "s_new": {
+      "conversation": "conv_a",
+      "name": "new",
+      "status": "done",
       "edits": 0,
       "order": 101
      }

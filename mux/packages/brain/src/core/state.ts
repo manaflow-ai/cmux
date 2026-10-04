@@ -28,6 +28,8 @@ export interface HostStateData {
   outbox: OutboxEntry[];
   /** Child agents: acpmux session id -> its work-part message. */
   children: Record<string, ChildRecord>;
+  /** Children pruned past MAX_CHILDREN, oldest first (at most MAX_PRUNED): one that comes back gets no second card. */
+  prunedChildren?: string[];
 }
 
 export interface OutstandingPrompt {
@@ -65,6 +67,8 @@ export interface ChildRecord {
 
 /** Most children host.json keeps; past it the oldest finished child with no queued op is pruned. */
 export const MAX_CHILDREN = 100;
+/** Most pruned child ids host.json remembers. */
+export const MAX_PRUNED = 1_000;
 
 /** Most answered prompt ids kept. */
 export const MAX_ANSWERED = 2_000;
