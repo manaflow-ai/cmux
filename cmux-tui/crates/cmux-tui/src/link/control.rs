@@ -8,11 +8,12 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
-use cmux_link::dial::{MAX_LINE_BYTES, ReloadRequest, parse_line};
+use cmux_link::dial::{CloudEventRequest, MAX_LINE_BYTES, ReloadRequest, parse_line};
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 
+use super::cloud::{CloudResolver, ConnectInfoSource, apply_cloud_event};
 use super::dial::{Overlay, serve_dial_line};
 use super::inbound::serve_inbound;
 use super::lines::read_line;
@@ -53,10 +54,11 @@ pub(super) trait OverlayListener: Send + 'static {
 
 /// Serve the local socket. Each caller must be this user and
 /// signed as cmux (`cmux_link::caller`); others are closed unanswered.
-pub(super) async fn serve_local<O: Overlay>(
+pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
     listener: UnixListener,
     overlay: Arc<O>,
     peers: Arc<Peers>,
+    resolver: Arc<CloudResolver<S>>,
 ) -> io::Result<()> {
     let mut failures = 0u32;
     loop {
@@ -73,17 +75,23 @@ pub(super) async fn serve_local<O: Overlay>(
                 continue;
             }
         };
-        tokio::spawn(serve_local_request(stream, overlay.clone(), peers.clone()));
+        tokio::spawn(serve_local_request(
+            stream,
+            overlay.clone(),
+            peers.clone(),
+            resolver.clone(),
+        ));
     }
 }
 
 /// The first accept retry delay; later ones grow linearly up to 1 s.
 const ACCEPT_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
 
-async fn serve_local_request<O: Overlay>(
+async fn serve_local_request<O: Overlay, S: ConnectInfoSource>(
     mut stream: UnixStream,
     overlay: Arc<O>,
     peers: Arc<Peers>,
+    resolver: Arc<CloudResolver<S>>,
 ) {
     // The signature check calls into the OS; keep it off the async workers.
     let fd = stream.as_raw_fd();
@@ -92,6 +100,12 @@ async fn serve_local_request<O: Overlay>(
         return;
     }
     let Ok(first) = read_line(&mut stream, MAX_LINE_BYTES).await else { return };
+    if let Some(event) = parse_line::<CloudEventRequest>(&first) {
+        let ok = apply_cloud_event(&event, &*overlay, &resolver).await;
+        let reply = if ok { "{\"ok\":true}\n" } else { "{\"ok\":false}\n" };
+        let _ = stream.write_all(reply.as_bytes()).await;
+        return;
+    }
     if parse_line::<ReloadRequest>(&first).is_some() {
         let ok = peers.reload(&*overlay).await.is_ok();
         let reply = if ok { "{\"ok\":true}\n" } else { "{\"ok\":false}\n" };
@@ -99,7 +113,7 @@ async fn serve_local_request<O: Overlay>(
         return;
     }
     let pairings = peers.snapshot();
-    serve_dial_line(stream, &first, &*overlay, &pairings).await;
+    serve_dial_line(stream, &first, &*overlay, &pairings, &resolver).await;
 }
 
 /// Serve overlay streams from paired peers. Without a session socket this

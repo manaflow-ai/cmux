@@ -6,6 +6,8 @@ use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Mutex;
 
+use cmux_link::connect_info::ConnectInfo;
+use cmux_link::dial::PathState;
 use cmux_link::pairing::Pairings;
 use cmux_wg::{IpNetwork, WgMesh, WgMeshListener, WgPeer, WgStream};
 
@@ -23,11 +25,14 @@ pub(super) struct MeshOverlay {
     /// The peers the mesh holds now, updated after each step so a failed
     /// sync never forgets a peer it added.
     peers: Mutex<HashMap<[u8; 32], PeerShape>>,
+    /// Cloud VM endpoints by host id (connect_info), apart from the paired
+    /// peers so a pairing reload never removes them.
+    cloud: Mutex<HashMap<String, ([u8; 32], PeerShape)>>,
 }
 
 impl MeshOverlay {
     pub(super) fn new(mesh: WgMesh) -> Self {
-        Self { mesh, peers: Mutex::new(HashMap::new()) }
+        Self { mesh, peers: Mutex::new(HashMap::new()), cloud: Mutex::new(HashMap::new()) }
     }
 
     pub(super) async fn listen(&self, port: u16) -> io::Result<WgMeshListener> {
@@ -86,7 +91,60 @@ impl Overlay for MeshOverlay {
         }
         Ok(())
     }
+
+    async fn set_cloud_peer(&self, host: &str, key: [u8; 32], info: &ConnectInfo) -> io::Result<()> {
+        let shape = cloud_shape(info)?;
+        let previous = self.cloud.lock().unwrap().get(host).cloned();
+        if previous.as_ref() == Some(&(key, shape.clone())) {
+            return Ok(());
+        }
+        if let Some((old_key, _)) = previous {
+            self.mesh.remove_peer(old_key).await.map_err(io::Error::other)?;
+            self.cloud.lock().unwrap().remove(host);
+        }
+        let peer = WgPeer {
+            public_key: key,
+            preshared_key: None,
+            allowed_ips: shape.0.clone(),
+            endpoint: shape.1,
+            persistent_keepalive: Some(KEEPALIVE_SECONDS),
+        };
+        self.mesh.add_peer(peer).await.map_err(io::Error::other)?;
+        self.cloud.lock().unwrap().insert(host.to_string(), (key, shape));
+        Ok(())
+    }
+
+    async fn forget_cloud_peer(&self, host: &str) -> io::Result<()> {
+        let removed = self.cloud.lock().unwrap().remove(host);
+        if let Some((key, _)) = removed {
+            self.mesh.remove_peer(key).await.map_err(io::Error::other)?;
+        }
+        Ok(())
+    }
+
+    async fn path_state(&self, key: &[u8; 32]) -> PathState {
+        let known = self.peers.lock().unwrap().contains_key(key)
+            || self.cloud.lock().unwrap().values().any(|(cloud_key, _)| cloud_key == key);
+        if known { PathState::Direct } else { PathState::Unreachable }
+    }
 }
+
+/// The mesh shape of a Cloud VM endpoint: its overlay `/128`, reached on its
+/// public IPv6 when it has one, else on its VPC endpoint (a VPC member's
+/// direct path). The tunnel route comes with the gateway support.
+fn cloud_shape(info: &ConnectInfo) -> io::Result<PeerShape> {
+    let network =
+        IpNetwork::new(IpAddr::V6(info.peer.overlay_address), 128).map_err(io::Error::other)?;
+    let endpoint = info
+        .peer
+        .public_ipv6
+        .map(|address| SocketAddr::new(IpAddr::V6(address), CLOUD_UDP_PORT))
+        .or(info.peer.vpc_endpoint);
+    Ok((vec![network], endpoint))
+}
+
+/// The outer WireGuard port of Cloud VM endpoints (transport.md 3.1).
+const CLOUD_UDP_PORT: u16 = 4101;
 
 impl OverlayListener for WgMeshListener {
     type Stream = WgStream;
