@@ -94,8 +94,8 @@ inside a DO only), `link` (an unauthenticated holder of an invite secret, read o
 | Op | Params | Key | Callers | Rules |
 | --- | --- | --- | --- | --- |
 | `inbox.bump` | `{conversation, rev, kind, title, last_seq, last_at, preview, unread, mentions, dm_peer?, removed?}` | `bump:<conversation>:<rev>` | system (ConversationDO outbox) | applies only when `rev` is newer (max merge, so duplicates and reordering are harmless) |
-| `inbox.reindex` | `{conversations[], done}` | `inbox-reindex:<sha256 of the batch>` | system (the UserDO itself) | one-time migration: writes the order rows of entries stored before `entry_order` existed; `done` sets the head flag `ordered` |
-| `inbox.pin` | `{conversation, pinned, position?}` | client key | session, install | user-owned |
+| `inbox.reindex` | `{conversations[], done}` | `inbox-reindex:<sha256 of the batch>` | system (the UserDO itself) | one-time migration: writes the order rows of entries stored before `entry_order` existed and releases a peer row that points at a left DM to a live DM with that peer; an id that is not valid is skipped, so `done` always sets the head flag `ordered` |
+| `inbox.pin` | `{conversation, pinned, position?}` | client key | session, install | user-owned; a position (given or automatic) past 2^53 - 2 is `invalid_params` |
 | `inbox.mute` | `{conversation, until?}` | client key | session, install | approvals still notify (spec) |
 | `inbox.archive` | `{conversation, archived}` | client key | session, install | a new message un-archives (bump rule) |
 | `inbox.mark_unread` | `{conversation, unread}` | client key | session, install | flag only; the read cursor stays |

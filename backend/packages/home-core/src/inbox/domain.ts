@@ -27,15 +27,45 @@ const write = (rows: RowReader, before: InboxEntry | undefined, entry: InboxEntr
 
 const MAX_REINDEX = 500
 
+/**
+ * Only the batch shape is checked. An id that is not valid is skipped, not refused, so the
+ * done batch always commits and a legacy inbox never reruns its migration on every list.
+ */
 const validReindex = (params: unknown): params is InboxReindexParams => {
   if (typeof params !== "object" || params === null) return false
   const p = params as Record<string, unknown>
-  return typeof p.done === "boolean" && Array.isArray(p.conversations) && p.conversations.length <= MAX_REINDEX && p.conversations.every((c) => typeof c === "string" && c.length <= 128)
+  return typeof p.done === "boolean" && Array.isArray(p.conversations) && p.conversations.length <= MAX_REINDEX
+}
+
+const reindexId = (c: unknown): c is string => typeof c === "string" && c.length <= 128
+
+/**
+ * The peer repair of `inbox.reindex`: the code before the release rule kept the first DM in the
+ * peer index for ever, also after the user left it. A row that points at a removed (or missing)
+ * entry is released, and a live DM with that peer takes it. A row that points at a live DM stays.
+ * `taken` carries the batch's own peer writes, which the reader does not see yet.
+ */
+const reindexPeer = (rows: RowReader, entry: InboxEntry, taken: Map<string, string | null>): Array<RowWrite> => {
+  const peer = entry.dm_peer
+  if (peer === undefined) return []
+  const indexed = taken.has(peer) ? taken.get(peer)! : (rows.get<{ conversation: string }>(TABLE_PEER, peer)?.row.conversation ?? null)
+  if (indexed === entry.conversation) {
+    if (!entry.removed) return []
+    taken.set(peer, null)
+    return [{ table: TABLE_PEER, op: "delete", key: peer }]
+  }
+  if (entry.removed) return []
+  if (indexed !== null) {
+    const holder = rows.get<InboxEntry>(TABLE_ENTRY, indexed)?.row
+    if (holder !== undefined && !holder.removed) return []
+  }
+  taken.set(peer, entry.conversation)
+  return [{ table: TABLE_PEER, op: "upsert", key: peer, n: null, row: { conversation: entry.conversation } }]
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
-/** Most entries a head written before totals existed is recounted from (inbox.list reads the same bound). */
+/** Most entries a head written before totals existed is recounted from (once per inbox). */
 const TOTALS_SCAN_LIMIT = 10_000
 
 /** The head with totals moved by one entry change (computed from the rows once for an old head). */
@@ -81,18 +111,21 @@ export const inboxDomain: Domain<InboxHead, InboxParams> = {
       const current = rowsOf(ctx).get<InboxEntry>(TABLE_ENTRY, params.conversation)?.row
       const { user: _user, ...bump } = params
       const next = bumpEntry(current, bump)
+      // A stale or duplicate bump writes no entry, also on a legacy entry without its order row
+      // (the owner's `inbox.reindex` adds that row before the list reads it).
       const changedEntry = !(current && same(current, next))
       const headWithTotals = changedEntry ? withTotals(nextHead, rowsOf(ctx), current, next) : nextHead
-      const writes: Array<RowWrite> = [...(changedEntry ? write(rowsOf(ctx), current, next) : orderWrites(rowsOf(ctx), current, next)), ...peerWrites(rowsOf(ctx), next)]
+      const writes: Array<RowWrite> = [...(changedEntry ? write(rowsOf(ctx), current, next) : []), ...peerWrites(rowsOf(ctx), next)]
       // A stale or duplicate bump is a valid no-op: no event, no write.
       if (writes.length === 0 && nextHead === head) return { ok: true, state: head, value: next, changed: false }
       return { ok: true, state: headWithTotals, value: next, writes }
     }
     if (op === "inbox.reindex") {
       if (!validReindex(params)) return refuse("invalid_params")
-      const writes = params.conversations.flatMap((conversation) => {
+      const taken = new Map<string, string | null>()
+      const writes = params.conversations.filter(reindexId).flatMap((conversation) => {
         const entry = rowsOf(ctx).get<InboxEntry>(TABLE_ENTRY, conversation)?.row
-        return entry ? orderWrites(rowsOf(ctx), entry, entry) : []
+        return entry ? [...orderWrites(rowsOf(ctx), entry, entry), ...reindexPeer(rowsOf(ctx), entry, taken)] : []
       })
       const nextHead: InboxHead = params.done && head.ordered !== true ? { ...head, ordered: true } : head
       if (writes.length === 0 && nextHead === head) return { ok: true, state: head, value: null, changed: false }
@@ -102,11 +135,7 @@ export const inboxDomain: Domain<InboxHead, InboxParams> = {
     const current = typeof conversation === "string" ? rowsOf(ctx).get<InboxEntry>(TABLE_ENTRY, conversation)?.row : undefined
     const result = userOp(head, current, op, params, ctx.now)
     if (!result.ok) return refuse(result.code)
-    if (same(current, result.value.entry) && same(head, result.value.head)) {
-      // Nothing changed, but an entry from before the order index joins it here.
-      const writes = current ? orderWrites(rowsOf(ctx), current, current) : []
-      return writes.length === 0 ? { ok: true, state: head, value: current, changed: false } : { ok: true, state: head, value: current, writes }
-    }
+    if (same(current, result.value.entry) && same(head, result.value.head)) return { ok: true, state: head, value: current, changed: false }
     return { ok: true, state: withTotals(result.value.head, rowsOf(ctx), current, result.value.entry), value: result.value.entry, writes: write(rowsOf(ctx), current, result.value.entry) }
   }
 }
