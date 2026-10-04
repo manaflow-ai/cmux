@@ -26,8 +26,7 @@ enum CloudMachinesEnablementPhase: Equatable {
 /// every setup outcome a recoverable action where one exists.
 ///
 /// Before setup starts (Enable for Pro, Upgrade for Free) it introduces Cloud:
-/// the app icon with a Cloud badge, a title for the plan, four reasons, one
-/// action and the plan note. Every other outcome is a centered status: symbol,
+/// a title for the plan, four reasons, one action and the plan note. Every other outcome is a centered status: symbol,
 /// title, one line, its action.
 ///
 /// The screen paints the panel's opaque chrome color. The right sidebar's
@@ -63,9 +62,6 @@ struct CloudMachinesEnablementView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if isIntroduction {
-                        CloudMachinesEnablementBanner(ringColor: chromeBackgroundColor)
-                    }
                     content
                         .padding(.horizontal, 20)
                         .frame(maxWidth: .infinity)
@@ -128,7 +124,7 @@ struct CloudMachinesEnablementView: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(.top, 6)
             CloudMachinesEnablementReasons()
-                .padding(.top, 20)
+                .padding(.top, 22)
             VStack(spacing: 8) {
                 introductionAction
                 Text(planNote)
@@ -414,32 +410,6 @@ extension View {
     func cloudProminentButtonStyle() -> some View {
         buttonStyle(.borderedProminent)
             .environment(\.controlActiveState, .key)
-    }
-}
-
-/// The top of the introduction: the app's icon with a Cloud badge, straight on
-/// the sidebar background.
-private struct CloudMachinesEnablementBanner: View {
-    /// The screen's background, so the badge's ring reads as a cut-out.
-    let ringColor: NSColor
-
-    var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 64, height: 64)
-            Image(systemName: "cloud.fill")
-                .cmuxFont(size: 12)
-                .foregroundStyle(.white)
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(Color.accentColor))
-                .overlay(Circle().strokeBorder(Color(nsColor: ringColor), lineWidth: 2.5))
-                .offset(x: 6, y: 4)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 30)
-        .padding(.bottom, 18)
-        .accessibilityHidden(true)
     }
 }
 
