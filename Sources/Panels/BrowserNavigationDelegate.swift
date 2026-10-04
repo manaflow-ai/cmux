@@ -368,7 +368,7 @@ import WebKit
         if navigationAction.targetFrame?.isMainFrame == true,
            let url = navigationAction.request.url,
            let owner,
-           BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url) {
+           BrowserReplNavigationGuard.shared.cancels(panelID: owner.id, url: url, initiator: navigationAction.browserReplSourceDocument) {
             decisionHandler(.cancel)
             return
         }
@@ -499,11 +499,12 @@ import WebKit
 
         let replAttachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
         let ownerID = owner?.id
+        let opener = replAttachment == nil ? nil : navigationAction.browserReplSourceDocument
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
             // A REPL session sees the new tab as a popup it can attach to,
             // when it passes as an untrusted navigation (popupRoute).
             if let replAttachment, let ownerID {
-                switch BrowserReplNavigationGuard.shared.popupRoute(panelID: ownerID, url: request.url) {
+                switch BrowserReplNavigationGuard.shared.popupRoute(panelID: ownerID, url: request.url, opener: opener) {
                 case .refused:
                     return
                 case .browser:

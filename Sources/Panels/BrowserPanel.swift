@@ -8812,7 +8812,11 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         // untrusted navigation the URL allowlist and the creating session's
         // domain policy allow (BrowserReplNavigationGuard.popupRoute).
         if let owner, let attachment = BrowserReplTabAttachments.shared.attachment(for: owner.id) {
-            switch BrowserReplNavigationGuard.shared.popupRoute(panelID: owner.id, url: navigationAction.request.url) {
+            switch BrowserReplNavigationGuard.shared.popupRoute(
+                panelID: owner.id,
+                url: navigationAction.request.url,
+                opener: navigationAction.browserReplSourceDocument
+            ) {
             case .refused(let reason):
 #if DEBUG
                 cmuxDebugLog("browser.nav.createWebView kind=replPopupRefused reason=\(reason)")

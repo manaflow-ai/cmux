@@ -270,10 +270,23 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
     public var isActive: Bool { allowed != nil || !prohibited.isEmpty || blockIPAddresses }
 
     /// Why `urlString` is blocked, or nil when it may load.
+    ///
+    /// A `blob:` URL is judged by the origin embedded in it (the page that
+    /// made it); one of an opaque origin (`blob:null/...`) is blocked, since
+    /// the URL alone cannot say whose it is. `about:` and `data:` URLs pass:
+    /// their document takes or is written by the document that opens it,
+    /// which ``navigationBlockReason(_:initiator:)`` and the popup and frame
+    /// checks judge instead.
     public func blockReason(_ urlString: String) -> String? {
         guard isActive else { return nil }
         let lower = urlString.lowercased()
-        if lower.hasPrefix("about:") || lower.hasPrefix("data:") || lower.hasPrefix("blob:") { return nil }
+        if lower.hasPrefix("blob:") {
+            guard let inner = Self.blobOrigin(urlString) else {
+                return "\(urlString) belongs to an opaque origin, which the domain policy cannot judge"
+            }
+            return blockReason(inner)
+        }
+        if lower.hasPrefix("about:") || lower.hasPrefix("data:") { return nil }
         var target = urlString
         if target.range(of: "^[a-zA-Z][a-zA-Z0-9+.-]*:", options: .regularExpression) == nil { target = "https://" + target }
         guard let url = URL(string: target) else { return "not a valid URL" }
@@ -292,9 +305,36 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         return nil
     }
 
+    /// The URL embedded in `blob:<origin>/<id>` when its origin is a web
+    /// origin with a host, or nil (an opaque origin, `blob:null/...`).
+    static func blobOrigin(_ urlString: String) -> String? {
+        let inner = String(urlString.dropFirst("blob:".count))
+        guard let url = URL(string: inner), url.scheme != nil, BrowserReplHostName.host(of: url) != nil else { return nil }
+        return inner
+    }
+
     /// Why a main-frame navigation to `url` may not load, or nil.
+    ///
+    /// `initiator` is the document that started the navigation (WebKit's
+    /// record of the source frame), nil when no page did (the agent's or the
+    /// person's own load). An `about:` document (`about:blank`) takes the
+    /// initiator's origin, a `data:` document is the initiator's own writing,
+    /// and a `blob:` of an opaque origin was made by it: those are judged by
+    /// the initiator, so a frame the policy blocks cannot move a tab to a
+    /// document of its own origin. Other URLs, `blob:` URLs of a web origin
+    /// included, are judged by ``blockReason(_:)``.
     public func navigationBlockReason(_ url: URL, initiator: BrowserReplFrameDocument?) -> String? {
-        blockReason(url.absoluteString)
+        guard isActive else { return nil }
+        let raw = url.absoluteString
+        switch url.scheme?.lowercased() {
+        case "about", "data":
+            return initiator.flatMap { blockReason(document: $0) }
+        case "blob" where Self.blobOrigin(raw) == nil:
+            guard let initiator else { return blockReason(raw) }
+            return blockReason(document: initiator)
+        default:
+            return blockReason(raw)
+        }
     }
 
     /// Why the session may not read, set or clear a cookie on `domain`, or
@@ -380,14 +420,18 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
             for pattern in allowed {
                 for filter in Self.filters(pattern) { add(filter, "ignore-previous-rules") }
             }
-            for scheme in ["data", "blob", "about"] { add("^\(scheme):", "ignore-previous-rules") }
+            // A document of these takes or is written by the document that
+            // loads it, which loaded under these rules; a blob of a web
+            // origin is judged by that origin (the filters' `(blob:)?`).
+            for scheme in ["data", "about"] { add("^\(scheme):", "ignore-previous-rules") }
+            add("^blob:null/", "ignore-previous-rules")
         }
         for pattern in prohibited {
             for filter in Self.filters(pattern) { add(filter, "block") }
         }
         if blockIPAddresses {
-            add("^[a-z][a-z0-9+.-]*://([^/@]*@)?[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+\\.?[:/]", "block")
-            add("^[a-z][a-z0-9+.-]*://([^/@]*@)?\\[", "block")
+            add("^(blob:)?[a-z][a-z0-9+.-]*://([^/@]*@)?[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+\\.?[:/]", "block")
+            add("^(blob:)?[a-z][a-z0-9+.-]*://([^/@]*@)?\\[", "block")
         }
         return rules
     }
@@ -414,7 +458,8 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
             } else {
                 host = escape(pattern.host) + "\\.?"
             }
-            let head = "^" + scheme + "://([^/@]*@)?" + host
+            // `blob:` URLs carry their origin: `blob:https://host/<id>`.
+            let head = "^(blob:)?" + scheme + "://([^/@]*@)?" + host
             guard let port = pattern.port else { return [head + "(:[0-9]+)?/"] }
             var out = [head + ":" + port + "/"]
             let schemeText = pattern.scheme
@@ -438,9 +483,11 @@ extension BrowserReplDomainPolicy {
     /// which trusts local files and cmux's internal schemes, but the page
     /// controls the URL. So only web pages open: http and https URLs the
     /// browser's URL allowlist and this policy allow, `about:blank` (also a
-    /// window with no URL), and `blob:` URLs whose origin is such a page.
+    /// window with no URL) when the policy allows `opener`, the document of
+    /// the frame that opened it, whose origin it takes, and `blob:` URLs
+    /// whose origin is such a page.
     public func popupBlockReason(_ url: URL?, allowlist: BrowserURLAllowlistPolicy, opener: BrowserReplFrameDocument? = nil) -> String? {
-        guard let url else { return nil }
+        guard let url else { return openerBlockReason(opener) }
         let raw = url.absoluteString
         switch url.scheme?.lowercased() {
         case "http", "https":
@@ -448,9 +495,10 @@ extension BrowserReplDomainPolicy {
             return blockReason(raw)
         case "about":
             let rest = raw.dropFirst("about:".count).lowercased()
-            return rest == "blank" || rest.hasPrefix("blank#") || rest.hasPrefix("blank?")
-                ? nil
-                : "a page may open about:blank, not \(raw)"
+            guard rest == "blank" || rest.hasPrefix("blank#") || rest.hasPrefix("blank?") else {
+                return "a page may open about:blank, not \(raw)"
+            }
+            return openerBlockReason(opener)
         case "blob":
             guard let origin = URL(string: String(raw.dropFirst("blob:".count))),
                   ["http", "https"].contains(origin.scheme?.lowercased() ?? "") else {
@@ -460,6 +508,14 @@ extension BrowserReplDomainPolicy {
         case let scheme:
             return "a page may open only http, https, about:blank and blob: windows from a tab a REPL session drives, not \(scheme.map { $0 + ":" } ?? raw)"
         }
+    }
+
+    /// An `about:blank` window (or one with no URL) takes its opener's
+    /// origin, and the opener can write into it: it opens only when the
+    /// policy allows the opener's document.
+    private func openerBlockReason(_ opener: BrowserReplFrameDocument?) -> String? {
+        guard let opener, let reason = blockReason(document: opener) else { return nil }
+        return "an about:blank window takes the origin of the frame that opened it, \(opener.origin.flatMap { $0 == "null" ? nil : $0 } ?? opener.place), which the domain policy blocks: \(reason)"
     }
 }
 
@@ -497,6 +553,9 @@ public enum BrowserReplPopupRoute: Equatable, Sendable {
     ///   - creatorPolicy: That session's domain policy.
     ///   - inputSession: The session whose input the opener tab is handling,
     ///     with its domain policy, if any.
+    ///   - opener: The document of the frame that opened the window (WebKit's
+    ///     record of the navigation's source frame); an `about:blank` window
+    ///     takes its origin.
     public init(
         url: URL?,
         openerCreatedBySession: Bool,
@@ -506,9 +565,9 @@ public enum BrowserReplPopupRoute: Equatable, Sendable {
         opener: BrowserReplFrameDocument? = nil
     ) {
         if openerCreatedBySession {
-            self = creatorPolicy.popupBlockReason(url, allowlist: allowlist).map(Self.refused) ?? .session
+            self = creatorPolicy.popupBlockReason(url, allowlist: allowlist, opener: opener).map(Self.refused) ?? .session
         } else if let inputSession {
-            self = inputSession.policy.popupBlockReason(url, allowlist: allowlist).map(Self.refused)
+            self = inputSession.policy.popupBlockReason(url, allowlist: allowlist, opener: opener).map(Self.refused)
                 ?? .inputSession(inputSession.id)
         } else {
             self = .browser

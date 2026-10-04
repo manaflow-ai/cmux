@@ -55,15 +55,28 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
     }
 }
 
+extension WKNavigationAction {
+    /// The document of the frame that started the navigation, as WebKit
+    /// recorded it, or nil when no frame did (a load the app started).
+    /// `sourceFrame` is declared non-null but WebKit leaves it nil for such
+    /// loads, so it is read without Swift's non-null assumption.
+    @MainActor
+    public var browserReplSourceDocument: BrowserReplFrameDocument? {
+        (value(forKey: "sourceFrame") as? WKFrameInfo).map(BrowserReplFrameDocument.init(info:))
+    }
+}
+
 extension BrowserReplDomainPolicy {
     /// Why the policy blocks a frame that shows `document`, or nil. Its
     /// origin and its URL's host must both be allowed: an `about:blank` or
-    /// `blob:` document carries the origin of the page that made it.
+    /// `blob:` document carries the origin of the page that made it, and is
+    /// judged by that origin alone (its URL names no host).
     public func blockReason(document: BrowserReplFrameDocument) -> String? {
         guard isActive else { return nil }
         if let origin = document.origin, origin != "null", let reason = blockReason(origin + "/") {
             return reason
         }
+        if ["about://", "data://", "blob://"].contains(document.place) { return nil }
         return blockReason(document.place + "/")
     }
 }
