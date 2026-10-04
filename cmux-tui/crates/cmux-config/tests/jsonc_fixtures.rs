@@ -115,7 +115,7 @@ fn empty_paths_are_refused() {
 fn a_duplicate_key_edits_the_last_one_which_the_parser_reads() {
     let source = "{\"ui\": {\"animationSpeed\": \"off\", \"animationSpeed\": \"fast\"}}";
     let path = vec!["ui".to_string(), "animationSpeed".to_string()];
-    let written = cmux_config::jsonc::set(source, &path, &serde_json::json!("normal")).unwrap();
-    let parsed: serde_json::Value = serde_json::from_str(&written).unwrap();
+    let written = jsonc::set(source, &path, &serde_json::json!("normal")).unwrap();
+    let parsed: Value = serde_json::from_str(&written).unwrap();
     assert_eq!(parsed["ui"]["animationSpeed"], "normal");
 }
