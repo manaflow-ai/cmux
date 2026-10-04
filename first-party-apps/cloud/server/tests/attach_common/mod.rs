@@ -57,7 +57,7 @@ impl FakeSpawner {
         let index = log.tags.iter().rposition(|t| t.machine == machine).expect("spawned");
         let tag = log.tags[index].clone();
         let ready =
-            serde_json::json!({ "event": "connection-snapshot", "local_socket": socket_for(&tag) });
+            serde_json::json!({ "event": "carrier-ready", "local_socket": socket_for(&tag) });
         log.senders[index].send(LinkProcessEvent::Line { tag, line: ready.to_string() }).unwrap();
     }
 
@@ -106,7 +106,7 @@ impl LinkSpawner for FakeSpawner {
             Script::Ready => {
                 events.send(line(r#"{"event":"starting"}"#)).unwrap();
                 let ready = serde_json::json!({
-                    "event": "connection-snapshot",
+                    "event": "carrier-ready",
                     "local_socket": socket_for(&tag),
                 });
                 events.send(line(&ready.to_string())).unwrap();
@@ -119,9 +119,7 @@ impl LinkSpawner for FakeSpawner {
             Script::DialFailed(code) => {
                 let failed = serde_json::json!({ "event": "dial-failed", "error_code": code });
                 events.send(line(&failed.to_string())).unwrap();
-                events
-                    .send(LinkProcessEvent::Exited { tag: tag.clone(), code: Some(1) })
-                    .unwrap();
+                events.send(LinkProcessEvent::Exited { tag: tag.clone(), code: Some(1) }).unwrap();
             }
             Script::Hold(spawned) => {
                 let _ = spawned.send(tag.clone());

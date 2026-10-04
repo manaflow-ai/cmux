@@ -11,8 +11,6 @@ use cmux_cloud::{Origin, Request, Server};
 use common::FakeControlPlane;
 use serde_json::json;
 
-const ENDPOINT: &str = "/api/vm/vm-alpha01/attach-endpoint";
-
 fn server(fixtures: &[&str], spawner: &FakeSpawner) -> Server<FakeControlPlane> {
     Server::with_attach(
         FakeControlPlane::with(fixtures),
@@ -27,7 +25,7 @@ fn connect(machine: &str, key: &str) -> Request {
 #[test]
 fn two_connects_for_one_machine_give_one_carrier_and_one_spawn() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     let first = s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     let second = s.handle(&connect("vm-alpha01", "c-2")).expect("second connect");
     assert_eq!(first, second, "one carrier");
@@ -36,26 +34,24 @@ fn two_connects_for_one_machine_give_one_carrier_and_one_spawn() {
     let tag = LinkTag { machine: "vm-alpha01".into(), generation: 1 };
     assert_eq!(first["socket"], socket_for(&tag));
     assert_eq!(spawner.spawns(), 1, "one link process");
-    assert_eq!(s.control_plane().count("POST", ENDPOINT), 1, "one attach endpoint");
+    assert_eq!(s.control_plane().ops(), ["cloud.machine.get"], "one machine read, no route call");
 }
 
 #[test]
 fn a_paused_machine_is_started_first() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-list", "vm-resume", "attach_endpoint_beta"], &spawner);
+    let mut s = server(&["vm-list", "vm-resume"], &spawner);
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     s.handle(&connect("vm-beta02", "c-1")).expect("connect");
     assert_eq!(s.control_plane().ops(), ["cloud.machine.list", "cloud.machine.start"], "start");
-    let calls: Vec<String> =
-        s.control_plane().calls.iter().map(|c| format!("{} {}", c.method, c.path)).collect();
-    assert_eq!(calls, ["POST /api/vm/vm-beta02/attach-endpoint"], "then attach");
     assert_eq!(spawner.spawns(), 1);
 }
 
 #[test]
-fn attach_endpoint_401_is_auth_required() {
+fn a_signed_out_connect_is_auth_required() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_401"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
+    s.control_plane_mut().wire.signed_in = false;
     let err = s.handle(&connect("vm-alpha01", "c-1")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.auth_required");
     assert_eq!(spawner.spawns(), 0, "no link process");
@@ -65,7 +61,7 @@ fn attach_endpoint_401_is_auth_required() {
 #[test]
 fn link_exit_gives_down_retryable_and_a_later_connect_respawns_once() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     spawner.exit("vm-alpha01", 1);
     let events = link_events(&mut s);
@@ -91,7 +87,7 @@ fn link_exit_gives_down_retryable_and_a_later_connect_respawns_once() {
 fn a_link_that_exits_before_it_is_ready_is_down() {
     let spawner = FakeSpawner::default();
     spawner.log().script.push_back(Script::ExitEarly(3));
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     let err = s.handle(&connect("vm-alpha01", "c-1")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.link_down");
     assert!(err.retryable);
@@ -102,32 +98,30 @@ fn a_link_that_exits_before_it_is_ready_is_down() {
 #[test]
 fn revoked_does_not_respawn() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     spawner.exit("vm-alpha01", 1);
-    s.control_plane_mut().serve("attach_endpoint_403");
+    spawner.log().script.push_back(Script::DialFailed("not_authorized"));
     let err = s.handle(&connect("vm-alpha01", "c-2")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.forbidden");
     let events = link_events(&mut s);
     assert!(events.iter().any(|e| matches!(e, CarrierEvent::Revoked { .. })), "{events:?}");
     let err = s.handle(&connect("vm-alpha01", "c-3")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.link_revoked");
-    assert_eq!(spawner.spawns(), 1, "no new link process");
-    assert_eq!(s.control_plane().count("POST", ENDPOINT), 2, "no attach call after revoke");
-    // A disconnect forgets the revocation; the next connect asks again.
+    assert_eq!(spawner.spawns(), 2, "no dial after the revoke");
+    // A disconnect forgets the revocation; the next connect dials again.
     s.handle(
         &Request::new("cloud.machine.disconnect", json!({ "machine": "vm-alpha01" })).key("d-1"),
     )
     .expect("disconnect");
-    s.control_plane_mut().serve("attach_endpoint_alpha");
     s.handle(&connect("vm-alpha01", "c-4")).expect("connect after disconnect");
-    assert_eq!(spawner.spawns(), 2);
+    assert_eq!(spawner.spawns(), 3);
 }
 
 #[test]
 fn revoke_all_stops_links_and_refuses_new_ones() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     s.attach_mut().supervisor_mut().revoke_all("the app's permission was revoked");
     assert_eq!(spawner.log().terminated.len(), 1, "the link process ended");
@@ -137,59 +131,23 @@ fn revoke_all_stops_links_and_refuses_new_ones() {
 }
 
 #[test]
-fn the_link_argv_is_the_swift_argv_and_carries_no_token() {
+fn the_carrier_dials_the_host_id_and_carries_no_credential() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     let log = spawner.log();
     let command = &log.commands[0];
     assert_eq!(command.binary.to_str(), Some("/opt/cmux/bin/cmux-tui"));
     let socket = command.local_socket.to_str().expect("utf8").to_owned();
     assert!(socket.starts_with("/tmp/cmux-test/cmux-link-") && socket.ends_with(".sock"));
-    let expected: Vec<String> = [
-        "remote",
-        "connect",
-        "ws://10.200.0.2:1337/v1/link",
-        "--device-name",
-        "test-mac",
-        "--state-dir",
-        "/tmp/cmux-test/link-state",
-        "--local-socket",
-        &socket,
-        "--headless",
-        "--json",
-        "--exit-with-parent",
-        "--lanes",
-        "single",
-        "--connect-timeout-seconds",
-        "20",
-        "--carrier",
-        "--wireguard-hub",
-        "/tmp/cmux-test/wg-hub.sock",
-    ]
-    .iter()
-    .map(|a| (*a).to_owned())
-    .collect();
-    assert_eq!(command.args, expected);
-    let all = format!("{:?} {:?}", command.args, command.env);
-    assert!(!all.contains("fake-attach-token"), "no token on argv or env");
-    let attach_call = s.control_plane().calls.iter().find(|c| c.path == ENDPOINT).expect("call");
-    assert_eq!(attach_call.body, Some(json!({ "transport": "cmux-remote" })));
-}
-
-#[test]
-fn a_route_that_reads_as_a_flag_is_refused_before_any_spawn() {
-    let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_bad_route"], &spawner);
-    let err = s.handle(&connect("vm-alpha01", "c-1")).unwrap_err();
-    assert_eq!(err.code, "cmux.cloud.bad_response");
-    assert!(!err.message.contains("fake-attach-token"), "no token in the error");
-    assert_eq!(spawner.spawns(), 0);
+    assert_eq!(command.args, ["link", "dial", "--host", "host-vm-alpha01"]);
+    let all = format!("{:?} {:?}", command.args, command.env).to_lowercase();
+    assert!(!all.contains("token"), "no token on argv or env: {all}");
 }
 
 #[test]
 fn connect_without_link_settings_is_link_unavailable_and_calls_nothing() {
-    let mut s = Server::new(FakeControlPlane::with(&["vm-get", "attach_endpoint_alpha"]));
+    let mut s = Server::new(FakeControlPlane::with(&["vm-get"]));
     let err = s.handle(&connect("vm-alpha01", "c-1")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.link_unavailable");
     assert!(s.control_plane().no_calls());
@@ -198,7 +156,7 @@ fn connect_without_link_settings_is_link_unavailable_and_calls_nothing() {
 #[test]
 fn connect_needs_an_idempotency_key_and_any_origin_may_call_it() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     let bare = Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" }));
     assert_eq!(s.handle(&bare).unwrap_err().code, "cmux.cloud.idempotency_key_required");
     let from_mcp = connect("vm-alpha01", "c-1").origin(Origin::Mcp);
@@ -208,7 +166,7 @@ fn connect_needs_an_idempotency_key_and_any_origin_may_call_it() {
 #[test]
 fn disconnect_ends_the_link_process_and_reports_down() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     s.handle(&connect("vm-alpha01", "c-1")).expect("connect");
     link_events(&mut s);
     let done = s
@@ -230,7 +188,7 @@ fn disconnect_ends_the_link_process_and_reports_down() {
 #[test]
 fn a_retry_with_the_same_key_after_down_opens_a_new_link() {
     let spawner = FakeSpawner::default();
-    let mut s = server(&["vm-get", "attach_endpoint_alpha"], &spawner);
+    let mut s = server(&["vm-get"], &spawner);
     let first = s.handle(&connect("vm-alpha01", "same-key")).expect("connect");
     spawner.exit("vm-alpha01", 1);
     let again = s.handle(&connect("vm-alpha01", "same-key")).expect("same key again");
@@ -241,59 +199,78 @@ fn a_retry_with_the_same_key_after_down_opens_a_new_link() {
 #[test]
 fn a_sign_out_on_attach_ends_every_link_without_revoking() {
     let spawner = FakeSpawner::default();
-    let mut s =
-        server(&["vm-list", "vm-resume", "attach_endpoint_beta", "attach_endpoint_401"], &spawner);
+    let mut s = server(&["vm-list", "vm-resume", "vm-get"], &spawner);
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
     s.handle(&connect("vm-beta02", "c-1")).expect("beta link");
-    let err = s.handle(&connect("vm-alpha01", "c-2")).unwrap_err();
+    // A machine the projection does not know is read first: signed out.
+    s.control_plane_mut().wire.signed_in = false;
+    let err = s.handle(&connect("vm-gamma03", "c-2")).unwrap_err();
     assert_eq!(err.code, "cmux.cloud.auth_required");
     assert_eq!(spawner.log().terminated.len(), 1, "the beta link ended");
     assert!(s.attach().supervisor().state("vm-beta02").is_none(), "forgotten, not revoked");
 }
 
-/// The real spawner with `/bin/sh` standing in for `cmux-tui` (no network).
+/// The real carrier with `/bin/sh` standing in for `cmux link dial` (no
+/// network): the script writes the dial's reply line on stderr, then
+/// carries the stream on stdin and stdout.
 #[cfg(unix)]
 mod real_process {
-    use cmux_cloud::link::{LinkCommand, LinkFailure, LinkSupervisor, ProcessSpawner};
+    use cmux_cloud::link::dial::DialCode;
+    use cmux_cloud::link::{CarrierSpawner, LinkCommand, LinkFailure, LinkSupervisor};
+    use std::io::{Read, Write};
     use std::path::PathBuf;
 
+    const OK: &str =
+        r#"printf '%s\n' '{"ok":true,"path_state":"direct","relay_available":false}' >&2"#;
+
     fn command(script: &str, dir: &str) -> LinkCommand {
-        let dir = std::env::temp_dir().join(format!("cmux-c2-{dir}-{}", std::process::id()));
+        // A short folder: a socket path has at most 104 bytes on macOS.
+        let dir = PathBuf::from("/tmp").join(format!("cx-{dir}-{}", std::process::id()));
         LinkCommand {
             binary: PathBuf::from("/bin/sh"),
             args: vec!["-c".into(), script.into()],
-            env: vec![("CMUX_REMOTE_STATE_DIR".into(), dir.join("state").display().to_string())],
+            env: vec![("CMUX_TEST_DIAL".into(), "1".into())],
             state_dir: dir.join("state"),
             local_socket: dir.join("link.sock"),
         }
     }
 
     #[test]
-    fn a_ready_line_gives_the_carrier_and_the_exit_is_reported() {
-        let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner));
-        let ready =
-            r#"printf '%s\n' '{"event":"connection-snapshot","local_socket":"/tmp/c2.sock"}'"#;
-        let carrier =
-            supervisor.spawn_and_wait("vm-real01", &command(ready, "ready")).expect("carrier");
-        assert_eq!(carrier.socket, PathBuf::from("/tmp/c2.sock"));
+    fn a_probe_reply_gives_the_carrier_and_each_stream_is_one_dial() {
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let script = format!("{OK}; exec cat");
+        let command = command(&script, "ready");
+        let carrier = supervisor.spawn_and_wait("vm-real01", &command).expect("carrier");
+        assert_eq!(carrier.socket, command.local_socket);
         assert_eq!(carrier.id, "cloud-vm/vm-real01#1");
+        let mut stream =
+            std::os::unix::net::UnixStream::connect(&carrier.socket).expect("dial the carrier");
+        stream.write_all(b"ping").expect("write");
+        stream.shutdown(std::net::Shutdown::Write).expect("half close");
+        let mut echoed = Vec::new();
+        stream.read_to_end(&mut echoed).expect("read");
+        assert_eq!(echoed, b"ping", "the dial child carries the bytes");
+        supervisor.disconnect("vm-real01");
     }
 
     #[test]
-    fn an_early_exit_is_down_with_its_status() {
-        let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner));
-        let err = supervisor.spawn_and_wait("vm-real02", &command("exit 7", "exit")).unwrap_err();
-        match err {
-            LinkFailure::Down { retryable: true, reason } => {
-                assert!(reason.contains('7'), "{reason}");
-            }
-            other => panic!("{other:?}"),
-        }
+    fn a_refused_probe_is_a_typed_dial_failure() {
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let script = r#"printf '%s\n' '{"ok":false,"error_code":"host_paused","path_state":"unreachable","relay_available":false}' >&2; exit 1"#;
+        let err = supervisor.spawn_and_wait("vm-real02", &command(script, "paused")).unwrap_err();
+        assert_eq!(err, LinkFailure::Dial(DialCode::HostPaused));
     }
 
     #[test]
-    fn a_link_that_never_gets_ready_is_ended_and_down() {
-        let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner))
+    fn an_exit_before_any_reply_is_unavailable() {
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let err = supervisor.spawn_and_wait("vm-real03", &command("exit 7", "exit")).unwrap_err();
+        assert!(matches!(err, LinkFailure::Dial(DialCode::Unavailable(_))), "{err:?}");
+    }
+
+    #[test]
+    fn a_probe_that_never_answers_is_ended_and_down() {
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner))
             .with_ready_deadline(std::time::Duration::from_millis(300));
         let err =
             supervisor.spawn_and_wait("vm-real04", &command("exec sleep 30", "stall")).unwrap_err();
@@ -306,12 +283,14 @@ mod real_process {
     }
 
     #[test]
-    fn the_child_gets_a_cleared_environment() {
-        // cargo sets CARGO_MANIFEST_DIR for this test process; the link must not inherit it.
+    fn the_dial_gets_a_cleared_environment() {
+        // cargo sets CARGO_MANIFEST_DIR for this test process; the dial must not inherit it.
         assert!(std::env::var_os("CARGO_MANIFEST_DIR").is_some());
-        let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner));
-        let script = r#"test -z "${CARGO_MANIFEST_DIR:-}" && test -n "$CMUX_REMOTE_STATE_DIR" && printf '%s\n' '{"event":"connection-snapshot","local_socket":"/tmp/c2-env.sock"}'"#;
-        let carrier = supervisor.spawn_and_wait("vm-real03", &command(script, "env"));
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        let script =
+            format!(r#"test -z "${{CARGO_MANIFEST_DIR:-}}" && test -n "$CMUX_TEST_DIAL" && {OK}"#);
+        let carrier = supervisor.spawn_and_wait("vm-real05", &command(&script, "env"));
         assert!(carrier.is_ok(), "{carrier:?}");
+        supervisor.disconnect("vm-real05");
     }
 }

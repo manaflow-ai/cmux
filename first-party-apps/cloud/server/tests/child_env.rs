@@ -65,7 +65,7 @@ fn the_link_child_gets_only_tmpdir_lang_and_a_private_home() {
     let data = data_dir("link");
     let spawner = FakeSpawner::default();
     let mut s = Server::with_attach(
-        FakeControlPlane::with(&["vm-get", "attach_endpoint_alpha"]),
+        FakeControlPlane::with(&["vm-get"]),
         attach(&spawner, &FakeTransport::default()).with_env(server_env(&data)),
     );
     let request =
@@ -76,7 +76,7 @@ fn the_link_child_gets_only_tmpdir_lang_and_a_private_home() {
     assert!(command.binary.is_absolute(), "the link binary by absolute path");
     assert_eq!(
         keys(&command.env),
-        BTreeSet::from(["CMUX_REMOTE_STATE_DIR", "HOME", "LANG", "TMPDIR"]),
+        BTreeSet::from(["HOME", "LANG", "TMPDIR"]),
         "exactly these variables: {:?}",
         command.env
     );
@@ -271,10 +271,10 @@ fn the_real_openssh_children_get_only_the_child_env() {
 #[cfg(unix)]
 #[test]
 fn the_real_link_spawner_passes_only_the_commands_env() {
-    use cmux_cloud::link::{LinkCommand, LinkSupervisor, ProcessSpawner};
-    let dir = data_dir("spawn");
+    use cmux_cloud::link::{CarrierSpawner, LinkCommand, LinkSupervisor};
+    let dir = PathBuf::from("/tmp").join(format!("cx-spawn-{}", std::process::id()));
     // cargo gives this test process HOME, PATH and CARGO_* variables.
-    let script = r#"out=$(/usr/bin/env); case "$out" in *PATH=*|*CARGO_*|*USER=*) exit 3;; esac; test "$HOME" = "$1" && printf '%s\n' '{"event":"connection-snapshot","local_socket":"/tmp/c10-env.sock"}'"#;
+    let script = r#"out=$(/usr/bin/env); case "$out" in *PATH=*|*CARGO_*|*USER=*) exit 3;; esac; test "$HOME" = "$1" && printf '%s\n' '{"ok":true,"path_state":"direct"}' >&2"#;
     let home = dir.join("home").display().to_string();
     let command = LinkCommand {
         binary: PathBuf::from("/bin/sh"),
@@ -283,7 +283,8 @@ fn the_real_link_spawner_passes_only_the_commands_env() {
         state_dir: dir.join("state"),
         local_socket: dir.join("link.sock"),
     };
-    let mut supervisor = LinkSupervisor::new(Box::new(ProcessSpawner));
+    let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
     let carrier = supervisor.spawn_and_wait("vm-env01", &command);
     assert!(carrier.is_ok(), "the child saw only the command's env: {carrier:?}");
+    supervisor.disconnect("vm-env01");
 }

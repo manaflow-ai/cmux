@@ -2,7 +2,8 @@
 //! a carrier only). `cloud.rescue.open` asks for focus on the new terminal
 //! only for origin `user` or an explicit `focus: true` (OWNERSHIP-PRINCIPLES).
 
-use super::argv::{AttachEndpoint, link_command};
+use super::argv::link_command;
+use super::dial::DialCode;
 use super::supervisor::{LinkFailure, LinkState};
 use crate::api::models::MachineStatus;
 use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes};
@@ -118,22 +119,37 @@ pub(crate) fn connect<C: ControlPlane>(
     origin: Origin,
     start_key: Option<String>,
 ) -> Result<Carrier, CloudError> {
-    let generation = match begin_connect(server, machine, origin, start_key)? {
-        Begun::Up(carrier) => return Ok(carrier),
-        Begun::Connecting(generation) => generation,
-    };
-    let attach = server.attach_mut();
-    attach.supervisor.pump();
-    if let Some(outcome) = attach.supervisor.outcome(machine, generation) {
-        return outcome.map_err(link_failure);
+    // At most two rounds: a dial that finds the machine paused starts it
+    // once (begin_connect) and dials again.
+    let mut rounds = 0;
+    loop {
+        rounds += 1;
+        let generation = match begin_connect(server, machine, origin, start_key.clone())? {
+            Begun::Up(carrier) => return Ok(carrier),
+            Begun::Connecting(generation) => generation,
+        };
+        let attach = server.attach_mut();
+        attach.supervisor.pump();
+        let outcome = match attach.supervisor.outcome(machine, generation) {
+            Some(outcome) => outcome,
+            None if attach.park_link_waits => {
+                // The serve loop never waits for a link: the op is parked and
+                // runs again when this generation is up or ended (super::park).
+                attach.parked = Some((machine.to_owned(), generation));
+                return Err(CloudError::new(super::park::LINK_WAIT, "the link is connecting"));
+            }
+            None => attach.supervisor.wait_connect(machine, generation),
+        };
+        match outcome {
+            Err(LinkFailure::Dial(DialCode::HostPaused)) if rounds < 2 => {}
+            Err(failure) => {
+                // The one start is used up: the next connect may start again.
+                server.attach_mut().paused_restarts.remove(machine);
+                return Err(link_failure(failure));
+            }
+            Ok(carrier) => return Ok(carrier),
+        }
     }
-    if attach.park_link_waits {
-        // The serve loop never waits for a link: the op is parked and runs
-        // again when this generation is up or ended (super::park).
-        attach.parked = Some((machine.to_owned(), generation));
-        return Err(CloudError::new(super::park::LINK_WAIT, "the link is connecting"));
-    }
-    attach.supervisor.wait_connect(machine, generation).map_err(link_failure)
 }
 
 /// How a connect started.
@@ -154,6 +170,32 @@ pub(crate) fn link_failure(failure: LinkFailure) -> CloudError {
         LinkFailure::Spawn(why) => {
             CloudError::new(LINK_UNAVAILABLE, format!("the link process did not start: {why}"))
         }
+        LinkFailure::Dial(code) => dial_error(&code),
+    }
+}
+
+/// A `link.dial` refusal as an op error (contract 1.7 mapping).
+fn dial_error(code: &DialCode) -> CloudError {
+    let retryable = |code: &'static str, message: &str| CloudError {
+        retryable: true,
+        ..CloudError::new(code, message.to_owned())
+    };
+    match code {
+        DialCode::HostPaused => retryable(
+            codes::MACHINE_PAUSED,
+            "The machine is still paused after a start: try again when it runs",
+        ),
+        DialCode::UnknownHost => {
+            CloudError::new(codes::NOT_FOUND, "cmux Cloud does not know this machine's host")
+        }
+        DialCode::NotAuthorized => {
+            CloudError::new(codes::FORBIDDEN, "This Mac may not reach this machine")
+        }
+        DialCode::Unreachable => retryable(LINK_DOWN, "No network path reached the machine"),
+        DialCode::BadRequest => {
+            CloudError::new(LINK_UNAVAILABLE, "cmux link did not understand the dial")
+        }
+        DialCode::Unavailable(why) => retryable(LINK_UNAVAILABLE, why),
     }
 }
 
@@ -172,7 +214,11 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     let attach = server.attach_mut();
     attach.supervisor.pump();
     match attach.supervisor.state(machine) {
-        Some(LinkState::Up(carrier)) => return Ok(Begun::Up(carrier.clone())),
+        Some(LinkState::Up(carrier)) => {
+            let carrier = carrier.clone();
+            attach.paused_restarts.remove(machine);
+            return Ok(Begun::Up(carrier));
+        }
         Some(LinkState::Revoked { reason }) => {
             return Err(CloudError::new(LINK_REVOKED, reason.clone()));
         }
@@ -191,39 +237,48 @@ pub(crate) fn begin_connect<C: ControlPlane>(
         Some(key) => key,
         None => format!("link-{}/start", attach.attempt_nonce()),
     };
-    let answer = match ensure_running(server, machine, origin, &start_key) {
-        // A start can fail for plan reasons (403): that is not a revocation.
-        Err(error) => Err((error, false)),
-        Ok(()) => server
-            .ctx(CONNECT, None)
-            .call(
-                "POST",
-                format!("/api/vm/{machine}/attach-endpoint"),
-                Some(json!({ "transport": "cmux-remote" })),
-            )
-            .map_err(|e| (e, true)),
-    };
-    let answer = match answer {
-        Ok(answer) => answer,
-        Err((error, from_attach)) => {
-            let supervisor = &mut server.attach_mut().supervisor;
-            if error.code == codes::AUTH_REQUIRED {
-                // Signed out: no link may outlive the sign-in.
-                supervisor.disconnect_all("signed out of cmux Cloud");
-            } else if error.code == codes::NOT_FOUND
-                || (from_attach && error.code == codes::FORBIDDEN)
-            {
-                // The machine is gone or access ended: refuse new links to it.
-                supervisor.revoke(machine, &error.message);
-            }
-            return Err(error);
+    // The last dial found the machine paused: start it once, whatever the
+    // projection says, and dial again. A second paused answer is an error.
+    let restart = match attach.supervisor.refusal(machine) {
+        Some(DialCode::HostPaused) if attach.paused_restarts.remove(machine) => {
+            return Err(dial_error(&DialCode::HostPaused));
         }
+        Some(DialCode::HostPaused) => {
+            attach.paused_restarts.insert(machine.to_owned());
+            true
+        }
+        _ => false,
     };
-    let endpoint = AttachEndpoint::decode(answer)?;
-    let command = link_command(&paths, machine, &endpoint, &child_env);
+    let key = if restart { format!("{start_key}/restart") } else { start_key };
+    if let Err(error) = ensure_running(server, machine, origin, &key, restart) {
+        if error.code == codes::AUTH_REQUIRED {
+            // Signed out: no link may outlive the sign-in.
+            server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
+        } else if error.code == codes::NOT_FOUND {
+            // The machine is gone: refuse new links to it.
+            server.attach_mut().supervisor.revoke(machine, &error.message);
+        }
+        // A start can fail for plan reasons: that is not a revocation.
+        return Err(error);
+    }
+    // The overlay host id from the machine record (contract 1.7): no host
+    // yet means the machine is still provisioning.
+    let Some(host) = server.projection().get(machine).and_then(|m| m.host.clone()) else {
+        return Err(CloudError::new(
+            codes::NOT_BOUND,
+            "The machine is still starting up: connect when it is ready",
+        ));
+    };
+    // The host id becomes an argv value: refuse anything that is not a
+    // plain id (it could read as a flag or carry control characters).
+    let plain = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    if host.is_empty() || host.len() > 128 || host.starts_with('-') || !host.chars().all(plain) {
+        return Err(CloudError::new(codes::BAD_RESPONSE, "cmux Cloud answered a bad host id"));
+    }
+    let command = link_command(&paths, machine, &host, &child_env);
     let attach = server.attach_mut();
-    attach.endpoints.insert(machine.to_owned(), endpoint);
-    // The relay calls above may have taken a while: a link that came up or
+    attach.hosts.insert(machine.to_owned(), host);
+    // The calls above may have taken a while: a link that came up or
     // started meanwhile is used, not replaced.
     attach.supervisor.pump();
     if let Some(carrier) = attach.supervisor.carrier(machine) {
@@ -242,12 +297,13 @@ fn ensure_running<C: ControlPlane>(
     machine: &str,
     origin: Origin,
     start_key: &str,
+    force_start: bool,
 ) -> Result<(), CloudError> {
     if server.projection().get(machine).is_none() {
         server.handle(&Request::new("cloud.machine.get", json!({ "machine": machine })))?;
     }
-    let paused =
-        server.projection().get(machine).is_some_and(|m| m.status == MachineStatus::Paused);
+    let paused = force_start
+        || server.projection().get(machine).is_some_and(|m| m.status == MachineStatus::Paused);
     if paused {
         let start = Request::new("cloud.machine.start", json!({ "machine": machine }))
             .origin(origin)
@@ -286,7 +342,7 @@ fn rescue_open<C: ControlPlane>(
         || format!("rescue-{}/start", server.attach_mut().attempt_nonce()),
         |k| format!("{k}/start"),
     );
-    ensure_running(server, &machine, origin, &start_key)?;
+    ensure_running(server, &machine, origin, &start_key, false)?;
     let attach = server.attach_mut();
     let terminal = attach.next_terminal_id();
     let grid = Grid::new(u16::try_from(cols).unwrap_or(80), u16::try_from(rows).unwrap_or(24));

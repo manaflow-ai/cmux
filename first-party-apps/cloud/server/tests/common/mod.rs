@@ -138,11 +138,8 @@ impl FakeControlPlane {
                 Some(link_machine(id, "provisioning"))
             }
             ("cloud.machine.connect_info", Some(id)) if self.connect_info.is_some() => {
-                let capabilities = if self.connect_info == Some(true) {
-                    json!(["fs-v1"])
-                } else {
-                    json!([])
-                };
+                let capabilities =
+                    if self.connect_info == Some(true) { json!(["fs-v1"]) } else { json!([]) };
                 Some(connect_info(id, &capabilities))
             }
             ("cloud.machine.get", Some(id)) if self.get_any => Some(link_machine(id, "running")),

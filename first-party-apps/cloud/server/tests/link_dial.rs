@@ -60,8 +60,7 @@ fn host_paused_starts_the_machine_once_and_dials_again() {
     let mut s = server(&["vm-get", "vm-resume"], &spawner);
     let carrier = s.handle(&connect("vm-alpha01", "c-1")).expect("connect after start");
     assert_eq!(carrier["state"], "up");
-    let starts =
-        s.control_plane().ops().iter().filter(|op| *op == "cloud.machine.start").count();
+    let starts = s.control_plane().ops().iter().filter(|op| *op == "cloud.machine.start").count();
     assert_eq!(starts, 1, "one start");
     assert_eq!(spawner.spawns(), 2, "a second dial after the start");
     no_classic_call(&s);
