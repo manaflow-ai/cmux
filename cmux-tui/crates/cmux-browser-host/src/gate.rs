@@ -313,6 +313,13 @@ impl VmHost for Gate {
         if matches!(method, "input.insertText" | "input.key") {
             self.resolve_secret(&mut params, "text")?;
         }
+        // Every check passed: the app's agent cursor learns of the input
+        // right before it is dispatched (a refused input emits nothing).
+        if let Some(inputs) = &self.inputs
+            && let Some(planned) = inputs.plan(method, &params)
+        {
+            inputs.publish(planned);
+        }
         let target = params.get("targetId").and_then(Value::as_str).map(str::to_owned);
         let target = target.as_deref();
         let result = match method {
