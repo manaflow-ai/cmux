@@ -6,7 +6,7 @@ extension RemoteTmuxWindowMirror {
     func requestRenamePane(_ tmuxPaneID: Int, title: String) -> Bool {
         guard !isTornDown,
               panelsByPaneId[tmuxPaneID] != nil,
-              let name = RemoteTmuxHost.controlModeCommandName(title),
+              let name = RemoteTmuxHost.controlModeCommandPaneTitle(title),
               let connection else { return false }
         return connection.send(
             "select-pane -t @\(windowId).%\(tmuxPaneID) -T \(RemoteTmuxHost.shellSingleQuoted(name))"
