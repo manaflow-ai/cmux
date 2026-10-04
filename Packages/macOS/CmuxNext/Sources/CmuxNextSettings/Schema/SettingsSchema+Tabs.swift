@@ -1,3 +1,6 @@
+import CmuxNextDesign
+
+
 extension SettingsSchema {
     /// `tabs.newTabKind`: what Cmd-T and the strip's + button open.
     static func newTabKind(group: SettingText) -> SettingDescriptor {
