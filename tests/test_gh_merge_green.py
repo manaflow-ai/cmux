@@ -557,7 +557,7 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
                 capture_output=True, text=True,
             )
             marker = directory / "updated"
-            diagnostics = (result, marker.exists(), marker.read_text() if marker.exists() else "", log.read_text(), result.stderr)
+            diagnostics = (result, marker.exists(), marker.read_text() if marker.exists() else "", log.read_text() if log.exists() else "", result.stderr)
             return diagnostics
 
     def test_clean_main_checkout_fast_forwards_and_reexecutes(self):
