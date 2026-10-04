@@ -47,9 +47,28 @@ extension UpdaterService {
 }
 
 extension UpdaterService {
-    /// Red-test stub.
+    /// Builds at or below this are not offered after a rollback.
+    static let skipsBuildsThroughKey = "cmux.next.updates.skipsBuildsThrough"
+
+    /// Rolls back to `build` (nil: the newest kept) when ``rollbackDecision``
+    /// allows it: swaps the bundles, stops offering the build left behind,
+    /// then quits keeping every session and lets `relaunch` reopen the app.
     @discardableResult
     public func rollback(to build: String?, stored: [String: Int]?, relaunch: (URL) -> Void) throws -> KeptVersion {
-        throw RollbackRefusal.nothingKept
+        let target = try rollbackDecision(to: build, stored: stored).get()
+        let bundle = Bundle.main.bundleURL
+        try RollbackSwap.perform(current: bundle, currentBuild: identity.build, target: target,
+                                 store: keptVersions, limit: preferences.keepPreviousVersions)
+        defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
+        controller?.skipsBuildsThrough = identity.build
+        log.append("rolled back \(identity.build) -> \(target.build)")
+        willRelaunch?()
+        relaunch(bundle)
+        return target
+    }
+
+    /// Restores the skip after a rollback at launch.
+    func restoreRollbackSkip() {
+        controller?.skipsBuildsThrough = defaults.string(forKey: Self.skipsBuildsThroughKey)
     }
 }

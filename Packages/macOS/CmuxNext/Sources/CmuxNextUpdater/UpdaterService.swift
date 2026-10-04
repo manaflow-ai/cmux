@@ -124,6 +124,7 @@ public final class UpdaterService {
         }
         minuteOfDay = Self.minuteOfDay(now())
         restorePinnedTestFeed()
+        restoreRollbackSkip()
     }
 
     /// Why Sparkle does not run right now, or nil.
