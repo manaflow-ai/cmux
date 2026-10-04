@@ -148,7 +148,9 @@ public struct BrowserReplFileSystem: Sendable {
             guard let name = location.name else { throw Self.isDirectoryError }
             let append = arguments["append"] as? Bool == true
             // Refused before the file is opened, so an existing file is kept.
-            try writeBudget.takeEntryChange(syscall: "write", display: display)
+            // A new file is an entry change; writing or appending to one
+            // that is there (an output spill file, line by line) is not.
+            if (try? location.status()) == nil { try writeBudget.takeEntryChange(syscall: "write", display: display) }
             try writeBudget.take(data.count, syscall: "write", display: display)
             // Truncated only once it is known to be a regular file.
             let flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY | (append ? O_APPEND : 0)
@@ -235,7 +237,7 @@ public struct BrowserReplFileSystem: Sendable {
             let (source, size) = try openFile(try locate(.read, key: "from"), display: fromDisplay, syscall: "copyfile")
             let destination = try locate(.write, key: "to")
             guard let name = destination.name else { throw Self.isDirectoryError }
-            try writeBudget.takeEntryChange(syscall: "copyfile", display: pair)
+            if (try? destination.status()) == nil { try writeBudget.takeEntryChange(syscall: "copyfile", display: pair) }
             try writeBudget.take(size, syscall: "copyfile", display: pair)
             // Copy next to the destination, then swap it in, so a failed copy
             // leaves an existing destination untouched.
@@ -754,8 +756,8 @@ public struct BrowserReplFileSystem: Sendable {
 
 /// What a session's fs may still write: at most `perCall` bytes in one
 /// `writeFile` or `copyFile`, `perSession` in all over the session's life,
-/// and `perSessionEntryChanges` changes to entries (a file written or
-/// copied, also an empty one, a directory made, an entry renamed or
+/// and `perSessionEntryChanges` changes to entries (a file created by a
+/// write or copy, also an empty one, a directory made, an entry renamed or
 /// removed), so agent code can fill neither the disk nor its entries.
 /// Shared by the fs copies of one session.
 final class BrowserReplWriteBudget: @unchecked Sendable {
@@ -783,7 +785,7 @@ final class BrowserReplWriteBudget: @unchecked Sendable {
         self.perSessionEntryChanges = perSessionEntryChanges
     }
 
-    /// Takes one entry change (a file written or copied, a directory made,
+    /// Takes one entry change (a file created, a directory made,
     /// an entry renamed or removed) from the budget, or throws `EDQUOT`
     /// when the session made its limit of them.
     func takeEntryChange(syscall: String, display: String) throws {
@@ -795,7 +797,7 @@ final class BrowserReplWriteBudget: @unchecked Sendable {
         guard taken else {
             throw BrowserReplFileSystemError(
                 code: "EDQUOT",
-                message: "EDQUOT: the REPL session has made its limit of \(perSessionEntryChanges) file changes (files written, directories made, entries renamed or removed), \(syscall) '\(display)'; reset the session (cmux browser repl reset NAME) to make more"
+                message: "EDQUOT: the REPL session has made its limit of \(perSessionEntryChanges) file changes (files created, directories made, entries renamed or removed), \(syscall) '\(display)'; reset the session (cmux browser repl reset NAME) to make more"
             )
         }
     }
