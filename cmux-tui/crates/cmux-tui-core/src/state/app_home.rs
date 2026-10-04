@@ -326,7 +326,7 @@ pub(crate) fn write_companion_mark(
     workspace_key: &str,
     default_name: &str,
 ) -> anyhow::Result<Vec<Value>> {
-    write_companion(transaction, app, workspace_id, default_name)?;
+    write_companion(transaction, app, workspace_id, workspace_key, default_name)?;
     let app_key: Option<String> = rusqlite::OptionalExtension::optional(transaction.query_row(
         "SELECT workspace_key FROM resource_workspaces WHERE public_id = ?1",
         [app_workspace],

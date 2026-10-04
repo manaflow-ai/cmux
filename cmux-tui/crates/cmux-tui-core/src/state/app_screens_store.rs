@@ -250,13 +250,16 @@ pub(crate) fn companion_app(
         .optional()?)
 }
 
-/// Every live companion workspace, keyed by workspace key.
+/// Every live companion workspace, keyed by workspace key. Liveness comes
+/// from the workspace registry row, so a companion that a topology effect
+/// has staged (its resource row comes with the projection) is included and
+/// its first tree delta already shows its kind.
 fn read_companions(connection: &Connection) -> anyhow::Result<HashMap<String, CompanionRecord>> {
     let mut statement = connection.prepare(
-        "SELECT rw.workspace_key, c.app_id, c.default_name, c.renamed
+        "SELECT c.workspace_key, c.app_id, c.default_name, c.renamed
          FROM workspace_kind AS c
-         JOIN resource_workspaces AS rw ON rw.public_id = c.workspace_id
-         WHERE c.kind = 'app_tabs' AND rw.deleted_revision IS NULL",
+         JOIN workspaces AS w ON w.workspace_key = c.workspace_key
+         WHERE c.kind = 'app_tabs' AND w.tombstoned = 0",
     )?;
     let rows = statement
         .query_map([], |row| {
@@ -278,6 +281,7 @@ pub(crate) fn write_companion(
     transaction: &Transaction<'_>,
     app: &str,
     workspace: &str,
+    workspace_key: &str,
     default_name: &str,
 ) -> anyhow::Result<()> {
     validate_app_id(app)?;
@@ -285,9 +289,9 @@ pub(crate) fn write_companion(
     transaction
         .execute("DELETE FROM workspace_kind WHERE kind = 'app_tabs' AND app_id = ?1", [app])?;
     transaction.execute(
-        "INSERT INTO workspace_kind(workspace_id, kind, app_id, default_name)
-         VALUES(?1, 'app_tabs', ?2, ?3)",
-        params![workspace, app, default_name],
+        "INSERT INTO workspace_kind(workspace_id, kind, app_id, workspace_key, default_name)
+         VALUES(?1, 'app_tabs', ?2, ?3, ?4)",
+        params![workspace, app, workspace_key, default_name],
     )?;
     Ok(())
 }
@@ -302,7 +306,7 @@ pub(crate) fn note_companion_renames(
 ) -> anyhow::Result<()> {
     use crate::workspace_registry::ResourceChange;
     if !patch.changes.iter().any(|change| matches!(change, ResourceChange::UpsertWorkspace { .. }))
-        || !table_has_column(transaction, "workspace_kind", "app_id")?
+        || !table_has_column(transaction, "workspace_kind", "workspace_key")?
     {
         return Ok(());
     }

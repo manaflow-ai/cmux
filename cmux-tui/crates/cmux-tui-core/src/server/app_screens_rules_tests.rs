@@ -556,7 +556,7 @@ fn workspace_kind_table_of_an_older_build_is_rebuilt_at_open() {
     wire.mux.shutdown();
     drop(wire);
     let (columns, rows) = schema(&path);
-    for column in ["workspace_id", "kind", "app_id", "default_name", "renamed"] {
+    for column in ["workspace_id", "kind", "app_id", "workspace_key", "default_name", "renamed"] {
         assert!(columns.iter().any(|name| name == column), "{column} missing: {columns:?}");
     }
     let expected = vec![(companion.clone(), "app_tabs".to_string()), (home_id, "home".to_string())];

@@ -39,10 +39,13 @@ const WORKSPACE_KIND_TABLE: &str = "(
            workspace_id TEXT PRIMARY KEY NOT NULL,
            kind TEXT NOT NULL CHECK(kind IN ('home', 'app_tabs')),
            app_id TEXT,
+           workspace_key TEXT,
            default_name TEXT,
            renamed INTEGER NOT NULL DEFAULT 0 CHECK(renamed IN (0, 1)),
-           CHECK((kind = 'home' AND app_id IS NULL AND default_name IS NULL)
-              OR (kind = 'app_tabs' AND app_id IS NOT NULL AND default_name IS NOT NULL))
+           CHECK((kind = 'home' AND app_id IS NULL AND workspace_key IS NULL
+                  AND default_name IS NULL)
+              OR (kind = 'app_tabs' AND app_id IS NOT NULL AND workspace_key IS NOT NULL
+                  AND default_name IS NOT NULL))
          )";
 
 pub(crate) fn create_home_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -53,13 +56,14 @@ pub(crate) fn create_home_schema(transaction: &Transaction<'_>) -> anyhow::Resul
     if columns.is_empty() {
         transaction
             .execute_batch(&format!("CREATE TABLE workspace_kind {WORKSPACE_KIND_TABLE};"))?;
-    } else if !columns.iter().any(|column| column == "app_id") {
+    } else if !columns.iter().any(|column| column == "workspace_key") {
         // The table of builds before `app_tabs` (kind CHECK = 'home', a
-        // unique index on `kind`): rebuilt in this transaction, rows kept.
+        // unique index on `kind`): rebuilt in this transaction, the home
+        // row kept.
         transaction.execute_batch(&format!(
             "CREATE TABLE workspace_kind_next {WORKSPACE_KIND_TABLE};
              INSERT INTO workspace_kind_next(workspace_id, kind)
-               SELECT workspace_id, kind FROM workspace_kind;
+               SELECT workspace_id, kind FROM workspace_kind WHERE kind = 'home';
              DROP TABLE workspace_kind;
              ALTER TABLE workspace_kind_next RENAME TO workspace_kind;"
         ))?;
