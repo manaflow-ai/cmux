@@ -48,6 +48,32 @@ must not have; and acpmux already works as a direct data-plane provider today.
 - Both peers may call: a provider can call the page (callbacks) with the same envelope.
 - Ids are per connection. A peer must handle out-of-order results.
 
+## Wire decisions
+
+These rules fill gaps in the envelope above. The TS client implements them
+(`webviews/src/protocol/`); the Rust and Go peers must match them or object before they ship.
+
+1. `open` carries `id` and may carry `params`:
+   `{"t":"open","id":<u64>,"stream":<u32>,"op":"...","params"?:{...},"cap"?:<handle>}`. The peer
+   answers that `id` with the normal `ok` or `err`, so an unknown stream op fails like an unknown call.
+2. `{"t":"end","stream":<u32>}` ends one direction of a byte stream. With `"code"` and `"message"` it
+   aborts both directions. A stream is finished when both directions ended.
+3. Stream ids use parity. The side that connects opens odd ids; the side that accepts opens even ids.
+   A peer refuses an `open` whose id has its own parity or is already in use.
+4. Event `seq` starts at 1 for each subscription and increases by 1. A receiver reports a gap.
+5. Auth refusal is an `{"t":"err","id":0,...}` before any other message, or the listener closing
+   the socket. The client then closes the socket (close code 4001). A listener may acknowledge
+   auth with `{"t":"ok","id":0}`; a client may wait for it.
+6. Session-level error codes are `cmux.protocol.*`: `closed`, `cancelled`, `unknown_op`,
+   `unknown_stream`, `invalid_params`, `invalid_result`, `invalid_event`, `internal`,
+   `credit_exceeded`, `stream_aborted`, `auth_refused`. Op-level codes come from the IR.
+7. A session with a schema refuses every op, stream op and event that the IR does not declare.
+   Stream ops must therefore be in the IR.
+8. On a MessagePort only, a side sends `{"t":"bye"}` before it closes the port, because MessagePort
+   has no portable close signal. Session never sees this message.
+9. The codegen refuses any JSON Schema keyword outside the subset it supports. It never emits a
+   validator that accepts everything.
+
 ## Namespaces and the catalog
 
 - Op names: `<namespace>.<family>.<verb>`; events `<namespace>.<family>.<event>`.
