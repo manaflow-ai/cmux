@@ -224,9 +224,14 @@ nonisolated final class CloudHomeSource: HomeSource {
 
     /// An event that names its account (the lease's `sub`) belongs to
     /// this source only when that is the account it acts as: another one's
-    /// is a late event from before a switch, and is dropped. An event that
-    /// names none (an older daemon) is kept.
+    /// is a late event from before a switch, and is dropped.
     private func isForThisAccount(_ event: CloudConversationsEvent) -> Bool {
+        Self.isForAccount(event, cloudID: state.withLock { $0.identity?.cloudID })
+    }
+
+    /// Whether `event` belongs to the account whose cloud id is `cloudID`
+    /// (nil: none). An event that names none (an older daemon) is kept.
+    static func isForAccount(_ event: CloudConversationsEvent, cloudID: String?) -> Bool {
         let account: String? = switch event {
         case .changed(let changed): changed.account
         case .resynced(let resynced): resynced.account
@@ -236,7 +241,7 @@ nonisolated final class CloudHomeSource: HomeSource {
         case .sessionNeeded: nil
         }
         guard let account else { return true }
-        return state.withLock { $0.identity?.cloudID } == CloudIdentity.cloudID(stackUserID: account)
+        return cloudID == CloudIdentity.cloudID(stackUserID: account)
     }
 
     /// The account this source acts as (its cloud id), leased or not.

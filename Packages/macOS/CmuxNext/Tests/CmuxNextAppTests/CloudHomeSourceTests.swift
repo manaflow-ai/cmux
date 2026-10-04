@@ -510,13 +510,24 @@ import Testing
         _ = try await source.submit(send)
         #expect(daemon.opRequests.map(\.idempotencyKey) == ["cmk_s"])
 
-        @Sendable func lists(_ calls: [FakeCloudDaemon.Call]) -> Int { calls.filter { $0 == .inboxList }.count }
-        let before = lists(daemon.calls)
-        source.handle(try #require(event("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":3,"account":"user_stack-other"}"#)))
-        source.handle(try #require(event("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":4}"#)))
-        #expect(await daemon.wait { lists($0) >= before + 1 })
-        for _ in 0..<2_000 { await Task.yield() }
-        #expect(lists(daemon.calls) == before + 1, "an inbox reset for another account listed the inbox")
+        let resetForOther = try #require(event("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":3,"account":"user_stack-other"}"#))
+        let resetForMe = try #require(event("cloud-inbox-reset", #"{"event":"cloud-inbox-reset","seq":4,"account":"stack-me"}"#))
+        #expect(!CloudHomeSource.isForAccount(resetForOther, cloudID: F.identity.cloudID), "an inbox reset for another account is kept")
+        #expect(CloudHomeSource.isForAccount(resetForMe, cloudID: F.identity.cloudID))
+    }
+
+    /// The account filter alone: the account an event names, as a cloud id
+    /// or a bare Stack user id, against the account the source acts as.
+    @Test func anEventBelongsOnlyToTheAccountItNames() throws {
+        let me = F.identity.cloudID
+        let mine = CloudConversationsEvent.subscriptionState(CloudSubscriptionState(scope: "inbox", state: "live", account: "stack-me"))
+        let prefixed = CloudConversationsEvent.subscriptionState(CloudSubscriptionState(scope: "inbox", state: "live", account: "user_stack-me"))
+        let theirs = CloudConversationsEvent.inboxChanged(CloudInboxChanged(seq: 1, entries: [], account: "stack-other"))
+        #expect(CloudHomeSource.isForAccount(mine, cloudID: me))
+        #expect(CloudHomeSource.isForAccount(prefixed, cloudID: me))
+        #expect(!CloudHomeSource.isForAccount(theirs, cloudID: me))
+        #expect(!CloudHomeSource.isForAccount(mine, cloudID: nil), "an event that names an account reached a signed-out source")
+        #expect(CloudHomeSource.isForAccount(.sessionNeeded(CloudSessionNeeded(reason: "missing")), cloudID: me))
     }
 
     func listed(_ source: CloudHomeSource, _ id: String) -> Bool {
