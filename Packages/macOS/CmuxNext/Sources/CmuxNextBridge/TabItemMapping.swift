@@ -1,3 +1,4 @@
+import Foundation
 public import CmuxNextDaemon
 public import CmuxNextTabs
 
@@ -16,7 +17,7 @@ public struct TabItemMapping {
         let isBrowser = tab.kind == .browser
         let isConversation = tab.kind == .conversation
         let untitled = tab.displayTitle.isEmpty || ((isBrowser || isConversation) && Self.isBlankPageAddress(tab.displayTitle))
-        let title = untitled ? fallbackTitle : tab.displayTitle
+        let title = untitled ? fallbackTitle : isBrowser ? Self.browserTitle(tab) : tab.displayTitle
         let busy = StatusMapping.shared.loading(tab)
         var item = StripTabItem(
             id: StripTabID(tab.id),
@@ -31,6 +32,17 @@ public struct TabItemMapping {
         if busy.state.isLoading { item.indicator = busy.state }
         item.busyStyle = busy.style
         return item
+    }
+
+    /// A browser tab whose page was never shown keeps the record the daemon
+    /// wrote at creation, titled with the full address: it shows the host
+    /// until the page reports its own title. A user name, a page title and
+    /// an address without a host (file:) stay as they are.
+    static func browserTitle(_ tab: TabModel) -> String {
+        let title = tab.displayTitle
+        guard tab.name?.isEmpty ?? true, title == tab.url,
+              let host = URL(string: title)?.host(), !host.isEmpty else { return title }
+        return host
     }
 
     /// The New Tab page's and the blank page's addresses
