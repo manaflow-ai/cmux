@@ -10,6 +10,7 @@
 //! command; mount events go to the mounting connection only.
 
 use std::sync::Arc;
+use std::thread::JoinHandle;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -127,6 +128,22 @@ fn reply(
         },
     };
     send_response(writer, response)
+}
+
+/// After the daemon is ready, starts the app supervisor on its own thread
+/// when `apps-v1` is advertised, so apps with an `always` server run without
+/// waiting for the first `apps-*` command. Never on the startup path.
+pub fn start_apps_when_ready(mux: &Arc<Mux>) {
+    if crate::apps::advertised().is_some() {
+        let mux = mux.clone();
+        let _ = spawn_off_startup(move || {
+            mux.control_clients.apps.get_or_init(&mux);
+        });
+    }
+}
+
+fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<JoinHandle<()>> {
+    std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
 }
 
 /// What the daemon knows about `client` for the hosting-app check.
@@ -384,7 +401,7 @@ mod tests {
         // released, and the caller must already have returned.
         let (release, wait) = std::sync::mpsc::channel::<()>();
         let (done, finished) = std::sync::mpsc::channel::<()>();
-        let handle = crate::server::spawn_off_startup(move || {
+        let handle = spawn_off_startup(move || {
             wait.recv().unwrap();
             done.send(()).unwrap();
         })
@@ -395,6 +412,6 @@ mod tests {
         assert!(finished.try_recv().is_ok());
         // Without an app host (no apps-v1) nothing starts and nothing blocks.
         let mux = Mux::new_for_test("apps-start-off-path", SurfaceOptions::default());
-        crate::server::start_apps_when_ready(&mux);
+        start_apps_when_ready(&mux);
     }
 }
