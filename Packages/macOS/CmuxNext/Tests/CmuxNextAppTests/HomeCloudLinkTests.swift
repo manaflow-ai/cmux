@@ -283,6 +283,33 @@ import Testing
                 "the waiting renewal still waited for the cooldown")
     }
 
+    /// One socket proves each new lease while another is refused under it
+    /// (round-6 review, finding 4). The proof must not end the wait the
+    /// same forced renewal started: forced renewals stay at least
+    /// `firstRetry` apart instead of looping at round-trip speed.
+    @Test func aProvenLeaseStillSpacesForcedRenewalsByTheFirstWait() async throws {
+        let clock = ManualClock()
+        let daemon = FakeCloudDaemon()
+        let (linker, source, tokens) = make(clock: clock)
+        tokens.user = "a"
+        await linker.apply(link(daemon, "a"))
+        linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
+        await linker.settle()
+        #expect(daemon.leases == 2)
+        // A reply proves the renewed lease; another socket is refused under it right after.
+        _ = try await source.inbox()
+        for _ in 0..<2_000 { await Task.yield() }
+        linker.sessionNeeded(reason: "unauthenticated", expiresAt: daemon.leaseExpiry)
+        await linker.settle()
+        for _ in 0..<2_000 { await Task.yield() }
+        await linker.settle()
+        #expect(daemon.leases == 2, "a proven lease let forced renewals go back to back: \(daemon.leases)")
+        await clock.sleepers(atLeast: 1)
+        clock.advance(by: HomeCloudLink.firstRetry)
+        #expect(await daemon.wait { calls in calls.filter { if case .setSession = $0 { true } else { false } }.count >= 3 },
+                "the waiting renewal never went")
+    }
+
     /// The cooldown ends while other lease work runs: the renewal that
     /// waited for it is kept and goes once that work ends.
     @Test func aRenewalThatComesDueDuringLeaseWorkIsKept() async throws {
