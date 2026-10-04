@@ -102,6 +102,35 @@ import Testing
         #expect(reject != nil && reject! != nil)
     }
 
+    /// A user who only signed in on a Mac has no personal team yet: the
+    /// first team read is forbidden, `user.ensure` runs once, the read repeats.
+    @Test func aNewUserGetsAPersonalTeamFirst() async {
+        let recorder = Recorder()
+        var ensured = false
+        let source = CloudPairingSource(
+            inner: MockServerSource(scenario: .healthyMac),
+            call: { path, body in
+                recorder.calls.append((path, body))
+                switch body["op"] as? String {
+                case "team.policy.get" where !ensured:
+                    return ["_tag": "Forbidden", "code": "auth.forbidden", "message": "not a member of this team"]
+                case "team.policy.get": return ["value": ["team": Self.workerTeam]]
+                case "user.ensure":
+                    ensured = true
+                    return ["ok": true, "value": [:]]
+                default: return ["value": Self.preview]
+                }
+            },
+            account: { "Ada" }
+        )
+        source.start { recorder.events.append($0) }
+        source.send(ServerIntent(kind: .lookupCode("7KQ4M2XD"), key: "k7"))
+        #expect(await settled(recorder, "k7") == .some(nil))
+        let ops = recorder.calls.compactMap { $0.1["op"] as? String }
+        #expect(ops == ["team.policy.get", "user.ensure", "team.policy.get", "server.pair.preview"])
+        #expect(recorder.calls[1].1["origin"] as? String == "user")
+    }
+
     @Test func signedOutAndOwnerRefusalsAreRejects() async {
         let recorder = Recorder()
         let signedOut = source(recorder, account: nil) { _ in [:] }

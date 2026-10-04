@@ -97,9 +97,27 @@ final class CloudPairingSource: ServerSource {
         }
     }
 
-    /// The Worker's team for this session, from `team.policy.get`.
+    /// The Worker's team for this session, from `team.policy.get`. A user
+    /// who only ever signed in on a Mac has no personal team yet: on
+    /// `auth.forbidden` run `user.ensure` (idempotent) once and read again.
     private func workerTeam(account: String) async throws -> ServerTeam {
-        let reply = try await call("v1/read", ["op": "team.policy.get", "params": [String: Any]()])
+        let read: [String: Any] = ["op": "team.policy.get", "params": [String: Any]()]
+        let reply: [String: Any]
+        do {
+            reply = try await call("v1/read", read)
+            _ = try Self.okValue(reply)
+        } catch FeedServiceError.owner(code: "auth.forbidden", message: _) {
+            let ensure: [String: Any] = [
+                "op": "user.ensure", "params": [String: Any](),
+                "idempotency_key": "server-pair-ensure-\(UUID().uuidString)", "origin": "user",
+            ]
+            _ = try await call("v1/ops", ensure)
+            return try await teamFromRead(try await call("v1/read", read), account: account)
+        }
+        return try teamFromRead(reply, account: account)
+    }
+
+    private func teamFromRead(_ reply: [String: Any], account: String) throws -> ServerTeam {
         guard let value = try Self.okValue(reply) as? [String: Any], let id = value["team"] as? String, !id.isEmpty else {
             throw FeedServiceError.badReply
         }
