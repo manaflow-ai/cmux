@@ -174,6 +174,39 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(AttachmentPreview.of([.text("hi")]) == nil)
     }
 
+    /// Start-up cleanup: crash leftovers go, blobs older than the age limit
+    /// go unless a pending send uses them, then the least recently used go
+    /// until the cache fits the size cap.
+    @MainActor @Test func blobCachePruneRemovesTempOldAndOverCapBlobs() async throws {
+        let root = try temporaryDirectory()
+        let fm = FileManager.default
+        let now = Date()
+        func blob(_ name: String, bytes: Int, age: TimeInterval) throws {
+            let dir = root.appendingPathComponent(name, isDirectory: true)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data(repeating: 7, count: bytes).write(to: dir.appendingPathComponent("data.txt"))
+            try fm.setAttributes([.modificationDate: now.addingTimeInterval(-age)], ofItemAtPath: dir.path)
+        }
+        try Data("partial".utf8).write(to: root.appendingPathComponent(".incoming-\(UUID().uuidString)"))
+        try blob("old", bytes: 10, age: 10 * 86_400)
+        try blob("pendingold", bytes: 10, age: 10 * 86_400)
+        try blob("a", bytes: 40, age: 3 * 3_600)
+        try blob("b", bytes: 40, age: 2 * 3_600)
+        try blob("c", bytes: 40, age: 1 * 3_600)
+
+        await HomeStore.pruneBlobCache(at: root, keeping: ["pendingold"], now: now, maxAge: 7 * 86_400, maxBytes: 100)
+        let left = Set(try fm.contentsOfDirectory(atPath: root.path))
+        #expect(left == ["pendingold", "b", "c"])
+
+        // The store's own pass keeps what it prepared and leaves the rest of a fresh cache alone.
+        let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: root)
+        let prepared = try await store.prepareAttachment(data: Data("fresh".utf8), typeIdentifier: UTType.plainText.identifier)
+        try Data("partial".utf8).write(to: root.appendingPathComponent(".incoming-\(UUID().uuidString)"))
+        await store.pruneBlobCache(now: now)
+        #expect(fm.fileExists(atPath: prepared.fileURL.path))
+        #expect(try fm.contentsOfDirectory(atPath: root.path).allSatisfy { !$0.hasPrefix(".incoming-") })
+    }
+
     @Test func attachmentRefWithoutNewFieldsDecodes() throws {
         let expected = AttachmentRef(hash: "abc", name: "a.png", mimeType: "image/png", byteCount: 3, width: 4, height: 5)
         let wire = Data(#"{"hash":"abc","name":"a.png","mime_type":"image/png","byte_count":3,"width":4,"height":5}"#.utf8)
@@ -649,6 +682,41 @@ private func makeMovie(at url: URL, width: Int, height: Int, frames: Int = 10, f
         #expect(store.transcript(for: conversation).last?.parts == [.attachment(a.ref)])
         #expect(await source.hasBlob(a.ref.hash))
         #expect(await source.uploadCalls.filter { $0 == a.ref.hash }.count == 3)
+    }
+
+    /// The OS purged the blob cache (iOS can): the local copy is skipped
+    /// and the bytes come from the source.
+    @Test func fetchFallsBackToTheSourceWhenTheCachedFileIsGone() async throws {
+        let (store, source) = try await started()
+        let root = try temporaryDirectory()
+        let file = root.appendingPathComponent("p.jpg")
+        try makeJPEG(width: 300, height: 100, orientation: 1).write(to: file)
+        let photo = try await store.prepareAttachment(fileURL: file)
+        try await store.send(conversation: conversation, text: "", attachments: [photo], key: IdempotencyKey("attach-purged"))
+        try FileManager.default.removeItem(at: photo.fileURL.deletingLastPathComponent())
+
+        let here = AttachmentLocation(conversation: conversation)
+        let original = try await store.fetchAttachment(photo.ref, at: here, variant: .original)
+        #expect(original != photo.fileURL)
+        #expect(try Data(contentsOf: original) == Data(contentsOf: file))
+        let thumb = try await store.fetchAttachment(photo.ref, at: here, variant: .thumbnail(maxPixel: 40))
+        #expect(FileManager.default.fileExists(atPath: thumb.path))
+        #expect(await source.fetchLocations.count >= 2)
+        #expect(store.transcript(for: conversation).last?.localAttachments.isEmpty == true)
+    }
+
+    /// A pending upload whose cached file was purged fails with a code that
+    /// says so, without calling the source.
+    @Test func aPurgedPendingFileFailsClearly() async throws {
+        let (store, source) = try await started()
+        let (a, _) = try await twoAttachments(store)
+        try FileManager.default.removeItem(at: a.fileURL)
+        let key = IdempotencyKey("attach-purged-pending")
+        await #expect(throws: HomeRejection.invalid("attachment_file_missing")) {
+            try await store.send(conversation: conversation, text: "", attachments: [a], key: key)
+        }
+        #expect(store.transcript(for: conversation).last?.delivery == .notDelivered(.invalid("attachment_file_missing")))
+        #expect(await source.uploadCalls.isEmpty)
     }
 
     @Test func fetchWithoutALocalCopyNamesTheMessagePart() async throws {
