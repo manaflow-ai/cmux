@@ -84,7 +84,8 @@ test("Ghostty Shiki theme maps Markdown token scopes", () => {
   expect(scopes).toContain("markup.italic");
   expect(scopes).toContain("markup.inline.raw");
   expect(scopes).toContain("markup.underline.link");
-  expect(scopes).toContain("markup.list");
+  expect(scopes).toContain("punctuation.definition.list");
+  expect(scopes).not.toContain("markup.list");
   expect(scopes).toContain("markup.table");
 });
 
