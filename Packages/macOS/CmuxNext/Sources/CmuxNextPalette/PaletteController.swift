@@ -370,7 +370,8 @@ public final class PaletteController {
             registry: registry,
             hierarchical: model.currentPageIsHierarchical,
             caretAtEnd: Self.caret(in: event.window).atEnd,
-            caretAtStart: Self.caret(in: event.window).atStart
+            caretAtStart: Self.caret(in: event.window).atStart,
+            selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)
     }
