@@ -1,3 +1,5 @@
+// DESKTOP-FEEL (R139): the shared desktop layer loads first.
+import "../../pages/shared/desktop";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { AcpmuxApp } from "./App";
