@@ -17,9 +17,14 @@ struct FilePageProviderTests {
         var files: [URL] = []
         var chosen: URL?
         var preferences: [(String, JSONValue)] = []
+        var writers: [SettingWriter] = []
+        var confirmGestures: [Bool] = []
         var lookValue: JSONValue = ["settings": ["toolbar": true], "themeCSS": ""]
         var lookListeners: [UUID: (JSONValue) -> Void] = [:]
         var remoteImages = true
+        var recentPaths: [String] = []
+        var confirmations: [URL] = []
+        var confirmAnswer = false
 
         init(roots: FileWorkspaceRoots) { self.roots = roots }
 
@@ -32,10 +37,19 @@ struct FilePageProviderTests {
             lookListeners[id] = onLook
             return { [weak self] in self?.lookListeners[id] = nil }
         }
-        func setPreference(key: String, value: JSONValue) async throws { preferences.append((key, value)) }
+        func setPreference(key: String, value: JSONValue, by writer: SettingWriter) async throws {
+            preferences.append((key, value))
+            writers.append(writer)
+        }
         func opened(_ url: URL) { opened.append(url) }
         func openExternal(_ url: URL) { external.append(url) }
         func openFile(_ url: URL) { files.append(url) }
+        func isRecent(_ path: String) -> Bool { recentPaths.contains(path) }
+        func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool {
+            confirmations.append(url)
+            confirmGestures.append(userGesture)
+            return confirmAnswer
+        }
     }
 
     final class Images: RemoteImageFetching {
@@ -68,8 +82,9 @@ struct FilePageProviderTests {
         return (provider, host, folder, images)
     }
 
-    static func call(_ provider: FilePageProvider, _ op: String, _ params: JSONValue = .object([:])) async throws -> JSONValue {
-        try await provider.call(op, params: params, context: PageCallContext(page: provider.kind.descriptor.id))
+    static func call(_ provider: FilePageProvider, _ op: String, _ params: JSONValue = .object([:]),
+                     userGesture: Bool = false) async throws -> JSONValue {
+        try await provider.call(op, params: params, context: PageCallContext(page: provider.kind.descriptor.id, userGesture: userGesture))
     }
 
     static func code(_ body: () async throws -> Void) async -> String? {
@@ -106,12 +121,15 @@ struct FilePageProviderTests {
     }
 
     @Test func theEditorConfigSaysWhyAFileIsReadOnly() async throws {
-        let (provider, host, folder, _) = try Self.world(.editor, file: "main.swift", text: "let x = 1\n")
+        let (provider, host, folder, images) = try Self.world(.editor, file: "main.swift", text: "let x = 1\n")
         var config = try await Self.call(provider, "cmux.editor.config")
         #expect(config["size"]?.intValue == 10)
         #expect(config["readOnly"]?.boolValue != true)
+        // A document an agent opened is writable only inside a root the user chose.
         host.roots = FileWorkspaceRoots(folders: [], home: "/nonexistent-home")
-        config = try await Self.call(provider, "cmux.editor.open", ["path": .string(folder.appending(path: "main.swift").path)])
+        let agentOpened = FilePageProvider(kind: .editor, file: folder.appending(path: "main.swift"), userChose: false, host: host,
+                                           clock: ManualClock(), libraries: nil, images: images)
+        config = try await Self.call(agentOpened, "cmux.editor.config")
         #expect(config["readOnly"]?.boolValue == true)
         #expect(config["readOnlyReason"]?.stringValue == "outside")
     }
@@ -119,15 +137,25 @@ struct FilePageProviderTests {
     @Test func openSwitchesTheTabsFileRecordsItAndRefusesWhatItCannotShow() async throws {
         let (provider, host, folder, _) = try Self.world(.markdown)
         let other = folder.appending(path: "other.md")
+        host.chosen = other
+        _ = try await Self.call(provider, "cmux.markdown.chooseFile")
         let config = try await Self.call(provider, "cmux.markdown.open", ["path": .string(other.path)])
         #expect(config["text"]?.stringValue == "# Other\n")
         #expect(provider.file == other)
         #expect(host.recorded.last == other && host.opened.last == other)
         #expect(await Self.code { _ = try await Self.call(provider, "cmux.markdown.open", ["path": .string(folder.appending(path: "main.swift").path)]) }
+            == "cmux.markdown.forbidden")
+        host.chosen = folder.appending(path: "main.swift")
+        _ = try await Self.call(provider, "cmux.markdown.chooseFile")
+        #expect(await Self.code { _ = try await Self.call(provider, "cmux.markdown.open", ["path": .string(folder.appending(path: "main.swift").path)]) }
             == "cmux.markdown.not_markdown")
+        host.chosen = folder.appending(path: "gone.md")
+        _ = try await Self.call(provider, "cmux.markdown.chooseFile")
         #expect(await Self.code { _ = try await Self.call(provider, "cmux.markdown.open", ["path": .string(folder.appending(path: "gone.md").path)]) }
             == "cmux.markdown.not_found")
-        let (editor, _, _, _) = try Self.world(.editor, file: nil)
+        let (editor, editorHost, _, _) = try Self.world(.editor, file: nil)
+        editorHost.chosen = folder
+        _ = try await Self.call(editor, "cmux.editor.chooseFile")
         #expect(await Self.code { _ = try await Self.call(editor, "cmux.editor.open", ["path": .string(folder.path)]) } == "cmux.editor.not_file")
         #expect(await Self.code { _ = try await Self.call(editor, "cmux.editor.open", ["path": "relative.txt"]) } == "cmux.protocol.invalid_params")
     }
@@ -164,9 +192,11 @@ struct FilePageProviderTests {
     }
 
     @Test func aReadOnlyFileRefusesItsSave() async throws {
-        let (provider, host, folder, _) = try Self.world(.markdown)
+        let (_, host, folder, images) = try Self.world(.markdown)
         host.roots = FileWorkspaceRoots(folders: [], home: "/nonexistent-home")
         let file = folder.appending(path: "README.md")
+        let provider = FilePageProvider(kind: .markdown, file: file, userChose: false, host: host, clock: ManualClock(),
+                                        libraries: nil, images: images)
         let config = try await Self.call(provider, "cmux.markdown.open", ["path": .string(file.path)])
         #expect(config["readOnly"]?.boolValue == true)
         #expect(await Self.code {
@@ -175,15 +205,43 @@ struct FilePageProviderTests {
     }
 
     /// PAGE-PREFS: a toolbar toggle is one settings key in the page's own section, never web storage.
-    @Test func setPreferenceWritesOnlyItsOwnSectionsKeys() async throws {
+    /// The writer is the user only for a call backed by a real gesture, else the page; host-only
+    /// keys (`files.roots`, `markdown.remoteImages`) are never the page's to write.
+    @Test func setPreferenceWritesOnlyItsOwnSectionsKeysAsItsWriter() async throws {
         let (provider, host, _, _) = try Self.world(.editor, file: nil)
         _ = try await Self.call(provider, "cmux.editor.setPreference", ["key": "editor.minimap.enabled", "value": true])
-        #expect(host.preferences.count == 1 && host.preferences.first?.0 == "editor.minimap.enabled")
-        for key in ["markdown.font.size", "editor", "editor..x", "appearance.surfaces.editor.color", "editor.__proto__x!"] {
+        _ = try await Self.call(provider, "cmux.editor.setPreference", ["key": "editor.wordWrap", "value": "on"], userGesture: true)
+        #expect(host.preferences.map(\.0) == ["editor.minimap.enabled", "editor.wordWrap"])
+        #expect(host.writers == [.caller("page"), .user])
+        for key in ["markdown.font.size", "editor", "editor..x", "appearance.surfaces.editor.color", "editor.__proto__x!", "files.roots"] {
             #expect(await Self.code { _ = try await Self.call(provider, "cmux.editor.setPreference", ["key": .string(key), "value": 1]) }
                 == "cmux.protocol.invalid_params", "\(key)")
         }
-        #expect(host.preferences.count == 1)
+        let (markdown, markdownHost, _, _) = try Self.world(.markdown)
+        for key in ["markdown.remoteImages", "files.roots", "editor.wordWrap"] {
+            #expect(await Self.code { _ = try await Self.call(markdown, "cmux.markdown.setPreference", ["key": .string(key), "value": true]) }
+                == "cmux.protocol.invalid_params", "\(key)")
+            #expect(!FilePageProvider.isPreferenceKey(key, section: "markdown"), "\(key)")
+        }
+        #expect(markdownHost.preferences.isEmpty)
+        #expect(host.preferences.count == 2)
+    }
+
+    /// The page path writes settings only through `SettingsController.setSetting(at:to:by:)`: a key
+    /// the schema does not list is refused and the file is not touched (no raw file write).
+    @Test func thePageLookWritesOnlyThroughTheSettingsSchema() async throws {
+        let folder = try FileDocumentTests.folder()
+        let url = folder.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let services = ActionBindingCoverageTests.boundServices()
+        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(.empty), managedWatchFiles: [])
+        await settings.reload()
+        let look = FilePageLook(kind: .editor, settings: { settings }, configDirectory: folder)
+        await #expect(throws: SettingNotInSchema.self) {
+            try await look.setPreference(key: "editor.someKeyNotInTheSchema", value: true, by: .user)
+        }
+        #expect(try String(contentsOf: url, encoding: .utf8) == "{}")
     }
 
     @Test func linksResolveInsideTheRootsAndListFilesCompletesTheFilesFolder() async throws {
