@@ -13,12 +13,12 @@
 # instead of a wrong hit.
 #
 # This removes the disagreement at the source: the build runs from
-# $CMUX_CI_CANONICAL_ROOT/src, a stable path for the runner. On a glaeda Mac
-# the runner hook holds one root per job and exports it, so concurrent runners
-# on one Mac do not delete each other's source tree, DerivedData, or
-# compilation CAS. The
-# cache fingerprint includes a non-default root, so a seed from another
-# runner's absolute path is never adopted.
+# $CMUX_CI_CANONICAL_ROOT/src, a stable path for the runner. Self-hosted
+# runners without glaeda derive that root from RUNNER_NAME so concurrent
+# runners on one Mac do not delete each other's source tree, DerivedData, or
+# compilation CAS; glaeda-managed Macs keep the per-job root their hook
+# exports. The cache fingerprint includes a non-default root, so a seed from
+# another runner's absolute path is never adopted.
 #
 # A symlink will not do. The compiler records the path it actually opens, and
 # a link back into the workspace resolves to the pool-specific path again, so
@@ -29,13 +29,22 @@
 set -euo pipefail
 
 default_root=/private/tmp/cmux-ci
-# On a glaeda Mac the runner hook holds a root for a compile job and exports
-# it (root 1 is the default path, root N is /private/tmp/cmux-ci-N), so an
-# exported root always wins. Every other job builds at the shared root: main's
-# DerivedData seeds and the owned build state are keyed to it, and a
-# per-runner root never matched them, so each new runner compiled cold past
-# the admission limit.
-root="${CMUX_CI_CANONICAL_ROOT:-$default_root}"
+# A glaeda-managed Mac already isolates roots per job: its runner hook exports
+# CMUX_CI_CANONICAL_ROOT (the default for root 1, /private/tmp/cmux-ci-N
+# otherwise) and `glaeda-canonical-root take` rejects any other path, so keep
+# the hook's root there instead of deriving one from RUNNER_NAME.
+glaeda_helper="${CMUX_CI_CANONICAL_ROOT_HELPER:-/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root}"
+if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] \
+  && [ -n "${RUNNER_NAME:-}" ] \
+  && [ ! -x "$glaeda_helper" ] \
+  && [ "${CMUX_CI_CANONICAL_ROOT:-$default_root}" = "$default_root" ]; then
+  runner_key="$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9_.-' '_')"
+  root="$default_root-$runner_key"
+elif [ -n "${CMUX_CI_CANONICAL_ROOT:-}" ]; then
+  root="$CMUX_CI_CANONICAL_ROOT"
+else
+  root="$default_root"
+fi
 
 if [ "${1:-}" = --print-root ]; then
   printf '%s\n' "$root"
