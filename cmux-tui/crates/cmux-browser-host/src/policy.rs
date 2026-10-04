@@ -209,6 +209,8 @@ const BROWSER_PAGE_SCHEMES: &[&str] = &[
     "devtools",
     "chrome-devtools",
     "view-source",
+    // cmux's internal pages (cmux://history, cmux://bookmarks, ...).
+    "cmux",
 ];
 
 /// True when `text` names one of Chromium's own pages. Like Chromium, tabs
@@ -217,6 +219,26 @@ const BROWSER_PAGE_SCHEMES: &[&str] = &[
 /// `blob:` and `filesystem:` take the origin of their inner URL.
 pub fn is_browser_page(text: &str) -> bool {
     is_browser_page_within(text, 0)
+}
+
+/// First-party pages (`cmux-page://cmux`, `cmux-page://cmux.<id>`) are
+/// refused; third-party app pages stay allowed. Fail closed on an empty host
+/// or a percent escape. The same rule as the Swift and C++ copies.
+fn is_reserved_page_host(rest: &str) -> bool {
+    let after = rest.trim_start_matches(['/', '\\']);
+    let mut host = after.split(['/', '\\', '?', '#']).next().unwrap_or("");
+    if host.contains('%') {
+        return true;
+    }
+    if let Some((_, tail)) = host.rsplit_once('@') {
+        host = tail;
+    }
+    if let Some((name, _)) = host.split_once(':') {
+        host = name;
+    }
+    let name = host.to_lowercase();
+    let name = name.trim_end_matches('.');
+    name.is_empty() || name == "cmux" || name.starts_with("cmux.")
 }
 
 /// More nested `blob:`/`filesystem:` wrappers than this are refused (fail
@@ -241,6 +263,9 @@ fn is_browser_page_within(text: &str, wrappers: usize) -> bool {
     }
     if BROWSER_PAGE_SCHEMES.contains(&scheme.as_str()) {
         return true;
+    }
+    if scheme == "cmux-page" {
+        return is_reserved_page_host(rest);
     }
     if matches!(scheme.as_str(), "blob" | "filesystem") {
         return is_browser_page_within(rest, wrappers + 1);

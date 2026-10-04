@@ -113,3 +113,50 @@ fn a_push_on_a_connecting_link_waits_off_the_loop_and_then_starts() {
         "the push starts once the link is up: {pushed:?}"
     );
 }
+
+#[test]
+fn a_fifth_transfer_while_four_run_is_busy_and_starts_nothing() {
+    let transfer = FakeTransfer::default();
+    let mut releases = Vec::new();
+    for _ in 0..cmux_cloud::fs::MAX_TRANSFERS {
+        let (release, hold) = channel();
+        releases.push(release);
+        transfer.log().holds.push_back(hold);
+    }
+    let mut host = host(&transfer);
+    let push = |host: &Host, id: &str| {
+        host.send(&json!({ "type": "op", "id": id, "op": "cloud.file.push", "origin": "user",
+            "idempotency_key": format!("p-{id}"),
+            "args": { "machine": "vm-alpha01", "localPath": local_file(), "path": "/home/cmux/upload.txt" } }));
+    };
+    let endpoints =
+        |host: &Host| host.cloud.calls.iter().filter(|c| c.path.ends_with("/scp-endpoint")).count();
+    for id in ["1", "2", "3", "4"] {
+        push(&host, id);
+        let started = result_of(&mut host, id);
+        assert_eq!(started.map(|r| r["result"]["state"].clone()), Some(json!("running")), "{id}");
+    }
+    assert_eq!(endpoints(&host), 4);
+    push(&host, "5");
+    let busy = result_of(&mut host, "5").expect("the fifth push answers");
+    assert_eq!(busy["ok"], false, "{busy}");
+    assert_eq!(busy["error"]["code"], "cmux.cloud.transfer_busy", "{busy}");
+    assert_eq!(busy["error"]["retryable"], true);
+    assert_eq!(endpoints(&host), 4, "the refused push asked the Cloud API for nothing");
+    // One transfer ends: a new one starts.
+    releases.remove(0).send(()).unwrap();
+    let mut ended = false;
+    while let Some(line) = host.next() {
+        if line["event"] == "cloud.file.transfer.changed" {
+            assert_eq!(line["state"], "done", "{line}");
+            ended = true;
+            break;
+        }
+    }
+    assert!(ended, "one transfer ended");
+    push(&host, "6");
+    let started = result_of(&mut host, "6");
+    assert_eq!(started.map(|r| r["result"]["state"].clone()), Some(json!("running")));
+    assert_eq!(endpoints(&host), 5);
+    drop(releases);
+}

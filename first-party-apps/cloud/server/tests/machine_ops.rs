@@ -293,6 +293,13 @@ fn relay_names_take_their_own_args() {
 fn a_delete_of_a_gone_machine_drops_it_here_too() {
     let mut s = server(&["vm-list"]);
     s.handle(&Request::new("cloud.machine.list", json!({}))).expect("list");
+    // Gone means the Cloud API's own code, never any 404 (machine_not_found.rs).
+    s.control_plane_mut().respond(
+        "DELETE",
+        "/api/vm/vm-beta02",
+        404,
+        json!({ "error": "vm_not_found" }),
+    );
     let req = Request::new("cloud.machine.delete", json!({ "machine": "vm-beta02" }))
         .origin(Origin::User)
         .key("g-1");

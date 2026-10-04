@@ -244,7 +244,7 @@ fn the_real_openssh_children_get_only_the_child_env() {
     let transfer = fake_openssh(&tools);
     let job = job(&data);
     let key = TransferKey::generate().unwrap();
-    let copied = transfer.run(&job, &key);
+    let copied = transfer.run(&job, &key, &cmux_cloud::fs::Cancel::default());
     assert!(copied.is_ok(), "{copied:?}");
     for (child, expected) in [
         ("ssh-agent", vec!["HOME", "LANG", "TMPDIR"]),
