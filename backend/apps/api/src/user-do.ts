@@ -8,6 +8,7 @@ import { grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState 
 import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import { chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
+import { CLOSE_RETRY_MS, flushInstallCloses, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
 
@@ -85,7 +86,32 @@ export class UserDO extends OwnerDO<UserState> {
     this.boundInbox()
     const inbox = this.inbox.nextWakeAt()
     const pending = Object.keys(this.boundEngine?.currentState.ssh_revoke_pending ?? {}).length > 0 ? Math.max(Date.now(), this.sshRetryAt ?? 0) : null
-    return inbox === null ? pending : pending === null ? inbox : Math.min(inbox, pending)
+    const closes = nextCloseAt(this.ctx.storage.sql, this.closeRetryAt)
+    const times = [inbox, pending, closes].filter((t): t is number => t !== null)
+    return times.length ? Math.min(...times) : null
+  }
+
+  /** Retry time of a socket close that failed (socket-registry.ts); memory only. */
+  private closeRetryAt: number | null = null
+
+  /** Closes a revoked install's sockets on every other owner (instant revocation). */
+  private async flushCloses(now: number): Promise<void> {
+    if (this.closeRetryAt !== null && now < this.closeRetryAt) return
+    const failed = await flushInstallCloses(this.ctx.storage.sql, this.env, now)
+    this.closeRetryAt = failed ? now + CLOSE_RETRY_MS : null
+  }
+
+  /**
+   * RPC from an owner that accepted a socket of one of this user's installs (socket-gate.ts).
+   * False when the install (with this grant) is not active: the owner closes the socket at once,
+   * which closes the race between the Worker's check and a revoke.
+   */
+  async registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number): Promise<boolean> {
+    if (!this.isBound(entity)) return false
+    const state = this.bind(entity).currentState
+    if (!installActive(state, { identity: install, kind: "install", user: entity, install, ...(grant ? { grant } : {}) })) return false
+    registerSocketOwner(this.ctx.storage.sql, install, cls, name, expiresAt, Date.now())
+    return true
   }
 
   /** Backoff after a failed KRL notice (in memory: a restart retries at once). */
@@ -97,6 +123,7 @@ export class UserDO extends OwnerDO<UserState> {
    * when every team confirmed (S4). TeamDO's side is idempotent, so a retry after a crash is safe.
    */
   protected override async onWake(now: number): Promise<void> {
+    await this.flushCloses(now)
     const engine = this.existing()
     const pending = Object.entries(engine?.currentState.ssh_revoke_pending ?? {})
     if (pending.length === 0 || (this.sshRetryAt !== null && now < this.sshRetryAt)) return
@@ -295,7 +322,12 @@ export class UserDO extends OwnerDO<UserState> {
     if (op !== "install.revoke" && op !== "install.revoke_by_team") return
     const result = frames.find((f) => f.t === "result")
     const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
-    if (revoked) this.closeSockets((p) => p.install === revoked, "install revoked")
+    if (!revoked) return
+    this.closeSockets((p) => p.install === revoked, "install revoked")
+    // Every other owner with a socket of this install closes it now; failures retry from the alarm.
+    if (markInstallClosing(this.ctx.storage.sql, revoked, Date.now()) > 0) {
+      this.ctx.waitUntil(this.flushCloses(Date.now()).finally(() => this.scheduleAlarm()))
+    }
   }
 
   /**

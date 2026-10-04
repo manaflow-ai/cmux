@@ -49,9 +49,34 @@ export class SocketGate {
   private key = (p: Principal) => `${p.user}\u0000${p.install}\u0000${p.grant ?? ""}`
   private watched = (p: Principal) => this.enabled() && p.kind === "install" && !!p.install && !!p.user
 
-  /** The Worker checked this install when it opened the socket. */
-  seed(p: Principal): void {
-    if (this.watched(p)) this.checks.set(this.key(p), { active: true, at: Date.now() })
+  /**
+   * The Worker checked this install when it opened the socket. The socket is also registered in
+   * the user's UserDO, so a revoke closes it at once (socket-registry.ts); a refused registration
+   * (revoked in between) closes it now.
+   */
+  seed(ws: WebSocket, p: Principal, owner: { cls: string; name: string }): void {
+    if (!this.watched(p)) return
+    this.checks.set(this.key(p), { active: true, at: Date.now() })
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as {
+      registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number): Promise<boolean>
+    }
+    const expires = p.expires_at ?? Date.now() + 3600_000
+    this.ctx.waitUntil(
+      stub.registerSocket(p.user!, p.install!, p.grant, owner.cls, owner.name, expires).then(
+        (ok) => {
+          if (ok) return
+          this.revoked(p.install!)
+          closeQuietly(ws, 4401, "install revoked")
+        },
+        // UserDO unreachable: the socket stays, and the 60 s check closes it if the install is revoked.
+        () => undefined
+      )
+    )
+  }
+
+  /** The install was revoked (UserDO push): every cached status of it becomes inactive. */
+  revoked(install: string): void {
+    for (const k of [...this.checks.keys()]) if (k.split("\u0000")[1] === install) this.checks.set(k, { active: false, at: Date.now() })
   }
 
   closed(ws: WebSocket): void {

@@ -30,11 +30,8 @@ export interface SubmitResult {
 
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
-/** Upper bound of the owner-wake retry backoff. */
-const MAX_BACKOFF_MS = 5 * 60_000
-/** How long hidden events coalesce before the filtered resync snapshot. */
-const RESYNC_BATCH_MS = 250
-const PRUNE_SLACK_MS = 60 * 60_000
+/** Owner-wake retry backoff cap; resync snapshot coalescing; prune slack. */
+const [MAX_BACKOFF_MS, RESYNC_BATCH_MS, PRUNE_SLACK_MS] = [5 * 60_000, 250, 60 * 60_000]
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
 const safeSend = (ws: WebSocket, text: string) => {
@@ -188,6 +185,12 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   private snapshotFor(engine: OwnerEngine<S>, principal: Principal, pending: ReadonlyArray<string>): string {
     return JSON.stringify(this.subscriberSnapshot(engine.snapshot(principal.identity, pending), principal))
+  }
+
+  /** RPC from UserDO (socket-registry.ts): an install was revoked; close its sockets here now. */
+  async closeInstall(entity: string, install: string): Promise<boolean> {
+    if (this.isBound(entity)) [this.gate.revoked(install), this.closeSockets((p) => p.install === install, "install revoked")]
+    return true
   }
 
   /** Closes every socket whose principal matches (revocation). */
@@ -391,7 +394,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server)
     server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
-    this.gate.seed(principal)
+    this.gate.seed(server, principal, { cls: this.constructor.name, name: entity })
     this.afterCommit()
     safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
