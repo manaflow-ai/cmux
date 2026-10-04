@@ -111,6 +111,7 @@ import {
   saveViewerPrefs,
   type ViewerPrefs,
 } from "./viewer-prefs";
+import { useDiffWrites } from "./diff-writes";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
@@ -568,6 +569,8 @@ export function App({ config, initialStatus }: ConfigProps) {
   }
   const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
+  // This mount's host writes (viewed marks, prefs): disposed with the viewer (diff-writes.ts).
+  const writes = useDiffWrites();
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const codeViewScrollTopRef = useRef(0);
@@ -695,9 +698,9 @@ export function App({ config, initialStatus }: ConfigProps) {
       keepStuckHeaderInView(codeViewRef, collapses ? itemId : null, () =>
         dispatch({ type: "apply-viewed", items: result.items, change }),
       );
-      persistViewedChange(viewedScopeRef.current, change);
+      persistViewedChange(viewedScopeRef.current, change, writes);
     },
-    [latestState, viewedScopeRef],
+    [latestState, viewedScopeRef, writes],
   );
   const toggleViewedPath = useCallback(
     (path: string) => {
@@ -726,9 +729,9 @@ export function App({ config, initialStatus }: ConfigProps) {
       keepStuckHeaderInView(codeViewRef, collapsed ? itemId : null, () =>
         dispatch({ type: "set-item-collapsed", itemId, collapsed, collapsedFiles }),
       );
-      saveViewerPrefs({ collapsedFiles });
+      saveViewerPrefs({ collapsedFiles }, writes);
     },
-    [latestState],
+    [latestState, writes],
   );
   const toggleItemCollapsed = useCallback(
     (itemId: string) => {
@@ -978,7 +981,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({ type: "set-status", status });
   };
   const setLayout = (layout: DiffViewerLayout) => {
-    saveViewerPrefs({ layout });
+    saveViewerPrefs({ layout }, writes);
     dispatch({ type: "set-option", key: "layout", value: layout });
   };
   // Dispatches an options change and persists it globally when the key is a
@@ -986,7 +989,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const setOption = (key: keyof DiffViewerOptions, value: any) => {
     dispatch({ type: "set-option", key, value });
     if (key !== "collapsed") {
-      saveViewerPrefs({ [key]: value });
+      saveViewerPrefs({ [key]: value }, writes);
     }
   };
   const refresh = () => {

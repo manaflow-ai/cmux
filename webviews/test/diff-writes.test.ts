@@ -1,8 +1,8 @@
 // The diff viewer's host writes go through the intent outbox (src/diff-writes.ts): per file in
 // order, a newer mark replacing a queued one, an opid on each write (decision 31).
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { installPageDiffComments } from "../src/comments/bridge";
-import { resetDiffWritesForTesting } from "../src/diff-writes";
+import { createDiffWrites, DIFF_WRITE_KINDS, type DiffWrites } from "../src/diff-writes";
 import type { PageCallOptions, PageClient } from "../src/pages/shared/pageClient";
 import { persistViewedChange, type ViewedChange, type ViewedFileEntry, type ViewedScope } from "../src/viewed-files";
 import { saveViewerPrefs } from "../src/viewer-prefs";
@@ -37,18 +37,30 @@ const scope: ViewedScope = { repoRoot: "/r", source: "branch:main" };
 const set = (path: string): ViewedChange => ({ kind: "set", entry: { path, fingerprint: "f" } as ViewedFileEntry });
 const clear = (path: string): ViewedChange => ({ kind: "clear", path });
 
+let writes: DiffWrites;
+beforeEach(() => {
+  writes = createDiffWrites();
+});
 afterEach(() => {
   installPageDiffComments(null);
-  resetDiffWritesForTesting();
+  writes.dispose();
 });
 
 describe("diff writes", () => {
+  test("Swift-routed: every kind confirms on ok, and the outbox builds without opid echo", () => {
+    // The PageRouter does not echo opids on events, so an event-confirmed kind would never settle.
+    for (const [name, kind] of Object.entries(DIFF_WRITE_KINDS)) {
+      expect({ name, confirm: kind.confirm ?? "ok" }).toEqual({ name, confirm: "ok" });
+    }
+    expect(() => createDiffWrites().dispose()).not.toThrow();
+  });
+
   test("quick toggles of one file: one write in flight, the newest queued one wins", async () => {
     const { page, posted } = fakePage();
     installPageDiffComments(page);
-    persistViewedChange(scope, set("a.ts"));
-    persistViewedChange(scope, clear("a.ts"));
-    persistViewedChange(scope, set("a.ts"));
+    persistViewedChange(scope, set("a.ts"), writes);
+    persistViewedChange(scope, clear("a.ts"), writes);
+    persistViewedChange(scope, set("a.ts"), writes);
     expect(posted.map((p) => p.method)).toEqual(["viewedFiles.set"]);
     posted[0].answer();
     await flush();
@@ -61,10 +73,10 @@ describe("diff writes", () => {
   test("different files and preference keys do not wait for each other", () => {
     const { page, posted } = fakePage();
     installPageDiffComments(page);
-    persistViewedChange(scope, set("a.ts"));
-    persistViewedChange(scope, set("b.ts"));
-    saveViewerPrefs({ layout: "unified" });
-    saveViewerPrefs({ wordWrap: true });
+    persistViewedChange(scope, set("a.ts"), writes);
+    persistViewedChange(scope, set("b.ts"), writes);
+    saveViewerPrefs({ layout: "unified" }, writes);
+    saveViewerPrefs({ wordWrap: true }, writes);
     expect(posted.map((p) => p.method)).toEqual([
       "viewedFiles.set",
       "viewedFiles.set",

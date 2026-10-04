@@ -87,7 +87,7 @@ const kinds = {
 };
 
 function makeStore(sender: IntentSender | null = manualSender().sender) {
-  return new IntentStore<Doc, typeof kinds>({ initial, kinds, sender, opidPrefix: "t" });
+  return new IntentStore<Doc, typeof kinds>({ initial, kinds, sender, opidPrefix: "t", echoesOpids: true });
 }
 
 describe("(a) local-first", () => {
@@ -521,11 +521,22 @@ describe("(h) by construction", () => {
       kinds,
       sender,
       opidPrefix: "t",
+      echoesOpids: true,
       onTrace: (entry) => traced.push(`${entry.type}:${entry.opid ?? ""}`),
     });
     const opid = store.dispatch("append", { doc: "d", text: "1" });
     calls[0].resolve(null);
     await flush();
     expect(traced).toEqual([`dispatch:${opid}`, `send:${opid}`, `ok:${opid}`]);
+  });
+});
+
+describe("confirm by event needs a sender that echoes opids", () => {
+  test("a store whose sender does not echo opids refuses an event-confirmed kind", () => {
+    expect(
+      () => new IntentStore<Doc, typeof kinds>({ initial, kinds, sender: manualSender().sender, opidPrefix: "t" }),
+    ).toThrow("appendEvent confirms by event");
+    const { appendEvent: _event, ...okKinds } = kinds;
+    expect(() => new IntentStore({ initial, kinds: okKinds, sender: null, opidPrefix: "t" })).not.toThrow();
   });
 });

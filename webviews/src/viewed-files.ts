@@ -1,5 +1,5 @@
 import { callDiffComments, diffCommentsBridgeAvailable } from "./comments/bridge";
-import { diffWrites } from "./diff-writes";
+import type { DiffWrites } from "./diff-writes";
 import type { DiffSource } from "./diff/generated/protocol";
 import { fileName } from "./diff-stream";
 
@@ -259,13 +259,13 @@ export async function loadViewedFiles(scope: ViewedScope): Promise<ViewedFileEnt
   return Array.isArray(value?.files) ? value.files.filter(isViewedFileEntry) : [];
 }
 
-export function persistViewedChange(scope: ViewedScope | null, change: ViewedChange | null): void {
+export function persistViewedChange(scope: ViewedScope | null, change: ViewedChange | null, writes: DiffWrites): void {
   if (scope == null || change == null || !diffCommentsBridgeAvailable()) {
     return;
   }
   // One write in flight per file, in order; a newer mark replaces a queued one (diff-writes.ts).
   const path = change.kind === "set" ? change.entry.path : change.path;
-  diffWrites().dispatch("viewed", {
+  writes.dispatch("viewed", {
     resource: `viewed:${viewedScopeKey(scope)}:${path}`,
     write:
       change.kind === "set"

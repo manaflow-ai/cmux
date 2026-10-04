@@ -140,6 +140,13 @@ export interface IntentStoreOptions<S, K> {
   onTrace?(entry: IntentTrace): void;
   /** How many refusals `errors` keeps (default 20). */
   errorLimit?: number;
+  /**
+   * Whether the sender's events carry the opid of the call that caused them (decision 31). Only
+   * then may a kind use `confirm: "event"`. Default false: the Swift PageRouter and the daemon
+   * relay do not echo opids yet, so a page on them confirms on `ok`. The constructor refuses an
+   * event-confirmed kind without it.
+   */
+  echoesOpids?: boolean;
 }
 
 type KindMap<S> = Record<string, IntentKind<S, any, any>>;
@@ -223,6 +230,13 @@ export class IntentStore<S, K extends KindMap<S> = KindMap<S>> {
     this.sender = options.sender ?? null;
     this.prefix = options.opidPrefix ?? randomPrefix();
     if (!isOpid(`${this.prefix}-1`)) throw new Error(`invalid opid prefix ${this.prefix}`);
+    if (!options.echoesOpids) {
+      for (const [name, kind] of Object.entries(options.kinds as KindMap<S>)) {
+        if (kind.confirm === "event") {
+          throw new Error(`intent kind ${name} confirms by event, but its sender does not echo opids`);
+        }
+      }
+    }
     this.traceLimit = options.traceLimit ?? 200;
     this.errorLimit = options.errorLimit ?? 20;
     this.onTrace = options.onTrace;
