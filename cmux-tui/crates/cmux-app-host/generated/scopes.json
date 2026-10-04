@@ -73,17 +73,9 @@
       "scope": "automation:read",
       "class": "read"
     },
-    "automation.settings.set": {
-      "scope": "automation:write",
-      "class": "mutation"
-    },
     "automation.update": {
       "scope": "automation:write",
       "class": "mutation"
-    },
-    "automation.webhook.get": {
-      "scope": "automation:read",
-      "class": "read"
     },
     "browser.activate": {
       "scope": "browser:write",
@@ -265,10 +257,6 @@
       "scope": "cloud:write",
       "class": "mutation"
     },
-    "cloud.machine.link_token": {
-      "scope": "cloud:execute",
-      "class": "mutation"
-    },
     "cloud.machine.list": {
       "scope": "cloud:read",
       "class": "read"
@@ -433,17 +421,9 @@
       "scope": "dm:write",
       "class": "mutation"
     },
-    "domain.claim": {
-      "scope": "domain:write",
-      "class": "mutation"
-    },
     "domain.list": {
       "scope": "domain:read",
       "class": "read"
-    },
-    "domain.verify": {
-      "scope": "domain:write",
-      "class": "mutation"
     },
     "feed.adopt": {
       "scope": "feed:write",
@@ -521,18 +501,6 @@
       "scope": "finder:write",
       "class": "mutation"
     },
-    "firewall.create": {
-      "scope": "firewall:write",
-      "class": "mutation"
-    },
-    "firewall.get": {
-      "scope": "firewall:read",
-      "class": "read"
-    },
-    "firewall.list": {
-      "scope": "firewall:read",
-      "class": "read"
-    },
     "git.checkpoint.create": {
       "scope": "git:write",
       "class": "mutation"
@@ -576,10 +544,6 @@
     "home.search": {
       "scope": "home:read",
       "class": "read"
-    },
-    "home.settings.set": {
-      "scope": "home:write",
-      "class": "mutation"
     },
     "inbox_app.cycle_variant": {
       "scope": "inbox_app:write",
@@ -637,14 +601,6 @@
       "scope": "inbox:write",
       "class": "mutation"
     },
-    "integration.complete": {
-      "scope": "integration:write",
-      "class": "mutation"
-    },
-    "integration.connect": {
-      "scope": "integration:write",
-      "class": "mutation"
-    },
     "integration.list": {
       "scope": "integration:read",
       "class": "read"
@@ -652,10 +608,6 @@
     "integration.policy.get": {
       "scope": "integration:read",
       "class": "read"
-    },
-    "integration.policy.set": {
-      "scope": "integration:write",
-      "class": "mutation"
     },
     "integration.request": {
       "scope": "integration:<provider>",
@@ -675,10 +627,6 @@
     },
     "integrations.open": {
       "scope": "integrations:write",
-      "class": "mutation"
-    },
-    "invite.accept": {
-      "scope": "invite:write",
       "class": "mutation"
     },
     "invite.approve_join": {
@@ -788,10 +736,6 @@
     "net.fetch": {
       "scope": "net:<host>",
       "class": "runtime"
-    },
-    "network.list": {
-      "scope": "network:read",
-      "class": "read"
     },
     "notes.append": {
       "scope": "notes:write",
@@ -1105,14 +1049,6 @@
       "scope": "search_app:read",
       "class": "read"
     },
-    "server.pair.approve": {
-      "scope": "server:write",
-      "class": "mutation"
-    },
-    "server.pair.preview": {
-      "scope": "server:read",
-      "class": "read"
-    },
     "session.get": {
       "scope": "session:read",
       "class": "read"
@@ -1217,22 +1153,6 @@
       "scope": "slack:external",
       "class": "mutation"
     },
-    "sso.connection.activate": {
-      "scope": "sso:write",
-      "class": "mutation"
-    },
-    "sso.connection.create": {
-      "scope": "sso:write",
-      "class": "mutation"
-    },
-    "sso.connection.list": {
-      "scope": "sso:read",
-      "class": "read"
-    },
-    "sso.connection.set_secret": {
-      "scope": "sso:write",
-      "class": "mutation"
-    },
     "tab_group.add_tabs": {
       "scope": "tab_group:write",
       "class": "mutation"
@@ -1333,10 +1253,6 @@
       "scope": "team_vm:execute",
       "class": "mutation"
     },
-    "team_vm.ssh_cert.challenge": {
-      "scope": "team_vm:execute",
-      "class": "mutation"
-    },
     "team_vm.ssh_cert.revoke": {
       "scope": "team_vm:write",
       "class": "mutation"
@@ -1369,21 +1285,9 @@
       "scope": "team:read",
       "class": "read"
     },
-    "team.enrollment_token.create": {
-      "scope": "team:write",
-      "class": "mutation"
-    },
-    "team.enrollment_token.list": {
-      "scope": "team:read",
-      "class": "read"
-    },
     "team.hosts.list": {
       "scope": "team:read",
       "class": "read"
-    },
-    "team.integration.release_lock": {
-      "scope": "team:write",
-      "class": "mutation"
     },
     "team.members.list": {
       "scope": "team:read",
@@ -1479,18 +1383,6 @@
     },
     "title.set": {
       "scope": "title:write",
-      "class": "mutation"
-    },
-    "tunnel.attach": {
-      "scope": "tunnel:write",
-      "class": "mutation"
-    },
-    "tunnel.detach": {
-      "scope": "tunnel:write",
-      "class": "mutation"
-    },
-    "tunnel.rotate-key": {
-      "scope": "tunnel:write",
       "class": "mutation"
     },
     "usage_app.cycle_variant": {
@@ -1628,6 +1520,8 @@
   },
   "never": [
     "automation.delete",
+    "automation.settings.set",
+    "automation.webhook.get",
     "browser.attach",
     "browser.close",
     "browser.viewer.release",
@@ -1644,15 +1538,22 @@
     "cloud.fs.remove",
     "cloud.machine.create",
     "cloud.machine.delete",
+    "cloud.machine.link_token",
     "cloud.machine.resize",
     "cloud.port.close",
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "domain.claim",
     "domain.release",
+    "domain.verify",
+    "firewall.create",
     "firewall.delete",
+    "firewall.get",
+    "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "home.settings.set",
     "host.enroll",
     "host.remove",
     "install.list",
@@ -1660,13 +1561,20 @@
     "install.rename",
     "install.revoke",
     "install.sign_out",
+    "integration.complete",
+    "integration.connect",
+    "integration.policy.set",
     "integration.revoke",
+    "invite.accept",
+    "network.list",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
     "participants.remove",
     "request.cancel",
     "screen.close",
+    "server.pair.approve",
+    "server.pair.preview",
     "server.revoke",
     "session.creation.resolve",
     "session.events",
@@ -1675,17 +1583,28 @@
     "session.reload_config",
     "session.shutdown",
     "sidebar_view.attach",
+    "sso.connection.activate",
+    "sso.connection.create",
     "sso.connection.disable",
+    "sso.connection.list",
+    "sso.connection.set_secret",
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.enrollment_token.create",
+    "team.enrollment_token.list",
     "team.enrollment_token.revoke",
+    "team.integration.release_lock",
     "team_vm.ssh_ca.rotate",
+    "team_vm.ssh_cert.challenge",
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",
     "terminal.viewer.release",
     "terminal.viewer.resize",
+    "tunnel.attach",
+    "tunnel.detach",
+    "tunnel.rotate-key",
     "usage.cap.set",
     "user.ensure",
     "user.presence_key.revoke",

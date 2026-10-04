@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { loadAppCatalogs, schemaType } from "./app-catalogs.ts"
+import { type AppFragment, loadAppFragments, schemaType } from "./app-catalogs.ts"
 
 const here = new URL(".", import.meta.url).pathname
 const repo = join(here, "../../../..")
@@ -21,6 +21,8 @@ interface Field { required: boolean; type: TypeIR; description?: string }
 interface Op {
   class: string; risk?: string; params?: { selectors?: Record<string, string>; fields?: Record<string, Field> }; result?: TypeIR; docs?: string
   source: "local" | "cloud" | "app"
+  /** Backend ops: who may call it; an op without "install" is for a signed-in person only. */
+  principals?: string[]
   /** App catalog ops: the owning app and JSON Schema input/output instead of params/result. */
   owner?: string; input?: Record<string, unknown>; output?: Record<string, unknown>
 }
@@ -32,11 +34,16 @@ const NEVER_FAMILIES = new Set(["install", "grant", "host", "pairing_request", "
 const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attach|project)$|^browser\.input\.|^session\.journal\.hook\.put$)/
 const NEVER = /(\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$)/
 
+/** Ops no app may call, whatever their risk (cloud.machine.link_token mints dial tokens). */
+export const NEVER_OPS = new Set(["cloud.machine.link_token"])
+
 const readJSON = (p: string) => JSON.parse(readFileSync(join(repo, p), "utf8"))
 
-export function scopeFor(name: string, op: Pick<Op, "class" | "risk">): string | null {
+export function scopeFor(name: string, op: Pick<Op, "class" | "risk" | "principals">): string | null {
   const family = name.split(".")[0]!
-  if (NEVER_FAMILIES.has(family) || NEVER.test(name)) return null
+  if (NEVER_FAMILIES.has(family) || NEVER.test(name) || NEVER_OPS.has(name)) return null
+  // Money moves and person-only ops (no install principal) never reach apps.
+  if (op.risk === "money" || (op.principals && !op.principals.includes("install"))) return null
   const scopeFamily = SCOPE_FAMILY[family] ?? family
   if (op.risk) {
     switch (op.risk) {
@@ -54,18 +61,50 @@ export function scopeFor(name: string, op: Pick<Op, "class" | "risk">): string |
   return null
 }
 
+/**
+ * Every op apps may see, from the resource ops (`local`), the backend rows
+ * (`cloud`) and the first-party catalog fragments. A fragment's `consumes`
+ * names backend ops its server serves (D-ROUTE): those ops are typed and
+ * scoped from the fragment, never from the backend row. A consumed op must be
+ * a backend op the fragment declares, apps must be allowed to reach it, and
+ * only one fragment may serve it.
+ */
+export function buildOps(
+  local: Record<string, Omit<Op, "source">>,
+  cloud: Record<string, Omit<Op, "source">>,
+  fragments: AppFragment[],
+): Record<string, Op> {
+  const ops: Record<string, Op> = {}
+  for (const [name, op] of Object.entries(local)) ops[name] = { ...op, source: "local" }
+  for (const [name, op] of Object.entries(cloud)) if (!ops[name]) ops[name] = { ...op, source: "cloud" }
+  const servedBy = new Map<string, string>()
+  for (const fragment of fragments) {
+    for (const name of fragment.consumes) {
+      const row = cloud[name]
+      if (!row) throw new Error(`first-party-apps/${fragment.app} consumes ${name}, which is not a backend op`)
+      if (scopeFor(name, row) === null) throw new Error(`first-party-apps/${fragment.app} consumes ${name}, which apps may never reach`)
+      if (!fragment.operations.some((op) => op.name === name)) throw new Error(`first-party-apps/${fragment.app} consumes ${name} but does not declare it`)
+      const other = servedBy.get(name)
+      if (other) throw new Error(`first-party-apps/${fragment.app} consumes ${name}, which first-party-apps/${other} already serves`)
+      servedBy.set(name, fragment.app)
+    }
+  }
+  for (const fragment of fragments) {
+    for (const op of fragment.operations) {
+      const consumed = servedBy.get(op.name) === fragment.app
+      if (ops[op.name] && !consumed) throw new Error(`${op.owner} declares ${op.name}, which ${ops[op.name]!.owner ?? `the ${ops[op.name]!.source} catalog`} already owns`)
+      if (consumed && scopeFor(op.name, op) === null) throw new Error(`${op.owner} serves ${op.name}, which apps may never reach`)
+      ops[op.name] = { class: op.class, risk: op.risk, docs: op.docs, source: "app", owner: op.owner, input: op.input, output: op.output }
+    }
+  }
+  return ops
+}
+
 export function loadCatalog(): { ops: Record<string, Op>; types: Record<string, TypeIR>; generics: Record<string, { parameters: string[]; body: TypeIR }>; actions: string[] } {
   const local = readJSON("cmux-tui/spec/resource-operations-v2.json")
   const cloud = readJSON("backend/catalog/cloud-operations.json")
   const actions = readJSON("plans/cmux-next/action-surfaces.json").actions as Array<{ id: string; cli: string }>
-  const ops: Record<string, Op> = {}
-  for (const [name, op] of Object.entries(local.operations as Record<string, Op>)) ops[name] = { ...op, source: "local" }
-  const cloudOps = (cloud.operations ?? {}) as Record<string, Op>
-  for (const [name, op] of Object.entries(cloudOps)) if (!ops[name]) ops[name] = { ...op, source: "cloud" }
-  for (const op of loadAppCatalogs(join(repo, "first-party-apps"))) {
-    if (ops[op.name]) throw new Error(`${op.owner} declares ${op.name}, which ${ops[op.name]!.owner ?? `the ${ops[op.name]!.source} catalog`} already owns`)
-    ops[op.name] = { class: op.class, risk: op.risk, docs: op.docs, source: "app", owner: op.owner, input: op.input, output: op.output }
-  }
+  const ops = buildOps(local.operations ?? {}, cloud.operations ?? {}, loadAppFragments(join(repo, "first-party-apps")))
   return { ops, types: { ...cloud.types, ...local.types }, generics: { ...(cloud.generics ?? {}), ...(local.generics ?? {}) }, actions: actions.filter((a) => a.cli === "offered").map((a) => a.id).sort() }
 }
 
@@ -97,6 +136,11 @@ function objectType(fields: Record<string, Field> | undefined, depth: number): s
   const entries = Object.entries(fields ?? {})
   if (!entries.length) return "Record<string, never>"
   return `{ ${entries.map(([k, f]) => `${ident(k)}${f.required ? "" : "?"}: ${tsType(f.type, depth + 1)}`).join("; ")} }`
+}
+
+/** The TypeScript params type of `op` (exported for tests). */
+export function paramsTypeOf(op: Op): string {
+  return paramsType(op)
 }
 
 function paramsType(op: Op): string {

@@ -18,13 +18,27 @@ export interface AppCatalogOp {
   output?: Record<string, unknown>
 }
 
+/** One first-party app's catalog fragment. */
+export interface AppFragment {
+  /** The first-party-apps directory name. */
+  app: string
+  /** Backend ops this app's server serves (D-ROUTE); typed and scoped from this fragment. */
+  consumes: string[]
+  operations: AppCatalogOp[]
+}
+
 const here = new URL(".", import.meta.url).pathname
 const catalogSchema = JSON.parse(readFileSync(join(here, "../schema/v2/cmux-app-catalog.schema.json"), "utf8"))
 
 /** Every first-party app's catalog ops, sorted by app; throws on an invalid fragment. */
 export function loadAppCatalogs(firstPartyDir: string): AppCatalogOp[] {
+  return loadAppFragments(firstPartyDir).flatMap((fragment) => fragment.operations)
+}
+
+/** Every first-party app's catalog fragment, sorted by app; throws on an invalid fragment. */
+export function loadAppFragments(firstPartyDir: string): AppFragment[] {
   const validator = new SchemaValidator(catalogSchema)
-  const out: AppCatalogOp[] = []
+  const out: AppFragment[] = []
   for (const name of readdirSync(firstPartyDir).sort()) {
     const manifestPath = join(firstPartyDir, name, "cmux-app.v2.json")
     if (!existsSync(manifestPath)) continue
@@ -33,7 +47,7 @@ export function loadAppCatalogs(firstPartyDir: string): AppCatalogOp[] {
     const fragment = JSON.parse(readFileSync(join(firstPartyDir, name, manifest.catalog), "utf8"))
     const errors = validator.validate(fragment)
     if (errors.length) throw new Error(`first-party-apps/${name}/${manifest.catalog}: ${errors.map((e) => `${e.path} ${e.message}`).join("; ")}`)
-    out.push(...(fragment.operations as AppCatalogOp[]))
+    out.push({ app: name, consumes: (fragment.consumes ?? []) as string[], operations: fragment.operations as AppCatalogOp[] })
   }
   return out
 }
