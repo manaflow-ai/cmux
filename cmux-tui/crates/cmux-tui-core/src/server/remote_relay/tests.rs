@@ -955,3 +955,32 @@ fn the_offline_limits_on_a_poisoned_lock_close_every_remote_stream() {
     assert_eq!(fixture.mux.enforce_remote_limits(), Err(POISONED_REVOCATION));
     assert!(!fixture.mux.control_clients.is_remote(one));
 }
+
+/// 24 h offline (RefuseNew): an open stream still gets its frames served.
+#[test]
+fn an_open_stream_keeps_its_frames_at_the_24_hour_limit() {
+    let fixture = fixture();
+    let clock = Arc::new(TestClock(Mutex::new(Instant::now())));
+    fixture.mux.set_remote_revocation_clock(clock.clone()).unwrap();
+    let client = remote(&fixture, "inst_1", OWNER);
+    clock.advance(Duration::from_secs(25 * 3600));
+    let list = json!({"id":1,"cmd":"conversation-list"});
+    assert_eq!(send(&fixture.mux, client, list)["ok"], json!(true));
+}
+
+/// A revoke with only the pairing lock poisoned still closes the install's
+/// streams (and only those), keeps the record, and returns the error.
+#[test]
+fn a_revoke_with_a_poisoned_pairing_lock_still_closes_the_install() {
+    let fixture = fixture();
+    let one = remote(&fixture, "inst_1", OWNER);
+    let other = remote(&fixture, "inst_2", OWNER);
+    poison(&fixture.mux.remote_relay().pairing);
+    assert_eq!(
+        fixture.mux.revoke_remote_install("inst_1"),
+        Err(RelayStateError::Poisoned(RelayLock::Pairing))
+    );
+    assert!(!fixture.mux.control_clients.is_remote(one));
+    assert!(fixture.mux.control_clients.is_remote(other));
+    assert!(fixture.records.deleted.lock().unwrap().is_empty());
+}
